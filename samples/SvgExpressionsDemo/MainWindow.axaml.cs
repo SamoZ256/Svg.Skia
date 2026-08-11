@@ -1,63 +1,60 @@
 using System;
-using System.Diagnostics;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Skia;
+using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using SkiaSharp;
-using SvgExpressionsDemo.Generated;
+using Svg.CodeGen.Skia;
+using Svg.CodeGen.Skia.Expressions;
 
 namespace SvgExpressionsDemo;
 
 public partial class MainWindow : Window
 {
-    // The generated Record() reports the size it recorded at; the logo is authored at 256x256.
     private const float LogoSize = 256f;
 
-    // Seconds for one full pass of t from 0 to 1. The colours swing 70 degrees of hue over that,
-    // so a short cycle reads as a strobe rather than an animation.
-    private const double CycleSeconds = 8d;
+    // Long enough that typing does not trigger a compile per keystroke.
+    private static readonly TimeSpan RecompileDelay = TimeSpan.FromMilliseconds(400);
 
-    private readonly DispatcherTimer _timer;
-    private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private TimeSpan _lastTick;
-
-    // Set while the timer writes the slider, so the slider's own handler can tell an animation
-    // step from a real user drag and not fight it.
-    private bool _syncing;
-
-    // Snapshot of everything the drawing needs, written on the UI thread and read on the render
-    // thread. ICustomDrawOperation.Render runs on the render thread, so reading Slider.Value or
-    // Bounds from inside the draw callback is a cross-thread access on UI objects.
-    private volatile Snapshot _snapshot = new(0f, 0.52f, 1f, false, 0f, 0f);
-
-    private sealed record Snapshot(float T, float Hue, float Pulse, bool Bold, float Width, float Height);
+    private readonly LiveCompiler _compiler = new();
 
     private readonly SKCanvasControl _canvas;
-    private readonly Slider _timeSlider;
-    private readonly Slider _hueSlider;
-    private readonly Slider _pulseSlider;
-    private readonly ToggleButton _animateToggle;
-    private readonly CheckBox _boldCheck;
-    private readonly TextBlock _timeText;
-    private readonly TextBlock _hueText;
-    private readonly TextBlock _pulseText;
+    private readonly TextBox _svgEditor;
+    private readonly TextBox _generatedView;
+    private readonly StackPanel _parameterPanel;
+    private readonly TextBlock _statusText;
+    private readonly Border _errorPanel;
+    private readonly SelectableTextBlock _errorText;
+
+    private readonly List<ParameterBinding> _bindings = new();
+    private CancellationTokenSource? _pending;
+
+    // Written on the UI thread, read on the render thread.
+    private volatile Snapshot _snapshot = new(null, Array.Empty<object?>(), 0f, 0f);
+
+    private sealed record Snapshot(LiveCompileResult? Result, object?[] Arguments, float Width, float Height);
+
+    private sealed record ParameterBinding(SvgCodeParameter Parameter, Func<object?> Read);
 
     public MainWindow()
     {
         AvaloniaXamlLoader.Load(this);
 
         _canvas = this.FindControl<SKCanvasControl>("Canvas")!;
-        _timeSlider = this.FindControl<Slider>("TimeSlider")!;
-        _hueSlider = this.FindControl<Slider>("HueSlider")!;
-        _pulseSlider = this.FindControl<Slider>("PulseSlider")!;
-        _animateToggle = this.FindControl<ToggleButton>("AnimateToggle")!;
-        _boldCheck = this.FindControl<CheckBox>("BoldCheck")!;
-        _timeText = this.FindControl<TextBlock>("TimeText")!;
-        _hueText = this.FindControl<TextBlock>("HueText")!;
-        _pulseText = this.FindControl<TextBlock>("PulseText")!;
+        _svgEditor = this.FindControl<TextBox>("SvgEditor")!;
+        _generatedView = this.FindControl<TextBox>("GeneratedView")!;
+        _parameterPanel = this.FindControl<StackPanel>("ParameterPanel")!;
+        _statusText = this.FindControl<TextBlock>("StatusText")!;
+        _errorPanel = this.FindControl<Border>("ErrorPanel")!;
+        _errorText = this.FindControl<SelectableTextBlock>("ErrorText")!;
 
         _canvas.Draw += OnDraw;
         _canvas.PropertyChanged += (_, e) =>
@@ -68,85 +65,199 @@ public partial class MainWindow : Window
             }
         };
 
-        _timeSlider.PropertyChanged += OnSliderChanged;
-        _hueSlider.PropertyChanged += OnSliderChanged;
-        _pulseSlider.PropertyChanged += OnSliderChanged;
-        _boldCheck.IsCheckedChanged += (_, _) => Publish();
+        _svgEditor.TextChanged += (_, _) => ScheduleCompile();
 
-        // Background sits below Input on the dispatcher. At Render priority a 16ms timer that
-        // also invalidates every tick starves the input queue and the controls stop responding.
-        _timer = new DispatcherTimer(DispatcherPriority.Background)
+        _svgEditor.Text = LoadStartingDocument();
+        CompileNow();
+    }
+
+    private static string LoadStartingDocument()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Svg", "logo.svg");
+
+        return File.Exists(path)
+            ? File.ReadAllText(path)
+            : """
+              <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0"
+                   width="256" height="256">
+                <defs>
+                  <e:code>
+                    <e:param name="t" type="number" default="0" />
+                  </e:code>
+                </defs>
+                <circle cx="128" cy="128" r="96" fill="{{ hsl(t * 360, 74%, 55%) }}" />
+              </svg>
+              """;
+    }
+
+    // ---- compiling ---------------------------------------------------------------------------
+
+    private void ScheduleCompile()
+    {
+        _pending?.Cancel();
+        _pending = new CancellationTokenSource();
+        var token = _pending.Token;
+
+        _statusText.Text = "editing…";
+
+        DispatcherTimer.RunOnce(
+            () =>
+            {
+                if (!token.IsCancellationRequested)
+                {
+                    CompileNow();
+                }
+            },
+            RecompileDelay,
+            DispatcherPriority.Background);
+    }
+
+    private void CompileNow()
+    {
+        var source = _svgEditor.Text ?? string.Empty;
+        _statusText.Text = "compiling…";
+
+        // Roslyn is slow enough to be felt on the UI thread.
+        Task.Run(() => _compiler.Compile(source))
+            .ContinueWith(
+                task => Dispatcher.UIThread.Post(() => Apply(task.IsFaulted
+                    ? LiveCompileResult.Failed(new[] { task.Exception?.GetBaseException().Message ?? "Unknown failure." })
+                    : task.Result)),
+                TaskScheduler.Default);
+    }
+
+    private void Apply(LiveCompileResult result)
+    {
+        if (result.GeneratedCode is { } code)
         {
-            Interval = TimeSpan.FromMilliseconds(33)
-        };
-        _timer.Tick += OnTick;
-        _timer.Start();
+            _generatedView.Text = code;
+        }
 
-        UpdateReadouts();
+        _errorPanel.IsVisible = result.Errors.Count > 0;
+        _errorText.Text = string.Join("\n\n", result.Errors);
+
+        if (!result.Success)
+        {
+            // Keep drawing whatever last compiled, so a half-typed edit does not blank the view.
+            _statusText.Text = "error — showing last good version";
+            return;
+        }
+
+        RebuildParameterControls(result.Parameters);
+
+        _statusText.Text = result.Parameters.Count == 0
+            ? "compiled — no parameters"
+            : $"compiled — {result.Parameters.Count} parameter(s)";
+
+        _snapshot = _snapshot with { Result = result };
         Publish();
     }
 
-    private void OnTick(object? sender, EventArgs e)
-    {
-        var now = _clock.Elapsed;
-        var elapsed = now - _lastTick;
-        _lastTick = now;
+    // ---- parameter controls ------------------------------------------------------------------
 
-        if (_animateToggle.IsChecked != true)
+    private void RebuildParameterControls(IReadOnlyList<SvgCodeParameter> parameters)
+    {
+        // Rebuilt wholesale: the document decides which parameters exist, and it can change with
+        // any keystroke. Values are re-read from the new controls, so they reset on a change.
+        if (_bindings.Count == parameters.Count &&
+            _bindings.Select(b => b.Parameter.Name).SequenceEqual(parameters.Select(p => p.Name)) &&
+            _bindings.Select(b => b.Parameter.Type).SequenceEqual(parameters.Select(p => p.Type)))
         {
             return;
         }
 
-        // Advance by wall clock rather than per tick, so the speed does not depend on how often
-        // the timer actually fires.
-        var next = _timeSlider.Value + elapsed.TotalSeconds / CycleSeconds;
-        while (next > 1d)
-        {
-            next -= 1d;
-        }
+        _bindings.Clear();
+        _parameterPanel.Children.Clear();
 
-        _syncing = true;
-        try
+        foreach (var parameter in parameters)
         {
-            _timeSlider.Value = next;
-        }
-        finally
-        {
-            _syncing = false;
-        }
+            var row = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("110,*,70")
+            };
 
-        UpdateReadouts();
-        Publish();
+            row.Children.Add(new TextBlock
+            {
+                Text = parameter.Name,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontFamily = "monospace"
+            });
+
+            switch (parameter.Type)
+            {
+                case ExprType.Number:
+                    {
+                        // Numbers are exposed as 0..1; scale inside the expression when a wider
+                        // range is wanted, as the sample does with hsl(hue * 360, ...).
+                        var slider = new Slider { Minimum = 0, Maximum = 1, Value = 0 };
+                        var readout = new TextBlock
+                        {
+                            VerticalAlignment = VerticalAlignment.Center,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            FontFamily = "monospace",
+                            Text = "0.000"
+                        };
+
+                        slider.PropertyChanged += (_, e) =>
+                        {
+                            if (e.Property == RangeBase.ValueProperty)
+                            {
+                                readout.Text = slider.Value.ToString("0.000");
+                                Publish();
+                            }
+                        };
+
+                        Grid.SetColumn(slider, 1);
+                        Grid.SetColumn(readout, 2);
+                        row.Children.Add(slider);
+                        row.Children.Add(readout);
+
+                        _bindings.Add(new ParameterBinding(parameter, () => (float)slider.Value));
+                        break;
+                    }
+
+                case ExprType.Boolean:
+                    {
+                        var check = new CheckBox { IsChecked = false };
+                        check.IsCheckedChanged += (_, _) => Publish();
+
+                        Grid.SetColumn(check, 1);
+                        row.Children.Add(check);
+
+                        _bindings.Add(new ParameterBinding(parameter, () => check.IsChecked == true));
+                        break;
+                    }
+
+                default:
+                    {
+                        var box = new TextBox { Text = "#3fb5b5", FontFamily = "monospace" };
+                        box.TextChanged += (_, _) => Publish();
+
+                        Grid.SetColumn(box, 1);
+                        row.Children.Add(box);
+
+                        _bindings.Add(new ParameterBinding(parameter, () => ParseColor(box.Text)));
+                        break;
+                    }
+            }
+
+            _parameterPanel.Children.Add(row);
+        }
     }
 
-    private void OnSliderChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
-    {
-        if (e.Property != RangeBase.ValueProperty || _syncing)
-        {
-            return;
-        }
+    private static SKColor ParseColor(string? text)
+        => SKColor.TryParse(text, out var color) ? color : SKColors.Magenta;
 
-        UpdateReadouts();
-        Publish();
-    }
+    // ---- rendering ----------------------------------------------------------------------------
 
-    private void UpdateReadouts()
-    {
-        _timeText.Text = _timeSlider.Value.ToString("0.000");
-        _hueText.Text = _hueSlider.Value.ToString("0.000");
-        _pulseText.Text = _pulseSlider.Value.ToString("0.000");
-    }
-
-    /// <summary>Takes a snapshot on the UI thread and asks for a repaint.</summary>
     private void Publish()
     {
-        _snapshot = new Snapshot(
-            (float)_timeSlider.Value,
-            (float)_hueSlider.Value,
-            (float)_pulseSlider.Value,
-            _boldCheck.IsChecked == true,
-            (float)_canvas.Bounds.Width,
-            (float)_canvas.Bounds.Height);
+        _snapshot = _snapshot with
+        {
+            Arguments = _bindings.Select(b => b.Read()).ToArray(),
+            Width = (float)_canvas.Bounds.Width,
+            Height = (float)_canvas.Bounds.Height
+        };
 
         _canvas.InvalidateVisual();
     }
@@ -159,21 +270,39 @@ public partial class MainWindow : Window
 
         canvas.Clear(new SKColor(0x1A, 0x1A, 0x1E));
 
-        if (state.Width <= 0f || state.Height <= 0f)
+        if (state.Result is not { Success: true } result || state.Width <= 0f || state.Height <= 0f)
         {
             return;
         }
 
-        // This is the whole point of the demo: the picture is rebuilt from the current arguments
-        // rather than being a fixed, pre-baked drawing.
-        using var picture = Logo.Record(state.T, state.Hue, state.Pulse, state.Bold);
+        SKPicture? picture;
+        try
+        {
+            picture = result.Invoke(state.Arguments);
+        }
+        catch
+        {
+            // Generated code is compiled from arbitrary input; a bad edit must not kill rendering.
+            return;
+        }
 
-        var scale = Math.Min(state.Width, state.Height) / LogoSize;
+        if (picture is null)
+        {
+            return;
+        }
 
-        canvas.Save();
-        canvas.Translate((state.Width - LogoSize * scale) / 2f, (state.Height - LogoSize * scale) / 2f);
-        canvas.Scale(scale);
-        canvas.DrawPicture(picture);
-        canvas.Restore();
+        using (picture)
+        {
+            var bounds = picture.CullRect;
+            var width = bounds.Width > 0 ? bounds.Width : LogoSize;
+            var height = bounds.Height > 0 ? bounds.Height : LogoSize;
+            var scale = Math.Min(state.Width / width, state.Height / height);
+
+            canvas.Save();
+            canvas.Translate((state.Width - width * scale) / 2f, (state.Height - height * scale) / 2f);
+            canvas.Scale(scale);
+            canvas.DrawPicture(picture);
+            canvas.Restore();
+        }
     }
 }

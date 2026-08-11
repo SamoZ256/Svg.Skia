@@ -12,7 +12,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Compiled at build time for the headless render mode, and copied to the output so the
+         live editor can load it as its starting document. -->
     <AdditionalFiles Include="Svg/logo.svg" NamespaceName="SvgExpressionsDemo.Generated" ClassName="Logo" />
+    <Content Include="Svg/logo.svg" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The editor runs the generator pipeline at runtime and compiles its output. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="none" />
   </ItemGroup>
 
   <Import Project="..\..\build\Avalonia.props" />
@@ -24,6 +32,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Skia.Controls.Avalonia\Skia.Controls.Avalonia.csproj" />
+    <ProjectReference Include="..\..\src\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" />
+    <ProjectReference Include="..\..\src\Svg.Skia\Svg.Skia.csproj" />
     <ProjectReference Include="..\..\src\Svg.SourceGenerator.Skia\Svg.SourceGenerator.Skia.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="False" />
   </ItemGroup>
 

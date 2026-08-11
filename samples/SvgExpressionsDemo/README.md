@@ -1,7 +1,8 @@
 # SVG with expressions — demo
 
-An SVG whose colours are expressions, compiled to C# at build time and rendered live with
-SkiaSharp. Moving the sliders re-evaluates the expressions and rebuilds the picture.
+A live editor for the expression extension. Type SVG on the left, watch the generated C# and the
+rendered drawing update on the right, and drive the declared parameters from controls that are
+rebuilt as the document changes.
 
 ## Running it
 
@@ -9,13 +10,42 @@ SkiaSharp. Moving the sliders re-evaluates the expressions and rebuilds the pict
 dotnet run --project samples/SvgExpressionsDemo/SvgExpressionsDemo.csproj -c Release
 ```
 
-On a machine with no display, render frames to PNG instead:
+Two headless modes, for machines with no display:
 
 ```sh
-dotnet run --project samples/SvgExpressionsDemo/SvgExpressionsDemo.csproj -c Release -- --render frames
+# render the built-in logo at several values of t
+dotnet run --project ... -c Release -- --render frames
+
+# run the full live pipeline over one file: parse, generate, compile, invoke, save a PNG
+dotnet run --project ... -c Release -- --live path/to/file.svg out.png
 ```
 
-## How it works
+## How the editor works
+
+It runs the **real** pipeline at runtime rather than interpreting anything:
+
+```
+SVG text ─► SvgService.FromSvg ─► SvgSceneRuntime.CreateModel ─► SkiaCSharpCodeGen.Generate
+                                                                          │
+                                            reflection ◄── Roslyn compile ─┘
+```
+
+The generated C# is compiled with `Microsoft.CodeAnalysis.CSharp` into a collectible
+`AssemblyLoadContext`, and its `Record(...)` is invoked with the current parameter values. This
+means the editor demonstrates exactly what the source generator produces — there is no second
+implementation of the language that could disagree with it.
+
+Consequences worth knowing:
+
+- Edits are debounced ~400 ms and compiled off the UI thread; expect a beat before the drawing
+  catches up.
+- A failed edit keeps the last good assembly loaded, so the view does not blank while you type.
+- Errors are shown as-is, whether they come from the XML parser, the expression type checker or
+  the C# compiler.
+- Numeric parameters are exposed on a **0..1** slider. Scale inside the expression when a wider
+  range is wanted — `hsl(hue * 360, ...)`, as the sample logo does.
+
+## How the extension works
 
 Expressions go inline, in double braces, directly in the attribute they drive:
 
@@ -106,8 +136,8 @@ error: 'hsl' takes 3 argument(s), but 2 were given.
 ## What is and isn't parameterised
 
 `fill`, `stroke`, `stop-color`, `opacity` and `visibility`. Geometry (`x`, `y`, `cx`,
-`width`, ...), `transform`, `display` and stroke widths are baked at generation time — which is
-why the demo animates colour, fades and appearance rather than moving anything.
+`width`, ...), `transform`, `display` and stroke widths are baked at generation time — so the
+sample logo changes colour, fades and appears, but never moves.
 
 `visibility` is the odd one out: it is a **boolean**, and instead of substituting a value it
 wraps the element's draw calls in an `if`:
@@ -130,9 +160,9 @@ Braces in an unsupported attribute are currently ignored rather than reported, s
 ## The cost of a parameter
 
 `Record()` builds a **new `SKPicture` on every call**, because the picture depends on the
-arguments. The demo does this once per frame at ~30fps, which is fine for a logo but is not
-free — for a large drawing, prefer recording once and varying paints, or cache by argument
-value.
+arguments. The editor calls it on every repaint, so dragging a slider records a picture per
+frame. That is fine for a logo but is not free — for a large drawing, prefer recording once and
+varying paints, or cache by argument value.
 
 The draw callback runs on Avalonia's **render thread**, so it reads a snapshot taken on the UI
 thread rather than touching `Slider.Value` or `Bounds` directly. Reading UI objects from there
