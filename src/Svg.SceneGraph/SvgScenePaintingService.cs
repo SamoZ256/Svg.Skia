@@ -145,18 +145,31 @@ internal static class SvgScenePaintingService
         return Math.Min(Math.Max(opacity, 0f), 1f);
     }
 
-    internal static SKPaint? GetOpacityPaint(float opacity)
+    internal static SKPaint? GetOpacityPaint(float opacity, SymNode? expression = null)
     {
         var adjustedOpacity = AdjustSvgOpacity(opacity);
-        if (adjustedOpacity >= 1f)
+
+        // A fully opaque group needs no layer at all, but an expression has to have somewhere to
+        // live, so the paint is still created when one is present.
+        if (adjustedOpacity >= 1f && expression is null)
         {
             return null;
+        }
+
+        var color = new SKColor(255, 255, 255, (byte)Math.Round(adjustedOpacity * 255f));
+
+        if (expression is { })
+        {
+            // The layer paint is opaque white scaled by the authored opacity, which is exactly
+            // what ScaleAlpha means. The white is written in the expression language so no new
+            // node type is needed for a colour literal.
+            color = color.WithExpression(SymNode.ScaleAlpha(SymNode.Source("#ffffff"), expression));
         }
 
         return new SKPaint
         {
             IsAntialias = true,
-            Color = new SKColor(255, 255, 255, (byte)Math.Round(adjustedOpacity * 255f)),
+            Color = color,
             Style = SKPaintStyle.StrokeAndFill
         };
     }
@@ -240,7 +253,8 @@ internal static class SvgScenePaintingService
         var colorInterpolation = GetColorInterpolation(svgVisualElement);
         var isLinearRgb = colorInterpolation == SvgColourInterpolation.LinearRGB;
         var opacity = AdjustSvgOpacity(svgVisualElement.FillOpacity);
-        var skColor = GetColor(svgColourServer, opacity, ignoreAttributes);
+        var expression = SvgSceneExpressions.TryGet(svgVisualElement, SvgSceneExpressions.Fill);
+        var skColor = GetColor(svgColourServer, opacity, ignoreAttributes, expression);
         if (isLinearRgb)
         {
             skColor = ToLinear(skColor);
@@ -399,7 +413,7 @@ internal static class SvgScenePaintingService
                     contextPaintDepth);
 
             case SvgColourServer svgColourServer:
-                return TryApplyColor(svgVisualElement, svgColourServer, opacity, skPaint, ignoreAttributes);
+                return TryApplyColor(svgVisualElement, svgColourServer, opacity, skPaint, ignoreAttributes, forStroke);
 
             case SvgPatternServer svgPatternServer:
                 {
@@ -586,9 +600,11 @@ internal static class SvgScenePaintingService
         SvgColourServer svgColourServer,
         float opacity,
         SKPaint skPaint,
-        DrawAttributes ignoreAttributes)
+        DrawAttributes ignoreAttributes,
+        bool forStroke)
     {
-        var skColor = GetColor(svgColourServer, opacity, ignoreAttributes);
+        var expression = SvgSceneExpressions.TryGetPaint(svgVisualElement, forStroke);
+        var skColor = GetColor(svgColourServer, opacity, ignoreAttributes, expression);
         var colorInterpolation = GetColorInterpolation(svgVisualElement);
         var isLinearRgb = colorInterpolation == SvgColourInterpolation.LinearRGB;
 
@@ -688,14 +704,27 @@ internal static class SvgScenePaintingService
             contextPaintDepth + 1);
     }
 
-    private static SKColor GetColor(SvgColourServer svgColourServer, float opacity, DrawAttributes ignoreAttributes)
+    private static SKColor GetColor(SvgColourServer svgColourServer, float opacity, DrawAttributes ignoreAttributes, SymNode? expression = null)
     {
         var colour = svgColourServer.Colour;
-        var alpha = ignoreAttributes.Has(DrawAttributes.Opacity)
+        var ignoreOpacity = ignoreAttributes.Has(DrawAttributes.Opacity);
+        var alpha = ignoreOpacity
             ? svgColourServer.Colour.A
             : CombineWithOpacity(svgColourServer.Colour.A, opacity);
 
-        return new SKColor(colour.R, colour.G, colour.B, alpha);
+        if (expression is null)
+        {
+            return new SKColor(colour.R, colour.G, colour.B, alpha);
+        }
+
+        // The expression yields a whole color, so the opacity fold applies to whatever alpha it
+        // produces. The literal channels stay as the design-time value the author wrote.
+        if (!ignoreOpacity)
+        {
+            expression = SymNode.ScaleAlpha(expression, SymNode.Literal(opacity));
+        }
+
+        return new SKColor(colour.R, colour.G, colour.B, alpha, expression);
     }
 
     private static byte CombineWithOpacity(byte alpha, float opacity)
@@ -708,7 +737,8 @@ internal static class SvgScenePaintingService
         var r = (byte)Math.Round(FilterEffectsService.SRGBToLinear(color.Red / 255f) * 255f);
         var g = (byte)Math.Round(FilterEffectsService.SRGBToLinear(color.Green / 255f) * 255f);
         var b = (byte)Math.Round(FilterEffectsService.SRGBToLinear(color.Blue / 255f) * 255f);
-        return new SKColor(r, g, b, color.Alpha);
+        var expression = color.Expression is null ? null : SymNode.ToLinearRgb(color.Expression);
+        return new SKColor(r, g, b, color.Alpha, expression);
     }
 
     private static SvgColourInterpolation GetColorInterpolation(SvgElement svgElement)
@@ -990,7 +1020,8 @@ internal static class SvgScenePaintingService
         bool isLinearRgb)
     {
         var stopOpacity = AdjustSvgOpacity(svgGradientStop.StopOpacity);
-        var stopColor = GetColor(stopColorSvgColourServer, opacity * stopOpacity, ignoreAttributes);
+        var expression = SvgSceneExpressions.TryGet(svgGradientStop, SvgSceneExpressions.StopColor);
+        var stopColor = GetColor(stopColorSvgColourServer, opacity * stopOpacity, ignoreAttributes, expression);
         return isLinearRgb ? ToLinear(stopColor) : stopColor;
     }
 

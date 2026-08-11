@@ -1,16 +1,48 @@
-﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
+// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using ShimSkiaSharp;
+using Svg.CodeGen.Skia.Expressions;
 
 namespace Svg.CodeGen.Skia;
 
 public static class SkiaCSharpCodeGen
 {
     public static string Generate(SKPicture picture, string namespaceName, string className)
+        => Generate(picture, namespaceName, className, SvgCodeDeclarations.Empty);
+
+    public static string Generate(SKPicture picture, string namespaceName, string className, SvgCodeDeclarations? declarations)
     {
+        declarations ??= SvgCodeDeclarations.Empty;
+
+        var (compiler, lets) = declarations.Resolve();
+
         var counter = new SkiaCSharpCodeGenCounter();
+        var indent = "            ";
+
+        // Record the body first: which helper methods the class needs is decided by what the
+        // expression compiler actually produced.
+        var bodyBuilder = new StringBuilder();
+        var counterPicture = ++counter.Picture;
+
+        using (SymCSharpEmitter.UseCompiler(compiler))
+        {
+            picture.ToSKPicture(counter, bodyBuilder, indent);
+        }
+
+        bodyBuilder.AppendLine($"{indent}return {counter.PictureVarName}{counterPicture};");
+        var body = bodyBuilder.ToString();
+
+        var parameters = declarations.Parameters;
+        var isParameterized = parameters.Count > 0;
+        var parameterList = string.Join(
+            ", ",
+            parameters.Select(p => $"{ExprCompiler.CSharpTypeOf(p.Type)} {p.Name} = {declarations.DefaultCodeFor(p)}"));
+        var argumentList = string.Join(", ", parameters.Select(p => p.Name));
 
         var sb = new StringBuilder();
 
@@ -23,33 +55,78 @@ public static class SkiaCSharpCodeGen
         sb.AppendLine($"");
         sb.AppendLine($"    public static class {className}");
         sb.AppendLine($"    {{");
-        sb.AppendLine($"        public static SKPicture Picture {{ get; }}");
-        sb.AppendLine($"");
-        sb.AppendLine($"        static {className}()");
+
+        // A picture built from parameters cannot be cached in a static field, so the
+        // parameterless shape is kept exactly as it was for documents without declarations.
+        if (!isParameterized)
+        {
+            sb.AppendLine($"        public static SKPicture Picture {{ get; }}");
+            sb.AppendLine($"");
+            sb.AppendLine($"        static {className}()");
+            sb.AppendLine($"        {{");
+            sb.AppendLine($"            Picture = Record();");
+            sb.AppendLine($"        }}");
+            sb.AppendLine($"");
+        }
+
+        sb.AppendLine($"        {(isParameterized ? "public" : "private")} static SKPicture Record({parameterList})");
         sb.AppendLine($"        {{");
-        sb.AppendLine($"            Picture = Record();");
+
+        foreach (var (name, type, code) in lets)
+        {
+            sb.AppendLine($"{indent}{ExprCompiler.CSharpTypeOf(type)} {name} = {code};");
+        }
+
+        if (lets.Count > 0)
+        {
+            sb.AppendLine($"");
+        }
+
+        sb.Append(body);
+
         sb.AppendLine($"        }}");
         sb.AppendLine($"");
-        sb.AppendLine($"        private static SKPicture Record()");
-        sb.AppendLine($"        {{");
 
-        var indent = "            ";
+        if (isParameterized)
+        {
+            sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName}, {parameterList})");
+            sb.AppendLine($"        {{");
+            sb.AppendLine($"            {counter.CanvasVarName}.DrawPicture(Record({argumentList}));");
+            sb.AppendLine($"        }}");
+        }
+        else
+        {
+            sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName})");
+            sb.AppendLine($"        {{");
+            sb.AppendLine($"            {counter.CanvasVarName}.DrawPicture(Picture);");
+            sb.AppendLine($"        }}");
+        }
 
-        var counterPicture = ++counter.Picture;
-        picture.ToSKPicture(counter, sb, indent);
+        // Scan everything emitted so far, not just the picture body: helpers are just as likely
+        // to be referenced from a let or a parameter default.
+        foreach (var helper in RequiredHelpers(sb.ToString()))
+        {
+            sb.AppendLine($"");
+            foreach (var line in helper)
+            {
+                sb.AppendLine(line.Length == 0 ? "" : $"        {line}");
+            }
+        }
 
-        sb.AppendLine($"{indent}return {counter.PictureVarName}{counterPicture};");
-
-        sb.AppendLine($"        }}");
-        sb.AppendLine($"");
-        sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName})");
-        sb.AppendLine($"        {{");
-        sb.AppendLine($"            {counter.CanvasVarName}.DrawPicture(Picture);");
-        sb.AppendLine($"        }}");
         sb.AppendLine($"    }}");
         sb.AppendLine($"}}");
 
-        var code = sb.ToString();
-        return code;
+        return sb.ToString();
+    }
+
+    private static IEnumerable<string[]> RequiredHelpers(string body)
+    {
+        foreach (var helper in ExprHelpers.All)
+        {
+            if (body.IndexOf(helper.Key + "(", StringComparison.Ordinal) >= 0)
+            {
+                yield return helper.Value;
+            }
+        }
     }
 }

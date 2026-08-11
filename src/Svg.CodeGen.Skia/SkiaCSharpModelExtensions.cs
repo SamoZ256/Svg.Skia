@@ -383,11 +383,22 @@ public static class SkiaCSharpModelExtensions
 
     public static string ToSKColor(this SKColor color)
     {
+        if (color.Expression is { } expression)
+        {
+            return SymCSharpEmitter.Emit(expression);
+        }
+
         return $"new SKColor({color.Red}, {color.Green}, {color.Blue}, {color.Alpha})";
     }
 
     public static string ToSKColor(this SKColorF color)
     {
+        if (color.Expression is { } expression)
+        {
+            // Authored expressions produce an SKColor; gradient stops need SKColorF.
+            return SymCSharpEmitter.EmitAsColorF(expression);
+        }
+
         return $"new SKColorF({color.Red.ToFloatString()}, {color.Green.ToFloatString()}, {color.Blue.ToFloatString()}, {color.Alpha.ToFloatString()})";
     }
 
@@ -412,6 +423,12 @@ public static class SkiaCSharpModelExtensions
 
     public static string ToSKColorF(this SKColorF color)
     {
+        if (color.Expression is { } expression)
+        {
+            // Authored expressions produce an SKColor; gradient stops need SKColorF.
+            return SymCSharpEmitter.EmitAsColorF(expression);
+        }
+
         return $"new SKColorF({color.Red.ToFloatString()}, {color.Green.ToFloatString()}, {color.Blue.ToFloatString()}, {color.Alpha.ToFloatString()})";
     }
 

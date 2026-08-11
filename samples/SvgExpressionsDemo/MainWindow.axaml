@@ -1,0 +1,52 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:skia="clr-namespace:Avalonia.Controls.Skia;assembly=Skia.Controls.Avalonia"
+        x:Class="SvgExpressionsDemo.MainWindow"
+        Title="SVG with C# expressions"
+        Width="720" Height="520"
+        MinWidth="560" MinHeight="420">
+
+  <Grid RowDefinitions="*,Auto">
+
+    <Border Grid.Row="0" Margin="16" CornerRadius="8" ClipToBounds="True">
+      <!-- ClipToBounds matters: the control only clips the raw SKCanvas when it is set, and the
+           draw handler calls Clear(), which would otherwise wipe the whole window surface. -->
+      <skia:SKCanvasControl x:Name="Canvas" ClipToBounds="True" />
+    </Border>
+
+    <Border Grid.Row="1" Padding="16,8,16,16">
+      <StackPanel Spacing="10">
+
+        <Grid ColumnDefinitions="90,*,64">
+          <TextBlock Grid.Column="0" Text="t" VerticalAlignment="Center" />
+          <Slider Grid.Column="1" x:Name="TimeSlider" Minimum="0" Maximum="1" Value="0" />
+          <TextBlock Grid.Column="2" x:Name="TimeText" VerticalAlignment="Center"
+                     HorizontalAlignment="Right" FontFamily="monospace" />
+        </Grid>
+
+        <Grid ColumnDefinitions="90,*,64">
+          <TextBlock Grid.Column="0" Text="hue" VerticalAlignment="Center" />
+          <Slider Grid.Column="1" x:Name="HueSlider" Minimum="0" Maximum="1" Value="0.52" />
+          <TextBlock Grid.Column="2" x:Name="HueText" VerticalAlignment="Center"
+                     HorizontalAlignment="Right" FontFamily="monospace" />
+        </Grid>
+
+        <Grid ColumnDefinitions="90,*,64">
+          <TextBlock Grid.Column="0" Text="pulse" VerticalAlignment="Center" />
+          <Slider Grid.Column="1" x:Name="PulseSlider" Minimum="0" Maximum="1" Value="1" />
+          <TextBlock Grid.Column="2" x:Name="PulseText" VerticalAlignment="Center"
+                     HorizontalAlignment="Right" FontFamily="monospace" />
+        </Grid>
+
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <ToggleButton x:Name="AnimateToggle" Content="Animate" IsChecked="True" />
+          <CheckBox x:Name="BoldCheck" Content="bold" VerticalAlignment="Center" />
+          <TextBlock VerticalAlignment="Center" Opacity="0.65"
+                     Text="Every frame calls the generated Logo.Record(t, hue, pulse, bold)." />
+        </StackPanel>
+
+      </StackPanel>
+    </Border>
+
+  </Grid>
+</Window>

@@ -18,8 +18,20 @@ class Program
         Console.WriteLine(message);
     }
 
+    private static int s_exitCode;
+
     static void Error(Exception ex)
     {
+        s_exitCode = 1;
+
+        // An expression error is a diagnostic about the author's SVG, not a crash, so it is
+        // reported like a compiler message instead of a stack trace.
+        if (ex is Svg.CodeGen.Skia.Expressions.ExprException expression)
+        {
+            Log($"error: {expression.ToDiagnostic()}");
+            return;
+        }
+
         Log($"{ex.Message}");
         Log($"{ex.StackTrace}");
         if (ex.InnerException is { })
@@ -37,7 +49,8 @@ class Program
             var picture = SvgSceneRuntime.CreateModel(svgDocument, AssetLoader);
             if (picture is { } && picture.Commands is { })
             {
-                var text = SkiaCSharpCodeGen.Generate(picture, namespaceName, className);
+                var declarations = SvgCodeDeclarations.Parse(svg);
+                var text = SkiaCSharpCodeGen.Generate(picture, namespaceName, className, declarations);
                 System.IO.File.WriteAllText(outputPath, text);
             }
         }
@@ -122,6 +135,8 @@ class Program
             }
         });
 
-        return await rootCommand.InvokeAsync(args);
+        var result = await rootCommand.InvokeAsync(args);
+
+        return result != 0 ? result : s_exitCode;
     }
 }

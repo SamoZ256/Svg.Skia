@@ -176,6 +176,21 @@ namespace Svg
                             element.SetJavaScriptDomAttributeValue(localName, reader.Value);
                         }
 
+                        // An inline {{ ... }} expression is lifted out before the value reaches
+                        // the style system, which would otherwise reject it as malformed. A
+                        // placeholder is substituted so the element still paints and the
+                        // expression has something to attach to.
+                        if (SvgExpressionAttributes.IsSupported(localName) &&
+                            SvgExpressionAttributes.TryUnwrap(reader.Value, out var inlineExpression))
+                        {
+                            element.CustomAttributes[SvgExpressionAttributes.KeyFor(localName)] = inlineExpression;
+                            element.AddStyle(
+                                localName,
+                                SvgExpressionAttributes.PlaceholderFor(localName),
+                                SvgElement.StyleSpecificity_PresAttribute);
+                            continue;
+                        }
+
                         if (ShouldIgnoreInvalidPresentationStyleAttribute(localName, reader.Value))
                         {
                             continue;

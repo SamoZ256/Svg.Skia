@@ -108,7 +108,8 @@ public class SvgSourceGenerator : IIncrementalGenerator
                 var picture = SvgSceneRuntime.CreateModel(svgDocument, s_assetLoader);
                 if (picture is { } && picture.Commands is { })
                 {
-                    var code = SkiaCSharpCodeGen.Generate(picture, namespaceName!, className!);
+                    var declarations = SvgCodeDeclarations.Parse(svg);
+                    var code = SkiaCSharpCodeGen.Generate(picture, namespaceName!, className!, declarations);
                     var sourceText = SourceText.From(code, Encoding.UTF8);
                     context.AddSource($"{className}.svg.cs", sourceText);
                 }
@@ -121,6 +122,13 @@ public class SvgSourceGenerator : IIncrementalGenerator
             {
                 context.ReportDiagnostic(Diagnostic.Create(s_errorDescriptor, Location.None, "Could not load svg document."));
             }
+        }
+        catch (Svg.CodeGen.Skia.Expressions.ExprException e)
+        {
+            // An expression error is a diagnostic about the author's SVG, not a generator crash,
+            // so it is reported on its own without a stack trace.
+            var where = e.ExpressionText is null ? string.Empty : $" In expression: {e.ExpressionText}";
+            context.ReportDiagnostic(Diagnostic.Create(s_errorDescriptor, Location.None, e.Message + where));
         }
         catch (Exception e)
         {
