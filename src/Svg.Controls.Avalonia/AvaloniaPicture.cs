@@ -206,6 +206,13 @@ public sealed class AvaloniaPicture : IDisposable
                     commands.Add(new PushTransformDrawCommand(matrix));
                     break;
                 }
+            case BeginConditionalCanvasCommand:
+            case EndConditionalCanvasCommand:
+                {
+                    // Conditions are a code generation concept. Rendering executes the range as
+                    // written, which is the document's own placeholder state.
+                    break;
+                }
             case SaveLayerCanvasCommand saveLayerCanvasCommand:
                 {
                     // TODO: SaveLayerCanvasCommand

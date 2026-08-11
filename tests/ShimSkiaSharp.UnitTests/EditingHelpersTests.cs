@@ -449,5 +449,9 @@ public class EditingHelpersTests
         public void Visit(SaveCanvasCommand cmd) => _visited.Add(nameof(SaveCanvasCommand));
         public void Visit(SaveLayerCanvasCommand cmd) => _visited.Add(nameof(SaveLayerCanvasCommand));
         public void Visit(SetMatrixCanvasCommand cmd) => _visited.Add(nameof(SetMatrixCanvasCommand));
+
+        public void Visit(BeginConditionalCanvasCommand cmd) => _visited.Add(nameof(BeginConditionalCanvasCommand));
+
+        public void Visit(EndConditionalCanvasCommand cmd) => _visited.Add(nameof(EndConditionalCanvasCommand));
     }
 }

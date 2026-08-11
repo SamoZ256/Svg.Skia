@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using ShimSkiaSharp;
+using Svg.CodeGen.Skia.Expressions;
 
 namespace Svg.CodeGen.Skia;
 
@@ -1910,6 +1911,26 @@ public static class SkiaCSharpModelExtensions
                 case SetMatrixCanvasCommand setMatrixCanvasCommand:
                     {
                         sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SetMatrix({setMatrixCanvasCommand.TotalMatrix.ToSKMatrix()});");
+                        break;
+                    }
+                case BeginConditionalCanvasCommand beginConditionalCanvasCommand:
+                    {
+                        sb.AppendLine($"{indent}if ({SymCSharpEmitter.Emit(beginConditionalCanvasCommand.Condition, ExprType.Boolean)})");
+                        sb.AppendLine($"{indent}{{");
+
+                        // Reassigning the parameter indents everything emitted until the
+                        // matching end, including the nested ToSKPaint/ToSKPath helpers.
+                        indent += "    ";
+                        break;
+                    }
+                case EndConditionalCanvasCommand _:
+                    {
+                        if (indent.Length >= 4)
+                        {
+                            indent = indent.Substring(4);
+                        }
+
+                        sb.AppendLine($"{indent}}}");
                         break;
                     }
                 case SaveLayerCanvasCommand saveLayerCanvasCommand:

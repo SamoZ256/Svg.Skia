@@ -19,4 +19,6 @@ public interface ICanvasCommandVisitor
     void Visit(SaveCanvasCommand cmd);
     void Visit(SaveLayerCanvasCommand cmd);
     void Visit(SetMatrixCanvasCommand cmd);
+    void Visit(BeginConditionalCanvasCommand cmd);
+    void Visit(EndConditionalCanvasCommand cmd);
 }

@@ -105,9 +105,24 @@ error: 'hsl' takes 3 argument(s), but 2 were given.
 
 ## What is and isn't parameterised
 
-`fill`, `stroke`, `stop-color` and `opacity`. Geometry (`x`, `y`, `cx`, `width`, ...),
-`transform`, `visibility`, `display` and stroke widths are baked at generation time — which is
-why the demo animates colour and fades rather than moving anything.
+`fill`, `stroke`, `stop-color`, `opacity` and `visibility`. Geometry (`x`, `y`, `cx`,
+`width`, ...), `transform`, `display` and stroke widths are baked at generation time — which is
+why the demo animates colour, fades and appearance rather than moving anything.
+
+`visibility` is the odd one out: it is a **boolean**, and instead of substituting a value it
+wraps the element's draw calls in an `if`:
+
+```csharp
+if (showDot)
+{
+    var skPath4 = new SKPath();
+    ...
+}
+```
+
+Its placeholder is `visible` because a hidden element contributes no commands at all, and there
+would be nothing left to make conditional. SVG's third value, `collapse`, means the same as
+`hidden` outside of CSS table layout, so nothing is lost by treating this as two-state.
 
 Braces in an unsupported attribute are currently ignored rather than reported, so
 `stroke-width="{{ w }}"` silently does nothing.

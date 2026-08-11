@@ -41,6 +41,8 @@ public abstract record CanvasCommand : IDeepCloneable<CanvasCommand>
                 SaveCanvasCommand saveCanvasCommand => new SaveCanvasCommand(saveCanvasCommand.Count),
                 SaveLayerCanvasCommand saveLayerCanvasCommand => new SaveLayerCanvasCommand(saveLayerCanvasCommand.Count, saveLayerCanvasCommand.Paint?.DeepClone(context), saveLayerCanvasCommand.Bounds),
                 SetMatrixCanvasCommand setMatrixCanvasCommand => new SetMatrixCanvasCommand(setMatrixCanvasCommand.DeltaMatrix, setMatrixCanvasCommand.TotalMatrix),
+                BeginConditionalCanvasCommand beginConditionalCanvasCommand => new BeginConditionalCanvasCommand(beginConditionalCanvasCommand.Condition),
+                EndConditionalCanvasCommand => new EndConditionalCanvasCommand(),
                 _ => throw new NotSupportedException($"Unsupported {nameof(CanvasCommand)} type: {GetType().Name}.")
             };
 
@@ -114,6 +116,16 @@ public record SaveCanvasCommand(int Count) : CanvasCommand;
 public record SaveLayerCanvasCommand(int Count, SKPaint? Paint = null, SKRect? Bounds = null) : CanvasCommand;
 
 public record SetMatrixCanvasCommand(SKMatrix DeltaMatrix, SKMatrix TotalMatrix) : CanvasCommand;
+
+// Marks a range of commands that should only run when Condition holds. The model has no notion
+// of nesting, so the range is delimited by a matching End rather than by containment.
+//
+// Consumers that do not understand conditionals may ignore both commands and execute the range
+// unconditionally: the range is only emitted when the element is visible in its placeholder
+// state, so ignoring it renders exactly what the document says.
+public record BeginConditionalCanvasCommand(SymNode Condition) : CanvasCommand;
+
+public record EndConditionalCanvasCommand : CanvasCommand;
 
 public class SKCanvas : ICloneable, IDeepCloneable<SKCanvas>
 {
@@ -329,6 +341,51 @@ public class SKCanvas : ICloneable, IDeepCloneable<SKCanvas>
         }
 
         AddCommand(new RestoreCanvasCommand(_saveCount));
+    }
+
+    /// <summary>
+    /// Opens a conditional range. Every call must be matched by <see cref="EndConditional"/>.
+    /// </summary>
+    public void BeginConditional(SymNode condition)
+    {
+        AddCommand(new BeginConditionalCanvasCommand(condition));
+    }
+
+    public void EndConditional()
+    {
+        AddCommand(new EndConditionalCanvasCommand());
+    }
+
+    /// <summary>
+    /// Scoped form of <see cref="BeginConditional"/>, so the range still closes when the caller
+    /// returns early.
+    /// </summary>
+    public IDisposable PushConditional(SymNode condition)
+    {
+        BeginConditional(condition);
+        return new ConditionalScope(this);
+    }
+
+    private sealed class ConditionalScope : IDisposable
+    {
+        private SKCanvas? _canvas;
+
+        public ConditionalScope(SKCanvas canvas)
+        {
+            _canvas = canvas;
+        }
+
+        public void Dispose()
+        {
+            var canvas = _canvas;
+            if (canvas is null)
+            {
+                return;
+            }
+
+            _canvas = null;
+            canvas.EndConditional();
+        }
     }
 
     private void AddCommand(CanvasCommand command)

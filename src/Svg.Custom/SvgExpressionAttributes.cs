@@ -33,9 +33,9 @@ public static class SvgExpressionAttributes
         ["stroke"] = "#808080",
         ["stop-color"] = "#808080",
         ["opacity"] = "1",
-        ["fill-opacity"] = "1",
-        ["stroke-opacity"] = "1",
-        ["stop-opacity"] = "1"
+        // A hidden element contributes no commands at all, so the placeholder has to be the
+        // visible state or there would be nothing left to make conditional.
+        ["visibility"] = "visible"
     };
 
     /// <summary>Attributes an expression can currently drive.</summary>

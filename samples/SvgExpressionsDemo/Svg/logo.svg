@@ -28,6 +28,9 @@
 
       <!-- group opacity: a number, not a colour -->
       <e:let name="markFade">lerp(0.45, 1, wave)</e:let>
+
+      <!-- visibility: a boolean, wrapping the dot's draw calls in an if -->
+      <e:let name="showDot">wave &gt; 0.25</e:let>
     </e:code>
 
     <linearGradient id="badge" gradientUnits="userSpaceOnUse" x1="24" y1="24" x2="232" y2="232">
@@ -58,8 +61,9 @@
           fill="url(#sweep)" />
   </g>
 
-  <!-- pulse dot -->
+  <!-- pulse dot: disappears entirely for the lower part of the cycle -->
   <circle cx="128" cy="212" r="10"
           fill="{{ dot }}"
-          fill-opacity="0.85" />
+          fill-opacity="0.85"
+          visibility="{{ showDot }}" />
 </svg>
