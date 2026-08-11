@@ -75,6 +75,7 @@ public sealed class ExprCompiler
     public static bool IsReservedName(string name)
         => s_constants.ContainsKey(name) ||
            s_functions.ContainsKey(name) ||
+           ExprLexer.IsKeyword(name) ||
            name == "true" ||
            name == "false";
 

@@ -9,7 +9,7 @@ parameters of the generated drawing method.
   <defs>
     <e:code>
       <e:param name="level" type="number" default="0" />
-      <e:let name="alert">level &gt;= 0.8</e:let>
+      <e:let name="alert">level ge 0.8</e:let>
     </e:code>
   </defs>
 
@@ -84,7 +84,8 @@ be honoured. With no `default`, the type's zero value is used (`0`, opaque black
 document order, so a let may reference parameters and earlier lets, but not later ones.
 
 Names must be valid identifiers (letter or `_`, then letters, digits or `_`), must not collide
-with a built-in constant or function name, and must be unique across params and lets.
+with a built-in constant, function or operator word (see [§3.3](#33-operators)), and must be
+unique across params and lets.
 
 ---
 
@@ -141,27 +142,50 @@ There are no implicit conversions between them.
 
 ### 3.3 Operators
 
-Loosest to tightest binding:
+Loosest to tightest binding. Each comparison and logical operator has an equivalent **word
+form**, listed alongside:
 
-| Precedence | Operators | Operands | Result |
-|---|---|---|---|
-| 1 | `c ? a : b` (right-associative) | `c` boolean; `a`, `b` same type | that type |
-| 2 | `\|\|` | boolean | boolean |
-| 3 | `&&` | boolean | boolean |
-| 4 | `==` `!=` | both operands the same type | boolean |
-| 5 | `<` `<=` `>` `>=` | number | boolean |
-| 6 | `+` `-` | number | number |
-| 7 | `*` `/` | number | number |
-| 8 | `-x` (unary) | number | number |
-| 8 | `!x` | boolean | boolean |
+| Precedence | Operators | Word form | Operands | Result |
+|---|---|---|---|---|
+| 1 | `c ? a : b` (right-associative) | | `c` boolean; `a`, `b` same type | that type |
+| 2 | `\|\|` | `or` | boolean | boolean |
+| 3 | `&&` | `and` | boolean | boolean |
+| 4 | `==` `!=` | `eq` `ne` | both operands the same type | boolean |
+| 5 | `<` `<=` `>` `>=` | `lt` `le` `gt` `ge` | number | boolean |
+| 6 | `+` `-` | | number | number |
+| 7 | `*` `/` | | number | number |
+| 8 | `-x` (unary) | | number | number |
+| 8 | `!x` | `not x` | boolean | boolean |
 
 Parentheses group as usual.
 
 Arithmetic on colours is rejected — use `mix(a, b, t)` to blend. Ordering comparisons
 (`<`, `>`, …) are numbers only; `==` and `!=` work on any type provided both sides match.
 
-Since this lives in XML, `<` and `&&` must be escaped as `&lt;` and `&amp;&amp;` inside
-attribute values and element text. `>` may be written literally.
+### Escaping, and the word forms
+
+XML requires `<` and `&` to be escaped, which makes `t < 5` and `a && b` awkward to author.
+`>` does **not** need escaping and can always be written literally.
+
+The word forms exist to avoid the problem entirely, and are exact aliases — same precedence,
+same generated code:
+
+```xml
+<e:let name="inRange">t gt 0.1 and t lt 0.9</e:let>
+<e:let name="escaped">t &gt; 0.1 &amp;&amp; t &lt; 0.9</e:let>   <!-- identical -->
+```
+
+The full set is provided rather than only `lt`/`le`/`and`, so the language does not have a word
+form for `<` but not for `>`. Both spellings may be mixed freely.
+
+A `CDATA` section also works, since element text and CDATA are read the same way:
+
+```xml
+<e:let name="cdata"><![CDATA[t < 0.9 && t > 0.1]]></e:let>
+```
+
+All nine words — `and or not lt le gt ge eq ne` — are reserved and cannot be used as parameter
+or let names.
 
 ### 3.4 Constants
 
@@ -201,13 +225,13 @@ matching CSS rather than being internally uniform.
 
 ```
 conditional    := or ( '?' conditional ':' conditional )?
-or             := and ( '||' and )*
-and            := equality ( '&&' equality )*
-equality       := comparison ( ( '==' | '!=' ) comparison )*
-comparison     := additive ( ( '<' | '<=' | '>' | '>=' ) additive )*
+or             := and ( ( '||' | 'or' ) and )*
+and            := equality ( ( '&&' | 'and' ) equality )*
+equality       := comparison ( ( '==' | '!=' | 'eq' | 'ne' ) comparison )*
+comparison     := additive ( ( '<' | '<=' | '>' | '>=' | 'lt' | 'le' | 'gt' | 'ge' ) additive )*
 additive       := multiplicative ( ( '+' | '-' ) multiplicative )*
 multiplicative := unary ( ( '*' | '/' ) unary )*
-unary          := ( '-' | '!' ) unary | primary
+unary          := ( '-' | '!' | 'not' ) unary | primary
 primary        := number | color | 'true' | 'false'
                 | identifier
                 | identifier '(' ( conditional ( ',' conditional )* )? ')'

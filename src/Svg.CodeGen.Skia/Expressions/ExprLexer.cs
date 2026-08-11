@@ -59,6 +59,27 @@ internal readonly struct ExprToken
 
 internal static class ExprLexer
 {
+    // Word forms of the operators. XML requires escaping '<' and '&', which makes the symbolic
+    // spellings awkward to author inside an SVG; these read the same and need no escaping. The
+    // full set is provided rather than only the two affected ones, so the language does not have
+    // a word form for '<' but not for '>'.
+    private static readonly Dictionary<string, ExprTokenKind> s_keywords = new(StringComparer.Ordinal)
+    {
+        ["and"] = ExprTokenKind.And,
+        ["or"] = ExprTokenKind.Or,
+        ["not"] = ExprTokenKind.Not,
+        ["lt"] = ExprTokenKind.Less,
+        ["le"] = ExprTokenKind.LessOrEqual,
+        ["gt"] = ExprTokenKind.Greater,
+        ["ge"] = ExprTokenKind.GreaterOrEqual,
+        ["eq"] = ExprTokenKind.Equal,
+        ["ne"] = ExprTokenKind.NotEqual
+    };
+
+    public static bool IsKeyword(string name) => s_keywords.ContainsKey(name);
+
+    public static IEnumerable<string> Keywords => s_keywords.Keys;
+
     public static List<ExprToken> Tokenize(string text)
     {
         var tokens = new List<ExprToken>();
@@ -95,7 +116,11 @@ internal static class ExprLexer
                     i++;
                 }
 
-                tokens.Add(new ExprToken(ExprTokenKind.Identifier, start, text.Substring(start, i - start)));
+                var word = text.Substring(start, i - start);
+
+                tokens.Add(s_keywords.TryGetValue(word, out var keyword)
+                    ? new ExprToken(keyword, start, word)
+                    : new ExprToken(ExprTokenKind.Identifier, start, word));
                 continue;
             }
 

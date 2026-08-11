@@ -30,7 +30,7 @@
   <!-- exercises the ToLinearRgb wrap -->
   <rect x="100" y="10" width="80" height="80"
         color-interpolation="linearRGB"
-        fill="{{ level &gt; 0.5 ? #ff8800 : hsla(120, 80%, 45%, 0.9) }}" />
+        fill="{{ level gt 0.5 ? #ff8800 : hsla(120, 80%, 45%, 0.9) }}" />
 
   <!-- exercises a gradient stop expression, a stroke expression and group opacity -->
   <g opacity="{{ lerp(0.4, 1, level) }}">

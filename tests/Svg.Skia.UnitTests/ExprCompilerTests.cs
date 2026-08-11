@@ -91,6 +91,47 @@ public class ExprCompilerTests
         Assert.Equal("((t > 1f) && (t < 5f))", Code("t > 1 && t < 5"));
     }
 
+    [Theory]
+    [InlineData("t lt 1", "t < 1")]
+    [InlineData("t le 1", "t <= 1")]
+    [InlineData("t gt 1", "t > 1")]
+    [InlineData("t ge 1", "t >= 1")]
+    [InlineData("t eq 1", "t == 1")]
+    [InlineData("t ne 1", "t != 1")]
+    [InlineData("bold and bold", "bold && bold")]
+    [InlineData("bold or bold", "bold || bold")]
+    [InlineData("not bold", "!bold")]
+    public void Word_Operators_Are_Aliases_For_The_Symbols(string words, string symbols)
+    {
+        // XML forces '<' and '&' to be escaped, so the word forms exist to keep expressions
+        // readable inside an SVG. They must compile to exactly the same thing.
+        Assert.Equal(Code(symbols), Code(words));
+    }
+
+    [Fact]
+    public void Word_Operators_Mix_With_Symbols_And_Keep_Precedence()
+    {
+        Assert.Equal(Code("t > 1 && t < 5"), Code("t gt 1 and t lt 5"));
+        Assert.Equal(Code("(t + 1) > 2"), Code("t + 1 gt 2"));
+    }
+
+    [Fact]
+    public void A_Keyword_Cannot_Be_Used_As_A_Name()
+    {
+        // 'and' lexes as an operator, so a variable of that name could never be referenced.
+        Assert.True(ExprCompiler.IsReservedName("and"));
+        Assert.True(ExprCompiler.IsReservedName("lt"));
+        Assert.False(ExprCompiler.IsReservedName("android"));
+    }
+
+    [Fact]
+    public void Identifiers_Merely_Starting_With_A_Keyword_Are_Not_Keywords()
+    {
+        var compiler = new ExprCompiler(new Dictionary<string, ExprType> { ["andy"] = ExprType.Number });
+
+        Assert.Equal("andy", compiler.Compile("andy").Code);
+    }
+
     [Fact]
     public void Unary_Operators_Work()
     {

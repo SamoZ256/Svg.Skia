@@ -24,13 +24,13 @@
       <e:let name="glow">hsl(shift + 190, 90%, 68%)</e:let>
 
       <!-- a threshold, to show a conditional picking between whole colours -->
-      <e:let name="dot">wave &gt; 0.66 ? accent : mix(accent, deep, 0.45)</e:let>
+      <e:let name="dot">wave gt 0.66 ? accent : mix(accent, deep, 0.45)</e:let>
 
       <!-- group opacity: a number, not a colour -->
       <e:let name="markFade">lerp(0.45, 1, wave)</e:let>
 
       <!-- visibility: a boolean, wrapping the dot's draw calls in an if -->
-      <e:let name="showDot">wave &gt; 0.25</e:let>
+      <e:let name="showDot">wave gt 0.25</e:let>
     </e:code>
 
     <linearGradient id="badge" gradientUnits="userSpaceOnUse" x1="24" y1="24" x2="232" y2="232">

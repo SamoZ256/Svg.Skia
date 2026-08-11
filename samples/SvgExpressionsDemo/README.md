@@ -81,7 +81,7 @@ This part stays namespaced, because there is no inline form for a block of decla
 
     <e:let name="wave">(sin(t * tau) + 1) / 2</e:let>
     <e:let name="primary">hsl(shift, 74%, bold ? 62% : 55%)</e:let>
-    <e:let name="dot">wave &gt; 0.66 ? accent : mix(accent, deep, 0.45)</e:let>
+    <e:let name="dot">wave gt 0.66 ? accent : mix(accent, deep, 0.45)</e:let>
   </e:code>
 </defs>
 ```
@@ -118,6 +118,7 @@ Three types: `number`, `color`, `boolean`.
 |---|---|
 | literals | `1.5`, `55%`, `#f80`, `#ff8800`, `#ff880080`, `true` |
 | operators | `+ - * /`, `< <= > >= == !=`, `&& \|\| !`, `cond ? a : b` |
+| word forms | `lt le gt ge eq ne`, `and or not` — aliases, so `<` and `&&` need no XML escaping |
 | constants | `pi`, `tau` |
 | maths | `sin cos tan abs sqrt pow floor ceil round min max clamp lerp mod` |
 | colour | `rgb rgba hsl hsla mix withAlpha` |
