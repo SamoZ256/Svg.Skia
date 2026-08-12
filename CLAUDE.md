@@ -5,6 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `AGENTS.md` also applies — it covers commit/PR conventions and the W3C Chrome-override capture
 workflow in detail. This file covers build commands and architecture.
 
+## Do not commit without asking
+
+Leave finished work in the working tree and say it is ready. Ask before running `git commit`, and
+wait for an answer — "the change is complete" is not permission to commit it. The same goes for
+`git push` and anything else that leaves the working tree.
+
 ## Setup
 
 Requires the **.NET 10 SDK** (`global.json` pins `10.0.100`, `rollForward: latestMinor`). The
