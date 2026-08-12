@@ -379,3 +379,121 @@ bounding boxes and runs into the same problem as geometry.
 Because the concrete value travels with the expression, equality and hashing of `SKColor`
 include it — otherwise the paint caches would collapse two elements that share a placeholder but
 carry different expressions.
+
+---
+
+## 9. Converting an existing drawing
+
+Authoring by hand is fine for a drawing built for the purpose. For a set of finished SVGs coming
+out of a design tool, `samples/svgrecipe` converts them mechanically: a **recipe** file lists the
+declarations and says which colours become which expressions, and the tool rewrites the drawing.
+
+```sh
+svgrecipe -i badge.svg -r badge.recipe -o badge.expr.svg
+```
+
+The output is an ordinary document in the format above, so it feeds `svgc` or the source
+generator unchanged. The conversion lives in `src/Svg.Expressions.Recipes`; the CLI is a wrapper
+around `SvgRecipe.Parse` and `SvgRecipeRewriter.Apply`.
+
+### 9.1 The recipe file
+
+The recipe is written in the extension's own namespace, so the `<code>` block is exactly the
+block that ends up in the output — copied, not re-serialised.
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<recipe xmlns="https://svg.skia/expr/1.0">
+
+  <code>
+    <param name="hue"  type="number"  default="217" />
+    <param name="bold" type="boolean" default="false" />
+
+    <let name="primary">hsl(hue, 91%, bold ? 66% : 60%)</let>
+    <let name="deep">hsl(hue + 5, 71%, 40%)</let>
+    <let name="alert"><![CDATA[hue < 100 ? #ff0000 : #ff6600]]></let>
+  </code>
+
+  <replace color="#3b82f6">primary</replace>
+  <replace color="rgb(30,64,175)">deep</replace>
+  <replace color="red">alert</replace>
+</recipe>
+```
+
+**`<code>`** holds the `<param>` and `<let>` declarations of [§1.2](#12-the-declaration-block),
+with the same meaning. It is copied verbatim into `<defs>` of the output as an `<e:code>` block,
+placed first so it reads as the document's preamble. Several `<code>` blocks merge in document
+order. The declarations are *not* checked here — the code generator owns the symbol table, and a
+second implementation of the type checker could only disagree with the first.
+
+**`<replace color="…">`** substitutes every occurrence of one colour. The expression is the
+element's text, so `<` and `&` can be written in a `CDATA` section as they can in a `<let>`.
+
+Given the recipe above:
+
+```xml
+<circle cx="128" cy="128" r="86" stroke="#3b82f6" />
+<path d="…" style="fill:#3b82f6;stroke:red;stroke-width:2" />
+```
+
+becomes
+
+```xml
+<circle cx="128" cy="128" r="86" stroke="{{ primary }}" />
+<path d="…" style="stroke-width:2" fill="{{ primary }}" stroke="{{ alert }}" />
+```
+
+### 9.2 What counts as an occurrence
+
+The attributes searched are `fill`, `stroke` and `stop-color` — the colour-valued members of the
+table in [§4](#4-supported-attributes). `opacity` and `visibility` have no colour to match on and
+are not reachable from a recipe.
+
+Matching is **by value, not by spelling**. The recipe's colour and the document's are both parsed
+with `SvgColourConverter`, the converter the document parser itself uses, so a rule written
+against `#3388ff` also claims `#38f`, `rgb(51, 136, 255)` and any other name for it. The parity
+matters: a value this tool understood but the parser did not would attach an expression to a
+colour that was never painted. Two rules that resolve to the same colour are an error, since one
+of them could never apply.
+
+`none`, `inherit`, `currentColor` and `url(#…)` references are **not colours**. They select a
+paint rather than name one, and substituting an expression would change what the element does
+rather than what shade it is.
+
+A colour found in a **`style` attribute is promoted** to a presentation attribute — `{{ }}` is
+only ever lifted out of attributes ([§2](#2-the-placeholder-mechanism)), never out of a style
+declaration, so an expression left inside `style` would have no effect. The declaration is
+removed from `style`, which is what keeps the new attribute the winning value; the rest of the
+declarations keep their original text. When `style` declares a property the recipe does not
+match, the presentation attribute of the same name is left alone even if it *would* match: the
+cascade means it was never painting anything.
+
+An attribute that already holds an expression is left as the author wrote it.
+
+### 9.3 What the conversion preserves
+
+Whitespace between elements, comments and the XML declaration survive, so re-running a recipe
+after the drawing is exported again gives a diff of the colours and nothing else. Layout *inside*
+a tag does not: an XML reader does not retain it, so attributes spread over several lines come
+back on one.
+
+The extension namespace is declared on the root as `e:`, or on the next free prefix if that one
+is taken. An existing declaration of the namespace is reused whatever its prefix.
+
+### 9.4 Limits of the conversion
+
+**Only colours, and only by value.** There is no way to target an element by `id`, by class or by
+selector, so the attributes with no distinctive literal value — `opacity` and `visibility` — have
+to be written by hand afterwards. Two elements that share a colour but need different expressions
+also have to be separated by hand.
+
+**CSS rules are not searched.** A colour set by a `<style>` element rather than by an attribute or
+a `style` attribute is not found. Presentation attributes and `style` attributes cover what
+drawing tools export; a stylesheet needs the cascade to resolve.
+
+**A rule that matches nothing is a warning, not an error.** One recipe usually covers a family of
+drawings, and not every drawing uses every colour. It is still the first thing to check when the
+output is not what was meant.
+
+**Converting an already-converted document is refused.** It would declare the parameters twice,
+and almost always means the output path was passed as the input.

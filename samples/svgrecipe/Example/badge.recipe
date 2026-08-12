@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<recipe xmlns="https://svg.skia/expr/1.0">
+
+  <!-- Copied verbatim into <defs><e:code> of the output. -->
+  <code>
+    <param name="hue" type="number" default="217" />
+    <param name="bold" type="boolean" default="false" />
+
+    <let name="primary">hsl(hue, 91%, bold ? 66% : 60%)</let>
+    <let name="deep">hsl(hue + 5, 71%, 40%)</let>
+    <let name="alert"><![CDATA[hue < 100 ? #ff0000 : #ff6600]]></let>
+  </code>
+
+  <!-- Every fill, stroke and stop-color equal to the colour, however it is spelled. -->
+  <replace color="#3b82f6">primary</replace>
+  <replace color="rgb(30,64,175)">deep</replace>
+  <replace color="red">alert</replace>
+</recipe>

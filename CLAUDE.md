@@ -132,6 +132,11 @@ Two invariants hold the design together:
    `fill="none"`, `opacity="1"` and `visibility="hidden"`, each of which would remove the paint
    or subtree an expression needs to attach to.
 
+`src/Svg.Expressions.Recipes` converts a finished SVG into that format from a recipe file
+(`samples/svgrecipe` is the CLI). It is a source-to-source rewriter and knows nothing about the
+expression language — the recipe's `<code>` block is copied verbatim, and the code generator
+remains the only type checker.
+
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.
 
