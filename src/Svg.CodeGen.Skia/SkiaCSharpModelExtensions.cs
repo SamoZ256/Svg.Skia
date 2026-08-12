@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using ShimSkiaSharp;
+using Svg.CodeGen.Skia.Expressions;
 
 namespace Svg.CodeGen.Skia;
 
@@ -383,11 +384,22 @@ public static class SkiaCSharpModelExtensions
 
     public static string ToSKColor(this SKColor color)
     {
+        if (color.Expression is { } expression)
+        {
+            return SymCSharpEmitter.Emit(expression);
+        }
+
         return $"new SKColor({color.Red}, {color.Green}, {color.Blue}, {color.Alpha})";
     }
 
     public static string ToSKColor(this SKColorF color)
     {
+        if (color.Expression is { } expression)
+        {
+            // Authored expressions produce an SKColor; gradient stops need SKColorF.
+            return SymCSharpEmitter.EmitAsColorF(expression);
+        }
+
         return $"new SKColorF({color.Red.ToFloatString()}, {color.Green.ToFloatString()}, {color.Blue.ToFloatString()}, {color.Alpha.ToFloatString()})";
     }
 
@@ -412,6 +424,12 @@ public static class SkiaCSharpModelExtensions
 
     public static string ToSKColorF(this SKColorF color)
     {
+        if (color.Expression is { } expression)
+        {
+            // Authored expressions produce an SKColor; gradient stops need SKColorF.
+            return SymCSharpEmitter.EmitAsColorF(expression);
+        }
+
         return $"new SKColorF({color.Red.ToFloatString()}, {color.Green.ToFloatString()}, {color.Blue.ToFloatString()}, {color.Alpha.ToFloatString()})";
     }
 
@@ -1893,6 +1911,26 @@ public static class SkiaCSharpModelExtensions
                 case SetMatrixCanvasCommand setMatrixCanvasCommand:
                     {
                         sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SetMatrix({setMatrixCanvasCommand.TotalMatrix.ToSKMatrix()});");
+                        break;
+                    }
+                case BeginConditionalCanvasCommand beginConditionalCanvasCommand:
+                    {
+                        sb.AppendLine($"{indent}if ({SymCSharpEmitter.Emit(beginConditionalCanvasCommand.Condition, ExprType.Boolean)})");
+                        sb.AppendLine($"{indent}{{");
+
+                        // Reassigning the parameter indents everything emitted until the
+                        // matching end, including the nested ToSKPaint/ToSKPath helpers.
+                        indent += "    ";
+                        break;
+                    }
+                case EndConditionalCanvasCommand _:
+                    {
+                        if (indent.Length >= 4)
+                        {
+                            indent = indent.Substring(4);
+                        }
+
+                        sb.AppendLine($"{indent}}}");
                         break;
                     }
                 case SaveLayerCanvasCommand saveLayerCanvasCommand:

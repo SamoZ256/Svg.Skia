@@ -12,7 +12,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Description>An Svg drawing markup to C# code generator using SkiaSharp as rendering engine.</Description>
+    <Description>An Svg drawing markup to C# code generator using SkiaSharp as rendering engine, optionally applying an expression recipe first.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageId>svgc</PackageId>
     <PackageTags>svg;skia;skiasharp;codegen;codegenerator;compiler;csharp;codegen;graphics</PackageTags>
@@ -32,6 +32,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Svg.Custom\Svg.Custom.csproj" />
+    <ProjectReference Include="..\..\src\Svg.Expressions.Recipes\Svg.Expressions.Recipes.csproj" />
     <ProjectReference Include="..\..\src\Svg.Model\Svg.Model.csproj" />
     <ProjectReference Include="..\..\src\Svg.SceneGraph\Svg.SceneGraph.csproj" />
   </ItemGroup>
@@ -46,6 +47,17 @@
     <Compile Include="..\..\src\Svg.CodeGen.Skia\SkiaCSharpCodeGenCounter.cs">
       <Link>CodeGen\SkiaCSharpCodeGenCounter.cs</Link>
     </Compile>
+    <Compile Include="..\..\src\Svg.CodeGen.Skia\SvgCodeDeclarations.cs">
+      <Link>CodeGen\SvgCodeDeclarations.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\Svg.CodeGen.Skia\SymCSharpEmitter.cs">
+      <Link>CodeGen\SymCSharpEmitter.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\Svg.CodeGen.Skia\Expressions\ExprSyntax.cs"><Link>CodeGen\Expressions\ExprSyntax.cs</Link></Compile>
+    <Compile Include="..\..\src\Svg.CodeGen.Skia\Expressions\ExprLexer.cs"><Link>CodeGen\Expressions\ExprLexer.cs</Link></Compile>
+    <Compile Include="..\..\src\Svg.CodeGen.Skia\Expressions\ExprParser.cs"><Link>CodeGen\Expressions\ExprParser.cs</Link></Compile>
+    <Compile Include="..\..\src\Svg.CodeGen.Skia\Expressions\ExprHelpers.cs"><Link>CodeGen\Expressions\ExprHelpers.cs</Link></Compile>
+    <Compile Include="..\..\src\Svg.CodeGen.Skia\Expressions\ExprCompiler.cs"><Link>CodeGen\Expressions\ExprCompiler.cs</Link></Compile>
   </ItemGroup>
 
 </Project>

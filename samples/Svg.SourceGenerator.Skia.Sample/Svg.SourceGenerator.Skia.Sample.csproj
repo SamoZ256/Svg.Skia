@@ -15,6 +15,7 @@
     <AdditionalFiles Include="Svg/e-ellipse-001.svg" ClassName="Ellipse" />
     <AdditionalFiles Include="Svg/e-rect-001.svg" ClassName="Rect" />
     <AdditionalFiles Include="Svg/pservers-pattern-01-b.svg" />
+    <AdditionalFiles Include="Svg/expressions.svg" NamespaceName="Svg.Generated" ClassName="Expressions" />
   </ItemGroup>
 
   <Import Project="..\..\build\SkiaSharp.props" />

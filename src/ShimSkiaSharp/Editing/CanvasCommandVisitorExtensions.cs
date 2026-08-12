@@ -59,6 +59,12 @@ public static class CanvasCommandVisitorExtensions
             case SetMatrixCanvasCommand setMatrix:
                 visitor.Visit(setMatrix);
                 break;
+            case BeginConditionalCanvasCommand beginConditional:
+                visitor.Visit(beginConditional);
+                break;
+            case EndConditionalCanvasCommand endConditional:
+                visitor.Visit(endConditional);
+                break;
             default:
                 throw new NotSupportedException($"Unsupported {nameof(CanvasCommand)} type: {command.GetType().Name}.");
         }

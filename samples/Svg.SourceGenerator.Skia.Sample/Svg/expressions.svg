@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:e="https://svg.skia/expr/1.0"
+     width="200" height="200">
+
+  <defs>
+    <e:code>
+      <e:param name="t" type="number" default="0" />
+      <e:param name="amp" type="number" default="1" />
+      <e:param name="bold" type="boolean" default="false" />
+
+      <e:let name="wave">(sin(t * tau) + 1) / 2 * amp</e:let>
+      <e:let name="level">clamp(wave, 0, 1)</e:let>
+      <e:let name="primary">hsl(200 + level * 70, 74%, bold ? 62% : 48%)</e:let>
+      <e:let name="deep">mix(primary, #000000, 0.6)</e:let>
+    </e:code>
+
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="100" y1="0" x2="180" y2="0">
+      <stop offset="0%" stop-color="{{ primary }}" />
+      <stop offset="100%" stop-color="{{ deep }}" />
+    </linearGradient>
+  </defs>
+
+  <!-- plain solid fill -->
+  <rect x="10" y="10" width="80" height="80" fill="{{ primary }}" />
+
+  <!-- exercises the ScaleAlpha fold -->
+  <rect x="10" y="100" width="80" height="80"
+        fill="{{ rgb(255 * level, 128, 64) }}" fill-opacity="0.5" />
+
+  <!-- exercises the ToLinearRgb wrap -->
+  <rect x="100" y="10" width="80" height="80"
+        color-interpolation="linearRGB"
+        fill="{{ level gt 0.5 ? #ff8800 : hsla(120, 80%, 45%, 0.9) }}" />
+
+  <!-- exercises a gradient stop expression, a stroke expression and group opacity -->
+  <g opacity="{{ lerp(0.4, 1, level) }}">
+    <rect x="100" y="100" width="80" height="80"
+          fill="url(#g)" stroke-width="4"
+          stroke="{{ withAlpha(mix(primary, #ffffff, lerp(0.1, 0.8, level)), 0.85) }}" />
+  </g>
+</svg>

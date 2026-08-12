@@ -131,6 +131,12 @@ public static class SvgSceneRenderer
             node.ElementAddressKey,
             node.ElementTypeName);
 
+        // Wraps everything this node contributes, including its own save/restore pairs, so the
+        // range stays balanced whichever way the method returns.
+        using var conditional = node.VisibilityExpression is { } visibilityCondition
+            ? canvas.PushConditional(visibilityCondition)
+            : null;
+
         var enableClip = !ignoreAttributes.Has(DrawAttributes.ClipPath);
         var enableMask = !ignoreAttributes.Has(DrawAttributes.Mask) && !ignoreCurrentMask;
         var enableOpacity = !ignoreAttributes.Has(DrawAttributes.Opacity) && !ignoreCurrentOpacity;

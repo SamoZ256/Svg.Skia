@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<recipe xmlns="https://svg.skia/expr/1.0">
+  <code>
+    <param name="accentColor" type="color" />
+    <param name="blackColor" type="color" />
+    <param name="whiteColor" type="color" />
+
+    <param name="state"   type="boolean" />
+    <param name="accent" type="boolean" />
+    <param name="enabled" type="boolean" />
+    <param name="isLight" type="boolean" />
+
+    <let name="whiteColor70">withAlpha(whiteColor, 178 / 255)</let>
+    <let name="whiteColor30">withAlpha(whiteColor, 77 / 255)</let>
+    <let name="blackColor70">withAlpha(blackColor, 178 / 255)</let>
+    <let name="blackColor30">withAlpha(blackColor, 77 / 255)</let>
+
+    <let name="stateBlackColor10">enabled and state ? (accent ? accentColor : (isLight ? whiteColor70 : blackColor70)) : (isLight ? whiteColor30 : blackColor30)</let>
+  </code>
+
+  <replace color="#000000">stateBlackColor10</replace>
+</recipe>

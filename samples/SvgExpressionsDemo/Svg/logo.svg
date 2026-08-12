@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:e="https://svg.skia/expr/1.0"
+     width="256" height="256" viewBox="0 0 256 256">
+
+  <defs>
+    <e:code>
+      <e:param name="t" type="number" default="0" />
+      <e:param name="hue" type="number" default="0.52" />
+      <e:param name="pulse" type="number" default="1" />
+      <e:param name="bold" type="boolean" default="false" />
+
+      <e:let name="wave">(sin(t * tau) + 1) / 2</e:let>
+      <e:let name="shift">hue * 360 + wave * 70 * pulse</e:let>
+
+      <e:let name="primary">hsl(shift, 74%, bold ? 62% : 55%)</e:let>
+      <e:let name="accent">hsl(shift + 45, 88%, 62%)</e:let>
+      <e:let name="deep">hsl(shift + 8, 62%, bold ? 28% : 22%)</e:let>
+      <e:let name="glow">hsl(shift + 190, 90%, 68%)</e:let>
+
+      <e:let name="dot">wave gt 0.66 ? accent : mix(accent, deep, 0.45)</e:let>
+      <e:let name="markFade">lerp(0.45, 1, wave)</e:let>
+      <e:let name="showDot">wave gt 0.25</e:let>
+    </e:code>
+
+    <linearGradient id="badge" gradientUnits="userSpaceOnUse" x1="24" y1="24" x2="232" y2="232">
+      <stop offset="0%"   stop-color="{{ primary }}" />
+      <stop offset="100%" stop-color="{{ deep }}" />
+    </linearGradient>
+
+    <linearGradient id="sweep" gradientUnits="userSpaceOnUse" x1="64" y1="72" x2="192" y2="184">
+      <stop offset="0%"   stop-color="{{ glow }}" />
+      <stop offset="100%" stop-color="{{ accent }}" />
+    </linearGradient>
+  </defs>
+
+  <rect x="16" y="16" width="224" height="224" rx="52" ry="52" fill="url(#badge)" />
+
+  <circle cx="128" cy="128" r="86"
+          fill="none"
+          stroke="{{ glow }}"
+          stroke-width="5" stroke-opacity="0.55" />
+
+  <g opacity="{{ markFade }}">
+    <path d="M 96 84 L 150 128 L 96 172 L 96 148 L 120 128 L 96 108 Z"
+          fill="{{ glow }}" />
+    <path d="M 140 84 L 194 128 L 140 172 L 140 148 L 164 128 L 140 108 Z"
+          fill="url(#sweep)" />
+  </g>
+
+  <circle cx="128" cy="212" r="10"
+          fill="{{ dot }}"
+          fill-opacity="0.85"
+          visibility="{{ showDot }}" />
+</svg>

@@ -54,6 +54,13 @@ public sealed class SvgSceneNode : IReadOnlyList<SvgSceneNode>
 
     public bool IsVisible { get; internal set; } = true;
 
+    /// <summary>
+    /// Authored expression controlling visibility, if any. IsVisible still reflects the
+    /// placeholder and decides whether this node contributes commands at all; this only travels
+    /// with the model so code generators can wrap those commands in a condition.
+    /// </summary>
+    public ShimSkiaSharp.SymNode? VisibilityExpression { get; internal set; }
+
     public bool IsDisplayNone { get; internal set; }
 
     public string? Cursor
@@ -597,6 +604,7 @@ public sealed class SvgSceneNode : IReadOnlyList<SvgSceneNode>
         HitTestTargetElement = replacement.HitTestTargetElement;
         PointerEvents = replacement.PointerEvents;
         IsVisible = replacement.IsVisible;
+        VisibilityExpression = replacement.VisibilityExpression;
         IsDisplayNone = replacement.IsDisplayNone;
         Cursor = replacement.Cursor;
         CreatesBackgroundLayer = replacement.CreatesBackgroundLayer;

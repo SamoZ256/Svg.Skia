@@ -32,6 +32,30 @@
     <Compile Include="..\Svg.CodeGen.Skia\SkiaCSharpCodeGenCounter.cs">
       <Link>CodeGen\SkiaCSharpCodeGenCounter.cs</Link>
     </Compile>
+    <Compile Include="..\Svg.CodeGen.Skia\SvgCodeDeclarations.cs">
+      <Link>CodeGen\SvgCodeDeclarations.cs</Link>
+    </Compile>
+    <Compile Include="..\Svg.CodeGen.Skia\SymCSharpEmitter.cs">
+      <Link>CodeGen\SymCSharpEmitter.cs</Link>
+    </Compile>
+    <Compile Include="..\Svg.CodeGen.Skia\IsExternalInit.cs">
+      <Link>CodeGen\IsExternalInit.cs</Link>
+    </Compile>
+    <Compile Include="..\Svg.CodeGen.Skia\Expressions\ExprSyntax.cs">
+      <Link>CodeGen\Expressions\ExprSyntax.cs</Link>
+    </Compile>
+    <Compile Include="..\Svg.CodeGen.Skia\Expressions\ExprLexer.cs">
+      <Link>CodeGen\Expressions\ExprLexer.cs</Link>
+    </Compile>
+    <Compile Include="..\Svg.CodeGen.Skia\Expressions\ExprParser.cs">
+      <Link>CodeGen\Expressions\ExprParser.cs</Link>
+    </Compile>
+    <Compile Include="..\Svg.CodeGen.Skia\Expressions\ExprHelpers.cs">
+      <Link>CodeGen\Expressions\ExprHelpers.cs</Link>
+    </Compile>
+    <Compile Include="..\Svg.CodeGen.Skia\Expressions\ExprCompiler.cs">
+      <Link>CodeGen\Expressions\ExprCompiler.cs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>

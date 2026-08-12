@@ -1190,7 +1190,10 @@ public sealed class SvgSceneDocument
         node.OpacityValue = opacityValue;
         node.Opacity = IgnoreAttributes.Has(DrawAttributes.Opacity)
             ? null
-            : GetCachedOpacityPaint(opacityValue, opacityPaintCache);
+            : GetCachedOpacityPaint(
+                opacityValue,
+                opacityPaintCache,
+                SvgSceneExpressions.TryGet(element, SvgSceneExpressions.Opacity));
 
         node.SetMask(null);
         node.MaskPaint = null;
@@ -1266,8 +1269,19 @@ public sealed class SvgSceneDocument
         }
     }
 
-    private static SKPaint? GetCachedOpacityPaint(float opacityValue, Dictionary<float, SKPaint> opacityPaintCache)
+    private static SKPaint? GetCachedOpacityPaint(
+        float opacityValue,
+        Dictionary<float, SKPaint> opacityPaintCache,
+        SymNode? expression = null)
     {
+        // The cache is keyed on the opacity value alone, so two elements sharing a value but
+        // carrying different expressions would collapse into one paint. Expressions are rare;
+        // skipping the cache for them is cheaper than widening the key.
+        if (expression is { })
+        {
+            return SvgScenePaintingService.GetOpacityPaint(opacityValue, expression);
+        }
+
         if (opacityValue >= 1f)
         {
             return null;
