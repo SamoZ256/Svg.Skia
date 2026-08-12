@@ -2,11 +2,6 @@
      xmlns:e="https://svg.skia/expr/1.0"
      width="256" height="256" viewBox="0 0 256 256">
 
-  <!--
-    Expressions go inline, in double braces, directly in the attribute they drive. The parser
-    lifts them out and substitutes a placeholder, so the file still loads everywhere - though
-    other tools will show the placeholder grey rather than the real colours.
-  -->
   <defs>
     <e:code>
       <e:param name="t" type="number" default="0" />
@@ -17,19 +12,13 @@
       <e:let name="wave">(sin(t * tau) + 1) / 2</e:let>
       <e:let name="shift">hue * 360 + wave * 70 * pulse</e:let>
 
-      <!-- hsl wraps hue itself, so shift + 45 needs no explicit mod -->
       <e:let name="primary">hsl(shift, 74%, bold ? 62% : 55%)</e:let>
       <e:let name="accent">hsl(shift + 45, 88%, 62%)</e:let>
       <e:let name="deep">hsl(shift + 8, 62%, bold ? 28% : 22%)</e:let>
       <e:let name="glow">hsl(shift + 190, 90%, 68%)</e:let>
 
-      <!-- a threshold, to show a conditional picking between whole colours -->
       <e:let name="dot">wave gt 0.66 ? accent : mix(accent, deep, 0.45)</e:let>
-
-      <!-- group opacity: a number, not a colour -->
       <e:let name="markFade">lerp(0.45, 1, wave)</e:let>
-
-      <!-- visibility: a boolean, wrapping the dot's draw calls in an if -->
       <e:let name="showDot">wave gt 0.25</e:let>
     </e:code>
 
@@ -44,16 +33,13 @@
     </linearGradient>
   </defs>
 
-  <!-- badge -->
   <rect x="16" y="16" width="224" height="224" rx="52" ry="52" fill="url(#badge)" />
 
-  <!-- inner ring: stroke-opacity folds into the expression via ScaleAlpha -->
   <circle cx="128" cy="128" r="86"
           fill="none"
           stroke="{{ glow }}"
           stroke-width="5" stroke-opacity="0.55" />
 
-  <!-- mark: a stylised chevron pair, fading as a group -->
   <g opacity="{{ markFade }}">
     <path d="M 96 84 L 150 128 L 96 172 L 96 148 L 120 128 L 96 108 Z"
           fill="{{ glow }}" />
@@ -61,7 +47,6 @@
           fill="url(#sweep)" />
   </g>
 
-  <!-- pulse dot: disappears entirely for the lower part of the cycle -->
   <circle cx="128" cy="212" r="10"
           fill="{{ dot }}"
           fill-opacity="0.85"
