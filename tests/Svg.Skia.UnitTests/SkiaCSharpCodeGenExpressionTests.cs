@@ -79,7 +79,9 @@ public class SkiaCSharpCodeGenExpressionTests
 
         Assert.Contains("public static SKPicture Record(float t = 0f, bool bold = false)", code);
         Assert.Contains("public static void Draw(SKCanvas skCanvas, float t = 0f, bool bold = false)", code);
-        Assert.Contains("skCanvas.DrawPicture(Record(t, bold));", code);
+        // The picture is built for this call alone, so Draw owns it and disposes it.
+        Assert.Contains("using (var skPicture = Record(t, bold))", code);
+        Assert.Contains("skCanvas.DrawPicture(skPicture);", code);
 
         // A picture built from arguments cannot be cached in a static field.
         Assert.DoesNotContain("public static SKPicture Picture { get; }", code);

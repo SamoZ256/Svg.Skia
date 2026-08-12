@@ -87,9 +87,15 @@ public static class SkiaCSharpCodeGen
 
         if (isParameterized)
         {
+            // The picture is built for this one call and cannot escape, so Draw owns it.
+            // Disposing releases the native memory at a known point instead of leaving it to a
+            // finalizer. Record keeps its own contract: what it returns, the caller owns.
             sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName}, {parameterList})");
             sb.AppendLine($"        {{");
-            sb.AppendLine($"            {counter.CanvasVarName}.DrawPicture(Record({argumentList}));");
+            sb.AppendLine($"            using (var {counter.PictureVarName} = Record({argumentList}))");
+            sb.AppendLine($"            {{");
+            sb.AppendLine($"                {counter.CanvasVarName}.DrawPicture({counter.PictureVarName});");
+            sb.AppendLine($"            }}");
             sb.AppendLine($"        }}");
         }
         else
