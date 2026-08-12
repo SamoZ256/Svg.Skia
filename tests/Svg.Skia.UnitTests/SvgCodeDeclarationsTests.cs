@@ -178,14 +178,43 @@ public class SvgCodeDeclarationsTests
     [Fact]
     public void A_Default_Must_Match_The_Declared_Type()
     {
+        // Declared on a number: a colour parameter is rejected for carrying any default at all,
+        // which would mask the type check being tested here.
         var declarations = SvgCodeDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
-              <defs><e:code><e:param name="c" type="color" default="1" /></e:code></defs>
+              <defs><e:code><e:param name="t" type="number" default="#ff0000" /></e:code></defs>
             </svg>
             """);
 
         var error = Assert.Throws<ExprException>(() => declarations.DefaultCodeFor(declarations.Parameters[0]));
-        Assert.Contains("must be a colour", error.Message);
+        Assert.Contains("must be a number", error.Message);
+    }
+
+    [Fact]
+    public void A_Colour_Parameter_Cannot_Have_A_Default()
+    {
+        // `new SKColor(...)` is not a compile-time constant, so it cannot be a C# argument
+        // default; the parameter is required instead.
+        var declarations = SvgCodeDeclarations.Parse($"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
+              <defs><e:code><e:param name="c" type="color" default="#ff0000" /></e:code></defs>
+            </svg>
+            """);
+
+        var error = Assert.Throws<ExprException>(() => declarations.DefaultCodeFor(declarations.Parameters[0]));
+        Assert.Contains("not a compile-time constant", error.Message);
+    }
+
+    [Fact]
+    public void A_Parameter_Without_A_Default_Has_No_Default_Code()
+    {
+        var declarations = SvgCodeDeclarations.Parse($"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
+              <defs><e:code><e:param name="c" type="color" /></e:code></defs>
+            </svg>
+            """);
+
+        Assert.Null(declarations.DefaultCodeFor(declarations.Parameters[0]));
     }
 
     [Fact]

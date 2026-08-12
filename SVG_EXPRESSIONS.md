@@ -60,7 +60,7 @@ SVG renderers ignore:
 <defs>
   <e:code>
     <e:param name="t"    type="number"  default="0" />
-    <e:param name="tint" type="color"   default="#ff8800" />
+    <e:param name="tint" type="color"   />
     <e:param name="bold" type="boolean" default="false" />
 
     <e:let name="wave">(sin(t * tau) + 1) / 2</e:let>
@@ -75,10 +75,21 @@ conventional), and multiple blocks are merged in document order.
 
 This part stays namespaced because there is no inline form for a block of declarations.
 
-**`<e:param>`** declares a method parameter. `name` and `type` are required. `default` is an
-expression, and may use literals, constants and functions but **not other parameters** — C#
-argument defaults are compile-time constants, so an ordering dependency between them could not
-be honoured. With no `default`, the type's zero value is used (`0`, opaque black, `false`).
+**`<e:param>`** declares a method parameter. `name` and `type` are required.
+
+`default` is an expression, and makes the generated parameter optional. With no `default` the
+parameter is **required** — nothing is invented, so the signature never carries a value that
+appears nowhere in the document.
+
+Three rules follow from C# argument defaults being compile-time constants:
+
+- A default may use literals, constants and functions but **not other parameters**, since an
+  ordering dependency between them could not be honoured.
+- A `color` parameter **cannot have a default** at all. `new SKColor(…)` is not a constant, so
+  emitting one produces a class that does not build. Colour parameters are always required.
+- The parameters *with* defaults have to come **last**. Declaring one without a default after one
+  with a default is an error rather than a silent reordering, which would change the meaning of
+  every positional call site.
 
 **`<e:let>`** declares a local. Its type is **inferred** from the expression. Lets resolve in
 document order, so a let may reference parameters and earlier lets, but not later ones.
@@ -300,8 +311,14 @@ public static void Draw(SKCanvas skCanvas, float t = 0f, bool bold = false)
     => skCanvas.DrawPicture(Record(t, bold));
 ```
 
-Parameters appear in declaration order, typed `float` / `SKColor` / `bool`. Lets become typed
-locals in declaration order.
+Parameters appear in declaration order, typed `float` / `SKColor` / `bool`, and are optional only
+where a `default` was declared ([§1.2](#12-the-declaration-block)):
+
+```csharp
+public static SKPicture Record(SKColor tint, float t = 0f)
+```
+
+Lets become typed locals in declaration order.
 
 Small `private static` helpers (`SvgHsl`, `SvgMix`, `SvgScaleAlpha`, `SvgToColorF`, …) are
 emitted into the class **only when used**. Multi-argument colour operations are emitted as calls
@@ -330,7 +347,8 @@ fails the build. Diagnostics are not yet mapped to a location in the `.svg` file
 Checks include: unknown names (listing what is in scope), unknown functions (listing what
 exists), wrong arity, wrong argument types, mismatched conditional branches, arithmetic on
 colours, a paint expression that is not a colour, a `visibility` expression that is not a
-boolean, forward references between lets, redeclaring a built-in, and duplicate names.
+boolean, forward references between lets, redeclaring a built-in, duplicate names, a default on a
+`color` parameter, and a parameter without a default declared after one that has one.
 
 ---
 

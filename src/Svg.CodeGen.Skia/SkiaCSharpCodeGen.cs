@@ -39,9 +39,7 @@ public static class SkiaCSharpCodeGen
 
         var parameters = declarations.Parameters;
         var isParameterized = parameters.Count > 0;
-        var parameterList = string.Join(
-            ", ",
-            parameters.Select(p => $"{ExprCompiler.CSharpTypeOf(p.Type)} {p.Name} = {declarations.DefaultCodeFor(p)}"));
+        var parameterList = BuildParameterList(parameters, declarations);
         var argumentList = string.Join(", ", parameters.Select(p => p.Name));
 
         var sb = new StringBuilder();
@@ -117,6 +115,43 @@ public static class SkiaCSharpCodeGen
         sb.AppendLine($"}}");
 
         return sb.ToString();
+    }
+
+    // A parameter is optional only when the author gave it a default. Inventing one for the rest
+    // would make every argument skippable and put a value in the signature that appears nowhere
+    // in the document.
+    private static string BuildParameterList(
+        IReadOnlyList<SvgCodeParameter> parameters,
+        SvgCodeDeclarations declarations)
+    {
+        var rendered = new List<string>(parameters.Count);
+        SvgCodeParameter? optional = null;
+
+        foreach (var parameter in parameters)
+        {
+            var type = ExprCompiler.CSharpTypeOf(parameter.Type);
+            var code = declarations.DefaultCodeFor(parameter);
+
+            if (code is null)
+            {
+                // C# requires the optional ones last, and reordering the list silently would
+                // change what every positional call site means.
+                if (optional is { })
+                {
+                    throw new ExprException(
+                        $"'{parameter.Name}' has no default but follows '{optional.Name}', which has one. In C# the parameters with defaults have to come last, so declare '{parameter.Name}' before it.",
+                        0);
+                }
+
+                rendered.Add($"{type} {parameter.Name}");
+                continue;
+            }
+
+            optional = parameter;
+            rendered.Add($"{type} {parameter.Name} = {code}");
+        }
+
+        return string.Join(", ", rendered);
     }
 
     private static IEnumerable<string[]> RequiredHelpers(string body)

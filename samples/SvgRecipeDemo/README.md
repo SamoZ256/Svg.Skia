@@ -60,8 +60,10 @@ dotnet run --project samples/SvgRecipeDemo -- --render frames
 - Tick `dark`. `body` reads `dark ? 34% : 58%`, and the conditional is in the generated C#.
 - Change `#000000` in the recipe to something the drawing does not use. The rule reports that it
   matched nothing, and the icon goes back to black — the conversion is a no-op, not an error.
-- Add `<param name="tint" type="color" default="#ff8800" />` and use it in `body` via
-  `mix(hsl(tone, 72%, 58%), tint, 0.4)`. A colour parameter gets a text box rather than a slider.
+- Add `<param name="tint" type="color" />` and use it in `body` via
+  `mix(hsl(tone, 72%, 58%), tint, 0.4)`. A colour parameter gets a text box rather than a slider,
+  and cannot carry a `default` — see [§1.2](../../SVG_EXPRESSIONS.md#12-the-declaration-block).
+  Declare it before the parameters that do have defaults.
 - Put an expression somewhere unsupported, `<replace>` on a colour inside a `stroke-width`, and
   watch nothing happen — [§7](../../SVG_EXPRESSIONS.md#7-limitations) explains why unsupported
   attributes fail silently.

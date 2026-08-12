@@ -87,8 +87,10 @@ public class SkiaCSharpCodeGenExpressionTests
     }
 
     [Fact]
-    public void A_Parameter_Without_A_Default_Gets_The_Types_Zero_Value()
+    public void A_Parameter_Without_A_Default_Is_Required()
     {
+        // Inventing a default would make every argument skippable and put a value in the
+        // signature that appears nowhere in the document.
         var code = Generate("""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
               <defs><e:code><e:param name="tint" type="color" /></e:code></defs>
@@ -96,7 +98,63 @@ public class SkiaCSharpCodeGenExpressionTests
             </svg>
             """);
 
-        Assert.Contains("Record(SKColor tint = new SKColor(0, 0, 0, 255))", code);
+        Assert.Contains("public static SKPicture Record(SKColor tint)", code);
+        Assert.Contains("public static void Draw(SKCanvas skCanvas, SKColor tint)", code);
+    }
+
+    [Fact]
+    public void A_Colour_Parameter_Cannot_Have_A_Default()
+    {
+        // `new SKColor(...)` is not a compile-time constant, so emitting it as an argument
+        // default produces a class that does not build (CS1736).
+        var error = Assert.Throws<ExprException>(() => Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code><e:param name="tint" type="color" default="#ff0000" /></e:code></defs>
+              <rect x="0" y="0" width="10" height="10" fill="{{ tint }}" />
+            </svg>
+            """));
+
+        Assert.Contains("not a compile-time constant", error.Message);
+    }
+
+    [Fact]
+    public void A_Required_Parameter_Cannot_Follow_An_Optional_One()
+    {
+        // C# puts the parameters with defaults last, and reordering the list silently would
+        // change what every positional call site means.
+        var error = Assert.Throws<ExprException>(() => Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <e:code>
+                  <e:param name="t" type="number" default="0" />
+                  <e:param name="tint" type="color" />
+                  <e:let name="c">withAlpha(tint, t)</e:let>
+                </e:code>
+              </defs>
+              <rect x="0" y="0" width="10" height="10" fill="{{ c }}" />
+            </svg>
+            """));
+
+        Assert.Contains("'tint' has no default but follows 't'", error.Message);
+    }
+
+    [Fact]
+    public void Required_Parameters_May_Precede_Optional_Ones()
+    {
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <e:code>
+                  <e:param name="tint" type="color" />
+                  <e:param name="t" type="number" default="0" />
+                  <e:let name="c">withAlpha(tint, t)</e:let>
+                </e:code>
+              </defs>
+              <rect x="0" y="0" width="10" height="10" fill="{{ c }}" />
+            </svg>
+            """);
+
+        Assert.Contains("public static SKPicture Record(SKColor tint, float t = 0f)", code);
     }
 
     [Fact]
@@ -128,7 +186,7 @@ public class SkiaCSharpCodeGenExpressionTests
         var code = Generate("""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
               <defs>
-                <e:code><e:param name="tint" type="color" default="#ff0000" /></e:code>
+                <e:code><e:param name="tint" type="color" /></e:code>
               </defs>
               <rect x="0" y="0" width="10" height="10" fill="{{ tint }}" />
             </svg>
@@ -156,7 +214,7 @@ public class SkiaCSharpCodeGenExpressionTests
     {
         var code = Generate("""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
-              <defs><e:code><e:param name="tint" type="color" default="#ff0000" /></e:code></defs>
+              <defs><e:code><e:param name="tint" type="color" /></e:code></defs>
               <rect x="0" y="0" width="10" height="10" fill="{{ tint }}" fill-opacity="0.5" />
               <rect x="20" y="0" width="10" height="10" fill="{{ tint }}" fill-opacity="0.25" />
             </svg>
@@ -173,7 +231,7 @@ public class SkiaCSharpCodeGenExpressionTests
         var code = Generate("""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
               <defs>
-                <e:code><e:param name="tint" type="color" default="#ff0000" /></e:code>
+                <e:code><e:param name="tint" type="color" /></e:code>
                 <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="0">
                   <stop offset="0%" stop-color="{{ tint }}" />
                   <stop offset="100%" stop-color="#000000" />
