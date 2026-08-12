@@ -60,28 +60,34 @@ internal static class Program
         Console.WriteLine(
             $"parameters: {(parameters.Count == 0 ? "(none)" : string.Join(", ", parameters.Select(p => $"{p.Name}:{p.Type}")))}");
 
-        // One frame per value of the first number parameter, which is what a recipe normally
-        // drives the palette from.
-        foreach (var value in new[] { 0f, 0.25f, 0.5f, 0.75f })
+        // A number parameter is swept over its range; without one, every boolean is written both
+        // ways. Sweeping only the first would have said nothing about this recipe, whose first
+        // two booleans turn out not to reach the drawing at all.
+        var sweep = parameters
+            .Select((parameter, index) => (parameter, index))
+            .Where(p => p.parameter.Type is ExprType.Number or ExprType.Boolean)
+            .ToList();
+
+        if (sweep.Any(p => p.parameter.Type == ExprType.Number))
         {
-            var used = false;
+            sweep = sweep.Where(p => p.parameter.Type == ExprType.Number).Take(1).ToList();
+        }
 
+        var frames = sweep.SelectMany(p => (p.parameter.Type == ExprType.Number
+                ? new object?[] { 0f, 0.25f, 0.5f, 0.75f }
+                : new object?[] { false, true })
+            .Select(state => (p.parameter.Name, p.index, state)))
+            .ToList();
+
+        if (frames.Count == 0)
+        {
+            frames.Add((string.Empty, -1, null));
+        }
+
+        foreach (var (name, index, state) in frames)
+        {
             var arguments = parameters
-                .Select(object? (p) =>
-                {
-                    if (p.Type == ExprType.Number && !used)
-                    {
-                        used = true;
-                        return value;
-                    }
-
-                    return p.Type switch
-                    {
-                        ExprType.Number => 0f,
-                        ExprType.Boolean => false,
-                        _ => (object?)new SKColor(0x3F, 0xB5, 0xB5)
-                    };
-                })
+                .Select(object? (p, i) => i == index ? state : Fallback(p, i))
                 .ToArray();
 
             using var picture = result.Compiled.Invoke(arguments);
@@ -91,13 +97,26 @@ internal static class Program
                 return 1;
             }
 
-            var path = Path.Combine(directory, $"demo-{value:0.00}.png");
+            var path = Path.Combine(
+                directory,
+                index < 0 ? "demo.png" : $"demo-{name}-{state!.ToString()!.ToLowerInvariant()}.png");
+
             Write(picture, path);
             Console.WriteLine($"wrote {path}");
         }
 
         return 0;
     }
+
+    // Values for the parameters not being swept. Colours have no sensible neutral — the caller is
+    // meant to supply them — so contrasting stand-ins are used, or a recipe that picks between a
+    // light and a dark colour would render the same either way.
+    private static object? Fallback(Svg.CodeGen.Skia.SvgCodeParameter parameter, int index) => parameter.Type switch
+    {
+        ExprType.Number => 0f,
+        ExprType.Boolean => string.Equals(parameter.DefaultExpression, "true", StringComparison.Ordinal),
+        _ => index % 2 == 0 ? new SKColor(0x00, 0x00, 0x00) : new SKColor(0xFF, 0xFF, 0xFF)
+    };
 
     private static void Write(SKPicture picture, string path)
     {

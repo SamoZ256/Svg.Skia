@@ -1,16 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <recipe xmlns="https://svg.skia/expr/1.0">
-
-  <!-- Copied verbatim into <defs><e:code> of the converted document. -->
   <code>
-    <param name="hue" type="number" default="0.58" />
-    <param name="warm" type="number" default="0" />
-    <param name="dark" type="boolean" default="false" />
+    <param name="accentColor" type="color" />
+    <param name="blackColor" type="color" />
+    <param name="whiteColor" type="color" />
 
-    <let name="tone">hue * 360 + warm * 60</let>
-    <let name="body">hsl(tone, 72%, dark ? 34% : 58%)</let>
+    <param name="state"   type="boolean" />
+    <param name="accent" type="boolean" />
+    <param name="enabled" type="boolean" />
+    <param name="isLight" type="boolean" />
+
+    <let name="whiteColor70">withAlpha(whiteColor, 178 / 255)</let>
+    <let name="whiteColor30">withAlpha(whiteColor, 77 / 255)</let>
+    <let name="blackColor70">withAlpha(blackColor, 178 / 255)</let>
+    <let name="blackColor30">withAlpha(blackColor, 77 / 255)</let>
+
+    <let name="stateBlackColor10">enabled and state ? (accent ? accentColor : (isLight ? whiteColor70 : blackColor70)) : (isLight ? whiteColor30 : blackColor30)</let>
   </code>
 
-  <!-- The icon paints one colour. Every occurrence of it becomes the expression. -->
-  <replace color="#000000">body</replace>
+  <replace color="#000000">stateBlackColor10</replace>
 </recipe>
