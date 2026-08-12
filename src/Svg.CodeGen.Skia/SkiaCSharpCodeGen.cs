@@ -10,12 +10,190 @@ using Svg.CodeGen.Skia.Expressions;
 
 namespace Svg.CodeGen.Skia;
 
+/// <summary>Where the helper methods a drawing needs are placed.</summary>
+public enum SvgHelperScope
+{
+    /// <summary>Private members of each class. Every class stands alone; several classes in one
+    /// file repeat them. The only shape a single-class file can use.</summary>
+    PerClass,
+
+    /// <summary>A <c>file</c> scoped class outside every namespace. Invisible beyond the file, so
+    /// any number of generated files coexist. Requires C# 11 of whoever compiles the output.</summary>
+    FileLocal,
+
+    /// <summary>An <c>internal</c> class outside every namespace, for compilers below C# 11. The
+    /// name has to differ per file or two generated files collide.</summary>
+    Internal
+}
+
+/// <summary>One drawing to be emitted, for <see cref="SkiaCSharpCodeGen.GenerateFile"/>.</summary>
+public sealed class SkiaCSharpDrawing
+{
+    public SkiaCSharpDrawing(SKPicture picture, string namespaceName, string className, SvgCodeDeclarations? declarations)
+    {
+        Picture = picture;
+        NamespaceName = namespaceName;
+        ClassName = className;
+        Declarations = declarations ?? SvgCodeDeclarations.Empty;
+    }
+
+    public SKPicture Picture { get; }
+
+    public string NamespaceName { get; }
+
+    public string ClassName { get; }
+
+    public SvgCodeDeclarations Declarations { get; }
+}
+
 public static class SkiaCSharpCodeGen
 {
+    public const string DefaultHelperClassName = "SvgExpressionHelpers";
+
     public static string Generate(SKPicture picture, string namespaceName, string className)
         => Generate(picture, namespaceName, className, SvgCodeDeclarations.Empty);
 
     public static string Generate(SKPicture picture, string namespaceName, string className, SvgCodeDeclarations? declarations)
+    {
+        var sb = new StringBuilder();
+
+        AppendPreamble(sb, helperClassName: null);
+
+        sb.AppendLine($"namespace {namespaceName}");
+        sb.AppendLine($"{{");
+        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true));
+        sb.AppendLine($"}}");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Emits several drawings into one file, sharing their helper methods rather than repeating
+    /// them once per class.
+    /// </summary>
+    /// <remarks>
+    /// Drawings keep their declared order, and namespaces the order they first appear in, so the
+    /// output of a given batch does not move around between runs.
+    /// </remarks>
+    public static string GenerateFile(
+        IReadOnlyList<SkiaCSharpDrawing> drawings,
+        SvgHelperScope scope = SvgHelperScope.FileLocal,
+        string helperClassName = DefaultHelperClassName)
+    {
+        var shared = scope != SvgHelperScope.PerClass;
+
+        // Namespaces in first-appearance order, and the classes within each in declared order.
+        var order = new List<string>();
+        var groups = new Dictionary<string, List<SkiaCSharpDrawing>>(StringComparer.Ordinal);
+
+        foreach (var drawing in drawings)
+        {
+            if (!groups.TryGetValue(drawing.NamespaceName, out var group))
+            {
+                group = new List<SkiaCSharpDrawing>();
+                groups.Add(drawing.NamespaceName, group);
+                order.Add(drawing.NamespaceName);
+            }
+
+            // Two classes of one name in one namespace is CS0101 in the emitted file, which
+            // reports a problem with generated code rather than with the batch that asked for it.
+            if (group.Any(other => string.Equals(other.ClassName, drawing.ClassName, StringComparison.Ordinal)))
+            {
+                throw new ExprException(
+                    $"'{drawing.NamespaceName}.{drawing.ClassName}' is generated twice into one file. Give the drawings different class names.",
+                    0);
+            }
+
+            group.Add(drawing);
+        }
+
+        var bodies = drawings.ToDictionary(
+            drawing => drawing,
+            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared));
+
+        // Which helpers are needed is decided across every class at once, so each appears once.
+        var helpers = shared
+            ? RequiredHelpers(string.Concat(bodies.Values)).ToList()
+            : new List<string[]>();
+
+        var sb = new StringBuilder();
+
+        AppendPreamble(sb, helpers.Count > 0 ? helperClassName : null);
+
+        if (helpers.Count > 0)
+        {
+            sb.AppendLine($"{(scope == SvgHelperScope.FileLocal ? "file" : "internal")} static class {helperClassName}");
+            sb.AppendLine($"{{");
+
+            for (var i = 0; i < helpers.Count; i++)
+            {
+                if (i > 0)
+                {
+                    sb.AppendLine($"");
+                }
+
+                foreach (var line in helpers[i])
+                {
+                    // The bodies are written as class members; hoisted they have to be reachable
+                    // from the classes that call them.
+                    sb.AppendLine(line.Length == 0 ? "" : $"    {line.Replace("private static", "internal static")}");
+                }
+            }
+
+            sb.AppendLine($"}}");
+            sb.AppendLine($"");
+        }
+
+        for (var i = 0; i < order.Count; i++)
+        {
+            if (i > 0)
+            {
+                sb.AppendLine($"");
+            }
+
+            var group = groups[order[i]];
+
+            sb.AppendLine($"namespace {order[i]}");
+            sb.AppendLine($"{{");
+
+            for (var j = 0; j < group.Count; j++)
+            {
+                if (j > 0)
+                {
+                    sb.AppendLine($"");
+                }
+
+                sb.Append(bodies[group[j]]);
+            }
+
+            sb.AppendLine($"}}");
+        }
+
+        return sb.ToString();
+    }
+
+    // The usings sit outside the namespace, not inside it. A using written inside a namespace
+    // resolves relative to it first, so `using SkiaSharp;` inside `namespace Foo` binds to
+    // `Foo.SkiaSharp` when the consumer happens to have one — and the generated file then fails
+    // to compile, or quietly resolves the wrong types.
+    private static void AppendPreamble(StringBuilder sb, string? helperClassName)
+    {
+        sb.AppendLine("// <auto-generated />");
+        sb.AppendLine($"");
+        sb.AppendLine($"using System;");
+        sb.AppendLine($"using SkiaSharp;");
+
+        // Imported statically so call sites stay unqualified, exactly as they are when the
+        // helpers are private members of the class that uses them.
+        if (helperClassName is { })
+        {
+            sb.AppendLine($"using static {helperClassName};");
+        }
+
+        sb.AppendLine($"");
+    }
+
+    private static string BuildClass(SKPicture picture, string className, SvgCodeDeclarations? declarations, bool includeHelpers)
     {
         declarations ??= SvgCodeDeclarations.Empty;
 
@@ -44,13 +222,6 @@ public static class SkiaCSharpCodeGen
 
         var sb = new StringBuilder();
 
-        sb.AppendLine("// <auto-generated />");
-        sb.AppendLine($"");
-        sb.AppendLine($"namespace {namespaceName}");
-        sb.AppendLine($"{{");
-        sb.AppendLine($"    using System;");
-        sb.AppendLine($"    using SkiaSharp;");
-        sb.AppendLine($"");
         sb.AppendLine($"    public static class {className}");
         sb.AppendLine($"    {{");
 
@@ -108,17 +279,19 @@ public static class SkiaCSharpCodeGen
 
         // Scan everything emitted so far, not just the picture body: helpers are just as likely
         // to be referenced from a let or a parameter default.
-        foreach (var helper in RequiredHelpers(sb.ToString()))
+        if (includeHelpers)
         {
-            sb.AppendLine($"");
-            foreach (var line in helper)
+            foreach (var helper in RequiredHelpers(sb.ToString()))
             {
-                sb.AppendLine(line.Length == 0 ? "" : $"        {line}");
+                sb.AppendLine($"");
+                foreach (var line in helper)
+                {
+                    sb.AppendLine(line.Length == 0 ? "" : $"        {line}");
+                }
             }
         }
 
         sb.AppendLine($"    }}");
-        sb.AppendLine($"}}");
 
         return sb.ToString();
     }

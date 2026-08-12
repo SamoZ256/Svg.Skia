@@ -33,10 +33,11 @@ class Program
             return;
         }
 
-        // A faulty recipe is the same kind of thing: a diagnostic about the input files.
-        if (ex is SvgRecipeException recipe)
+        // A faulty recipe is the same kind of thing: a diagnostic about the input files. So is a
+        // bad option value, which is a mistake in the command line rather than a fault in svgc.
+        if (ex is SvgRecipeException or ArgumentException)
         {
-            Log($"error: {recipe.Message}");
+            Log($"error: {ex.Message}");
             return;
         }
 
@@ -48,13 +49,13 @@ class Program
         }
     }
 
-    static void Generate(
+    /// <summary>Reads a drawing through the recipe, if any, and builds its model.</summary>
+    static SkiaCSharpDrawing? Build(
         string inputPath,
-        string outputPath,
-        string namespaceName = "Svg",
-        string className = "Generated",
-        string? recipePath = null,
-        string? emitSvgPath = null)
+        string namespaceName,
+        string className,
+        string? recipePath,
+        string? emitSvgPath)
     {
         var svg = System.IO.File.ReadAllText(inputPath);
 
@@ -64,16 +65,74 @@ class Program
         }
 
         var svgDocument = Svg.Model.Services.SvgService.FromSvg(svg);
-        if (svgDocument is { })
+        if (svgDocument is null)
         {
-            var picture = SvgSceneRuntime.CreateModel(svgDocument, AssetLoader);
-            if (picture is { } && picture.Commands is { })
-            {
-                var declarations = SvgCodeDeclarations.Parse(svg);
-                var text = SkiaCSharpCodeGen.Generate(picture, namespaceName, className, declarations);
-                System.IO.File.WriteAllText(outputPath, text);
-            }
+            return null;
         }
+
+        var picture = SvgSceneRuntime.CreateModel(svgDocument, AssetLoader);
+        if (picture is null || picture.Commands is null)
+        {
+            return null;
+        }
+
+        return new SkiaCSharpDrawing(picture, namespaceName, className, SvgCodeDeclarations.Parse(svg));
+    }
+
+    static void Generate(
+        string inputPath,
+        string outputPath,
+        string namespaceName = "Svg",
+        string className = "Generated",
+        string? recipePath = null,
+        string? emitSvgPath = null)
+    {
+        if (Build(inputPath, namespaceName, className, recipePath, emitSvgPath) is { } drawing)
+        {
+            var text = SkiaCSharpCodeGen.Generate(
+                drawing.Picture,
+                drawing.NamespaceName,
+                drawing.ClassName,
+                drawing.Declarations);
+
+            System.IO.File.WriteAllText(outputPath, text);
+        }
+    }
+
+    static SvgHelperScope ParseHelperScope(string? value) => value?.ToLowerInvariant() switch
+    {
+        null or "" or "file" => SvgHelperScope.FileLocal,
+        "internal" => SvgHelperScope.Internal,
+        "perclass" => SvgHelperScope.PerClass,
+        _ => throw new ArgumentException($"'{value}' is not a helper scope. Expected file, internal or perClass.")
+    };
+
+    /// <summary>
+    /// An internal helper class sits in the global namespace, so two single-file outputs in one
+    /// assembly would collide on the name. Deriving it from the output file keeps them apart.
+    /// A file scoped one is invisible outside its file and needs no such thing.
+    /// </summary>
+    static string HelperClassNameFor(SvgHelperScope scope, string outputPath)
+    {
+        if (scope != SvgHelperScope.Internal)
+        {
+            return SkiaCSharpCodeGen.DefaultHelperClassName;
+        }
+
+        var stem = System.IO.Path.GetFileNameWithoutExtension(outputPath) ?? string.Empty;
+        var identifier = new System.Text.StringBuilder();
+
+        foreach (var c in stem)
+        {
+            identifier.Append(c == '_' || char.IsLetterOrDigit(c) ? c : '_');
+        }
+
+        if (identifier.Length == 0 || char.IsDigit(identifier[0]))
+        {
+            identifier.Insert(0, '_');
+        }
+
+        return identifier + "_" + SkiaCSharpCodeGen.DefaultHelperClassName;
     }
 
     // Rewrites a plain drawing into the expression format before it is generated from, so one
@@ -144,6 +203,20 @@ class Program
         };
         rootCommand.AddOption(optionEmitSvg);
 
+        var optionSingleFile = new Option(new[] { "--singleFile" }, "Emit every drawing of the json batch into one C# file at this path")
+        {
+            IsRequired = false,
+            Argument = new Argument<System.IO.FileInfo?>(getDefaultValue: () => null)
+        };
+        rootCommand.AddOption(optionSingleFile);
+
+        var optionHelperScope = new Option(new[] { "--helperScope" }, "Where shared helpers go in a single file: file (C# 11), internal, or perClass")
+        {
+            IsRequired = false,
+            Argument = new Argument<string>(getDefaultValue: () => "file")
+        };
+        rootCommand.AddOption(optionHelperScope);
+
         var optionNamespace = new Option(new[] { "--namespace", "-n" }, "The generated C# namespace name")
         {
             IsRequired = false,
@@ -170,7 +243,45 @@ class Program
                         ReadCommentHandling = JsonCommentHandling.Skip
                     };
                     var items = JsonSerializer.Deserialize<Item[]>(json, options);
-                    if (items is { })
+                    if (items is { } && settings.SingleFile is { } singleFile)
+                    {
+                        var scope = ParseHelperScope(settings.HelperScope);
+                        var drawings = new System.Collections.Generic.List<SkiaCSharpDrawing>();
+
+                        // OutputFile is ignored here rather than rejected, so the same batch file
+                        // works in both modes.
+                        foreach (var item in items)
+                        {
+                            if (item.InputFile is null)
+                            {
+                                continue;
+                            }
+
+                            Log($"Reading: {item.InputFile}");
+
+                            var drawing = Build(
+                                item.InputFile,
+                                item.Namespace ?? settings.Namespace,
+                                item.Class ?? settings.Class,
+                                item.Recipe ?? settings.RecipeFile?.FullName,
+                                item.EmitSvg);
+
+                            if (drawing is { })
+                            {
+                                drawings.Add(drawing);
+                            }
+                        }
+
+                        Log($"Generating: {singleFile.FullName}");
+
+                        var text = SkiaCSharpCodeGen.GenerateFile(
+                            drawings,
+                            scope,
+                            HelperClassNameFor(scope, singleFile.FullName));
+
+                        System.IO.File.WriteAllText(singleFile.FullName, text);
+                    }
+                    else if (items is { })
                     {
                         foreach (var item in items)
                         {
