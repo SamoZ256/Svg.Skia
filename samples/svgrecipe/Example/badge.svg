@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="badge" gradientUnits="userSpaceOnUse" x1="24" y1="24" x2="232" y2="232">
+      <stop offset="0%" stop-color="#3B82F6" />
+      <stop offset="100%" stop-color="rgb(30, 64, 175)" />
+    </linearGradient>
+  </defs>
+
+  <rect x="16" y="16" width="224" height="224" rx="52" fill="url(#badge)" />
+  <circle cx="128" cy="128" r="86" fill="none" stroke="#3b82f6" stroke-width="5" />
+  <path d="M 96 84 L 150 128 L 96 172 Z" style="fill:#3b82f6;stroke:red;stroke-width:2" />
+  <path d="M 140 84 L 194 128 L 140 172 Z" fill="#1e40af" />
+  <circle cx="128" cy="212" r="10" fill="red" />
+</svg>

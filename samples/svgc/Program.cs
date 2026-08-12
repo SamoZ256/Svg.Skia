@@ -5,6 +5,7 @@ using System.CommandLine.Invocation;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Svg.CodeGen.Skia;
+using Svg.Expressions.Recipes;
 using Svg.Skia;
 
 namespace svgc;
@@ -32,6 +33,13 @@ class Program
             return;
         }
 
+        // A faulty recipe is the same kind of thing: a diagnostic about the input files.
+        if (ex is SvgRecipeException recipe)
+        {
+            Log($"error: {recipe.Message}");
+            return;
+        }
+
         Log($"{ex.Message}");
         Log($"{ex.StackTrace}");
         if (ex.InnerException is { })
@@ -40,9 +48,21 @@ class Program
         }
     }
 
-    static void Generate(string inputPath, string outputPath, string namespaceName = "Svg", string className = "Generated")
+    static void Generate(
+        string inputPath,
+        string outputPath,
+        string namespaceName = "Svg",
+        string className = "Generated",
+        string? recipePath = null,
+        string? emitSvgPath = null)
     {
         var svg = System.IO.File.ReadAllText(inputPath);
+
+        if (recipePath is { })
+        {
+            svg = ApplyRecipe(svg, recipePath, emitSvgPath);
+        }
+
         var svgDocument = Svg.Model.Services.SvgService.FromSvg(svg);
         if (svgDocument is { })
         {
@@ -54,6 +74,32 @@ class Program
                 System.IO.File.WriteAllText(outputPath, text);
             }
         }
+    }
+
+    // Rewrites a plain drawing into the expression format before it is generated from, so one
+    // recipe can parameterise a whole icon set through the json batch mode.
+    static string ApplyRecipe(string svg, string recipePath, string? emitSvgPath)
+    {
+        var result = SvgRecipeRewriter.Apply(svg, SvgRecipe.Load(recipePath));
+
+        foreach (var match in result.Matches)
+        {
+            Log($"  {match.Rule.ColorText} -> {{{{ {match.Rule.Expression} }}}} ({match.Count})");
+        }
+
+        // Not an error: the same recipe usually covers a family of drawings, and not every
+        // drawing uses every colour.
+        foreach (var rule in result.UnmatchedRules)
+        {
+            Log($"warning: nothing in {System.IO.Path.GetFileName(recipePath)} matched '{rule.ColorText}'.");
+        }
+
+        if (emitSvgPath is { })
+        {
+            System.IO.File.WriteAllText(emitSvgPath, result.Svg);
+        }
+
+        return result.Svg;
     }
 
     static async Task<int> Main(string[] args)
@@ -83,6 +129,20 @@ class Program
             Argument = new Argument<System.IO.FileInfo?>(getDefaultValue: () => null)
         };
         rootCommand.AddOption(optionJsonFile);
+
+        var optionRecipeFile = new Option(new[] { "--recipeFile", "-r" }, "The relative or absolute path to a recipe applied to the input before generating")
+        {
+            IsRequired = false,
+            Argument = new Argument<System.IO.FileInfo?>(getDefaultValue: () => null)
+        };
+        rootCommand.AddOption(optionRecipeFile);
+
+        var optionEmitSvg = new Option(new[] { "--emitSvg" }, "Also write the converted svg, for inspecting what the recipe produced")
+        {
+            IsRequired = false,
+            Argument = new Argument<System.IO.FileInfo?>(getDefaultValue: () => null)
+        };
+        rootCommand.AddOption(optionEmitSvg);
 
         var optionNamespace = new Option(new[] { "--namespace", "-n" }, "The generated C# namespace name")
         {
@@ -117,7 +177,15 @@ class Program
                             if (item.InputFile is { } && item.OutputFile is { })
                             {
                                 Log($"Generating: {item.OutputFile}");
-                                Generate(item.InputFile, item.OutputFile, item.Namespace ?? settings.Namespace, item.Class ?? settings.Class);
+                                Generate(
+                                    item.InputFile,
+                                    item.OutputFile,
+                                    item.Namespace ?? settings.Namespace,
+                                    item.Class ?? settings.Class,
+                                    // One recipe usually covers the whole set, so the item only
+                                    // has to name its own when it differs.
+                                    item.Recipe ?? settings.RecipeFile?.FullName,
+                                    item.EmitSvg);
                             }
                         }
                     }
@@ -126,7 +194,13 @@ class Program
                 if (settings.InputFile is { } && settings.OutputFile is { })
                 {
                     Log($"Generating: {settings.OutputFile.FullName}");
-                    Generate(settings.InputFile.FullName, settings.OutputFile.FullName, settings.Namespace, settings.Class);
+                    Generate(
+                        settings.InputFile.FullName,
+                        settings.OutputFile.FullName,
+                        settings.Namespace,
+                        settings.Class,
+                        settings.RecipeFile?.FullName,
+                        settings.EmitSvg?.FullName);
                 }
             }
             catch (Exception ex)

@@ -179,17 +179,25 @@ public sealed class SvgCodeDeclarations
         return (compiler, compiled);
     }
 
-    /// <summary>Compiles a parameter default, or returns the language's zero value for the type.</summary>
-    public string DefaultCodeFor(SvgCodeParameter parameter)
+    /// <summary>
+    /// Compiles a parameter default, or returns null when the author declared none — in which
+    /// case the generated parameter is required rather than carrying an invented value.
+    /// </summary>
+    public string? DefaultCodeFor(SvgCodeParameter parameter)
     {
         if (parameter.DefaultExpression is null)
         {
-            return parameter.Type switch
-            {
-                ExprType.Number => "0f",
-                ExprType.Color => "new SKColor(0, 0, 0, 255)",
-                _ => "false"
-            };
+            return null;
+        }
+
+        // A colour cannot be a C# argument default: `new SKColor(...)` is not a compile time
+        // constant, and emitting it produces a class that does not build (CS1736). This is the
+        // same limit that stops a default referencing another parameter.
+        if (parameter.Type == ExprType.Color)
+        {
+            throw new ExprException(
+                $"The default for '{parameter.Name}' cannot be used: a colour is not a compile-time constant in C#. Drop the default and pass the value at the call site.",
+                0);
         }
 
         // Defaults may not reference other parameters: argument defaults are compile time
