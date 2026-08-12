@@ -24,6 +24,14 @@ generator:
 dotnet run --project samples/svgc -- -i badge.expr.svg -o Badge.cs -n Demo -c Badge
 ```
 
+`svgc` also takes `-r` directly, so this tool is only needed when the converted document is the
+thing you want — to check it in, to inspect it, or to feed the source generator, which has no
+recipe option of its own:
+
+```sh
+dotnet run --project samples/svgc -- -i badge.svg -r badge.recipe -o Badge.cs -n Demo -c Badge
+```
+
 | Option | |
 |---|---|
 | `-i`, `--inputFile` | The plain SVG to convert. |

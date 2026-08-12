@@ -141,7 +141,9 @@ Two invariants hold the design together:
 `src/Svg.Expressions.Recipes` converts a finished SVG into that format from a recipe file
 (`samples/svgrecipe` is the CLI). It is a source-to-source rewriter and knows nothing about the
 expression language — the recipe's `<code>` block is copied verbatim, and the code generator
-remains the only type checker.
+remains the only type checker. `svgc` takes the same recipe with `-r`, including in its
+`--jsonFile` batch mode; the source generator has no equivalent, so generator-driven projects
+convert ahead of time and check in the result.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.

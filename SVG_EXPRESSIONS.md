@@ -414,6 +414,31 @@ The output is an ordinary document in the format above, so it feeds `svgc` or th
 generator unchanged. The conversion lives in `src/Svg.Expressions.Recipes`; the CLI is a wrapper
 around `SvgRecipe.Parse` and `SvgRecipeRewriter.Apply`.
 
+`svgc` takes the same `-r`, applying the recipe to its input before generating, so the two stages
+need not be separate commands:
+
+```sh
+svgc -i badge.svg -r badge.recipe -o Badge.cs -n Icons -c Badge
+svgc -i badge.svg -r badge.recipe -o Badge.cs --emitSvg badge.expr.svg   # keep the intermediate
+```
+
+Its `--jsonFile` batch mode carries recipes too, which is how one recipe covers a whole icon set.
+An item names its own `Recipe` only where it differs from the one given on the command line, and
+`EmitSvg` where the intermediate is worth keeping:
+
+```json
+[ { "InputFile": "home.svg",   "OutputFile": "Home.cs",   "Class": "Home" },
+  { "InputFile": "search.svg", "OutputFile": "Search.cs", "Class": "Search" } ]
+```
+
+```sh
+svgc -j icons.json -r icons.recipe -n Icons
+```
+
+The source generator has no equivalent: `AdditionalFiles` metadata carries `NamespaceName` and
+`ClassName` but no recipe, so a generator-driven project converts with `svgrecipe` first and
+checks in the converted document.
+
 `samples/SvgRecipeDemo` runs the same chain as a live editor — recipe, converted SVG, generated
 C# and the drawing, all updating as the recipe is typed. It also has a `--render <dir>` mode that
 writes PNGs without opening a window.
