@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>False</IsPackable>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The premade drawing and the recipe that parameterises it, loaded at startup. -->
+    <Content Include="Svg/demo.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Recipe/demo.recipe" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The last two stages of the pipeline are exactly what SvgExpressionsDemo already runs, so
+         its compiler is linked rather than copied. Editing it there changes both demos. -->
+    <Compile Include="..\SvgExpressionsDemo\LiveCompiler.cs">
+      <Link>LiveCompiler.cs</Link>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The demo runs the generator pipeline at runtime and compiles its output. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="none" />
+  </ItemGroup>
+
+  <Import Project="..\..\build\Avalonia.props" />
+  <Import Project="..\..\build\Avalonia.Themes.Fluent.props" />
+  <Import Project="..\..\build\Avalonia.Desktop.props" />
+  <Import Project="..\..\build\SkiaSharp.props" />
+  <Import Project="..\..\build\SkiaSharp.Native.props" />
+  <Import Project="..\..\build\SkiaSharp.Avalonia.props" />
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Skia.Controls.Avalonia\Skia.Controls.Avalonia.csproj" />
+    <ProjectReference Include="..\..\src\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" />
+    <ProjectReference Include="..\..\src\Svg.Expressions.Recipes\Svg.Expressions.Recipes.csproj" />
+    <ProjectReference Include="..\..\src\Svg.Skia\Svg.Skia.csproj" />
+  </ItemGroup>
+
+</Project>

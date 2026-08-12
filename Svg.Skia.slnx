@@ -68,6 +68,7 @@
     <Project Path="samples/svgrecipe/svgrecipe.csproj" />
     <Project Path="samples/SvgML.Uno.Demo/SvgML.Uno.Demo.csproj" />
     <Project Path="samples/SvgExpressionsDemo/SvgExpressionsDemo.csproj" />
+    <Project Path="samples/SvgRecipeDemo/SvgRecipeDemo.csproj" />
     <Project Path="samples/SvgToPng/SvgToPng.csproj" />
     <Project Path="samples/TestApp.Shared/TestApp.Shared.csproj" />
     <Project Path="samples/TestApp/TestApp.csproj" />

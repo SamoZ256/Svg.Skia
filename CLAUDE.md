@@ -139,6 +139,8 @@ remains the only type checker.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.
+`samples/SvgRecipeDemo` does the same for the recipe path and links that demo's `LiveCompiler.cs`
+by file rather than duplicating it, so an edit there changes both.
 
 ## Conventions
 

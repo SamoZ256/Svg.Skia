@@ -1,0 +1,106 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:skia="clr-namespace:Avalonia.Controls.Skia;assembly=Skia.Controls.Avalonia"
+        x:Class="SvgRecipeDemo.MainWindow"
+        Title="SVG recipe — live"
+        Width="1440" Height="860"
+        MinWidth="1000" MinHeight="620">
+
+  <Grid ColumnDefinitions="*,6,*,6,1.1*" Margin="12">
+
+    <!-- what you edit: the recipe, and the drawing it is applied to -->
+    <Grid Grid.Column="0" RowDefinitions="Auto,3*,Auto,2*">
+
+      <TextBlock Grid.Row="0" Text="Recipe" FontWeight="SemiBold" Margin="0,0,0,4" />
+
+      <Border Grid.Row="1" BorderThickness="1" BorderBrush="#40808080" CornerRadius="4">
+        <TextBox x:Name="RecipeEditor"
+                 AcceptsReturn="True" AcceptsTab="True"
+                 TextWrapping="NoWrap"
+                 FontFamily="monospace" FontSize="12"
+                 BorderThickness="0"
+                 VerticalContentAlignment="Top" />
+      </Border>
+
+      <TextBlock Grid.Row="2" Text="Premade SVG" FontWeight="SemiBold" Margin="0,10,0,4" />
+
+      <Border Grid.Row="3" BorderThickness="1" BorderBrush="#40808080" CornerRadius="4">
+        <TextBox x:Name="SvgEditor"
+                 AcceptsReturn="True" AcceptsTab="True"
+                 TextWrapping="NoWrap"
+                 FontFamily="monospace" FontSize="11"
+                 BorderThickness="0"
+                 VerticalContentAlignment="Top" />
+      </Border>
+
+    </Grid>
+
+    <GridSplitter Grid.Column="1" ResizeDirection="Columns" Background="Transparent" />
+
+    <!-- what the pipeline produces, stage by stage -->
+    <Grid Grid.Column="2" RowDefinitions="Auto,2*,Auto,3*">
+
+      <TextBlock Grid.Row="0" Text="Converted SVG" FontWeight="SemiBold" Margin="0,0,0,4" />
+
+      <Border Grid.Row="1" BorderThickness="1" BorderBrush="#40808080" CornerRadius="4">
+        <TextBox x:Name="ConvertedView"
+                 IsReadOnly="True"
+                 AcceptsReturn="True"
+                 TextWrapping="NoWrap"
+                 FontFamily="monospace" FontSize="11"
+                 BorderThickness="0"
+                 VerticalContentAlignment="Top" />
+      </Border>
+
+      <TextBlock Grid.Row="2" Text="Generated C#" FontWeight="SemiBold" Margin="0,10,0,4" />
+
+      <Border Grid.Row="3" BorderThickness="1" BorderBrush="#40808080" CornerRadius="4">
+        <TextBox x:Name="GeneratedView"
+                 IsReadOnly="True"
+                 AcceptsReturn="True"
+                 TextWrapping="NoWrap"
+                 FontFamily="monospace" FontSize="11"
+                 BorderThickness="0"
+                 VerticalContentAlignment="Top" />
+      </Border>
+
+    </Grid>
+
+    <GridSplitter Grid.Column="3" ResizeDirection="Columns" Background="Transparent" />
+
+    <!-- what it draws, and the parameters it draws with -->
+    <Grid Grid.Column="4" RowDefinitions="*,Auto,Auto">
+
+      <Border Grid.Row="0" CornerRadius="6" ClipToBounds="True" Background="#1A1A1E">
+        <skia:SKCanvasControl x:Name="Canvas" ClipToBounds="True" />
+      </Border>
+
+      <StackPanel Grid.Row="1" Spacing="8" Margin="0,10,0,0">
+
+        <TextBlock x:Name="StatusText" VerticalAlignment="Center" Opacity="0.65" />
+
+        <!-- what each replace rule claimed, rebuilt on every run -->
+        <SelectableTextBlock x:Name="MatchText"
+                             FontFamily="monospace" FontSize="11"
+                             TextWrapping="Wrap"
+                             Opacity="0.8" />
+
+        <!-- one control per declared parameter, rebuilt whenever the declarations change -->
+        <StackPanel x:Name="ParameterPanel" Spacing="6" />
+
+      </StackPanel>
+
+      <Border Grid.Row="2" x:Name="ErrorPanel"
+              IsVisible="False"
+              Margin="0,10,0,0" Padding="10"
+              CornerRadius="4"
+              Background="#33FF5555" BorderBrush="#88FF5555" BorderThickness="1">
+        <SelectableTextBlock x:Name="ErrorText"
+                             FontFamily="monospace" FontSize="11"
+                             TextWrapping="Wrap" />
+      </Border>
+
+    </Grid>
+
+  </Grid>
+</Window>

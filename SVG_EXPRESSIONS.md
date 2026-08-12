@@ -396,6 +396,10 @@ The output is an ordinary document in the format above, so it feeds `svgc` or th
 generator unchanged. The conversion lives in `src/Svg.Expressions.Recipes`; the CLI is a wrapper
 around `SvgRecipe.Parse` and `SvgRecipeRewriter.Apply`.
 
+`samples/SvgRecipeDemo` runs the same chain as a live editor — recipe, converted SVG, generated
+C# and the drawing, all updating as the recipe is typed. It also has a `--render <dir>` mode that
+writes PNGs without opening a window.
+
 ### 9.1 The recipe file
 
 The recipe is written in the extension's own namespace, so the `<code>` block is exactly the
