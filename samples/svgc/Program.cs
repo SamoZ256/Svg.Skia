@@ -85,7 +85,8 @@ class Program
         string namespaceName = "Svg",
         string className = "Generated",
         string? recipePath = null,
-        string? emitSvgPath = null)
+        string? emitSvgPath = null,
+        bool cacheLastValue = false)
     {
         if (Build(inputPath, namespaceName, className, recipePath, emitSvgPath) is { } drawing)
         {
@@ -93,7 +94,8 @@ class Program
                 drawing.Picture,
                 drawing.NamespaceName,
                 drawing.ClassName,
-                drawing.Declarations);
+                drawing.Declarations,
+                cacheLastValue);
 
             System.IO.File.WriteAllText(outputPath, text);
         }
@@ -105,6 +107,13 @@ class Program
         "internal" => SvgHelperScope.Internal,
         "perclass" => SvgHelperScope.PerClass,
         _ => throw new ArgumentException($"'{value}' is not a helper scope. Expected file, internal or perClass.")
+    };
+
+    static bool ParseCache(string? value) => value?.ToLowerInvariant() switch
+    {
+        null or "" or "none" => false,
+        "lastvalue" => true,
+        _ => throw new ArgumentException($"'{value}' is not a cache mode. Expected none or lastValue.")
     };
 
     /// <summary>
@@ -217,6 +226,13 @@ class Program
         };
         rootCommand.AddOption(optionHelperScope);
 
+        var optionCache = new Option(new[] { "--cache" }, "Keep the last picture Draw built and reuse it while the arguments are unchanged: none or lastValue")
+        {
+            IsRequired = false,
+            Argument = new Argument<string>(getDefaultValue: () => "none")
+        };
+        rootCommand.AddOption(optionCache);
+
         var optionNamespace = new Option(new[] { "--namespace", "-n" }, "The generated C# namespace name")
         {
             IsRequired = false,
@@ -246,6 +262,7 @@ class Program
                     if (items is { } && settings.SingleFile is { } singleFile)
                     {
                         var scope = ParseHelperScope(settings.HelperScope);
+                        var cache = ParseCache(settings.Cache);
                         var drawings = new System.Collections.Generic.List<SkiaCSharpDrawing>();
 
                         // OutputFile is ignored here rather than rejected, so the same batch file
@@ -277,7 +294,8 @@ class Program
                         var text = SkiaCSharpCodeGen.GenerateFile(
                             drawings,
                             scope,
-                            HelperClassNameFor(scope, singleFile.FullName));
+                            HelperClassNameFor(scope, singleFile.FullName),
+                            cache);
 
                         System.IO.File.WriteAllText(singleFile.FullName, text);
                     }
@@ -296,7 +314,8 @@ class Program
                                     // One recipe usually covers the whole set, so the item only
                                     // has to name its own when it differs.
                                     item.Recipe ?? settings.RecipeFile?.FullName,
-                                    item.EmitSvg);
+                                    item.EmitSvg,
+                                    ParseCache(settings.Cache));
                             }
                         }
                     }
@@ -311,7 +330,8 @@ class Program
                         settings.Namespace,
                         settings.Class,
                         settings.RecipeFile?.FullName,
-                        settings.EmitSvg?.FullName);
+                        settings.EmitSvg?.FullName,
+                        ParseCache(settings.Cache));
                 }
             }
             catch (Exception ex)

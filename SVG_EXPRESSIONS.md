@@ -324,9 +324,9 @@ Small `private static` helpers (`SvgHsl`, `SvgMix`, `SvgScaleAlpha`, `SvgToColor
 emitted into the class **only when used**. Multi-argument colour operations are emitted as calls
 rather than inline arithmetic so each operand is evaluated exactly once.
 
-> **Cost.** `Record()` allocates and records a **new `SKPicture` on every call**. For an
-> animation loop over a large drawing, prefer recording once and varying paints, or cache by
-> argument value. `Draw` disposes the picture it builds; what `Record` returns, the caller owns.
+> **Cost.** `Record()` allocates and records a **new `SKPicture` on every call**. `Draw` disposes
+> the picture it builds; what `Record` returns, the caller owns. See [§5.2](#52-reusing-the-last-picture)
+> for the opt-in cache.
 
 The `using` directives sit **outside** the namespace. A using written inside one resolves relative
 to it first, so `using SkiaSharp;` inside `namespace Icons` would bind to a consumer's
@@ -375,6 +375,51 @@ SDK — `netstandard2.1` defaults to C# 8 and rejects it until the project sets
 
 Single-drawing output is unaffected by all of this: helpers stay private members of the one class
 that uses them.
+
+### 5.2 Reusing the last picture
+
+`svgc --cache lastValue` makes `Draw` keep the picture it built and reuse it while the arguments
+are unchanged:
+
+```csharp
+private static readonly object s_cacheLock = new object();
+private static SKPicture s_cachedPicture;
+private static float s_arg_h;
+
+public static void Draw(SKCanvas skCanvas, float h)
+{
+    lock (s_cacheLock)
+    {
+        if (s_cachedPicture is null
+            || s_arg_h != h)
+        {
+            s_cachedPicture?.Dispose();
+            s_cachedPicture = Record(h);
+            s_arg_h = h;
+        }
+
+        skCanvas.DrawPicture(s_cachedPicture);
+    }
+}
+```
+
+Measured on a 24×24 icon: **3.1 µs on a hit against 9.2 µs on a miss**, and no allocation on the
+hit. One entry rather than a dictionary, which fits how these are used — a hover or a theme flip
+moves the arguments, drawing happens every frame — and degrades gracefully, since a miss costs one
+comparison per parameter against the cost of recording.
+
+It is **off by default**. It turns `Draw` from stateless into stateful and holds one picture per
+class for the life of the process, which is not a trade to make on a consumer's behalf. About
+2 KB per drawing, so a few hundred of them are single-digit megabytes.
+
+- `Record` is untouched — it still returns a picture the caller owns. The cache lives only in
+  `Draw`, where the picture cannot escape and can therefore be disposed when it is replaced.
+- The draw stays **inside** the lock. Releasing it earlier would let another thread replace and
+  dispose the picture midway through playback.
+- A parameterless document is skipped: it already caches better, in the static constructor, with
+  no comparison at all.
+- A `float` argument of `NaN` never equals itself, so it misses every time. That costs a
+  re-record and nothing else.
 
 ---
 

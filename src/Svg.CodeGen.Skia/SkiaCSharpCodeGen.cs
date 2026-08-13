@@ -50,10 +50,23 @@ public static class SkiaCSharpCodeGen
 {
     public const string DefaultHelperClassName = "SvgExpressionHelpers";
 
+    private const string CacheLockField = "s_cacheLock";
+
+    private const string CachedPictureField = "s_cachedPicture";
+
+    // Every remembered argument shares this prefix, so none of them can collide with the two
+    // fields above however the parameter is named.
+    private static string ArgumentField(string parameterName) => "s_arg_" + parameterName;
+
     public static string Generate(SKPicture picture, string namespaceName, string className)
         => Generate(picture, namespaceName, className, SvgCodeDeclarations.Empty);
 
-    public static string Generate(SKPicture picture, string namespaceName, string className, SvgCodeDeclarations? declarations)
+    public static string Generate(
+        SKPicture picture,
+        string namespaceName,
+        string className,
+        SvgCodeDeclarations? declarations,
+        bool cacheLastValue = false)
     {
         var sb = new StringBuilder();
 
@@ -61,7 +74,7 @@ public static class SkiaCSharpCodeGen
 
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine($"{{");
-        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true));
+        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cacheLastValue));
         sb.AppendLine($"}}");
 
         return sb.ToString();
@@ -78,7 +91,8 @@ public static class SkiaCSharpCodeGen
     public static string GenerateFile(
         IReadOnlyList<SkiaCSharpDrawing> drawings,
         SvgHelperScope scope = SvgHelperScope.FileLocal,
-        string helperClassName = DefaultHelperClassName)
+        string helperClassName = DefaultHelperClassName,
+        bool cacheLastValue = false)
     {
         var shared = scope != SvgHelperScope.PerClass;
 
@@ -109,7 +123,7 @@ public static class SkiaCSharpCodeGen
 
         var bodies = drawings.ToDictionary(
             drawing => drawing,
-            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared));
+            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cacheLastValue));
 
         // Which helpers are needed is decided across every class at once, so each appears once.
         var helpers = shared
@@ -193,7 +207,12 @@ public static class SkiaCSharpCodeGen
         sb.AppendLine($"");
     }
 
-    private static string BuildClass(SKPicture picture, string className, SvgCodeDeclarations? declarations, bool includeHelpers)
+    private static string BuildClass(
+        SKPicture picture,
+        string className,
+        SvgCodeDeclarations? declarations,
+        bool includeHelpers,
+        bool cacheLastValue)
     {
         declarations ??= SvgCodeDeclarations.Empty;
 
@@ -220,10 +239,29 @@ public static class SkiaCSharpCodeGen
         var parameterList = BuildParameterList(parameters, declarations);
         var argumentList = string.Join(", ", parameters.Select(p => p.Name));
 
+        // A document with no parameters already caches better than this: one picture built in
+        // the static constructor, drawn with no comparison at all.
+        var cached = cacheLastValue && isParameterized;
+
         var sb = new StringBuilder();
 
         sb.AppendLine($"    public static class {className}");
         sb.AppendLine($"    {{");
+
+        if (cached)
+        {
+            sb.AppendLine($"        private static readonly object {CacheLockField} = new object();");
+            sb.AppendLine($"");
+            sb.AppendLine($"        private static SKPicture {CachedPictureField};");
+            sb.AppendLine($"");
+
+            foreach (var parameter in parameters)
+            {
+                sb.AppendLine($"        private static {ExprCompiler.CSharpTypeOf(parameter.Type)} {ArgumentField(parameter.Name)};");
+            }
+
+            sb.AppendLine($"");
+        }
 
         // A picture built from parameters cannot be cached in a static field, so the
         // parameterless shape is kept exactly as it was for documents without declarations.
@@ -256,7 +294,47 @@ public static class SkiaCSharpCodeGen
         sb.AppendLine($"        }}");
         sb.AppendLine($"");
 
-        if (isParameterized)
+        if (cached)
+        {
+            // Kept until an argument changes, which is the usual pattern: a hover or a theme flip
+            // moves them, drawing happens every frame. A miss costs one comparison per parameter
+            // against the cost of recording, so a value that changes constantly loses nothing.
+            sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName}, {parameterList})");
+            sb.AppendLine($"        {{");
+
+            // The draw stays inside the lock: releasing it earlier would let another thread
+            // replace and dispose the picture midway through playback.
+            sb.AppendLine($"            lock ({CacheLockField})");
+            sb.AppendLine($"            {{");
+            // A float argument of NaN never equals itself, so it misses every time. That costs a
+            // re-record and nothing else.
+            var tests = new List<string> { $"{CachedPictureField} is null" };
+            tests.AddRange(parameters.Select(p => $"|| {ArgumentField(p.Name)} != {p.Name}"));
+
+            for (var i = 0; i < tests.Count; i++)
+            {
+                var open = i == 0 ? "if (" : "    ";
+                var close = i == tests.Count - 1 ? ")" : string.Empty;
+
+                sb.AppendLine($"                {open}{tests[i]}{close}");
+            }
+
+            sb.AppendLine($"                {{");
+            sb.AppendLine($"                    {CachedPictureField}?.Dispose();");
+            sb.AppendLine($"                    {CachedPictureField} = Record({argumentList});");
+
+            foreach (var parameter in parameters)
+            {
+                sb.AppendLine($"                    {ArgumentField(parameter.Name)} = {parameter.Name};");
+            }
+
+            sb.AppendLine($"                }}");
+            sb.AppendLine($"");
+            sb.AppendLine($"                {counter.CanvasVarName}.DrawPicture({CachedPictureField});");
+            sb.AppendLine($"            }}");
+            sb.AppendLine($"        }}");
+        }
+        else if (isParameterized)
         {
             // The picture is built for this one call and cannot escape, so Draw owns it.
             // Disposing releases the native memory at a known point instead of leaving it to a
