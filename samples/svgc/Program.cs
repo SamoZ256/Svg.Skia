@@ -54,14 +54,13 @@ class Program
         string inputPath,
         string namespaceName,
         string className,
-        string? recipePath,
-        string? emitSvgPath)
+        string? recipePath)
     {
         var svg = System.IO.File.ReadAllText(inputPath);
 
         if (recipePath is { })
         {
-            svg = ApplyRecipe(svg, recipePath, emitSvgPath);
+            svg = ApplyRecipe(svg, recipePath);
         }
 
         var svgDocument = Svg.Model.Services.SvgService.FromSvg(svg);
@@ -85,10 +84,9 @@ class Program
         string namespaceName = "Svg",
         string className = "Generated",
         string? recipePath = null,
-        string? emitSvgPath = null,
         SvgPictureCache cache = SvgPictureCache.None)
     {
-        if (Build(inputPath, namespaceName, className, recipePath, emitSvgPath) is { } drawing)
+        if (Build(inputPath, namespaceName, className, recipePath) is { } drawing)
         {
             var text = SkiaCSharpCodeGen.Generate(
                 drawing.Picture,
@@ -147,7 +145,7 @@ class Program
 
     // Rewrites a plain drawing into the expression format before it is generated from, so one
     // recipe can parameterise a whole icon set through the json batch mode.
-    static string ApplyRecipe(string svg, string recipePath, string? emitSvgPath)
+    static string ApplyRecipe(string svg, string recipePath)
     {
         var result = SvgRecipeRewriter.Apply(svg, SvgRecipe.Load(recipePath));
 
@@ -161,11 +159,6 @@ class Program
         foreach (var rule in result.UnmatchedRules)
         {
             Log($"warning: nothing in {System.IO.Path.GetFileName(recipePath)} matched '{rule.ColorText}'.");
-        }
-
-        if (emitSvgPath is { })
-        {
-            System.IO.File.WriteAllText(emitSvgPath, result.Svg);
         }
 
         return result.Svg;
@@ -206,12 +199,6 @@ class Program
         };
         rootCommand.AddOption(optionRecipeFile);
 
-        var optionEmitSvg = new Option(new[] { "--emitSvg" }, "Also write the converted svg, for inspecting what the recipe produced")
-        {
-            IsRequired = false,
-            Argument = new Argument<System.IO.FileInfo?>(getDefaultValue: () => null)
-        };
-        rootCommand.AddOption(optionEmitSvg);
 
         var optionSingleFile = new Option(new[] { "--singleFile" }, "Emit every drawing of the json batch into one C# file at this path")
         {
@@ -281,8 +268,7 @@ class Program
                                 item.InputFile,
                                 item.Namespace ?? settings.Namespace,
                                 item.Class ?? settings.Class,
-                                item.Recipe ?? settings.RecipeFile?.FullName,
-                                item.EmitSvg);
+                                item.Recipe ?? settings.RecipeFile?.FullName);
 
                             if (drawing is { })
                             {
@@ -315,7 +301,6 @@ class Program
                                     // One recipe usually covers the whole set, so the item only
                                     // has to name its own when it differs.
                                     item.Recipe ?? settings.RecipeFile?.FullName,
-                                    item.EmitSvg,
                                     ParseCache(settings.Cache));
                             }
                         }
@@ -331,7 +316,6 @@ class Program
                         settings.Namespace,
                         settings.Class,
                         settings.RecipeFile?.FullName,
-                        settings.EmitSvg?.FullName,
                         ParseCache(settings.Cache));
                 }
             }

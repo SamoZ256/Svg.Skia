@@ -519,12 +519,10 @@ need not be separate commands:
 
 ```sh
 svgc -i badge.svg -r badge.recipe -o Badge.cs -n Icons -c Badge
-svgc -i badge.svg -r badge.recipe -o Badge.cs --emitSvg badge.expr.svg   # keep the intermediate
 ```
 
 Its `--jsonFile` batch mode carries recipes too, which is how one recipe covers a whole icon set.
-An item names its own `Recipe` only where it differs from the one given on the command line, and
-`EmitSvg` where the intermediate is worth keeping:
+An item names its own `Recipe` only where it differs from the one given on the command line:
 
 ```json
 [ { "InputFile": "home.svg",   "OutputFile": "Home.cs",   "Class": "Home" },
