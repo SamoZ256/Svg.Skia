@@ -2027,7 +2027,15 @@ public partial class SkiaModel
         };
     }
 
-    public void ToSKPath(PathCommand pathCommand, SkiaSharp.SKPath skPath)
+    /// <summary>
+    /// Appends one command to a builder.
+    /// </summary>
+    /// <remarks>
+    /// Takes an <c>SKPathBuilder</c> rather than an <c>SKPath</c>: SkiaSharp 4 obsoleted every
+    /// mutating method on the latter. A caller holding a path can pass it through
+    /// <c>new SKPathBuilder(path)</c>.
+    /// </remarks>
+    public void ToSKPath(PathCommand pathCommand, SkiaSharp.SKPathBuilder skPath)
     {
         switch (pathCommand)
         {
@@ -2125,22 +2133,21 @@ public partial class SkiaModel
 
     public SkiaSharp.SKPath ToSKPath(SKPath path)
     {
-        var skPath = new SkiaSharp.SKPath
+        using var builder = new SkiaSharp.SKPathBuilder
         {
             FillType = ToSKPathFillType(path.FillType)
         };
 
-        if (path.Commands is null)
+        if (path.Commands is { })
         {
-            return skPath;
+            foreach (var pathCommand in path.Commands)
+            {
+                ToSKPath(pathCommand, builder);
+            }
         }
 
-        foreach (var pathCommand in path.Commands)
-        {
-            ToSKPath(pathCommand, skPath);
-        }
-
-        return skPath;
+        // Carries the fill type with it, so the detached path needs no further setup.
+        return builder.Detach();
     }
 
     public SKPath FromSKPath(SkiaSharp.SKPath skPath)
@@ -2584,8 +2591,9 @@ public partial class SkiaModel
                     {
                         if (wireframe)
                         {
-                            var rectPath = new SkiaSharp.SKPath();
-                            rectPath.AddRect(ToSKRect(drawImageCanvasCommand.Dest));
+                            using var rectPathBuilder = new SkiaSharp.SKPathBuilder();
+                            rectPathBuilder.AddRect(ToSKRect(drawImageCanvasCommand.Dest));
+                            using var rectPath = rectPathBuilder.Detach();
                             skCanvas.DrawPath(rectPath, ToWireframePaint(null));
                         }
                         else

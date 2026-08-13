@@ -30,11 +30,12 @@ public class RenderingService
         var pts = profile.Points.OrderBy(p => p.Offset).ToList();
         for (var i = 1; i < pts.Count; i++)
         {
-            using var seg = new SK.SKPath();
+            using var segBuilder = new SK.SKPathBuilder();
             var start = (float)pts[i - 1].Offset * length;
             var end = (float)pts[i].Offset * length;
-            if (measure.GetSegment(start, end, seg, true))
+            if (measure.GetSegment(start, end, segBuilder, true))
             {
+                using var seg = segBuilder.Detach();
                 paint.StrokeWidth = (float)((pts[i - 1].Width + pts[i].Width) / 2.0);
                 canvas.DrawPath(seg, paint);
             }
@@ -159,13 +160,14 @@ public class RenderingService
                     _toolService.CurrentTool != ToolService.Tool.PolygonSelect &&
                     _toolService.CurrentTool != ToolService.Tool.PolylineSelect)
                 {
-                    using (var path = new SK.SKPath())
+                    using (var pathBuilder = new SK.SKPathBuilder())
                     {
-                        path.MoveTo(info.TL);
-                        path.LineTo(info.TR);
-                        path.LineTo(info.BR);
-                        path.LineTo(info.BL);
-                        path.Close();
+                        pathBuilder.MoveTo(info.TL);
+                        pathBuilder.LineTo(info.TR);
+                        pathBuilder.LineTo(info.BR);
+                        pathBuilder.LineTo(info.BL);
+                        pathBuilder.Close();
+                        using var path = pathBuilder.Detach();
                         canvas.DrawPath(path, paint);
                     }
 

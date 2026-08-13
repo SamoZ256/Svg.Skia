@@ -25,12 +25,12 @@ public partial class MainWindow : Window
         BitmapControl.Bitmap = bitmap;
 
         // initialize path control
-        var path = new SKPath();
-        path.MoveTo(10, 10);
-        path.LineTo(90, 10);
-        path.LineTo(50, 90);
-        path.Close();
-        PathControl.Path = path;
+        using var pathBuilder = new SKPathBuilder();
+        pathBuilder.MoveTo(10, 10);
+        pathBuilder.LineTo(90, 10);
+        pathBuilder.LineTo(50, 90);
+        pathBuilder.Close();
+        PathControl.Path = pathBuilder.Detach();
         PathControl.Paint = new SKPaint { Color = SKColors.Green, IsAntialias = true, Style = SKPaintStyle.Fill };
 
         // initialize picture control

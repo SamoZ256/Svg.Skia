@@ -385,7 +385,8 @@ public class PathService
         return list;
     }
 
-    public static void AddPathSegments(SK.SKPath path, SvgPathSegmentList segments)
+    /// <summary>Appends the segments to a builder. SkiaSharp 4 obsoleted SKPath's own mutators.</summary>
+    public static void AddPathSegments(SK.SKPathBuilder path, SvgPathSegmentList segments)
     {
         var cur = new SK.SKPoint();
         var start = new SK.SKPoint();
@@ -486,7 +487,7 @@ public class PathService
 
     public static SK.SKPath? ElementToPath(SvgVisualElement element)
     {
-        var path = new SK.SKPath
+        using var path = new SK.SKPathBuilder
         {
             FillType = element.FillRule == SvgFillRule.EvenOdd ? SK.SKPathFillType.EvenOdd : SK.SKPathFillType.Winding
         };
@@ -494,30 +495,30 @@ public class PathService
         {
             case SvgPath sp when sp.PathData is { } d:
                 AddPathSegments(path, d);
-                return path;
+                return path.Detach();
             case SvgRectangle r:
                 path.AddRect(SK.SKRect.Create((float)r.X.Value, (float)r.Y.Value, (float)r.Width.Value, (float)r.Height.Value));
-                return path;
+                return path.Detach();
             case SvgCircle c:
                 path.AddCircle((float)c.CenterX.Value, (float)c.CenterY.Value, (float)c.Radius.Value);
-                return path;
+                return path.Detach();
             case SvgEllipse e:
                 path.AddOval(SK.SKRect.Create(
                     (float)(e.CenterX.Value - e.RadiusX.Value),
                     (float)(e.CenterY.Value - e.RadiusY.Value),
                     (float)(e.RadiusX.Value * 2),
                     (float)(e.RadiusY.Value * 2)));
-                return path;
+                return path.Detach();
             case SvgPolyline pl:
                 path.AddPoly(ConvertPoints(pl.Points), false);
-                return path;
+                return path.Detach();
             case SvgPolygon pg:
                 path.AddPoly(ConvertPoints(pg.Points), true);
-                return path;
+                return path.Detach();
             case SvgLine ln:
                 path.MoveTo((float)ln.StartX.Value, (float)ln.StartY.Value);
                 path.LineTo((float)ln.EndX.Value, (float)ln.EndY.Value);
-                return path;
+                return path.Detach();
             default:
                 return null;
         }
@@ -700,10 +701,11 @@ public class PathService
             StrokeCap = SK.SKStrokeCap.Butt
         };
 
-        var dst = new SK.SKPath();
-        if (!paint.GetFillPath(src, dst))
+        using var dstBuilder = new SK.SKPathBuilder();
+        if (!paint.GetFillPath(src, dstBuilder))
             return null;
 
+        using var dst = dstBuilder.Detach();
         var data = ToSvgPathData(dst);
         var segs = SvgPathBuilder.Parse(data.AsSpan());
         return new SvgPath { PathData = segs };
