@@ -65,7 +65,6 @@
     <Project Path="samples/Svg.Skia.Converter/Svg.Skia.Converter.csproj" />
     <Project Path="samples/Svg.SourceGenerator.Skia.Sample/Svg.SourceGenerator.Skia.Sample.csproj" />
     <Project Path="samples/svgc/svgc.csproj" />
-    <Project Path="samples/svgrecipe/svgrecipe.csproj" />
     <Project Path="samples/SvgML.Uno.Demo/SvgML.Uno.Demo.csproj" />
     <Project Path="samples/SvgExpressionsDemo/SvgExpressionsDemo.csproj" />
     <Project Path="samples/SvgRecipeDemo/SvgRecipeDemo.csproj" />

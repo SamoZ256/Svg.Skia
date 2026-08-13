@@ -51,7 +51,7 @@ public sealed class RecipeRunResult
 /// <remarks>
 /// Every stage is the shipping code — <see cref="SvgRecipeRewriter"/> and, behind
 /// <see cref="LiveCompiler"/>, <c>SkiaCSharpCodeGen</c>. There is no second implementation here
-/// that could drift from what <c>svgrecipe</c> and <c>svgc</c> produce.
+/// that could drift from what <c>svgc</c> produces.
 /// </remarks>
 public sealed class RecipePipeline
 {

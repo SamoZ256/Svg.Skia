@@ -503,23 +503,27 @@ carry different expressions.
 ## 9. Converting an existing drawing
 
 Authoring by hand is fine for a drawing built for the purpose. For a set of finished SVGs coming
-out of a design tool, `samples/svgrecipe` converts them mechanically: a **recipe** file lists the
-declarations and says which colours become which expressions, and the tool rewrites the drawing.
-
-```sh
-svgrecipe -i badge.svg -r badge.recipe -o badge.expr.svg
-```
-
-The output is an ordinary document in the format above, so it feeds `svgc` or the source
-generator unchanged. The conversion lives in `src/Svg.Expressions.Recipes`; the CLI is a wrapper
-around `SvgRecipe.Parse` and `SvgRecipeRewriter.Apply`.
-
-`svgc` takes the same `-r`, applying the recipe to its input before generating, so the two stages
-need not be separate commands:
+out of a design tool, `svgc` converts them mechanically: a **recipe** file lists the declarations
+and says which colours become which expressions, and `-r` rewrites the drawing on the way in.
 
 ```sh
 svgc -i badge.svg -r badge.recipe -o Badge.cs -n Icons -c Badge
 ```
+
+The conversion lives in `src/Svg.Expressions.Recipes` — `SvgRecipe.Parse` and
+`SvgRecipeRewriter.Apply` — and `samples/svgc/Example` holds a worked pair.
+
+`--emit svg` writes the converted document to `-o` instead of C#, which is what a
+generator-driven project needs, since the source generator takes no recipes:
+
+```sh
+svgc -i badge.svg -r badge.recipe -o badge.expr.svg --emit svg
+```
+
+That path **builds no scene model** — it is read, rewrite, write. A recipe is a text
+transformation, so a drawing the renderer cannot handle still converts. It needs `-r`, since
+without one the output would be a copy of the input, and it cannot be combined with
+`--singleFile`, since an svg document holds one drawing.
 
 Its `--jsonFile` batch mode carries recipes too, which is how one recipe covers a whole icon set.
 An item names its own `Recipe` only where it differs from the one given on the command line:
@@ -545,9 +549,15 @@ a given batch does not move between runs. Two drawings of one class name in one 
 error rather than a collision in the emitted file. See [§5.1](#51-one-file-for-a-whole-set) for
 what changes in the output.
 
+Either mode works in batch, so a whole icon set converts to documents in one invocation:
+
+```sh
+svgc -j convert.json -r icons.recipe --emit svg
+```
+
 The source generator has no equivalent: `AdditionalFiles` metadata carries `NamespaceName` and
-`ClassName` but no recipe, so a generator-driven project converts with `svgrecipe` first and
-checks in the converted document.
+`ClassName` but no recipe, so a generator-driven project converts with `--emit svg` first and
+checks in the converted documents.
 
 `samples/SvgRecipeDemo` runs the same chain as a live editor — recipe, converted SVG, generated
 C# and the drawing, all updating as the recipe is typed. It also has a `--render <dir>` mode that

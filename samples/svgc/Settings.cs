@@ -11,6 +11,7 @@ internal class Settings
     public System.IO.FileInfo? SingleFile { get; set; }
     public string? HelperScope { get; set; }
     public string? Cache { get; set; }
+    public string? Emit { get; set; }
     public string Namespace { get; set; } = "Svg";
     public string Class { get; set; } = "Generated";
 }

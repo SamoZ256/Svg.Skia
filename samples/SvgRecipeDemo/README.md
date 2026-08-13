@@ -32,7 +32,7 @@ Four stages run on every edit:
 4. **`Record(…)`** is invoked by reflection with the current control values.
 
 Every stage is the shipping code, so there is no second implementation here that could drift from
-what `svgrecipe` and `svgc` produce. Edits are debounced and run off the UI thread; a failed edit
+what `svgc` produces. Edits are debounced and run off the UI thread; a failed edit
 keeps the last good assembly loaded, so the view does not blank while typing. Diagnostics from all
 three stages — recipe, expression type checker and C# compiler — surface in one panel, and each
 `<replace>` rule reports what it claimed.
