@@ -2,9 +2,9 @@
 using System;
 using System.CommandLine;
 using System.CommandLine.Invocation;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Svg.CodeGen.Skia;
+using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions.Recipes;
 using Svg.Skia;
 
@@ -33,9 +33,10 @@ class Program
             return;
         }
 
-        // A faulty recipe is the same kind of thing: a diagnostic about the input files. So is a
-        // bad option value, which is a mistake in the command line rather than a fault in svgc.
-        if (ex is SvgRecipeException or ArgumentException)
+        // A faulty recipe or project is the same kind of thing: a diagnostic about the input
+        // files. So is a bad option value, which is a mistake in the command line rather than a
+        // fault in svgc.
+        if (ex is SvgRecipeException or SvgcProjectException or ArgumentException)
         {
             Log($"error: {ex.Message}");
             return;
@@ -113,29 +114,6 @@ class Program
         }
     }
 
-    static SvgEmit ParseEmit(string? value) => value?.ToLowerInvariant() switch
-    {
-        null or "" or "csharp" => SvgEmit.CSharp,
-        "svg" => SvgEmit.Svg,
-        _ => throw new ArgumentException($"'{value}' is not an output format. Expected csharp or svg.")
-    };
-
-    static SvgHelperScope ParseHelperScope(string? value) => value?.ToLowerInvariant() switch
-    {
-        null or "" or "file" => SvgHelperScope.FileLocal,
-        "internal" => SvgHelperScope.Internal,
-        "perclass" => SvgHelperScope.PerClass,
-        _ => throw new ArgumentException($"'{value}' is not a helper scope. Expected file, internal or perClass.")
-    };
-
-    static SvgPictureCache ParseCache(string? value) => value?.ToLowerInvariant() switch
-    {
-        null or "" or "none" => SvgPictureCache.None,
-        "lastvalue" => SvgPictureCache.LastValue,
-        "lastvaluelocked" => SvgPictureCache.LastValueLocked,
-        _ => throw new ArgumentException($"'{value}' is not a cache mode. Expected none, lastValue or lastValueLocked.")
-    };
-
     /// <summary>
     /// An internal helper class sits in the global namespace, so two single-file outputs in one
     /// assembly would collide on the name. Deriving it from the output file keeps them apart.
@@ -165,7 +143,7 @@ class Program
     }
 
     // Rewrites a plain drawing into the expression format before it is generated from, so one
-    // recipe can parameterise a whole icon set through the json batch mode.
+    // recipe can parameterise a whole icon set through a project file.
     static string ApplyRecipe(string svg, string recipePath)
     {
         var result = SvgRecipeRewriter.Apply(svg, SvgRecipe.Load(recipePath));
@@ -206,12 +184,12 @@ class Program
         };
         rootCommand.AddOption(optionOutputFile);
 
-        var optionJsonFile = new Option(new[] { "--jsonFile", "-j" }, "The relative or absolute path to the json file")
+        var optionProjectFile = new Option(new[] { "--projectFile", "-p" }, "The relative or absolute path to a project file describing a whole build")
         {
             IsRequired = false,
             Argument = new Argument<System.IO.FileInfo?>(getDefaultValue: () => null)
         };
-        rootCommand.AddOption(optionJsonFile);
+        rootCommand.AddOption(optionProjectFile);
 
         var optionRecipeFile = new Option(new[] { "--recipeFile", "-r" }, "The relative or absolute path to a recipe applied to the input before generating")
         {
@@ -224,11 +202,11 @@ class Program
         var optionEmit = new Option(new[] { "--emit" }, "What the output file receives: csharp, or svg for the document the recipe produced")
         {
             IsRequired = false,
-            Argument = new Argument<string>(getDefaultValue: () => "csharp")
+            Argument = new Argument<string?>(getDefaultValue: () => null)
         };
         rootCommand.AddOption(optionEmit);
 
-        var optionSingleFile = new Option(new[] { "--singleFile" }, "Emit every drawing of the json batch into one C# file at this path")
+        var optionSingleFile = new Option(new[] { "--singleFile" }, "Emit every drawing of the batch into one C# file at this path")
         {
             IsRequired = false,
             Argument = new Argument<System.IO.FileInfo?>(getDefaultValue: () => null)
@@ -238,28 +216,28 @@ class Program
         var optionHelperScope = new Option(new[] { "--helperScope" }, "Where shared helpers go in a single file: file (C# 11), internal, or perClass")
         {
             IsRequired = false,
-            Argument = new Argument<string>(getDefaultValue: () => "file")
+            Argument = new Argument<string?>(getDefaultValue: () => null)
         };
         rootCommand.AddOption(optionHelperScope);
 
         var optionCache = new Option(new[] { "--cache" }, "Keep the last picture Draw built and reuse it while the arguments are unchanged: none, lastValue or lastValueLocked")
         {
             IsRequired = false,
-            Argument = new Argument<string>(getDefaultValue: () => "none")
+            Argument = new Argument<string?>(getDefaultValue: () => null)
         };
         rootCommand.AddOption(optionCache);
 
         var optionNamespace = new Option(new[] { "--namespace", "-n" }, "The generated C# namespace name")
         {
             IsRequired = false,
-            Argument = new Argument<string>(getDefaultValue: () => "Svg")
+            Argument = new Argument<string?>(getDefaultValue: () => null)
         };
         rootCommand.AddOption(optionNamespace);
 
         var optionClass = new Option(new[] { "--class", "-c" }, "The generated C# class name")
         {
             IsRequired = false,
-            Argument = new Argument<string>(getDefaultValue: () => "Generated")
+            Argument = new Argument<string?>(getDefaultValue: () => null)
         };
         rootCommand.AddOption(optionClass);
 
@@ -267,93 +245,95 @@ class Program
         {
             try
             {
-                var emit = ParseEmit(settings.Emit);
+                var project = settings.ProjectFile is { } projectFile
+                    ? SvgcProject.Load(projectFile.FullName)
+                    : null;
+
+                // A flag beats the project file, which beats the built-in default — the ordinary
+                // convention, and the reason every one of these is nullable up to this point.
+                var emit = settings.Emit is { } ? SvgcProject.ParseEmit(settings.Emit) : project?.Emit ?? SvgEmit.CSharp;
+                var cache = settings.Cache is { } ? SvgcProject.ParseCache(settings.Cache) : project?.Cache ?? SvgPictureCache.None;
+                var scope = settings.HelperScope is { } ? SvgcProject.ParseHelperScope(settings.HelperScope) : project?.HelperScope ?? SvgHelperScope.FileLocal;
+                var namespaceName = settings.Namespace ?? project?.Namespace ?? "Svg";
+                var className = settings.Class ?? project?.Class ?? "Generated";
+                var recipePath = settings.RecipeFile?.FullName ?? project?.Recipe;
+                var singleFilePath = settings.SingleFile?.FullName ?? project?.SingleFile;
 
                 if (emit == SvgEmit.Svg)
                 {
                     // Without a recipe there is nothing to convert, so the output would be a copy
                     // of the input — which is never what was meant.
-                    if (settings.RecipeFile is null)
+                    if (recipePath is null)
                     {
-                        throw new ArgumentException("--emit svg needs a recipe. Pass -r, or drop --emit to generate C#.");
+                        throw new ArgumentException("Emitting svg needs a recipe. Pass -r, name one in the project, or emit csharp.");
                     }
 
                     // One file holds any number of C# classes but only ever one svg document.
-                    if (settings.SingleFile is { })
+                    if (singleFilePath is { })
                     {
-                        throw new ArgumentException("--emit svg cannot be combined with --singleFile: an svg document holds one drawing.");
+                        throw new ArgumentException("Emitting svg cannot be combined with a single file: an svg document holds one drawing.");
                     }
                 }
 
-                if (settings.JsonFile is { })
+                if (project is { } && singleFilePath is { })
                 {
-                    var json = System.IO.File.ReadAllText(settings.JsonFile.FullName);
-                    var options = new JsonSerializerOptions
-                    {
-                        ReadCommentHandling = JsonCommentHandling.Skip
-                    };
-                    var items = JsonSerializer.Deserialize<Item[]>(json, options);
-                    if (items is { } && settings.SingleFile is { } singleFile)
-                    {
-                        var scope = ParseHelperScope(settings.HelperScope);
-                        var cache = ParseCache(settings.Cache);
-                        var drawings = new System.Collections.Generic.List<SkiaCSharpDrawing>();
+                    var drawings = new System.Collections.Generic.List<SkiaCSharpDrawing>();
 
-                        // OutputFile is ignored here rather than rejected, so the same batch file
-                        // works in both modes.
-                        foreach (var item in items)
+                    // A per-item output is ignored here rather than rejected, so one project can
+                    // be built either way.
+                    foreach (var item in project.Items)
+                    {
+                        Log($"Reading: {item.Input}");
+
+                        var drawing = Build(
+                            item.Input,
+                            item.Namespace ?? namespaceName,
+                            item.Class ?? className,
+                            item.Recipe ?? recipePath);
+
+                        if (drawing is { })
                         {
-                            if (item.InputFile is null)
-                            {
-                                continue;
-                            }
+                            drawings.Add(drawing);
+                        }
+                    }
 
-                            Log($"Reading: {item.InputFile}");
+                    Log($"Generating: {singleFilePath}");
 
-                            var drawing = Build(
-                                item.InputFile,
-                                item.Namespace ?? settings.Namespace,
-                                item.Class ?? settings.Class,
-                                item.Recipe ?? settings.RecipeFile?.FullName);
+                    var text = SkiaCSharpCodeGen.GenerateFile(
+                        drawings,
+                        scope,
+                        HelperClassNameFor(scope, singleFilePath),
+                        cache);
 
-                            if (drawing is { })
-                            {
-                                drawings.Add(drawing);
-                            }
+                    System.IO.File.WriteAllText(singleFilePath, text);
+                }
+                else if (project is { })
+                {
+                    foreach (var item in project.Items)
+                    {
+                        if (item.Output is null)
+                        {
+                            throw new SvgcProjectException(
+                                $"<svg input=\"{item.Input}\"> has no output, and the project names no singleFile to fold it into.");
                         }
 
-                        Log($"Generating: {singleFile.FullName}");
-
-                        var text = SkiaCSharpCodeGen.GenerateFile(
-                            drawings,
-                            scope,
-                            HelperClassNameFor(scope, singleFile.FullName),
-                            cache);
-
-                        System.IO.File.WriteAllText(singleFile.FullName, text);
-                    }
-                    else if (items is { })
-                    {
-                        foreach (var item in items)
+                        if (emit == SvgEmit.Svg)
                         {
-                            if (item.InputFile is { } && item.OutputFile is { } && emit == SvgEmit.Svg)
-                            {
-                                Log($"Converting: {item.OutputFile}");
-                                Convert(item.InputFile, item.OutputFile, item.Recipe ?? settings.RecipeFile!.FullName);
-                            }
-                            else if (item.InputFile is { } && item.OutputFile is { })
-                            {
-                                Log($"Generating: {item.OutputFile}");
-                                Generate(
-                                    item.InputFile,
-                                    item.OutputFile,
-                                    item.Namespace ?? settings.Namespace,
-                                    item.Class ?? settings.Class,
-                                    // One recipe usually covers the whole set, so the item only
-                                    // has to name its own when it differs.
-                                    item.Recipe ?? settings.RecipeFile?.FullName,
-                                    ParseCache(settings.Cache));
-                            }
+                            Log($"Converting: {item.Output}");
+                            Convert(item.Input, item.Output, item.Recipe ?? recipePath!);
+                        }
+                        else
+                        {
+                            Log($"Generating: {item.Output}");
+                            Generate(
+                                item.Input,
+                                item.Output,
+                                item.Namespace ?? namespaceName,
+                                item.Class ?? className,
+                                // One recipe usually covers the whole set, so an item only has to
+                                // name its own when it differs.
+                                item.Recipe ?? recipePath,
+                                cache);
                         }
                     }
                 }
@@ -361,7 +341,7 @@ class Program
                 if (settings.InputFile is { } && settings.OutputFile is { } && emit == SvgEmit.Svg)
                 {
                     Log($"Converting: {settings.OutputFile.FullName}");
-                    Convert(settings.InputFile.FullName, settings.OutputFile.FullName, settings.RecipeFile!.FullName);
+                    Convert(settings.InputFile.FullName, settings.OutputFile.FullName, recipePath!);
                 }
                 else if (settings.InputFile is { } && settings.OutputFile is { })
                 {
@@ -369,10 +349,10 @@ class Program
                     Generate(
                         settings.InputFile.FullName,
                         settings.OutputFile.FullName,
-                        settings.Namespace,
-                        settings.Class,
-                        settings.RecipeFile?.FullName,
-                        ParseCache(settings.Cache));
+                        namespaceName,
+                        className,
+                        recipePath,
+                        cache);
                 }
             }
             catch (Exception ex)

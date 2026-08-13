@@ -1,7 +1,11 @@
-namespace svgc;
+// Copyright (c) Wiesław Šoltés. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for details.
+#nullable enable
+
+namespace Svg.CodeGen.Skia.Projects;
 
 /// <summary>What the output file receives.</summary>
-internal enum SvgEmit
+public enum SvgEmit
 {
     /// <summary>Generated C#, the drawing having been modelled first.</summary>
     CSharp,
