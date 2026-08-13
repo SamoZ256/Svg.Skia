@@ -228,6 +228,43 @@ public class SkiaCSharpSingleFileTests
     }
 
     [Fact]
+    public void SkiaSharp4_Builds_Paths_Through_A_Builder()
+    {
+        var drawing = Tinted("Icons", "Home");
+        var code = SkiaCSharpCodeGen.Generate(drawing.Picture, "Icons", "Home", drawing.Declarations);
+
+        Assert.Contains("var skPathBuilder0 = new SKPathBuilder();", code);
+        Assert.Contains("var skPath0 = skPathBuilder0.Detach();", code);
+        Assert.Contains("skPathBuilder0?.Dispose();", code);
+        Assert.DoesNotContain("new SKPath()", code);
+    }
+
+    [Fact]
+    public void SkiaSharp3_Builds_Paths_On_The_Path_Itself()
+    {
+        // SKPathBuilder does not exist in SkiaSharp 3, and SKPath's mutating methods are not
+        // obsolete there, so the older shape is the correct one rather than a fallback.
+        var drawing = Tinted("Icons", "Home");
+        var code = SkiaCSharpCodeGen.Generate(
+            drawing.Picture, "Icons", "Home", drawing.Declarations, skiaSharp: SkiaSharpVersion.V3);
+
+        Assert.Contains("var skPath0 = new SKPath();", code);
+        Assert.DoesNotContain("SKPathBuilder", code);
+        Assert.DoesNotContain(".Detach()", code);
+    }
+
+    [Fact]
+    public void SkiaSharp_Version_Reaches_Every_Class_Of_A_Single_File()
+    {
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { Tinted("Icons", "Home"), Tinted("Icons", "Search") },
+            skiaSharp: SkiaSharpVersion.V3);
+
+        Assert.DoesNotContain("SKPathBuilder", code);
+        Assert.Equal(2, Count(code, "new SKPath()"));
+    }
+
+    [Fact]
     public void Single_Drawing_Output_Is_Unchanged()
     {
         var drawing = Tinted("Icons", "Home");

@@ -21,6 +21,7 @@ public class SvgcProjectTests
               <emit>csharp</emit>
               <cache>lastValueLocked</cache>
               <helperScope>internal</helperScope>
+              <skiaSharp>3</skiaSharp>
               <singleFile>Generated/Icons.cs</singleFile>
 
               <svg input="home.svg" class="Home" />
@@ -34,6 +35,7 @@ public class SvgcProjectTests
         Assert.Equal(SvgEmit.CSharp, project.Emit);
         Assert.Equal(SvgPictureCache.LastValueLocked, project.Cache);
         Assert.Equal(SvgHelperScope.Internal, project.HelperScope);
+        Assert.Equal(SkiaSharpVersion.V3, project.SkiaSharp);
         Assert.Equal(Path.Combine(Base, "Generated/Icons.cs"), project.SingleFile);
 
         Assert.Collection(
@@ -68,6 +70,7 @@ public class SvgcProjectTests
         Assert.Null(project.Emit);
         Assert.Null(project.Cache);
         Assert.Null(project.HelperScope);
+        Assert.Null(project.SkiaSharp);
         Assert.Null(project.SingleFile);
     }
 
@@ -122,6 +125,7 @@ public class SvgcProjectTests
     [InlineData("""<svgc><emit>xml</emit></svgc>""", "not an output format")]
     [InlineData("""<svgc><cache>always</cache></svgc>""", "not a cache mode")]
     [InlineData("""<svgc><helperScope>global</helperScope></svgc>""", "not a helper scope")]
+    [InlineData("""<svgc><skiaSharp>2</skiaSharp></svgc>""", "not a SkiaSharp version")]
     [InlineData("""<svgc><svg input="a.svg" >""", "not well formed")]
     public void Rejects(string xml, string expected)
     {
@@ -143,6 +147,13 @@ public class SvgcProjectTests
     [InlineData("lastValue", SvgPictureCache.LastValue)]
     [InlineData("lastValueLocked", SvgPictureCache.LastValueLocked)]
     public void Cache_Values(string value, SvgPictureCache expected) => Assert.Equal(expected, SvgcProject.ParseCache(value));
+
+    [Theory]
+    [InlineData("3", SkiaSharpVersion.V3)]
+    [InlineData("4", SkiaSharpVersion.V4)]
+    [InlineData("", SkiaSharpVersion.V4)]
+    [InlineData(null, SkiaSharpVersion.V4)]
+    public void SkiaSharp_Values(string? value, SkiaSharpVersion expected) => Assert.Equal(expected, SvgcProject.ParseSkiaSharp(value));
 
     [Theory]
     [InlineData("file", SvgHelperScope.FileLocal)]

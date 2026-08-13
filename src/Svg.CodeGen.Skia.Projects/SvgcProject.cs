@@ -56,7 +56,7 @@ public sealed class SvgcProject
 {
     private static readonly string[] s_settings =
     {
-        "recipe", "namespace", "class", "emit", "cache", "helperScope", "singleFile"
+        "recipe", "namespace", "class", "emit", "cache", "helperScope", "singleFile", "skiaSharp"
     };
 
     private static readonly string[] s_itemAttributes =
@@ -71,6 +71,7 @@ public sealed class SvgcProject
         SvgEmit? emit,
         SvgPictureCache? cache,
         SvgHelperScope? helperScope,
+        SkiaSharpVersion? skiaSharp,
         string? singleFile,
         IReadOnlyList<SvgcProjectItem> items)
     {
@@ -80,6 +81,7 @@ public sealed class SvgcProject
         Emit = emit;
         Cache = cache;
         HelperScope = helperScope;
+        SkiaSharp = skiaSharp;
         SingleFile = singleFile;
         Items = items;
     }
@@ -95,6 +97,9 @@ public sealed class SvgcProject
     public SvgPictureCache? Cache { get; }
 
     public SvgHelperScope? HelperScope { get; }
+
+    /// <summary>Which SkiaSharp the generated code has to compile against.</summary>
+    public SkiaSharpVersion? SkiaSharp { get; }
 
     public string? SingleFile { get; }
 
@@ -166,6 +171,7 @@ public sealed class SvgcProject
             Setting(settings, "emit") is { } emit ? ParseEmit(emit) : null,
             Setting(settings, "cache") is { } cache ? ParseCache(cache) : null,
             Setting(settings, "helperScope") is { } scope ? ParseHelperScope(scope) : null,
+            Setting(settings, "skiaSharp") is { } skia ? ParseSkiaSharp(skia) : null,
             Resolve(Setting(settings, "singleFile"), baseDirectory),
             items);
     }
@@ -191,6 +197,13 @@ public sealed class SvgcProject
         "internal" => SvgHelperScope.Internal,
         "perclass" => SvgHelperScope.PerClass,
         _ => throw new SvgcProjectException($"'{value}' is not a helper scope. Expected file, internal or perClass.")
+    };
+
+    public static SkiaSharpVersion ParseSkiaSharp(string? value) => value?.Trim() switch
+    {
+        null or "" or "4" => SkiaSharpVersion.V4,
+        "3" => SkiaSharpVersion.V3,
+        _ => throw new SvgcProjectException($"'{value}' is not a SkiaSharp version. Expected 3 or 4.")
     };
 
     private static SvgcProjectItem ReadItem(XElement element, string baseDirectory)

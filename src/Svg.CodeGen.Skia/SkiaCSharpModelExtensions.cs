@@ -1656,15 +1656,20 @@ public static class SkiaCSharpModelExtensions
     public static void ToSKPath(this SKPath path, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
     {
         var counterPath = counter.Path;
-        var builder = $"{counter.PathBuilderVarName}{counterPath}";
 
-        // Every mutating method on SKPath is obsolete in favour of SKPathBuilder. The path is
-        // detached once it is complete, so everything downstream still receives an SKPath and
-        // nothing else in the generated file changes.
-        sb.AppendLine($"{indent}var {builder} = new SKPathBuilder();");
+        // SkiaSharp 4 obsoleted every mutating method on SKPath in favour of SKPathBuilder, which
+        // does not exist in 3 at all. The commands themselves are identical; only what they are
+        // called on differs, and whether a path has to be detached at the end.
+        var detached = counter.SkiaSharpVersion != SkiaSharpVersion.V3;
+
+        var builder = detached
+            ? $"{counter.PathBuilderVarName}{counterPath}"
+            : $"{counter.PathVarName}{counterPath}";
+
+        sb.AppendLine($"{indent}var {builder} = new {(detached ? "SKPathBuilder" : "SKPath")}();");
         if (path.FillType != SKPathFillType.Winding)
         {
-            // Carried through Detach, so it belongs on the builder rather than the result.
+            // Carried through Detach, so it belongs on whichever object is being built.
             sb.AppendLine($"{indent}{builder}.FillType = {path.FillType.ToSKPathFillType()};");
         }
 
@@ -1766,8 +1771,11 @@ public static class SkiaCSharpModelExtensions
             }
         }
 
-        sb.AppendLine($"{indent}var {counter.PathVarName}{counterPath} = {builder}.Detach();");
-        sb.AppendLine($"{indent}{builder}?.Dispose();");
+        if (detached)
+        {
+            sb.AppendLine($"{indent}var {counter.PathVarName}{counterPath} = {builder}.Detach();");
+            sb.AppendLine($"{indent}{builder}?.Dispose();");
+        }
     }
 
     public static void ToSKPath(this ClipPath clipPath, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, out bool isDefault)

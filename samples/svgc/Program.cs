@@ -99,7 +99,8 @@ class Program
         string namespaceName = "Svg",
         string className = "Generated",
         string? recipePath = null,
-        SvgPictureCache cache = SvgPictureCache.None)
+        SvgPictureCache cache = SvgPictureCache.None,
+        SkiaSharpVersion skiaSharp = SkiaSharpVersion.V4)
     {
         if (Build(inputPath, namespaceName, className, recipePath) is { } drawing)
         {
@@ -108,7 +109,8 @@ class Program
                 drawing.NamespaceName,
                 drawing.ClassName,
                 drawing.Declarations,
-                cache);
+                cache,
+                skiaSharp);
 
             System.IO.File.WriteAllText(outputPath, text);
         }
@@ -199,6 +201,13 @@ class Program
         rootCommand.AddOption(optionRecipeFile);
 
 
+        var optionSkiaSharp = new Option(new[] { "--skiaSharp" }, "The SkiaSharp major version the generated code is compiled against: 3 or 4")
+        {
+            IsRequired = false,
+            Argument = new Argument<string?>(getDefaultValue: () => null)
+        };
+        rootCommand.AddOption(optionSkiaSharp);
+
         var optionEmit = new Option(new[] { "--emit" }, "What the output file receives: csharp, or svg for the document the recipe produced")
         {
             IsRequired = false,
@@ -254,6 +263,7 @@ class Program
                 var emit = settings.Emit is { } ? SvgcProject.ParseEmit(settings.Emit) : project?.Emit ?? SvgEmit.CSharp;
                 var cache = settings.Cache is { } ? SvgcProject.ParseCache(settings.Cache) : project?.Cache ?? SvgPictureCache.None;
                 var scope = settings.HelperScope is { } ? SvgcProject.ParseHelperScope(settings.HelperScope) : project?.HelperScope ?? SvgHelperScope.FileLocal;
+                var skiaSharp = settings.SkiaSharp is { } ? SvgcProject.ParseSkiaSharp(settings.SkiaSharp) : project?.SkiaSharp ?? SkiaSharpVersion.V4;
                 var namespaceName = settings.Namespace ?? project?.Namespace ?? "Svg";
                 var className = settings.Class ?? project?.Class ?? "Generated";
                 var recipePath = settings.RecipeFile?.FullName ?? project?.Recipe;
@@ -303,7 +313,8 @@ class Program
                         drawings,
                         scope,
                         HelperClassNameFor(scope, singleFilePath),
-                        cache);
+                        cache,
+                        skiaSharp);
 
                     System.IO.File.WriteAllText(singleFilePath, text);
                 }
@@ -333,7 +344,8 @@ class Program
                                 // One recipe usually covers the whole set, so an item only has to
                                 // name its own when it differs.
                                 item.Recipe ?? recipePath,
-                                cache);
+                                cache,
+                                skiaSharp);
                         }
                     }
                 }
@@ -352,7 +364,8 @@ class Program
                         namespaceName,
                         className,
                         recipePath,
-                        cache);
+                        cache,
+                        skiaSharp);
                 }
             }
             catch (Exception ex)

@@ -320,6 +320,11 @@ public static SKPicture Record(SKColor tint, float t = 0f)
 
 Lets become typed locals in declaration order.
 
+Paths are built through `SKPathBuilder` and detached, since SkiaSharp 4 obsoleted every mutating
+method on `SKPath`. `SKPathBuilder` does not exist in SkiaSharp 3, so `--skiaSharp 3` emits the
+older shape — the same commands called on the `SKPath` itself, with no detach. Nothing else in
+the output differs between the two.
+
 Small `private static` helpers (`SvgHsl`, `SvgMix`, `SvgScaleAlpha`, `SvgToColorF`, …) are
 emitted into the class **only when used**. Multi-argument colour operations are emitted as calls
 rather than inline arithmetic so each operand is evaluated exactly once.
@@ -557,6 +562,7 @@ its own file.
 | `emit` | `csharp` or `svg`, as [above](#9-converting-an-existing-drawing) |
 | `cache` | `none`, `lastValue` or `lastValueLocked` ([§5.2](#52-reusing-the-last-picture)) |
 | `helperScope` | `file`, `internal` or `perClass` ([§5.1](#51-one-file-for-a-whole-set)) |
+| `skiaSharp` | `4` (default) or `3`, the major version the output is compiled against |
 | `singleFile` | fold the whole build into one C# file; per-drawing `output` is then ignored |
 
 Three things follow from it being a project rather than a list of jobs:

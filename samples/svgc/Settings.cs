@@ -12,6 +12,7 @@ internal class Settings
     public string? HelperScope { get; set; }
     public string? Cache { get; set; }
     public string? Emit { get; set; }
+    public string? SkiaSharp { get; set; }
     public string? Namespace { get; set; }
     public string? Class { get; set; }
 }
