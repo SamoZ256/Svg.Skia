@@ -9,7 +9,4 @@ internal class Item
 
     /// <summary>Optional recipe, applied to the input before it is generated from.</summary>
     public string? Recipe { get; set; }
-
-    /// <summary>Where to keep the converted document, when it is worth looking at.</summary>
-    public string? EmitSvg { get; set; }
 }

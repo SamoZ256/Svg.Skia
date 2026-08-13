@@ -54,14 +54,13 @@ class Program
         string inputPath,
         string namespaceName,
         string className,
-        string? recipePath,
-        string? emitSvgPath)
+        string? recipePath)
     {
         var svg = System.IO.File.ReadAllText(inputPath);
 
         if (recipePath is { })
         {
-            svg = ApplyRecipe(svg, recipePath, emitSvgPath);
+            svg = ApplyRecipe(svg, recipePath);
         }
 
         var svgDocument = Svg.Model.Services.SvgService.FromSvg(svg);
@@ -79,16 +78,29 @@ class Program
         return new SkiaCSharpDrawing(picture, namespaceName, className, SvgCodeDeclarations.Parse(svg));
     }
 
+    /// <summary>
+    /// Converts a drawing and writes the result, without building a scene model.
+    /// </summary>
+    /// <remarks>
+    /// A recipe is a text transformation, so it has no business failing because the drawing uses
+    /// a filter or a font the renderer cannot model. This path is read, rewrite, write.
+    /// </remarks>
+    static void Convert(string inputPath, string outputPath, string recipePath)
+    {
+        var svg = ApplyRecipe(System.IO.File.ReadAllText(inputPath), recipePath);
+
+        System.IO.File.WriteAllText(outputPath, svg);
+    }
+
     static void Generate(
         string inputPath,
         string outputPath,
         string namespaceName = "Svg",
         string className = "Generated",
         string? recipePath = null,
-        string? emitSvgPath = null,
         SvgPictureCache cache = SvgPictureCache.None)
     {
-        if (Build(inputPath, namespaceName, className, recipePath, emitSvgPath) is { } drawing)
+        if (Build(inputPath, namespaceName, className, recipePath) is { } drawing)
         {
             var text = SkiaCSharpCodeGen.Generate(
                 drawing.Picture,
@@ -100,6 +112,13 @@ class Program
             System.IO.File.WriteAllText(outputPath, text);
         }
     }
+
+    static SvgEmit ParseEmit(string? value) => value?.ToLowerInvariant() switch
+    {
+        null or "" or "csharp" => SvgEmit.CSharp,
+        "svg" => SvgEmit.Svg,
+        _ => throw new ArgumentException($"'{value}' is not an output format. Expected csharp or svg.")
+    };
 
     static SvgHelperScope ParseHelperScope(string? value) => value?.ToLowerInvariant() switch
     {
@@ -147,7 +166,7 @@ class Program
 
     // Rewrites a plain drawing into the expression format before it is generated from, so one
     // recipe can parameterise a whole icon set through the json batch mode.
-    static string ApplyRecipe(string svg, string recipePath, string? emitSvgPath)
+    static string ApplyRecipe(string svg, string recipePath)
     {
         var result = SvgRecipeRewriter.Apply(svg, SvgRecipe.Load(recipePath));
 
@@ -161,11 +180,6 @@ class Program
         foreach (var rule in result.UnmatchedRules)
         {
             Log($"warning: nothing in {System.IO.Path.GetFileName(recipePath)} matched '{rule.ColorText}'.");
-        }
-
-        if (emitSvgPath is { })
-        {
-            System.IO.File.WriteAllText(emitSvgPath, result.Svg);
         }
 
         return result.Svg;
@@ -206,12 +220,13 @@ class Program
         };
         rootCommand.AddOption(optionRecipeFile);
 
-        var optionEmitSvg = new Option(new[] { "--emitSvg" }, "Also write the converted svg, for inspecting what the recipe produced")
+
+        var optionEmit = new Option(new[] { "--emit" }, "What the output file receives: csharp, or svg for the document the recipe produced")
         {
             IsRequired = false,
-            Argument = new Argument<System.IO.FileInfo?>(getDefaultValue: () => null)
+            Argument = new Argument<string>(getDefaultValue: () => "csharp")
         };
-        rootCommand.AddOption(optionEmitSvg);
+        rootCommand.AddOption(optionEmit);
 
         var optionSingleFile = new Option(new[] { "--singleFile" }, "Emit every drawing of the json batch into one C# file at this path")
         {
@@ -252,6 +267,24 @@ class Program
         {
             try
             {
+                var emit = ParseEmit(settings.Emit);
+
+                if (emit == SvgEmit.Svg)
+                {
+                    // Without a recipe there is nothing to convert, so the output would be a copy
+                    // of the input — which is never what was meant.
+                    if (settings.RecipeFile is null)
+                    {
+                        throw new ArgumentException("--emit svg needs a recipe. Pass -r, or drop --emit to generate C#.");
+                    }
+
+                    // One file holds any number of C# classes but only ever one svg document.
+                    if (settings.SingleFile is { })
+                    {
+                        throw new ArgumentException("--emit svg cannot be combined with --singleFile: an svg document holds one drawing.");
+                    }
+                }
+
                 if (settings.JsonFile is { })
                 {
                     var json = System.IO.File.ReadAllText(settings.JsonFile.FullName);
@@ -281,8 +314,7 @@ class Program
                                 item.InputFile,
                                 item.Namespace ?? settings.Namespace,
                                 item.Class ?? settings.Class,
-                                item.Recipe ?? settings.RecipeFile?.FullName,
-                                item.EmitSvg);
+                                item.Recipe ?? settings.RecipeFile?.FullName);
 
                             if (drawing is { })
                             {
@@ -304,7 +336,12 @@ class Program
                     {
                         foreach (var item in items)
                         {
-                            if (item.InputFile is { } && item.OutputFile is { })
+                            if (item.InputFile is { } && item.OutputFile is { } && emit == SvgEmit.Svg)
+                            {
+                                Log($"Converting: {item.OutputFile}");
+                                Convert(item.InputFile, item.OutputFile, item.Recipe ?? settings.RecipeFile!.FullName);
+                            }
+                            else if (item.InputFile is { } && item.OutputFile is { })
                             {
                                 Log($"Generating: {item.OutputFile}");
                                 Generate(
@@ -315,14 +352,18 @@ class Program
                                     // One recipe usually covers the whole set, so the item only
                                     // has to name its own when it differs.
                                     item.Recipe ?? settings.RecipeFile?.FullName,
-                                    item.EmitSvg,
                                     ParseCache(settings.Cache));
                             }
                         }
                     }
                 }
 
-                if (settings.InputFile is { } && settings.OutputFile is { })
+                if (settings.InputFile is { } && settings.OutputFile is { } && emit == SvgEmit.Svg)
+                {
+                    Log($"Converting: {settings.OutputFile.FullName}");
+                    Convert(settings.InputFile.FullName, settings.OutputFile.FullName, settings.RecipeFile!.FullName);
+                }
+                else if (settings.InputFile is { } && settings.OutputFile is { })
                 {
                     Log($"Generating: {settings.OutputFile.FullName}");
                     Generate(
@@ -331,7 +372,6 @@ class Program
                         settings.Namespace,
                         settings.Class,
                         settings.RecipeFile?.FullName,
-                        settings.EmitSvg?.FullName,
                         ParseCache(settings.Cache));
                 }
             }
