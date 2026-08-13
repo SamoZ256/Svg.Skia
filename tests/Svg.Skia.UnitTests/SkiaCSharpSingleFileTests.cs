@@ -152,6 +152,65 @@ public class SkiaCSharpSingleFileTests
     }
 
     [Fact]
+    public void Caching_Is_Off_Unless_Asked_For()
+    {
+        var drawing = Tinted("Icons", "Home");
+        var code = SkiaCSharpCodeGen.Generate(drawing.Picture, "Icons", "Home", drawing.Declarations);
+
+        Assert.DoesNotContain("s_cachedPicture", code);
+        Assert.DoesNotContain("lock (", code);
+        Assert.Contains("using (var skPicture = Record(h))", code);
+    }
+
+    [Fact]
+    public void Caching_Remembers_Every_Argument_Under_A_Lock()
+    {
+        var drawing = Tinted("Icons", "Home");
+        var code = SkiaCSharpCodeGen.Generate(drawing.Picture, "Icons", "Home", drawing.Declarations, cacheLastValue: true);
+
+        Assert.Contains("private static readonly object s_cacheLock = new object();", code);
+        Assert.Contains("private static SKPicture s_cachedPicture;", code);
+        Assert.Contains("private static float s_arg_h;", code);
+
+        // The draw has to stay inside the lock: releasing it earlier would let another thread
+        // replace and dispose the picture midway through playback.
+        Assert.Contains("lock (s_cacheLock)", code);
+        Assert.Contains("if (s_cachedPicture is null", code);
+        Assert.Contains("|| s_arg_h != h)", code);
+        Assert.Contains("s_cachedPicture?.Dispose();", code);
+        Assert.Contains("s_arg_h = h;", code);
+        Assert.Contains("skCanvas.DrawPicture(s_cachedPicture);", code);
+
+        var lockAt = code.IndexOf("lock (s_cacheLock)", StringComparison.Ordinal);
+        var drawAt = code.IndexOf("skCanvas.DrawPicture(s_cachedPicture);", StringComparison.Ordinal);
+        var closeAt = code.IndexOf("        }", drawAt, StringComparison.Ordinal);
+        Assert.True(lockAt < drawAt && drawAt < closeAt);
+    }
+
+    [Fact]
+    public void Caching_Skips_A_Document_With_No_Parameters()
+    {
+        // The parameterless shape already caches better: one picture built in the static
+        // constructor, drawn with no comparison at all.
+        var drawing = Plain("Icons", "Home");
+        var code = SkiaCSharpCodeGen.Generate(drawing.Picture, "Icons", "Home", drawing.Declarations, cacheLastValue: true);
+
+        Assert.DoesNotContain("s_cachedPicture", code);
+        Assert.Contains("public static SKPicture Picture { get; }", code);
+    }
+
+    [Fact]
+    public void Caching_Reaches_Every_Class_Of_A_Single_File()
+    {
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { Tinted("Icons", "Home"), Tinted("Icons", "Search") },
+            cacheLastValue: true);
+
+        Assert.Equal(2, Count(code, "lock (s_cacheLock)"));
+        Assert.Equal(2, Count(code, "private static SKPicture s_cachedPicture;"));
+    }
+
+    [Fact]
     public void Single_Drawing_Output_Is_Unchanged()
     {
         var drawing = Tinted("Icons", "Home");
