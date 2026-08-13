@@ -85,6 +85,7 @@
     <Project Path="src/Svg.Editor.Skia.Avalonia/Svg.Editor.Skia.Avalonia.csproj" />
     <Project Path="src/Svg.Editor.Svg/Svg.Editor.Svg.csproj" />
     <Project Path="src/Svg.CodeGen.Skia/Svg.CodeGen.Skia.csproj" />
+    <Project Path="src/Svg.CodeGen.Skia.Projects/Svg.CodeGen.Skia.Projects.csproj" />
     <Project Path="src/Svg.Expressions.Recipes/Svg.Expressions.Recipes.csproj" />
     <Project Path="src/Svg.Controls.Avalonia/Svg.Controls.Avalonia.csproj" />
     <Project Path="src/Svg.Controls.Skia.Uno/Svg.Controls.Skia.Uno.csproj" />
@@ -115,6 +116,7 @@
     <Project Path="tests/Svg.Editor.Skia.Avalonia.UnitTests/Svg.Editor.Skia.Avalonia.UnitTests.csproj" />
     <Project Path="tests/Svg.Editor.Skia.UnitTests/Svg.Editor.Skia.UnitTests.csproj" />
     <Project Path="tests/Svg.Editor.Svg.UnitTests/Svg.Editor.Svg.UnitTests.csproj" />
+    <Project Path="tests/Svg.CodeGen.Skia.Projects.UnitTests/Svg.CodeGen.Skia.Projects.UnitTests.csproj" />
     <Project Path="tests/Svg.Expressions.Recipes.UnitTests/Svg.Expressions.Recipes.UnitTests.csproj" />
     <Project Path="tests/Svg.Model.UnitTests/Svg.Model.UnitTests.csproj" />
     <Project Path="tests/Svg.JavaScript.UnitTests/Svg.JavaScript.UnitTests.csproj" />

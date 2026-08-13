@@ -93,9 +93,11 @@ call `SkiaCSharpCodeGen.Generate`.
 
 ### Traps worth knowing
 
-- **`svgc` and `Svg.SourceGenerator.Skia` `<Compile Include>` the `Svg.CodeGen.Skia` sources
-  file by file**, rather than referencing the assembly. A new file in that project is invisible
-  to both until it is added to *both* csproj files.
+- **`Svg.SourceGenerator.Skia` `<Compile Include>`s the `Svg.CodeGen.Skia` sources file by
+  file**, rather than referencing the assembly, because an analyzer cannot take an ordinary
+  project reference. A new file in that project is invisible to it until it is listed in its
+  csproj. `svgc` used to do the same and now references the assembly — linking the sources *and*
+  referencing a library that references them properly is CS0121 on every extension method.
 - **The source generator is an analyzer**, so `EnforceExtendedAnalyzerRules` applies to every
   file linked into it. `Environment.NewLine` and similar are banned (RS1035).
 - **`Svg.CodeGen.Skia` targets netstandard2.0** and carries its own `IsExternalInit` shim;
@@ -141,9 +143,10 @@ Two invariants hold the design together:
 `src/Svg.Expressions.Recipes` converts a finished SVG into that format from a recipe file. It is
 a source-to-source rewriter and knows nothing about the expression language — the recipe's
 `<code>` block is copied verbatim, and the code generator remains the only type checker. `svgc`
-applies one with `-r`, including in its `--jsonFile` batch mode, and `--emit svg` writes the
-converted document instead of C# without building a scene model. The source generator has no
-equivalent, so generator-driven projects convert ahead of time and check in the result.
+applies one with `-r`, and `--emit svg` writes the converted document instead of C# without
+building a scene model. A whole build — drawings plus settings — is described by a project file
+(`-p`), parsed by `src/Svg.CodeGen.Skia.Projects`. The source generator has no equivalent, so
+generator-driven projects convert ahead of time and check in the result.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.

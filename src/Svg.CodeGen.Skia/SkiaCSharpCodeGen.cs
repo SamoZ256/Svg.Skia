@@ -26,6 +26,22 @@ public enum SvgHelperScope
     Internal
 }
 
+/// <summary>The SkiaSharp the generated code is compiled against.</summary>
+public enum SkiaSharpVersion
+{
+    /// <summary>
+    /// 3.x. Paths are built by calling <c>SKPath</c> directly; <c>SKPathBuilder</c> does not
+    /// exist yet, and the mutating methods are not obsolete.
+    /// </summary>
+    V3,
+
+    /// <summary>
+    /// 4.x, the default. Every mutating method on <c>SKPath</c> is obsolete, so paths are built
+    /// through <c>SKPathBuilder</c> and detached.
+    /// </summary>
+    V4
+}
+
 /// <summary>Whether <c>Draw</c> keeps the picture it built, and whether it guards it.</summary>
 public enum SvgPictureCache
 {
@@ -86,7 +102,8 @@ public static class SkiaCSharpCodeGen
         string namespaceName,
         string className,
         SvgCodeDeclarations? declarations,
-        SvgPictureCache cache = SvgPictureCache.None)
+        SvgPictureCache cache = SvgPictureCache.None,
+        SkiaSharpVersion skiaSharp = SkiaSharpVersion.V4)
     {
         var sb = new StringBuilder();
 
@@ -94,7 +111,7 @@ public static class SkiaCSharpCodeGen
 
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine($"{{");
-        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cache));
+        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cache, skiaSharp));
         sb.AppendLine($"}}");
 
         return sb.ToString();
@@ -112,7 +129,8 @@ public static class SkiaCSharpCodeGen
         IReadOnlyList<SkiaCSharpDrawing> drawings,
         SvgHelperScope scope = SvgHelperScope.FileLocal,
         string helperClassName = DefaultHelperClassName,
-        SvgPictureCache cache = SvgPictureCache.None)
+        SvgPictureCache cache = SvgPictureCache.None,
+        SkiaSharpVersion skiaSharp = SkiaSharpVersion.V4)
     {
         var shared = scope != SvgHelperScope.PerClass;
 
@@ -143,7 +161,7 @@ public static class SkiaCSharpCodeGen
 
         var bodies = drawings.ToDictionary(
             drawing => drawing,
-            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cache));
+            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cache, skiaSharp));
 
         // Which helpers are needed is decided across every class at once, so each appears once.
         var helpers = shared
@@ -232,13 +250,14 @@ public static class SkiaCSharpCodeGen
         string className,
         SvgCodeDeclarations? declarations,
         bool includeHelpers,
-        SvgPictureCache cache)
+        SvgPictureCache cache,
+        SkiaSharpVersion skiaSharp)
     {
         declarations ??= SvgCodeDeclarations.Empty;
 
         var (compiler, lets) = declarations.Resolve();
 
-        var counter = new SkiaCSharpCodeGenCounter();
+        var counter = new SkiaCSharpCodeGenCounter { SkiaSharpVersion = skiaSharp };
         var indent = "            ";
 
         // Record the body first: which helper methods the class needs is decided by what the
