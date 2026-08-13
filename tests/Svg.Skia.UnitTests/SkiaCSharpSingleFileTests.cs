@@ -246,7 +246,7 @@ public class SkiaCSharpSingleFileTests
         // obsolete there, so the older shape is the correct one rather than a fallback.
         var drawing = Tinted("Icons", "Home");
         var code = SkiaCSharpCodeGen.Generate(
-            drawing.Picture, "Icons", "Home", drawing.Declarations, skiaSharp: SkiaSharpVersion.V3);
+            drawing.Picture, "Icons", "Home", drawing.Declarations, skiaSharp: SkiaSharpTarget.V3);
 
         Assert.Contains("var skPath0 = new SKPath();", code);
         Assert.DoesNotContain("SKPathBuilder", code);
@@ -258,7 +258,7 @@ public class SkiaCSharpSingleFileTests
     {
         var code = SkiaCSharpCodeGen.GenerateFile(
             new[] { Tinted("Icons", "Home"), Tinted("Icons", "Search") },
-            skiaSharp: SkiaSharpVersion.V3);
+            skiaSharp: SkiaSharpTarget.V3);
 
         Assert.DoesNotContain("SKPathBuilder", code);
         Assert.Equal(2, Count(code, "new SKPath()"));

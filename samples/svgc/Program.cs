@@ -100,7 +100,7 @@ class Program
         string className = "Generated",
         string? recipePath = null,
         SvgPictureCache cache = SvgPictureCache.None,
-        SkiaSharpVersion skiaSharp = SkiaSharpVersion.V4)
+        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4)
     {
         if (Build(inputPath, namespaceName, className, recipePath) is { } drawing)
         {
@@ -263,7 +263,7 @@ class Program
                 var emit = settings.Emit is { } ? SvgcProject.ParseEmit(settings.Emit) : project?.Emit ?? SvgEmit.CSharp;
                 var cache = settings.Cache is { } ? SvgcProject.ParseCache(settings.Cache) : project?.Cache ?? SvgPictureCache.None;
                 var scope = settings.HelperScope is { } ? SvgcProject.ParseHelperScope(settings.HelperScope) : project?.HelperScope ?? SvgHelperScope.FileLocal;
-                var skiaSharp = settings.SkiaSharp is { } ? SvgcProject.ParseSkiaSharp(settings.SkiaSharp) : project?.SkiaSharp ?? SkiaSharpVersion.V4;
+                var skiaSharp = settings.SkiaSharp is { } ? SvgcProject.ParseSkiaSharpTarget(settings.SkiaSharp) : project?.SkiaSharp ?? SkiaSharpTarget.V4;
                 var namespaceName = settings.Namespace ?? project?.Namespace ?? "Svg";
                 var className = settings.Class ?? project?.Class ?? "Generated";
                 var recipePath = settings.RecipeFile?.FullName ?? project?.Recipe;

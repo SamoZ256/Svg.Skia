@@ -27,7 +27,7 @@ public enum SvgHelperScope
 }
 
 /// <summary>The SkiaSharp the generated code is compiled against.</summary>
-public enum SkiaSharpVersion
+public enum SkiaSharpTarget
 {
     /// <summary>
     /// 3.x. Paths are built by calling <c>SKPath</c> directly; <c>SKPathBuilder</c> does not
@@ -103,7 +103,7 @@ public static class SkiaCSharpCodeGen
         string className,
         SvgCodeDeclarations? declarations,
         SvgPictureCache cache = SvgPictureCache.None,
-        SkiaSharpVersion skiaSharp = SkiaSharpVersion.V4)
+        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4)
     {
         var sb = new StringBuilder();
 
@@ -130,7 +130,7 @@ public static class SkiaCSharpCodeGen
         SvgHelperScope scope = SvgHelperScope.FileLocal,
         string helperClassName = DefaultHelperClassName,
         SvgPictureCache cache = SvgPictureCache.None,
-        SkiaSharpVersion skiaSharp = SkiaSharpVersion.V4)
+        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4)
     {
         var shared = scope != SvgHelperScope.PerClass;
 
@@ -251,13 +251,13 @@ public static class SkiaCSharpCodeGen
         SvgCodeDeclarations? declarations,
         bool includeHelpers,
         SvgPictureCache cache,
-        SkiaSharpVersion skiaSharp)
+        SkiaSharpTarget skiaSharp)
     {
         declarations ??= SvgCodeDeclarations.Empty;
 
         var (compiler, lets) = declarations.Resolve();
 
-        var counter = new SkiaCSharpCodeGenCounter { SkiaSharpVersion = skiaSharp };
+        var counter = new SkiaCSharpCodeGenCounter { SkiaSharpTarget = skiaSharp };
         var indent = "            ";
 
         // Record the body first: which helper methods the class needs is decided by what the

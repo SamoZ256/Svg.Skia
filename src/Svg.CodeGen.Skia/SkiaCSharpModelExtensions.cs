@@ -1660,7 +1660,7 @@ public static class SkiaCSharpModelExtensions
         // SkiaSharp 4 obsoleted every mutating method on SKPath in favour of SKPathBuilder, which
         // does not exist in 3 at all. The commands themselves are identical; only what they are
         // called on differs, and whether a path has to be detached at the end.
-        var detached = counter.SkiaSharpVersion != SkiaSharpVersion.V3;
+        var detached = counter.SkiaSharpTarget != SkiaSharpTarget.V3;
 
         var builder = detached
             ? $"{counter.PathBuilderVarName}{counterPath}"
@@ -1927,7 +1927,13 @@ public static class SkiaCSharpModelExtensions
                     }
                 case SetMatrixCanvasCommand setMatrixCanvasCommand:
                     {
-                        sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SetMatrix({setMatrixCanvasCommand.TotalMatrix.ToSKMatrix()});");
+                        // SetMatrix(SKMatrix) is obsolete as an *error* in SkiaSharp 4, so passing
+                        // the matrix by value does not merely warn — it fails to compile. The in
+                        // overload exists in 3 as well, and needs a local because an expression
+                        // would be ambiguous between the two.
+                        var counterMatrix = ++counter.Matrix;
+                        sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {setMatrixCanvasCommand.TotalMatrix.ToSKMatrix()};");
+                        sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SetMatrix(in {counter.MatrixVarName}{counterMatrix});");
                         break;
                     }
                 case BeginConditionalCanvasCommand beginConditionalCanvasCommand:

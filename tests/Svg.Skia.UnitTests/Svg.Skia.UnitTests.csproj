@@ -14,6 +14,11 @@
   <Import Project="..\..\build\SkiaSharp.Native.props" />
 
   <ItemGroup>
+    <!-- SkiaCSharpRenderTests compiles generated C# and draws it. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="none" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" />
     <ProjectReference Include="..\..\src\Svg.JavaScript\Svg.JavaScript.csproj" />
     <ProjectReference Include="..\..\src\Svg.Skia\Svg.Skia.csproj" />

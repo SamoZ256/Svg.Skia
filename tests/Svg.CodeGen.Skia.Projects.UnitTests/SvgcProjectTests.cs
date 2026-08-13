@@ -35,7 +35,7 @@ public class SvgcProjectTests
         Assert.Equal(SvgEmit.CSharp, project.Emit);
         Assert.Equal(SvgPictureCache.LastValueLocked, project.Cache);
         Assert.Equal(SvgHelperScope.Internal, project.HelperScope);
-        Assert.Equal(SkiaSharpVersion.V3, project.SkiaSharp);
+        Assert.Equal(SkiaSharpTarget.V3, project.SkiaSharp);
         Assert.Equal(Path.Combine(Base, "Generated/Icons.cs"), project.SingleFile);
 
         Assert.Collection(
@@ -149,11 +149,11 @@ public class SvgcProjectTests
     public void Cache_Values(string value, SvgPictureCache expected) => Assert.Equal(expected, SvgcProject.ParseCache(value));
 
     [Theory]
-    [InlineData("3", SkiaSharpVersion.V3)]
-    [InlineData("4", SkiaSharpVersion.V4)]
-    [InlineData("", SkiaSharpVersion.V4)]
-    [InlineData(null, SkiaSharpVersion.V4)]
-    public void SkiaSharp_Values(string? value, SkiaSharpVersion expected) => Assert.Equal(expected, SvgcProject.ParseSkiaSharp(value));
+    [InlineData("3", SkiaSharpTarget.V3)]
+    [InlineData("4", SkiaSharpTarget.V4)]
+    [InlineData("", SkiaSharpTarget.V4)]
+    [InlineData(null, SkiaSharpTarget.V4)]
+    public void SkiaSharp_Values(string? value, SkiaSharpTarget expected) => Assert.Equal(expected, SvgcProject.ParseSkiaSharpTarget(value));
 
     [Theory]
     [InlineData("file", SvgHelperScope.FileLocal)]

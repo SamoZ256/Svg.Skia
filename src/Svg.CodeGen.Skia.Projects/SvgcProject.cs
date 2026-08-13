@@ -71,7 +71,7 @@ public sealed class SvgcProject
         SvgEmit? emit,
         SvgPictureCache? cache,
         SvgHelperScope? helperScope,
-        SkiaSharpVersion? skiaSharp,
+        SkiaSharpTarget? skiaSharp,
         string? singleFile,
         IReadOnlyList<SvgcProjectItem> items)
     {
@@ -99,7 +99,7 @@ public sealed class SvgcProject
     public SvgHelperScope? HelperScope { get; }
 
     /// <summary>Which SkiaSharp the generated code has to compile against.</summary>
-    public SkiaSharpVersion? SkiaSharp { get; }
+    public SkiaSharpTarget? SkiaSharp { get; }
 
     public string? SingleFile { get; }
 
@@ -171,7 +171,7 @@ public sealed class SvgcProject
             Setting(settings, "emit") is { } emit ? ParseEmit(emit) : null,
             Setting(settings, "cache") is { } cache ? ParseCache(cache) : null,
             Setting(settings, "helperScope") is { } scope ? ParseHelperScope(scope) : null,
-            Setting(settings, "skiaSharp") is { } skia ? ParseSkiaSharp(skia) : null,
+            Setting(settings, "skiaSharp") is { } skia ? ParseSkiaSharpTarget(skia) : null,
             Resolve(Setting(settings, "singleFile"), baseDirectory),
             items);
     }
@@ -199,10 +199,10 @@ public sealed class SvgcProject
         _ => throw new SvgcProjectException($"'{value}' is not a helper scope. Expected file, internal or perClass.")
     };
 
-    public static SkiaSharpVersion ParseSkiaSharp(string? value) => value?.Trim() switch
+    public static SkiaSharpTarget ParseSkiaSharpTarget(string? value) => value?.Trim() switch
     {
-        null or "" or "4" => SkiaSharpVersion.V4,
-        "3" => SkiaSharpVersion.V3,
+        null or "" or "4" => SkiaSharpTarget.V4,
+        "3" => SkiaSharpTarget.V3,
         _ => throw new SvgcProjectException($"'{value}' is not a SkiaSharp version. Expected 3 or 4.")
     };
 

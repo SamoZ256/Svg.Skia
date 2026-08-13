@@ -32,6 +32,20 @@ dotnet test  Svg.Skia.slnx -c Release
 dotnet format Svg.Skia.slnx --no-restore     # before committing
 ```
 
+`dotnet format` reformats files that were already committed with deviating style — most reliably
+`src/Svg.CodeGen.Skia/Expressions/ExprLexer.cs` and the whole `externals/SVG` submodule working
+tree, since `Svg.Custom` compiles those sources. Run it, then check `git status --short` and
+revert everything outside your change:
+
+```sh
+git checkout -- <file>
+git -C externals/SVG checkout -- .
+```
+
+To count compiler warnings, build with `--no-incremental -v n`. An incremental build that has
+nothing to do prints none at all, and the solution build at default verbosity drops per-project
+ones — both will tell you a change is clean when it is not.
+
 Single project, single framework (test projects are net10.0 only):
 
 ```sh
@@ -52,11 +66,19 @@ runs the W3C and resvg image-comparison suites.
 private SDK into `.nuke/temp` if the global one does not match. For ordinary work `dotnet build`
 is faster and sufficient.
 
-### Known failure
+### Known state
 
 `W3CTestSuiteTests.Tests(name: "text-ws-02-t")` fails on a clean checkout (error `0.023` against
 a `0.022` threshold — a marginal text-raster diff). Verify against a clean worktree before
 assuming a change caused it.
+
+`Svg.JavaScript.UnitTests…AppendChild_MovesTextNodeOutOfPreviousParent` failed once in a full
+run and passed on three consecutive reruns. One sighting only — re-run before assuming you broke
+it.
+
+A `-v n` build reports ~384 `CS0618` warnings: SkiaSharp 4 deprecated every mutating method on
+`SKPath`, and 43 hand-written sites in `SkiaModel`, `PathService`, `RenderingService` and two
+samples still use them. Generated code is clean; the hand-written half is deliberately deferred.
 
 ## Architecture
 
@@ -109,6 +131,15 @@ call `SkiaCSharpCodeGen.Generate`.
 - **`ICanvasCommandVisitor` has no default implementations** (netstandard2.0/net461), so adding a
   `CanvasCommand` is a breaking change for implementors, and also needs entries in the
   `DeepClone` switch in `SKCanvas.cs`.
+- **The W3C and resvg suites cover `SkiaModel`, not the code generator.** Generated C# is checked
+  for its text by `SkiaCSharpCodeGenExpressionTests`, for compiling by the source generator
+  sample, and for *drawing* only by `SkiaCSharpRenderTests` — which compiles it with Roslyn and
+  compares its rendering against the runtime renderer at a zero threshold. Without that, an
+  emitter change can be green across 2,700 tests and still produce a wrong picture. Add a case
+  there when emitting anything new.
+- **SkiaSharp 4 obsoletes some APIs as errors.** `SKCanvas.SetMatrix(SKMatrix)` is `CS0619`, not
+  a warning, so generated code that passes a matrix by value does not compile at all. Emit
+  `in`-overload calls through a local, since an expression argument is ambiguous between the two.
 - `ShimSkiaSharp.UnitTests.CloneCoverageTests` asserts every exported class in the
   `ShimSkiaSharp` namespace supports `ICloneable` or `IDeepCloneable<T>`. New public types there
   will fail it until they do.

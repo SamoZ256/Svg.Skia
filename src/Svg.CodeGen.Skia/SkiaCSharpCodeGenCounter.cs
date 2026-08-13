@@ -60,7 +60,7 @@ public class SkiaCSharpCodeGenCounter
     public string PathBuilderVarName { get; set; } = "skPathBuilder";
 
     /// <summary>Which SkiaSharp the emitted calls have to exist in.</summary>
-    public SkiaSharpVersion SkiaSharpVersion { get; set; } = SkiaSharpVersion.V4;
+    public SkiaSharpTarget SkiaSharpTarget { get; set; } = SkiaSharpTarget.V4;
 
     public string ImageVarName { get; set; } = "skImage";
 
