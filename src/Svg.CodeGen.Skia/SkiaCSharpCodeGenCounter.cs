@@ -56,6 +56,9 @@ public class SkiaCSharpCodeGenCounter
 
     public string PathVarName { get; set; } = "skPath";
 
+    /// <summary>Shares the path's counter: one builder is emitted per path, then detached.</summary>
+    public string PathBuilderVarName { get; set; } = "skPathBuilder";
+
     public string ImageVarName { get; set; } = "skImage";
 
     public string MatrixVarName { get; set; } = "skMatrix";

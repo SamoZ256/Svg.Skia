@@ -1656,19 +1656,19 @@ public static class SkiaCSharpModelExtensions
     public static void ToSKPath(this SKPath path, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
     {
         var counterPath = counter.Path;
+        var builder = $"{counter.PathBuilderVarName}{counterPath}";
 
-        sb.AppendLine($"{indent}var {counter.PathVarName}{counterPath} = new SKPath();");
+        // Every mutating method on SKPath is obsolete in favour of SKPathBuilder. The path is
+        // detached once it is complete, so everything downstream still receives an SKPath and
+        // nothing else in the generated file changes.
+        sb.AppendLine($"{indent}var {builder} = new SKPathBuilder();");
         if (path.FillType != SKPathFillType.Winding)
         {
-            sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.FillType = {path.FillType.ToSKPathFillType()};");
+            // Carried through Detach, so it belongs on the builder rather than the result.
+            sb.AppendLine($"{indent}{builder}.FillType = {path.FillType.ToSKPathFillType()};");
         }
 
-        if (path.Commands is null)
-        {
-            return;
-        }
-
-        foreach (var pathCommand in path.Commands)
+        foreach (var pathCommand in path.Commands ?? Enumerable.Empty<PathCommand>())
         {
             switch (pathCommand)
             {
@@ -1676,14 +1676,14 @@ public static class SkiaCSharpModelExtensions
                     {
                         var x = moveToPathCommand.X;
                         var y = moveToPathCommand.Y;
-                        sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.MoveTo({x.ToFloatString()}, {y.ToFloatString()});");
+                        sb.AppendLine($"{indent}{builder}.MoveTo({x.ToFloatString()}, {y.ToFloatString()});");
                     }
                     break;
                 case LineToPathCommand lineToPathCommand:
                     {
                         var x = lineToPathCommand.X;
                         var y = lineToPathCommand.Y;
-                        sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.LineTo({x.ToFloatString()}, {y.ToFloatString()});");
+                        sb.AppendLine($"{indent}{builder}.LineTo({x.ToFloatString()}, {y.ToFloatString()});");
                     }
                     break;
                 case ArcToPathCommand arcToPathCommand:
@@ -1695,7 +1695,7 @@ public static class SkiaCSharpModelExtensions
                         var sweep = arcToPathCommand.Sweep.ToSKPathDirection();
                         var x = arcToPathCommand.X;
                         var y = arcToPathCommand.Y;
-                        sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.ArcTo({rx.ToFloatString()}, {ry.ToFloatString()}, {xAxisRotate.ToFloatString()}, {largeArc}, {sweep}, {x.ToFloatString()}, {y.ToFloatString()});");
+                        sb.AppendLine($"{indent}{builder}.ArcTo({rx.ToFloatString()}, {ry.ToFloatString()}, {xAxisRotate.ToFloatString()}, {largeArc}, {sweep}, {x.ToFloatString()}, {y.ToFloatString()});");
                     }
                     break;
                 case QuadToPathCommand quadToPathCommand:
@@ -1704,7 +1704,7 @@ public static class SkiaCSharpModelExtensions
                         var y0 = quadToPathCommand.Y0;
                         var x1 = quadToPathCommand.X1;
                         var y1 = quadToPathCommand.Y1;
-                        sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.QuadTo({x0.ToFloatString()}, {y0.ToFloatString()}, {x1.ToFloatString()}, {y1.ToFloatString()});");
+                        sb.AppendLine($"{indent}{builder}.QuadTo({x0.ToFloatString()}, {y0.ToFloatString()}, {x1.ToFloatString()}, {y1.ToFloatString()});");
                     }
                     break;
                 case CubicToPathCommand cubicToPathCommand:
@@ -1715,18 +1715,18 @@ public static class SkiaCSharpModelExtensions
                         var y1 = cubicToPathCommand.Y1;
                         var x2 = cubicToPathCommand.X2;
                         var y2 = cubicToPathCommand.Y2;
-                        sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.CubicTo({x0.ToFloatString()}, {y0.ToFloatString()}, {x1.ToFloatString()}, {y1.ToFloatString()}, {x2.ToFloatString()}, {y2.ToFloatString()});");
+                        sb.AppendLine($"{indent}{builder}.CubicTo({x0.ToFloatString()}, {y0.ToFloatString()}, {x1.ToFloatString()}, {y1.ToFloatString()}, {x2.ToFloatString()}, {y2.ToFloatString()});");
                     }
                     break;
                 case ClosePathCommand _:
                     {
-                        sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.Close();");
+                        sb.AppendLine($"{indent}{builder}.Close();");
                     }
                     break;
                 case AddRectPathCommand addRectPathCommand:
                     {
                         var rect = addRectPathCommand.Rect.ToSKRect();
-                        sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.AddRect({rect});");
+                        sb.AppendLine($"{indent}{builder}.AddRect({rect});");
                     }
                     break;
                 case AddRoundRectPathCommand addRoundRectPathCommand:
@@ -1734,13 +1734,13 @@ public static class SkiaCSharpModelExtensions
                         var rect = addRoundRectPathCommand.Rect.ToSKRect();
                         var rx = addRoundRectPathCommand.Rx;
                         var ry = addRoundRectPathCommand.Ry;
-                        sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.AddRoundRect({rect}, {rx.ToFloatString()}, {ry.ToFloatString()});");
+                        sb.AppendLine($"{indent}{builder}.AddRoundRect({rect}, {rx.ToFloatString()}, {ry.ToFloatString()});");
                     }
                     break;
                 case AddOvalPathCommand addOvalPathCommand:
                     {
                         var rect = addOvalPathCommand.Rect.ToSKRect();
-                        sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.AddOval({rect});");
+                        sb.AppendLine($"{indent}{builder}.AddOval({rect});");
                     }
                     break;
                 case AddCirclePathCommand addCirclePathCommand:
@@ -1748,7 +1748,7 @@ public static class SkiaCSharpModelExtensions
                         var x = addCirclePathCommand.X;
                         var y = addCirclePathCommand.Y;
                         var radius = addCirclePathCommand.Radius;
-                        sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.AddCircle({x.ToFloatString()}, {y.ToFloatString()}, {radius.ToFloatString()});");
+                        sb.AppendLine($"{indent}{builder}.AddCircle({x.ToFloatString()}, {y.ToFloatString()}, {radius.ToFloatString()});");
                     }
                     break;
                 case AddPolyPathCommand addPolyPathCommand:
@@ -1757,7 +1757,7 @@ public static class SkiaCSharpModelExtensions
                         {
                             var points = addPolyPathCommand.Points.ToSKPoints();
                             var close = addPolyPathCommand.Close.ToBoolString();
-                            sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.AddPoly({points}, {close});");
+                            sb.AppendLine($"{indent}{builder}.AddPoly({points}, {close});");
                         }
                     }
                     break;
@@ -1765,6 +1765,9 @@ public static class SkiaCSharpModelExtensions
                     break;
             }
         }
+
+        sb.AppendLine($"{indent}var {counter.PathVarName}{counterPath} = {builder}.Detach();");
+        sb.AppendLine($"{indent}{builder}?.Dispose();");
     }
 
     public static void ToSKPath(this ClipPath clipPath, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, out bool isDefault)
@@ -1804,7 +1807,11 @@ public static class SkiaCSharpModelExtensions
 
             if (clip.Transform is { })
             {
-                sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.Transform({clip.Transform.Value.ToSKMatrix()});");
+                // Transform(SKMatrix) is obsolete in favour of Transform(in SKMatrix). Passing an
+                // expression would be ambiguous between the two, so the matrix needs a local.
+                var counterMatrix = ++counter.Matrix;
+                sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {clip.Transform.Value.ToSKMatrix()};");
+                sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.Transform(in {counter.MatrixVarName}{counterMatrix});");
             }
 
             if (isDefaultPathResult)
@@ -1840,7 +1847,9 @@ public static class SkiaCSharpModelExtensions
 
         if (!isDefaultPathResult && clipPath.Transform is { })
         {
-            sb.AppendLine($"{indent}{counter.PathVarName}{counterPathResult}.Transform({clipPath.Transform.Value.ToSKMatrix()});");
+            var counterMatrix = ++counter.Matrix;
+            sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {clipPath.Transform.Value.ToSKMatrix()};");
+            sb.AppendLine($"{indent}{counter.PathVarName}{counterPathResult}.Transform(in {counter.MatrixVarName}{counterMatrix});");
         }
 
         isDefault = isDefaultPathResult;
