@@ -76,9 +76,14 @@ assuming a change caused it.
 run and passed on three consecutive reruns. One sighting only — re-run before assuming you broke
 it.
 
-A `-v n` build reports ~384 `CS0618` warnings: SkiaSharp 4 deprecated every mutating method on
-`SKPath`, and 43 hand-written sites in `SkiaModel`, `PathService`, `RenderingService` and two
-samples still use them. Generated code is clean; the hand-written half is deliberately deferred.
+A `-v n` build reports 48 `CS0618` warnings, all of them **`Svg.Custom` deprecating its own
+API** — `SvgDeferredPaintServer.Document` and its `(SvgDocument, string)` constructor, still
+called from `SvgDeferredPaintServer.cs` and `SvgPaintServerFactory.cs`. Both are local overrides
+that diverge from `externals/SVG` deliberately, and clearing them means deciding what replaces a
+paint-server API rather than doing a rename.
+
+Nothing else is deprecated: SkiaSharp 4 obsoleted every mutating method on `SKPath`, and both the
+generated code and the hand-written renderer now build through `SKPathBuilder`.
 
 ## Architecture
 
