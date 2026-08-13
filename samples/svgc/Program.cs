@@ -86,7 +86,7 @@ class Program
         string className = "Generated",
         string? recipePath = null,
         string? emitSvgPath = null,
-        bool cacheLastValue = false)
+        SvgPictureCache cache = SvgPictureCache.None)
     {
         if (Build(inputPath, namespaceName, className, recipePath, emitSvgPath) is { } drawing)
         {
@@ -95,7 +95,7 @@ class Program
                 drawing.NamespaceName,
                 drawing.ClassName,
                 drawing.Declarations,
-                cacheLastValue);
+                cache);
 
             System.IO.File.WriteAllText(outputPath, text);
         }
@@ -109,11 +109,12 @@ class Program
         _ => throw new ArgumentException($"'{value}' is not a helper scope. Expected file, internal or perClass.")
     };
 
-    static bool ParseCache(string? value) => value?.ToLowerInvariant() switch
+    static SvgPictureCache ParseCache(string? value) => value?.ToLowerInvariant() switch
     {
-        null or "" or "none" => false,
-        "lastvalue" => true,
-        _ => throw new ArgumentException($"'{value}' is not a cache mode. Expected none or lastValue.")
+        null or "" or "none" => SvgPictureCache.None,
+        "lastvalue" => SvgPictureCache.LastValue,
+        "lastvaluelocked" => SvgPictureCache.LastValueLocked,
+        _ => throw new ArgumentException($"'{value}' is not a cache mode. Expected none, lastValue or lastValueLocked.")
     };
 
     /// <summary>
@@ -226,7 +227,7 @@ class Program
         };
         rootCommand.AddOption(optionHelperScope);
 
-        var optionCache = new Option(new[] { "--cache" }, "Keep the last picture Draw built and reuse it while the arguments are unchanged: none or lastValue")
+        var optionCache = new Option(new[] { "--cache" }, "Keep the last picture Draw built and reuse it while the arguments are unchanged: none, lastValue or lastValueLocked")
         {
             IsRequired = false,
             Argument = new Argument<string>(getDefaultValue: () => "none")

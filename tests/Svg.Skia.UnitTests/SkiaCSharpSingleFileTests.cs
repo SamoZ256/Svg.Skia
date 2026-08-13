@@ -166,7 +166,7 @@ public class SkiaCSharpSingleFileTests
     public void Caching_Remembers_Every_Argument_Under_A_Lock()
     {
         var drawing = Tinted("Icons", "Home");
-        var code = SkiaCSharpCodeGen.Generate(drawing.Picture, "Icons", "Home", drawing.Declarations, cacheLastValue: true);
+        var code = SkiaCSharpCodeGen.Generate(drawing.Picture, "Icons", "Home", drawing.Declarations, SvgPictureCache.LastValueLocked);
 
         Assert.Contains("private static readonly object s_cacheLock = new object();", code);
         Assert.Contains("private static SKPicture s_cachedPicture;", code);
@@ -193,10 +193,27 @@ public class SkiaCSharpSingleFileTests
         // The parameterless shape already caches better: one picture built in the static
         // constructor, drawn with no comparison at all.
         var drawing = Plain("Icons", "Home");
-        var code = SkiaCSharpCodeGen.Generate(drawing.Picture, "Icons", "Home", drawing.Declarations, cacheLastValue: true);
+        var code = SkiaCSharpCodeGen.Generate(drawing.Picture, "Icons", "Home", drawing.Declarations, SvgPictureCache.LastValueLocked);
 
         Assert.DoesNotContain("s_cachedPicture", code);
         Assert.Contains("public static SKPicture Picture { get; }", code);
+    }
+
+    [Fact]
+    public void Caching_Without_A_Lock_Omits_The_Guard_Entirely()
+    {
+        // Draw is then not safe to call from several threads, which is the trade lastValue makes
+        // against holding a lock across every draw.
+        var drawing = Tinted("Icons", "Home");
+        var code = SkiaCSharpCodeGen.Generate(drawing.Picture, "Icons", "Home", drawing.Declarations, SvgPictureCache.LastValue);
+
+        Assert.DoesNotContain("lock (", code);
+        Assert.DoesNotContain("s_cacheLock", code);
+
+        // Still caches, just unguarded, and at one level less indentation.
+        Assert.Contains("private static SKPicture s_cachedPicture;", code);
+        Assert.Contains("            if (s_cachedPicture is null", code);
+        Assert.Contains("            skCanvas.DrawPicture(s_cachedPicture);", code);
     }
 
     [Fact]
@@ -204,7 +221,7 @@ public class SkiaCSharpSingleFileTests
     {
         var code = SkiaCSharpCodeGen.GenerateFile(
             new[] { Tinted("Icons", "Home"), Tinted("Icons", "Search") },
-            cacheLastValue: true);
+            cache: SvgPictureCache.LastValueLocked);
 
         Assert.Equal(2, Count(code, "lock (s_cacheLock)"));
         Assert.Equal(2, Count(code, "private static SKPicture s_cachedPicture;"));

@@ -26,6 +26,26 @@ public enum SvgHelperScope
     Internal
 }
 
+/// <summary>Whether <c>Draw</c> keeps the picture it built, and whether it guards it.</summary>
+public enum SvgPictureCache
+{
+    /// <summary>Record a picture per call and dispose it. Draw stays stateless.</summary>
+    None,
+
+    /// <summary>
+    /// Keep the last picture and reuse it while the arguments are unchanged. Draw becomes
+    /// stateful and is <b>not</b> safe to call from several threads: one can replace and dispose
+    /// the picture another is midway through drawing.
+    /// </summary>
+    LastValue,
+
+    /// <summary>
+    /// As <see cref="LastValue"/>, guarded by a lock held across the draw. Releasing it any
+    /// earlier would reopen the race the lock exists to close.
+    /// </summary>
+    LastValueLocked
+}
+
 /// <summary>One drawing to be emitted, for <see cref="SkiaCSharpCodeGen.GenerateFile"/>.</summary>
 public sealed class SkiaCSharpDrawing
 {
@@ -66,7 +86,7 @@ public static class SkiaCSharpCodeGen
         string namespaceName,
         string className,
         SvgCodeDeclarations? declarations,
-        bool cacheLastValue = false)
+        SvgPictureCache cache = SvgPictureCache.None)
     {
         var sb = new StringBuilder();
 
@@ -74,7 +94,7 @@ public static class SkiaCSharpCodeGen
 
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine($"{{");
-        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cacheLastValue));
+        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cache));
         sb.AppendLine($"}}");
 
         return sb.ToString();
@@ -92,7 +112,7 @@ public static class SkiaCSharpCodeGen
         IReadOnlyList<SkiaCSharpDrawing> drawings,
         SvgHelperScope scope = SvgHelperScope.FileLocal,
         string helperClassName = DefaultHelperClassName,
-        bool cacheLastValue = false)
+        SvgPictureCache cache = SvgPictureCache.None)
     {
         var shared = scope != SvgHelperScope.PerClass;
 
@@ -123,7 +143,7 @@ public static class SkiaCSharpCodeGen
 
         var bodies = drawings.ToDictionary(
             drawing => drawing,
-            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cacheLastValue));
+            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cache));
 
         // Which helpers are needed is decided across every class at once, so each appears once.
         var helpers = shared
@@ -212,7 +232,7 @@ public static class SkiaCSharpCodeGen
         string className,
         SvgCodeDeclarations? declarations,
         bool includeHelpers,
-        bool cacheLastValue)
+        SvgPictureCache cache)
     {
         declarations ??= SvgCodeDeclarations.Empty;
 
@@ -241,7 +261,8 @@ public static class SkiaCSharpCodeGen
 
         // A document with no parameters already caches better than this: one picture built in
         // the static constructor, drawn with no comparison at all.
-        var cached = cacheLastValue && isParameterized;
+        var cached = cache != SvgPictureCache.None && isParameterized;
+        var locked = cached && cache == SvgPictureCache.LastValueLocked;
 
         var sb = new StringBuilder();
 
@@ -250,8 +271,12 @@ public static class SkiaCSharpCodeGen
 
         if (cached)
         {
-            sb.AppendLine($"        private static readonly object {CacheLockField} = new object();");
-            sb.AppendLine($"");
+            if (locked)
+            {
+                sb.AppendLine($"        private static readonly object {CacheLockField} = new object();");
+                sb.AppendLine($"");
+            }
+
             sb.AppendLine($"        private static SKPicture {CachedPictureField};");
             sb.AppendLine($"");
 
@@ -302,10 +327,17 @@ public static class SkiaCSharpCodeGen
             sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName}, {parameterList})");
             sb.AppendLine($"        {{");
 
-            // The draw stays inside the lock: releasing it earlier would let another thread
-            // replace and dispose the picture midway through playback.
-            sb.AppendLine($"            lock ({CacheLockField})");
-            sb.AppendLine($"            {{");
+            if (locked)
+            {
+                // The draw stays inside the lock: releasing it earlier would let another thread
+                // replace and dispose the picture midway through playback.
+                sb.AppendLine($"            lock ({CacheLockField})");
+                sb.AppendLine($"            {{");
+            }
+
+            // One more level of nesting once the lock is there.
+            var cacheIndent = locked ? "                " : "            ";
+
             // A float argument of NaN never equals itself, so it misses every time. That costs a
             // re-record and nothing else.
             var tests = new List<string> { $"{CachedPictureField} is null" };
@@ -316,22 +348,27 @@ public static class SkiaCSharpCodeGen
                 var open = i == 0 ? "if (" : "    ";
                 var close = i == tests.Count - 1 ? ")" : string.Empty;
 
-                sb.AppendLine($"                {open}{tests[i]}{close}");
+                sb.AppendLine($"{cacheIndent}{open}{tests[i]}{close}");
             }
 
-            sb.AppendLine($"                {{");
-            sb.AppendLine($"                    {CachedPictureField}?.Dispose();");
-            sb.AppendLine($"                    {CachedPictureField} = Record({argumentList});");
+            sb.AppendLine($"{cacheIndent}{{");
+            sb.AppendLine($"{cacheIndent}    {CachedPictureField}?.Dispose();");
+            sb.AppendLine($"{cacheIndent}    {CachedPictureField} = Record({argumentList});");
 
             foreach (var parameter in parameters)
             {
-                sb.AppendLine($"                    {ArgumentField(parameter.Name)} = {parameter.Name};");
+                sb.AppendLine($"{cacheIndent}    {ArgumentField(parameter.Name)} = {parameter.Name};");
             }
 
-            sb.AppendLine($"                }}");
+            sb.AppendLine($"{cacheIndent}}}");
             sb.AppendLine($"");
-            sb.AppendLine($"                {counter.CanvasVarName}.DrawPicture({CachedPictureField});");
-            sb.AppendLine($"            }}");
+            sb.AppendLine($"{cacheIndent}{counter.CanvasVarName}.DrawPicture({CachedPictureField});");
+
+            if (locked)
+            {
+                sb.AppendLine($"            }}");
+            }
+
             sb.AppendLine($"        }}");
         }
         else if (isParameterized)

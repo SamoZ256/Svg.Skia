@@ -378,8 +378,8 @@ that uses them.
 
 ### 5.2 Reusing the last picture
 
-`svgc --cache lastValue` makes `Draw` keep the picture it built and reuse it while the arguments
-are unchanged:
+`svgc --cache lastValueLocked` makes `Draw` keep the picture it built and reuse it while the
+arguments are unchanged:
 
 ```csharp
 private static readonly object s_cacheLock = new object();
@@ -412,10 +412,17 @@ It is **off by default**. It turns `Draw` from stateless into stateful and holds
 class for the life of the process, which is not a trade to make on a consumer's behalf. About
 2 KB per drawing, so a few hundred of them are single-digit megabytes.
 
-- `Record` is untouched — it still returns a picture the caller owns. The cache lives only in
-  `Draw`, where the picture cannot escape and can therefore be disposed when it is replaced.
-- The draw stays **inside** the lock. Releasing it earlier would let another thread replace and
-  dispose the picture midway through playback.
+| `--cache` | Emits |
+|---|---|
+| `none` (default) | No cache. `Draw` records a picture per call and disposes it, and stays stateless. |
+| `lastValue` | The cache without a lock. **Not safe to call from several threads**: one can replace and dispose the picture another is midway through drawing. |
+| `lastValueLocked` | The cache guarded by a lock held across the draw. |
+
+- `Record` is untouched by all three — it still returns a picture the caller owns. The cache lives
+  only in `Draw`, where the picture cannot escape and can therefore be disposed when it is
+  replaced.
+- Under `lastValueLocked` the draw stays **inside** the lock. Releasing it earlier would reopen
+  the race the lock exists to close.
 - A parameterless document is skipped: it already caches better, in the static constructor, with
   no comparison at all.
 - A `float` argument of `NaN` never equals itself, so it misses every time. That costs a
