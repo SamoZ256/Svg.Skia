@@ -527,8 +527,9 @@ svgc -i badge.svg -r badge.recipe -o badge.expr.svg --emit svg
 
 That path **builds no scene model** — it is read, rewrite, write. A recipe is a text
 transformation, so a drawing the renderer cannot handle still converts. It needs `-r`, since
-without one the output would be a copy of the input, and it cannot be combined with
-`--singleFile`, since an svg document holds one drawing.
+without one the output would be a copy of the input; it cannot be combined with `--singleFile`,
+since an svg document holds one drawing; and it cannot be combined with a resize, since there is
+nothing compiled for a size to apply to.
 
 ### 9.1 The project file
 
@@ -552,8 +553,8 @@ svgc -p icons.svgcproj
 ```
 
 Settings are elements, drawings are `<svg>` elements, and a drawing overrides a setting by naming
-its own: `namespace`, `class` and `recipe` as attributes, plus `output` where each drawing writes
-its own file.
+its own: `namespace`, `class`, `recipe`, `width`, `height` and `scale` as attributes, plus
+`output` where each drawing writes its own file.
 
 | Setting | |
 |---|---|
@@ -564,6 +565,21 @@ its own file.
 | `helperScope` | `file`, `internal` or `perClass` ([§5.1](#51-one-file-for-a-whole-set)) |
 | `skiaSharp` | `4` (default) or `3`, the major version the output is compiled against |
 | `singleFile` | fold the whole build into one C# file; per-drawing `output` is then ignored |
+| `width`, `height`, `scale` | the size the drawings are generated at; see below |
+
+**A resize is one setting in three parts.** `width` and `height` are in pixels, `scale` is a
+factor of the size the document already has, and the three are `--width`, `--height` and
+`--scale` on the command line. They move as a group rather than singly: whichever level names any
+of them supplies all three, so a drawing's `width` replaces the project's `scale` outright
+instead of joining it.
+
+The aspect ratio is always kept. A width or a height on its own derives the other, and a pair
+that does not match the drawing's own shape fits it into that box and centres it rather than
+stretching it — a document's own `preserveAspectRatio="none"` is left to mean what it says. The
+drawing is resized *before* it is compiled, by giving the document a different width and height
+against its viewBox, so it is built at the new size and `Picture.CullRect` reports it. Nothing
+scales the finished picture. A document with no viewBox is given one from the size it already
+had, since without one a width and a height only reframe the drawing rather than scaling it.
 
 Three things follow from it being a project rather than a list of jobs:
 
@@ -589,7 +605,7 @@ checks in the converted documents.
 C# and the drawing, all updating as the recipe is typed. It also has a `--render <dir>` mode that
 writes PNGs without opening a window.
 
-### 9.1 The recipe file
+### 9.2 The recipe file
 
 The recipe is written in the extension's own namespace, so the `<code>` block is exactly the
 block that ends up in the output — copied, not re-serialised.
@@ -636,7 +652,7 @@ becomes
 <path d="…" style="stroke-width:2" fill="{{ primary }}" stroke="{{ alert }}" />
 ```
 
-### 9.2 What counts as an occurrence
+### 9.3 What counts as an occurrence
 
 The attributes searched are `fill`, `stroke` and `stop-color` — the colour-valued members of the
 table in [§4](#4-supported-attributes). `opacity` and `visibility` have no colour to match on and
@@ -663,7 +679,7 @@ cascade means it was never painting anything.
 
 An attribute that already holds an expression is left as the author wrote it.
 
-### 9.3 What the conversion preserves
+### 9.4 What the conversion preserves
 
 Whitespace between elements, comments and the XML declaration survive, so re-running a recipe
 after the drawing is exported again gives a diff of the colours and nothing else. Layout *inside*
@@ -673,7 +689,7 @@ back on one.
 The extension namespace is declared on the root as `e:`, or on the next free prefix if that one
 is taken. An existing declaration of the namespace is reused whatever its prefix.
 
-### 9.4 Limits of the conversion
+### 9.5 Limits of the conversion
 
 **Only colours, and only by value.** There is no way to target an element by `id`, by class or by
 selector, so the attributes with no distinctive literal value — `opacity` and `visibility` — have
