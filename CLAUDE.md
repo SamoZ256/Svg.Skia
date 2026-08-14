@@ -118,6 +118,14 @@ the wrong one produces code that compiles, passes review and does nothing.
 (Roslyn generator, driven by `AdditionalFiles` with `NamespaceName`/`ClassName` metadata) both
 call `SkiaCSharpCodeGen.Generate`.
 
+**A resize happens to the document, not to the picture.** `svgc --width/--height/--scale` (and
+the matching project settings and `<svg>` attributes) go through `SvgSceneSizing.Apply` in
+`Svg.SceneGraph`, which sets the document's width and height — synthesizing a viewBox from the
+natural size when it has none, since without one those are a viewport rather than a scale — and
+then compiles as usual. Nothing scales the finished `SKPicture`, and the aspect ratio is always
+preserved: one dimension derives the other, and a pair that does not match the drawing's shape
+letterboxes through `preserveAspectRatio`. The source generator has no equivalent.
+
 ### Traps worth knowing
 
 - **`Svg.SourceGenerator.Skia` `<Compile Include>`s the `Svg.CodeGen.Skia` sources file by
