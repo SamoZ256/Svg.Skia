@@ -55,7 +55,8 @@ class Program
         string inputPath,
         string namespaceName,
         string className,
-        string? recipePath)
+        string? recipePath,
+        SvgSizeRequest size)
     {
         var svg = System.IO.File.ReadAllText(inputPath);
 
@@ -69,6 +70,10 @@ class Program
         {
             return null;
         }
+
+        // Resizing the document rather than the picture it compiles to, so the drawing is fitted
+        // to the new size the way the format defines rather than by a scale wrapped around it.
+        SvgSceneSizing.Apply(svgDocument, AssetLoader, size);
 
         var picture = SvgSceneRuntime.CreateModel(svgDocument, AssetLoader);
         if (picture is null || picture.Commands is null)
@@ -96,13 +101,14 @@ class Program
     static void Generate(
         string inputPath,
         string outputPath,
-        string namespaceName = "Svg",
-        string className = "Generated",
-        string? recipePath = null,
+        string namespaceName,
+        string className,
+        string? recipePath,
+        SvgSizeRequest size,
         SvgPictureCache cache = SvgPictureCache.None,
         SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4)
     {
-        if (Build(inputPath, namespaceName, className, recipePath) is { } drawing)
+        if (Build(inputPath, namespaceName, className, recipePath, size) is { } drawing)
         {
             var text = SkiaCSharpCodeGen.Generate(
                 drawing.Picture,
@@ -142,6 +148,32 @@ class Program
         }
 
         return identifier + "_" + SkiaCSharpCodeGen.DefaultHelperClassName;
+    }
+
+    /// <summary>
+    /// The size an item is built at: its own when it names one, the project's otherwise. An item
+    /// that names any of width, height or scale replaces the whole group rather than merging with
+    /// it, for the same reason a flag does.
+    /// </summary>
+    static SvgSizeRequest SizeFor(SvgcProjectItem item, SvgSizeRequest projectSize)
+        => item.HasSize ? new SvgSizeRequest(item.Width, item.Height, item.Scale) : projectSize;
+
+    static bool AnyItemResizes(SvgcProject? project)
+    {
+        if (project is null)
+        {
+            return false;
+        }
+
+        foreach (var item in project.Items)
+        {
+            if (item.HasSize)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // Rewrites a plain drawing into the expression format before it is generated from, so one
@@ -208,6 +240,27 @@ class Program
         };
         rootCommand.AddOption(optionSkiaSharp);
 
+        var optionWidth = new Option(new[] { "--width" }, "Resize the drawing to this width in pixels, keeping its aspect ratio")
+        {
+            IsRequired = false,
+            Argument = new Argument<string?>(getDefaultValue: () => null)
+        };
+        rootCommand.AddOption(optionWidth);
+
+        var optionHeight = new Option(new[] { "--height" }, "Resize the drawing to this height in pixels, keeping its aspect ratio")
+        {
+            IsRequired = false,
+            Argument = new Argument<string?>(getDefaultValue: () => null)
+        };
+        rootCommand.AddOption(optionHeight);
+
+        var optionScale = new Option(new[] { "--scale" }, "Resize the drawing by this factor of the size it already has")
+        {
+            IsRequired = false,
+            Argument = new Argument<string?>(getDefaultValue: () => null)
+        };
+        rootCommand.AddOption(optionScale);
+
         var optionEmit = new Option(new[] { "--emit" }, "What the output file receives: csharp, or svg for the document the recipe produced")
         {
             IsRequired = false,
@@ -269,6 +322,17 @@ class Program
                 var recipePath = settings.RecipeFile?.FullName ?? project?.Recipe;
                 var singleFilePath = settings.SingleFile?.FullName ?? project?.SingleFile;
 
+                // The three sizing options are one group rather than three settings, so a command
+                // line that names any of them replaces the project's sizing outright. Merging them
+                // would let a flag width join a project scale, which is a contradiction rather
+                // than an override.
+                var size = settings.Width is { } || settings.Height is { } || settings.Scale is { }
+                    ? new SvgSizeRequest(
+                        SvgcProject.ParseLength(settings.Width, "width"),
+                        SvgcProject.ParseLength(settings.Height, "height"),
+                        SvgcProject.ParseScale(settings.Scale))
+                    : new SvgSizeRequest(project?.Width, project?.Height, project?.Scale);
+
                 if (emit == SvgEmit.Svg)
                 {
                     // Without a recipe there is nothing to convert, so the output would be a copy
@@ -282,6 +346,13 @@ class Program
                     if (singleFilePath is { })
                     {
                         throw new ArgumentException("Emitting svg cannot be combined with a single file: an svg document holds one drawing.");
+                    }
+
+                    // A conversion rewrites the document's text and never builds a drawing, so
+                    // there is nothing for a size to apply to.
+                    if (!size.IsEmpty || AnyItemResizes(project))
+                    {
+                        throw new ArgumentException("Emitting svg cannot be combined with a resize: the conversion rewrites the document's text and never compiles it.");
                     }
                 }
 
@@ -299,7 +370,8 @@ class Program
                             item.Input,
                             item.Namespace ?? namespaceName,
                             item.Class ?? className,
-                            item.Recipe ?? recipePath);
+                            item.Recipe ?? recipePath,
+                            SizeFor(item, size));
 
                         if (drawing is { })
                         {
@@ -344,6 +416,7 @@ class Program
                                 // One recipe usually covers the whole set, so an item only has to
                                 // name its own when it differs.
                                 item.Recipe ?? recipePath,
+                                SizeFor(item, size),
                                 cache,
                                 skiaSharp);
                         }
@@ -364,6 +437,7 @@ class Program
                         namespaceName,
                         className,
                         recipePath,
+                        size,
                         cache,
                         skiaSharp);
                 }

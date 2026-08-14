@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Xml;
@@ -13,13 +14,24 @@ namespace Svg.CodeGen.Skia.Projects;
 /// <summary>One drawing of a build, and whatever it overrides.</summary>
 public sealed class SvgcProjectItem
 {
-    public SvgcProjectItem(string input, string? output, string? namespaceName, string? className, string? recipe)
+    public SvgcProjectItem(
+        string input,
+        string? output,
+        string? namespaceName,
+        string? className,
+        string? recipe,
+        float? width = null,
+        float? height = null,
+        float? scale = null)
     {
         Input = input;
         Output = output;
         Namespace = namespaceName;
         Class = className;
         Recipe = recipe;
+        Width = width;
+        Height = height;
+        Scale = scale;
     }
 
     public string Input { get; }
@@ -31,6 +43,22 @@ public sealed class SvgcProjectItem
     public string? Class { get; }
 
     public string? Recipe { get; }
+
+    /// <summary>The width to resize this drawing to, in pixels.</summary>
+    public float? Width { get; }
+
+    /// <summary>The height to resize this drawing to, in pixels.</summary>
+    public float? Height { get; }
+
+    /// <summary>The factor to resize this drawing by, against the size it already has.</summary>
+    public float? Scale { get; }
+
+    /// <summary>Whether the item asks for a size of its own, rather than taking the project's.</summary>
+    /// <remarks>
+    /// The three are one group: a scale and an explicit size contradict each other, so an item
+    /// that names any of them replaces the project's sizing outright instead of merging with it.
+    /// </remarks>
+    public bool HasSize => Width is { } || Height is { } || Scale is { };
 }
 
 /// <summary>
@@ -56,12 +84,13 @@ public sealed class SvgcProject
 {
     private static readonly string[] s_settings =
     {
-        "recipe", "namespace", "class", "emit", "cache", "helperScope", "singleFile", "skiaSharp"
+        "recipe", "namespace", "class", "emit", "cache", "helperScope", "singleFile", "skiaSharp",
+        "width", "height", "scale"
     };
 
     private static readonly string[] s_itemAttributes =
     {
-        "input", "output", "namespace", "class", "recipe"
+        "input", "output", "namespace", "class", "recipe", "width", "height", "scale"
     };
 
     private SvgcProject(
@@ -73,6 +102,9 @@ public sealed class SvgcProject
         SvgHelperScope? helperScope,
         SkiaSharpTarget? skiaSharp,
         string? singleFile,
+        float? width,
+        float? height,
+        float? scale,
         IReadOnlyList<SvgcProjectItem> items)
     {
         Recipe = recipe;
@@ -83,6 +115,9 @@ public sealed class SvgcProject
         HelperScope = helperScope;
         SkiaSharp = skiaSharp;
         SingleFile = singleFile;
+        Width = width;
+        Height = height;
+        Scale = scale;
         Items = items;
     }
 
@@ -102,6 +137,18 @@ public sealed class SvgcProject
     public SkiaSharpTarget? SkiaSharp { get; }
 
     public string? SingleFile { get; }
+
+    /// <summary>The width every drawing is resized to, in pixels.</summary>
+    public float? Width { get; }
+
+    /// <summary>The height every drawing is resized to, in pixels.</summary>
+    public float? Height { get; }
+
+    /// <summary>The factor every drawing is resized by, against the size it already has.</summary>
+    public float? Scale { get; }
+
+    /// <summary>Whether the project asks for a size at all. <see cref="SvgcProjectItem.HasSize"/>.</summary>
+    public bool HasSize => Width is { } || Height is { } || Scale is { };
 
     public IReadOnlyList<SvgcProjectItem> Items { get; }
 
@@ -173,6 +220,9 @@ public sealed class SvgcProject
             Setting(settings, "helperScope") is { } scope ? ParseHelperScope(scope) : null,
             Setting(settings, "skiaSharp") is { } skia ? ParseSkiaSharpTarget(skia) : null,
             Resolve(Setting(settings, "singleFile"), baseDirectory),
+            ParseLength(Setting(settings, "width"), "width"),
+            ParseLength(Setting(settings, "height"), "height"),
+            ParseScale(Setting(settings, "scale")),
             items);
     }
 
@@ -206,6 +256,31 @@ public sealed class SvgcProject
         _ => throw new SvgcProjectException($"'{value}' is not a SkiaSharp version. Expected 3 or 4.")
     };
 
+    /// <summary>
+    /// A width or a height in pixels, or null when it was not given. Whether the number makes
+    /// sense as a size is not decided here — <c>SvgSizeRequest</c> owns that, and it is the only
+    /// place that sees the whole group.
+    /// </summary>
+    public static float? ParseLength(string? value, string name)
+        => ParseNumber(value, $"is not a {name}. Expected a number of pixels.");
+
+    /// <summary>A factor of the size a drawing already has, or null when it was not given.</summary>
+    public static float? ParseScale(string? value)
+        => ParseNumber(value, "is not a scale. Expected a number.");
+
+    private static float? ParseNumber(string? value, string complaint)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        // Invariant, because a project describes the same build on every machine that reads it.
+        return float.TryParse(value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+            ? number
+            : throw new SvgcProjectException($"'{value}' {complaint}");
+    }
+
     private static SvgcProjectItem ReadItem(XElement element, string baseDirectory)
     {
         foreach (var attribute in element.Attributes())
@@ -225,7 +300,10 @@ public sealed class SvgcProject
             Resolve(Attribute(element, "output"), baseDirectory),
             Attribute(element, "namespace"),
             Attribute(element, "class"),
-            Resolve(Attribute(element, "recipe"), baseDirectory));
+            Resolve(Attribute(element, "recipe"), baseDirectory),
+            ParseLength(Attribute(element, "width"), "width"),
+            ParseLength(Attribute(element, "height"), "height"),
+            ParseScale(Attribute(element, "scale")));
     }
 
     private static string? Attribute(XElement element, string name)

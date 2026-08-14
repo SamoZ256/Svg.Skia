@@ -58,6 +58,33 @@ public class SvgcProjectTests
     }
 
     [Fact]
+    public void A_Size_Is_Read_From_The_Project_And_From_An_Item()
+    {
+        var project = Parse("""
+            <svgc>
+              <scale>2</scale>
+
+              <svg input="home.svg" />
+              <svg input="search.svg" width="48" />
+              <svg input="menu.svg" height="1.5" />
+            </svgc>
+            """);
+
+        Assert.Equal(2f, project.Scale);
+        Assert.Null(project.Width);
+        Assert.Null(project.Height);
+        Assert.True(project.HasSize);
+
+        Assert.False(project.Items[0].HasSize);
+
+        Assert.Equal(48f, project.Items[1].Width);
+        Assert.True(project.Items[1].HasSize);
+
+        // Read invariantly, so a project describes the same build on every machine.
+        Assert.Equal(1.5f, project.Items[2].Height);
+    }
+
+    [Fact]
     public void Anything_Unset_Stays_Null()
     {
         // A setting the document did not mention has to stay distinguishable from one it set, or
@@ -72,6 +99,11 @@ public class SvgcProjectTests
         Assert.Null(project.HelperScope);
         Assert.Null(project.SkiaSharp);
         Assert.Null(project.SingleFile);
+        Assert.Null(project.Width);
+        Assert.Null(project.Height);
+        Assert.Null(project.Scale);
+        Assert.False(project.HasSize);
+        Assert.False(project.Items[0].HasSize);
     }
 
     [Fact]
@@ -126,6 +158,12 @@ public class SvgcProjectTests
     [InlineData("""<svgc><cache>always</cache></svgc>""", "not a cache mode")]
     [InlineData("""<svgc><helperScope>global</helperScope></svgc>""", "not a helper scope")]
     [InlineData("""<svgc><skiaSharp>2</skiaSharp></svgc>""", "not a SkiaSharp version")]
+    [InlineData("""<svgc><width>wide</width></svgc>""", "not a width")]
+    [InlineData("""<svgc><height>tall</height></svgc>""", "not a height")]
+    [InlineData("""<svgc><scale>big</scale></svgc>""", "not a scale")]
+    // A decimal comma is a number somewhere, but not in a project file.
+    [InlineData("""<svgc><scale>1,5</scale></svgc>""", "not a scale")]
+    [InlineData("""<svgc><svg input="a.svg" width="wide" /></svgc>""", "not a width")]
     [InlineData("""<svgc><svg input="a.svg" >""", "not well formed")]
     public void Rejects(string xml, string expected)
     {
@@ -154,6 +192,23 @@ public class SvgcProjectTests
     [InlineData("", SkiaSharpTarget.V4)]
     [InlineData(null, SkiaSharpTarget.V4)]
     public void SkiaSharp_Values(string? value, SkiaSharpTarget expected) => Assert.Equal(expected, SvgcProject.ParseSkiaSharpTarget(value));
+
+    [Theory]
+    [InlineData("48", 48f)]
+    [InlineData(" 48 ", 48f)]
+    [InlineData("1.5", 1.5f)]
+    // Whether a number makes sense as a size is not decided here: SvgSizeRequest owns that, and
+    // it is the only place that sees width, height and scale together.
+    [InlineData("-5", -5f)]
+    [InlineData(null, null)]
+    public void Length_Values(string? value, float? expected)
+        => Assert.Equal(expected, SvgcProject.ParseLength(value, "width"));
+
+    [Theory]
+    [InlineData("2", 2f)]
+    [InlineData("0.5", 0.5f)]
+    [InlineData(null, null)]
+    public void Scale_Values(string? value, float? expected) => Assert.Equal(expected, SvgcProject.ParseScale(value));
 
     [Theory]
     [InlineData("file", SvgHelperScope.FileLocal)]
