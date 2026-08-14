@@ -850,6 +850,10 @@ public void Draw(SKCanvas canvas)
 ### svgc Usage
 
 ```
+dotnet tool install -g svgc
+```
+
+```
 svgc:
   Converts a svg file to a C# code.
 
@@ -857,22 +861,68 @@ Usage:
   svgc [options]
 
 Options:
-  -i, --inputFile <inputfile>      The relative or absolute path to the input file [default: ]
-  -o, --outputFile <outputfile>    The relative or absolute path to the output file [default: ]
-  -j, --jsonFile <jsonfile>        The relative or absolute path to the json file [default: ]
-  -n, --namespace <namespace>      The generated C# namespace name [default: Svg]
-  -c, --class <class>              The generated C# class name [default: Generated]
-  --version                        Show version information
-  -?, -h, --help                   Show help and usage information
+  -i, --inputFile <inputfile>        The relative or absolute path to the input file [default: ]
+  -o, --outputFile <outputfile>      The relative or absolute path to the output file [default: ]
+  -p, --projectFile <projectfile>    The relative or absolute path to a project file describing a whole build [default: ]
+  -r, --recipeFile <recipefile>      The relative or absolute path to a recipe applied to the input before generating [default: ]
+  --skiaSharp <skiasharp>            The SkiaSharp major version the generated code is compiled against: 3 or 4 [default: ]
+  --width <width>                    Resize the drawing to this width in pixels, keeping its aspect ratio [default: ]
+  --height <height>                  Resize the drawing to this height in pixels, keeping its aspect ratio [default: ]
+  --scale <scale>                    Resize the drawing by this factor of the size it already has [default: ]
+  --emit <emit>                      What the output file receives: csharp, or svg for the document the recipe produced [default: ]
+  --singleFile <singlefile>          Emit every drawing of the batch into one C# file at this path [default: ]
+  --helperScope <helperscope>        Where shared helpers go in a single file: file (C# 11), internal, or perClass [default: ]
+  --cache <cache>                    Keep the last picture Draw built and reuse it while the arguments are unchanged: none, lastValue or lastValueLocked [default: ]
+  -n, --namespace <namespace>        The generated C# namespace name [default: ]
+  -c, --class <class>                The generated C# class name [default: ]
+  --version                          Show version information
+  -?, -h, --help                     Show help and usage information
 ```
 
-Json File Format
-```json
-[
-    { "InputFile":"file1.svg", "OutputFile":"file1.svg.cs", "Class":"ClassName1", "Namespace":"NamespaceName" },
-    { "InputFile":"file2.svg", "OutputFile":"file2.svg.cs", "Class":"ClassName2", "Namespace":"NamespaceName" }
-]
+A recipe (`-r`) rewrites a plain drawing into the expression format before it is generated from,
+so one drawing can be parameterised for a whole icon set. `--emit svg` writes that converted
+document instead of C#. See [SVG_EXPRESSIONS.md](SVG_EXPRESSIONS.md).
+
+#### Resizing
+
 ```
+svgc -i home.svg -o Home.cs --width 96
+svgc -i home.svg -o Home.cs --scale 2
+```
+
+The drawing is resized before it is compiled, so the generated code draws at that size — nothing
+scales the picture afterwards, and `Picture.CullRect` reports the size that was asked for.
+
+The aspect ratio is always kept. A width or a height on its own derives the other, and a pair
+that does not match the drawing's own shape fits it into that box and centres it rather than
+stretching it. A resize cannot be combined with `--emit svg`, which rewrites the document's text
+without ever compiling it.
+
+#### Project File
+
+A whole build — the drawings and the settings they share — is described by one file, passed with
+`-p`:
+
+```xml
+<svgc>
+  <namespace>Icons</namespace>
+  <singleFile>Icons.cs</singleFile>
+  <scale>2</scale>
+
+  <svg input="home.svg" class="Home" />
+  <svg input="search.svg" class="Search" width="48" />
+</svgc>
+```
+
+The settings are `recipe`, `namespace`, `class`, `emit`, `cache`, `helperScope`, `singleFile`,
+`skiaSharp`, `width`, `height` and `scale`; an `<svg>` takes `input`, `output`, `namespace`,
+`class`, `recipe`, `width`, `height` and `scale`. Paths resolve against the project's own
+directory, so it describes the same build wherever it is run from.
+
+A command line option overrides the project, and an `<svg>` attribute overrides both. `width`,
+`height` and `scale` are one group rather than three settings, so whichever level names any of
+them supplies all three: an item's `width` replaces a project's `scale` outright instead of
+joining it.
 
 ### Links
 
