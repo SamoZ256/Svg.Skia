@@ -2,7 +2,14 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <!--
+      Multi-targeted for MathF, which arrived with netstandard2.1. Generated code calls MathF, so
+      the evaluator has to as well: (float)Math.Sin((double)x) differs from MathF.Sin(x) by an ulp
+      on about 1.4% of a 57,000-sample sweep, and Tan on 7.3%. netstandard2.0 is still built, both
+      for net461 consumers and because it is the flavour loaded into the compiler as part of the
+      source generator, and it falls back — see ExprMath.
+    -->
+    <TargetFrameworks>netstandard2.0;net6.0;net8.0;net10.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <IsPackable>True</IsPackable>

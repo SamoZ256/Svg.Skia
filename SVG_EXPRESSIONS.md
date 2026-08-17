@@ -509,11 +509,37 @@ bounding boxes and runs into the same problem as geometry.
   scaling, linear-RGB conversion) so the generated code reproduces them. The declaration members
   that produce C# — `Resolve()` and `DefaultCode()` — are extension methods here for the same
   reason.
+- **Evaluate** (`Svg.Expressions`) — `ExprValueBackend` computes a `TypedExpr` into an `ExprValue`
+  instead of rendering it, and `ExprEvaluator` is the facade over checker plus back end, mirroring
+  `ExprCompiler` exactly. `ExprEvaluator.Create` binds values to the declarations and resolves the
+  lets. This is what lets a renderer show real values rather than the placeholder.
 
 Checking and emission used to be one pass, which made the code generator the only possible
-consumer of the language. They are separate so a second back end — evaluating an expression
-against real values, for a renderer that shows more than the placeholder — can share the front
-end without depending on the code generator.
+consumer of the language. They are separate so the two back ends can share the front end, and the
+evaluator does not depend on the code generator at all.
+
+**The two back ends have to agree, and that is a test rather than a convention.** They compute the
+same document by different routes, so anything the generated C# does incidentally has to be
+reproduced deliberately:
+
+- Numbers are `float`, not `double`. The C# back end narrows every literal through `(float)` and
+  calls `MathF`, so evaluating in double precision would give a different answer.
+- `MathF` did not exist before netstandard2.1, so `Svg.Expressions` is multi-targeted. The
+  netstandard2.0 build — also the flavour loaded into the compiler as part of the source generator —
+  falls back to `(float)Math.Sin((double)x)`, which really does differ, by up to one ulp for `sin`,
+  `cos`, `tan` and `pow` and never for `sqrt`, `abs`, `floor`, `ceil` or `round`. Colours quantise
+  to bytes, so an ulp does not reach a pixel; the bound is pinned by `ExprMathFallbackTests`.
+- `hsl` is the only function reimplemented rather than delegated, because the language cannot
+  reference SkiaSharp. `SKColor.FromHsl` **truncates** its final conversion to a byte, and a
+  rounding version disagrees on 40,747 of 53,361 samples, so `ExprEvaluatorHslTests` sweeps the
+  whole domain against the real thing. `FromHsl` also folds the hue back into range only once,
+  which is why the wrap in `SvgHsl` happens first and is load-bearing.
+- `&&`, `||` and `? :` evaluate only what C# would. There are no side effects in the language, but
+  an unevaluated operand can throw — `clamp` with a reversed range does.
+
+`ExprEvaluatorDifferentialTests` is what holds this together: for each of ~100 expressions it
+evaluates the value *and* compiles the emitted C# with Roslyn and runs it, requiring the two to be
+identical bit for bit.
 
 Because the concrete value travels with the expression, equality and hashing of `SKColor`
 include it — otherwise the paint caches would collapse two elements that share a placeholder but

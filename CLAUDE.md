@@ -199,6 +199,24 @@ operator, a condition before its branches, arity before any argument.
 deliberate — a `color` parameter carrying a `default` is refused by `Parse`, for a reason that is
 purely about C#, so that a document cannot be accepted by one back end and rejected by the other.
 
+**There are two back ends now, and they must agree numerically.** `ExprCSharpBackend` renders C#;
+`ExprValueBackend` computes an `ExprValue`, behind the `ExprEvaluator` facade. Three traps, all of
+them things that reading the source will not tell you:
+
+- The evaluator computes in **`float`**, because generated code narrows every literal and calls
+  `MathF`. `Svg.Expressions` is multi-targeted for `MathF`, which netstandard2.0 lacks; its
+  fallback differs by up to one ulp for `sin`/`cos`/`tan`/`pow`, which is why `ExprMathFallback` is
+  compiled on every target — otherwise the only framework running that code would be one nothing
+  tests.
+- `hsl` is reimplemented from `SKColor.FromHsl`, whose final byte conversion **truncates**. Rounding
+  instead disagrees on 76% of the domain.
+- Do not "simplify" the short-circuiting in `ExprValueBackend`. `clamp` with a reversed range throws,
+  so an eagerly evaluated operand changes behaviour rather than just wasting work.
+
+`ExprEvaluatorDifferentialTests` compiles the emitted C# with Roslyn and compares it against the
+evaluated value bit for bit. Add a case there when touching either back end; it is the only thing
+that catches an ulp or a rounding difference, and a rendered-pixel test will not.
+
 Two invariants hold the design together:
 
 1. **A symbolic value always carries a concrete one.** `SKColor.Expression` sits beside real

@@ -8,6 +8,12 @@
   </PropertyGroup>
 
   <Import Project="..\..\build\ReferenceAssemblies.props" />
+  <!--
+    Signed so Svg.CodeGen.Skia can grant it friend access: a strong-named assembly's
+    InternalsVisibleTo has to name a public key, and an unsigned target cannot match one. Six other
+    test projects here already import this.
+  -->
+  <Import Project="..\..\build\SignAssembly.props" />
   <Import Project="..\..\build\XUnit.props" />
   <Import Project="..\..\build\SixLabors.ImageSharp.props" />
   <Import Project="..\..\build\SkiaSharp.props" />

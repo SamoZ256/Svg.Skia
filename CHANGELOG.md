@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+* Added a runtime evaluator for the SVG expression language: `ExprEvaluator` and `ExprValue` in
+  `Svg.Expressions` compute an expression against values instead of rendering it as C#, so a
+  renderer can show real values rather than the design-time placeholder. `ExprEvaluator.Create`
+  binds values to a document's `<e:code>` declarations and resolves its lets; a parameter with
+  neither a supplied value nor a `default` is an error, which is the rule generated code already
+  enforces.
+
+* `Svg.Expressions` now targets `netstandard2.0;net6.0;net8.0;net10.0` rather than netstandard2.0
+  alone. Generated code calls `MathF`, which arrived with netstandard2.1, so the evaluator has to as
+  well to give the same answer; the netstandard2.0 build falls back to the double-precision
+  functions and differs by at most one ulp for `sin`, `cos`, `tan` and `pow`.
+
 * **Breaking:** the SVG expression language's lexer, parser and type checker moved to a new
   `Svg.Expressions` package, and `ExprType` and `ExprException` moved with them from namespace
   `Svg.CodeGen.Skia.Expressions` to `Svg.Expressions`. Source-compatible after updating a `using`;

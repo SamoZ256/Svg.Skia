@@ -47,8 +47,6 @@ public class SkiaCSharpRenderTests
     // command list exactly. Any difference at all is a defect rather than tolerable noise.
     private const double Threshold = 0d;
 
-    private static IReadOnlyList<MetadataReference>? s_references;
-
     private static int s_generation;
 
     private static ShimPicture Model(string svgMarkup)
@@ -84,7 +82,7 @@ public class SkiaCSharpRenderTests
         var compilation = CSharpCompilation.Create(
             assemblyName,
             new[] { CSharpSyntaxTree.ParseText(SourceText.From(code)) },
-            References,
+            CSharpReferences.All,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
 
         using var peStream = new MemoryStream();
@@ -200,39 +198,6 @@ public class SkiaCSharpRenderTests
         }
     }
 
-    private static IReadOnlyList<MetadataReference> References
-    {
-        get
-        {
-            if (s_references is { })
-            {
-                return s_references;
-            }
-
-            var paths = new HashSet<string>(StringComparer.Ordinal);
-
-            if (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") is string trusted)
-            {
-                foreach (var path in trusted.Split(Path.PathSeparator))
-                {
-                    if (path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && File.Exists(path))
-                    {
-                        paths.Add(path);
-                    }
-                }
-            }
-
-            var skia = typeof(SKColor).Assembly.Location;
-            if (!string.IsNullOrEmpty(skia))
-            {
-                paths.Add(skia);
-            }
-
-            s_references = paths.Select(p => (MetadataReference)MetadataReference.CreateFromFile(p)).ToList();
-
-            return s_references;
-        }
-    }
 
     [Fact]
     public void Curves_And_Arcs()
