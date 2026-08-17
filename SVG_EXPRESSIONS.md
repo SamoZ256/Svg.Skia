@@ -569,7 +569,7 @@ its own: `namespace`, `class`, `recipe`, `width`, `height` and `scale` as attrib
 
 **A resize is one setting in three parts.** `width` and `height` are in pixels, `scale` is a
 factor of the size the document already has, and the three are `--width`, `--height` and
-`--scale` on the command line. They move as a group rather than singly: whichever level names any
+`--scale` on the command line. They move together rather than singly: whichever level names any
 of them supplies all three, so a drawing's `width` replaces the project's `scale` outright
 instead of joining it.
 
@@ -581,6 +581,31 @@ against its viewBox, so it is built at the new size and `Picture.CullRect` repor
 scales the finished picture. A document with no viewBox is given one from the size it already
 had, since without one a width and a height only reframe the drawing rather than scaling it.
 
+**A `<group>` scopes settings to some of the drawings.** Between naming a setting once for the
+whole project and repeating it on every drawing there is a third place. A group carries the same
+attributes a drawing does, less `input` and `output` — those are about one file — and every
+drawing inside it reads them as if it had named them itself:
+
+```xml
+<svgc>
+  <namespace>Icons</namespace>
+
+  <svg input="art/logo.svg" class="Logo" />
+
+  <group namespace="Icons.Nav" recipe="nav.recipe" scale="2">
+    <svg input="art/home.svg"   class="Home" />
+    <svg input="art/search.svg" class="Search" recipe="search.recipe" />
+  </group>
+</svgc>
+```
+
+Groups nest, and the nearest wins: an inner group overrides an outer one, a drawing overrides
+both, and the three parts of a resize are replaced together at whichever level names any of them.
+A group holds `<svg>` and `<group>` and nothing else — its own settings are attributes on it, so
+a setting *element* inside one is an error rather than something silently ignored. Drawings keep
+their declared order across groups, so a `singleFile` build is emitted in the order the project
+reads.
+
 Three things follow from it being a project rather than a list of jobs:
 
 **Paths resolve against the file**, not the working directory, so a project describes the same
@@ -590,7 +615,9 @@ build wherever it is run from.
 ignored, which is the difference between a project file and a bag of properties.
 
 **A command-line flag beats the file**, which beats the built-in default — so a one-off
-`svgc -p icons.svgcproj --emit svg` converts a build that ordinarily generates C#.
+`svgc -p icons.svgcproj --emit svg` converts a build that ordinarily generates C#. It beats the
+project-wide settings only: what a drawing or one of its groups names is the more specific of the
+two, and wins over the flag.
 
 Without `singleFile`, every drawing needs an `output`; with it, they are folded into one file in
 declared order, namespaces grouped in the order they first appear, so the output of a given build

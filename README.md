@@ -909,8 +909,12 @@ A whole build — the drawings and the settings they share — is described by o
   <singleFile>Icons.cs</singleFile>
   <scale>2</scale>
 
-  <svg input="home.svg" class="Home" />
-  <svg input="search.svg" class="Search" width="48" />
+  <svg input="logo.svg" class="Logo" />
+
+  <group namespace="Icons.Nav" recipe="nav.recipe">
+    <svg input="home.svg" class="Home" />
+    <svg input="search.svg" class="Search" width="48" />
+  </group>
 </svgc>
 ```
 
@@ -919,10 +923,16 @@ The settings are `recipe`, `namespace`, `class`, `emit`, `cache`, `helperScope`,
 `class`, `recipe`, `width`, `height` and `scale`. Paths resolve against the project's own
 directory, so it describes the same build wherever it is run from.
 
-A command line option overrides the project, and an `<svg>` attribute overrides both. `width`,
-`height` and `scale` are one group rather than three settings, so whichever level names any of
-them supplies all three: an item's `width` replaces a project's `scale` outright instead of
-joining it.
+A `<group>` puts a setting somewhere between the project and one drawing. It carries what an
+`<svg>` carries less `input` and `output`, every drawing inside reads those as if it had named
+them itself, and groups nest — the nearest one wins. A group holds `<svg>` and `<group>` and
+nothing else; its own settings are attributes on it. Drawings keep their declared order across
+groups, so a `singleFile` build is emitted in the order the project reads.
+
+A command line option overrides the project's own settings, but a drawing or a group is more
+specific and overrides the option in turn. `width`, `height` and `scale` move together rather
+than singly, so whichever level names any of them supplies all three: a drawing's `width`
+replaces a group's `scale` outright instead of joining it.
 
 ### Links
 

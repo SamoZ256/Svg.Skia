@@ -71,14 +71,25 @@ public sealed class SvgcProjectItem
 ///     &lt;singleFile&gt;Icons.cs&lt;/singleFile&gt;
 ///
 ///     &lt;svg input="home.svg"   class="Home" /&gt;
-///     &lt;svg input="search.svg" class="Search" /&gt;
+///
+///     &lt;group namespace="Icons.Brand" scale="2"&gt;
+///       &lt;svg input="logo.svg" class="Logo" /&gt;
+///     &lt;/group&gt;
 ///   &lt;/svgc&gt;
 /// </code>
 /// </summary>
 /// <remarks>
+/// <para>
 /// Every setting is optional and every one is nullable here, so a value the document did not
 /// mention stays distinguishable from one it set — which is what lets a command line flag
 /// override the file rather than merely tie with it.
+/// </para>
+/// <para>
+/// A <c>&lt;group&gt;</c> is folded into its drawings as the project is read, so
+/// <see cref="Items"/> is the same flat list either way. That also settles what a group beats: a
+/// drawing carries what its groups said as if it had said it itself, and a drawing's own settings
+/// already beat a command line flag.
+/// </para>
 /// </remarks>
 public sealed class SvgcProject
 {
@@ -91,6 +102,12 @@ public sealed class SvgcProject
     private static readonly string[] s_itemAttributes =
     {
         "input", "output", "namespace", "class", "recipe", "width", "height", "scale"
+    };
+
+    // Everything a drawing can name for itself, less the two that are about one file.
+    private static readonly string[] s_groupAttributes =
+    {
+        "namespace", "class", "recipe", "width", "height", "scale"
     };
 
     private SvgcProject(
@@ -191,7 +208,13 @@ public sealed class SvgcProject
 
             if (name == "svg")
             {
-                items.Add(ReadItem(element, baseDirectory));
+                items.Add(ReadItem(element, baseDirectory, Scoped.None));
+                continue;
+            }
+
+            if (name == "group")
+            {
+                ReadGroup(element, baseDirectory, Scoped.None, items);
                 continue;
             }
 
@@ -200,7 +223,7 @@ public sealed class SvgcProject
             if (Array.IndexOf(s_settings, name) < 0)
             {
                 throw new SvgcProjectException(
-                    $"<{name}> is not a project setting. Expected <svg> or one of: {string.Join(", ", s_settings)}.");
+                    $"<{name}> is not a project setting. Expected <svg>, <group> or one of: {string.Join(", ", s_settings)}.");
             }
 
             if (settings.ContainsKey(name))
@@ -281,29 +304,127 @@ public sealed class SvgcProject
             : throw new SvgcProjectException($"'{value}' {complaint}");
     }
 
-    private static SvgcProjectItem ReadItem(XElement element, string baseDirectory)
+    /// <summary>
+    /// Reads the drawings of one <c>&lt;group&gt;</c>, and of the groups inside it, appending them
+    /// to <paramref name="items"/> in document order.
+    /// </summary>
+    /// <remarks>
+    /// Nothing of the group survives the parse. Its settings are folded into every drawing it
+    /// holds, so the result is the same flat list of fully resolved items a project without groups
+    /// produces, and nothing downstream has to know groups exist.
+    /// </remarks>
+    private static void ReadGroup(XElement element, string baseDirectory, Scoped inherited, List<SvgcProjectItem> items)
     {
-        foreach (var attribute in element.Attributes())
+        RequireKnownAttributes(element, s_groupAttributes, "group");
+
+        var scoped = inherited.OverlaidWith(element, baseDirectory);
+
+        foreach (var child in element.Elements())
         {
-            if (Array.IndexOf(s_itemAttributes, attribute.Name.LocalName) < 0)
+            var name = child.Name.LocalName;
+
+            if (name == "svg")
             {
-                throw new SvgcProjectException(
-                    $"'{attribute.Name.LocalName}' is not a <svg> attribute. Expected one of: {string.Join(", ", s_itemAttributes)}.");
+                items.Add(ReadItem(child, baseDirectory, scoped));
+                continue;
             }
+
+            if (name == "group")
+            {
+                ReadGroup(child, baseDirectory, scoped, items);
+                continue;
+            }
+
+            // A setting element here would look like it scopes to the group and would in fact be
+            // ignored, so it is worth saying where it should have gone.
+            throw new SvgcProjectException(
+                $"<{name}> is not allowed in a <group>. A group holds <svg> and <group>; its own settings are attributes on it.");
         }
+    }
+
+    private static SvgcProjectItem ReadItem(XElement element, string baseDirectory, Scoped inherited)
+    {
+        RequireKnownAttributes(element, s_itemAttributes, "svg");
 
         var input = Attribute(element, "input")
             ?? throw new SvgcProjectException("<svg> is missing an input.");
 
+        var scoped = inherited.OverlaidWith(element, baseDirectory);
+
         return new SvgcProjectItem(
             Resolve(input, baseDirectory)!,
             Resolve(Attribute(element, "output"), baseDirectory),
-            Attribute(element, "namespace"),
-            Attribute(element, "class"),
-            Resolve(Attribute(element, "recipe"), baseDirectory),
-            ParseLength(Attribute(element, "width"), "width"),
-            ParseLength(Attribute(element, "height"), "height"),
-            ParseScale(Attribute(element, "scale")));
+            scoped.Namespace,
+            scoped.Class,
+            scoped.Recipe,
+            scoped.Width,
+            scoped.Height,
+            scoped.Scale);
+    }
+
+    private static void RequireKnownAttributes(XElement element, string[] allowed, string elementName)
+    {
+        foreach (var attribute in element.Attributes())
+        {
+            if (Array.IndexOf(allowed, attribute.Name.LocalName) < 0)
+            {
+                throw new SvgcProjectException(
+                    $"'{attribute.Name.LocalName}' is not a <{elementName}> attribute. Expected one of: {string.Join(", ", allowed)}.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// What the enclosing groups have said so far. A drawing outside every group starts from
+    /// <see cref="None"/>, and whatever is still null there falls through to the project settings
+    /// — which is what lets a command line flag override the file at all.
+    /// </summary>
+    private readonly struct Scoped
+    {
+        private Scoped(string? namespaceName, string? className, string? recipe, float? width, float? height, float? scale)
+        {
+            Namespace = namespaceName;
+            Class = className;
+            Recipe = recipe;
+            Width = width;
+            Height = height;
+            Scale = scale;
+        }
+
+        public static Scoped None => default;
+
+        public string? Namespace { get; }
+
+        public string? Class { get; }
+
+        public string? Recipe { get; }
+
+        public float? Width { get; }
+
+        public float? Height { get; }
+
+        public float? Scale { get; }
+
+        /// <summary>This, with whatever <paramref name="element"/> names of its own on top.</summary>
+        public Scoped OverlaidWith(XElement element, string baseDirectory)
+        {
+            var width = ParseLength(Attribute(element, "width"), "width");
+            var height = ParseLength(Attribute(element, "height"), "height");
+            var scale = ParseScale(Attribute(element, "scale"));
+
+            // The three are one setting, so an element that names any of them replaces all three.
+            // Overlaying them singly would let an inner width join an outer scale, which is a
+            // contradiction rather than a refinement.
+            var resizes = width is { } || height is { } || scale is { };
+
+            return new Scoped(
+                Attribute(element, "namespace") ?? Namespace,
+                Attribute(element, "class") ?? Class,
+                Resolve(Attribute(element, "recipe"), baseDirectory) ?? Recipe,
+                resizes ? width : Width,
+                resizes ? height : Height,
+                resizes ? scale : Scale);
+        }
     }
 
     private static string? Attribute(XElement element, string name)

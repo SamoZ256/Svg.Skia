@@ -189,7 +189,9 @@ a source-to-source rewriter and knows nothing about the expression language — 
 `<code>` block is copied verbatim, and the code generator remains the only type checker. `svgc`
 applies one with `-r`, and `--emit svg` writes the converted document instead of C# without
 building a scene model. A whole build — drawings plus settings — is described by a project file
-(`-p`), parsed by `src/Svg.CodeGen.Skia.Projects`. The source generator has no equivalent, so
+(`-p`), parsed by `src/Svg.CodeGen.Skia.Projects`. A `<group>` there scopes settings to some of
+the drawings and is folded into them as the project is read, so `SvgcProject.Items` is a flat
+list of resolved items whether the file uses groups or not, and nothing downstream knows. The source generator has no equivalent, so
 generator-driven projects convert ahead of time and check in the result.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
