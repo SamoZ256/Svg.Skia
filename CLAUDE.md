@@ -128,11 +128,20 @@ letterboxes through `preserveAspectRatio`. The source generator has no equivalen
 
 ### Traps worth knowing
 
-- **`Svg.SourceGenerator.Skia` `<Compile Include>`s the `Svg.CodeGen.Skia` sources file by
-  file**, rather than referencing the assembly, because an analyzer cannot take an ordinary
-  project reference. A new file in that project is invisible to it until it is listed in its
-  csproj. `svgc` used to do the same and now references the assembly — linking the sources *and*
-  referencing a library that references them properly is CS0121 on every extension method.
+- **An analyzer's dependencies have to be shipped twice over.** `Svg.SourceGenerator.Skia`
+  references every dependency ordinarily, with `PrivateAssets="all"`. For the package they are
+  packed into `analyzers/dotnet/cs` by the `PackAnalyzerAssemblies` target, which globs this
+  project's own `$(OutputPath)` — inside a target, because a wildcard in an `ItemGroup` expands at
+  evaluation time, before anything is built. For the project-to-project case each one also needs a
+  `TargetPathWithTargetPlatformMoniker` in `GetDependencyTargetPaths`, since the sample consumes
+  the generator as an `Analyzer` with `ReferenceOutputAssembly="False"`. Miss that and the
+  compiler cannot load the generator — no build error, just no generated files, so
+  `samples/Svg.SourceGenerator.Skia.Sample` failing to find a generated class is the test.
+  (It used to `<Compile Include>` the `Svg.CodeGen.Skia` sources file by file instead. That was
+  historical, not necessary: the packing machinery was already there for five other references.)
+- **`Svg.CodeGen.Skia` sets `EnforceExtendedAnalyzerRules`** because its assembly is loaded into
+  the compiler as part of the generator. RS1035 is an *error* there — `Environment.NewLine` and
+  file IO are banned, which is why `ExprSyntax.cs` writes `"\n"` by hand.
 - **The source generator is an analyzer**, so `EnforceExtendedAnalyzerRules` applies to every
   file linked into it. `Environment.NewLine` and similar are banned (RS1035).
 - **`Svg.CodeGen.Skia` targets netstandard2.0** and carries its own `IsExternalInit` shim;

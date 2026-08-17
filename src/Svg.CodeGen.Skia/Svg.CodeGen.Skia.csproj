@@ -7,6 +7,14 @@
     <Nullable>enable</Nullable>
     <IsPackable>True</IsPackable>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+    <!--
+      These sources are loaded into the compiler as part of Svg.SourceGenerator.Skia, so the rules
+      an analyzer has to obey apply here too — RS1035 bans Environment, file IO and the rest. The
+      generator used to link the files one by one, which enforced this by making them part of the
+      analyzer's own compilation; it references the assembly now, so the setting has to be stated
+      where the code lives.
+    -->
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -19,6 +27,11 @@
   <Import Project="..\..\build\SourceLink.props" />
   <Import Project="..\..\build\SignAssembly.props" />
   <Import Project="..\..\build\ReferenceAssemblies.props" />
+
+  <ItemGroup>
+    <!-- Build time only: it is what implements the RS1035 checks the setting above turns on. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Svg.Model\Svg.Model.csproj" />
