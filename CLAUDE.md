@@ -235,6 +235,17 @@ document's parameter values. It never mutates: paints are shared between element
 picture has to survive for the next set of values. Untouched subtrees come back as the same
 instances, so a document without expressions allocates nothing.
 
+**On `SKSvg`, loading never evaluates and `Model` is whatever is being rendered.** `Load` leaves the
+placeholders in place and does not even read the declarations, so no existing consumer is affected and
+a malformed `<e:code>` cannot fail a load. `SetExpressionValues` evaluates against a retained
+`_symbolicModel` — no re-parse, no scene recompile — and assigns the result to `Model`, having
+evaluated first so a rejected set leaves the previous rendering intact. The plan for this had `Model`
+staying symbolic with the evaluated picture hidden behind `Picture`; that was dropped because there
+are eleven places that convert a model (`SKSvg.Model.cs`, `SKSvg.AnimationLayers.cs`,
+`SKSvg.SceneGraph.cs`), and threading a second model through all of them to keep one property
+"pure" would have been both riskier and less useful — hit testing, `Save`, the wireframe and the
+animation layers all want the drawing as rendered.
+
 A false conditional **keeps the range's `Save`/`Restore`/`SetMatrix`/clip commands and drops only the
 drawing ones.** Generated code deletes the whole range instead, which it can afford because it
 assigns `SetMatrix(TotalMatrix)` while the runtime applies `Concat(DeltaMatrix)`. Measured, though:

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+* Added expression support to `SKSvg`: `ExpressionParameters` reports what a document declares,
+  `SetExpressionValues` binds values and re-renders, `ExpressionValues` reports what is bound, and
+  `ClearExpressionValues` goes back to the design-time placeholders. Loading is unchanged — it renders
+  the placeholders and does not evaluate, so a document whose parameters have no defaults still loads
+  and no existing use of `SKSvg` is affected. Supplying values is strict: a parameter with neither a
+  value nor a `default` is an error, matching the generated code, and nothing is applied unless the
+  whole set resolves. Re-evaluating does not re-parse the document or recompile the scene.
+
+* Fixed `NonSvgElement.DeepCopy` losing the element's namespace. The copy kept its name and
+  attributes but claimed to be in the SVG namespace, so anything matching a foreign element on name
+  *and* namespace silently stopped matching — found when a cloned document reported no `<e:code>`
+  declarations.
+
 * Added `SvgDocument.ExpressionDeclarations`, which reads a document's `<e:code>` block from the
   parsed tree rather than from source text. `Load(XmlReader)` and a document handed over directly
   never had text to re-parse, so this is what lets any route into a document be evaluated.

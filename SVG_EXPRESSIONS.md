@@ -591,6 +591,42 @@ path, where `SvgSource` shares one static `SkiaModel` that has nowhere to keep a
 - A condition inside an already-dropped range is not evaluated at all, matching generated code,
   where nested `if`s mean an inner condition behind a false outer one never runs.
 
+### 8.3 Rendering values through `SKSvg`
+
+```csharp
+using var svg = new SKSvg();
+svg.Load("badge.svg");                       // renders the placeholders, exactly as before
+
+foreach (var parameter in svg.ExpressionParameters)
+{
+    // name, type, and the default expression if the document declares one
+}
+
+svg.SetExpressionValues(new Dictionary<string, ExprValue>
+{
+    ["tint"] = ExprValue.Color(255, 0, 0, 255),
+    ["fade"] = ExprValue.Number(0.5f),
+});
+```
+
+Two rules, pulling in opposite directions on purpose:
+
+- **Loading never evaluates.** A document whose parameters have no defaults still loads and still
+  renders, as the placeholders it was authored to fall back to. Nothing about an existing use of
+  `SKSvg` changes, and the declarations are not even read — which is what stops a malformed
+  `<e:code>` block turning a successful load into an exception.
+- **Supplying values is strict.** Every declared parameter must end up with a value, supplied or
+  defaulted; one with neither is an `ExprException` naming it. That is the rule generated code already
+  enforces by making such a parameter required, and a host that would rather see a placeholder can
+  bind one as a value. Nothing is applied unless the whole set resolves, so a rejected call leaves the
+  previous rendering in place rather than a half-applied one.
+
+`SetExpressionValues` does not re-parse the document or recompile the scene: `SKSvg` retains the
+symbolic model and evaluates against it, so the cost of dragging a slider is one walk of the parts
+that carry expressions. `Model` is the picture being rendered, so it holds values once they are bound
+and placeholders before that; `ExpressionValues` reports what is currently bound, and
+`ClearExpressionValues()` goes back to the placeholders.
+
 Because the concrete value travels with the expression, equality and hashing of `SKColor`
 include it — otherwise the paint caches would collapse two elements that share a placeholder but
 carry different expressions.
