@@ -541,6 +541,37 @@ reproduced deliberately:
 evaluates the value *and* compiles the emitted C# with Roslyn and runs it, requiring the two to be
 identical bit for bit.
 
+### 8.1 Evaluating a whole picture
+
+`SvgSceneExpressionEvaluator.Evaluate` takes a picture holding expressions and returns one holding
+values, which any renderer can then draw without knowing the extension exists:
+
+```csharp
+var picture = SvgSceneRuntime.CreateModel(document, assetLoader);
+var values = new Dictionary<string, ExprValue> { ["tint"] = ExprValue.Color(255, 0, 0, 255) };
+var evaluated = SvgSceneExpressionEvaluator.Evaluate(picture, declarations, values);
+```
+
+Rewriting the model rather than teaching a renderer to consult `SKColor.Expression` is what keeps
+`SkiaModel` and `AvaloniaPicture` unchanged — and it is the only thing that could work for the Skia
+path, where `SvgSource` shares one static `SkiaModel` that has nowhere to keep a document's values.
+
+- Nothing is mutated, and untouched subtrees come back as the *same instances*. Two elements sharing
+  one cached paint still share one afterwards, and a document with no expressions is returned as-is.
+- The colours it reaches: a paint's `Color`, a `ColorShader`, the `SKColorF[]` of the three gradient
+  shaders, the paint of an opacity `SaveLayer`, and a `BlendModeColorFilter`. It recurses through
+  `DrawPictureCanvasCommand` and through a `PictureShader`, which is how a pattern's contents are
+  reached. The `SKColor LightColor` on the lit image filters is *not* walked — no document can
+  attach an expression there.
+- The resolved colour carries **no** expression afterwards. It has been dealt with, and a renderer
+  that still saw one would have no reason to trust the channels beside it.
+- A conditional's markers never survive, true or false. A false range keeps its `Save`, `Restore`,
+  `SetMatrix` and clip commands and drops only the drawing ones — see the note in `CLAUDE.md` for
+  why that differs from what the generated code does, and why the difference is invisible through
+  any real document.
+- A condition inside an already-dropped range is not evaluated at all, matching generated code,
+  where nested `if`s mean an inner condition behind a false outer one never runs.
+
 Because the concrete value travels with the expression, equality and hashing of `SKColor`
 include it — otherwise the paint caches would collapse two elements that share a placeholder but
 carry different expressions.

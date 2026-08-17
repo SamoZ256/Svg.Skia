@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* Added `SvgSceneExpressionEvaluator.Evaluate` in `Svg.SceneGraph`, which turns a picture holding
+  expressions into one holding values. It rewrites the model rather than changing any renderer, so
+  `SkiaModel` and the Avalonia controls draw an evaluated drawing with no changes of their own.
+  Nothing is mutated and untouched subtrees are returned as the same instances, so re-evaluating with
+  new values costs one walk of the parts that carry expressions.
+
 * Added a runtime evaluator for the SVG expression language: `ExprEvaluator` and `ExprValue` in
   `Svg.Expressions` compute an expression against values instead of rendering it as C#, so a
   renderer can show real values rather than the design-time placeholder. `ExprEvaluator.Create`

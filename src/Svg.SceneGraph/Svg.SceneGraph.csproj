@@ -36,6 +36,8 @@
     <ProjectReference Include="..\ShimSkiaSharp\ShimSkiaSharp.csproj" />
     <ProjectReference Include="..\Svg.Model\Svg.Model.csproj" />
     <ProjectReference Include="..\Svg.Custom\Svg.Custom.csproj" />
+    <!-- For the runtime expression evaluator: this project both attaches SymNodes and resolves them. -->
+    <ProjectReference Include="..\Svg.Expressions\Svg.Expressions.csproj" />
   </ItemGroup>
 
   <ItemGroup>

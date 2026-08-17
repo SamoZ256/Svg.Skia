@@ -217,6 +217,23 @@ them things that reading the source will not tell you:
 evaluated value bit for bit. Add a case there when touching either back end; it is the only thing
 that catches an ulp or a rounding difference, and a rendered-pixel test will not.
 
+**Evaluation rewrites the picture; it does not teach the renderers anything.**
+`SvgSceneExpressionEvaluator.Evaluate` returns a new `SKPicture` with concrete colours and resolved
+conditionals, so `SkiaModel` and `AvaloniaPicture` are untouched — which is also the only thing that
+could work, since `Avalonia.Svg.Skia.SvgSource` holds one *static* `SkiaModel` with nowhere to keep a
+document's parameter values. It never mutates: paints are shared between elements, and the symbolic
+picture has to survive for the next set of values. Untouched subtrees come back as the same
+instances, so a document without expressions allocates nothing.
+
+A false conditional **keeps the range's `Save`/`Restore`/`SetMatrix`/clip commands and drops only the
+drawing ones.** Generated code deletes the whole range instead, which it can afford because it
+assigns `SetMatrix(TotalMatrix)` while the runtime applies `Concat(DeltaMatrix)`. Measured, though:
+`SvgSceneRenderer` opens the range around everything a node contributes, so a matrix inside one is
+always inside a `Save` the range's own `Restore` pops, and through any real document the two are
+indistinguishable — deleting the range passes every render test. `ConditionalRangeTests` pins the
+difference on hand-built pictures, because no document produces one; that is the suite that fails if
+this changes, not the render tests.
+
 Two invariants hold the design together:
 
 1. **A symbolic value always carries a concrete one.** `SKColor.Expression` sits beside real
