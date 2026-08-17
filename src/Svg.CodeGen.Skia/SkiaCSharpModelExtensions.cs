@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using ShimSkiaSharp;
 using Svg.CodeGen.Skia.Expressions;
+using Svg.Expressions;
 
 namespace Svg.CodeGen.Skia;
 

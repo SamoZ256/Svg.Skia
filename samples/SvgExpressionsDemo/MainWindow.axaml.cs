@@ -14,6 +14,7 @@ using Avalonia.Threading;
 using SkiaSharp;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Expressions;
+using Svg.Expressions;
 
 namespace SvgExpressionsDemo;
 

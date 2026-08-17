@@ -9,6 +9,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Expressions;
+using Svg.Expressions;
 using Svg.Model.Services;
 using Svg.Skia;
 

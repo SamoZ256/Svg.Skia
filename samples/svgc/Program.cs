@@ -27,7 +27,7 @@ class Program
 
         // An expression error is a diagnostic about the author's SVG, not a crash, so it is
         // reported like a compiler message instead of a stack trace.
-        if (ex is Svg.CodeGen.Skia.Expressions.ExprException expression)
+        if (ex is Svg.Expressions.ExprException expression)
         {
             Log($"error: {expression.ToDiagnostic()}");
             return;

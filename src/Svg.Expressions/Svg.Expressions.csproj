@@ -8,20 +8,19 @@
     <IsPackable>True</IsPackable>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
     <!--
-      These sources are loaded into the compiler as part of Svg.SourceGenerator.Skia, so the rules
-      an analyzer has to obey apply here too — RS1035 bans Environment, file IO and the rest. The
-      generator used to link the files one by one, which enforced this by making them part of the
-      analyzer's own compilation; it references the assembly now, so the setting has to be stated
-      where the code lives.
+      Reached from inside the compiler: Svg.CodeGen.Skia is loaded as part of
+      Svg.SourceGenerator.Skia and this is one of its dependencies, so the rules an analyzer has to
+      obey apply here too. RS1035 bans Environment, file IO and the rest, which is why
+      ExprException renders its diagnostic with "\n" rather than Environment.NewLine.
     -->
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
   </PropertyGroup>
 
   <PropertyGroup>
-    <Description>An Svg drawing markup to C# code generator using SkiaSharp as rendering engine.</Description>
-    <PackageId>Svg.CodeGen.Skia</PackageId>
+    <Description>The SVG expression language: lexer, parser and type checker, shared by the code generator and by runtime evaluation.</Description>
+    <PackageId>Svg.Expressions</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageTags>svg;skia;skiasharp;codegen;codegenerator;compiler;csharp;codegen;graphics</PackageTags>
+    <PackageTags>svg;expressions;parser;compiler;csharp;graphics</PackageTags>
   </PropertyGroup>
 
   <Import Project="..\..\build\SourceLink.props" />
@@ -31,11 +30,6 @@
   <ItemGroup>
     <!-- Build time only: it is what implements the RS1035 checks the setting above turns on. -->
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\Svg.Expressions\Svg.Expressions.csproj" />
-    <ProjectReference Include="..\Svg.Model\Svg.Model.csproj" />
   </ItemGroup>
 
 </Project>

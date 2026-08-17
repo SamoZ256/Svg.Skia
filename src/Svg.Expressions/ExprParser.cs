@@ -3,7 +3,7 @@
 #nullable enable
 using System.Collections.Generic;
 
-namespace Svg.CodeGen.Skia.Expressions;
+namespace Svg.Expressions;
 
 // Recursive descent over the grammar, loosest binding first:
 //

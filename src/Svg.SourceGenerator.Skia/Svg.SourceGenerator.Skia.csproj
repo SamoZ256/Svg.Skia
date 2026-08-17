@@ -39,6 +39,7 @@
     <ProjectReference Include="..\ShimSkiaSharp\ShimSkiaSharp.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\Svg.Custom\Svg.Custom.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\Svg.Expressions\Svg.Expressions.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\Svg.Model\Svg.Model.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\Svg.SceneGraph\Svg.SceneGraph.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\Svg.Skia\Svg.Skia.csproj" PrivateAssets="all" />
@@ -75,6 +76,7 @@
       <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\ShimSkiaSharp\bin\$(Configuration)\netstandard2.0\ShimSkiaSharp.dll" IncludeRuntimeDependency="false" />
       <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\Svg.CodeGen.Skia\bin\$(Configuration)\netstandard2.0\Svg.CodeGen.Skia.dll" IncludeRuntimeDependency="false" />
       <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\Svg.Custom\bin\$(Configuration)\netstandard2.0\Svg.Custom.dll" IncludeRuntimeDependency="false" />
+      <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\Svg.Expressions\bin\$(Configuration)\netstandard2.0\Svg.Expressions.dll" IncludeRuntimeDependency="false" />
       <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\Svg.Model\bin\$(Configuration)\netstandard2.0\Svg.Model.dll" IncludeRuntimeDependency="false" />
       <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\Svg.SceneGraph\bin\$(Configuration)\netstandard2.0\Svg.SceneGraph.dll" IncludeRuntimeDependency="false" />
       <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\Svg.Skia\bin\$(Configuration)\netstandard2.0\Svg.Skia.dll" IncludeRuntimeDependency="false" />

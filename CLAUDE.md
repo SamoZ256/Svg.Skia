@@ -181,8 +181,17 @@ values, diagnostics, generated-code shape and limitations all live there.
 
 Its parts: the `{{ }}` lift and placeholder substitution in
 `Svg.Custom/SvgExpressionAttributes.cs`, the symbolic value model in `ShimSkiaSharp/Symbolic/`,
-attribute reading in `Svg.SceneGraph/SvgSceneExpressions.cs`, and the language itself (lexer,
-parser, type checker, C# emitter) in `Svg.CodeGen.Skia/Expressions/`.
+attribute reading in `Svg.SceneGraph/SvgSceneExpressions.cs`, the language itself — lexer, parser,
+type checker and the `TypedExpr` it produces — in `src/Svg.Expressions`, and the C# back end in
+`Svg.CodeGen.Skia/Expressions/`.
+
+**The front end knows no target language.** `ExprChecker` returns a `TypedExpr`;
+`ExprCSharpBackend` is what knows that `sin` is `MathF.Sin`, and `ExprCompiler` is a facade over
+the two kept for the code generator's convenience. Two consequences worth knowing before touching
+either: `ExprChecker` holds the symbol table **by reference** because `SvgCodeDeclarations.Resolve`
+adds each let to it after construction, and the checker throws on the first error in a fixed visit
+order that several tests pin — operands before their operator, a condition before its branches,
+arity before any argument.
 
 Two invariants hold the design together:
 

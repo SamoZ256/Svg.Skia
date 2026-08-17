@@ -71,8 +71,8 @@ internal static class Program
         var arguments = result.Parameters
             .Select(object? (p) => p.Type switch
             {
-                Svg.CodeGen.Skia.Expressions.ExprType.Number => 0.5f,
-                Svg.CodeGen.Skia.Expressions.ExprType.Boolean => true,
+                Svg.Expressions.ExprType.Number => 0.5f,
+                Svg.Expressions.ExprType.Boolean => true,
                 _ => new SKColor(0x3F, 0xB5, 0xB5)
             })
             .ToArray();
