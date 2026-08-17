@@ -541,7 +541,26 @@ reproduced deliberately:
 evaluates the value *and* compiles the emitted C# with Roslyn and runs it, requiring the two to be
 identical bit for bit.
 
-### 8.1 Evaluating a whole picture
+### 8.1 Two readers for one `<e:code>` block
+
+The declarations can be read either from the source text or from a parsed document, and both exist
+because neither reaches everywhere:
+
+- `SvgExpressionDeclarations.Parse(svgText)` builds its own `XDocument`. `svgc` and the source
+  generator both already hold the file's text, and hand the same string to the SVG parser and to
+  this.
+- `SvgDocument.ExpressionDeclarations` walks the parsed tree. `SKSvg.Load(XmlReader)` and
+  `FromSvgDocument` never had any text, and an editor holds a document rather than a string, so
+  without this those routes could not evaluate at all.
+
+The text reader is not a workaround: an unqualified `<param>` really could belong to another
+extension, and a foreign element's namespace is only visible to code *inside* `Svg.Custom`, which is
+where the tree reader lives. Both go through `SvgExpressionDeclarations.Builder`, so the rules about
+names, types and defaults are applied once rather than twice, and
+`SvgDocumentExpressionDeclarationsTests` pins that the two agree — down to the wording of every
+diagnostic.
+
+### 8.2 Evaluating a whole picture
 
 `SvgSceneExpressionEvaluator.Evaluate` takes a picture holding expressions and returns one holding
 values, which any renderer can then draw without knowing the extension exists:

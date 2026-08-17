@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* Added `SvgDocument.ExpressionDeclarations`, which reads a document's `<e:code>` block from the
+  parsed tree rather than from source text. `Load(XmlReader)` and a document handed over directly
+  never had text to re-parse, so this is what lets any route into a document be evaluated.
+  `SvgExpressionDeclarations.Parse` is unchanged and still what `svgc` and the source generator use;
+  both now go through the new `SvgExpressionDeclarations.Builder` so they validate identically.
+
 * Added `SvgSceneExpressionEvaluator.Evaluate` in `Svg.SceneGraph`, which turns a picture holding
   expressions into one holding values. It rewrites the model rather than changing any renderer, so
   `SkiaModel` and the Avalonia controls draw an evaluated drawing with no changes of their own.

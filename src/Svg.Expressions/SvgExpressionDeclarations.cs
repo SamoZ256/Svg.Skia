@@ -54,9 +54,11 @@ public sealed class SvgExpressionLet
 // they sit beside the language rather than in a back end: the code generator turns them into a
 // method signature, and a runtime evaluator binds values to them.
 //
-// Read straight from the source text rather than from the parsed DOM: the SVG object model
-// exposes foreign element names but not their namespace, and matching on an unqualified name
-// would claim <param> elements belonging to somebody else's namespace.
+// Parse reads the source text rather than the parsed DOM, because the SVG object model exposes a
+// foreign element's namespace only to code inside Svg.Custom: from out here, matching on an
+// unqualified name would claim <param> elements belonging to somebody else's namespace. Svg.Custom
+// itself can see the namespace and reads them straight off the DOM instead — see
+// SvgDocument.ExpressionDeclarations. Both routes go through Builder, so they validate identically.
 public sealed class SvgExpressionDeclarations
 {
     public const string Namespace = "https://svg.skia/expr/1.0";
@@ -108,9 +110,7 @@ public sealed class SvgExpressionDeclarations
             return Empty;
         }
 
-        var parameters = new List<SvgExpressionParameter>();
-        var lets = new List<SvgExpressionLet>();
-        var declared = new HashSet<string>(StringComparer.Ordinal);
+        var builder = new Builder();
 
         foreach (var element in blocks.SelectMany(block => block.Elements()))
         {
@@ -122,38 +122,91 @@ public sealed class SvgExpressionDeclarations
             switch (element.Name.LocalName)
             {
                 case "param":
-                    {
-                        var name = RequireName(element, "param", declared);
-                        var typeText = Trim((string?)element.Attribute("type"))
-                            ?? throw new ExprException($"<e:param name=\"{name}\"> is missing a type.", 0);
-                        var type = ExprFunctions.ParseType(typeText, 0);
-                        var defaultExpression = Trim((string?)element.Attribute("default"));
-
-                        RejectColourDefault(name, type, defaultExpression);
-
-                        parameters.Add(new SvgExpressionParameter(name, type, defaultExpression));
-
-                        break;
-                    }
+                    builder.AddParameter(
+                        (string?)element.Attribute("name"),
+                        (string?)element.Attribute("type"),
+                        (string?)element.Attribute("default"));
+                    break;
 
                 case "let":
-                    {
-                        var name = RequireName(element, "let", declared);
-                        var expression = Trim(element.Value)
-                            ?? throw new ExprException($"<e:let name=\"{name}\"> has no expression.", 0);
-
-                        lets.Add(new SvgExpressionLet(name, expression));
-                        break;
-                    }
+                    builder.AddLet((string?)element.Attribute("name"), element.Value);
+                    break;
             }
         }
 
-        if (parameters.Count == 0 && lets.Count == 0)
+        return builder.Build();
+    }
+
+    /// <summary>
+    /// Collects declarations one at a time, applying every rule about names, types and defaults.
+    /// </summary>
+    /// <remarks>
+    /// Shared so that reading an <c>&lt;e:code&gt;</c> block out of source text and reading it out of
+    /// a parsed document cannot drift apart. The rules — valid identifier, not a built-in name, not
+    /// declared twice, a type on every parameter, no default on a colour — belong to the format, not
+    /// to whichever reader got there first.
+    /// </remarks>
+    public sealed class Builder
+    {
+        private readonly List<SvgExpressionParameter> _parameters = new();
+        private readonly List<SvgExpressionLet> _lets = new();
+        private readonly HashSet<string> _declared = new(StringComparer.Ordinal);
+
+        public void AddParameter(string? name, string? typeText, string? defaultExpression)
         {
-            return Empty;
+            var declared = RequireName(name, "param");
+
+            var type = ExprFunctions.ParseType(
+                Trim(typeText) ?? throw new ExprException($"<e:param name=\"{declared}\"> is missing a type.", 0),
+                0);
+
+            var @default = Trim(defaultExpression);
+
+            RejectColourDefault(declared, type, @default);
+
+            _parameters.Add(new SvgExpressionParameter(declared, type, @default));
         }
 
-        return new SvgExpressionDeclarations(parameters, lets);
+        public void AddLet(string? name, string? expression)
+        {
+            var declared = RequireName(name, "let");
+
+            _lets.Add(new SvgExpressionLet(
+                declared,
+                Trim(expression) ?? throw new ExprException($"<e:let name=\"{declared}\"> has no expression.", 0)));
+        }
+
+        /// <summary>
+        /// The declarations collected so far, or <see cref="Empty"/> when there were none.
+        /// </summary>
+        public SvgExpressionDeclarations Build()
+            => _parameters.Count == 0 && _lets.Count == 0
+                ? Empty
+                : new SvgExpressionDeclarations(_parameters, _lets);
+
+        private string RequireName(string? value, string what)
+        {
+            var name = Trim(value)
+                ?? throw new ExprException($"<e:{what}> is missing a name.", 0);
+
+            if (!IsIdentifier(name))
+            {
+                throw new ExprException($"'{name}' is not a valid name: use letters, digits and underscore, not starting with a digit.", 0);
+            }
+
+            if (ExprFunctions.IsReservedName(name))
+            {
+                throw new ExprException($"'{name}' is a built-in name and cannot be redeclared.", 0);
+            }
+
+            // One set across params and lets, so a let cannot shadow a parameter.
+            if (!_declared.Add(name))
+            {
+                throw new ExprException($"'{name}' is declared more than once.", 0);
+            }
+
+            return name;
+        }
     }
 
     /// <summary>
@@ -191,29 +244,6 @@ public sealed class SvgExpressionDeclarations
         throw new ExprException(
             $"The default for '{name}' cannot be used: a colour is not a compile-time constant in C#. Drop the default and pass the value at the call site.",
             0);
-    }
-
-    private static string RequireName(XElement element, string what, HashSet<string> declared)
-    {
-        var name = Trim((string?)element.Attribute("name"))
-            ?? throw new ExprException($"<e:{what}> is missing a name.", 0);
-
-        if (!IsIdentifier(name))
-        {
-            throw new ExprException($"'{name}' is not a valid name: use letters, digits and underscore, not starting with a digit.", 0);
-        }
-
-        if (ExprFunctions.IsReservedName(name))
-        {
-            throw new ExprException($"'{name}' is a built-in name and cannot be redeclared.", 0);
-        }
-
-        if (!declared.Add(name))
-        {
-            throw new ExprException($"'{name}' is declared more than once.", 0);
-        }
-
-        return name;
     }
 
     private static bool IsIdentifier(string name)

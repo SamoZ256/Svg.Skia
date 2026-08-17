@@ -199,6 +199,16 @@ operator, a condition before its branches, arity before any argument.
 deliberate — a `color` parameter carrying a `default` is refused by `Parse`, for a reason that is
 purely about C#, so that a document cannot be accepted by one back end and rejected by the other.
 
+**There are two readers for `<e:code>`, and adding a rule means adding it to
+`SvgExpressionDeclarations.Builder`, not to either one.** `Parse` works from source text, which is
+what `svgc` and the source generator have; `SvgDocument.ExpressionDeclarations` walks the parsed
+tree, which is all `SKSvg.Load(XmlReader)` or an editor holding a document ever has. The text reader
+exists because a foreign element's namespace is `protected internal` on `SvgElement` — invisible
+outside `Svg.Custom`, so an unqualified `<param>` out there could belong to any extension. The tree
+reader lives inside `Svg.Custom` and can see it. `SvgDocumentExpressionDeclarationsTests` asserts the
+two agree, including every diagnostic's exact wording, which only holds because the validation is
+shared.
+
 **There are two back ends now, and they must agree numerically.** `ExprCSharpBackend` renders C#;
 `ExprValueBackend` computes an `ExprValue`, behind the `ExprEvaluator` facade. Three traps, all of
 them things that reading the source will not tell you:
