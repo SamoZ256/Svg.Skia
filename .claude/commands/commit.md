@@ -1,7 +1,7 @@
 ---
 description: Commit everything in the working tree and push it on the current branch
 argument-hint: [optional note about what matters in the message]
-allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(dotnet build:*), Bash(dotnet test:*), Bash(dotnet format:*), Bash(git checkout:*), Bash(git restore:*)
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git ls-files:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(dotnet build:*), Bash(dotnet test:*), Bash(dotnet format:*), Bash(git checkout:*), Bash(git restore:*)
 ---
 
 Commit the working tree and push it on the branch I am on.
@@ -18,9 +18,25 @@ $ARGUMENTS
    Stop if there is nothing to commit, or if `git rev-parse --abbrev-ref HEAD` is `HEAD` — a
    detached head is never what I meant.
 
-2. **`dotnet format Svg.Skia.slnx --no-restore`**, then revert its collateral: it reformats
-   `ExprLexer.cs` and the whole `externals/SVG` submodule. `git checkout -- <file>` and
-   `git -C externals/SVG checkout -- .` until `git status --short` shows only my change.
+2. **Format what I changed, not the solution.**
+
+   ```sh
+   FILES=$( { git diff --name-only --diff-filter=ACMR HEAD -- '*.cs'
+              git ls-files -o --exclude-standard -- '*.cs'; } | sort -u )
+   [ -n "$FILES" ] && dotnet format Svg.Skia.slnx --no-restore --include $FILES
+   ```
+
+   The whole solution takes 76s against ~15s scoped, and it reformats `ExprLexer.cs` and the whole
+   `externals/SVG` submodule every single time — churn that then has to be reverted. Scoped to the
+   files a commit touches it produces no collateral at all, so the revert below is a safety net
+   rather than a step you expect to run.
+
+   An empty `$FILES` is harmless if the guard is dropped: `--include ""` formats nothing, and
+   `--include` with no value at all is a hard error, so neither silently widens to the solution.
+
+   If it does dirty something I did not touch, revert that — `git checkout -- <file>`, and
+   `git -C externals/SVG checkout -- .` for the submodule — until `git status --short` shows only
+   my change.
 
 3. **Build and test** — `dotnet build Svg.Skia.slnx -c Release` and
    `dotnet test Svg.Skia.slnx -c Release` — unless you already ran both since the last edit, in
