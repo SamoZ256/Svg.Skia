@@ -19,7 +19,7 @@ public class SkiaCSharpSingleFileTests
         var picture = SvgSceneRuntime.CreateModel(document!, assetLoader);
         Assert.NotNull(picture);
 
-        return new SkiaCSharpDrawing(picture!, namespaceName, className, SvgCodeDeclarations.Parse(svgMarkup));
+        return new SkiaCSharpDrawing(picture!, namespaceName, className, SvgExpressionDeclarations.Parse(svgMarkup));
     }
 
     /// <summary>A drawing whose fill needs the hsl helper, so helper placement is observable.</summary>

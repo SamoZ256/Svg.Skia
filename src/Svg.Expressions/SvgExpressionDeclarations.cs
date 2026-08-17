@@ -7,14 +7,12 @@ using System.IO;
 using System.Linq;
 using System.Xml;
 using System.Xml.Linq;
-using Svg.CodeGen.Skia.Expressions;
-using Svg.Expressions;
 
-namespace Svg.CodeGen.Skia;
+namespace Svg.Expressions;
 
-public sealed class SvgCodeParameter
+public sealed class SvgExpressionParameter
 {
-    public SvgCodeParameter(string name, ExprType type, string? defaultExpression)
+    public SvgExpressionParameter(string name, ExprType type, string? defaultExpression)
     {
         Name = name;
         Type = type;
@@ -29,9 +27,9 @@ public sealed class SvgCodeParameter
     public string? DefaultExpression { get; }
 }
 
-public sealed class SvgCodeLet
+public sealed class SvgExpressionLet
 {
-    public SvgCodeLet(string name, string expression)
+    public SvgExpressionLet(string name, string expression)
     {
         Name = name;
         Expression = expression;
@@ -42,8 +40,8 @@ public sealed class SvgCodeLet
     public string Expression { get; }
 }
 
-// Document level declarations for generated code, authored as a foreign-namespace block that
-// conforming SVG renderers ignore:
+// Document level declarations, authored as a foreign-namespace block that conforming SVG renderers
+// ignore:
 //
 //   <defs>
 //     <e:code>
@@ -52,32 +50,36 @@ public sealed class SvgCodeLet
 //     </e:code>
 //   </defs>
 //
+// The declarations are the symbol table every expression in the document is checked against, so
+// they sit beside the language rather than in a back end: the code generator turns them into a
+// method signature, and a runtime evaluator binds values to them.
+//
 // Read straight from the source text rather than from the parsed DOM: the SVG object model
 // exposes foreign element names but not their namespace, and matching on an unqualified name
 // would claim <param> elements belonging to somebody else's namespace.
-public sealed class SvgCodeDeclarations
+public sealed class SvgExpressionDeclarations
 {
     public const string Namespace = "https://svg.skia/expr/1.0";
 
-    public static readonly SvgCodeDeclarations Empty = new(
-        Array.Empty<SvgCodeParameter>(),
-        Array.Empty<SvgCodeLet>());
+    public static readonly SvgExpressionDeclarations Empty = new(
+        Array.Empty<SvgExpressionParameter>(),
+        Array.Empty<SvgExpressionLet>());
 
-    private SvgCodeDeclarations(
-        IReadOnlyList<SvgCodeParameter> parameters,
-        IReadOnlyList<SvgCodeLet> lets)
+    private SvgExpressionDeclarations(
+        IReadOnlyList<SvgExpressionParameter> parameters,
+        IReadOnlyList<SvgExpressionLet> lets)
     {
         Parameters = parameters;
         Lets = lets;
     }
 
-    public IReadOnlyList<SvgCodeParameter> Parameters { get; }
+    public IReadOnlyList<SvgExpressionParameter> Parameters { get; }
 
-    public IReadOnlyList<SvgCodeLet> Lets { get; }
+    public IReadOnlyList<SvgExpressionLet> Lets { get; }
 
     public bool IsEmpty => Parameters.Count == 0 && Lets.Count == 0;
 
-    public static SvgCodeDeclarations Parse(string? svgText)
+    public static SvgExpressionDeclarations Parse(string? svgText)
     {
         if (string.IsNullOrWhiteSpace(svgText) || svgText!.IndexOf(Namespace, StringComparison.Ordinal) < 0)
         {
@@ -106,8 +108,8 @@ public sealed class SvgCodeDeclarations
             return Empty;
         }
 
-        var parameters = new List<SvgCodeParameter>();
-        var lets = new List<SvgCodeLet>();
+        var parameters = new List<SvgExpressionParameter>();
+        var lets = new List<SvgExpressionLet>();
         var declared = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var element in blocks.SelectMany(block => block.Elements()))
@@ -124,11 +126,12 @@ public sealed class SvgCodeDeclarations
                         var name = RequireName(element, "param", declared);
                         var typeText = Trim((string?)element.Attribute("type"))
                             ?? throw new ExprException($"<e:param name=\"{name}\"> is missing a type.", 0);
+                        var type = ExprFunctions.ParseType(typeText, 0);
+                        var defaultExpression = Trim((string?)element.Attribute("default"));
 
-                        parameters.Add(new SvgCodeParameter(
-                            name,
-                            ExprCompiler.ParseType(typeText, 0),
-                            Trim((string?)element.Attribute("default"))));
+                        RejectColourDefault(name, type, defaultExpression);
+
+                        parameters.Add(new SvgExpressionParameter(name, type, defaultExpression));
 
                         break;
                     }
@@ -139,7 +142,7 @@ public sealed class SvgCodeDeclarations
                         var expression = Trim(element.Value)
                             ?? throw new ExprException($"<e:let name=\"{name}\"> has no expression.", 0);
 
-                        lets.Add(new SvgCodeLet(name, expression));
+                        lets.Add(new SvgExpressionLet(name, expression));
                         break;
                     }
             }
@@ -150,65 +153,44 @@ public sealed class SvgCodeDeclarations
             return Empty;
         }
 
-        return new SvgCodeDeclarations(parameters, lets);
+        return new SvgExpressionDeclarations(parameters, lets);
     }
 
     /// <summary>
-    /// Type checks the declarations and returns the symbol table every paint expression in the
-    /// document is compiled against, along with the C# for each let in declaration order.
+    /// A fresh symbol table holding the parameters, which every back end starts from.
     /// </summary>
-    public (ExprCompiler Compiler, IReadOnlyList<(string Name, ExprType Type, string Code)> Lets) Resolve()
+    /// <remarks>
+    /// Mutable, and deliberately handed out rather than copied: both back ends add each let to it
+    /// as that let resolves, and the checker they hand it to keeps the reference. See
+    /// <see cref="ExprChecker"/>.
+    /// </remarks>
+    public Dictionary<string, ExprType> CreateSymbolTable()
     {
         var symbols = new Dictionary<string, ExprType>(StringComparer.Ordinal);
-        var compiled = new List<(string, ExprType, string)>();
 
         foreach (var parameter in Parameters)
         {
             symbols[parameter.Name] = parameter.Type;
         }
 
-        var compiler = new ExprCompiler(symbols);
-
-        // Lets resolve in order, so a let may use the ones declared above it but not below.
-        foreach (var let in Lets)
-        {
-            var (type, code) = compiler.Compile(let.Expression);
-            compiled.Add((let.Name, type, code));
-            symbols[let.Name] = type;
-        }
-
-        return (compiler, compiled);
+        return symbols;
     }
 
-    /// <summary>
-    /// Compiles a parameter default, or returns null when the author declared none — in which
-    /// case the generated parameter is required rather than carrying an invented value.
-    /// </summary>
-    public string? DefaultCodeFor(SvgCodeParameter parameter)
+    // Rejected while reading the declarations rather than while emitting C#, so that a document
+    // means the same thing to every back end. `new SKColor(...)` is not a compile-time constant,
+    // so it cannot be a C# argument default (CS1736) — but a rule only the code generator
+    // enforced would let a document evaluate happily at runtime and then refuse to generate,
+    // which is a worse way to find out than being told here.
+    private static void RejectColourDefault(string name, ExprType type, string? defaultExpression)
     {
-        if (parameter.DefaultExpression is null)
+        if (type != ExprType.Color || defaultExpression is null)
         {
-            return null;
+            return;
         }
 
-        // A colour cannot be a C# argument default: `new SKColor(...)` is not a compile time
-        // constant, and emitting it produces a class that does not build (CS1736). This is the
-        // same limit that stops a default referencing another parameter.
-        if (parameter.Type == ExprType.Color)
-        {
-            throw new ExprException(
-                $"The default for '{parameter.Name}' cannot be used: a colour is not a compile-time constant in C#. Drop the default and pass the value at the call site.",
-                0);
-        }
-
-        // Defaults may not reference other parameters: argument defaults are compile time
-        // constants in C#, and an ordering dependency between them would be invisible here.
-        var compiler = new ExprCompiler(new Dictionary<string, ExprType>(StringComparer.Ordinal));
-
-        return compiler.CompileTo(
-            parameter.DefaultExpression,
-            parameter.Type,
-            $"The default for '{parameter.Name}'");
+        throw new ExprException(
+            $"The default for '{name}' cannot be used: a colour is not a compile-time constant in C#. Drop the default and pass the value at the call site.",
+            0);
     }
 
     private static string RequireName(XElement element, string what, HashSet<string> declared)
@@ -221,7 +203,7 @@ public sealed class SvgCodeDeclarations
             throw new ExprException($"'{name}' is not a valid name: use letters, digits and underscore, not starting with a digit.", 0);
         }
 
-        if (ExprCompiler.IsReservedName(name))
+        if (ExprFunctions.IsReservedName(name))
         {
             throw new ExprException($"'{name}' is a built-in name and cannot be redeclared.", 0);
         }

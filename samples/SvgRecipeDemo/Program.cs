@@ -112,7 +112,7 @@ internal static class Program
     // Values for the parameters not being swept. Colours have no sensible neutral — the caller is
     // meant to supply them — so contrasting stand-ins are used, or a recipe that picks between a
     // light and a dark colour would render the same either way.
-    private static object? Fallback(Svg.CodeGen.Skia.SvgCodeParameter parameter, int index) => parameter.Type switch
+    private static object? Fallback(Svg.Expressions.SvgExpressionParameter parameter, int index) => parameter.Type switch
     {
         ExprType.Number => 0f,
         ExprType.Boolean => string.Equals(parameter.DefaultExpression, "true", StringComparison.Ordinal),

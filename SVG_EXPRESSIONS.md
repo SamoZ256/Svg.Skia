@@ -86,7 +86,10 @@ Three rules follow from C# argument defaults being compile-time constants:
 - A default may use literals, constants and functions but **not other parameters**, since an
   ordering dependency between them could not be honoured.
 - A `color` parameter **cannot have a default** at all. `new SKColor(…)` is not a constant, so
-  emitting one produces a class that does not build. Colour parameters are always required.
+  emitting one produces a class that does not build. Colour parameters are always required. This
+  one is refused while the declarations are *read*, not while C# is emitted, so a document means
+  the same thing to every back end — a rule only the code generator enforced would let a document
+  evaluate happily at runtime and then refuse to generate.
 - The parameters *with* defaults have to come **last**. Declaring one without a default after one
   with a default is an error rather than a silent reordering, which would change the meaning of
   every positional call site.
@@ -498,10 +501,14 @@ bounding boxes and runs into the same problem as geometry.
 - **Check** (`Svg.Expressions`) — the only layer that parses the expression language. `ExprChecker`
   turns the text into a `TypedExpr`: every node typed, every name resolved against the symbol
   table from `<e:code>`, every call naming a function of the language rather than a string. It
-  knows nothing about any target language.
+  knows nothing about any target language. `SvgExpressionDeclarations` lives here too — the
+  `<e:code>` block *is* that symbol table, so it belongs beside the language rather than in either
+  back end, and `CreateSymbolTable()` is what both of them start from.
 - **Emit** (`Svg.CodeGen.Skia`) — `ExprCSharpBackend` renders a `TypedExpr` as C#, and owns what
   each function is *called* there. `SymNode` also records operations the *model* applied (alpha
-  scaling, linear-RGB conversion) so the generated code reproduces them.
+  scaling, linear-RGB conversion) so the generated code reproduces them. The declaration members
+  that produce C# — `Resolve()` and `DefaultCode()` — are extension methods here for the same
+  reason.
 
 Checking and emission used to be one pass, which made the code generator the only possible
 consumer of the language. They are separate so a second back end — evaluating an expression

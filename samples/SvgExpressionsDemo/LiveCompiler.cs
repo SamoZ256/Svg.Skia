@@ -20,7 +20,7 @@ public sealed class LiveCompileResult
     private LiveCompileResult(
         string? generatedCode,
         IReadOnlyList<string> errors,
-        IReadOnlyList<SvgCodeParameter> parameters,
+        IReadOnlyList<SvgExpressionParameter> parameters,
         MethodInfo? record)
     {
         GeneratedCode = generatedCode;
@@ -33,18 +33,18 @@ public sealed class LiveCompileResult
 
     public IReadOnlyList<string> Errors { get; }
 
-    public IReadOnlyList<SvgCodeParameter> Parameters { get; }
+    public IReadOnlyList<SvgExpressionParameter> Parameters { get; }
 
     private MethodInfo? Record { get; }
 
     public bool Success => Record is not null;
 
     public static LiveCompileResult Failed(IReadOnlyList<string> errors, string? generatedCode = null)
-        => new(generatedCode, errors, Array.Empty<SvgCodeParameter>(), null);
+        => new(generatedCode, errors, Array.Empty<SvgExpressionParameter>(), null);
 
     public static LiveCompileResult Succeeded(
         string generatedCode,
-        IReadOnlyList<SvgCodeParameter> parameters,
+        IReadOnlyList<SvgExpressionParameter> parameters,
         MethodInfo record)
         => new(generatedCode, Array.Empty<string>(), parameters, record);
 
@@ -77,7 +77,7 @@ public sealed class LiveCompiler
     public LiveCompileResult Compile(string svgText)
     {
         string generated;
-        IReadOnlyList<SvgCodeParameter> parameters;
+        IReadOnlyList<SvgExpressionParameter> parameters;
 
         try
         {
@@ -93,7 +93,7 @@ public sealed class LiveCompiler
                 return LiveCompileResult.Failed(new[] { "The document produced no drawing commands." });
             }
 
-            var declarations = SvgCodeDeclarations.Parse(svgText);
+            var declarations = SvgExpressionDeclarations.Parse(svgText);
             parameters = declarations.Parameters;
             generated = SkiaCSharpCodeGen.Generate(picture, GeneratedNamespace, GeneratedClass, declarations);
         }

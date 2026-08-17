@@ -9,6 +9,16 @@
   stays where it was, as a facade over the checker and the C# back end. `ExprCompiler.FunctionNames`
   and `ConstantNames` are now `ExprFunctions.FunctionNames` and `ExprFunctions.ConstantNames`.
 
+* **Breaking:** the `<e:code>` declarations moved to `Svg.Expressions` and were renamed —
+  `SvgCodeDeclarations`, `SvgCodeParameter` and `SvgCodeLet` are now `SvgExpressionDeclarations`,
+  `SvgExpressionParameter` and `SvgExpressionLet`. They are the symbol table the expression
+  language is checked against, so they belong beside it rather than in the code generator, which
+  is no longer the only back end that reads them. The two members that produce C# stayed behind as
+  extension methods in `Svg.CodeGen.Skia`: `Resolve()` is unchanged, and
+  `declarations.DefaultCodeFor(parameter)` is now `parameter.DefaultCode()`. A `color` parameter
+  carrying a `default` is now rejected by `Parse` rather than when C# is emitted, so the same
+  document is accepted or refused identically whichever back end reads it.
+
 * Added SVG 1.1 animation object-model coverage in `Svg.Custom` for `animate`, `set`, `animateMotion`, `animateColor`, `animateTransform`, and `mpath`.
 * Added typed `pointer-events` support, geometry-aware hit testing, topmost-element targeting, and routed interaction dispatch with capture, tunnel, bubble, and cursor resolution.
 * Added shared animation playback in `SKSvg`, including animation time control, invalidation events, layered redraw, throttling helpers, and native-composition scene extraction.

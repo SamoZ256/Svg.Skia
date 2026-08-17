@@ -43,7 +43,7 @@ public partial class MainWindow : Window
 
     private sealed record Snapshot(LiveCompileResult? Result, object?[] Arguments, float Width, float Height);
 
-    private sealed record ParameterBinding(SvgCodeParameter Parameter, Func<object?> Read);
+    private sealed record ParameterBinding(SvgExpressionParameter Parameter, Func<object?> Read);
 
     public MainWindow()
     {
@@ -156,7 +156,7 @@ public partial class MainWindow : Window
 
     // ---- parameter controls ------------------------------------------------------------------
 
-    private void RebuildParameterControls(IReadOnlyList<SvgCodeParameter> parameters)
+    private void RebuildParameterControls(IReadOnlyList<SvgExpressionParameter> parameters)
     {
         // Rebuilt wholesale: the document decides which parameters exist, and it can change with
         // any keystroke. Values are re-read from the new controls, so they reset on a change.

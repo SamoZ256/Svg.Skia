@@ -9,6 +9,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
 using SkiaSharp;
 using Svg.CodeGen.Skia;
+using Svg.Expressions;
 using Svg.Model.Services;
 using Svg.Skia.UnitTests.Common;
 using Xunit;
@@ -67,7 +68,7 @@ public class SkiaCSharpRenderTests
         ShimPicture model,
         string className,
         SkiaSharpTarget skiaSharp,
-        SvgCodeDeclarations declarations,
+        SvgExpressionDeclarations declarations,
         object?[] arguments)
     {
         var code = SkiaCSharpCodeGen.Generate(
@@ -143,7 +144,7 @@ public class SkiaCSharpRenderTests
         using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
         Assert.NotNull(runtime);
 
-        using var generated = Generated(model, name, skiaSharp, SvgCodeDeclarations.Empty, Array.Empty<object?>());
+        using var generated = Generated(model, name, skiaSharp, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
 
         AssertSamePicture(name, runtime!, generated);
     }
@@ -171,7 +172,7 @@ public class SkiaCSharpRenderTests
             .ToSKPicture(expectedMarkup is null ? model : Model(expectedMarkup));
         Assert.NotNull(runtime);
 
-        var declarations = SvgCodeDeclarations.Parse(svgMarkup);
+        var declarations = SvgExpressionDeclarations.Parse(svgMarkup);
 
         using var generated = Generated(
             model,
@@ -320,7 +321,7 @@ public class SkiaCSharpRenderTests
 
     // ---------------------------------------------------------------------------------------------
     // Expressions. Until these, nothing anywhere drew generated expression code: every case above
-    // passes SvgCodeDeclarations.Empty and calls a parameterless Record, so the whole language
+    // passes SvgExpressionDeclarations.Empty and calls a parameterless Record, so the whole language
     // could emit a wrong value and the suite would stay green.
     //
     // Two shapes, and both are needed. Most cases below choose values that land exactly on the
