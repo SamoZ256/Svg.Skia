@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace Svg.CodeGen.Skia.Expressions;
+namespace Svg.Expressions;
 
 internal enum ExprTokenKind
 {

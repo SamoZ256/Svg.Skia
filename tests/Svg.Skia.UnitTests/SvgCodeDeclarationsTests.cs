@@ -1,6 +1,7 @@
 using System.Linq;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Expressions;
+using Svg.Expressions;
 using Xunit;
 
 namespace Svg.Skia.UnitTests;

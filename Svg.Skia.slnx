@@ -86,6 +86,7 @@
     <Project Path="src/Svg.Editor.Svg/Svg.Editor.Svg.csproj" />
     <Project Path="src/Svg.CodeGen.Skia/Svg.CodeGen.Skia.csproj" />
     <Project Path="src/Svg.CodeGen.Skia.Projects/Svg.CodeGen.Skia.Projects.csproj" />
+    <Project Path="src/Svg.Expressions/Svg.Expressions.csproj" />
     <Project Path="src/Svg.Expressions.Recipes/Svg.Expressions.Recipes.csproj" />
     <Project Path="src/Svg.Controls.Avalonia/Svg.Controls.Avalonia.csproj" />
     <Project Path="src/Svg.Controls.Skia.Uno/Svg.Controls.Skia.Uno.csproj" />

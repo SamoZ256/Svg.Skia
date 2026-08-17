@@ -8,6 +8,7 @@ using System.Linq;
 using System.Xml;
 using System.Xml.Linq;
 using Svg.CodeGen.Skia.Expressions;
+using Svg.Expressions;
 
 namespace Svg.CodeGen.Skia;
 

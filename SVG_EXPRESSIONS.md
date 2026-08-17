@@ -495,9 +495,18 @@ bounding boxes and runs into the same problem as geometry.
   alongside its concrete channels, and `Begin`/`EndConditionalCanvasCommand` delimit a
   conditional range. Consumers that ignore these render the placeholder state, which is why
   `SKSvg` and the Avalonia controls needed no changes.
-- **Emit** (`Svg.CodeGen.Skia`) — the only layer that parses the expression language, because
-  type checking needs the symbol table from `<e:code>`. `SymNode` also records operations the
-  *model* applied (alpha scaling, linear-RGB conversion) so the generated code reproduces them.
+- **Check** (`Svg.Expressions`) — the only layer that parses the expression language. `ExprChecker`
+  turns the text into a `TypedExpr`: every node typed, every name resolved against the symbol
+  table from `<e:code>`, every call naming a function of the language rather than a string. It
+  knows nothing about any target language.
+- **Emit** (`Svg.CodeGen.Skia`) — `ExprCSharpBackend` renders a `TypedExpr` as C#, and owns what
+  each function is *called* there. `SymNode` also records operations the *model* applied (alpha
+  scaling, linear-RGB conversion) so the generated code reproduces them.
+
+Checking and emission used to be one pass, which made the code generator the only possible
+consumer of the language. They are separate so a second back end — evaluating an expression
+against real values, for a renderer that shows more than the placeholder — can share the front
+end without depending on the code generator.
 
 Because the concrete value travels with the expression, equality and hashing of `SKColor`
 include it — otherwise the paint caches would collapse two elements that share a placeholder but

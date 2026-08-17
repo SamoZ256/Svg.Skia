@@ -2,9 +2,8 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
-using System.Collections.Generic;
 
-namespace Svg.CodeGen.Skia.Expressions;
+namespace Svg.Expressions;
 
 public enum ExprType
 {
@@ -49,43 +48,3 @@ public sealed class ExprException : Exception
         return $"{Message}\n    {ExpressionText}\n    {caret}";
     }
 }
-
-internal enum ExprUnaryOp
-{
-    Negate,
-    Not
-}
-
-internal enum ExprBinaryOp
-{
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Less,
-    LessOrEqual,
-    Greater,
-    GreaterOrEqual,
-    Equal,
-    NotEqual,
-    And,
-    Or
-}
-
-internal abstract record ExprNode(int Position);
-
-internal sealed record NumberExpr(int Position, double Value) : ExprNode(Position);
-
-internal sealed record ColorExpr(int Position, byte R, byte G, byte B, byte A) : ExprNode(Position);
-
-internal sealed record BooleanExpr(int Position, bool Value) : ExprNode(Position);
-
-internal sealed record IdentifierExpr(int Position, string Name) : ExprNode(Position);
-
-internal sealed record UnaryExpr(int Position, ExprUnaryOp Op, ExprNode Operand) : ExprNode(Position);
-
-internal sealed record BinaryExpr(int Position, ExprBinaryOp Op, ExprNode Left, ExprNode Right) : ExprNode(Position);
-
-internal sealed record ConditionalExpr(int Position, ExprNode Condition, ExprNode WhenTrue, ExprNode WhenFalse) : ExprNode(Position);
-
-internal sealed record CallExpr(int Position, string Name, IReadOnlyList<ExprNode> Arguments) : ExprNode(Position);

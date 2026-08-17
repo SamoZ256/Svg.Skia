@@ -23,8 +23,18 @@ namespace Svg.Skia.UnitTests;
 /// The W3C and resvg suites exercise <c>SkiaModel</c>; the code generator's own tests assert the
 /// emitted text and the source generator sample proves it compiles. Nothing else ever draws
 /// generated code, so an emitter change can be green across the whole suite and still produce a
-/// wrong picture. Both paths here start from the same <c>ShimPicture</c>, so a
+/// wrong picture. Most cases here have both paths start from the same <c>ShimPicture</c>, so a
 /// difference can only come from the emitter.
+/// <para>
+/// The exception is the expression cases that pass an <c>expectedMarkup</c>: the renderer draws the
+/// placeholder an expression leaves behind, so proving the expression's <em>value</em> arrives means
+/// comparing against a second document that states it as a literal. Those two models differ, so a
+/// difference there can also come from the renderer — which is worth knowing, because an
+/// axis-aligned <c>rect</c> with edges inside the canvas does not rasterise identically through the
+/// two paths (~850 antialiased edge pixels, RMS 0.0045, reproducible with no expressions at all and
+/// covered by no case here). The expression cases avoid that shape rather than inherit the
+/// discrepancy.
+/// </para>
 /// </remarks>
 public class SkiaCSharpRenderTests
 {
@@ -53,13 +63,18 @@ public class SkiaCSharpRenderTests
     }
 
     /// <summary>Compiles the emitted C# and calls its Record, exactly as a consumer would.</summary>
-    private static SKPicture Generated(ShimPicture model, string className, SkiaSharpTarget skiaSharp)
+    private static SKPicture Generated(
+        ShimPicture model,
+        string className,
+        SkiaSharpTarget skiaSharp,
+        SvgCodeDeclarations declarations,
+        object?[] arguments)
     {
         var code = SkiaCSharpCodeGen.Generate(
             model,
             Namespace,
             className,
-            SvgCodeDeclarations.Empty,
+            declarations,
             SvgPictureCache.None,
             skiaSharp);
 
@@ -89,11 +104,12 @@ public class SkiaCSharpRenderTests
         var type = assembly.GetType($"{Namespace}.{className}");
         Assert.NotNull(type);
 
-        // A document with no declarations generates `private static SKPicture Record()`.
+        // A document with no declarations generates `private static SKPicture Record()`; one with
+        // parameters generates a public one taking them.
         var record = type!.GetMethod("Record", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(record);
 
-        var picture = record!.Invoke(null, Array.Empty<object?>()) as SKPicture;
+        var picture = record!.Invoke(null, arguments) as SKPicture;
         Assert.NotNull(picture);
 
         return picture!;
@@ -127,12 +143,52 @@ public class SkiaCSharpRenderTests
         using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
         Assert.NotNull(runtime);
 
-        using var generated = Generated(model, name, skiaSharp);
+        using var generated = Generated(model, name, skiaSharp, SvgCodeDeclarations.Empty, Array.Empty<object?>());
 
+        AssertSamePicture(name, runtime!, generated);
+    }
+
+    /// <summary>
+    /// Renders generated code that carries expressions, and compares it against the runtime
+    /// renderer — with <paramref name="arguments"/> for the parameters the document declares.
+    /// </summary>
+    /// <param name="expectedMarkup">
+    /// The document the runtime side renders, when it differs from the one being generated. Needed
+    /// because the renderer draws the <em>placeholder</em> state an expression leaves behind, not
+    /// the expression's value: comparing a drawing against itself only shows that the two agree
+    /// wherever the expression happens to evaluate to the placeholder. Passing a document that
+    /// states the expected value as a literal is what proves the value reached the paint at all.
+    /// </param>
+    private static void AssertExpressionsRenderTheSame(
+        string name,
+        string svgMarkup,
+        object?[]? arguments = null,
+        string? expectedMarkup = null)
+    {
+        var model = Model(svgMarkup);
+
+        using var runtime = new SkiaModel(new SKSvgSettings())
+            .ToSKPicture(expectedMarkup is null ? model : Model(expectedMarkup));
+        Assert.NotNull(runtime);
+
+        var declarations = SvgCodeDeclarations.Parse(svgMarkup);
+
+        using var generated = Generated(
+            model,
+            name,
+            SkiaSharpTarget.V4,
+            declarations,
+            arguments ?? Array.Empty<object?>());
+
+        AssertSamePicture(name, runtime!, generated);
+    }
+
+    private static void AssertSamePicture(string name, SKPicture runtime, SKPicture generated)
+    {
         var directory = Directory.CreateTempSubdirectory().FullName;
         try
         {
-            var expected = Draw(runtime!, Path.Combine(directory, $"{name}-runtime.png"));
+            var expected = Draw(runtime, Path.Combine(directory, $"{name}-runtime.png"));
             var actual = Draw(generated, Path.Combine(directory, $"{name}-generated.png"));
 
             ImageHelper.CompareImages(name, actual, expected, Threshold);
@@ -259,6 +315,199 @@ public class SkiaCSharpRenderTests
                   <rect x="6" y="6" width="14" height="14" fill="#be123c" fill-opacity="0.6" />
                 </g>
               </g>
+            </svg>
+            """);
+
+    // ---------------------------------------------------------------------------------------------
+    // Expressions. Until these, nothing anywhere drew generated expression code: every case above
+    // passes SvgCodeDeclarations.Empty and calls a parameterless Record, so the whole language
+    // could emit a wrong value and the suite would stay green.
+    //
+    // Two shapes, and both are needed. Most cases below choose values that land exactly on the
+    // placeholder the renderer draws (#808080 for a paint, 1 for an opacity, visible), so the
+    // comparison is against the same document at a zero threshold. On their own those would also
+    // pass if the emitter ignored expressions entirely and emitted the placeholder — so the ones
+    // taking `expectedMarkup` state the expected value as a literal in a second document, and are
+    // what prove the computed value reaches the paint.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void An_Expression_Value_Reaches_The_Paint()
+        // The load-bearing one: the placeholder is grey, so red can only come from the expression.
+        //
+        // A circle rather than a rect. An axis-aligned rect whose edges fall inside the canvas
+        // rasterises differently through the two paths — ~850 antialiased edge pixels, an RMS error
+        // of 0.0045 — which has nothing to do with expressions: it reproduces with no declarations
+        // at all, and no case in this file covers that shape. Using one here would test the wrong
+        // thing.
+        => AssertExpressionsRenderTheSame(
+            "ExprValue",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="10" fill="{{ rgb(255, 0, 0) }}" />
+            </svg>
+            """,
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="10" fill="#ff0000" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Conditional_Expression_Value_Reaches_The_Paint()
+        => AssertExpressionsRenderTheSame(
+            "ExprTernary",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="hot" type="boolean" default="false" /></e:code></defs>
+              <circle cx="12" cy="12" r="9" fill="{{ hot ? #22c55e : #1e40af }}" />
+            </svg>
+            """,
+            new object?[] { true },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="9" fill="#22c55e" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Colour_Parameter_Is_Passed_Through()
+        // The placeholder value, handed in as an argument: the drawing must be identical.
+        => AssertExpressionsRenderTheSame(
+            "ExprColourParam",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="tint" type="color" /></e:code></defs>
+              <rect x="3" y="3" width="18" height="18" rx="4" fill="{{ tint }}" />
+            </svg>
+            """,
+            new object?[] { new SKColor(128, 128, 128, 255) });
+
+    [Fact]
+    public void A_Let_Sees_The_Parameters_Declared_Above_It()
+        // The symbol table is handed to the checker and then grown, so a let reaching a parameter
+        // is the case that breaks if anything copies it.
+        => AssertExpressionsRenderTheSame(
+            "ExprLet",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code>
+                  <e:param name="tint" type="color" />
+                  <e:let name="solid">withAlpha(tint, 1)</e:let>
+                  <e:let name="same">mix(solid, solid, 0.5)</e:let>
+                </e:code>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="{{ same }}" />
+            </svg>
+            """,
+            new object?[] { new SKColor(128, 128, 128, 255) });
+
+    [Fact]
+    public void Arithmetic_And_The_Constants_Drive_An_Opacity()
+        // tau / (pi * 2) is exactly 1, which is the opacity placeholder, so the two agree only if
+        // the constants and the division are emitted correctly.
+        => AssertExpressionsRenderTheSame(
+            "ExprConstants",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <g opacity="{{ tau / (pi * 2) }}">
+                <rect x="2" y="2" width="20" height="20" fill="#0f766e" />
+              </g>
+            </svg>
+            """);
+
+    [Fact]
+    public void Mod_Is_A_Remainder_Rather_Than_IEEERemainder()
+        // mod(5, 3) is 2 under `%` and -1 under Math.IEEERemainder, which is what the language's
+        // table used to name. Halved it is the opacity placeholder; the other reading is not.
+        => AssertExpressionsRenderTheSame(
+            "ExprMod",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <g opacity="{{ mod(5, 3) / 2 }}">
+                <rect x="2" y="2" width="20" height="20" fill="#7c3aed" />
+              </g>
+            </svg>
+            """);
+
+    [Fact]
+    public void An_Opacity_Expression_Value_Reaches_The_Layer()
+        => AssertExpressionsRenderTheSame(
+            "ExprOpacity",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="fade" type="number" default="1" /></e:code></defs>
+              <g opacity="{{ fade }}">
+                <rect x="2" y="2" width="20" height="20" fill="#be123c" />
+              </g>
+            </svg>
+            """,
+            new object?[] { 0.5f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g opacity="0.5">
+                <rect x="2" y="2" width="20" height="20" fill="#be123c" />
+              </g>
+            </svg>
+            """);
+
+    [Fact]
+    public void A_False_Visibility_Expression_Draws_Nothing()
+        // The conditional becomes `if (shown)`, so the subtree has to disappear from the drawing
+        // rather than merely be painted differently.
+        => AssertExpressionsRenderTheSame(
+            "ExprHidden",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="shown" type="boolean" default="true" /></e:code></defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="8" fill="#111827" visibility="{{ shown }}" />
+            </svg>
+            """,
+            new object?[] { false },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_True_Visibility_Expression_Draws_The_Subtree()
+        => AssertExpressionsRenderTheSame(
+            "ExprShown",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="8" fill="#111827" visibility="{{ 2 gt 1 and !false }}" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Gradient_Stop_Takes_An_Expression()
+        // Stops reach the model as SKColorF, so this is the one path that emits SvgToColorF.
+        => AssertExpressionsRenderTheSame(
+            "ExprStop",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0">
+                  <stop offset="0%" stop-color="{{ rgb(255, 0, 0) }}" />
+                  <stop offset="100%" stop-color="#1e40af" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="url(#g)" />
+            </svg>
+            """,
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0">
+                  <stop offset="0%" stop-color="#ff0000" />
+                  <stop offset="100%" stop-color="#1e40af" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="url(#g)" />
             </svg>
             """);
 

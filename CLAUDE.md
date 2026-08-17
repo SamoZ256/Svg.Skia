@@ -128,11 +128,20 @@ letterboxes through `preserveAspectRatio`. The source generator has no equivalen
 
 ### Traps worth knowing
 
-- **`Svg.SourceGenerator.Skia` `<Compile Include>`s the `Svg.CodeGen.Skia` sources file by
-  file**, rather than referencing the assembly, because an analyzer cannot take an ordinary
-  project reference. A new file in that project is invisible to it until it is listed in its
-  csproj. `svgc` used to do the same and now references the assembly — linking the sources *and*
-  referencing a library that references them properly is CS0121 on every extension method.
+- **An analyzer's dependencies have to be shipped twice over.** `Svg.SourceGenerator.Skia`
+  references every dependency ordinarily, with `PrivateAssets="all"`. For the package they are
+  packed into `analyzers/dotnet/cs` by the `PackAnalyzerAssemblies` target, which globs this
+  project's own `$(OutputPath)` — inside a target, because a wildcard in an `ItemGroup` expands at
+  evaluation time, before anything is built. For the project-to-project case each one also needs a
+  `TargetPathWithTargetPlatformMoniker` in `GetDependencyTargetPaths`, since the sample consumes
+  the generator as an `Analyzer` with `ReferenceOutputAssembly="False"`. Miss that and the
+  compiler cannot load the generator — no build error, just no generated files, so
+  `samples/Svg.SourceGenerator.Skia.Sample` failing to find a generated class is the test.
+  (It used to `<Compile Include>` the `Svg.CodeGen.Skia` sources file by file instead. That was
+  historical, not necessary: the packing machinery was already there for five other references.)
+- **`Svg.CodeGen.Skia` sets `EnforceExtendedAnalyzerRules`** because its assembly is loaded into
+  the compiler as part of the generator. RS1035 is an *error* there — `Environment.NewLine` and
+  file IO are banned, which is why `ExprSyntax.cs` writes `"\n"` by hand.
 - **The source generator is an analyzer**, so `EnforceExtendedAnalyzerRules` applies to every
   file linked into it. `Environment.NewLine` and similar are banned (RS1035).
 - **`Svg.CodeGen.Skia` targets netstandard2.0** and carries its own `IsExternalInit` shim;
@@ -172,8 +181,17 @@ values, diagnostics, generated-code shape and limitations all live there.
 
 Its parts: the `{{ }}` lift and placeholder substitution in
 `Svg.Custom/SvgExpressionAttributes.cs`, the symbolic value model in `ShimSkiaSharp/Symbolic/`,
-attribute reading in `Svg.SceneGraph/SvgSceneExpressions.cs`, and the language itself (lexer,
-parser, type checker, C# emitter) in `Svg.CodeGen.Skia/Expressions/`.
+attribute reading in `Svg.SceneGraph/SvgSceneExpressions.cs`, the language itself — lexer, parser,
+type checker and the `TypedExpr` it produces — in `src/Svg.Expressions`, and the C# back end in
+`Svg.CodeGen.Skia/Expressions/`.
+
+**The front end knows no target language.** `ExprChecker` returns a `TypedExpr`;
+`ExprCSharpBackend` is what knows that `sin` is `MathF.Sin`, and `ExprCompiler` is a facade over
+the two kept for the code generator's convenience. Two consequences worth knowing before touching
+either: `ExprChecker` holds the symbol table **by reference** because `SvgCodeDeclarations.Resolve`
+adds each let to it after construction, and the checker throws on the first error in a fixed visit
+order that several tests pin — operands before their operator, a condition before its branches,
+arity before any argument.
 
 Two invariants hold the design together:
 

@@ -123,7 +123,7 @@ public class SvgSourceGenerator : IIncrementalGenerator
                 context.ReportDiagnostic(Diagnostic.Create(s_errorDescriptor, Location.None, "Could not load svg document."));
             }
         }
-        catch (Svg.CodeGen.Skia.Expressions.ExprException e)
+        catch (Svg.Expressions.ExprException e)
         {
             // An expression error is a diagnostic about the author's SVG, not a generator crash,
             // so it is reported on its own without a stack trace.

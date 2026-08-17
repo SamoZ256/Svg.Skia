@@ -23,51 +23,23 @@
   <Import Project="..\..\build\SignAssembly.props" />
 
   <ItemGroup>
-    <Compile Include="..\Svg.CodeGen.Skia\SkiaCSharpCodeGen.cs">
-      <Link>CodeGen\SkiaCSharpCodeGen.cs</Link>
-    </Compile>
-    <Compile Include="..\Svg.CodeGen.Skia\SkiaCSharpModelExtensions.cs">
-      <Link>CodeGen\SkiaCSharpModelExtensions.cs</Link>
-    </Compile>
-    <Compile Include="..\Svg.CodeGen.Skia\SkiaCSharpCodeGenCounter.cs">
-      <Link>CodeGen\SkiaCSharpCodeGenCounter.cs</Link>
-    </Compile>
-    <Compile Include="..\Svg.CodeGen.Skia\SvgCodeDeclarations.cs">
-      <Link>CodeGen\SvgCodeDeclarations.cs</Link>
-    </Compile>
-    <Compile Include="..\Svg.CodeGen.Skia\SymCSharpEmitter.cs">
-      <Link>CodeGen\SymCSharpEmitter.cs</Link>
-    </Compile>
-    <Compile Include="..\Svg.CodeGen.Skia\IsExternalInit.cs">
-      <Link>CodeGen\IsExternalInit.cs</Link>
-    </Compile>
-    <Compile Include="..\Svg.CodeGen.Skia\Expressions\ExprSyntax.cs">
-      <Link>CodeGen\Expressions\ExprSyntax.cs</Link>
-    </Compile>
-    <Compile Include="..\Svg.CodeGen.Skia\Expressions\ExprLexer.cs">
-      <Link>CodeGen\Expressions\ExprLexer.cs</Link>
-    </Compile>
-    <Compile Include="..\Svg.CodeGen.Skia\Expressions\ExprParser.cs">
-      <Link>CodeGen\Expressions\ExprParser.cs</Link>
-    </Compile>
-    <Compile Include="..\Svg.CodeGen.Skia\Expressions\ExprHelpers.cs">
-      <Link>CodeGen\Expressions\ExprHelpers.cs</Link>
-    </Compile>
-    <Compile Include="..\Svg.CodeGen.Skia\Expressions\ExprCompiler.cs">
-      <Link>CodeGen\Expressions\ExprCompiler.cs</Link>
-    </Compile>
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
     <PackageReference Include="ExCSS" GeneratePathProperty="true" PrivateAssets="all" />
     <PackageReference Include="SkiaSharp" GeneratePathProperty="true" />
   </ItemGroup>
 
+  <!--
+    Every dependency is referenced, shipped into analyzers/dotnet/cs for the package, and named in
+    GetDependencyTargetPaths for the project to project case. The compiler loads an analyzer
+    without the reference graph of an ordinary build, so a dependency it cannot find there is a
+    load failure at generation time rather than a build error here.
+  -->
   <ItemGroup>
     <ProjectReference Include="..\ShimSkiaSharp\ShimSkiaSharp.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\Svg.Custom\Svg.Custom.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\Svg.Expressions\Svg.Expressions.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\Svg.Model\Svg.Model.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\Svg.SceneGraph\Svg.SceneGraph.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\Svg.Skia\Svg.Skia.csproj" PrivateAssets="all" />
@@ -75,14 +47,23 @@
 
   <ItemGroup>
     <None Include="Svg.SourceGenerator.Skia.props" Pack="true" PackagePath="build" Visible="false" />
-    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="$(PKGExCSS)\lib\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-    <None Include="..\ShimSkiaSharp\bin\$(Configuration)\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-    <None Include="..\Svg.Custom\bin\$(Configuration)\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-    <None Include="..\Svg.Model\bin\$(Configuration)\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-    <None Include="..\Svg.SceneGraph\bin\$(Configuration)\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-    <None Include="..\Svg.Skia\bin\$(Configuration)\netstandard2.0\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
   </ItemGroup>
+
+  <!--
+    The analyzer and everything it loads, taken from this project's own output rather than from the
+    bin folder of each dependency. Those are what the reference graph copied here, so a new
+    dependency needs no entry, and a transitive one cannot ship by accident from some other glob.
+    Inside a target because a wildcard in an ItemGroup is expanded when the project is evaluated,
+    which is before anything has been built: the per-dependency globs this replaces silently packed
+    nothing on a clean tree, and only looked correct because most of those assemblies are copied
+    into several of the folders being globbed.
+  -->
+  <Target Name="PackAnalyzerAssemblies" BeforeTargets="_GetPackageFiles" DependsOnTargets="Build">
+    <ItemGroup>
+      <None Include="$(OutputPath)*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    </ItemGroup>
+  </Target>
 
   <PropertyGroup>
     <GetTargetPathDependsOn>$(GetTargetPathDependsOn);GetDependencyTargetPaths</GetTargetPathDependsOn>
@@ -93,7 +74,9 @@
       <TargetPathWithTargetPlatformMoniker Include="$(PKGExCSS)\lib\netstandard2.0\ExCSS.dll" IncludeRuntimeDependency="false" />
       <TargetPathWithTargetPlatformMoniker Include="$(PKGSkiaSharp)\lib\netstandard2.0\SkiaSharp.dll" IncludeRuntimeDependency="false" />
       <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\ShimSkiaSharp\bin\$(Configuration)\netstandard2.0\ShimSkiaSharp.dll" IncludeRuntimeDependency="false" />
+      <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\Svg.CodeGen.Skia\bin\$(Configuration)\netstandard2.0\Svg.CodeGen.Skia.dll" IncludeRuntimeDependency="false" />
       <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\Svg.Custom\bin\$(Configuration)\netstandard2.0\Svg.Custom.dll" IncludeRuntimeDependency="false" />
+      <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\Svg.Expressions\bin\$(Configuration)\netstandard2.0\Svg.Expressions.dll" IncludeRuntimeDependency="false" />
       <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\Svg.Model\bin\$(Configuration)\netstandard2.0\Svg.Model.dll" IncludeRuntimeDependency="false" />
       <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\Svg.SceneGraph\bin\$(Configuration)\netstandard2.0\Svg.SceneGraph.dll" IncludeRuntimeDependency="false" />
       <TargetPathWithTargetPlatformMoniker Include="$(MSBuildThisFileDirectory)\..\Svg.Skia\bin\$(Configuration)\netstandard2.0\Svg.Skia.dll" IncludeRuntimeDependency="false" />

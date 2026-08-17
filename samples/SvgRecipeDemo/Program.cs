@@ -4,6 +4,7 @@ using System.Linq;
 using Avalonia;
 using SkiaSharp;
 using Svg.CodeGen.Skia.Expressions;
+using Svg.Expressions;
 
 namespace SvgRecipeDemo;
 

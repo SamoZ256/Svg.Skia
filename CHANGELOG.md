@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* **Breaking:** the SVG expression language's lexer, parser and type checker moved to a new
+  `Svg.Expressions` package, and `ExprType` and `ExprException` moved with them from namespace
+  `Svg.CodeGen.Skia.Expressions` to `Svg.Expressions`. Source-compatible after updating a `using`;
+  not binary-compatible, and a type forwarder cannot bridge a namespace change. `ExprCompiler`
+  stays where it was, as a facade over the checker and the C# back end. `ExprCompiler.FunctionNames`
+  and `ConstantNames` are now `ExprFunctions.FunctionNames` and `ExprFunctions.ConstantNames`.
+
 * Added SVG 1.1 animation object-model coverage in `Svg.Custom` for `animate`, `set`, `animateMotion`, `animateColor`, `animateTransform`, and `mpath`.
 * Added typed `pointer-events` support, geometry-aware hit testing, topmost-element targeting, and routed interaction dispatch with capture, tunnel, bubble, and cursor resolution.
 * Added shared animation playback in `SKSvg`, including animation time control, invalidation events, layered redraw, throttling helpers, and native-composition scene extraction.

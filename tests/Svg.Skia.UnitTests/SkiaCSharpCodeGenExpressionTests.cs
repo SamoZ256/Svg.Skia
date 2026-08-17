@@ -1,6 +1,7 @@
 using ShimSkiaSharp;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Expressions;
+using Svg.Expressions;
 using Svg.Model.Services;
 using Xunit;
 
