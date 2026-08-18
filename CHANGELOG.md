@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+* A `color` parameter may now declare a `default`. It could not before, because `new SKColor(...)`
+  is not a C# compile-time constant (CS1736) — a limit of the target language that had leaked into
+  the format, since the runtime evaluator always handled such a default without a special case. A
+  colour parameter carrying one is now generated as `SKColor? tint = null` and coalesced to the
+  declared default inside the method, so omitting the argument or passing `null` gives that default.
+  A colour parameter *without* a default is generated exactly as before, so no existing signature
+  or generated file changes.
+
 * Fixed generated code converting an expression gradient stop to `SKColorF` differently from the
   rest of the library. `SvgToColorF` divided each channel by `255f` while `ShimSkiaSharp.SKColor`
   multiplies by `1 / 255.0f`, and the two disagree for 126 of the 256 byte values — enough for a

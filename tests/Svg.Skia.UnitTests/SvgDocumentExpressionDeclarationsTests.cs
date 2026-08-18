@@ -220,7 +220,6 @@ public class SvgDocumentExpressionDeclarationsTests
     [InlineData("""<e:param name="pi" type="number" />""", "built-in name")]
     [InlineData("""<e:param name="t" type="number" /><e:param name="t" type="number" />""", "declared more than once")]
     [InlineData("""<e:param name="t" type="number" /><e:let name="t">1</e:let>""", "declared more than once")]
-    [InlineData("""<e:param name="c" type="color" default="#ff0000" />""", "not a compile-time constant")]
     [InlineData("""<e:let name="empty"></e:let>""", "has no expression")]
     public void A_Malformed_Declaration_Reports_The_Same_Way_As_Parse(string body, string expected)
     {

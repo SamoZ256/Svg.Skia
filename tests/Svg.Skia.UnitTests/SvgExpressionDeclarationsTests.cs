@@ -192,19 +192,21 @@ public class SvgExpressionDeclarationsTests
     }
 
     [Fact]
-    public void A_Colour_Parameter_Cannot_Have_A_Default()
+    public void A_Colour_Parameter_May_Have_A_Default()
     {
-        // `new SKColor(...)` is not a compile-time constant, so it cannot be a C# argument
-        // default; the parameter is required instead. Refused while reading the declarations
-        // rather than while emitting, so a runtime evaluator cannot accept a document the code
-        // generator would reject.
-        var error = Assert.Throws<ExprException>(() => SvgExpressionDeclarations.Parse($"""
+        // `new SKColor(...)` is not a compile-time constant, so this cannot be a C# argument
+        // default — but that is the code generator's problem to solve, not a limit on the format.
+        // It emits a nullable parameter and coalesces, and the evaluator needed no change at all.
+        var declarations = SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
               <defs><e:code><e:param name="c" type="color" default="#ff0000" /></e:code></defs>
             </svg>
-            """));
+            """);
 
-        Assert.Contains("not a compile-time constant", error.Message);
+        var parameter = Assert.Single(declarations.Parameters);
+
+        Assert.Equal(ExprType.Color, parameter.Type);
+        Assert.Equal("#ff0000", parameter.DefaultExpression);
     }
 
     [Fact]

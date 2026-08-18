@@ -19,11 +19,24 @@ namespace Svg.CodeGen.Skia.Expressions;
 public sealed class ExprCompiler
 {
     private readonly ExprChecker _checker;
+    private readonly IReadOnlyDictionary<string, string>? _symbolNames;
 
     public ExprCompiler(IReadOnlyDictionary<string, ExprType> symbols)
+        : this(symbols, null)
+    {
+    }
+
+    /// <param name="symbolNames">
+    /// Names to emit in place of a declared one, for the symbols whose value reaches the body
+    /// through a local rather than directly — see <see cref="ExprCSharpBackend.Emit"/>.
+    /// </param>
+    public ExprCompiler(
+        IReadOnlyDictionary<string, ExprType> symbols,
+        IReadOnlyDictionary<string, string>? symbolNames)
     {
         // Not copied. Callers add to the table between calls — see ExprChecker.
         _checker = new ExprChecker(symbols);
+        _symbolNames = symbolNames;
     }
 
     public static bool IsReservedName(string name) => ExprFunctions.IsReservedName(name);
@@ -36,12 +49,12 @@ public sealed class ExprCompiler
     /// Compiles <paramref name="text"/> and requires it to produce <paramref name="expected"/>.
     /// </summary>
     public string CompileTo(string text, ExprType expected, string what)
-        => ExprCSharpBackend.Emit(_checker.CheckAs(text, expected, what));
+        => ExprCSharpBackend.Emit(_checker.CheckAs(text, expected, what), _symbolNames);
 
     public (ExprType Type, string Code) Compile(string text)
     {
         var checked_ = _checker.Check(text);
 
-        return (checked_.Type, ExprCSharpBackend.Emit(checked_));
+        return (checked_.Type, ExprCSharpBackend.Emit(checked_, _symbolNames));
     }
 }

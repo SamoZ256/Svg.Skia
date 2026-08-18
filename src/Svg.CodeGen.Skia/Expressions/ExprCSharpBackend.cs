@@ -52,21 +52,31 @@ internal static class ExprCSharpBackend
         // which is a different operation, carried only to state an arity.
     };
 
-    public static string Emit(TypedExpr node)
+    /// <param name="symbolNames">
+    /// Names to emit in place of a declared one. A colour parameter carrying a default is emitted as
+    /// a nullable parameter and coalesced into a local, and the body has to reference that local:
+    /// C# will not let a local shadow the parameter it is derived from. Empty for every other
+    /// expression, including the defaults themselves.
+    /// </param>
+    public static string Emit(TypedExpr node, IReadOnlyDictionary<string, string>? symbolNames = null)
         => node switch
         {
             TypedNumber number => Literal(number.Value),
             TypedColor color => $"new SKColor({color.R}, {color.G}, {color.B}, {color.A})",
             TypedBoolean boolean => boolean.Value ? "true" : "false",
-            TypedSymbol symbol => symbol.Name,
+            TypedSymbol symbol => Name(symbol, symbolNames),
             TypedConstant constant => EmitConstant(constant.Constant),
-            TypedUnary unary => EmitUnary(unary),
-            TypedBinary binary => $"({Emit(binary.Left)} {ExprFunctions.OperatorText(binary.Op)} {Emit(binary.Right)})",
+            TypedUnary unary => EmitUnary(unary, symbolNames),
+            TypedBinary binary =>
+                $"({Emit(binary.Left, symbolNames)} {ExprFunctions.OperatorText(binary.Op)} {Emit(binary.Right, symbolNames)})",
             TypedConditional conditional =>
-                $"({Emit(conditional.Condition)} ? {Emit(conditional.WhenTrue)} : {Emit(conditional.WhenFalse)})",
-            TypedCall call => EmitCall(call),
+                $"({Emit(conditional.Condition, symbolNames)} ? {Emit(conditional.WhenTrue, symbolNames)} : {Emit(conditional.WhenFalse, symbolNames)})",
+            TypedCall call => EmitCall(call, symbolNames),
             _ => throw new NotSupportedException($"Unsupported {nameof(TypedExpr)}: {node.GetType().Name}.")
         };
+
+    private static string Name(TypedSymbol symbol, IReadOnlyDictionary<string, string>? symbolNames)
+        => symbolNames is { } names && names.TryGetValue(symbol.Name, out var rewritten) ? rewritten : symbol.Name;
 
     public static string CSharpTypeOf(ExprType type)
         => type switch
@@ -83,14 +93,14 @@ internal static class ExprCSharpBackend
             _ => "(MathF.PI * 2f)"
         };
 
-    private static string EmitUnary(TypedUnary unary)
+    private static string EmitUnary(TypedUnary unary, IReadOnlyDictionary<string, string>? symbolNames)
         => unary.Op == ExprUnaryOp.Negate
-            ? $"(-{Emit(unary.Operand)})"
-            : $"(!{Emit(unary.Operand)})";
+            ? $"(-{Emit(unary.Operand, symbolNames)})"
+            : $"(!{Emit(unary.Operand, symbolNames)})";
 
-    private static string EmitCall(TypedCall call)
+    private static string EmitCall(TypedCall call, IReadOnlyDictionary<string, string>? symbolNames)
     {
-        var arguments = call.Arguments.Select(Emit).ToList();
+        var arguments = call.Arguments.Select(argument => Emit(argument, symbolNames)).ToList();
 
         // Remainder has no BCL function with the semantics we want, so it is emitted inline.
         // Both operands are already parenthesised sub-expressions, so each is evaluated once.

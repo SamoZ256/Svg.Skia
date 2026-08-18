@@ -215,12 +215,20 @@ public class SkiaCSharpRenderTests
 
         for (var index = 0; index < arguments.Length; index++)
         {
+            // A null argument is a colour left to its default: the generated parameter is nullable
+            // and coalesces, so leaving the name unbound here is the same thing on the other side —
+            // the evaluator falls back to the declared default too.
+            if (arguments[index] is null)
+            {
+                continue;
+            }
+
             values[declarations.Parameters[index].Name] = arguments[index] switch
             {
                 float number => ExprValue.Number(number),
                 bool boolean => ExprValue.Boolean(boolean),
                 SKColor color => ExprValue.Color(color.Red, color.Green, color.Blue, color.Alpha),
-                var other => throw new NotSupportedException($"Unsupported argument type: {other?.GetType().Name ?? "null"}.")
+                var other => throw new NotSupportedException($"Unsupported argument type: {other!.GetType().Name}.")
             };
         }
 
@@ -519,6 +527,44 @@ public class SkiaCSharpRenderTests
                 </linearGradient>
               </defs>
               <rect x="0" y="0" width="24" height="24" fill="url(#g)" />
+            </svg>
+            """);
+
+    [Fact]
+    public void An_Omitted_Colour_Argument_Falls_Back_To_Its_Declared_Default()
+        // A colour cannot be a C# argument default, so the generated parameter is nullable and
+        // coalesces to the compiled default. Passing null here is what a caller omitting the
+        // argument gets, and the expected document states the default as a literal — so this fails
+        // if the fallback is ever dropped, or resolves to something other than what was declared.
+        => AssertExpressionsRenderTheSame(
+            "ExprColourDefault",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="tint" type="color" default="rgb(255, 0, 0)" /></e:code></defs>
+              <circle cx="12" cy="12" r="10" fill="{{ tint }}" />
+            </svg>
+            """,
+            arguments: new object?[] { null },
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="10" fill="#ff0000" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Supplied_Colour_Argument_Wins_Over_The_Default()
+        => AssertExpressionsRenderTheSame(
+            "ExprColourDefaultOverridden",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="tint" type="color" default="rgb(255, 0, 0)" /></e:code></defs>
+              <circle cx="12" cy="12" r="10" fill="{{ tint }}" />
+            </svg>
+            """,
+            arguments: new object?[] { new SKColor(0x1e, 0x40, 0xaf, 0xff) },
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="10" fill="#1e40af" />
             </svg>
             """);
 

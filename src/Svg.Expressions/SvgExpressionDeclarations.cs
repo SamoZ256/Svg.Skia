@@ -160,11 +160,7 @@ public sealed class SvgExpressionDeclarations
                 Trim(typeText) ?? throw new ExprException($"<e:param name=\"{declared}\"> is missing a type.", 0),
                 0);
 
-            var @default = Trim(defaultExpression);
-
-            RejectColourDefault(declared, type, @default);
-
-            _parameters.Add(new SvgExpressionParameter(declared, type, @default));
+            _parameters.Add(new SvgExpressionParameter(declared, type, Trim(defaultExpression)));
         }
 
         public void AddLet(string? name, string? expression)
@@ -227,23 +223,6 @@ public sealed class SvgExpressionDeclarations
         }
 
         return symbols;
-    }
-
-    // Rejected while reading the declarations rather than while emitting C#, so that a document
-    // means the same thing to every back end. `new SKColor(...)` is not a compile-time constant,
-    // so it cannot be a C# argument default (CS1736) — but a rule only the code generator
-    // enforced would let a document evaluate happily at runtime and then refuse to generate,
-    // which is a worse way to find out than being told here.
-    private static void RejectColourDefault(string name, ExprType type, string? defaultExpression)
-    {
-        if (type != ExprType.Color || defaultExpression is null)
-        {
-            return;
-        }
-
-        throw new ExprException(
-            $"The default for '{name}' cannot be used: a colour is not a compile-time constant in C#. Drop the default and pass the value at the call site.",
-            0);
     }
 
     private static bool IsIdentifier(string name)

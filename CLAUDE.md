@@ -215,9 +215,18 @@ operator, a condition before its branches, arity before any argument.
 
 `SvgExpressionDeclarations` splits along the same line: `Parse`, the parameter and let lists and
 `CreateSymbolTable()` describe the document and live in `Svg.Expressions`, while `Resolve()` and
-`DefaultCode()` produce C# and are extension methods in `Svg.CodeGen.Skia`. The one exception is
-deliberate — a `color` parameter carrying a `default` is refused by `Parse`, for a reason that is
-purely about C#, so that a document cannot be accepted by one back end and rejected by the other.
+`DefaultCode()` produce C# and are extension methods in `Svg.CodeGen.Skia`.
+
+`Parse` used to refuse a `color` parameter carrying a `default`, because `new SKColor(…)` cannot be a
+C# argument default (CS1736). That was a target-language limit leaking into the format, and the
+evaluator had always handled such a default without any special case. The emitter deals with it
+instead: `ColourFallbacks()` names a local per such parameter, `BuildParameterList` emits
+`SKColor? tint = null`, and the local coalesces to the compiled default before the lets. The body has
+to read the local, so `ExprCompiler` carries a symbol-rewrite map that `ExprCSharpBackend` applies to
+`TypedSymbol` — a colour parameter *without* a default is untouched, so no existing signature moved.
+Compute the local names in `ColourFallbacks()` alone: `Resolve()` needs them to rewrite references
+and the generator needs them to declare the locals, and the two disagreeing emits a body referring to
+a local that does not exist.
 
 **There are two readers for `<e:code>`, and adding a rule means adding it to
 `SvgExpressionDeclarations.Builder`, not to either one.** `Parse` works from source text, which is

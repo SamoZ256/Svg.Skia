@@ -85,18 +85,23 @@ This part stays namespaced because there is no inline form for a block of declar
 parameter is **required** — nothing is invented, so the signature never carries a value that
 appears nowhere in the document.
 
-Three rules follow from C# argument defaults being compile-time constants:
+Two rules follow from C# argument defaults being compile-time constants:
 
 - A default may use literals, constants and functions but **not other parameters**, since an
   ordering dependency between them could not be honoured.
-- A `color` parameter **cannot have a default** at all. `new SKColor(…)` is not a constant, so
-  emitting one produces a class that does not build. Colour parameters are always required. This
-  one is refused while the declarations are *read*, not while C# is emitted, so a document means
-  the same thing to every back end — a rule only the code generator enforced would let a document
-  evaluate happily at runtime and then refuse to generate.
 - The parameters *with* defaults have to come **last**. Declaring one without a default after one
   with a default is an error rather than a silent reordering, which would change the meaning of
   every positional call site.
+
+A `color` parameter may carry a default like any other. Because `new SKColor(…)` is not a constant,
+one that does is generated as a **nullable** parameter and falls back inside the method:
+
+```csharp
+public static SKPicture Record(SKColor? tint = null)
+```
+
+Passing `null`, or omitting the argument, gives the declared default. A colour parameter *without* a
+default is generated as a plain required `SKColor`, unchanged.
 
 **`<e:let>`** declares a local. Its type is **inferred** from the expression. Lets resolve in
 document order, so a let may reference parameters and earlier lets, but not later ones.
@@ -447,8 +452,8 @@ fails the build. Diagnostics are not yet mapped to a location in the `.svg` file
 Checks include: unknown names (listing what is in scope), unknown functions (listing what
 exists), wrong arity, wrong argument types, mismatched conditional branches, arithmetic on
 colours, a paint expression that is not a colour, a `visibility` expression that is not a
-boolean, forward references between lets, redeclaring a built-in, duplicate names, a default on a
-`color` parameter, and a parameter without a default declared after one that has one.
+boolean, forward references between lets, redeclaring a built-in, duplicate names, and a parameter
+without a default declared after one that has one.
 
 ---
 

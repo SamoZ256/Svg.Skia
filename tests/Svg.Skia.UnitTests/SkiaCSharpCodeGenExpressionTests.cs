@@ -106,18 +106,43 @@ public class SkiaCSharpCodeGenExpressionTests
     }
 
     [Fact]
-    public void A_Colour_Parameter_Cannot_Have_A_Default()
+    public void A_Colour_Parameter_With_A_Default_Becomes_Nullable()
     {
-        // `new SKColor(...)` is not a compile-time constant, so emitting it as an argument
-        // default produces a class that does not build (CS1736).
-        var error = Assert.Throws<ExprException>(() => Generate("""
+        // `new SKColor(...)` is not a compile-time constant and cannot be a C# argument
+        // default (CS1736), so the parameter goes nullable and the real default is coalesced into a
+        // local. The body reads that local rather than the parameter, because C# will not let a
+        // local shadow the parameter it is derived from.
+        var code = Generate("""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
               <defs><e:code><e:param name="tint" type="color" default="#ff0000" /></e:code></defs>
               <rect x="0" y="0" width="10" height="10" fill="{{ tint }}" />
             </svg>
-            """));
+            """);
 
-        Assert.Contains("not a compile-time constant", error.Message);
+        Assert.Contains("public static SKPicture Record(SKColor? tint = null)", code);
+        Assert.Contains("SKColor tint__default = tint ?? new SKColor(255, 0, 0, 255);", code);
+        Assert.Contains("skPaint0.Color = tint__default;", code);
+
+        // Draw mirrors the signature and forwards the nullable, not the local.
+        Assert.Contains("public static void Draw(SKCanvas skCanvas, SKColor? tint = null)", code);
+    }
+
+    [Fact]
+    public void A_Colour_Parameter_Without_A_Default_Is_Unchanged()
+    {
+        // The nullable shape is only for the ones carrying a default. Everything else keeps the
+        // signature it has always had, so no existing generated output moves.
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code><e:param name="tint" type="color" /></e:code></defs>
+              <rect x="0" y="0" width="10" height="10" fill="{{ tint }}" />
+            </svg>
+            """);
+
+        Assert.Contains("public static SKPicture Record(SKColor tint)", code);
+        Assert.DoesNotContain("SKColor?", code);
+        Assert.DoesNotContain("__default", code);
+        Assert.Contains("skPaint0.Color = tint;", code);
     }
 
     [Fact]

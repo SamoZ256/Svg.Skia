@@ -324,12 +324,21 @@ public static class SkiaCSharpCodeGen
         sb.AppendLine($"        {(isParameterized ? "public" : "private")} static SKPicture Record({parameterList})");
         sb.AppendLine($"        {{");
 
+        // Before the lets, since a let may reference the parameter and will have been compiled to
+        // read this local.
+        var colourFallbacks = declarations.ColourFallbacks();
+
+        foreach (var (parameter, local, defaultCode) in colourFallbacks)
+        {
+            sb.AppendLine($"{indent}SKColor {local} = {parameter} ?? {defaultCode};");
+        }
+
         foreach (var (name, type, code) in lets)
         {
             sb.AppendLine($"{indent}{ExprCompiler.CSharpTypeOf(type)} {name} = {code};");
         }
 
-        if (lets.Count > 0)
+        if (lets.Count > 0 || colourFallbacks.Count > 0)
         {
             sb.AppendLine($"");
         }
@@ -460,7 +469,13 @@ public static class SkiaCSharpCodeGen
             }
 
             optional = parameter;
-            rendered.Add($"{type} {parameter.Name} = {code}");
+
+            // A colour default cannot be a C# argument default, so the parameter goes nullable and
+            // the real default is coalesced into a local inside the method. A colour *without* a
+            // default stays a plain required SKColor, so no existing signature moves.
+            rendered.Add(parameter.Type == ExprType.Color
+                ? $"{type}? {parameter.Name} = null"
+                : $"{type} {parameter.Name} = {code}");
         }
 
         return string.Join(", ", rendered);
