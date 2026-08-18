@@ -1,8 +1,7 @@
 # SVG with expressions — demo
 
-A live editor for the expression extension. Type SVG on the left, watch the generated C# and the
-rendered drawing update on the right, and drive the declared parameters from controls that are
-rebuilt as the document changes.
+A live editor for the expression extension. Type SVG on the left, watch the drawing update on the
+right, and drive the declared parameters from controls that are rebuilt as the document changes.
 
 ## Running it
 
@@ -16,7 +15,7 @@ Two headless modes, for machines with no display:
 # render the built-in logo at several values of t
 dotnet run --project ... -c Release -- --render frames
 
-# run the full live pipeline over one file: parse, generate, compile, invoke, save a PNG
+# run the live pipeline over one file: parse, compile the scene, evaluate, save a PNG
 dotnet run --project ... -c Release -- --live path/to/file.svg out.png
 ```
 
@@ -25,23 +24,32 @@ dotnet run --project ... -c Release -- --live path/to/file.svg out.png
 It runs the **real** pipeline at runtime rather than interpreting anything:
 
 ```
-SVG text ─► SvgService.FromSvg ─► SvgSceneRuntime.CreateModel ─► SkiaCSharpCodeGen.Generate
-                                                                          │
-                                            reflection ◄── Roslyn compile ─┘
+SVG text ─► SvgService.FromSvg ─► SvgSceneRuntime.CreateModel ─► symbolic picture
+                                                                       │
+                       drawing ◄── SvgSceneExpressionEvaluator ◄── values from the controls
 ```
 
-The generated C# is compiled with `Microsoft.CodeAnalysis.CSharp` into a collectible
-`AssemblyLoadContext`, and its `Record(...)` is invoked with the current parameter values. This
-means the editor demonstrates exactly what the source generator produces — there is no second
-implementation of the language that could disagree with it.
+The two halves cost very different amounts, and splitting them is the point:
+
+- **Text changed** — re-parse and recompile the scene. Debounced ~400 ms and run off the UI thread,
+  so expect a beat before the drawing catches up.
+- **Parameter changed** — evaluate the model that is already there. No parse, no scene compile.
+
+This used to generate C# and compile it with Roslyn into a collectible `AssemblyLoadContext` whose
+`Record(...)` was invoked by reflection, because evaluating an expression was something only the
+code generator could do. `Svg.Expressions` evaluates directly now, so the demo needs no compiler and
+runs anywhere the library does.
+
+An application that renders on the UI thread should reach for `SKSvg.SetExpressionValues` instead of
+the model-level API this demo uses. The demo evaluates on the render thread so that the picture it
+draws is created and disposed inside a single draw, and never crosses a thread.
 
 Consequences worth knowing:
 
-- Edits are debounced ~400 ms and compiled off the UI thread; expect a beat before the drawing
-  catches up.
-- A failed edit keeps the last good assembly loaded, so the view does not blank while you type.
-- Errors are shown as-is, whether they come from the XML parser, the expression type checker or
-  the C# compiler.
+- A failed edit keeps the last good drawing, so the view does not blank while you type.
+- Errors come from the XML parser or the expression type checker, and an expression error carries a
+  caret under the offending character — something the Roslyn diagnostics could never do, since they
+  named a line of generated C# the author never saw.
 - Numeric parameters are exposed on a **0..1** slider. Scale inside the expression when a wider
   range is wanted — `hsl(hue * 360, ...)`, as the sample logo does.
 

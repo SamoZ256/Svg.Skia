@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using Avalonia;
 using SkiaSharp;
+using Svg.Expressions;
 using SvgExpressionsDemo.Generated;
 
 namespace SvgExpressionsDemo;
@@ -50,12 +51,7 @@ internal static class Program
 
     private static int Live(string svgPath, string outPath)
     {
-        var result = new LiveCompiler().Compile(File.ReadAllText(svgPath));
-
-        if (result.GeneratedCode is { } code)
-        {
-            Console.WriteLine($"generated {code.Split('\n').Length} lines of C#");
-        }
+        var result = new LivePreview().Load(File.ReadAllText(svgPath));
 
         if (!result.Success)
         {
@@ -67,23 +63,25 @@ internal static class Program
             return 1;
         }
 
-        // Mid-range values, so a parameterised document shows something representative.
-        var arguments = result.Parameters
-            .Select(object? (p) => p.Type switch
+        // Mid-range values, so a parameterised document shows something representative. Every
+        // declared parameter gets one: evaluation is strict, as the generated code is.
+        var values = result.Parameters.ToDictionary(
+            p => p.Name,
+            p => p.Type switch
             {
-                Svg.Expressions.ExprType.Number => 0.5f,
-                Svg.Expressions.ExprType.Boolean => true,
-                _ => new SKColor(0x3F, 0xB5, 0xB5)
-            })
-            .ToArray();
+                ExprType.Number => ExprValue.Number(0.5f),
+                ExprType.Boolean => ExprValue.Boolean(true),
+                _ => ExprValue.Color(0x3F, 0xB5, 0xB5, 0xFF)
+            },
+            StringComparer.Ordinal);
 
         Console.WriteLine(
             $"parameters: {(result.Parameters.Count == 0 ? "(none)" : string.Join(", ", result.Parameters.Select(p => $"{p.Name}:{p.Type}")))}");
 
-        using var picture = result.Invoke(arguments);
+        using var picture = result.Render(values);
         if (picture is null)
         {
-            Console.WriteLine("error: Record returned null.");
+            Console.WriteLine("error: the document produced no drawing.");
             return 1;
         }
 

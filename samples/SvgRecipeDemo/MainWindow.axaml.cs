@@ -13,8 +13,6 @@ using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using SkiaSharp;
-using Svg.CodeGen.Skia;
-using Svg.CodeGen.Skia.Expressions;
 using Svg.Expressions;
 
 namespace SvgRecipeDemo;
@@ -32,7 +30,6 @@ public partial class MainWindow : Window
     private readonly TextBox _recipeEditor;
     private readonly TextBox _svgEditor;
     private readonly TextBox _convertedView;
-    private readonly TextBox _generatedView;
     private readonly StackPanel _parameterPanel;
     private readonly TextBlock _statusText;
     private readonly SelectableTextBlock _matchText;
@@ -43,11 +40,18 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _pending;
 
     // Written on the UI thread, read on the render thread.
-    private volatile Snapshot _snapshot = new(null, Array.Empty<object?>(), 0f, 0f);
+    private volatile Snapshot _snapshot = new(null, EmptyValues, 0f, 0f);
 
-    private sealed record Snapshot(RecipeRunResult? Result, object?[] Arguments, float Width, float Height);
+    private static readonly IReadOnlyDictionary<string, ExprValue> EmptyValues =
+        new Dictionary<string, ExprValue>();
 
-    private sealed record ParameterBinding(SvgExpressionParameter Parameter, Func<object?> Read);
+    private sealed record Snapshot(
+        RecipeRunResult? Result,
+        IReadOnlyDictionary<string, ExprValue> Values,
+        float Width,
+        float Height);
+
+    private sealed record ParameterBinding(SvgExpressionParameter Parameter, Func<ExprValue> Read);
 
     public MainWindow()
     {
@@ -57,7 +61,6 @@ public partial class MainWindow : Window
         _recipeEditor = this.FindControl<TextBox>("RecipeEditor")!;
         _svgEditor = this.FindControl<TextBox>("SvgEditor")!;
         _convertedView = this.FindControl<TextBox>("ConvertedView")!;
-        _generatedView = this.FindControl<TextBox>("GeneratedView")!;
         _parameterPanel = this.FindControl<StackPanel>("ParameterPanel")!;
         _statusText = this.FindControl<TextBlock>("StatusText")!;
         _matchText = this.FindControl<SelectableTextBlock>("MatchText")!;
@@ -129,11 +132,6 @@ public partial class MainWindow : Window
             _convertedView.Text = converted;
         }
 
-        if (result.Compiled?.GeneratedCode is { } code)
-        {
-            _generatedView.Text = code;
-        }
-
         _matchText.Text = DescribeMatches(result);
 
         var errors = result.AllErrors.ToList();
@@ -149,11 +147,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        RebuildParameterControls(result.Compiled!.Parameters);
+        RebuildParameterControls(result.Preview!.Parameters);
 
-        _statusText.Text = result.Compiled.Parameters.Count == 0
-            ? "compiled — no parameters"
-            : $"compiled — {result.Compiled.Parameters.Count} parameter(s)";
+        _statusText.Text = result.Preview.Parameters.Count == 0
+            ? "loaded — no parameters"
+            : $"loaded — {result.Preview.Parameters.Count} parameter(s)";
 
         _snapshot = _snapshot with { Result = result };
         Publish();
@@ -233,7 +231,7 @@ public partial class MainWindow : Window
                         row.Children.Add(slider);
                         row.Children.Add(readout);
 
-                        _bindings.Add(new ParameterBinding(parameter, () => (float)slider.Value));
+                        _bindings.Add(new ParameterBinding(parameter, () => ExprValue.Number((float)slider.Value)));
                         break;
                     }
 
@@ -248,7 +246,7 @@ public partial class MainWindow : Window
                         Grid.SetColumn(check, 1);
                         row.Children.Add(check);
 
-                        _bindings.Add(new ParameterBinding(parameter, () => check.IsChecked == true));
+                        _bindings.Add(new ParameterBinding(parameter, () => ExprValue.Boolean(check.IsChecked == true)));
                         break;
                     }
 
@@ -277,8 +275,12 @@ public partial class MainWindow : Window
             ? value
             : fallback;
 
-    private static SKColor ParseColor(string? text)
-        => SKColor.TryParse(text, out var color) ? color : SKColors.Magenta;
+    private static ExprValue ParseColor(string? text)
+    {
+        var color = SKColor.TryParse(text, out var parsed) ? parsed : SKColors.Magenta;
+
+        return ExprValue.Color(color.Red, color.Green, color.Blue, color.Alpha);
+    }
 
     // ---- rendering ------------------------------------------------------------------------------
 
@@ -286,7 +288,7 @@ public partial class MainWindow : Window
     {
         _snapshot = _snapshot with
         {
-            Arguments = _bindings.Select(b => b.Read()).ToArray(),
+            Values = _bindings.ToDictionary(b => b.Parameter.Name, b => b.Read(), StringComparer.Ordinal),
             Width = (float)_canvas.Bounds.Width,
             Height = (float)_canvas.Bounds.Height
         };
@@ -310,7 +312,7 @@ public partial class MainWindow : Window
         SKPicture? picture;
         try
         {
-            picture = result.Compiled!.Invoke(state.Arguments);
+            picture = result.Preview!.Render(state.Values);
         }
         catch
         {

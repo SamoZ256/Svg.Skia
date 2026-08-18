@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* `samples/SvgExpressionsDemo` and `samples/SvgRecipeDemo` no longer generate and compile C# to
+  render. Both evaluate the scene model directly, so neither references Roslyn any more, and neither
+  ships `Microsoft.CodeAnalysis.dll`. A parameter change now re-evaluates rather than re-parsing,
+  re-generating and re-compiling into a fresh collectible `AssemblyLoadContext`. The demos no longer
+  display the generated C#; `svgc` remains the way to see that.
+
 * Added expression support to `SKSvg`: `ExpressionParameters` reports what a document declares,
   `SetExpressionValues` binds values and re-renders, `ExpressionValues` reports what is bound, and
   `ClearExpressionValues` goes back to the design-time placeholders. Loading is unchanged — it renders
