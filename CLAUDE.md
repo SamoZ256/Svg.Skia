@@ -191,7 +191,13 @@ are compiled into the generated C#:
 
 **`SVG_EXPRESSIONS.md` in the repo root is the specification. Keep it current in the same change
 as any modification to the extension** — supported attributes, language surface, placeholder
-values, diagnostics, generated-code shape and limitations all live there.
+values, diagnostics, generated-code shape, the run-time rendering API and limitations all live
+there.
+
+**It documents syntax and usage only.** How any of it works belongs here instead, so anything
+about layering, which project owns what, or why an internal does what it does goes in this file
+rather than that one. A change to the extension usually touches both: what an author or a caller
+sees there, how it is built here.
 
 Its parts: the `{{ }}` lift and placeholder substitution in
 `Svg.Custom/SvgExpressionAttributes.cs`, the symbolic value model in `ShimSkiaSharp/Symbolic/`,
@@ -257,6 +263,13 @@ could work, since `Avalonia.Svg.Skia.SvgSource` holds one *static* `SkiaModel` w
 document's parameter values. It never mutates: paints are shared between elements, and the symbolic
 picture has to survive for the next set of values. Untouched subtrees come back as the same
 instances, so a document without expressions allocates nothing.
+
+What it reaches: a paint's `Color`, a `ColorShader`, the `SKColorF[]` of the three gradient shaders,
+an opacity `SaveLayer`'s paint, and a `BlendModeColorFilter` — recursing through
+`DrawPictureCanvasCommand` and through a `PictureShader`, which is how a pattern's contents are
+covered. The `SKColor LightColor` on the six lit image filters is deliberately **not** walked: no
+document can attach an expression there, so the code would be unreachable and untested. Adding a
+model path that can carry an expression means adding it here too.
 
 **On `SKSvg`, loading never evaluates and `Model` is whatever is being rendered.** `Load` leaves the
 placeholders in place and does not even read the declarations, so no existing consumer is affected and

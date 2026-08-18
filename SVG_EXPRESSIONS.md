@@ -1,8 +1,12 @@
 # SVG Expressions
 
-An extension to SVG that lets attribute values be **expressions** instead of literals. The
-document is compiled to C# by `svgc` or `Svg.SourceGenerator.Skia`, and the expressions become
-parameters of the generated drawing method.
+An extension to SVG that lets attribute values be **expressions** instead of literals. Compile the
+document to C# with `svgc` or `Svg.SourceGenerator.Skia` and the expressions become parameters of
+the generated drawing method; or render it directly with `SKSvg` and supply the values at run time
+([§8](#8-rendering-at-run-time)).
+
+This document describes the syntax and how to use it. For how any of it is implemented, see
+`CLAUDE.md`.
 
 ```xml
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="64" height="64">
@@ -114,14 +118,9 @@ and substitutes a placeholder, so the rest of the pipeline sees a well-formed do
 | `opacity` | `1` |
 | `visibility` | `visible` |
 
-The placeholders are not arbitrary. The renderer short-circuits on certain values, and the wrong
-choice would delete the thing being parameterised:
-
-- `fill="none"` produces no paint and therefore no draw command.
-- `opacity="1"` normally skips creating a layer, leaving no paint to attach an expression to.
-- `visibility="hidden"` drops the entire subtree, leaving nothing to make conditional.
-
-Each placeholder is chosen so the element still paints.
+The placeholders are fixed and not configurable. Each is chosen so that the element still paints:
+a value like `fill="none"`, `opacity="0"` or `visibility="hidden"` would remove the very thing the
+expression is meant to drive.
 
 > **Consequence.** Because the expression replaces the attribute rather than sitting beside it,
 > the document has no design-time value. Tools that do not understand the extension render the
@@ -323,22 +322,15 @@ public static SKPicture Record(SKColor tint, float t = 0f)
 
 Lets become typed locals in declaration order.
 
-Paths are built through `SKPathBuilder` and detached, since SkiaSharp 4 obsoleted every mutating
-method on `SKPath`. `SKPathBuilder` does not exist in SkiaSharp 3, so `--skiaSharp 3` emits the
-older shape — the same commands called on the `SKPath` itself, with no detach. Nothing else in
-the output differs between the two.
+`--skiaSharp 3` emits paths against `SKPath` directly; the default targets SkiaSharp 4 and builds
+them through `SKPathBuilder`. Nothing else in the output differs between the two.
 
-Small `private static` helpers (`SvgHsl`, `SvgMix`, `SvgScaleAlpha`, `SvgToColorF`, …) are
-emitted into the class **only when used**. Multi-argument colour operations are emitted as calls
-rather than inline arithmetic so each operand is evaluated exactly once.
+Small `private static` helpers (`SvgHsl`, `SvgMix`, `SvgScaleAlpha`, `SvgToColorF`, …) are emitted
+into the class **only when used**.
 
 > **Cost.** `Record()` allocates and records a **new `SKPicture` on every call**. `Draw` disposes
 > the picture it builds; what `Record` returns, the caller owns. See [§5.2](#52-reusing-the-last-picture)
 > for the opt-in cache.
-
-The `using` directives sit **outside** the namespace. A using written inside one resolves relative
-to it first, so `using SkiaSharp;` inside `namespace Icons` would bind to a consumer's
-`Icons.SkiaSharp` if they had one, and the generated file would not compile.
 
 ### 5.1 One file for a whole set
 
@@ -466,12 +458,11 @@ boolean, forward references between lets, redeclaring a built-in, duplicate name
 so it is treated as an ordinary malformed value and ignored — no error. A typo in an attribute
 name behaves the same way.
 
-**Geometry and transforms are not supported.** Coordinates are flattened into path data during
-model building, and bounds, clips, filter regions and `objectBoundingBox` gradient units are all
-computed from them at that point. A symbolic coordinate is representable; the *bounding box of a
-symbolic path* is not, and everything downstream requires a number.
+**Geometry and transforms are not supported.** Coordinates cannot be expressions. Bounds, clips,
+filter regions and `objectBoundingBox` gradient units are all derived from geometry, and each needs
+a number rather than something that varies per call.
 
-**`display` is not supported.** Unlike `visibility` it affects layout, so it feeds parent
+**`display` is not supported.** Unlike `visibility` it affects layout, so it feeds those same
 bounding boxes and runs into the same problem as geometry.
 
 **No design-time preview.** See [§2](#2-the-placeholder-mechanism).
@@ -481,125 +472,18 @@ bounding boxes and runs into the same problem as geometry.
 
 ---
 
-## 8. How it fits together
+## 8. Rendering at run time
 
-```
-.svg ──parse──> SVG DOM ──build──> SKPicture model ──emit──> C#
-       │                    │                          │
-       │  {{ }} lifted to   │  expression carried       │  parsed, type checked
-       │  CustomAttributes, │  alongside the concrete   │  and rendered as C#
-       │  placeholder       │  value                    │
-       │  substituted       │                           │
-```
-
-- **Parse** (`Svg.Custom`) — `SvgExpressionAttributes` lifts `{{ … }}` out of presentation
-  attributes and substitutes the placeholder. The expression text is not interpreted here.
-- **Model** (`ShimSkiaSharp`, `Svg.SceneGraph`) — `SKColor` carries an optional `SymNode`
-  alongside its concrete channels, and `Begin`/`EndConditionalCanvasCommand` delimit a
-  conditional range. Consumers that ignore these render the placeholder state, which is why
-  `SKSvg` and the Avalonia controls needed no changes.
-- **Check** (`Svg.Expressions`) — the only layer that parses the expression language. `ExprChecker`
-  turns the text into a `TypedExpr`: every node typed, every name resolved against the symbol
-  table from `<e:code>`, every call naming a function of the language rather than a string. It
-  knows nothing about any target language. `SvgExpressionDeclarations` lives here too — the
-  `<e:code>` block *is* that symbol table, so it belongs beside the language rather than in either
-  back end, and `CreateSymbolTable()` is what both of them start from.
-- **Emit** (`Svg.CodeGen.Skia`) — `ExprCSharpBackend` renders a `TypedExpr` as C#, and owns what
-  each function is *called* there. `SymNode` also records operations the *model* applied (alpha
-  scaling, linear-RGB conversion) so the generated code reproduces them. The declaration members
-  that produce C# — `Resolve()` and `DefaultCode()` — are extension methods here for the same
-  reason.
-- **Evaluate** (`Svg.Expressions`) — `ExprValueBackend` computes a `TypedExpr` into an `ExprValue`
-  instead of rendering it, and `ExprEvaluator` is the facade over checker plus back end, mirroring
-  `ExprCompiler` exactly. `ExprEvaluator.Create` binds values to the declarations and resolves the
-  lets. This is what lets a renderer show real values rather than the placeholder.
-
-Checking and emission used to be one pass, which made the code generator the only possible
-consumer of the language. They are separate so the two back ends can share the front end, and the
-evaluator does not depend on the code generator at all.
-
-**The two back ends have to agree, and that is a test rather than a convention.** They compute the
-same document by different routes, so anything the generated C# does incidentally has to be
-reproduced deliberately:
-
-- Numbers are `float`, not `double`. The C# back end narrows every literal through `(float)` and
-  calls `MathF`, so evaluating in double precision would give a different answer.
-- `MathF` did not exist before netstandard2.1, so `Svg.Expressions` is multi-targeted. The
-  netstandard2.0 build — also the flavour loaded into the compiler as part of the source generator —
-  falls back to `(float)Math.Sin((double)x)`, which really does differ, by up to one ulp for `sin`,
-  `cos`, `tan` and `pow` and never for `sqrt`, `abs`, `floor`, `ceil` or `round`. Colours quantise
-  to bytes, so an ulp does not reach a pixel; the bound is pinned by `ExprMathFallbackTests`.
-- `hsl` is the only function reimplemented rather than delegated, because the language cannot
-  reference SkiaSharp. `SKColor.FromHsl` **truncates** its final conversion to a byte, and a
-  rounding version disagrees on 40,747 of 53,361 samples, so `ExprEvaluatorHslTests` sweeps the
-  whole domain against the real thing. `FromHsl` also folds the hue back into range only once,
-  which is why the wrap in `SvgHsl` happens first and is load-bearing.
-- `&&`, `||` and `? :` evaluate only what C# would. There are no side effects in the language, but
-  an unevaluated operand can throw — `clamp` with a reversed range does.
-
-`ExprEvaluatorDifferentialTests` is what holds this together: for each of ~100 expressions it
-evaluates the value *and* compiles the emitted C# with Roslyn and runs it, requiring the two to be
-identical bit for bit.
-
-### 8.1 Two readers for one `<e:code>` block
-
-The declarations can be read either from the source text or from a parsed document, and both exist
-because neither reaches everywhere:
-
-- `SvgExpressionDeclarations.Parse(svgText)` builds its own `XDocument`. `svgc` and the source
-  generator both already hold the file's text, and hand the same string to the SVG parser and to
-  this.
-- `SvgDocument.ExpressionDeclarations` walks the parsed tree. `SKSvg.Load(XmlReader)` and
-  `FromSvgDocument` never had any text, and an editor holds a document rather than a string, so
-  without this those routes could not evaluate at all.
-
-The text reader is not a workaround: an unqualified `<param>` really could belong to another
-extension, and a foreign element's namespace is only visible to code *inside* `Svg.Custom`, which is
-where the tree reader lives. Both go through `SvgExpressionDeclarations.Builder`, so the rules about
-names, types and defaults are applied once rather than twice, and
-`SvgDocumentExpressionDeclarationsTests` pins that the two agree — down to the wording of every
-diagnostic.
-
-### 8.2 Evaluating a whole picture
-
-`SvgSceneExpressionEvaluator.Evaluate` takes a picture holding expressions and returns one holding
-values, which any renderer can then draw without knowing the extension exists:
-
-```csharp
-var picture = SvgSceneRuntime.CreateModel(document, assetLoader);
-var values = new Dictionary<string, ExprValue> { ["tint"] = ExprValue.Color(255, 0, 0, 255) };
-var evaluated = SvgSceneExpressionEvaluator.Evaluate(picture, declarations, values);
-```
-
-Rewriting the model rather than teaching a renderer to consult `SKColor.Expression` is what keeps
-`SkiaModel` and `AvaloniaPicture` unchanged — and it is the only thing that could work for the Skia
-path, where `SvgSource` shares one static `SkiaModel` that has nowhere to keep a document's values.
-
-- Nothing is mutated, and untouched subtrees come back as the *same instances*. Two elements sharing
-  one cached paint still share one afterwards, and a document with no expressions is returned as-is.
-- The colours it reaches: a paint's `Color`, a `ColorShader`, the `SKColorF[]` of the three gradient
-  shaders, the paint of an opacity `SaveLayer`, and a `BlendModeColorFilter`. It recurses through
-  `DrawPictureCanvasCommand` and through a `PictureShader`, which is how a pattern's contents are
-  reached. The `SKColor LightColor` on the lit image filters is *not* walked — no document can
-  attach an expression there.
-- The resolved colour carries **no** expression afterwards. It has been dealt with, and a renderer
-  that still saw one would have no reason to trust the channels beside it.
-- A conditional's markers never survive, true or false. A false range keeps its `Save`, `Restore`,
-  `SetMatrix` and clip commands and drops only the drawing ones — see the note in `CLAUDE.md` for
-  why that differs from what the generated code does, and why the difference is invisible through
-  any real document.
-- A condition inside an already-dropped range is not evaluated at all, matching generated code,
-  where nested `if`s mean an inner condition behind a false outer one never runs.
-
-### 8.3 Rendering values through `SKSvg`
+A document does not have to be compiled to C# to show real values. `SKSvg` can evaluate the
+expressions directly and render the result:
 
 ```csharp
 using var svg = new SKSvg();
-svg.Load("badge.svg");                       // renders the placeholders, exactly as before
+svg.Load("badge.svg");                       // renders the placeholders
 
 foreach (var parameter in svg.ExpressionParameters)
 {
-    // name, type, and the default expression if the document declares one
+    // Name, Type, and DefaultExpression if the document declares one.
 }
 
 svg.SetExpressionValues(new Dictionary<string, ExprValue>
@@ -612,24 +496,38 @@ svg.SetExpressionValues(new Dictionary<string, ExprValue>
 Two rules, pulling in opposite directions on purpose:
 
 - **Loading never evaluates.** A document whose parameters have no defaults still loads and still
-  renders, as the placeholders it was authored to fall back to. Nothing about an existing use of
-  `SKSvg` changes, and the declarations are not even read — which is what stops a malformed
-  `<e:code>` block turning a successful load into an exception.
+  renders, as the placeholders it was authored to fall back to ([§2](#2-the-placeholder-mechanism)).
+  Nothing about an existing use of `SKSvg` changes, and a malformed `<e:code>` block cannot turn a
+  successful load into an exception.
 - **Supplying values is strict.** Every declared parameter must end up with a value, supplied or
-  defaulted; one with neither is an `ExprException` naming it. That is the rule generated code already
-  enforces by making such a parameter required, and a host that would rather see a placeholder can
-  bind one as a value. Nothing is applied unless the whole set resolves, so a rejected call leaves the
-  previous rendering in place rather than a half-applied one.
+  defaulted; one with neither is an `ExprException` naming it. That is the same rule the generated
+  code enforces by making such a parameter required ([§5](#5-generated-code)). A host that would
+  rather show a placeholder can bind one as a value.
 
-`SetExpressionValues` does not re-parse the document or recompile the scene: `SKSvg` retains the
-symbolic model and evaluates against it, so the cost of dragging a slider is one walk of the parts
-that carry expressions. `Model` is the picture being rendered, so it holds values once they are bound
-and placeholders before that; `ExpressionValues` reports what is currently bound, and
-`ClearExpressionValues()` goes back to the placeholders.
+Nothing is applied unless the whole set resolves, so a rejected call leaves the previous rendering
+in place rather than a half-applied one. `SetExpressionValues` neither re-parses the document nor
+recompiles its scene, so changing a value repeatedly — dragging a slider, say — is cheap.
 
-Because the concrete value travels with the expression, equality and hashing of `SKColor`
-include it — otherwise the paint caches would collapse two elements that share a placeholder but
-carry different expressions.
+`Model` is the picture being rendered: placeholders before any values are bound, values afterwards.
+`ExpressionValues` reports what is currently bound, and `ClearExpressionValues()` returns to the
+placeholders.
+
+Errors are the same ones [§6](#6-diagnostics) describes, raised as `ExprException` rather than
+printed, and an expression fault carries the same caret.
+
+### 8.1 Evaluating a picture directly
+
+A host that already holds a compiled scene can evaluate it without going through `SKSvg`. The result
+is an ordinary picture that any renderer draws without knowing the extension exists:
+
+```csharp
+var picture = SvgSceneRuntime.CreateModel(document, assetLoader);
+var evaluated = SvgSceneExpressionEvaluator.Evaluate(picture, declarations, values);
+```
+
+The input is left untouched, so the same compiled picture can be evaluated repeatedly with different
+values. `SvgExpressionDeclarations` comes either from `Parse(svgText)` or, when only a parsed
+document is at hand, from `SvgDocument.ExpressionDeclarations`.
 
 ---
 
