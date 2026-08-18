@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using Svg.Expressions;
 
 namespace Svg;
 
@@ -18,7 +19,11 @@ namespace Svg;
 public static class SvgExpressionAttributes
 {
     /// <summary>Key namespace, so lifted values sit alongside foreign-namespace attributes.</summary>
-    public const string Namespace = "https://svg.skia/expr/1.0";
+    /// <remarks>
+    /// The same constant the declarations use — the lifted attributes and the <c>&lt;e:code&gt;</c>
+    /// block are one extension, and two spellings of its namespace could drift.
+    /// </remarks>
+    public const string Namespace = SvgExpressionDeclarations.Namespace;
 
     private const string Open = "{{";
 

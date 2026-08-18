@@ -9,7 +9,7 @@ namespace Svg.Skia.UnitTests;
 
 public class SkiaCSharpCodeGenExpressionTests
 {
-    private const string Ns = SvgCodeDeclarations.Namespace;
+    private const string Ns = SvgExpressionDeclarations.Namespace;
 
     private static string Generate(string svgMarkup)
     {
@@ -19,7 +19,7 @@ public class SkiaCSharpCodeGenExpressionTests
         var picture = SvgSceneRuntime.CreateModel(document!, assetLoader);
         Assert.NotNull(picture);
 
-        return SkiaCSharpCodeGen.Generate(picture!, "Svg", "Generated", SvgCodeDeclarations.Parse(svgMarkup));
+        return SkiaCSharpCodeGen.Generate(picture!, "Svg", "Generated", SvgExpressionDeclarations.Parse(svgMarkup));
     }
 
     private const string Plain = """
@@ -48,7 +48,7 @@ public class SkiaCSharpCodeGenExpressionTests
 
         Assert.Equal(
             SkiaCSharpCodeGen.Generate(picture!, "Svg", "Generated"),
-            SkiaCSharpCodeGen.Generate(picture!, "Svg", "Generated", SvgCodeDeclarations.Empty));
+            SkiaCSharpCodeGen.Generate(picture!, "Svg", "Generated", SvgExpressionDeclarations.Empty));
     }
 
     [Fact]

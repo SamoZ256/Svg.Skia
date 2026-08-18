@@ -66,12 +66,12 @@ public enum SvgPictureCache
 /// <summary>One drawing to be emitted, for <see cref="SkiaCSharpCodeGen.GenerateFile"/>.</summary>
 public sealed class SkiaCSharpDrawing
 {
-    public SkiaCSharpDrawing(SKPicture picture, string namespaceName, string className, SvgCodeDeclarations? declarations)
+    public SkiaCSharpDrawing(SKPicture picture, string namespaceName, string className, SvgExpressionDeclarations? declarations)
     {
         Picture = picture;
         NamespaceName = namespaceName;
         ClassName = className;
-        Declarations = declarations ?? SvgCodeDeclarations.Empty;
+        Declarations = declarations ?? SvgExpressionDeclarations.Empty;
     }
 
     public SKPicture Picture { get; }
@@ -80,7 +80,7 @@ public sealed class SkiaCSharpDrawing
 
     public string ClassName { get; }
 
-    public SvgCodeDeclarations Declarations { get; }
+    public SvgExpressionDeclarations Declarations { get; }
 }
 
 public static class SkiaCSharpCodeGen
@@ -96,13 +96,13 @@ public static class SkiaCSharpCodeGen
     private static string ArgumentField(string parameterName) => "s_arg_" + parameterName;
 
     public static string Generate(SKPicture picture, string namespaceName, string className)
-        => Generate(picture, namespaceName, className, SvgCodeDeclarations.Empty);
+        => Generate(picture, namespaceName, className, SvgExpressionDeclarations.Empty);
 
     public static string Generate(
         SKPicture picture,
         string namespaceName,
         string className,
-        SvgCodeDeclarations? declarations,
+        SvgExpressionDeclarations? declarations,
         SvgPictureCache cache = SvgPictureCache.None,
         SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4)
     {
@@ -249,12 +249,12 @@ public static class SkiaCSharpCodeGen
     private static string BuildClass(
         SKPicture picture,
         string className,
-        SvgCodeDeclarations? declarations,
+        SvgExpressionDeclarations? declarations,
         bool includeHelpers,
         SvgPictureCache cache,
         SkiaSharpTarget skiaSharp)
     {
-        declarations ??= SvgCodeDeclarations.Empty;
+        declarations ??= SvgExpressionDeclarations.Empty;
 
         var (compiler, lets) = declarations.Resolve();
 
@@ -276,7 +276,7 @@ public static class SkiaCSharpCodeGen
 
         var parameters = declarations.Parameters;
         var isParameterized = parameters.Count > 0;
-        var parameterList = BuildParameterList(parameters, declarations);
+        var parameterList = BuildParameterList(parameters);
         var argumentList = string.Join(", ", parameters.Select(p => p.Name));
 
         // A document with no parameters already caches better than this: one picture built in
@@ -434,17 +434,15 @@ public static class SkiaCSharpCodeGen
     // A parameter is optional only when the author gave it a default. Inventing one for the rest
     // would make every argument skippable and put a value in the signature that appears nowhere
     // in the document.
-    private static string BuildParameterList(
-        IReadOnlyList<SvgCodeParameter> parameters,
-        SvgCodeDeclarations declarations)
+    private static string BuildParameterList(IReadOnlyList<SvgExpressionParameter> parameters)
     {
         var rendered = new List<string>(parameters.Count);
-        SvgCodeParameter? optional = null;
+        SvgExpressionParameter? optional = null;
 
         foreach (var parameter in parameters)
         {
             var type = ExprCompiler.CSharpTypeOf(parameter.Type);
-            var code = declarations.DefaultCodeFor(parameter);
+            var code = parameter.DefaultCode();
 
             if (code is null)
             {

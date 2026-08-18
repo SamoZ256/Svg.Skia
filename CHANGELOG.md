@@ -2,12 +2,59 @@
 
 ## Unreleased
 
+* Added expression support to `SKSvg`: `ExpressionParameters` reports what a document declares,
+  `SetExpressionValues` binds values and re-renders, `ExpressionValues` reports what is bound, and
+  `ClearExpressionValues` goes back to the design-time placeholders. Loading is unchanged — it renders
+  the placeholders and does not evaluate, so a document whose parameters have no defaults still loads
+  and no existing use of `SKSvg` is affected. Supplying values is strict: a parameter with neither a
+  value nor a `default` is an error, matching the generated code, and nothing is applied unless the
+  whole set resolves. Re-evaluating does not re-parse the document or recompile the scene.
+
+* Fixed `NonSvgElement.DeepCopy` losing the element's namespace. The copy kept its name and
+  attributes but claimed to be in the SVG namespace, so anything matching a foreign element on name
+  *and* namespace silently stopped matching — found when a cloned document reported no `<e:code>`
+  declarations.
+
+* Added `SvgDocument.ExpressionDeclarations`, which reads a document's `<e:code>` block from the
+  parsed tree rather than from source text. `Load(XmlReader)` and a document handed over directly
+  never had text to re-parse, so this is what lets any route into a document be evaluated.
+  `SvgExpressionDeclarations.Parse` is unchanged and still what `svgc` and the source generator use;
+  both now go through the new `SvgExpressionDeclarations.Builder` so they validate identically.
+
+* Added `SvgSceneExpressionEvaluator.Evaluate` in `Svg.SceneGraph`, which turns a picture holding
+  expressions into one holding values. It rewrites the model rather than changing any renderer, so
+  `SkiaModel` and the Avalonia controls draw an evaluated drawing with no changes of their own.
+  Nothing is mutated and untouched subtrees are returned as the same instances, so re-evaluating with
+  new values costs one walk of the parts that carry expressions.
+
+* Added a runtime evaluator for the SVG expression language: `ExprEvaluator` and `ExprValue` in
+  `Svg.Expressions` compute an expression against values instead of rendering it as C#, so a
+  renderer can show real values rather than the design-time placeholder. `ExprEvaluator.Create`
+  binds values to a document's `<e:code>` declarations and resolves its lets; a parameter with
+  neither a supplied value nor a `default` is an error, which is the rule generated code already
+  enforces.
+
+* `Svg.Expressions` now targets `netstandard2.0;net6.0;net8.0;net10.0` rather than netstandard2.0
+  alone. Generated code calls `MathF`, which arrived with netstandard2.1, so the evaluator has to as
+  well to give the same answer; the netstandard2.0 build falls back to the double-precision
+  functions and differs by at most one ulp for `sin`, `cos`, `tan` and `pow`.
+
 * **Breaking:** the SVG expression language's lexer, parser and type checker moved to a new
   `Svg.Expressions` package, and `ExprType` and `ExprException` moved with them from namespace
   `Svg.CodeGen.Skia.Expressions` to `Svg.Expressions`. Source-compatible after updating a `using`;
   not binary-compatible, and a type forwarder cannot bridge a namespace change. `ExprCompiler`
   stays where it was, as a facade over the checker and the C# back end. `ExprCompiler.FunctionNames`
   and `ConstantNames` are now `ExprFunctions.FunctionNames` and `ExprFunctions.ConstantNames`.
+
+* **Breaking:** the `<e:code>` declarations moved to `Svg.Expressions` and were renamed —
+  `SvgCodeDeclarations`, `SvgCodeParameter` and `SvgCodeLet` are now `SvgExpressionDeclarations`,
+  `SvgExpressionParameter` and `SvgExpressionLet`. They are the symbol table the expression
+  language is checked against, so they belong beside it rather than in the code generator, which
+  is no longer the only back end that reads them. The two members that produce C# stayed behind as
+  extension methods in `Svg.CodeGen.Skia`: `Resolve()` is unchanged, and
+  `declarations.DefaultCodeFor(parameter)` is now `parameter.DefaultCode()`. A `color` parameter
+  carrying a `default` is now rejected by `Parse` rather than when C# is emitted, so the same
+  document is accepted or refused identically whichever back end reads it.
 
 * Added SVG 1.1 animation object-model coverage in `Svg.Custom` for `animate`, `set`, `animateMotion`, `animateColor`, `animateTransform`, and `mpath`.
 * Added typed `pointer-events` support, geometry-aware hit testing, topmost-element targeting, and routed interaction dispatch with capture, tunnel, bubble, and cursor resolution.

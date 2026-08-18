@@ -24,7 +24,7 @@ public class SvgSceneVisibilityExpressionTests
         var picture = Build(svgMarkup);
         Assert.NotNull(picture);
 
-        return SkiaCSharpCodeGen.Generate(picture!, "Svg", "Generated", SvgCodeDeclarations.Parse(svgMarkup));
+        return SkiaCSharpCodeGen.Generate(picture!, "Svg", "Generated", SvgExpressionDeclarations.Parse(svgMarkup));
     }
 
     private static IReadOnlyList<CanvasCommand> Commands(SKPicture? picture)

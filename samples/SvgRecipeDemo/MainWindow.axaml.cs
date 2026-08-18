@@ -47,7 +47,7 @@ public partial class MainWindow : Window
 
     private sealed record Snapshot(RecipeRunResult? Result, object?[] Arguments, float Width, float Height);
 
-    private sealed record ParameterBinding(SvgCodeParameter Parameter, Func<object?> Read);
+    private sealed record ParameterBinding(SvgExpressionParameter Parameter, Func<object?> Read);
 
     public MainWindow()
     {
@@ -175,7 +175,7 @@ public partial class MainWindow : Window
 
     // ---- parameter controls --------------------------------------------------------------------
 
-    private void RebuildParameterControls(IReadOnlyList<SvgCodeParameter> parameters)
+    private void RebuildParameterControls(IReadOnlyList<SvgExpressionParameter> parameters)
     {
         // Rebuilt wholesale: the recipe decides which parameters exist, and it can change with any
         // keystroke. Values are re-read from the new controls, so they reset on a change.
@@ -272,7 +272,7 @@ public partial class MainWindow : Window
     // A default is an expression, not a value, and only the code generator can evaluate one. A
     // plain literal is worth reading anyway: it is what recipes normally write, and starting the
     // slider there shows the drawing as the recipe intended rather than at zero.
-    private static double LiteralDefault(SvgCodeParameter parameter, double fallback)
+    private static double LiteralDefault(SvgExpressionParameter parameter, double fallback)
         => double.TryParse(parameter.DefaultExpression, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
             ? value
             : fallback;

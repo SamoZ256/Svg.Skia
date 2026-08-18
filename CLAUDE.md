@@ -182,16 +182,78 @@ values, diagnostics, generated-code shape and limitations all live there.
 Its parts: the `{{ }}` lift and placeholder substitution in
 `Svg.Custom/SvgExpressionAttributes.cs`, the symbolic value model in `ShimSkiaSharp/Symbolic/`,
 attribute reading in `Svg.SceneGraph/SvgSceneExpressions.cs`, the language itself — lexer, parser,
-type checker and the `TypedExpr` it produces — in `src/Svg.Expressions`, and the C# back end in
-`Svg.CodeGen.Skia/Expressions/`.
+type checker, the `TypedExpr` it produces and the `<e:code>` declarations that are its symbol
+table — in `src/Svg.Expressions`, and the C# back end in `Svg.CodeGen.Skia/Expressions/`.
 
 **The front end knows no target language.** `ExprChecker` returns a `TypedExpr`;
 `ExprCSharpBackend` is what knows that `sin` is `MathF.Sin`, and `ExprCompiler` is a facade over
 the two kept for the code generator's convenience. Two consequences worth knowing before touching
-either: `ExprChecker` holds the symbol table **by reference** because `SvgCodeDeclarations.Resolve`
-adds each let to it after construction, and the checker throws on the first error in a fixed visit
-order that several tests pin — operands before their operator, a condition before its branches,
-arity before any argument.
+either: `ExprChecker` holds the symbol table **by reference** because
+`SvgCodeDeclarationsExtensions.Resolve` adds each let to it after construction, and the checker
+throws on the first error in a fixed visit order that several tests pin — operands before their
+operator, a condition before its branches, arity before any argument.
+
+`SvgExpressionDeclarations` splits along the same line: `Parse`, the parameter and let lists and
+`CreateSymbolTable()` describe the document and live in `Svg.Expressions`, while `Resolve()` and
+`DefaultCode()` produce C# and are extension methods in `Svg.CodeGen.Skia`. The one exception is
+deliberate — a `color` parameter carrying a `default` is refused by `Parse`, for a reason that is
+purely about C#, so that a document cannot be accepted by one back end and rejected by the other.
+
+**There are two readers for `<e:code>`, and adding a rule means adding it to
+`SvgExpressionDeclarations.Builder`, not to either one.** `Parse` works from source text, which is
+what `svgc` and the source generator have; `SvgDocument.ExpressionDeclarations` walks the parsed
+tree, which is all `SKSvg.Load(XmlReader)` or an editor holding a document ever has. The text reader
+exists because a foreign element's namespace is `protected internal` on `SvgElement` — invisible
+outside `Svg.Custom`, so an unqualified `<param>` out there could belong to any extension. The tree
+reader lives inside `Svg.Custom` and can see it. `SvgDocumentExpressionDeclarationsTests` asserts the
+two agree, including every diagnostic's exact wording, which only holds because the validation is
+shared.
+
+**There are two back ends now, and they must agree numerically.** `ExprCSharpBackend` renders C#;
+`ExprValueBackend` computes an `ExprValue`, behind the `ExprEvaluator` facade. Three traps, all of
+them things that reading the source will not tell you:
+
+- The evaluator computes in **`float`**, because generated code narrows every literal and calls
+  `MathF`. `Svg.Expressions` is multi-targeted for `MathF`, which netstandard2.0 lacks; its
+  fallback differs by up to one ulp for `sin`/`cos`/`tan`/`pow`, which is why `ExprMathFallback` is
+  compiled on every target — otherwise the only framework running that code would be one nothing
+  tests.
+- `hsl` is reimplemented from `SKColor.FromHsl`, whose final byte conversion **truncates**. Rounding
+  instead disagrees on 76% of the domain.
+- Do not "simplify" the short-circuiting in `ExprValueBackend`. `clamp` with a reversed range throws,
+  so an eagerly evaluated operand changes behaviour rather than just wasting work.
+
+`ExprEvaluatorDifferentialTests` compiles the emitted C# with Roslyn and compares it against the
+evaluated value bit for bit. Add a case there when touching either back end; it is the only thing
+that catches an ulp or a rounding difference, and a rendered-pixel test will not.
+
+**Evaluation rewrites the picture; it does not teach the renderers anything.**
+`SvgSceneExpressionEvaluator.Evaluate` returns a new `SKPicture` with concrete colours and resolved
+conditionals, so `SkiaModel` and `AvaloniaPicture` are untouched — which is also the only thing that
+could work, since `Avalonia.Svg.Skia.SvgSource` holds one *static* `SkiaModel` with nowhere to keep a
+document's parameter values. It never mutates: paints are shared between elements, and the symbolic
+picture has to survive for the next set of values. Untouched subtrees come back as the same
+instances, so a document without expressions allocates nothing.
+
+**On `SKSvg`, loading never evaluates and `Model` is whatever is being rendered.** `Load` leaves the
+placeholders in place and does not even read the declarations, so no existing consumer is affected and
+a malformed `<e:code>` cannot fail a load. `SetExpressionValues` evaluates against a retained
+`_symbolicModel` — no re-parse, no scene recompile — and assigns the result to `Model`, having
+evaluated first so a rejected set leaves the previous rendering intact. The plan for this had `Model`
+staying symbolic with the evaluated picture hidden behind `Picture`; that was dropped because there
+are eleven places that convert a model (`SKSvg.Model.cs`, `SKSvg.AnimationLayers.cs`,
+`SKSvg.SceneGraph.cs`), and threading a second model through all of them to keep one property
+"pure" would have been both riskier and less useful — hit testing, `Save`, the wireframe and the
+animation layers all want the drawing as rendered.
+
+A false conditional **keeps the range's `Save`/`Restore`/`SetMatrix`/clip commands and drops only the
+drawing ones.** Generated code deletes the whole range instead, which it can afford because it
+assigns `SetMatrix(TotalMatrix)` while the runtime applies `Concat(DeltaMatrix)`. Measured, though:
+`SvgSceneRenderer` opens the range around everything a node contributes, so a matrix inside one is
+always inside a `Save` the range's own `Restore` pops, and through any real document the two are
+indistinguishable — deleting the range passes every render test. `ConditionalRangeTests` pins the
+difference on hand-built pictures, because no document produces one; that is the suite that fails if
+this changes, not the render tests.
 
 Two invariants hold the design together:
 

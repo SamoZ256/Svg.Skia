@@ -7,6 +7,7 @@ using System.Threading;
 using System.Xml;
 using ShimSkiaSharp;
 using Svg;
+using Svg.Expressions;
 using Svg.Model;
 using Svg.Model.Services;
 
@@ -652,6 +653,18 @@ public partial class SKSvg : IDisposable
         if (Model is { } model)
         {
             clone.Model = model.DeepClone();
+        }
+
+        // The symbolic model travels too, or the clone could render but never respond to a new value.
+        // Shared when the two are the same instance, which they are whenever nothing is bound.
+        if (_symbolicModel is { } symbolic)
+        {
+            clone._symbolicModel = ReferenceEquals(symbolic, Model) ? clone.Model : symbolic.DeepClone();
+        }
+
+        if (_expressionValues is { } expressionValues)
+        {
+            clone._expressionValues = CopyValues(expressionValues);
         }
 
         if (SourceDocument?.DeepCopy() is SvgDocument sourceDocumentClone)
@@ -1336,6 +1349,11 @@ public partial class SKSvg : IDisposable
             WaitForDrawsLocked();
             Model = null;
 
+            // Both belong to the document that has just gone, and a value bound to a parameter of one
+            // document has no meaning for the next.
+            _symbolicModel = null;
+            _expressionValues = null;
+
             _picture?.Dispose();
             _picture = null;
 
@@ -1412,6 +1430,13 @@ public partial class SKSvg : IDisposable
 
         ApplyTextSelectionRendering(model);
 
+        // The compiled model keeps its expressions; Model is what gets rendered, so it is the
+        // evaluated one whenever values are bound. With none bound the two are the same instance and
+        // this is a null check, which is why loading is unaffected. Re-applying here is also what
+        // stops a DOM edit followed by a refresh from silently reverting to the placeholders.
+        var symbolic = model;
+        model = ApplyExpressionValues(model, sceneDocument.SourceDocument);
+
         var picture = SkiaModel.ToSKPicture(model);
         if (picture is null)
         {
@@ -1422,6 +1447,7 @@ public partial class SKSvg : IDisposable
         {
             WaitForDrawsLocked();
 
+            _symbolicModel = symbolic;
             Model = model;
 
             _picture?.Dispose();

@@ -9,7 +9,9 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
 using SkiaSharp;
 using Svg.CodeGen.Skia;
+using Svg.Expressions;
 using Svg.Model.Services;
+using Svg.SceneGraph;
 using Svg.Skia.UnitTests.Common;
 using Xunit;
 using ShimPicture = ShimSkiaSharp.SKPicture;
@@ -46,8 +48,6 @@ public class SkiaCSharpRenderTests
     // command list exactly. Any difference at all is a defect rather than tolerable noise.
     private const double Threshold = 0d;
 
-    private static IReadOnlyList<MetadataReference>? s_references;
-
     private static int s_generation;
 
     private static ShimPicture Model(string svgMarkup)
@@ -67,7 +67,7 @@ public class SkiaCSharpRenderTests
         ShimPicture model,
         string className,
         SkiaSharpTarget skiaSharp,
-        SvgCodeDeclarations declarations,
+        SvgExpressionDeclarations declarations,
         object?[] arguments)
     {
         var code = SkiaCSharpCodeGen.Generate(
@@ -83,7 +83,7 @@ public class SkiaCSharpRenderTests
         var compilation = CSharpCompilation.Create(
             assemblyName,
             new[] { CSharpSyntaxTree.ParseText(SourceText.From(code)) },
-            References,
+            CSharpReferences.All,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
 
         using var peStream = new MemoryStream();
@@ -143,7 +143,7 @@ public class SkiaCSharpRenderTests
         using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
         Assert.NotNull(runtime);
 
-        using var generated = Generated(model, name, skiaSharp, SvgCodeDeclarations.Empty, Array.Empty<object?>());
+        using var generated = Generated(model, name, skiaSharp, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
 
         AssertSamePicture(name, runtime!, generated);
     }
@@ -171,7 +171,7 @@ public class SkiaCSharpRenderTests
             .ToSKPicture(expectedMarkup is null ? model : Model(expectedMarkup));
         Assert.NotNull(runtime);
 
-        var declarations = SvgCodeDeclarations.Parse(svgMarkup);
+        var declarations = SvgExpressionDeclarations.Parse(svgMarkup);
 
         using var generated = Generated(
             model,
@@ -181,6 +181,50 @@ public class SkiaCSharpRenderTests
             arguments ?? Array.Empty<object?>());
 
         AssertSamePicture(name, runtime!, generated);
+
+        // The evaluated leg: the runtime path resolving the same expressions against the same
+        // values, which has to produce what the generated code produces. This is what the plain
+        // comparison above cannot show, because the renderer there is drawing the placeholder.
+        var evaluated = SvgSceneExpressionEvaluator.Evaluate(
+            model,
+            declarations,
+            Bind(declarations, arguments));
+
+        using var evaluatedPicture = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
+        Assert.NotNull(evaluatedPicture);
+
+        AssertSamePicture($"{name}-evaluated", evaluatedPicture!, generated);
+    }
+
+    /// <summary>
+    /// The arguments the generated <c>Record</c> is invoked with, as the value map the evaluator
+    /// takes. Positional, because the generated signature lists the parameters in declaration order.
+    /// </summary>
+    private static Dictionary<string, ExprValue> Bind(
+        SvgExpressionDeclarations declarations,
+        object?[]? arguments)
+    {
+        var values = new Dictionary<string, ExprValue>(StringComparer.Ordinal);
+
+        if (arguments is null)
+        {
+            return values;
+        }
+
+        Assert.Equal(declarations.Parameters.Count, arguments.Length);
+
+        for (var index = 0; index < arguments.Length; index++)
+        {
+            values[declarations.Parameters[index].Name] = arguments[index] switch
+            {
+                float number => ExprValue.Number(number),
+                bool boolean => ExprValue.Boolean(boolean),
+                SKColor color => ExprValue.Color(color.Red, color.Green, color.Blue, color.Alpha),
+                var other => throw new NotSupportedException($"Unsupported argument type: {other?.GetType().Name ?? "null"}.")
+            };
+        }
+
+        return values;
     }
 
     private static void AssertSamePicture(string name, SKPicture runtime, SKPicture generated)
@@ -199,39 +243,6 @@ public class SkiaCSharpRenderTests
         }
     }
 
-    private static IReadOnlyList<MetadataReference> References
-    {
-        get
-        {
-            if (s_references is { })
-            {
-                return s_references;
-            }
-
-            var paths = new HashSet<string>(StringComparer.Ordinal);
-
-            if (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") is string trusted)
-            {
-                foreach (var path in trusted.Split(Path.PathSeparator))
-                {
-                    if (path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && File.Exists(path))
-                    {
-                        paths.Add(path);
-                    }
-                }
-            }
-
-            var skia = typeof(SKColor).Assembly.Location;
-            if (!string.IsNullOrEmpty(skia))
-            {
-                paths.Add(skia);
-            }
-
-            s_references = paths.Select(p => (MetadataReference)MetadataReference.CreateFromFile(p)).ToList();
-
-            return s_references;
-        }
-    }
 
     [Fact]
     public void Curves_And_Arcs()
@@ -320,7 +331,7 @@ public class SkiaCSharpRenderTests
 
     // ---------------------------------------------------------------------------------------------
     // Expressions. Until these, nothing anywhere drew generated expression code: every case above
-    // passes SvgCodeDeclarations.Empty and calls a parameterless Record, so the whole language
+    // passes SvgExpressionDeclarations.Empty and calls a parameterless Record, so the whole language
     // could emit a wrong value and the suite would stay green.
     //
     // Two shapes, and both are needed. Most cases below choose values that land exactly on the
@@ -508,6 +519,83 @@ public class SkiaCSharpRenderTests
                 </linearGradient>
               </defs>
               <rect x="0" y="0" width="24" height="24" fill="url(#g)" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_False_Conditional_Around_A_Transform_Leaves_Later_Geometry_Where_It_Was()
+        // A hidden group carrying a transform, with an untransformed sibling after it that must not
+        // move. This does not distinguish keeping a suppressed range's state commands from deleting
+        // the range — measured, not assumed: the recorder emits Begin, Save, SetMatrix, DrawPath,
+        // Restore, End, so the range's own Restore pops the matrix either way. What it does cover is
+        // that the conditional resolves at all with state commands in the range, and that the
+        // evaluated picture matches generated code through a transform.
+        // The keep-versus-delete difference is pinned by ConditionalRangeTests instead.
+        => AssertExpressionsRenderTheSame(
+            "ExprHiddenTransform",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="shown" type="boolean" default="true" /></e:code></defs>
+              <g transform="translate(0 -8)" visibility="{{ shown }}">
+                <circle cx="12" cy="12" r="5" fill="#ff0000" />
+              </g>
+              <circle cx="12" cy="16" r="5" fill="#1e40af" />
+            </svg>
+            """,
+            arguments: new object?[] { false },
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="16" r="5" fill="#1e40af" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_False_Conditional_Around_A_Clip_Does_Not_Clip_What_Follows()
+        // The same question for clips rather than matrices. A clip inside the range is scoped by the
+        // range's own save, so keeping it must not narrow the blue circle that comes after.
+        => AssertExpressionsRenderTheSame(
+            "ExprHiddenClip",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code><e:param name="shown" type="boolean" default="true" /></e:code>
+                <clipPath id="half"><rect x="0" y="0" width="24" height="6" /></clipPath>
+              </defs>
+              <g clip-path="url(#half)" visibility="{{ shown }}">
+                <circle cx="12" cy="6" r="5" fill="#ff0000" />
+              </g>
+              <circle cx="12" cy="16" r="7" fill="#1e40af" />
+            </svg>
+            """,
+            arguments: new object?[] { false },
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="16" r="7" fill="#1e40af" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_True_Conditional_Around_A_Transform_Still_Transforms()
+        // The other half: keeping a range must not lose its state either, so the red circle has to
+        // land where its group's translate puts it.
+        => AssertExpressionsRenderTheSame(
+            "ExprShownTransform",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="shown" type="boolean" default="false" /></e:code></defs>
+              <g transform="translate(0 -8)" visibility="{{ shown }}">
+                <circle cx="12" cy="12" r="5" fill="#ff0000" />
+              </g>
+              <circle cx="12" cy="16" r="5" fill="#1e40af" />
+            </svg>
+            """,
+            arguments: new object?[] { true },
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(0 -8)">
+                <circle cx="12" cy="12" r="5" fill="#ff0000" />
+              </g>
+              <circle cx="12" cy="16" r="5" fill="#1e40af" />
             </svg>
             """);
 

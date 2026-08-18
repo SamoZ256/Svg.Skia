@@ -11,7 +11,7 @@ namespace Svg.Skia.UnitTests;
 
 public class SvgSceneOpacityExpressionTests
 {
-    private const string Ns = SvgCodeDeclarations.Namespace;
+    private const string Ns = SvgExpressionDeclarations.Namespace;
 
     private static SKPicture? Build(string svgMarkup)
     {
@@ -26,7 +26,7 @@ public class SvgSceneOpacityExpressionTests
         var picture = Build(svgMarkup);
         Assert.NotNull(picture);
 
-        return SkiaCSharpCodeGen.Generate(picture!, "Svg", "Generated", SvgCodeDeclarations.Parse(svgMarkup));
+        return SkiaCSharpCodeGen.Generate(picture!, "Svg", "Generated", SvgExpressionDeclarations.Parse(svgMarkup));
     }
 
     private static IEnumerable<SaveLayerCanvasCommand> SaveLayers(SKPicture? picture)
@@ -138,9 +138,11 @@ public class SvgSceneOpacityExpressionTests
     public void An_Opacity_Expression_Must_Be_A_Number()
     {
         // The factor position is a number even though the surrounding paint value is a colour.
+        // No default on the parameter: a colour carrying one is refused while the declarations
+        // are read, which would pre-empt the type check being tested here.
         var error = Assert.Throws<ExprException>(() => Generate("""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
-              <defs><e:code><e:param name="tint" type="color" default="#ff0000" /></e:code></defs>
+              <defs><e:code><e:param name="tint" type="color" /></e:code></defs>
               <g opacity="{{ tint }}">
                 <rect x="0" y="0" width="10" height="10" fill="#808080" />
               </g>

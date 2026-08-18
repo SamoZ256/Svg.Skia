@@ -5,6 +5,7 @@ using System.CommandLine.Invocation;
 using System.Threading.Tasks;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
+using Svg.Expressions;
 using Svg.Expressions.Recipes;
 using Svg.Skia;
 
@@ -81,7 +82,7 @@ class Program
             return null;
         }
 
-        return new SkiaCSharpDrawing(picture, namespaceName, className, SvgCodeDeclarations.Parse(svg));
+        return new SkiaCSharpDrawing(picture, namespaceName, className, SvgExpressionDeclarations.Parse(svg));
     }
 
     /// <summary>

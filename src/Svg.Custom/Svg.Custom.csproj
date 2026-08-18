@@ -90,6 +90,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\externals\Svg.Generators\Svg.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <!--
+      For SvgDocument.ExpressionDeclarations. This assembly already owns the {{ }} lift, so it is
+      already the extension's front door; the declarations are the other half of what it reads.
+    -->
+    <ProjectReference Include="..\..\src\Svg.Expressions\Svg.Expressions.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">

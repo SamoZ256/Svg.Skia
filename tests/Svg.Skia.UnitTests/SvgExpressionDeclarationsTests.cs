@@ -6,14 +6,14 @@ using Xunit;
 
 namespace Svg.Skia.UnitTests;
 
-public class SvgCodeDeclarationsTests
+public class SvgExpressionDeclarationsTests
 {
-    private const string Ns = SvgCodeDeclarations.Namespace;
+    private const string Ns = SvgExpressionDeclarations.Namespace;
 
     [Fact]
     public void Plain_Svg_Yields_Empty_Declarations()
     {
-        var declarations = SvgCodeDeclarations.Parse("""
+        var declarations = SvgExpressionDeclarations.Parse("""
             <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" />
             """);
 
@@ -23,7 +23,7 @@ public class SvgCodeDeclarationsTests
     [Fact]
     public void Params_And_Lets_Are_Read_In_Document_Order()
     {
-        var declarations = SvgCodeDeclarations.Parse($"""
+        var declarations = SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
               <defs>
                 <e:code>
@@ -53,7 +53,7 @@ public class SvgCodeDeclarationsTests
     [Fact]
     public void Any_Prefix_Works_Because_Matching_Is_By_Namespace()
     {
-        var declarations = SvgCodeDeclarations.Parse($"""
+        var declarations = SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:whatever="{Ns}" width="10" height="10">
               <defs>
                 <whatever:code>
@@ -69,7 +69,7 @@ public class SvgCodeDeclarationsTests
     [Fact]
     public void A_Different_Namespace_Is_Not_Claimed()
     {
-        var declarations = SvgCodeDeclarations.Parse("""
+        var declarations = SvgExpressionDeclarations.Parse("""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://example.com/other" width="10" height="10">
               <defs>
                 <e:code>
@@ -85,7 +85,7 @@ public class SvgCodeDeclarationsTests
     [Fact]
     public void Unknown_Type_Is_Rejected()
     {
-        var error = Assert.Throws<ExprException>(() => SvgCodeDeclarations.Parse($"""
+        var error = Assert.Throws<ExprException>(() => SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
               <defs><e:code><e:param name="t" type="float" /></e:code></defs>
             </svg>
@@ -97,7 +97,7 @@ public class SvgCodeDeclarationsTests
     [Fact]
     public void Redeclaring_A_Builtin_Is_Rejected()
     {
-        var error = Assert.Throws<ExprException>(() => SvgCodeDeclarations.Parse($"""
+        var error = Assert.Throws<ExprException>(() => SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
               <defs><e:code><e:param name="tau" type="number" /></e:code></defs>
             </svg>
@@ -109,7 +109,7 @@ public class SvgCodeDeclarationsTests
     [Fact]
     public void Duplicate_Names_Are_Rejected()
     {
-        var error = Assert.Throws<ExprException>(() => SvgCodeDeclarations.Parse($"""
+        var error = Assert.Throws<ExprException>(() => SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
               <defs><e:code>
                 <e:param name="t" type="number" />
@@ -124,7 +124,7 @@ public class SvgCodeDeclarationsTests
     [Fact]
     public void A_Let_Sees_Earlier_Lets_But_Not_Later_Ones()
     {
-        var forward = SvgCodeDeclarations.Parse($"""
+        var forward = SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
               <defs><e:code>
                 <e:let name="a">b + 1</e:let>
@@ -140,7 +140,7 @@ public class SvgCodeDeclarationsTests
     [Fact]
     public void Resolve_Infers_Let_Types()
     {
-        var declarations = SvgCodeDeclarations.Parse($"""
+        var declarations = SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
               <defs><e:code>
                 <e:param name="t" type="number" default="0" />
@@ -163,7 +163,7 @@ public class SvgCodeDeclarationsTests
     {
         // C# argument defaults are compile time constants, so an ordering dependency between
         // them could not be honoured.
-        var declarations = SvgCodeDeclarations.Parse($"""
+        var declarations = SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
               <defs><e:code>
                 <e:param name="a" type="number" default="1" />
@@ -172,7 +172,7 @@ public class SvgCodeDeclarationsTests
             </svg>
             """);
 
-        var error = Assert.Throws<ExprException>(() => declarations.DefaultCodeFor(declarations.Parameters[1]));
+        var error = Assert.Throws<ExprException>(() => declarations.Parameters[1].DefaultCode());
         Assert.Contains("Unknown name 'a'", error.Message);
     }
 
@@ -181,13 +181,13 @@ public class SvgCodeDeclarationsTests
     {
         // Declared on a number: a colour parameter is rejected for carrying any default at all,
         // which would mask the type check being tested here.
-        var declarations = SvgCodeDeclarations.Parse($"""
+        var declarations = SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
               <defs><e:code><e:param name="t" type="number" default="#ff0000" /></e:code></defs>
             </svg>
             """);
 
-        var error = Assert.Throws<ExprException>(() => declarations.DefaultCodeFor(declarations.Parameters[0]));
+        var error = Assert.Throws<ExprException>(() => declarations.Parameters[0].DefaultCode());
         Assert.Contains("must be a number", error.Message);
     }
 
@@ -195,27 +195,28 @@ public class SvgCodeDeclarationsTests
     public void A_Colour_Parameter_Cannot_Have_A_Default()
     {
         // `new SKColor(...)` is not a compile-time constant, so it cannot be a C# argument
-        // default; the parameter is required instead.
-        var declarations = SvgCodeDeclarations.Parse($"""
+        // default; the parameter is required instead. Refused while reading the declarations
+        // rather than while emitting, so a runtime evaluator cannot accept a document the code
+        // generator would reject.
+        var error = Assert.Throws<ExprException>(() => SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
               <defs><e:code><e:param name="c" type="color" default="#ff0000" /></e:code></defs>
             </svg>
-            """);
+            """));
 
-        var error = Assert.Throws<ExprException>(() => declarations.DefaultCodeFor(declarations.Parameters[0]));
         Assert.Contains("not a compile-time constant", error.Message);
     }
 
     [Fact]
     public void A_Parameter_Without_A_Default_Has_No_Default_Code()
     {
-        var declarations = SvgCodeDeclarations.Parse($"""
+        var declarations = SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
               <defs><e:code><e:param name="c" type="color" /></e:code></defs>
             </svg>
             """);
 
-        Assert.Null(declarations.DefaultCodeFor(declarations.Parameters[0]));
+        Assert.Null(declarations.Parameters[0].DefaultCode());
     }
 
     [Fact]
@@ -223,7 +224,7 @@ public class SvgCodeDeclarationsTests
     {
         // The SVG parser is the authority on well-formedness and reports it; this must not be a
         // second, competing failure path.
-        var declarations = SvgCodeDeclarations.Parse($"""<svg xmlns:e="{Ns}"><defs><e:code>""");
+        var declarations = SvgExpressionDeclarations.Parse($"""<svg xmlns:e="{Ns}"><defs><e:code>""");
 
         Assert.True(declarations.IsEmpty);
     }
@@ -231,8 +232,8 @@ public class SvgCodeDeclarationsTests
     [Fact]
     public void Null_And_Empty_Input_Are_Safe()
     {
-        Assert.True(SvgCodeDeclarations.Parse(null).IsEmpty);
-        Assert.True(SvgCodeDeclarations.Parse("").IsEmpty);
-        Assert.True(SvgCodeDeclarations.Parse("   ").IsEmpty);
+        Assert.True(SvgExpressionDeclarations.Parse(null).IsEmpty);
+        Assert.True(SvgExpressionDeclarations.Parse("").IsEmpty);
+        Assert.True(SvgExpressionDeclarations.Parse("   ").IsEmpty);
     }
 }
