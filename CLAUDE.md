@@ -68,13 +68,27 @@ is faster and sufficient.
 
 ### Known state
 
-`W3CTestSuiteTests.Tests(name: "text-ws-02-t")` fails on a clean checkout (error `0.023` against
-a `0.022` threshold — a marginal text-raster diff). Verify against a clean worktree before
-assuming a change caused it.
+**A clean checkout builds with no errors and the suite is fully green.** Anything failing is
+something you did, or something that drifted since — investigate rather than assume it was already
+broken.
 
 `Svg.JavaScript.UnitTests…AppendChild_MovesTextNodeOutOfPreviousParent` failed once in a full
 run and passed on three consecutive reruns. One sighting only — re-run before assuming you broke
 it.
+
+The W3C text rows are compared against Chrome captures with per-fixture thresholds in
+`GetEffectiveThreshold`, and those are calibrated to a particular native Skia. A SkiaSharp bump
+moves glyph antialiasing and can push a row over its threshold without anything being wrong; the
+2026-07-01 move to SkiaSharp 4 did exactly that. When a text row fails by a hair, diff the images
+first — glyph-edge outlines with most pixels off by one is a raster difference and wants a
+threshold nudge, while displaced or doubled glyphs is a real regression. Re-capturing the Chrome
+baseline is almost never the answer, since the baseline is not what moved.
+
+`text-ws-02-t` is the one to watch: it asks for `SVGFreeSansASCII,sans-serif`, its Chrome override
+disables SVG fonts so that first name never resolves, and the bundled `CustomTypefaceProvider`s
+match on exact family name — so `sans-serif` falls through to the **system** font manager and picks
+a different face on each of the ubuntu, windows and macos CI legs. Its error is expected to differ
+by platform.
 
 A `-v n` build reports 48 `CS0618` warnings, all of them **`Svg.Custom` deprecating its own
 API** — `SvgDeferredPaintServer.Document` and its `(SvgDocument, string)` constructor, still

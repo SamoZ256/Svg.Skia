@@ -636,7 +636,20 @@ public class W3CTestSuiteTests : SvgUnitTest
             "text-text-12-t" => 0.035,
             "text-tspan-01-b" => 0.031,
             "text-tspan-02-b" => 0.03,
-            "text-ws-02-t" => 0.023,
+            // Same SkiaSharp 4 rasterizer difference as the bundled-font fixtures above, on a
+            // fixture whose baseline and threshold were both captured against SkiaSharp 3 and not
+            // revisited when the package moved. Measured 0.023151 against the old 0.023, and the
+            // difference is glyph-edge antialiasing only: every letter shows as a thin outline in a
+            // diff, 4,352 of the 14,100 differing pixels are off by exactly 1, and the whitespace
+            // handling the fixture exists to test is identical.
+            //
+            // It reads tighter than its neighbours because it is the one text row where the font is
+            // resolved by the operating system. The fixture asks for "SVGFreeSansASCII,sans-serif",
+            // a Chrome override turns SVG fonts off so the first name never resolves, and the
+            // bundled CustomTypefaceProviders match on exact family name — so "sans-serif" falls
+            // through to the system font manager and lands on a different face per OS. Expect this
+            // row's error to differ between the ubuntu, windows and macos legs.
+            "text-ws-02-t" => 0.024,
             // These remaining filter fixtures are visually aligned with the Chrome captures, but
             // still show modest raster-kernel differences in blur/convolution/lighting output on a
             // pixel-by-pixel comparison.

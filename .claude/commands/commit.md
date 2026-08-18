@@ -40,8 +40,12 @@ $ARGUMENTS
 
 3. **Build and test** — `dotnet build Svg.Skia.slnx -c Release` and
    `dotnet test Svg.Skia.slnx -c Release` — unless you already ran both since the last edit, in
-   which case say so and skip. `text-ws-02-t` is a known failure; anything else, stop and tell me
-   rather than committing over it.
+   which case say so and skip. Both should be clean: no build errors, no test failures. Anything
+   red, stop and tell me rather than committing over it.
+
+   `text-ws-02-t` used to be listed here as a known failure. It is not one any more, and neither is
+   the `SvgToPng` build error that sat alongside it. Do not reintroduce a standing exception — a
+   permitted failure stops being read after a while, which is how both of those survived.
 
 4. **Write the message** per AGENTS.md: a summary under 72 characters, imperative, no prefix. Then
    a body explaining *why* — the problem, what was rejected and what it cost, anything a reader
