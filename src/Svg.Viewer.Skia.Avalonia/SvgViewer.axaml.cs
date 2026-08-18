@@ -1,0 +1,401 @@
+// Copyright (c) Wiesław Šoltés. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for details.
+#nullable enable
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Markup.Xaml;
+using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using Svg.Expressions;
+using Svg.Skia;
+
+namespace Svg.Viewer.Skia.Avalonia;
+
+/// <summary>
+/// A drop-in SVG viewer: open a drawing, zoom and pan it, and drive the parameters it declares.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Loading is the only thing that leaves the UI thread, because parsing a document and compiling its
+/// scene is the expensive half. Binding a value is not: <see cref="SKSvg.SetExpressionValues"/>
+/// evaluates a model that is already there, and doing it on the UI thread is what keeps two changes
+/// in the order the user made them.
+/// </para>
+/// <para>
+/// Nothing here blanks the drawing on an error. A failed load leaves the previous document up, a
+/// malformed declaration block still renders its placeholders, and a rejected value leaves the last
+/// good rendering exactly where it was.
+/// </para>
+/// </remarks>
+public partial class SvgViewer : UserControl
+{
+    private readonly SvgViewerCanvas _canvas;
+    private readonly SvgViewerParameterPanel _parameters;
+    private readonly Border _toolBar;
+    private readonly Border _statusPanel;
+    private readonly Border _parameterHost;
+    private readonly GridSplitter _splitter;
+    private readonly TextBlock _statusText;
+    private readonly TextBlock _zoomText;
+    private readonly Border _errorPanel;
+    private readonly SelectableTextBlock _errorText;
+
+    private SvgViewerDocument? _document;
+    private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
+    private int _loadVersion;
+    private bool _applyQueued;
+
+    public SvgViewer()
+    {
+        AvaloniaXamlLoader.Load(this);
+
+        _canvas = this.FindControl<SvgViewerCanvas>("PART_Canvas")!;
+        _parameters = this.FindControl<SvgViewerParameterPanel>("PART_Parameters")!;
+        _toolBar = this.FindControl<Border>("ToolBarPanel")!;
+        _statusPanel = this.FindControl<Border>("StatusPanel")!;
+        _parameterHost = this.FindControl<Border>("ParameterPanelHost")!;
+        _splitter = this.FindControl<GridSplitter>("Splitter")!;
+        _statusText = this.FindControl<TextBlock>("StatusText")!;
+        _zoomText = this.FindControl<TextBlock>("ZoomText")!;
+        _errorPanel = this.FindControl<Border>("ErrorPanel")!;
+        _errorText = this.FindControl<SelectableTextBlock>("ErrorText")!;
+
+        this.FindControl<Button>("OpenButton")!.Click += async (_, _) => await OpenAsync();
+        this.FindControl<Button>("FitButton")!.Click += (_, _) => _canvas.Fit();
+        this.FindControl<Button>("ActualSizeButton")!.Click += (_, _) => _canvas.ActualSize();
+        this.FindControl<Button>("ResetButton")!.Click += (_, _) => _canvas.ResetView();
+        this.FindControl<Button>("ZoomInButton")!.Click += (_, _) => _canvas.ZoomIn();
+        this.FindControl<Button>("ZoomOutButton")!.Click += (_, _) => _canvas.ZoomOut();
+        this.FindControl<Button>("ResetParametersButton")!.Click += (_, _) => ResetParameters();
+
+        _canvas.ViewChanged += (_, _) => UpdateZoomText();
+        _parameters.ValueChanged += (_, _) => RequestApply();
+
+        AddHandler(DragDrop.DragOverEvent, OnDragOver);
+        AddHandler(DragDrop.DropEvent, OnDrop);
+
+        UpdateZoomText();
+        UpdateStatus();
+    }
+
+    /// <summary>Raised once a document has loaded and its parameters are built.</summary>
+    public event EventHandler<SvgViewerDocument>? DocumentOpened;
+
+    /// <summary>Raised for anything the user should see, with the message already formatted.</summary>
+    public event EventHandler<string>? ErrorRaised;
+
+    /// <summary>Raised after a value change has been bound to the drawing.</summary>
+    public event EventHandler<SvgViewerParameter>? ParameterValueChanged;
+
+    /// <summary>How the viewer asks for a file. Replaceable, and faked in tests.</summary>
+    public ISvgViewerFileDialogService FileDialogService { get; set; } = new SvgViewerFileDialogService();
+
+    public SvgViewerDocument? Document => _document;
+
+    public SKSvg? Svg => _document?.Svg;
+
+    public string? DocumentPath => _document?.Path;
+
+    public IReadOnlyList<SvgViewerParameter> Parameters => _rows;
+
+    public SvgViewerCanvas Canvas => _canvas;
+
+    public bool ShowToolBar
+    {
+        get => _toolBar.IsVisible;
+        set => _toolBar.IsVisible = value;
+    }
+
+    public bool ShowStatusBar
+    {
+        get => _statusPanel.IsVisible;
+        set => _statusPanel.IsVisible = value;
+    }
+
+    public bool ShowParameterPanel
+    {
+        get => _parameterHost.IsVisible;
+        set
+        {
+            _parameterHost.IsVisible = value;
+            _splitter.IsVisible = value;
+        }
+    }
+
+    /// <summary>The values currently bound, keyed by parameter name.</summary>
+    public IReadOnlyDictionary<string, ExprValue> ParameterValues => BuildValues();
+
+    // ---- loading ------------------------------------------------------------------------------
+
+    public async Task<bool> OpenAsync()
+    {
+        var path = await FileDialogService.OpenSvgAsync(TopLevel.GetTopLevel(this)).ConfigureAwait(true);
+
+        return path is { } && await LoadAsync(path).ConfigureAwait(true);
+    }
+
+    public Task<bool> LoadAsync(string path)
+        => LoadCoreAsync(() => SvgViewerDocument.Load(path), Path.GetFileName(path));
+
+    public Task<bool> LoadTextAsync(string svgText)
+        => LoadCoreAsync(() => SvgViewerDocument.LoadFromSvg(svgText), null);
+
+    public Task<bool> LoadAsync(Stream stream)
+        => LoadCoreAsync(() => SvgViewerDocument.Load(stream), null);
+
+    private async Task<bool> LoadCoreAsync(Func<SvgViewerDocument> load, string? name)
+    {
+        var version = Interlocked.Increment(ref _loadVersion);
+
+        _statusText.Text = name is { } ? $"opening {name}…" : "opening…";
+
+        SvgViewerDocument document;
+        try
+        {
+            // The expensive half, and the only thing that leaves the UI thread.
+            document = await Task.Run(load).ConfigureAwait(true);
+        }
+        catch (Exception failure)
+        {
+            // The current document is untouched, so whatever was on screen stays there.
+            ShowError(failure.Message);
+            UpdateStatus();
+            return false;
+        }
+
+        if (Volatile.Read(ref _loadVersion) != version)
+        {
+            // A newer load already won; this one must not overwrite it.
+            document.Dispose();
+            return false;
+        }
+
+        SetDocument(document);
+        return true;
+    }
+
+    private void SetDocument(SvgViewerDocument document)
+    {
+        var previous = _document;
+
+        _document = document;
+        _canvas.Svg = document.Svg;
+
+        RebuildParameters(document);
+
+        // A document that declares parameters renders its placeholders until values are bound, which
+        // is never what someone opening a file wants to look at.
+        Apply();
+
+        previous?.Dispose();
+
+        ShowError(document.DeclarationError);
+        UpdateStatus();
+        UpdateZoomText();
+
+        DocumentOpened?.Invoke(this, document);
+    }
+
+    // ---- parameters ---------------------------------------------------------------------------
+
+    private void RebuildParameters(SvgViewerDocument document)
+    {
+        var declarations = document.Declarations;
+
+        // Values survive a reload whose parameters are unchanged. Opening the same file again, or
+        // re-reading one that was edited elsewhere, must not silently discard what was set.
+        if (_rows.Count == declarations.Count
+            && _rows.Select(r => r.Name).SequenceEqual(declarations.Select(d => d.Name), StringComparer.Ordinal)
+            && _rows.Select(r => r.Type).SequenceEqual(declarations.Select(d => d.Type)))
+        {
+            return;
+        }
+
+        _rows = SvgViewerParameterFactory.Create(declarations);
+        _parameters.Parameters = _rows;
+    }
+
+    public void ResetParameters()
+    {
+        _parameters.ResetToDefaults();
+        RequestApply();
+    }
+
+    public bool TrySetParameterValue(string name, ExprValue value)
+    {
+        var row = _rows.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.Ordinal));
+
+        switch (row)
+        {
+            case SvgViewerNumberParameter number when value.Type == ExprType.Number:
+                number.Value = value.AsNumber;
+                return true;
+
+            case SvgViewerBooleanParameter boolean when value.Type == ExprType.Boolean:
+                boolean.Value = value.AsBoolean;
+                return true;
+
+            case SvgViewerColorParameter colour when value.Type == ExprType.Color:
+                colour.Color = global::Avalonia.Media.Color.FromArgb(value.Alpha, value.Red, value.Green, value.Blue);
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private Dictionary<string, ExprValue> BuildValues()
+    {
+        var values = new Dictionary<string, ExprValue>(_rows.Count, StringComparer.Ordinal);
+
+        foreach (var row in _rows)
+        {
+            values[row.Name] = row.ToExprValue();
+        }
+
+        return values;
+    }
+
+    /// <summary>
+    /// Coalesces a burst of changes into one binding per frame.
+    /// </summary>
+    /// <remarks>
+    /// Dragging a slider raises a change per tick, and each binding evaluates the model and rebuilds
+    /// a picture. One per frame is the difference between a smooth drag and a queue of stale ones.
+    /// </remarks>
+    private void RequestApply()
+    {
+        if (_applyQueued)
+        {
+            return;
+        }
+
+        _applyQueued = true;
+
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                _applyQueued = false;
+                Apply();
+            },
+            DispatcherPriority.Render);
+    }
+
+    private void Apply()
+    {
+        if (_document is not { } document)
+        {
+            return;
+        }
+
+        if (document.Declarations.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            document.Svg.SetExpressionValues(BuildValues());
+            ShowError(document.DeclarationError);
+        }
+        catch (ExprException failure)
+        {
+            // Binding is all or nothing, so the previous rendering is still up. The control's value
+            // is deliberately left alone: it is what the user has to see in order to correct it.
+            ShowError(failure.ToDiagnostic());
+        }
+        catch (Exception failure)
+        {
+            ShowError(failure.Message);
+        }
+
+        // The picture is swapped in place, and nothing about the control changed, so the repaint has
+        // to be asked for.
+        _canvas.Publish();
+
+        foreach (var row in _rows)
+        {
+            ParameterValueChanged?.Invoke(this, row);
+        }
+    }
+
+    // ---- drag and drop ------------------------------------------------------------------------
+
+    private static void OnDragOver(object? sender, DragEventArgs e)
+    {
+        e.DragEffects &= DragDropEffects.Copy | DragDropEffects.Link;
+
+        if (e.DataTransfer?.TryGetFiles() is not { Length: > 0 })
+        {
+            e.DragEffects = DragDropEffects.None;
+        }
+    }
+
+    private async void OnDrop(object? sender, DragEventArgs e)
+    {
+        var paths = e.DataTransfer?.TryGetFiles()
+            ?.Select(file => file.TryGetLocalPath())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!)
+            .ToList();
+
+        if (paths is { Count: > 0 })
+        {
+            await LoadDroppedAsync(paths).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>Opens the first path that loads. Separate so a test need not build a drag payload.</summary>
+    public async Task<bool> LoadDroppedAsync(IReadOnlyList<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            if (await LoadAsync(path).ConfigureAwait(true))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // ---- chrome -------------------------------------------------------------------------------
+
+    private void UpdateZoomText()
+        => _zoomText.Text = (_canvas.Scale * 100d).ToString("0", CultureInfo.CurrentCulture) + "%";
+
+    private void UpdateStatus()
+    {
+        if (_document is not { } document)
+        {
+            _statusText.Text = "No drawing open.";
+            return;
+        }
+
+        var name = document.Path is { } path ? Path.GetFileName(path) : "drawing";
+        var count = document.Declarations.Count;
+
+        _statusText.Text = count == 0
+            ? $"{name} — no parameters"
+            : $"{name} — {count} parameter{(count == 1 ? string.Empty : "s")}";
+    }
+
+    private void ShowError(string? message)
+    {
+        _errorText.Text = message ?? string.Empty;
+        _errorPanel.IsVisible = !string.IsNullOrEmpty(message);
+
+        if (!string.IsNullOrEmpty(message))
+        {
+            ErrorRaised?.Invoke(this, message!);
+        }
+    }
+}

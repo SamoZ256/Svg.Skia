@@ -1,0 +1,56 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia"
+             x:Class="Svg.Viewer.Skia.Avalonia.SvgViewer"
+             DragDrop.AllowDrop="True">
+
+  <DockPanel LastChildFill="True">
+
+    <Border x:Name="ToolBarPanel" DockPanel.Dock="Top"
+            Padding="8,6" BorderThickness="0,0,0,1" BorderBrush="#20808080">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <Button x:Name="OpenButton" Content="Open…" />
+        <Rectangle Width="1" Fill="#30808080" Margin="4,2" />
+        <Button x:Name="FitButton" Content="Fit" ToolTip.Tip="Fit to window (Ctrl+0)" />
+        <Button x:Name="ActualSizeButton" Content="1:1" ToolTip.Tip="Actual size (Ctrl+1)" />
+        <Button x:Name="ResetButton" Content="Reset" />
+        <Rectangle Width="1" Fill="#30808080" Margin="4,2" />
+        <Button x:Name="ZoomOutButton" Content="−" Width="30" />
+        <TextBlock x:Name="ZoomText" Width="64" VerticalAlignment="Center"
+                   TextAlignment="Center" FontFamily="monospace" Text="100%" />
+        <Button x:Name="ZoomInButton" Content="+" Width="30" />
+        <Rectangle Width="1" Fill="#30808080" Margin="4,2" />
+        <Button x:Name="ResetParametersButton" Content="Reset parameters" />
+      </StackPanel>
+    </Border>
+
+    <Border x:Name="StatusPanel" DockPanel.Dock="Bottom"
+            Padding="8,4" BorderThickness="0,1,0,0" BorderBrush="#20808080">
+      <StackPanel Spacing="4">
+        <TextBlock x:Name="StatusText" Opacity="0.65" TextTrimming="CharacterEllipsis" />
+        <Border x:Name="ErrorPanel" IsVisible="False"
+                Padding="8" CornerRadius="4"
+                Background="#33FF5555" BorderBrush="#88FF5555" BorderThickness="1">
+          <SelectableTextBlock x:Name="ErrorText"
+                               FontFamily="monospace" FontSize="11" TextWrapping="Wrap" />
+        </Border>
+      </StackPanel>
+    </Border>
+
+    <Grid x:Name="Body" ColumnDefinitions="*,6,Auto">
+
+      <viewer:SvgViewerCanvas x:Name="PART_Canvas" Grid.Column="0" />
+
+      <GridSplitter x:Name="Splitter" Grid.Column="1"
+                    ResizeDirection="Columns" Background="Transparent" />
+
+      <Border x:Name="ParameterPanelHost" Grid.Column="2"
+              Width="300" BorderThickness="1,0,0,0" BorderBrush="#20808080">
+        <viewer:SvgViewerParameterPanel x:Name="PART_Parameters" />
+      </Border>
+
+    </Grid>
+
+  </DockPanel>
+
+</UserControl>

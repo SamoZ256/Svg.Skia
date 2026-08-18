@@ -282,6 +282,14 @@ the drawings and is folded into them as the project is read, so `SvgcProject.Ite
 list of resolved items whether the file uses groups or not, and nothing downstream knows. The source generator has no equivalent, so
 generator-driven projects convert ahead of time and check in the result.
 
+`src/Svg.Viewer.Skia.Avalonia` is the viewer, with `samples/SvgViewer` as its shell. It draws onto
+`SKCanvasControl` and owns its own scale and offset rather than using `Avalonia.Svg.Skia.Svg`, whose
+`ArrangeOverride` returns `Stretch.CalculateSize(...)` — the control is always exactly the fitted
+drawing, so it cannot fill a viewport and its `Zoom`/`PanX`/`PanY` are bounded by its own clip.
+Loading is the only thing off the UI thread; values are bound with `SetExpressionValues` on the UI
+thread, coalesced to one call per frame, and the render thread draws through `SKSvg.Draw`, which
+brackets `BeginDraw`/`EndDraw` so the picture cannot be disposed under it.
+
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.
 `samples/SvgRecipeDemo` does the same for the recipe path and links that demo's `LivePreview.cs`

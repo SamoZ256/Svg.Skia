@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+* Added `Svg.Viewer.Skia.Avalonia`, a reusable Avalonia viewer for drawings using the expression
+  extension, with `samples/SvgViewer` as the application built on it. It opens a file by picker or
+  drop, zooms and pans — wheel about the cursor, drag, and fit / 1:1 / reset with a percentage
+  readout — and builds a control per declared parameter: a slider honouring any `min`/`max`/`step`
+  for a `number`, a colour picker for a `color`, a checkbox for a `boolean`, each seeded by
+  *evaluating* the declared `default` rather than parsing it, so `default="tau / 4"` works. Nothing
+  blanks the drawing: a failed load keeps the previous document, a malformed `<e:code>` block is
+  reported but still renders its placeholders, and a rejected value leaves the last good rendering in
+  place. It draws onto `SKCanvasControl` and owns its transform rather than using the
+  `Avalonia.Svg.Skia.Svg` control, which sizes itself to the drawing it fits — a 100x100 document in
+  a 400x200 pane arranges at 200x200 — and so cannot fill a viewport.
+
 * `<e:param>` now takes optional `min`, `max` and `step` attributes describing the range a host
   should offer for a `number` — the ends of a slider and its increment. Each is an expression like
   `default` is, so `max="tau"` and `step="1/60"` work, and each resolves against nothing at all, so a

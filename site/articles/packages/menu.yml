@@ -20,5 +20,6 @@ packages:
   - {path: svg-editor-skia.md, title: "Svg.Editor.Skia"}
   - {path: svg-editor-avalonia.md, title: "Svg.Editor.Avalonia"}
   - {path: svg-editor-skia-avalonia.md, title: "Svg.Editor.Skia.Avalonia"}
+  - {path: svg-viewer-skia-avalonia.md, title: "Svg.Viewer.Skia.Avalonia"}
   - {path: svg-codegen-skia.md, title: "Svg.CodeGen.Skia"}
   - {path: svg-sourcegenerator-skia.md, title: "Svg.SourceGenerator.Skia"}
