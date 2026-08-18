@@ -76,19 +76,13 @@ broken.
 run and passed on three consecutive reruns. One sighting only — re-run before assuming you broke
 it.
 
-The W3C text rows are compared against Chrome captures with per-fixture thresholds in
-`GetEffectiveThreshold`, and those are calibrated to a particular native Skia. A SkiaSharp bump
-moves glyph antialiasing and can push a row over its threshold without anything being wrong; the
-2026-07-01 move to SkiaSharp 4 did exactly that. When a text row fails by a hair, diff the images
-first — glyph-edge outlines with most pixels off by one is a raster difference and wants a
-threshold nudge, while displaced or doubled glyphs is a real regression. Re-capturing the Chrome
-baseline is almost never the answer, since the baseline is not what moved.
-
-`text-ws-02-t` is the one to watch: it asks for `SVGFreeSansASCII,sans-serif`, its Chrome override
-disables SVG fonts so that first name never resolves, and the bundled `CustomTypefaceProvider`s
-match on exact family name — so `sans-serif` falls through to the **system** font manager and picks
-a different face on each of the ubuntu, windows and macos CI legs. Its error is expected to differ
-by platform.
+**W3C text rows** use per-fixture thresholds in `GetEffectiveThreshold`, calibrated against a
+particular native Skia; a SkiaSharp bump moves glyph antialiasing and can push one over without
+anything being wrong. When a text row fails by a hair, diff the images: glyph-edge outlines with
+most pixels off by one is a raster difference wanting a threshold nudge, whereas displaced or
+doubled glyphs is a regression. Re-capturing the Chrome baseline is almost never right — the
+baseline is not what moved. `text-ws-02-t` resolves its font through the **system** font manager,
+so its error legitimately differs across the ubuntu, windows and macos legs.
 
 A `-v n` build reports 48 `CS0618` warnings, all of them **`Svg.Custom` deprecating its own
 API** — `SvgDeferredPaintServer.Document` and its `(SvgDocument, string)` constructor, still
@@ -98,6 +92,11 @@ paint-server API rather than doing a rename.
 
 Nothing else is deprecated: SkiaSharp 4 obsoleted every mutating method on `SKPath`, and both the
 generated code and the hand-written renderer now build through `SKPathBuilder`.
+
+**Six projects are outside `Svg.Skia.slnx`**, so the solution build never sees them. CI builds
+`SvgML.Maui`, `Svg.Controls.Skia.Maui` and `SvgML.Maui.Demo` separately; `MauiSvgSkiaSample`,
+`UnoSvgSkiaSample` and `tests/Avalonia.Svg.Skia.UiTests` are built by **nothing**. That last one is
+a test project that runs nowhere.
 
 ## Architecture
 
@@ -182,132 +181,86 @@ letterboxes through `preserveAspectRatio`. The source generator has no equivalen
 
 ## SVG expression extension
 
-This repository carries a non-standard extension letting SVG attributes hold expressions, which
-are compiled into the generated C#:
+This repository carries a non-standard extension letting SVG attributes hold expressions, which are
+either compiled into generated C# or evaluated at run time:
 
 ```xml
 <circle fill="{{ hsl(hue, 74%, 55%) }}" visibility="{{ level > 3 }}" />
 ```
 
-**`SVG_EXPRESSIONS.md` in the repo root is the specification. Keep it current in the same change
-as any modification to the extension** — supported attributes, language surface, placeholder
-values, diagnostics, generated-code shape, the run-time rendering API and limitations all live
-there.
+**`SVG_EXPRESSIONS.md` is the specification and documents syntax and usage only — keep it current
+in the same change.** How any of it works belongs here instead. A change to the extension usually
+touches both.
 
-**It documents syntax and usage only.** How any of it works belongs here instead, so anything
-about layering, which project owns what, or why an internal does what it does goes in this file
-rather than that one. A change to the extension usually touches both: what an author or a caller
-sees there, how it is built here.
+Its parts: the `{{ }}` lift and placeholders in `Svg.Custom/SvgExpressionAttributes.cs`, the
+symbolic value model in `ShimSkiaSharp/Symbolic/`, attribute reading in
+`Svg.SceneGraph/SvgSceneExpressions.cs`, the language and the `<e:code>` declarations that are its
+symbol table in `src/Svg.Expressions`, and the C# back end in `Svg.CodeGen.Skia/Expressions/`.
 
-Its parts: the `{{ }}` lift and placeholder substitution in
-`Svg.Custom/SvgExpressionAttributes.cs`, the symbolic value model in `ShimSkiaSharp/Symbolic/`,
-attribute reading in `Svg.SceneGraph/SvgSceneExpressions.cs`, the language itself — lexer, parser,
-type checker, the `TypedExpr` it produces and the `<e:code>` declarations that are its symbol
-table — in `src/Svg.Expressions`, and the C# back end in `Svg.CodeGen.Skia/Expressions/`.
+**The front end knows no target language.** `ExprChecker` returns a `TypedExpr`; the back ends
+consume it. Two things to know before touching it: it holds the symbol table **by reference**
+because `Resolve` adds each let after construction, and it throws on the first error in a fixed
+visit order that several tests pin — operands before their operator, a condition before its
+branches, arity before any argument.
 
-**The front end knows no target language.** `ExprChecker` returns a `TypedExpr`;
-`ExprCSharpBackend` is what knows that `sin` is `MathF.Sin`, and `ExprCompiler` is a facade over
-the two kept for the code generator's convenience. Two consequences worth knowing before touching
-either: `ExprChecker` holds the symbol table **by reference** because
-`SvgCodeDeclarationsExtensions.Resolve` adds each let to it after construction, and the checker
-throws on the first error in a fixed visit order that several tests pin — operands before their
-operator, a condition before its branches, arity before any argument.
+**Two back ends, and they must agree numerically.** `ExprCSharpBackend` renders C#;
+`ExprValueBackend` computes an `ExprValue` behind the `ExprEvaluator` facade. Traps that reading the
+source will not reveal:
 
-`SvgExpressionDeclarations` splits along the same line: `Parse`, the parameter and let lists and
-`CreateSymbolTable()` describe the document and live in `Svg.Expressions`, while `Resolve()` and
-`DefaultCode()` produce C# and are extension methods in `Svg.CodeGen.Skia`.
+- Evaluate in **`float`**, since generated code narrows literals and calls `MathF`.
+  `Svg.Expressions` multi-targets for `MathF`; the netstandard2.0 fallback lives in
+  `ExprMathFallback`, compiled on every target so a test host can measure it.
+- `hsl` is reimplemented from `SKColor.FromHsl`, whose final byte conversion **truncates**.
+  Rounding instead disagrees on 76% of the domain.
+- Do not un-short-circuit `&&`, `||` or `? :` in `ExprValueBackend`. `clamp` with a reversed range
+  throws, so an eagerly evaluated operand changes behaviour.
 
-`Parse` used to refuse a `color` parameter carrying a `default`, because `new SKColor(…)` cannot be a
-C# argument default (CS1736). That was a target-language limit leaking into the format, and the
-evaluator had always handled such a default without any special case. The emitter deals with it
-instead: `ColourFallbacks()` names a local per such parameter, `BuildParameterList` emits
-`SKColor? tint = null`, and the local coalesces to the compiled default before the lets. The body has
-to read the local, so `ExprCompiler` carries a symbol-rewrite map that `ExprCSharpBackend` applies to
-`TypedSymbol` — a colour parameter *without* a default is untouched, so no existing signature moved.
-Compute the local names in `ColourFallbacks()` alone: `Resolve()` needs them to rewrite references
-and the generator needs them to declare the locals, and the two disagreeing emits a body referring to
-a local that does not exist.
+**Two differential suites, at two layers, that do not cover for each other.**
+`ExprEvaluatorDifferentialTests` compares the two back ends for a `TypedExpr`;
+`SymNodeDifferentialTests` does the same a layer up for a `SymNode` and the helpers
+`SymCSharpEmitter` calls, including the `SKColorF` conversion. Add a case to whichever layer you
+touched. Both compare **bits** — a tolerance previously hid a real one-ulp divergence that surfaced
+only as a single pixel.
 
-**There are two readers for `<e:code>`, and adding a rule means adding it to
-`SvgExpressionDeclarations.Builder`, not to either one.** `Parse` works from source text, which is
-what `svgc` and the source generator have; `SvgDocument.ExpressionDeclarations` walks the parsed
-tree, which is all `SKSvg.Load(XmlReader)` or an editor holding a document ever has. The text reader
-exists because a foreign element's namespace is `protected internal` on `SvgElement` — invisible
-outside `Svg.Custom`, so an unqualified `<param>` out there could belong to any extension. The tree
-reader lives inside `Svg.Custom` and can see it. `SvgDocumentExpressionDeclarationsTests` asserts the
-two agree, including every diagnostic's exact wording, which only holds because the validation is
-shared.
+**Two readers for `<e:code>`: add a rule to `SvgExpressionDeclarations.Builder`, never to one
+reader.** `Parse` works from source text (`svgc`, the source generator);
+`SvgDocument.ExpressionDeclarations` walks the tree, which is all `Load(XmlReader)` or an editor
+has. The text reader exists because a foreign element's namespace is `protected internal` and so
+invisible outside `Svg.Custom`. Their diagnostics are asserted identical.
 
-**There are two back ends now, and they must agree numerically.** `ExprCSharpBackend` renders C#;
-`ExprValueBackend` computes an `ExprValue`, behind the `ExprEvaluator` facade. Three traps, all of
-them things that reading the source will not tell you:
+**A `color` parameter with a `default` emits `SKColor? tint = null`** plus a local coalescing to the
+default, because `new SKColor(…)` is not a C# constant (CS1736). The body reads that local — C#
+forbids shadowing — via a symbol-rewrite map on `ExprCompiler`. Local names come from
+`ColourFallbacks()` **only**: `Resolve` rewrites references with them and the generator declares
+them, and disagreement emits a body referencing a local that does not exist. A colour *without* a
+default is unchanged.
 
-- The evaluator computes in **`float`**, because generated code narrows every literal and calls
-  `MathF`. `Svg.Expressions` is multi-targeted for `MathF`, which netstandard2.0 lacks; its
-  fallback differs by up to one ulp for `sin`/`cos`/`tan`/`pow`, which is why `ExprMathFallback` is
-  compiled on every target — otherwise the only framework running that code would be one nothing
-  tests.
-- `hsl` is reimplemented from `SKColor.FromHsl`, whose final byte conversion **truncates**. Rounding
-  instead disagrees on 76% of the domain.
-- Do not "simplify" the short-circuiting in `ExprValueBackend`. `clamp` with a reversed range throws,
-  so an eagerly evaluated operand changes behaviour rather than just wasting work.
+**Evaluation rewrites the picture; it teaches the renderers nothing.**
+`SvgSceneExpressionEvaluator.Evaluate` returns a new `SKPicture`, so `SkiaModel` and
+`AvaloniaPicture` are untouched — necessary, since `Avalonia.Svg.Skia.SvgSource` shares one *static*
+`SkiaModel`. It never mutates, and untouched subtrees return as the same instances. It reaches a
+paint's `Color`, a `ColorShader`, gradient `SKColorF[]`, an opacity `SaveLayer`'s paint and a
+`BlendModeColorFilter`, recursing through `DrawPictureCanvasCommand` and `PictureShader`. The lit
+image filters' `LightColor` is deliberately not walked; a new model path that can carry an
+expression needs adding here.
 
-**Two differential suites, at two layers, and they do not cover for each other.**
-`ExprEvaluatorDifferentialTests` compiles the emitted C# and compares it against the evaluated value
-bit for bit — but only for the *language*, a `TypedExpr`. `SymNodeDifferentialTests` does the same a
-layer up, for a `SymNode` and the helpers `SymCSharpEmitter` calls: the alpha scale, the linear-RGB
-conversion, and the `SKColorF` conversion a gradient stop goes through. Add a case to whichever layer
-you touched.
+A false conditional **keeps the range's `Save`/`Restore`/`SetMatrix`/clip commands and drops only
+the draws**, because the runtime applies `Concat(DeltaMatrix)` where generated code assigns
+`SetMatrix(TotalMatrix)`. Real documents cannot tell the difference — `SvgSceneRenderer` balances
+every range — so `ConditionalRangeTests` pins it on hand-built pictures. That suite fails if this
+changes; the render tests will not.
 
-The gap between them was not hypothetical. `SvgToColorF` divided a channel by `255f` while
-`ShimSkiaSharp.SKColor` multiplies by `1 / 255.0f`; those disagree for **126 of the 256** byte
-values, the expression-level suite could not see it, the picture-level test compared stops to three
-decimal places, and it surfaced only as one pixel in a demo render. Both suites compare bits for
-this reason — a float comparison with any tolerance lets exactly this class of bug through.
-
-**Evaluation rewrites the picture; it does not teach the renderers anything.**
-`SvgSceneExpressionEvaluator.Evaluate` returns a new `SKPicture` with concrete colours and resolved
-conditionals, so `SkiaModel` and `AvaloniaPicture` are untouched — which is also the only thing that
-could work, since `Avalonia.Svg.Skia.SvgSource` holds one *static* `SkiaModel` with nowhere to keep a
-document's parameter values. It never mutates: paints are shared between elements, and the symbolic
-picture has to survive for the next set of values. Untouched subtrees come back as the same
-instances, so a document without expressions allocates nothing.
-
-What it reaches: a paint's `Color`, a `ColorShader`, the `SKColorF[]` of the three gradient shaders,
-an opacity `SaveLayer`'s paint, and a `BlendModeColorFilter` — recursing through
-`DrawPictureCanvasCommand` and through a `PictureShader`, which is how a pattern's contents are
-covered. The `SKColor LightColor` on the six lit image filters is deliberately **not** walked: no
-document can attach an expression there, so the code would be unreachable and untested. Adding a
-model path that can carry an expression means adding it here too.
-
-**On `SKSvg`, loading never evaluates and `Model` is whatever is being rendered.** `Load` leaves the
-placeholders in place and does not even read the declarations, so no existing consumer is affected and
-a malformed `<e:code>` cannot fail a load. `SetExpressionValues` evaluates against a retained
-`_symbolicModel` — no re-parse, no scene recompile — and assigns the result to `Model`, having
-evaluated first so a rejected set leaves the previous rendering intact. The plan for this had `Model`
-staying symbolic with the evaluated picture hidden behind `Picture`; that was dropped because there
-are eleven places that convert a model (`SKSvg.Model.cs`, `SKSvg.AnimationLayers.cs`,
-`SKSvg.SceneGraph.cs`), and threading a second model through all of them to keep one property
-"pure" would have been both riskier and less useful — hit testing, `Save`, the wireframe and the
-animation layers all want the drawing as rendered.
-
-A false conditional **keeps the range's `Save`/`Restore`/`SetMatrix`/clip commands and drops only the
-drawing ones.** Generated code deletes the whole range instead, which it can afford because it
-assigns `SetMatrix(TotalMatrix)` while the runtime applies `Concat(DeltaMatrix)`. Measured, though:
-`SvgSceneRenderer` opens the range around everything a node contributes, so a matrix inside one is
-always inside a `Save` the range's own `Restore` pops, and through any real document the two are
-indistinguishable — deleting the range passes every render test. `ConditionalRangeTests` pins the
-difference on hand-built pictures, because no document produces one; that is the suite that fails if
-this changes, not the render tests.
+**On `SKSvg`, loading never evaluates and `Model` is whatever is being rendered.** `Load` leaves
+placeholders and does not read the declarations, so a malformed `<e:code>` cannot fail a load.
+`SetExpressionValues` evaluates against a retained symbolic model — no re-parse, no scene recompile
+— and only assigns on success.
 
 Two invariants hold the design together:
 
-1. **A symbolic value always carries a concrete one.** `SKColor.Expression` sits beside real
-   RGBA channels, so every consumer that ignores expressions keeps working untouched. This is
-   why adding the feature required no changes to `SkiaModel` or `AvaloniaPicture`.
-2. **Placeholders are chosen so the element still paints.** The renderer short-circuits on
-   `fill="none"`, `opacity="1"` and `visibility="hidden"`, each of which would remove the paint
-   or subtree an expression needs to attach to.
+1. **A symbolic value always carries a concrete one.** `SKColor.Expression` sits beside real RGBA
+   channels, so consumers that ignore expressions keep working untouched.
+2. **Placeholders are chosen so the element still paints.** `fill="none"`, `opacity="0"` or
+   `visibility="hidden"` would remove the paint or subtree an expression needs to attach to.
 
 `src/Svg.Expressions.Recipes` converts a finished SVG into that format from a recipe file. It is
 a source-to-source rewriter and knows nothing about the expression language — the recipe's
@@ -321,8 +274,9 @@ generator-driven projects convert ahead of time and check in the result.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.
-`samples/SvgRecipeDemo` does the same for the recipe path and links that demo's `LiveCompiler.cs`
-by file rather than duplicating it, so an edit there changes both.
+`samples/SvgRecipeDemo` does the same for the recipe path and links that demo's `LivePreview.cs`
+by file rather than duplicating it, so an edit there changes both. Neither demo generates C# any
+more — both evaluate — so neither references Roslyn.
 
 ## Conventions
 
