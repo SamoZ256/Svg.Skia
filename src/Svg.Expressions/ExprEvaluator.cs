@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -117,16 +117,24 @@ public sealed class ExprEvaluator
                 0);
         }
 
-        // Defaults may not reference other parameters, so they are evaluated against nothing at
-        // all. The same restriction the code generator applies, for the same reason: an ordering
-        // dependency between them would be invisible in the document.
-        var isolated = new ExprEvaluator(
-            new Dictionary<string, ExprType>(StringComparer.Ordinal),
-            new Dictionary<string, ExprValue>(StringComparer.Ordinal));
-
-        return isolated.EvaluateTo(
+        return Isolated.EvaluateTo(
             parameter.DefaultExpression,
             parameter.Type,
             $"The default for '{parameter.Name}'");
     }
+
+    /// <summary>
+    /// An evaluator over nothing at all, for the parts of a declaration that may not reference
+    /// anything the document declares.
+    /// </summary>
+    /// <remarks>
+    /// A <c>default</c> may not reference other parameters — the same restriction the code generator
+    /// applies, for the same reason: an ordering dependency between them would be invisible in the
+    /// document — and <c>min</c>, <c>max</c> and <c>step</c> inherit it. Shared rather than
+    /// constructed per call so the two cannot resolve against different scopes, and because it holds
+    /// no state: both maps stay empty, and nothing here ever writes to them.
+    /// </remarks>
+    internal static readonly ExprEvaluator Isolated = new(
+        new Dictionary<string, ExprType>(StringComparer.Ordinal),
+        new Dictionary<string, ExprValue>(StringComparer.Ordinal));
 }

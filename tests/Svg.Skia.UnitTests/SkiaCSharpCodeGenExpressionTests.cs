@@ -1,4 +1,4 @@
-using ShimSkiaSharp;
+﻿using ShimSkiaSharp;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Expressions;
 using Svg.Expressions;
@@ -125,6 +125,34 @@ public class SkiaCSharpCodeGenExpressionTests
 
         // Draw mirrors the signature and forwards the nullable, not the local.
         Assert.Contains("public static void Draw(SKCanvas skCanvas, SKColor? tint = null)", code);
+    }
+
+    [Fact]
+    public void A_Declared_Range_Does_Not_Change_The_Generated_Signature()
+    {
+        // min/max/step are advice to a host about a slider. The generator has no use for them and
+        // must emit exactly what it emits without them, or adding a range to a document would
+        // silently move every generated file.
+        const string body = """
+              <rect x="0" y="0" width="10" height="10" fill="{{ hsl(hue, 74%, 55%) }}" />
+            """;
+
+        var ranged = Generate($"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code><e:param name="hue" type="number" default="217" min="0" max="360" step="1" /></e:code></defs>
+            {body}
+            </svg>
+            """);
+
+        var plain = Generate($"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code><e:param name="hue" type="number" default="217" /></e:code></defs>
+            {body}
+            </svg>
+            """);
+
+        Assert.Contains("public static SKPicture Record(float hue = 217f)", ranged);
+        Assert.Equal(plain, ranged);
     }
 
     [Fact]

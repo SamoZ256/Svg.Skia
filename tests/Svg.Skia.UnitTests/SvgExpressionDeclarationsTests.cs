@@ -1,3 +1,4 @@
+﻿using System;
 using System.Linq;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Expressions;
@@ -238,4 +239,133 @@ public class SvgExpressionDeclarationsTests
         Assert.True(SvgExpressionDeclarations.Parse("").IsEmpty);
         Assert.True(SvgExpressionDeclarations.Parse("   ").IsEmpty);
     }
+
+    [Fact]
+    public void Range_Attributes_Are_Read_As_Expression_Text()
+    {
+        var declarations = Declare("""<e:param name="t" type="number" min=" 0 " max="tau" step="1/60" />""");
+
+        var parameter = Assert.Single(declarations.Parameters);
+        Assert.Equal("0", parameter.MinExpression);
+        Assert.Equal("tau", parameter.MaxExpression);
+        Assert.Equal("1/60", parameter.StepExpression);
+        Assert.True(parameter.HasRange);
+    }
+
+    [Fact]
+    public void A_Parameter_With_No_Range_Falls_Back_To_Zero_To_One()
+    {
+        var parameter = Assert.Single(Declare("""<e:param name="t" type="number" default="0.25" />""").Parameters);
+
+        Assert.False(parameter.HasRange);
+        Assert.Equal(SvgExpressionRange.Default, parameter.ResolveRange());
+        Assert.Equal(0f, parameter.ResolveRange().Minimum);
+        Assert.Equal(1f, parameter.ResolveRange().Maximum);
+        Assert.False(parameter.ResolveRange().HasStep);
+    }
+
+    [Fact]
+    public void A_Range_Is_Evaluated_As_An_Expression()
+    {
+        // The whole point of storing text rather than parsed numbers: a bound is written in the same
+        // language the default is.
+        var parameter = Assert.Single(Declare("""<e:param name="t" type="number" min="-tau" max="tau" step="100% / 8" />""").Parameters);
+
+        var range = parameter.ResolveRange();
+
+        Assert.Equal(-MathF.PI * 2f, range.Minimum, 5);
+        Assert.Equal(MathF.PI * 2f, range.Maximum, 5);
+        Assert.Equal(0.125f, range.Step, 5);
+        Assert.True(range.HasStep);
+    }
+
+    [Fact]
+    public void A_Step_May_Stand_Alone()
+    {
+        // Quantisation, not an end point, and well defined against the documented 0..1 fallback.
+        var parameter = Assert.Single(Declare("""<e:param name="t" type="number" step="0.25" />""").Parameters);
+
+        Assert.Equal(new SvgExpressionRange(0f, 1f, 0.25f), parameter.ResolveRange());
+    }
+
+    [Fact]
+    public void An_Empty_Range_Attribute_Is_The_Same_As_An_Absent_One()
+    {
+        var parameter = Assert.Single(Declare("""<e:param name="t" type="number" min="" max="" />""").Parameters);
+
+        Assert.False(parameter.HasRange);
+        Assert.Equal(SvgExpressionRange.Default, parameter.ResolveRange());
+
+        // The consequence of that, spelled out: one empty end is one declared end.
+        var error = Assert.Throws<ExprException>(
+            () => Declare("""<e:param name="t" type="number" min="" max="1" />"""));
+
+        Assert.Contains("has a max but no min", error.Message);
+    }
+
+    [Fact]
+    public void A_Range_Bound_Must_Be_A_Number()
+    {
+        var colour = Assert.Single(Declare("""<e:param name="t" type="number" min="#ff0000" max="1" />""").Parameters);
+        Assert.Contains("must be a number", Assert.Throws<ExprException>(() => colour.ResolveRange()).Message);
+
+        var boolean = Assert.Single(Declare("""<e:param name="t" type="number" step="true" />""").Parameters);
+        Assert.Contains("must be a number", Assert.Throws<ExprException>(() => boolean.ResolveRange()).Message);
+    }
+
+    [Fact]
+    public void A_Range_Bound_Cannot_Reference_Another_Parameter()
+    {
+        // Resolved against nothing at all, exactly as a default is.
+        var declarations = Declare("""
+            <e:param name="a" type="number" default="1" />
+            <e:param name="b" type="number" min="0" max="a" />
+            """);
+
+        var error = Assert.Throws<ExprException>(() => declarations.Parameters[1].ResolveRange());
+
+        Assert.Contains("Unknown name 'a'", error.Message);
+    }
+
+    [Fact]
+    public void A_Reversed_Range_Is_Rejected_When_Resolved_Rather_Than_When_Read()
+    {
+        // The eager/lazy split, pinned: reading a document evaluates nothing, so Parse succeeds and
+        // only ResolveRange complains. SKSvg.Load depends on this staying true.
+        var declarations = Declare("""<e:param name="t" type="number" min="1" max="0" />""");
+
+        var error = Assert.Throws<ExprException>(() => declarations.Parameters[0].ResolveRange());
+
+        Assert.Contains("is greater than its max", error.Message);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    public void A_Step_Must_Be_Positive(string step)
+    {
+        var parameter = Assert.Single(Declare($"""<e:param name="t" type="number" step="{step}" />""").Parameters);
+
+        Assert.Contains("must be greater than zero", Assert.Throws<ExprException>(() => parameter.ResolveRange()).Message);
+    }
+
+    [Fact]
+    public void A_Default_Outside_Its_Range_Is_Allowed()
+    {
+        // The range is advice to a host, never a constraint on a value. Nothing clamps.
+        var parameter = Assert.Single(Declare("""<e:param name="t" type="number" default="5" min="0" max="1" />""").Parameters);
+
+        Assert.Equal(new SvgExpressionRange(0f, 1f, 0f), parameter.ResolveRange());
+        Assert.Equal(5f, ExprEvaluator.Create(SvgExpressionDeclarations.Parse(Markup("""<e:param name="t" type="number" default="5" min="0" max="1" />"""))).Evaluate("t").AsNumber);
+    }
+
+    private static string Markup(string body)
+        => $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
+              <defs><e:code>{body}</e:code></defs>
+            </svg>
+            """;
+
+    private static SvgExpressionDeclarations Declare(string body)
+        => SvgExpressionDeclarations.Parse(Markup(body));
 }

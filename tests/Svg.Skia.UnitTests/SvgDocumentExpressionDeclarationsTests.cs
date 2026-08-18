@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System.IO;
 using System.Linq;
@@ -35,9 +35,11 @@ public class SvgDocumentExpressionDeclarationsTests
 
     private static void AssertSame(SvgExpressionDeclarations expected, SvgExpressionDeclarations actual)
     {
+        // The range attributes are projected too: without them the tree reader could drop all three
+        // and every one of these tests would still pass.
         Assert.Equal(
-            expected.Parameters.Select(p => (p.Name, p.Type, p.DefaultExpression)),
-            actual.Parameters.Select(p => (p.Name, p.Type, p.DefaultExpression)));
+            expected.Parameters.Select(p => (p.Name, p.Type, p.DefaultExpression, p.MinExpression, p.MaxExpression, p.StepExpression)),
+            actual.Parameters.Select(p => (p.Name, p.Type, p.DefaultExpression, p.MinExpression, p.MaxExpression, p.StepExpression)));
 
         Assert.Equal(
             expected.Lets.Select(l => (l.Name, l.Expression)),
@@ -57,6 +59,7 @@ public class SvgDocumentExpressionDeclarationsTests
               <defs>
                 <e:code>
                   <e:param name="t" type="number" default="0.25" />
+                  <e:param name="hue" type="number" default="217" min="0" max="360" step="1" />
                   <e:param name="tint" type="color" />
                   <e:param name="bold" type="boolean" default="false" />
                   <e:let name="wave">(sin(t * tau) + 1) / 2</e:let>
@@ -71,11 +74,18 @@ public class SvgDocumentExpressionDeclarationsTests
 
         var declarations = Document(markup).ExpressionDeclarations;
 
-        Assert.Equal(3, declarations.Parameters.Count);
+        Assert.Equal(4, declarations.Parameters.Count);
         Assert.Equal(2, declarations.Lets.Count);
         Assert.Equal("(sin(t * tau) + 1) / 2", declarations.Lets[0].Expression);
-        Assert.Equal(ExprType.Color, declarations.Parameters[1].Type);
-        Assert.Null(declarations.Parameters[1].DefaultExpression);
+        Assert.Equal(ExprType.Color, declarations.Parameters[2].Type);
+        Assert.Null(declarations.Parameters[2].DefaultExpression);
+
+        var ranged = declarations.Parameters[1];
+        Assert.Equal("0", ranged.MinExpression);
+        Assert.Equal("360", ranged.MaxExpression);
+        Assert.Equal("1", ranged.StepExpression);
+        Assert.True(ranged.HasRange);
+        Assert.False(declarations.Parameters[0].HasRange);
     }
 
     [Fact]
@@ -221,6 +231,10 @@ public class SvgDocumentExpressionDeclarationsTests
     [InlineData("""<e:param name="t" type="number" /><e:param name="t" type="number" />""", "declared more than once")]
     [InlineData("""<e:param name="t" type="number" /><e:let name="t">1</e:let>""", "declared more than once")]
     [InlineData("""<e:let name="empty"></e:let>""", "has no expression")]
+    [InlineData("""<e:param name="tint" type="color" min="0" max="1" />""", "cannot carry min, max or step")]
+    [InlineData("""<e:param name="on" type="boolean" step="1" />""", "cannot carry min, max or step")]
+    [InlineData("""<e:param name="t" type="number" min="0" />""", "has a min but no max")]
+    [InlineData("""<e:param name="t" type="number" max="1" />""", "has a max but no min")]
     public void A_Malformed_Declaration_Reports_The_Same_Way_As_Parse(string body, string expected)
     {
         var markup = $"""

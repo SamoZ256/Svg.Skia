@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
 using System.Collections.Generic;
@@ -339,5 +339,48 @@ public class SKSvgExpressionsTests
         var layer = Assert.Single(svg.Model!.Commands!.OfType<SaveLayerCanvasCommand>());
 
         Assert.Equal(new ShimColor(255, 255, 255, 128), layer.Paint!.Color);
+    }
+
+    [Fact]
+    public void A_Loaded_Document_Exposes_Its_Parameter_Ranges()
+    {
+        // The route a viewer actually takes: load, ask what the document declares, and build a
+        // control per parameter from the range the author chose.
+        using var svg = Load("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code>
+                  <e:param name="hue" type="number" default="217" min="0" max="360" step="1" />
+                  <e:param name="fade" type="number" default="1" />
+                </e:code>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="{{ hsl(hue, 74%, 55%) }}" opacity="{{ fade }}" />
+            </svg>
+            """);
+
+        var hue = svg.ExpressionParameters[0];
+        Assert.True(hue.HasRange);
+        Assert.Equal(new SvgExpressionRange(0f, 360f, 1f), hue.ResolveRange());
+
+        // The one that declares nothing still answers, with the range hosts used to hardcode.
+        var fade = svg.ExpressionParameters[1];
+        Assert.False(fade.HasRange);
+        Assert.Equal(SvgExpressionRange.Default, fade.ResolveRange());
+    }
+
+    [Fact]
+    public void A_Range_Does_Not_Constrain_A_Supplied_Value()
+    {
+        // The range is advice to a host. Binding is unaffected by it, so a host that wants clamping
+        // clamps before it calls.
+        using var svg = Load("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="fade" type="number" default="1" min="0" max="1" /></e:code></defs>
+              <rect x="0" y="0" width="24" height="24" fill="#ff0000" opacity="{{ fade }}" />
+            </svg>
+            """);
+
+        Assert.NotNull(svg.SetExpressionValues(Values(("fade", ExprValue.Number(5f)))));
+        Assert.Equal(5f, svg.ExpressionValues!["fade"].AsNumber);
     }
 }

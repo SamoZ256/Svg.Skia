@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System.Collections.Generic;
@@ -33,7 +33,7 @@ public partial class SvgDocument
     /// </remarks>
     /// <exception cref="ExprException">
     /// A declaration is malformed — no name, no type, a name that is reserved or declared twice, or a
-    /// colour parameter carrying a default.
+    /// min, max or step on a parameter that is not a number.
     /// </exception>
     public SvgExpressionDeclarations ExpressionDeclarations => ReadExpressionDeclarations(this);
 
@@ -60,7 +60,10 @@ public partial class SvgDocument
                         builder.AddParameter(
                             Attribute(declaration, "name"),
                             Attribute(declaration, "type"),
-                            Attribute(declaration, "default"));
+                            Attribute(declaration, "default"),
+                            minExpression: Attribute(declaration, "min"),
+                            maxExpression: Attribute(declaration, "max"),
+                            stepExpression: Attribute(declaration, "step"));
                         break;
 
                     case "let":

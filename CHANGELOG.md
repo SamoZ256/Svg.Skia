@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+* `<e:param>` now takes optional `min`, `max` and `step` attributes describing the range a host
+  should offer for a `number` — the ends of a slider and its increment. Each is an expression like
+  `default` is, so `max="tau"` and `step="1/60"` work, and each resolves against nothing at all, so a
+  bound cannot reference another parameter. `min` and `max` come as a pair; `step` may stand alone
+  against the 0..1 a parameter has when it declares none. `SvgExpressionParameter` grows
+  `MinExpression`, `MaxExpression`, `StepExpression`, `HasRange` and `ResolveRange()`, the last of
+  which is total and returns that 0..1 fallback — exactly the range hosts hardcoded before the format
+  could express anything else. The range is advice to a host and never a constraint: nothing clamps,
+  a `default` outside its own range is legal, and **generated code is unchanged**, since the code
+  generator has no use for it. Whether a range is structurally allowed is settled while the
+  declarations are read, so a range on a colour is caught immediately; whether the numbers make sense
+  is settled by `ResolveRange()`, because reading a document must not evaluate anything.
+
 * A `color` parameter may now declare a `default`. It could not before, because `new SKColor(...)`
   is not a C# compile-time constant (CS1736) — a limit of the target language that had leaked into
   the format, since the runtime evaluator always handled such a default without a special case. A

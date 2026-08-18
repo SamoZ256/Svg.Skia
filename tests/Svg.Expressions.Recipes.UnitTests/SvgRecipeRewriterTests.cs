@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 using Xunit;
 
 namespace Svg.Expressions.Recipes.UnitTests;
@@ -142,6 +142,29 @@ public class SvgRecipeRewriterTests
         Assert.Contains("<e:param name=\"hue\" type=\"number\" default=\"217\" />", result.Svg);
         Assert.Contains("<e:let name=\"primary\">hsl(hue, 91%, 60%)</e:let>", result.Svg);
         Assert.True(result.Svg.IndexOf("<e:code>") < result.Svg.IndexOf("<linearGradient"));
+    }
+
+    [Fact]
+    public void Apply_CopiesRangeAttributesVerbatim()
+    {
+        // Declarations are copied as XML rather than re-serialised from a model, so a recipe carries
+        // whatever the format grows. That is a property of `new XElement(element)` and nothing here
+        // mentions ranges, which is exactly why it is worth pinning.
+        const string recipe = """
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <code>
+                <param name="hue" type="number" default="217" min="0" max="360" step="1" />
+                <let name="primary">hsl(hue, 91%, 60%)</let>
+              </code>
+              <replace color="#3b82f6">primary</replace>
+            </recipe>
+            """;
+
+        var result = Apply("""<svg xmlns="http://www.w3.org/2000/svg"><rect fill="#3b82f6" /></svg>""", recipe);
+
+        Assert.Contains(
+            "<e:param name=\"hue\" type=\"number\" default=\"217\" min=\"0\" max=\"360\" step=\"1\" />",
+            result.Svg);
     }
 
     [Fact]
