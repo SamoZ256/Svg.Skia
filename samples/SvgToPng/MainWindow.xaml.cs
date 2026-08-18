@@ -533,7 +533,7 @@ public partial class MainWindow : Window
             {
                 skElementPng.Width = pwidth;
                 skElementPng.Height = pheight;
-                canvas.DrawBitmap(item.ReferencePng, 0f, 0f, SKSamplingOptions.Default);
+                canvas.DrawBitmap(item.ReferencePng, 0f, 0f, SkiaSharp.SKSamplingOptions.Default);
             }
         }
     }
@@ -550,7 +550,7 @@ public partial class MainWindow : Window
             {
                 skElementDiff.Width = pwidth;
                 skElementDiff.Height = pheight;
-                canvas.DrawBitmap(item.PixelDiff, 0f, 0f, SKSamplingOptions.Default);
+                canvas.DrawBitmap(item.PixelDiff, 0f, 0f, SkiaSharp.SKSamplingOptions.Default);
             }
         }
     }
