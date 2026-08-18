@@ -3,7 +3,6 @@ using System.IO;
 using System.Linq;
 using Avalonia;
 using SkiaSharp;
-using Svg.CodeGen.Skia.Expressions;
 using Svg.Expressions;
 
 namespace SvgRecipeDemo;
@@ -55,9 +54,8 @@ internal static class Program
             return 1;
         }
 
-        var parameters = result.Compiled!.Parameters;
+        var parameters = result.Preview!.Parameters;
 
-        Console.WriteLine($"generated {result.Compiled.GeneratedCode?.Split('\n').Length ?? 0} lines of C#");
         Console.WriteLine(
             $"parameters: {(parameters.Count == 0 ? "(none)" : string.Join(", ", parameters.Select(p => $"{p.Name}:{p.Type}")))}");
 
@@ -87,14 +85,16 @@ internal static class Program
 
         foreach (var (name, index, state) in frames)
         {
-            var arguments = parameters
-                .Select(object? (p, i) => i == index ? state : Fallback(p, i))
-                .ToArray();
+            // Keyed by name now rather than by position, which is what the generated Record(...)
+            // signature used to require.
+            var values = parameters
+                .Select((p, i) => (p.Name, Value: i == index ? ToValue(state) : Fallback(p, i)))
+                .ToDictionary(entry => entry.Name, entry => entry.Value, StringComparer.Ordinal);
 
-            using var picture = result.Compiled.Invoke(arguments);
+            using var picture = result.Preview.Render(values);
             if (picture is null)
             {
-                Console.WriteLine("error: Record returned null.");
+                Console.WriteLine("error: the document produced no drawing.");
                 return 1;
             }
 
@@ -112,11 +112,18 @@ internal static class Program
     // Values for the parameters not being swept. Colours have no sensible neutral — the caller is
     // meant to supply them — so contrasting stand-ins are used, or a recipe that picks between a
     // light and a dark colour would render the same either way.
-    private static object? Fallback(Svg.Expressions.SvgExpressionParameter parameter, int index) => parameter.Type switch
+    private static ExprValue Fallback(SvgExpressionParameter parameter, int index) => parameter.Type switch
     {
-        ExprType.Number => 0f,
-        ExprType.Boolean => string.Equals(parameter.DefaultExpression, "true", StringComparison.Ordinal),
-        _ => index % 2 == 0 ? new SKColor(0x00, 0x00, 0x00) : new SKColor(0xFF, 0xFF, 0xFF)
+        ExprType.Number => ExprValue.Number(0f),
+        ExprType.Boolean => ExprValue.Boolean(string.Equals(parameter.DefaultExpression, "true", StringComparison.Ordinal)),
+        _ => index % 2 == 0 ? ExprValue.Color(0x00, 0x00, 0x00, 0xFF) : ExprValue.Color(0xFF, 0xFF, 0xFF, 0xFF)
+    };
+
+    private static ExprValue ToValue(object? state) => state switch
+    {
+        float number => ExprValue.Number(number),
+        bool boolean => ExprValue.Boolean(boolean),
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Only the swept types occur here.")
     };
 
     private static void Write(SKPicture picture, string path)

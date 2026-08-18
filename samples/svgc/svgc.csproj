@@ -18,10 +18,6 @@
     <PackageTags>svg;skia;skiasharp;codegen;codegenerator;compiler;csharp;codegen;graphics</PackageTags>
   </PropertyGroup>
 
-  <ItemGroup>
-    <PublishReadyToRunExclude Include="Microsoft.CodeAnalysis.dll" />
-  </ItemGroup>
-  
   <Import Project="..\..\build\SignAssembly.props" />
   <Import Project="..\..\build\ReferenceAssemblies.props" />
   <Import Project="..\..\build\SixLabors.ImageSharp.props" />

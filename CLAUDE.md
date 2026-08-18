@@ -223,9 +223,18 @@ them things that reading the source will not tell you:
 - Do not "simplify" the short-circuiting in `ExprValueBackend`. `clamp` with a reversed range throws,
   so an eagerly evaluated operand changes behaviour rather than just wasting work.
 
-`ExprEvaluatorDifferentialTests` compiles the emitted C# with Roslyn and compares it against the
-evaluated value bit for bit. Add a case there when touching either back end; it is the only thing
-that catches an ulp or a rounding difference, and a rendered-pixel test will not.
+**Two differential suites, at two layers, and they do not cover for each other.**
+`ExprEvaluatorDifferentialTests` compiles the emitted C# and compares it against the evaluated value
+bit for bit — but only for the *language*, a `TypedExpr`. `SymNodeDifferentialTests` does the same a
+layer up, for a `SymNode` and the helpers `SymCSharpEmitter` calls: the alpha scale, the linear-RGB
+conversion, and the `SKColorF` conversion a gradient stop goes through. Add a case to whichever layer
+you touched.
+
+The gap between them was not hypothetical. `SvgToColorF` divided a channel by `255f` while
+`ShimSkiaSharp.SKColor` multiplies by `1 / 255.0f`; those disagree for **126 of the 256** byte
+values, the expression-level suite could not see it, the picture-level test compared stops to three
+decimal places, and it surfaced only as one pixel in a demo render. Both suites compare bits for
+this reason — a float comparison with any tolerance lets exactly this class of bug through.
 
 **Evaluation rewrites the picture; it does not teach the renderers anything.**
 `SvgSceneExpressionEvaluator.Evaluate` returns a new `SKPicture` with concrete colours and resolved

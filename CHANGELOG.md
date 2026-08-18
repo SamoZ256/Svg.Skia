@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+* Fixed generated code converting an expression gradient stop to `SKColorF` differently from the
+  rest of the library. `SvgToColorF` divided each channel by `255f` while `ShimSkiaSharp.SKColor`
+  multiplies by `1 / 255.0f`, and the two disagree for 126 of the 256 byte values — enough for a
+  gradient to differ by one level on a pixel. Generated code was the inconsistent side: a *literal*
+  stop is emitted as the floats the model already converted by the reciprocal, so it disagreed with
+  its own literal stops as well as with the runtime. **Generated output changes** for documents with
+  expression gradient stops: the body of the `SvgToColorF` helper, and nothing else.
+
+* `samples/SvgExpressionsDemo` and `samples/SvgRecipeDemo` no longer generate and compile C# to
+  render. Both evaluate the scene model directly, so neither references Roslyn any more, and neither
+  ships `Microsoft.CodeAnalysis.dll`. A parameter change now re-evaluates rather than re-parsing,
+  re-generating and re-compiling into a fresh collectible `AssemblyLoadContext`. The demos no longer
+  display the generated C#; `svgc` remains the way to see that.
+
 * Added expression support to `SKSvg`: `ExpressionParameters` reports what a document declares,
   `SetExpressionValues` binds values and re-renders, `ExpressionValues` reports what is bound, and
   `ClearExpressionValues` goes back to the design-time placeholders. Loading is unchanged — it renders

@@ -47,10 +47,16 @@ internal static class ExprHelpers
             "}"
         }),
 
+        // Multiplied by the reciprocal rather than divided, to match how ShimSkiaSharp.SKColor
+        // converts itself to SKColorF. The two are not the same in floating point — 1/255f is itself
+        // rounded — and they disagree for 126 of the 256 byte values. That mattered: a literal
+        // gradient stop is emitted as the floats the model already converted this way, so dividing
+        // here made generated code disagree with its own literal stops and with the runtime, which
+        // showed up as a one-level difference on a gradient pixel.
         new(ToColorF, new[]
         {
             $"private static SKColorF {ToColorF}(SKColor color)",
-            "    => new SKColorF(color.Red / 255f, color.Green / 255f, color.Blue / 255f, color.Alpha / 255f);"
+            "    => new SKColorF(color.Red * (1 / 255.0f), color.Green * (1 / 255.0f), color.Blue * (1 / 255.0f), color.Alpha * (1 / 255.0f));"
         }),
 
         new(Lerp, new[]

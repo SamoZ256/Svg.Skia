@@ -12,8 +12,6 @@ using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using SkiaSharp;
-using Svg.CodeGen.Skia;
-using Svg.CodeGen.Skia.Expressions;
 using Svg.Expressions;
 
 namespace SvgExpressionsDemo;
@@ -25,11 +23,10 @@ public partial class MainWindow : Window
     // Long enough that typing does not trigger a compile per keystroke.
     private static readonly TimeSpan RecompileDelay = TimeSpan.FromMilliseconds(400);
 
-    private readonly LiveCompiler _compiler = new();
+    private readonly LivePreview _preview = new();
 
     private readonly SKCanvasControl _canvas;
     private readonly TextBox _svgEditor;
-    private readonly TextBox _generatedView;
     private readonly StackPanel _parameterPanel;
     private readonly TextBlock _statusText;
     private readonly Border _errorPanel;
@@ -39,11 +36,20 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _pending;
 
     // Written on the UI thread, read on the render thread.
-    private volatile Snapshot _snapshot = new(null, Array.Empty<object?>(), 0f, 0f);
+    private volatile Snapshot _snapshot = new(null, EmptyValues, 0f, 0f);
 
-    private sealed record Snapshot(LiveCompileResult? Result, object?[] Arguments, float Width, float Height);
+    private static readonly IReadOnlyDictionary<string, ExprValue> EmptyValues =
+        new Dictionary<string, ExprValue>();
 
-    private sealed record ParameterBinding(SvgExpressionParameter Parameter, Func<object?> Read);
+    // Values are keyed by name rather than positional, which the generated Record(...) signature
+    // used to force. Nothing had been checking that the array order matched the declaration order.
+    private sealed record Snapshot(
+        LivePreviewResult? Result,
+        IReadOnlyDictionary<string, ExprValue> Values,
+        float Width,
+        float Height);
+
+    private sealed record ParameterBinding(SvgExpressionParameter Parameter, Func<ExprValue> Read);
 
     public MainWindow()
     {
@@ -51,7 +57,6 @@ public partial class MainWindow : Window
 
         _canvas = this.FindControl<SKCanvasControl>("Canvas")!;
         _svgEditor = this.FindControl<TextBox>("SvgEditor")!;
-        _generatedView = this.FindControl<TextBox>("GeneratedView")!;
         _parameterPanel = this.FindControl<StackPanel>("ParameterPanel")!;
         _statusText = this.FindControl<TextBlock>("StatusText")!;
         _errorPanel = this.FindControl<Border>("ErrorPanel")!;
@@ -66,10 +71,10 @@ public partial class MainWindow : Window
             }
         };
 
-        _svgEditor.TextChanged += (_, _) => ScheduleCompile();
+        _svgEditor.TextChanged += (_, _) => ScheduleReload();
 
         _svgEditor.Text = LoadStartingDocument();
-        CompileNow();
+        ReloadNow();
     }
 
     private static string LoadStartingDocument()
@@ -91,9 +96,9 @@ public partial class MainWindow : Window
               """;
     }
 
-    // ---- compiling ---------------------------------------------------------------------------
+    // ---- loading -----------------------------------------------------------------------------
 
-    private void ScheduleCompile()
+    private void ScheduleReload()
     {
         _pending?.Cancel();
         _pending = new CancellationTokenSource();
@@ -106,40 +111,36 @@ public partial class MainWindow : Window
             {
                 if (!token.IsCancellationRequested)
                 {
-                    CompileNow();
+                    ReloadNow();
                 }
             },
             RecompileDelay,
             DispatcherPriority.Background);
     }
 
-    private void CompileNow()
+    private void ReloadNow()
     {
         var source = _svgEditor.Text ?? string.Empty;
-        _statusText.Text = "compiling…";
+        _statusText.Text = "loading…";
 
-        // Roslyn is slow enough to be felt on the UI thread.
-        Task.Run(() => _compiler.Compile(source))
+        // Still off the UI thread: parsing a document and compiling its scene is the expensive half.
+        // Changing a parameter afterwards does not come back through here.
+        Task.Run(() => _preview.Load(source))
             .ContinueWith(
                 task => Dispatcher.UIThread.Post(() => Apply(task.IsFaulted
-                    ? LiveCompileResult.Failed(new[] { task.Exception?.GetBaseException().Message ?? "Unknown failure." })
+                    ? LivePreviewResult.Failed(new[] { task.Exception?.GetBaseException().Message ?? "Unknown failure." })
                     : task.Result)),
                 TaskScheduler.Default);
     }
 
-    private void Apply(LiveCompileResult result)
+    private void Apply(LivePreviewResult result)
     {
-        if (result.GeneratedCode is { } code)
-        {
-            _generatedView.Text = code;
-        }
-
         _errorPanel.IsVisible = result.Errors.Count > 0;
         _errorText.Text = string.Join("\n\n", result.Errors);
 
         if (!result.Success)
         {
-            // Keep drawing whatever last compiled, so a half-typed edit does not blank the view.
+            // Keep drawing whatever last loaded, so a half-typed edit does not blank the view.
             _statusText.Text = "error — showing last good version";
             return;
         }
@@ -147,8 +148,8 @@ public partial class MainWindow : Window
         RebuildParameterControls(result.Parameters);
 
         _statusText.Text = result.Parameters.Count == 0
-            ? "compiled — no parameters"
-            : $"compiled — {result.Parameters.Count} parameter(s)";
+            ? "loaded — no parameters"
+            : $"loaded — {result.Parameters.Count} parameter(s)";
 
         _snapshot = _snapshot with { Result = result };
         Publish();
@@ -213,7 +214,7 @@ public partial class MainWindow : Window
                         row.Children.Add(slider);
                         row.Children.Add(readout);
 
-                        _bindings.Add(new ParameterBinding(parameter, () => (float)slider.Value));
+                        _bindings.Add(new ParameterBinding(parameter, () => ExprValue.Number((float)slider.Value)));
                         break;
                     }
 
@@ -225,7 +226,7 @@ public partial class MainWindow : Window
                         Grid.SetColumn(check, 1);
                         row.Children.Add(check);
 
-                        _bindings.Add(new ParameterBinding(parameter, () => check.IsChecked == true));
+                        _bindings.Add(new ParameterBinding(parameter, () => ExprValue.Boolean(check.IsChecked == true)));
                         break;
                     }
 
@@ -246,8 +247,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private static SKColor ParseColor(string? text)
-        => SKColor.TryParse(text, out var color) ? color : SKColors.Magenta;
+    private static ExprValue ParseColor(string? text)
+    {
+        var color = SKColor.TryParse(text, out var parsed) ? parsed : SKColors.Magenta;
+
+        return ExprValue.Color(color.Red, color.Green, color.Blue, color.Alpha);
+    }
 
     // ---- rendering ----------------------------------------------------------------------------
 
@@ -255,7 +260,7 @@ public partial class MainWindow : Window
     {
         _snapshot = _snapshot with
         {
-            Arguments = _bindings.Select(b => b.Read()).ToArray(),
+            Values = _bindings.ToDictionary(b => b.Parameter.Name, b => b.Read(), StringComparer.Ordinal),
             Width = (float)_canvas.Bounds.Width,
             Height = (float)_canvas.Bounds.Height
         };
@@ -279,11 +284,11 @@ public partial class MainWindow : Window
         SKPicture? picture;
         try
         {
-            picture = result.Invoke(state.Arguments);
+            picture = result.Render(state.Values);
         }
         catch
         {
-            // Generated code is compiled from arbitrary input; a bad edit must not kill rendering.
+            // The document comes from a text box; a half-typed expression must not kill rendering.
             return;
         }
 

@@ -1,8 +1,7 @@
 # SvgRecipeDemo
 
 The [recipe](../../SVG_EXPRESSIONS.md#9-converting-an-existing-drawing) workflow as a live
-editor. Edit the recipe on the left; the converted SVG, the generated C# and the drawing all
-follow.
+editor. Edit the recipe on the left; the converted SVG and the drawing both follow.
 
 ```sh
 dotnet run --project samples/SvgRecipeDemo
@@ -16,26 +15,30 @@ dotnet run --project samples/SvgRecipeDemo
 │   "blackColor70">…   │  fill=               ├──────────────────────┤
 │  <replace color=     │   "{{ stateBlack…"   │  #000000 →           │
 │    "#000000">…       │                      │   {{ stateBlackCol…}}│
-├ Premade SVG ─────────┼ Generated C# ────────┤  accentColor #7c3aed │
-│  <path … fill=       │  Record(SKColor      │  blackColor  #000000 │
-│    "#000000" />      │   accentColor, …)    │  whiteColor  #ffffff │
-│                      │  SvgWithAlpha(…)     │  state   ☐  accent ☐ │
+├ Premade SVG ─────────┤                      │  accentColor #7c3aed │
+│  <path … fill=       │                      │  blackColor  #000000 │
+│    "#000000" />      │                      │  whiteColor  #ffffff │
+│                      │                      │  state   ☐  accent ☐ │
 │                      │                      │  enabled ☐  isLight☐ │
 └──────────────────────┴──────────────────────┴──────────────────────┘
 ```
 
-Four stages run on every edit:
+Three stages run on every edit:
 
 1. **`SvgRecipeRewriter`** applies the recipe to the premade SVG.
-2. **`SkiaCSharpCodeGen`** turns the converted document into C#.
-3. **Roslyn** compiles that into a collectible `AssemblyLoadContext`.
-4. **`Record(…)`** is invoked by reflection with the current control values.
+2. **`SvgSceneRuntime`** compiles the converted document into a scene model, expressions and all.
+3. **`SvgSceneExpressionEvaluator`** resolves those expressions against the current control values.
 
 Every stage is the shipping code, so there is no second implementation here that could drift from
-what `svgc` produces. Edits are debounced and run off the UI thread; a failed edit
-keeps the last good assembly loaded, so the view does not blank while typing. Diagnostics from all
-three stages — recipe, expression type checker and C# compiler — surface in one panel, and each
-`<replace>` rule reports what it claimed.
+what the library does. It used to end in generated C# compiled by Roslyn, which meant the demo also
+happened to check that the code generator drew the same thing; it no longer does, and that agreement
+is pinned by the test suite instead — `ExprEvaluatorDifferentialTests` compares evaluated values
+against compiled generated code, and the render tests compare the two as pixels.
+
+Only stage 1 and 2 are expensive, and only they re-run when the text changes; moving a control
+re-runs stage 3 alone. Edits are debounced and run off the UI thread; a failed edit keeps the last
+good drawing, so the view does not blank while typing. Diagnostics from the recipe and from the
+expression type checker surface in one panel, and each `<replace>` rule reports what it claimed.
 
 The **Premade SVG** pane is editable too, so another icon can be pasted in without rebuilding.
 

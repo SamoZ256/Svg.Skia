@@ -13,12 +13,12 @@ public sealed class RecipeRunResult
         string? convertedSvg,
         IReadOnlyList<SvgRecipeRuleMatch> matches,
         IReadOnlyList<string> recipeErrors,
-        LiveCompileResult? compiled)
+        LivePreviewResult? preview)
     {
         ConvertedSvg = convertedSvg;
         Matches = matches;
         RecipeErrors = recipeErrors;
-        Compiled = compiled;
+        Preview = preview;
     }
 
     /// <summary>The document in the expression format, once the recipe has been applied.</summary>
@@ -29,33 +29,42 @@ public sealed class RecipeRunResult
     /// <summary>Faults in the recipe or in the drawing it was applied to.</summary>
     public IReadOnlyList<string> RecipeErrors { get; }
 
-    /// <summary>The C# stage, or null when the conversion never got that far.</summary>
-    public LiveCompileResult? Compiled { get; }
+    /// <summary>The drawing stage, or null when the conversion never got that far.</summary>
+    public LivePreviewResult? Preview { get; }
 
-    public bool Success => Compiled is { Success: true };
+    public bool Success => Preview is { Success: true };
 
     public IEnumerable<string> AllErrors
-        => RecipeErrors.Concat(Compiled?.Errors ?? Array.Empty<string>());
+        => RecipeErrors.Concat(Preview?.Errors ?? Array.Empty<string>());
 
     internal static RecipeRunResult RecipeFailed(string error)
         => new(null, Array.Empty<SvgRecipeRuleMatch>(), new[] { error }, null);
 
-    internal static RecipeRunResult Converted(SvgRecipeResult conversion, LiveCompileResult compiled)
-        => new(conversion.Svg, conversion.Matches, Array.Empty<string>(), compiled);
+    internal static RecipeRunResult Converted(SvgRecipeResult conversion, LivePreviewResult preview)
+        => new(conversion.Svg, conversion.Matches, Array.Empty<string>(), preview);
 }
 
 /// <summary>
-/// The demo's subject: recipe plus plain SVG, to a document in the expression format, to
-/// generated C#, to a loaded assembly whose <c>Record(...)</c> draws.
+/// The demo's subject: recipe plus plain SVG, to a document in the expression format, to a drawing
+/// whose expressions are evaluated against live values.
 /// </summary>
 /// <remarks>
-/// Every stage is the shipping code — <see cref="SvgRecipeRewriter"/> and, behind
-/// <see cref="LiveCompiler"/>, <c>SkiaCSharpCodeGen</c>. There is no second implementation here
-/// that could drift from what <c>svgc</c> produces.
+/// <para>
+/// Every stage is the shipping code — <see cref="SvgRecipeRewriter"/> for the conversion, and behind
+/// <see cref="LivePreview"/> the scene compiler and <c>SvgSceneExpressionEvaluator</c>. There is no
+/// second implementation here that could drift from what the library does.
+/// </para>
+/// <para>
+/// It used to end in generated C#, which meant the demo doubled as a check that the code generator
+/// produced the same drawing. It no longer does: this renders through the evaluator, while
+/// <c>svgc</c> emits C#. The two agreeing is pinned by the test suite instead —
+/// <c>ExprEvaluatorDifferentialTests</c> compares evaluated values against compiled generated code,
+/// and the render tests compare the two as pixels.
+/// </para>
 /// </remarks>
 public sealed class RecipePipeline
 {
-    private readonly LiveCompiler _compiler = new();
+    private readonly LivePreview _preview = new();
 
     public RecipeRunResult Run(string svgSource, string recipeText)
     {
@@ -74,6 +83,6 @@ public sealed class RecipePipeline
             return RecipeRunResult.RecipeFailed(error.Message);
         }
 
-        return RecipeRunResult.Converted(conversion, _compiler.Compile(conversion.Svg));
+        return RecipeRunResult.Converted(conversion, _preview.Load(conversion.Svg));
     }
 }
