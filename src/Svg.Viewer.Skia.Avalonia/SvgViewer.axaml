@@ -13,12 +13,12 @@
         <Rectangle Width="1" Fill="#30808080" Margin="4,2" />
         <Button x:Name="FitButton" Content="Fit" ToolTip.Tip="Fit to window (Ctrl+0)" />
         <Button x:Name="ActualSizeButton" Content="1:1" ToolTip.Tip="Actual size (Ctrl+1)" />
-        <Button x:Name="ResetButton" Content="Reset" />
+        <Button x:Name="ResetButton" Content="Reset" ToolTip.Tip="Reset pan and zoom" />
         <Rectangle Width="1" Fill="#30808080" Margin="4,2" />
-        <Button x:Name="ZoomOutButton" Content="−" Width="30" />
+        <Button x:Name="ZoomOutButton" Content="−" Width="30" ToolTip.Tip="Zoom out (Ctrl+-, or scroll down)" />
         <TextBlock x:Name="ZoomText" Width="64" VerticalAlignment="Center"
                    TextAlignment="Center" FontFamily="monospace" Text="100%" />
-        <Button x:Name="ZoomInButton" Content="+" Width="30" />
+        <Button x:Name="ZoomInButton" Content="+" Width="30" ToolTip.Tip="Zoom in (Ctrl++, or scroll up)" />
         <Rectangle Width="1" Fill="#30808080" Margin="4,2" />
         <Button x:Name="ResetParametersButton" Content="Reset parameters" />
       </StackPanel>

@@ -21,6 +21,12 @@
   `samples/SvgViewer` applies on macOS; dropping a file on the viewer or handing a path to
   `LoadAsync` avoids the picker entirely.
 
+  Zooming is on the scroll wheel and on `Ctrl`/`Cmd` `+`/`-`/`0`/`1` as well as the toolbar. A
+  trackpad two finger scroll arrives as a wheel event with a fractional delta and so zooms smoothly
+  on the same curve a mouse notch steps along. A trackpad *pinch* is a separate platform gesture that
+  Avalonia 12.0.0 raises only through its internal `Gestures` class, so it cannot be subscribed to
+  from outside the framework yet.
+
 * `<e:param>` now takes optional `min`, `max` and `step` attributes describing the range a host
   should offer for a `number` — the ends of a slider and its increment. Each is an expression like
   `default` is, so `max="tau"` and `step="1/60"` work, and each resolves against nothing at all, so a

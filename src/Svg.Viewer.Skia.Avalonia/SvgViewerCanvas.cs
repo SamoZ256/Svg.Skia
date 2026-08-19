@@ -67,6 +67,7 @@ public class SvgViewerCanvas : SKCanvasControl
         // Tunnelling, because the pointer and wheel events are forwarded to the document's own
         // interaction dispatcher by anything hosting an SVG, and chrome gets first refusal.
         AddHandler(PointerWheelChangedEvent, OnWheel, RoutingStrategies.Tunnel);
+
         AddHandler(PointerPressedEvent, OnPressed, RoutingStrategies.Tunnel);
         AddHandler(PointerMovedEvent, OnMoved, RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent, OnReleased, RoutingStrategies.Tunnel);
@@ -256,6 +257,12 @@ public class SvgViewerCanvas : SKCanvasControl
 
     // ---- gestures ---------------------------------------------------------------------------
 
+    /// <remarks>
+    /// This is the trackpad path as well as the mouse one: a two finger scroll arrives as a wheel
+    /// event with a fractional delta, so it zooms smoothly where a mouse notch steps by 1.2. A
+    /// trackpad *pinch* is raised separately by the platform, but Avalonia 12.0.0 keeps
+    /// <c>Gestures</c> internal, so there is no public event to subscribe to for it.
+    /// </remarks>
     private void OnWheel(object? sender, PointerWheelEventArgs e)
     {
         if (!IsZoomEnabled || _svg is null)
@@ -264,6 +271,42 @@ public class SvgViewerCanvas : SKCanvasControl
         }
 
         ZoomTo(_scale * Math.Pow(1.2d, e.Delta.Y), e.GetPosition(this));
+        e.Handled = true;
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+
+        // Command on macOS, Control elsewhere.
+        var accelerator = e.KeyModifiers.HasFlag(KeyModifiers.Meta) || e.KeyModifiers.HasFlag(KeyModifiers.Control);
+        if (!accelerator)
+        {
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case Key.OemPlus or Key.Add:
+                ZoomIn();
+                break;
+
+            case Key.OemMinus or Key.Subtract:
+                ZoomOut();
+                break;
+
+            case Key.D0 or Key.NumPad0:
+                Fit();
+                break;
+
+            case Key.D1 or Key.NumPad1:
+                ActualSize();
+                break;
+
+            default:
+                return;
+        }
+
         e.Handled = true;
     }
 

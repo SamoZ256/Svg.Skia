@@ -2,6 +2,7 @@ using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Media;
 using Xunit;
 
@@ -198,4 +199,127 @@ public class SvgViewerCanvasTests
         window.Close();
         document.Dispose();
     }
+
+
+    [AvaloniaFact]
+    public void A_Fractional_Wheel_Delta_Zooms_Smoothly()
+    {
+        // A trackpad two finger scroll arrives as a wheel event with a fractional delta, where a
+        // mouse notch is 1. Both have to land on the same curve, or a trackpad either does nothing
+        // or jumps.
+        var (window, canvas, document) = Host();
+
+        var start = canvas.Scale;
+        canvas.RaiseEvent(Wheel(canvas, 0.1d, new Point(200, 100)));
+        var nudged = canvas.Scale;
+
+        Assert.True(nudged > start, "A fractional delta should still zoom.");
+        Assert.True(nudged < start * 1.2d, "A fractional delta should zoom less than a full notch.");
+        Assert.Equal(start * Math.Pow(1.2d, 0.1d), nudged, 6);
+
+        window.Close();
+        document.Dispose();
+    }
+
+    [AvaloniaFact]
+    public void A_Wheel_Notch_Zooms_About_The_Pointer()
+    {
+        var (window, canvas, document) = Host();
+
+        var anchor = new Point(310, 140);
+        Assert.True(canvas.TryGetDrawingPoint(anchor, out var before));
+
+        canvas.RaiseEvent(Wheel(canvas, 1d, anchor));
+
+        Assert.Equal(4d * 1.2d, canvas.Scale, 6);
+        Assert.True(canvas.TryGetDrawingPoint(anchor, out var after));
+        Assert.Equal(before.X, after.X, 3);
+        Assert.Equal(before.Y, after.Y, 3);
+
+        window.Close();
+        document.Dispose();
+    }
+
+    [AvaloniaTheory]
+    [InlineData(Key.OemPlus, true)]
+    [InlineData(Key.OemMinus, false)]
+    public void The_Accelerator_Zooms(Key key, bool expectLarger)
+    {
+        var (window, canvas, document) = Host();
+
+        var start = canvas.Scale;
+        canvas.Focus();
+        canvas.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = key,
+            KeyModifiers = KeyModifiers.Control
+        });
+
+        Assert.Equal(expectLarger, canvas.Scale > start);
+
+        window.Close();
+        document.Dispose();
+    }
+
+    [AvaloniaFact]
+    public void The_Accelerator_Fits_And_Sizes()
+    {
+        var (window, canvas, document) = Host();
+
+        canvas.ZoomTo(9d, new Point(0, 0));
+
+        Press(canvas, Key.D1);
+        Assert.Equal(1d, canvas.Scale, 6);
+
+        Press(canvas, Key.D0);
+        Assert.Equal(4d, canvas.Scale, 6);
+
+        window.Close();
+        document.Dispose();
+    }
+
+    [AvaloniaFact]
+    public void An_Unmodified_Key_Does_Not_Zoom()
+    {
+        var (window, canvas, document) = Host();
+
+        var start = canvas.Scale;
+        canvas.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.OemPlus,
+            KeyModifiers = KeyModifiers.None
+        });
+
+        Assert.Equal(start, canvas.Scale, 6);
+
+        window.Close();
+        document.Dispose();
+    }
+
+    private static void Press(SvgViewerCanvas canvas, Key key)
+    {
+        canvas.Focus();
+        canvas.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = key,
+            KeyModifiers = KeyModifiers.Control
+        });
+    }
+
+    private static PointerWheelEventArgs Wheel(SvgViewerCanvas canvas, double delta, Point position)
+        => new(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            canvas,
+            position,
+            0,
+            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.Other),
+            KeyModifiers.None,
+            new Vector(0, delta))
+        {
+            RoutedEvent = InputElement.PointerWheelChangedEvent
+        };
 }

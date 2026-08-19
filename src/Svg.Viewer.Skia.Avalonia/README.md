@@ -17,12 +17,29 @@ await Viewer.LoadAsync("badge.svg");
 
 - **Opens** a file through a picker or a drop, off the UI thread, keeping whatever is on screen if
   the load fails.
-- **Zooms and pans**: wheel about the cursor, drag to pan, and fit / 1:1 / reset with a percentage
-  readout. Resizing keeps the drawing fitted until the view is adjusted by hand, after which it is
-  left where it was.
+- **Zooms and pans**, with a percentage readout. Resizing keeps the drawing fitted until the view is
+  adjusted by hand, after which it is left where it was.
 - **Builds a control per parameter** — a slider and a value box for a `number`, honouring any
   `min`, `max` and `step` the document declares, a `ColorPicker` for a `color`, a checkbox for a
   `boolean` — seeded from each declared `default`.
+
+## Input
+
+| | |
+|---|---|
+| Zoom | Scroll wheel, or a trackpad two finger scroll, both anchored on the pointer |
+| | `Ctrl`/`Cmd` `+` and `-` |
+| | The toolbar's `+` and `−` |
+| Pan | Drag with the left or middle button |
+| Fit | `Ctrl`/`Cmd` `0`, or the toolbar |
+| Actual size | `Ctrl`/`Cmd` `1`, or the toolbar |
+
+A trackpad two finger scroll arrives as a wheel event with a fractional delta, so it zooms smoothly
+where a mouse notch steps by 1.2 — both land on the same curve. A trackpad **pinch** is a separate
+platform gesture, and Avalonia 12.0.0 keeps `Gestures` internal, so there is no public event to
+subscribe to; two finger scroll is the trackpad path until that is exposed.
+
+Keyboard shortcuts need the canvas focused, which a click gives it.
 
 ## Embedding it
 
