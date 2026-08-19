@@ -21,7 +21,7 @@
   <Import Project="..\..\build\SkiaSharp.Avalonia.props" />
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Svg.Viewer.Skia.Avalonia\Svg.Viewer.Skia.Avalonia.csproj" />
+    <ProjectReference Include="..\Svg.Viewer.Skia.Avalonia\Svg.Viewer.Skia.Avalonia.csproj" />
   </ItemGroup>
 
 </Project>

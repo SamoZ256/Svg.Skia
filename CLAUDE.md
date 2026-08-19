@@ -294,7 +294,7 @@ the drawings and is folded into them as the project is read, so `SvgcProject.Ite
 list of resolved items whether the file uses groups or not, and nothing downstream knows. The source generator has no equivalent, so
 generator-driven projects convert ahead of time and check in the result.
 
-`src/Svg.Viewer.Skia.Avalonia` is the viewer, with `samples/SvgViewer` as its shell. It draws onto
+`src/Svg.Viewer.Skia.Avalonia` is the viewer, with `src/SvgViewer` as its shell. It draws onto
 `SKCanvasControl` and owns its own scale and offset rather than using `Avalonia.Svg.Skia.Svg`, whose
 `ArrangeOverride` returns `Stretch.CalculateSize(...)` — the control is always exactly the fitted
 drawing, so it cannot fill a viewport and its `Zoom`/`PanX`/`PanY` are bounded by its own clip.

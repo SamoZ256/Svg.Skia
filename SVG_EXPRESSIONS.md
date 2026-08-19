@@ -491,7 +491,7 @@ bounding boxes and runs into the same problem as geometry.
 
 **No design-time preview.** See [§2](#2-the-placeholder-mechanism). `Svg.Viewer.Skia.Avalonia`
 is the answer at run time: it opens a drawing and builds a control per declared parameter, and
-`samples/SvgViewer` is that viewer as an application.
+`src/SvgViewer` is that viewer as an application.
 
 **`{{` conflicts with C# raw string literals.** `$"""... {{ x }} ..."""` fails to compile
 (CS9006). Use a non-interpolated `"""..."""` literal.

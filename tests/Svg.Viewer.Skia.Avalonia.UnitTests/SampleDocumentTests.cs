@@ -27,7 +27,7 @@ public class SampleDocumentTests
 
         Assert.NotNull(directory);
 
-        return Path.Combine(directory!.FullName, "samples", "SvgViewer", "Assets", "parametric.svg");
+        return Path.Combine(directory!.FullName, "src", "SvgViewer", "Assets", "parametric.svg");
     }
 
     [AvaloniaFact]

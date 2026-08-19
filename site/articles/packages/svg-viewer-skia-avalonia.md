@@ -17,7 +17,7 @@ dotnet add package Svg.Viewer.Skia.Avalonia
 - you want a ready-made SVG viewer pane in an Avalonia app,
 - you want the parameters a drawing declares exposed as sliders, colour pickers and checkboxes without writing that UI,
 - you want zoom, pan, fit and actual-size behaviour that already works,
-- you want the same stack `samples/SvgViewer` is built from.
+- you want the same stack `src/SvgViewer` is built from.
 
 ## Main types
 

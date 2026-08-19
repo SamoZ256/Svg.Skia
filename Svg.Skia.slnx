@@ -69,7 +69,6 @@
     <Project Path="samples/SvgExpressionsDemo/SvgExpressionsDemo.csproj" />
     <Project Path="samples/SvgRecipeDemo/SvgRecipeDemo.csproj" />
     <Project Path="samples/SvgToPng/SvgToPng.csproj" />
-    <Project Path="samples/SvgViewer/SvgViewer.csproj" />
     <Project Path="samples/TestApp.Shared/TestApp.Shared.csproj" />
     <Project Path="samples/TestApp/TestApp.csproj" />
     <Project Path="samples/UnoTestApp/UnoTestApp.csproj" />
@@ -99,6 +98,7 @@
     <Project Path="src/Svg.Skia.JavaScript/Svg.Skia.JavaScript.csproj" />
     <Project Path="src/Svg.Skia/Svg.Skia.csproj" />
     <Project Path="src/Svg.Viewer.Skia.Avalonia/Svg.Viewer.Skia.Avalonia.csproj" />
+    <Project Path="src/SvgViewer/SvgViewer.csproj" />
     <Project Path="src/Svg.SourceGenerator.Skia/Svg.SourceGenerator.Skia.csproj" />
     <Project Path="src/SvgML.Uno/SvgML.Uno.csproj" />
     <Project Path="src/SvgML.Avalonia/SvgML.Avalonia.csproj" />

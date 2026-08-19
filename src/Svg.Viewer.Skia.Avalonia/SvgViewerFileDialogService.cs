@@ -30,7 +30,7 @@ public class SvgViewerFileDialogService : ISvgViewerFileDialogService
     //
     // A host works around it with AppBuilder.UseManagedSystemDialogs(), which swaps in the picker
     // Avalonia draws itself and never reaches that code. It is an application-wide switch, so it is
-    // the host's to make rather than this library's -- samples/SvgViewer applies it on macOS.
+    // the host's to make rather than this library's -- src/SvgViewer applies it on macOS.
     private static readonly FilePickerFileType AllFileType = new("All")
     {
         Patterns = new[] { "*.*" },
