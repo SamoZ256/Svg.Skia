@@ -200,6 +200,73 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  publish-apps:
+    name: Publish apps (${{ matrix.rid }})
+    # Default branch only. build, test and pack still run on every branch and pull request -- this
+    # gates the job, not the workflow. Publishing four self-contained runtimes is around 360 MB a
+    # time, which is not worth spending on a branch still being iterated on. Written against
+    # default_branch rather than 'master' so a rename does not silently disable it, matching how
+    # the docs deploy job gates itself.
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+    runs-on: ${{ matrix.os }}
+    needs: [build, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: windows-latest
+            rid: win-x64
+          # macos-latest runners are Apple Silicon; the Intel build is produced from the same
+          # runner, which works because the runtime packs come from NuGet rather than the host.
+          - os: macos-latest
+            rid: osx-arm64
+          - os: macos-latest
+            rid: osx-x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Determine version suffix
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/heads/release/* ]]; then
+            echo "VERSION_SUFFIX=" >> "$GITHUB_ENV"
+          else
+            echo "VERSION_SUFFIX=-build.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          fi
+
+      # Self-contained, so neither app needs a .NET install on the machine that runs it. Not
+      # trimmed: Avalonia and the SVG object model both reflect over types, and a trimmed build
+      # fails at runtime rather than at publish, which is the worst place to find out.
+      - name: Publish svgc
+        run: >
+          dotnet publish samples/svgc/svgc.csproj -c Release -r ${{ matrix.rid }}
+          --self-contained true -p:VersionSuffix="${{ env.VERSION_SUFFIX }}"
+          -o artifacts/publish/${{ matrix.rid }}/svgc
+
+      - name: Publish SvgViewer
+        run: >
+          dotnet publish src/SvgViewer/SvgViewer.csproj -c Release -r ${{ matrix.rid }}
+          --self-contained true -p:VersionSuffix="${{ env.VERSION_SUFFIX }}"
+          -o artifacts/publish/${{ matrix.rid }}/SvgViewer
+
+      - name: Upload apps
+        uses: actions/upload-artifact@v4
+        with:
+          name: apps-${{ matrix.rid }}
+          path: artifacts/publish/${{ matrix.rid }}
+          if-no-files-found: error
+          retention-days: 30
+
   pack-maui:
     name: Pack MAUI (macos-latest)
     runs-on: macos-latest
