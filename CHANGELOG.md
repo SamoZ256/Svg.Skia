@@ -14,6 +14,11 @@
   `Avalonia.Svg.Skia.Svg` control, which sizes itself to the drawing it fits — a 100x100 document in
   a 400x200 pane arranges at 200x200 — and so cannot fill a viewport.
 
+  Opening through the **file picker** currently crashes on macOS with Avalonia 12.0.0, inside the
+  native storage provider as the panel is dismissed. `samples/TestApp` crashes there identically, so
+  the fault is upstream rather than in this package. Dropping a file on the viewer, or handing a path
+  to `LoadAsync`, avoids that path entirely, and `samples/SvgViewer` takes a path on the command line.
+
 * `<e:param>` now takes optional `min`, `max` and `step` attributes describing the range a host
   should offer for a `number` — the ends of a slider and its increment. Each is an expression like
   `default` is, so `max="tau"` and `step="1/60"` work, and each resolves against nothing at all, so a

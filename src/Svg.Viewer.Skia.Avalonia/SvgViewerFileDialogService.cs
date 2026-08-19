@@ -20,8 +20,14 @@ public class SvgViewerFileDialogService : ISvgViewerFileDialogService
     };
 
     // Declared here rather than using FilePickerFileTypes.All, which also carries the
-    // `public.item` uniform type identifier. This mirrors samples/TestApp, whose picker is the one
-    // shape known to work in this repository.
+    // `public.item` uniform type identifier, so this matches the picker in samples/TestApp.
+    //
+    // That is consistency, not a fix. On macOS with Avalonia 12.0.0 the native storage provider
+    // crashes as the panel is dismissed -- inside the completion block of
+    // StorageProvider::OpenFileDialog, reached from -[NSSavePanel didEndPanelWithReturnCode:], with
+    // no managed frames. samples/TestApp crashes there identically, so the fault is upstream and
+    // nothing about the options passed here avoids it. Hosts that need to open a file today can
+    // drop one on the viewer, or hand it a path.
     private static readonly FilePickerFileType AllFileType = new("All")
     {
         Patterns = new[] { "*.*" },

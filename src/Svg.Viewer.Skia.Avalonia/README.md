@@ -52,3 +52,15 @@ A failed load leaves the previous document up. A malformed `<e:code>` block is r
 renders, because loading deliberately never reads declarations — the drawing shows its placeholders.
 A rejected value leaves the last good rendering exactly where it was, and the control keeps what was
 typed so it can be corrected.
+
+## Known issue: the file picker crashes on macOS
+
+With Avalonia 12.0.0 on macOS, dismissing the native open panel crashes the process inside
+`StorageProvider::OpenFileDialog`'s completion block, reached from
+`-[NSSavePanel didEndPanelWithReturnCode:]`, with no managed frames. `samples/TestApp` crashes
+there identically, so this is upstream and not specific to this package or to the options it
+passes.
+
+Until it is fixed upstream, open a drawing by **dropping it on the viewer** or by handing a path to
+`LoadAsync`; neither goes near that code path. `samples/SvgViewer` also accepts a path on the
+command line for the same reason.
