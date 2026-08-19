@@ -189,9 +189,17 @@ public partial class MainWindow : Window
             {
                 case ExprType.Number:
                     {
-                        // Numbers are exposed as 0..1; scale inside the expression when a wider
-                        // range is wanted, as the sample does with hsl(hue * 360, ...).
-                        var slider = new Slider { Minimum = 0, Maximum = 1, Value = 0 };
+                        // The range the document declares, or the 0..1 this used to hardcode when it
+                        // declares none.
+                        var range = parameter.ResolveRange();
+                        var slider = new Slider
+                        {
+                            Minimum = range.Minimum,
+                            Maximum = range.Maximum,
+                            Value = range.Minimum,
+                            TickFrequency = range.HasStep ? range.Step : (range.Maximum - range.Minimum) / 100d,
+                            IsSnapToTickEnabled = range.HasStep
+                        };
                         var readout = new TextBlock
                         {
                             VerticalAlignment = VerticalAlignment.Center,

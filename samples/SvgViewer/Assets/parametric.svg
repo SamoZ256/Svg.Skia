@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:e="https://svg.skia/expr/1.0"
+     width="256" height="256" viewBox="0 0 256 256">
+
+  <defs>
+    <e:code>
+      <e:param name="hue"   type="number"  default="204" min="0" max="360" step="1" />
+      <e:param name="sweep" type="number"  default="0.35" min="0" max="1" />
+      <e:param name="tint"  type="color"   default="#3fb5b5" />
+      <e:param name="badge" type="boolean" default="true" />
+
+      <e:let name="primary">hsl(hue, 74%, badge ? 58% : 46%)</e:let>
+      <e:let name="deep">hsl(hue + 12, 62%, 24%)</e:let>
+      <e:let name="accent">mix(tint, primary, sweep)</e:let>
+      <e:let name="fade">lerp(0.35, 1, sweep)</e:let>
+    </e:code>
+
+    <linearGradient id="plate" gradientUnits="userSpaceOnUse" x1="24" y1="24" x2="232" y2="232">
+      <stop offset="0%"   stop-color="{{ primary }}" />
+      <stop offset="100%" stop-color="{{ deep }}" />
+    </linearGradient>
+  </defs>
+
+  <rect x="16" y="16" width="224" height="224" rx="48" ry="48" fill="url(#plate)" />
+
+  <circle cx="128" cy="128" r="84"
+          fill="none" stroke="{{ accent }}" stroke-width="6" stroke-opacity="0.7" />
+
+  <g opacity="{{ fade }}">
+    <path d="M 92 88 L 148 128 L 92 168 Z" fill="{{ accent }}" />
+    <path d="M 148 88 L 196 128 L 148 168 Z" fill="{{ tint }}" />
+  </g>
+
+  <circle cx="128" cy="212" r="11" fill="{{ tint }}" visibility="{{ badge }}" />
+</svg>

@@ -50,8 +50,8 @@ Consequences worth knowing:
 - Errors come from the XML parser or the expression type checker, and an expression error carries a
   caret under the offending character — something the Roslyn diagnostics could never do, since they
   named a line of generated C# the author never saw.
-- Numeric parameters are exposed on a **0..1** slider. Scale inside the expression when a wider
-  range is wanted — `hsl(hue * 360, ...)`, as the sample logo does.
+- Numeric parameters use the `min`/`max`/`step` the document declares, and fall back to **0..1**
+  when it declares none. `samples/SvgViewer` is the full viewer built on the same idea.
 
 ## How the extension works
 

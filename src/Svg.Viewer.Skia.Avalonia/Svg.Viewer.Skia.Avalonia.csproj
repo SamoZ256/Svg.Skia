@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <EnableDefaultCompileItems>False</EnableDefaultCompileItems>
+    <EnableDefaultItems>False</EnableDefaultItems>
+    <IsPackable>True</IsPackable>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Svg.Viewer.Skia.Avalonia</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Description>Reusable Avalonia SVG viewer: open a drawing, zoom and pan it, and drive the parameters it declares through the SVG expression extension.</Description>
+    <PackageId>Svg.Viewer.Skia.Avalonia</PackageId>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>svg;viewer;avalonia;skia;zoom;pan;expressions;parameters</PackageTags>
+  </PropertyGroup>
+
+  <Import Project="..\..\build\SourceLink.props" />
+  <Import Project="..\..\build\SignAssembly.props" />
+  <Import Project="..\..\build\ReferenceAssemblies.props" />
+  <Import Project="..\..\build\Avalonia.props" />
+  <Import Project="..\..\build\Avalonia.Skia.props" />
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skia.Controls.Avalonia\Skia.Controls.Avalonia.csproj" />
+    <ProjectReference Include="..\Svg.Skia\Svg.Skia.csproj" />
+    <ProjectReference Include="..\Svg.Expressions\Svg.Expressions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Controls.ColorPicker" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="**\*.cs" Exclude="obj\**;bin\**" />
+    <AvaloniaXaml Include="**\*.axaml" Exclude="obj\**;bin\**" />
+  </ItemGroup>
+
+</Project>

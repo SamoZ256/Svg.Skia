@@ -64,6 +64,7 @@ SVG renderers ignore:
 <defs>
   <e:code>
     <e:param name="t"    type="number"  default="0" />
+    <e:param name="hue"  type="number"  default="217" min="0" max="360" step="1" />
     <e:param name="tint" type="color"   />
     <e:param name="bold" type="boolean" default="false" />
 
@@ -102,6 +103,23 @@ public static SKPicture Record(SKColor? tint = null)
 
 Passing `null`, or omitting the argument, gives the declared default. A colour parameter *without* a
 default is generated as a plain required `SKColor`, unchanged.
+
+`min`, `max` and `step` describe the range a host should offer — the ends of a slider, and its
+increment. All three are optional, and each is an expression like `default` is, so `max="tau"`,
+`max="100%"` and `step="1/60"` all work.
+
+```xml
+<e:param name="hue"  type="number" default="217" min="0" max="360" step="1" />
+<e:param name="fade" type="number" default="0.5" step="5%" />
+```
+
+`min` and `max` are given together or not at all. `step` may stand alone, against the range of `0` to
+`1` a parameter has when it declares none. All three are for `number` only — a colour or boolean
+carrying one is an error, as is a `min` above its `max`, or a `step` of zero or less.
+
+They are **advice to a host, not a constraint on the value**. Nothing clamps: a value supplied at run
+time is accepted wherever it lies, a `default` outside its own range is legal, and generated code
+does not mention the range at all.
 
 **`<e:let>`** declares a local. Its type is **inferred** from the expression. Lets resolve in
 document order, so a let may reference parameters and earlier lets, but not later ones.
@@ -452,8 +470,9 @@ fails the build. Diagnostics are not yet mapped to a location in the `.svg` file
 Checks include: unknown names (listing what is in scope), unknown functions (listing what
 exists), wrong arity, wrong argument types, mismatched conditional branches, arithmetic on
 colours, a paint expression that is not a colour, a `visibility` expression that is not a
-boolean, forward references between lets, redeclaring a built-in, duplicate names, and a parameter
-without a default declared after one that has one.
+boolean, forward references between lets, redeclaring a built-in, duplicate names, a parameter
+without a default declared after one that has one, a `min`/`max`/`step` on something that is not a
+number, one end of a range without the other, a reversed range, and a `step` of zero or less.
 
 ---
 
@@ -470,7 +489,9 @@ a number rather than something that varies per call.
 **`display` is not supported.** Unlike `visibility` it affects layout, so it feeds those same
 bounding boxes and runs into the same problem as geometry.
 
-**No design-time preview.** See [§2](#2-the-placeholder-mechanism).
+**No design-time preview.** See [§2](#2-the-placeholder-mechanism). `Svg.Viewer.Skia.Avalonia`
+is the answer at run time: it opens a drawing and builds a control per declared parameter, and
+`samples/SvgViewer` is that viewer as an application.
 
 **`{{` conflicts with C# raw string literals.** `$"""... {{ x }} ..."""` fails to compile
 (CS9006). Use a non-interpolated `"""..."""` literal.
@@ -489,6 +510,7 @@ svg.Load("badge.svg");                       // renders the placeholders
 foreach (var parameter in svg.ExpressionParameters)
 {
     // Name, Type, and DefaultExpression if the document declares one.
+    // ResolveRange() gives a number's slider bounds, declared or the 0..1 fallback.
 }
 
 svg.SetExpressionValues(new Dictionary<string, ExprValue>

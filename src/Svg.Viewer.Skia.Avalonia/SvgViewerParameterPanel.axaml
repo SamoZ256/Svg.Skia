@@ -1,0 +1,59 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia"
+             x:Class="Svg.Viewer.Skia.Avalonia.SvgViewerParameterPanel">
+
+  <UserControl.DataTemplates>
+
+    <!-- Resolved by the concrete row type, so there is no selector to keep in step. -->
+    <DataTemplate DataType="viewer:SvgViewerNumberParameter">
+      <StackPanel Spacing="2" Margin="0,0,0,10">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Grid.Column="0" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <NumericUpDown Grid.Column="1"
+                         Width="110"
+                         Value="{Binding Value, Mode=TwoWay}"
+                         Minimum="{Binding Minimum}"
+                         Maximum="{Binding Maximum}"
+                         Increment="{Binding TickFrequency}"
+                         ShowButtonSpinner="False" />
+        </Grid>
+        <Slider Minimum="{Binding Minimum}"
+                Maximum="{Binding Maximum}"
+                TickFrequency="{Binding TickFrequency}"
+                IsSnapToTickEnabled="{Binding HasStep}"
+                Value="{Binding Value, Mode=TwoWay}" />
+        <TextBlock Text="{Binding ErrorText}" IsVisible="{Binding HasError}"
+                   Foreground="#FF5555" FontSize="11" TextWrapping="Wrap" />
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="viewer:SvgViewerBooleanParameter">
+      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+        <TextBlock Grid.Column="0" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+        <CheckBox Grid.Column="1" IsChecked="{Binding Value, Mode=TwoWay}" />
+      </Grid>
+    </DataTemplate>
+
+    <DataTemplate DataType="viewer:SvgViewerColorParameter">
+      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+        <TextBlock Grid.Column="0" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+        <ColorPicker Grid.Column="1" Color="{Binding Color, Mode=TwoWay}" />
+      </Grid>
+    </DataTemplate>
+
+  </UserControl.DataTemplates>
+
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="10">
+
+      <TextBlock x:Name="EmptyLabel"
+                 Text="This drawing declares no parameters."
+                 Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+      <ItemsControl x:Name="Rows" />
+
+    </StackPanel>
+  </ScrollViewer>
+
+</UserControl>

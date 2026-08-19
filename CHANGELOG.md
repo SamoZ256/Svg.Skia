@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+* Added `Svg.Viewer.Skia.Avalonia`, a reusable Avalonia viewer for drawings using the expression
+  extension, with `samples/SvgViewer` as the application built on it. It opens a file by picker or
+  drop, zooms and pans — wheel about the cursor, drag, and fit / 1:1 / reset with a percentage
+  readout — and builds a control per declared parameter: a slider honouring any `min`/`max`/`step`
+  for a `number`, a colour picker for a `color`, a checkbox for a `boolean`, each seeded by
+  *evaluating* the declared `default` rather than parsing it, so `default="tau / 4"` works. Nothing
+  blanks the drawing: a failed load keeps the previous document, a malformed `<e:code>` block is
+  reported but still renders its placeholders, and a rejected value leaves the last good rendering in
+  place. It draws onto `SKCanvasControl` and owns its transform rather than using the
+  `Avalonia.Svg.Skia.Svg` control, which sizes itself to the drawing it fits — a 100x100 document in
+  a 400x200 pane arranges at 200x200 — and so cannot fill a viewport.
+
+  Opening through the **file picker** currently crashes on macOS with Avalonia 12.0.0, inside the
+  native storage provider as the panel is dismissed. `samples/TestApp` crashes there identically, so
+  the fault is upstream rather than in this package, and it reproduces in a bare Avalonia app. The
+  workaround is `AppBuilder.UseManagedSystemDialogs()`, Avalonia's own managed picker, which
+  `samples/SvgViewer` applies on macOS; dropping a file on the viewer or handing a path to
+  `LoadAsync` avoids the picker entirely.
+
+  Zooming is on the scroll wheel and on `Ctrl`/`Cmd` `+`/`-`/`0`/`1` as well as the toolbar. A
+  trackpad two finger scroll arrives as a wheel event with a fractional delta and so zooms smoothly
+  on the same curve a mouse notch steps along. A trackpad *pinch* is a separate platform gesture that
+  Avalonia 12.0.0 raises only through its internal `Gestures` class, so it cannot be subscribed to
+  from outside the framework yet.
+
+* `<e:param>` now takes optional `min`, `max` and `step` attributes describing the range a host
+  should offer for a `number` — the ends of a slider and its increment. Each is an expression like
+  `default` is, so `max="tau"` and `step="1/60"` work, and each resolves against nothing at all, so a
+  bound cannot reference another parameter. `min` and `max` come as a pair; `step` may stand alone
+  against the 0..1 a parameter has when it declares none. `SvgExpressionParameter` grows
+  `MinExpression`, `MaxExpression`, `StepExpression`, `HasRange` and `ResolveRange()`, the last of
+  which is total and returns that 0..1 fallback — exactly the range hosts hardcoded before the format
+  could express anything else. The range is advice to a host and never a constraint: nothing clamps,
+  a `default` outside its own range is legal, and **generated code is unchanged**, since the code
+  generator has no use for it. Whether a range is structurally allowed is settled while the
+  declarations are read, so a range on a colour is caught immediately; whether the numbers make sense
+  is settled by `ResolveRange()`, because reading a document must not evaluate anything.
+
 * A `color` parameter may now declare a `default`. It could not before, because `new SKColor(...)`
   is not a C# compile-time constant (CS1736) — a limit of the target language that had leaked into
   the format, since the runtime evaluator always handled such a default without a special case. A

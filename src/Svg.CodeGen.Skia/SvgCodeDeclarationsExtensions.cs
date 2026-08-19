@@ -134,7 +134,7 @@ public static class SvgCodeDeclarationsExtensions
 
         // Defaults may not reference other parameters: argument defaults are compile time
         // constants in C#, and an ordering dependency between them would be invisible here. A
-        // colour default is refused earlier still, while the declarations are read.
+        // colour default is emitted through a local instead, see ColourFallbacks.
         var compiler = new ExprCompiler(new Dictionary<string, ExprType>(StringComparer.Ordinal));
 
         return compiler.CompileTo(

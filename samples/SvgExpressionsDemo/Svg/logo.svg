@@ -4,9 +4,9 @@
 
   <defs>
     <e:code>
-      <e:param name="t" type="number" default="0" />
-      <e:param name="hue" type="number" default="0.52" />
-      <e:param name="pulse" type="number" default="1" />
+      <e:param name="t" type="number" default="0" min="0" max="1" step="0.01" />
+      <e:param name="hue" type="number" default="0.52" min="0" max="1" />
+      <e:param name="pulse" type="number" default="1" min="0" max="2" />
       <e:param name="bold" type="boolean" default="false" />
 
       <e:let name="wave">(sin(t * tau) + 1) / 2</e:let>

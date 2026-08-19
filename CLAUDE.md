@@ -228,6 +228,16 @@ reader.** `Parse` works from source text (`svgc`, the source generator);
 has. The text reader exists because a foreign element's namespace is `protected internal` and so
 invisible outside `Svg.Custom`. Their diagnostics are asserted identical.
 
+**`min`/`max`/`step` on `<e:param>` are expression text, checked in two places on purpose.** The
+structural rules — number-typed only, both ends or neither — are `Builder` rules, so both readers
+report them identically and a range on a colour fails at read time. The numeric ones (`min <= max`,
+`step > 0`) need values, so they live in `SvgExpressionParameter.ResolveRange()`, which shares
+`ExprEvaluator.Isolated` with the `default` resolver so the two cannot resolve against different
+scopes. Reading a document has to stay evaluation-free: `SKSvg.Load` never evaluates, and
+`SvgDocument.ExpressionDeclarations` is recomputed on every access. `ResolveRange()` is total and
+falls back to 0..1, the code generator ignores the range entirely, and nothing clamps a bound value
+to it.
+
 **A `color` parameter with a `default` emits `SKColor? tint = null`** plus a local coalescing to the
 default, because `new SKColor(…)` is not a C# constant (CS1736). The body reads that local — C#
 forbids shadowing — via a symbol-rewrite map on `ExprCompiler`. Local names come from
@@ -271,6 +281,14 @@ building a scene model. A whole build — drawings plus settings — is describe
 the drawings and is folded into them as the project is read, so `SvgcProject.Items` is a flat
 list of resolved items whether the file uses groups or not, and nothing downstream knows. The source generator has no equivalent, so
 generator-driven projects convert ahead of time and check in the result.
+
+`src/Svg.Viewer.Skia.Avalonia` is the viewer, with `samples/SvgViewer` as its shell. It draws onto
+`SKCanvasControl` and owns its own scale and offset rather than using `Avalonia.Svg.Skia.Svg`, whose
+`ArrangeOverride` returns `Stretch.CalculateSize(...)` — the control is always exactly the fitted
+drawing, so it cannot fill a viewport and its `Zoom`/`PanX`/`PanY` are bounded by its own clip.
+Loading is the only thing off the UI thread; values are bound with `SetExpressionValues` on the UI
+thread, coalesced to one call per frame, and the render thread draws through `SKSvg.Draw`, which
+brackets `BeginDraw`/`EndDraw` so the picture cannot be disposed under it.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.
