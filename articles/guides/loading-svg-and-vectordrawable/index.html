@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html data-lunet-theme-mode="system" data-lunet-theme-storage-key="lunet-theme" data-lunet-css-prefix="lunet" lang="en" itemscope itemtype="http://schema.org/WebPage">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="generator" content="lunet 1.0.10.0">
+    <script>(function(){const root=document.documentElement;const key=root.getAttribute("data-lunet-theme-storage-key")||"lunet-theme";const fallback=root.getAttribute("data-lunet-theme-mode")||"system";let stored=null;try{stored=localStorage.getItem(key);}catch(_){stored=null;}const mode=(stored==="light"||stored==="dark"||stored==="system")?stored:fallback;const prefersDark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches;const resolved=mode==="system"?(prefersDark?"dark":"light"):mode;root.setAttribute("data-lunet-theme-mode",mode);root.setAttribute("data-bs-theme",resolved);}());</script>
+    <link rel='icon' href='/Svg.Skia/favicon.ico' sizes='32x32'>
+    <title>Loading SVG, SvgDocument, and VectorDrawable | Svg.Skia</title>
+    <link rel="stylesheet" href="/Svg.Skia/css/lite.css">
+    <script src="/Svg.Skia/js/lite-defer.js" defer></script>
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@wieslawsoltes">
+<meta name="twitter:title" content="Loading SVG, SvgDocument, and VectorDrawable | Svg.Skia">
+<meta name="twitter:description" content="Loading SVG, SvgDocument, and VectorDrawable SKSvg exposes several load surfaces because the repository supports both &quot;parse from source&quot; and &quot;render an already-owned document&quot; workflows. Choose the right load API Use Load(path) when the source is a file or resource path and you want auto-detection for .svg, .svgz, and Android VectorDrawable XML. Use Load(stream, parameters, baseUri) when the input already lives in memory or when external assets need a base URI...">
+<meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
+<meta name="twitter:image:alt" content="Loading SVG, SvgDocument, and VectorDrawable | Svg.Skia">
+<meta property="og:title" content="Loading SVG, SvgDocument, and VectorDrawable | Svg.Skia">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
+<meta property="og:description" content="Loading SVG, SvgDocument, and VectorDrawable SKSvg exposes several load surfaces because the repository supports both &quot;parse from source&quot; and &quot;render an already-owned document&quot; workflows. Choose the right load API Use Load(path) when the source is a file or resource path and you want auto-detection for .svg, .svgz, and Android VectorDrawable XML. Use Load(stream, parameters, baseUri) when the input already lives in memory or when external assets need a base URI...">
+<meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
+<meta property="og:image:alt" content="Loading SVG, SvgDocument, and VectorDrawable | Svg.Skia">
+  </head>
+  <body>
+
+    <div id="lunet" class="container">
+      <nav class="navbar navbar-expand-md sticky-top">
+        <a class="navbar-brand" href="/Svg.Skia/">
+          <img class="lunet-logo" src="/Svg.Skia/images/logo.svg" alt="Svg.Skia" width="96" height="96">
+          <span class="visually-hidden">Home</span>
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+          data-bs-target="#navbarSupportedContent"
+          aria-controls="navbarSupportedContent"
+          aria-expanded="false"
+          aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div id="navbarSupportedContent" class="collapse navbar-collapse justify-content-between">
+<ol id='nav-id-home-0' class='navbar-nav nav-level0 show '>
+  <li id='nav-item-home-1' class='nav-item '>
+    <span class='nav-item-row'><a href='/Svg.Skia/' class='nav-link  '><i class='bi bi-house-door' aria-hidden='true'></i> Home</a></span>  </li>
+  <li id='nav-item-home-2' class='nav-item  active'>
+    <span class='nav-item-row'><a href='/Svg.Skia/articles/' class='nav-link  '><i class='bi bi-book' aria-hidden='true'></i> Docs</a></span>  </li>
+  <li id='nav-item-home-3' class='nav-item '>
+    <span class='nav-item-row'><a href='/Svg.Skia/api/' class='nav-link  '><i class='bi bi-braces' aria-hidden='true'></i> API</a></span>  </li>
+</ol>
+          <ol class="navbar-nav flex-grow-1" style="padding-right: 0.5rem;">
+            <li class="nav-item w-100">
+                <div class="lunet-search dropdown w-100">
+                  <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input id="search-input" type="search" class="form-control" placeholder="Search... (Alt+s)" aria-label="Search" aria-controls="search-results" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-search-empty-message="Enter words to search..." data-search-no-results-message="No results found.">
+                    <ul id="search-results" class="dropdown-menu w-100 p-0" style="max-height: 50vh;" role="listbox" aria-labelledby="search-input"></ul>
+                  </div>
+                </div>
+            </li>
+          </ol>
+          <div class="d-flex align-items-center gap-2 flex-shrink-0 navbar-right">
+            <div class="dropdown">
+              <button
+                id="theme-mode-toggle"
+                class="btn btn-outline-secondary btn-sm lunet-theme-toggle dropdown-toggle"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+                aria-label="Theme">
+                <i class="bi bi-circle-half" data-lunet-theme-toggle-icon aria-hidden="true"></i>
+                <span
+                  data-lunet-theme-toggle-label
+                  data-theme-system-label="System"
+                  data-theme-light-label="Light"
+                  data-theme-dark-label="Dark">Theme</span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="theme-mode-toggle">
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="system"><i class="bi bi-circle-half me-2"></i>System</button></li>
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="light"><i class="bi bi-sun-fill me-2"></i>Light</button></li>
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="dark"><i class="bi bi-moon-stars-fill me-2"></i>Dark</button></li>
+              </ul>
+            </div>
+<ol id='nav-id-home2-0' class='navbar-nav nav-level0 show flex-shrink-0'>
+  <li id='nav-item-home2-1' class='nav-item '>
+    <span class='nav-item-row'><a href='https://github.com/wieslawsoltes/Svg.Skia' class='nav-link  btn btn-info'><i class="bi bi-github"></i> GitHub</a></span>  </li>
+</ol>
+          </div>
+        </div>
+      </nav>
+      <div class="lunet lunet-articles">
+        <section data-prismjs-copy="" data-prismjs-copy-success="" data-prismjs-copy-timeout="1200" data-copy-tooltip="Copy to Clipboard." data-copy-tooltip-success="Copied!" data-copy-tooltip-error="Failed to copy!">
+
+<div class="container-xxl">
+  <div class="row">
+      <!-- Left sidebar - responsive offcanvas (offcanvas on mobile, visible sidebar on md+) -->
+      <nav id="docs-sidebar-menu" class="col-md-3 col-lg-3 col-xl-3 col-xxl-2 offcanvas-md offcanvas-start sticky-md-top menu-sidebar align-self-start order-1 order-md-0" tabindex="-1" aria-labelledby="docs-sidebar-menu-label" aria-expanded="true">
+        <div class="offcanvas-header">
+          <h5 class="offcanvas-title" id="docs-sidebar-menu-label">Menu</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body">
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-guides.2e32d38b19994f437ccd846af7f6bbd1.html' data-lunet-menu-open='menu-id-guides-0' data-lunet-menu-active='menu-item-guides-2,menu-item-guides-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+        </div>
+      </nav>
+      <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
+      <aside id="docs-sidebar-toc" class="col-12 col-xxl-2 sticky-xxl-top menu-sidebar align-self-start order-0 order-xxl-2 collapse d-xxl-block" aria-expanded="true">
+        <h3 class="toc-title">On this page</h3>
+        <nav class="js-toc"></nav>
+      </aside>
+      <!-- Main content column -->
+      <div class="col-12 col-md-9 col-lg-9 col-xl-9 col-xxl-8 order-2 order-md-1 js-toc-content">
+        <ol class='breadcrumb'>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/' class='breadcrumb-link  '><i class='bi bi-house-door' aria-hidden='true'></i> Home</a>  </li>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/articles/' class='breadcrumb-link  '><i class='bi bi-book' aria-hidden='true'></i> Docs</a>  </li>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/articles/guides/' class='breadcrumb-link  '>Guides</a>  </li>
+          <li class='breadcrumb-item  active'>
+            Loading SVG, SvgDocument, and VectorDrawable  </li>
+        </ol>
+
+        <p id="lunet-results"></p>
+        <!-- Toggle buttons visible only on small screens -->
+        <div class="d-md-none mb-3">
+          <button
+            class="btn btn-outline-secondary btn-sm me-2"
+            type="button"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#docs-sidebar-menu"
+            aria-controls="docs-sidebar-menu"
+            aria-label="Toggle docs menu">
+            Menu
+          </button>
+          <button
+            class="btn btn-outline-secondary btn-sm d-xxl-none"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#docs-sidebar-toc"
+            aria-controls="docs-sidebar-toc"
+            aria-expanded="false"
+            aria-label="Toggle Table Of Contents">
+            On this page
+          </button>
+        </div>
+<!-- lunet:summarize -->
+<h1 id="loading-svg-svgdocument-and-vectordrawable">Loading SVG, SvgDocument, and VectorDrawable</h1>
+<p><code>SKSvg</code> exposes several load surfaces because the repository supports both &quot;parse from source&quot; and &quot;render an already-owned document&quot; workflows.</p>
+<h2 id="choose-the-right-load-api">Choose the right load API</h2>
+<ul>
+<li>Use <code>Load(path)</code> when the source is a file or resource path and you want auto-detection for <code>.svg</code>, <code>.svgz</code>, and Android <code>VectorDrawable</code> XML.</li>
+<li>Use <code>Load(stream, parameters, baseUri)</code> when the input already lives in memory or when external assets need a base URI for resolution.</li>
+<li>Use <code>Load(XmlReader)</code> when an upstream XML pipeline is already creating readers.</li>
+<li>Use <code>FromSvg(string)</code> when raw markup is already in memory.</li>
+<li>Use <code>FromSvgDocument(SvgDocument)</code> when your code already parsed or generated a <code>SvgDocument</code>.</li>
+<li>Use <code>LoadVectorDrawable(...)</code> or <code>FromVectorDrawable(...)</code> when the source is explicitly Android drawable XML.</li>
+</ul>
+<h2 id="files-streams-base-uris-and-xml-readers">Files, streams, base URIs, and XML readers</h2>
+<pre><code class="language-csharp">using System;
+using System.IO;
+using System.Xml;
+using Svg.Skia;
+
+using var svgFromFile = new SKSvg();
+svgFromFile.Load(&quot;image.svg&quot;);
+
+using var stream = File.OpenRead(&quot;image.svg&quot;);
+using var svgFromStream = new SKSvg();
+svgFromStream.Load(stream, parameters: null, baseUri: new Uri(&quot;file:///Users/me/Assets/&quot;));
+
+using var reader = XmlReader.Create(new StringReader(&quot;&lt;svg width=\&quot;16\&quot; height=\&quot;16\&quot; /&gt;&quot;));
+using var svgFromReader = new SKSvg();
+svgFromReader.Load(reader);
+</code></pre>
+<h2 id="reusable-factory-helpers">Reusable factory helpers</h2>
+<p>If you prefer one-shot helpers, <code>SKSvg</code> exposes factory methods:</p>
+<ul>
+<li><code>CreateFromFile(...)</code></li>
+<li><code>CreateFromStream(...)</code></li>
+<li><code>CreateFromSvg(...)</code></li>
+<li><code>CreateFromSvgDocument(...)</code></li>
+<li><code>CreateFromVectorDrawable(...)</code></li>
+</ul>
+<h2 id="raw-svg-strings-and-parsed-documents">Raw SVG strings and parsed documents</h2>
+<p>When parsing is already done elsewhere, loading from a <code>SvgDocument</code> avoids reparsing text and makes the document available immediately through <code>SKSvg.SourceDocument</code>.</p>
+<pre><code class="language-csharp">using Svg;
+using Svg.Model.Services;
+using Svg.Skia;
+
+var svgText = &quot;&lt;svg width=\&quot;16\&quot; height=\&quot;16\&quot;&gt;&lt;circle cx=\&quot;8\&quot; cy=\&quot;8\&quot; r=\&quot;8\&quot; fill=\&quot;red\&quot; /&gt;&lt;/svg&gt;&quot;;
+
+using var svgFromText = new SKSvg();
+svgFromText.FromSvg(svgText);
+
+var document = SvgService.FromSvg(svgText);
+using var svgFromDocument = new SKSvg();
+svgFromDocument.FromSvgDocument(document);
+</code></pre>
+<p>If you plan to mutate the DOM later, <code>FromSvgDocument(...)</code> is the most direct starting point because your code already owns the document instance.</p>
+<h2 id="reloading-with-different-css-or-entity-parameters">Reloading with different CSS or entity parameters</h2>
+<p><code>ReLoad(...)</code> reparses the original input using a new <code>SvgParameters</code> value. This is useful when the source stays the same but the CSS or XML entities change.</p>
+<pre><code class="language-csharp">using Svg.Model;
+using Svg.Skia;
+
+SKSvg.CacheOriginalStream = true;
+
+using var svg = new SKSvg();
+svg.Load(&quot;image.svg&quot;, new SvgParameters(null, &quot;.accent { fill: red; }&quot;));
+
+svg.ReLoad(new SvgParameters(null, &quot;.accent { fill: blue; }&quot;));
+</code></pre>
+<p><code>ReLoad(...)</code> requires <code>SKSvg.CacheOriginalStream = true</code> when the original source came from a stream.</p>
+<h2 id="avalonia-resource-and-document-loading">Avalonia resource and document loading</h2>
+<p>The Skia-backed Avalonia package exposes both path-based loading and document-based loading:</p>
+<pre><code class="language-csharp">using Avalonia.Svg.Skia;
+using Svg;
+
+var source = SvgSource.Load(&quot;avares://MyAssembly/Assets/Icon.svg&quot;, baseUri: null);
+var documentSource = SvgSource.LoadFromSvgDocument(new SvgDocument());
+</code></pre>
+<p>Use <code>SvgSource.LoadFromSvgDocument(...)</code> when an editor or tool already owns a <code>SvgDocument</code> and the control should render that DOM directly.</p>
+<h2 id="vectordrawable-handling">VectorDrawable handling</h2>
+<p>Use these APIs when the source is Android XML:</p>
+<pre><code class="language-csharp">using Svg.Skia;
+
+using var svg = new SKSvg();
+svg.LoadVectorDrawable(&quot;icon.xml&quot;);
+</code></pre>
+<p>Or convert raw XML directly:</p>
+<pre><code class="language-csharp">using Svg.Skia;
+
+using var svg = new SKSvg();
+svg.FromVectorDrawable(vectorDrawableXml);
+</code></pre>
+<p><code>Load(path)</code> also auto-detects <code>VectorDrawable</code> XML from the file contents, so the explicit methods are mainly for callers that want a fixed code path.</p>
+<p>The repository tests cover:</p>
+<ul>
+<li>width and viewport validation,</li>
+<li>clip-path behavior,</li>
+<li>group transforms,</li>
+<li>supported and unsupported Android attributes,</li>
+<li>equivalence between representative VectorDrawable and SVG examples.</li>
+</ul>
+
+      </div>
+  </div>
+</div>
+
+        </section>
+        <footer>
+          <hr>
+          <p>Copyright &copy; 2026, Wieslaw Soltes aka <a href="https://github.com/wieslawsoltes">wieslawsoltes</a> - Content licensed under the Creative Commons <a href="http://creativecommons.org/licenses/by/2.5/">CC BY 2.5</a> | Site generated by <a href="https://github.com/lunet-io/lunet">lunet</a> hosted on <a href="https://pages.github.com/">GitHub Pages</a></p>
+        </footer>
+      </div>
+    </div>
+
+  </body>
+</html>
