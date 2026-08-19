@@ -61,6 +61,19 @@ With Avalonia 12.0.0 on macOS, dismissing the native open panel crashes the proc
 there identically, so this is upstream and not specific to this package or to the options it
 passes.
 
-Until it is fixed upstream, open a drawing by **dropping it on the viewer** or by handing a path to
-`LoadAsync`; neither goes near that code path. `samples/SvgViewer` also accepts a path on the
-command line for the same reason.
+The workaround is Avalonia's own managed picker, which the framework draws itself:
+
+```csharp
+var builder = AppBuilder.Configure<App>().UsePlatformDetect().UseSkia();
+
+if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+{
+    builder = builder.UseManagedSystemDialogs();   // needs Avalonia.Dialogs
+}
+```
+
+It is an application-wide switch, so it belongs to the host rather than to this library;
+`samples/SvgViewer` applies it on macOS. Measured against a bare Avalonia app, dismissing the native
+panel exits with SIGSEGV while the managed one returns normally.
+
+Dropping a file on the viewer and handing a path to `LoadAsync` also avoid the picker entirely.

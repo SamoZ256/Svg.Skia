@@ -16,8 +16,10 @@
 
   Opening through the **file picker** currently crashes on macOS with Avalonia 12.0.0, inside the
   native storage provider as the panel is dismissed. `samples/TestApp` crashes there identically, so
-  the fault is upstream rather than in this package. Dropping a file on the viewer, or handing a path
-  to `LoadAsync`, avoids that path entirely, and `samples/SvgViewer` takes a path on the command line.
+  the fault is upstream rather than in this package, and it reproduces in a bare Avalonia app. The
+  workaround is `AppBuilder.UseManagedSystemDialogs()`, Avalonia's own managed picker, which
+  `samples/SvgViewer` applies on macOS; dropping a file on the viewer or handing a path to
+  `LoadAsync` avoids the picker entirely.
 
 * `<e:param>` now takes optional `min`, `max` and `step` attributes describing the range a host
   should offer for a `number` — the ends of a slider and its increment. Each is an expression like

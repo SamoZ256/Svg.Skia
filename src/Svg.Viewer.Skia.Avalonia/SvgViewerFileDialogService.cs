@@ -25,9 +25,12 @@ public class SvgViewerFileDialogService : ISvgViewerFileDialogService
     // That is consistency, not a fix. On macOS with Avalonia 12.0.0 the native storage provider
     // crashes as the panel is dismissed -- inside the completion block of
     // StorageProvider::OpenFileDialog, reached from -[NSSavePanel didEndPanelWithReturnCode:], with
-    // no managed frames. samples/TestApp crashes there identically, so the fault is upstream and
-    // nothing about the options passed here avoids it. Hosts that need to open a file today can
-    // drop one on the viewer, or hand it a path.
+    // no managed frames. It reproduces in a bare Avalonia app with no code from here in it, so
+    // nothing about the options passed below avoids it.
+    //
+    // A host works around it with AppBuilder.UseManagedSystemDialogs(), which swaps in the picker
+    // Avalonia draws itself and never reaches that code. It is an application-wide switch, so it is
+    // the host's to make rather than this library's -- samples/SvgViewer applies it on macOS.
     private static readonly FilePickerFileType AllFileType = new("All")
     {
         Patterns = new[] { "*.*" },
