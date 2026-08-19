@@ -4,7 +4,7 @@ title: "Svg.Viewer.Skia.Avalonia"
 
 # Svg.Viewer.Skia.Avalonia
 
-`Svg.Viewer.Skia.Avalonia` is an embeddable SVG viewer for the [expression extension](../../../SVG_EXPRESSIONS.md): it opens a drawing, zooms and pans it, and builds a control for every parameter the document declares.
+`Svg.Viewer.Skia.Avalonia` is an embeddable SVG viewer for the SVG expression extension: it opens a drawing, zooms and pans it, and builds a control for every parameter the document declares.
 
 ## Install
 
@@ -61,6 +61,8 @@ A `number` parameter uses the `min`, `max` and `step` its author declared, falli
 
 Every row is seeded by *evaluating* the declared `default`, so `default="tau / 4"` works as well as a literal does.
 
+The format itself — `<e:code>`, the operators, and the placeholder mechanism — is specified in `SVG_EXPRESSIONS.md` at the root of the repository.
+
 ## Two things worth knowing
 
 It does **not** host `Avalonia.Svg.Skia.Svg`. That control sizes itself to the drawing it fits, so it cannot fill a viewport and its zoom is bounded by its own clip. The viewer draws onto `SKCanvasControl` and owns the transform, which is what makes fit and actual-size exact.
@@ -69,6 +71,6 @@ Loading is the only work off the UI thread. Binding a value evaluates a model th
 
 ## Related docs
 
-- [SVG Expressions](../../../SVG_EXPRESSIONS.md)
+- [Source Generator and svgc](../guides/source-generator-and-svgc)
 - [Svg.Controls.Skia.Avalonia](svg-controls-skia-avalonia)
 - [Skia.Controls.Avalonia](skia-controls-avalonia)
