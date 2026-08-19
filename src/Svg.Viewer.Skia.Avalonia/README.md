@@ -50,6 +50,10 @@ no UI, for a host that only wants the loading and seeding.
 
 Replace `FileDialogService` to open files some other way; the default is the platform picker.
 
+No extra theme setup is needed. `ColorPicker` keeps its control theme in its own assembly rather
+than in `FluentTheme`, so `SvgViewerParameterPanel` includes it itself — a host that forgets would
+otherwise get a colour row templated with nothing, present in the tree and invisible on screen.
+
 ## Two things worth knowing
 
 **It does not use the `Avalonia.Svg.Skia.Svg` control.** That control sizes itself to the drawing it

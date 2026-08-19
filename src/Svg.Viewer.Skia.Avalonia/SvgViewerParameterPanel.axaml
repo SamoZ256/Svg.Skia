@@ -3,6 +3,14 @@
              xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia"
              x:Class="Svg.Viewer.Skia.Avalonia.SvgViewerParameterPanel">
 
+  <UserControl.Styles>
+    <!-- ColorPicker ships its control theme in its own assembly, not in FluentTheme. Without this
+         the picker is created and templated with nothing, so a colour parameter shows an empty gap
+         where its control should be. Included here rather than left to the host, so a consumer that
+         drops this panel in gets a working picker without knowing any of that. -->
+    <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml" />
+  </UserControl.Styles>
+
   <UserControl.DataTemplates>
 
     <!-- Resolved by the concrete row type, so there is no selector to keep in step. -->
