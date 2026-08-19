@@ -5,11 +5,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `AGENTS.md` also applies — it covers commit/PR conventions and the W3C Chrome-override capture
 workflow in detail. This file covers build commands and architecture.
 
-## Do not commit without asking
+## Do not commit or branch without asking
 
 Leave finished work in the working tree and say it is ready. Ask before running `git commit`, and
 wait for an answer — "the change is complete" is not permission to commit it. The same goes for
-`git push` and anything else that leaves the working tree.
+`git push`, for creating a branch (`git checkout -b`, `git switch -c`, `git branch`), and for
+anything else that leaves the working tree or moves what HEAD points at.
+
+A branch is not a harmless preliminary. It decides how the work will land, which is a decision to
+raise before starting rather than to present as already taken. Being told to commit says nothing
+about branching, so ask for that separately unless the instruction named a branch itself.
+
+## Prefer removing code to adding it
+
+A change that deletes more than it writes is the better change. Before adding a helper, a type or an
+option, look for the one already doing that job and widen it; before adding a branch, see whether
+the case can be stopped from arising instead. Net additions are worth a sentence saying what was
+reused and what could not be — a feature that lands as pure addition has usually missed a seam.
 
 ## Setup
 
