@@ -88,23 +88,14 @@ public partial class MainWindow : Window
     {
         var viewer = new ViewerControl();
 
-        var title = new TextBlock
-        {
-            Text = "Untitled",
-            // A drawing called something long must not push every other tab out of the strip.
-            MaxWidth = 180,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        // Both are dressed by the window's styles, which is also where the trimming that keeps one
+        // long file name from filling the strip lives.
+        var title = new TextBlock { Text = "Untitled", Classes = { "title" } };
 
         var close = new Button
         {
             Content = "✕",
-            FontSize = 11,
-            Padding = new Thickness(5, 1),
-            Background = Brushes.Transparent,
-            BorderThickness = default,
-            VerticalAlignment = VerticalAlignment.Center,
+            Classes = { "close" },
             [ToolTip.TipProperty] = "Close this drawing"
         };
 
@@ -113,7 +104,7 @@ public partial class MainWindow : Window
             Header = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = 8,
+                Spacing = 6,
                 Children = { title, close }
             },
             Content = viewer
