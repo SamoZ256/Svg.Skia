@@ -1,6 +1,8 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -64,6 +66,9 @@ public class MainWindowTabsTests
             // The same request the toolbar's Open and a drop both raise, which is what the window
             // turns into a tab each.
             Assert.True(await first.OpenAsync(paths));
+
+            // Laid out, for the tests that measure tabs. The drawings are already in: the window
+            // hands back what it started and OpenAsync waits on it.
             Dispatcher.UIThread.RunJobs();
         }
         finally
@@ -80,9 +85,9 @@ public class MainWindowTabsTests
     /// <summary>Waits for the drawing the window opens with.</summary>
     /// <remarks>
     /// The window starts loading its bundled sample as it is constructed, and that load leaves the
-    /// UI thread. A tab holding nothing is reused rather than added to, so a test that opens files
-    /// before the sample lands gets one tab fewer than it asked for — and only on a busy machine,
-    /// which is how this first showed up in a full solution run and not on its own.
+    /// UI thread with nothing to await it by. A tab holding nothing is reused rather than added to,
+    /// so a test that opens files before the sample lands gets one tab fewer than it asked for — on
+    /// a busy machine only, which is how it first showed up in a full solution run.
     /// </remarks>
     private static async Task Settle(TabControl tabs)
     {
@@ -146,6 +151,46 @@ public class MainWindowTabsTests
         Assert.Single(window.FindControl<TabControl>("Tabs")!.Items);
 
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Opening_Has_Finished_By_The_Time_The_Call_Returns()
+    {
+        // The window answers an open request by taking it and loading on its own, so a caller can
+        // only be sure the drawing is there if what the window started is handed back and waited on.
+        //
+        // The drawing is deliberately big. The small ones elsewhere load inside whatever slack the
+        // dispatcher has, which is why this same assertion passed here while failing on all three CI
+        // runners. Nothing below is pumped or polled, on purpose.
+        var (window, tabs) = await Host(0);
+
+        var shapes = new StringBuilder();
+
+        for (var i = 0; i < 4000; i++)
+        {
+            shapes.Append(CultureInfo.InvariantCulture, $"<rect x=\"{i % 100}\" y=\"{i / 100}\" width=\"1\" height=\"1\" fill=\"#3366cc\" />");
+        }
+
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-heavy-{Guid.NewGuid():N}.svg");
+
+        File.WriteAllText(
+            path,
+            $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 40\" width=\"100\" height=\"40\">{shapes}</svg>");
+
+        try
+        {
+            var viewer = (ViewerControl)((TabItem)tabs.Items[0]!).Content!;
+
+            Assert.True(await viewer.OpenAsync(new[] { path }));
+
+            Assert.Equal(2, tabs.Items.Count);
+            Assert.Equal(Path.GetFileName(path), Order(tabs)[1]);
+        }
+        finally
+        {
+            File.Delete(path);
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -224,7 +269,6 @@ public class MainWindowTabsTests
         {
             // An empty tab is filled rather than left standing in front of the drawing.
             Assert.True(await ((ViewerControl)((TabItem)tabs.Items[0]!).Content!).OpenAsync(new[] { path }));
-            Dispatcher.UIThread.RunJobs();
 
             Assert.Single(tabs.Items);
             Assert.Equal(new[] { Path.GetFileName(path) }, Order(tabs));

@@ -159,6 +159,11 @@ public partial class SvgViewer : UserControl
     /// Separate from <see cref="LoadAsync(string)"/> because this is the user asking, which is what
     /// <see cref="OpenRequested"/> is about — a host loading a file itself is not opening anything.
     /// It is also how a test drives a drop without building a drag payload.
+    /// <para>
+    /// Returns whether a drawing is open as a result, and true for a handled request — the host
+    /// placed the paths, and only it knows what became of each. The task waits for whatever the host
+    /// handed back.
+    /// </para>
     /// </remarks>
     public async Task<bool> OpenAsync(IReadOnlyList<string> paths)
     {
@@ -168,6 +173,14 @@ public partial class SvgViewer : UserControl
 
         if (request.Handled)
         {
+            // A host opens on its own schedule, and this method is how a caller waits for it: a task
+            // that completed while the files were still being read would be a lie, and a failure
+            // raised inside one nobody awaits is a failure nobody sees.
+            if (request.Completion is { } opening)
+            {
+                await opening.ConfigureAwait(true);
+            }
+
             return true;
         }
 
@@ -461,4 +474,14 @@ public sealed class SvgViewerOpenRequestedEventArgs : EventArgs
 
     /// <summary>Set by a host that has opened the paths itself, which stops the viewer loading them.</summary>
     public bool Handled { get; set; }
+
+    /// <summary>
+    /// What the host started, for <see cref="SvgViewer.OpenAsync(IReadOnlyList{string})"/> to wait on.
+    /// </summary>
+    /// <remarks>
+    /// The event is synchronous, so a host that opens asynchronously — anything reading a file —
+    /// has otherwise no way to say it has not finished, and its caller would be told the drawing is
+    /// open before it had been read.
+    /// </remarks>
+    public Task? Completion { get; set; }
 }

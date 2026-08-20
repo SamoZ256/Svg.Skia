@@ -286,6 +286,33 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
+    public async Task A_Handled_Request_Waits_For_What_The_Host_Handed_Back()
+    {
+        // Opening is asynchronous wherever it happens, and a host that places the paths itself is
+        // the only one that knows when they are open. Without this the call returns while the files
+        // are still being read, and anything that acts on "opened" acts too early.
+        var (window, viewer) = Host();
+
+        var host = new TaskCompletionSource();
+
+        viewer.OpenRequested += (_, request) =>
+        {
+            request.Handled = true;
+            request.Completion = host.Task;
+        };
+
+        var open = viewer.OpenAsync(new[] { "one.svg" });
+
+        Assert.False(open.IsCompleted);
+
+        host.SetResult();
+
+        Assert.True(await open);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task An_Unhandled_Open_Request_Still_Loads_The_First_Path_That_Works()
     {
         var (window, viewer) = Host();

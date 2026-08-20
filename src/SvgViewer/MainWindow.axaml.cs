@@ -124,7 +124,10 @@ public partial class MainWindow : Window
         viewer.OpenRequested += (_, request) =>
         {
             request.Handled = true;
-            _ = OpenAsync(viewer, request.Paths);
+
+            // Handed back rather than discarded, so whoever asked — the toolbar, a drop, a test —
+            // waits for the drawings instead of for the request being taken.
+            request.Completion = OpenAsync(viewer, request.Paths);
         };
 
         _tabs.Items.Add(item);

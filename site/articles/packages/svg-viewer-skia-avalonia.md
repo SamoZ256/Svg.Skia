@@ -74,10 +74,13 @@ picks or drops before any of them is read:
 ```csharp
 viewer.OpenRequested += (_, request) =>
 {
-    request.Handled = true;   // the viewer loads nothing; the host places the paths itself
-    OpenInTabs(request.Paths);
+    request.Handled = true;                              // the viewer loads nothing
+    request.Completion = OpenInTabsAsync(request.Paths); // what OpenAsync waits on
 };
 ```
+
+Hand back what you started. The event is synchronous, so without `Completion` a host has no way to
+say it has not finished, and `OpenAsync` completes while the files are still being read.
 
 `src/SvgViewer` is that host: one viewer per tab, a new tab per file opened, and `Close` on the
 viewer whose tab goes away.
