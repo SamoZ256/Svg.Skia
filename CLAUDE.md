@@ -300,7 +300,12 @@ generator-driven projects convert ahead of time and check in the result.
 drawing, so it cannot fill a viewport and its `Zoom`/`PanX`/`PanY` are bounded by its own clip.
 Loading is the only thing off the UI thread; values are bound with `SetExpressionValues` on the UI
 thread, coalesced to one call per frame, and the render thread draws through `SKSvg.Draw`, which
-brackets `BeginDraw`/`EndDraw` so the picture cannot be disposed under it.
+brackets `BeginDraw`/`EndDraw` so the picture cannot be disposed under it. The control holds one
+document, so the shell holds one control per tab and handles `OpenRequested` — raised for every
+picked or dropped file before any of them is read — to put each in a tab of its own; `Close` on the
+control is what disposes the document of a tab that goes away. A handled request hands its
+`Completion` back, because the event is synchronous and `OpenAsync` would otherwise complete while
+the files were still being read — which is what failed on CI and passed locally.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.

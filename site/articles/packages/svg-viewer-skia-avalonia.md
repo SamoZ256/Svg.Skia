@@ -44,6 +44,8 @@ await Viewer.LoadAsync("badge.svg");
 | Member | Use it for |
 | --- | --- |
 | `LoadAsync` / `LoadTextAsync` / `OpenAsync` | Opening a drawing from a path, text, stream or picker |
+| `OpenRequested` | Taking over what a picked or dropped file does — a tab per drawing, say |
+| `Close` | Releasing the open document when the viewer itself is discarded |
 | `Parameters` / `ParameterValues` | Reading what is declared and what is bound |
 | `TrySetParameterValue` / `ResetParameters` | Driving values from host UI |
 | `ShowToolBar` / `ShowParameterPanel` / `ShowStatusBar` | Supplying your own chrome |
@@ -62,6 +64,26 @@ A `number` parameter uses the `min`, `max` and `step` its author declared, falli
 Every row is seeded by *evaluating* the declared `default`, so `default="tau / 4"` works as well as a literal does.
 
 The format itself — `<e:code>`, the operators, and the placeholder mechanism — is specified in `SVG_EXPRESSIONS.md` at the root of the repository.
+
+## One document per viewer
+
+The control shows one drawing, and opening another replaces it. A host that wants several at once
+puts a viewer in each pane and handles `OpenRequested`, which is raised for every file the user
+picks or drops before any of them is read:
+
+```csharp
+viewer.OpenRequested += (_, request) =>
+{
+    request.Handled = true;                              // the viewer loads nothing
+    request.Completion = OpenInTabsAsync(request.Paths); // what OpenAsync waits on
+};
+```
+
+Hand back what you started. The event is synchronous, so without `Completion` a host has no way to
+say it has not finished, and `OpenAsync` completes while the files are still being read.
+
+`src/SvgViewer` is that host: one viewer per tab, a new tab per file opened, and `Close` on the
+viewer whose tab goes away.
 
 ## Two things worth knowing
 

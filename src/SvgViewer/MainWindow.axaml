@@ -1,9 +1,137 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia;assembly=Svg.Viewer.Skia.Avalonia"
         x:Class="SvgViewer.MainWindow"
         Width="1180" Height="760"
         MinWidth="720" MinHeight="480"
         Title="SVG viewer">
-  <viewer:SvgViewer x:Name="Viewer" />
+
+  <Window.Styles>
+    <!--
+      Fluent's own TabControl template wraps the tabs onto a second row as they overflow, which
+      pushes the drawing down and moves every tab as one is added. One row that scrolls instead
+      leaves a tab where its owner put it, which is the point of being able to arrange them.
+    -->
+    <!--
+      Fluent styles a TabItem as a pivot header — 24pt type, a sliding pipe under the selected one —
+      which suits three or four sections, not a strip of open documents. These are document tabs:
+      one row of uniform height, the selected one lifted out of the band as a rounded card, the rest
+      quiet until the pointer is over them. Every colour is a neutral grey at low alpha, so the strip
+      sits on whatever the theme paints behind it.
+    -->
+    <Style Selector="TabItem">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}"
+                  BorderBrush="#18808080" BorderThickness="0,0,1,0"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  Height="34">
+            <ContentPresenter Content="{TemplateBinding Header}"
+                              ContentTemplate="{TemplateBinding HeaderTemplate}"
+                              Margin="{TemplateBinding Padding}"
+                              VerticalAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+
+    <Style Selector="TabItem:pointerover">
+      <Setter Property="Background" Value="#14808080" />
+    </Style>
+
+    <Style Selector="TabItem:selected">
+      <Setter Property="Background" Value="#2E808080" />
+      <Setter Property="CornerRadius" Value="5,5,0,0" />
+    </Style>
+
+    <!-- The name of the drawing: quiet on a tab that is not the one being looked at. -->
+    <Style Selector="TabItem TextBlock.title">
+      <Setter Property="MaxWidth" Value="180" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Opacity" Value="0.6" />
+    </Style>
+
+    <Style Selector="TabItem:selected TextBlock.title">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!--
+      The close button has no business looking like a button until it is being used: Fluent's own
+      chrome next to a file name reads as a second control competing with the tab.
+    -->
+    <Style Selector="Button.close">
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="Width" Value="18" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="Padding" Value="0" />
+      <!--
+        Out of sight until the tab is being looked at or pointed at: a row of crosses is what makes
+        a tab strip look busy. It keeps its space so no tab changes width, and nothing can be
+        clicked unseen — reaching it means hovering the tab first, which is what reveals it.
+      -->
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Button.close /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="3" />
+    </Style>
+
+    <Style Selector="TabItem:selected Button.close">
+      <Setter Property="Opacity" Value="0.5" />
+    </Style>
+
+    <Style Selector="TabItem:pointerover Button.close">
+      <Setter Property="Opacity" Value="0.5" />
+    </Style>
+
+    <Style Selector="Button.close:pointerover">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <Style Selector="Button.close:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#38808080" />
+    </Style>
+
+    <Style Selector="Button.close:pressed /template/ ContentPresenter">
+      <Setter Property="Background" Value="#50808080" />
+    </Style>
+
+    <Style Selector="TabControl#Tabs">
+      <Setter Property="ItemsPanel">
+        <ItemsPanelTemplate>
+          <StackPanel Orientation="Horizontal" />
+        </ItemsPanelTemplate>
+      </Setter>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <DockPanel>
+            <Border Name="PART_TabStripBand" DockPanel.Dock="Top" Background="#10808080"
+                    BorderBrush="#20808080" BorderThickness="0,0,0,1">
+              <ScrollViewer Name="PART_TabStrip"
+                            HorizontalScrollBarVisibility="Auto"
+                            VerticalScrollBarVisibility="Disabled">
+                <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+              </ScrollViewer>
+            </Border>
+            <ContentPresenter Name="PART_SelectedContentHost"
+                              Margin="{TemplateBinding Padding}"
+                              Content="{TemplateBinding SelectedContent}"
+                              ContentTemplate="{TemplateBinding SelectedContentTemplate}" />
+          </DockPanel>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+  </Window.Styles>
+
+  <TabControl x:Name="Tabs" Padding="0" />
+
 </Window>

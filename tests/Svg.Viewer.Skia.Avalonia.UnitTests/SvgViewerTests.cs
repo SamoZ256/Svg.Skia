@@ -260,6 +260,99 @@ public class SvgViewerTests
         }
     }
 
+    [AvaloniaFact]
+    public async Task A_Host_That_Takes_The_Open_Request_Gets_The_Paths_And_The_Viewer_Loads_Nothing()
+    {
+        // What the shell does: every file the user picks or drops belongs in a tab of its own, so the
+        // viewer that was asked must not replace the drawing it is showing.
+        var (window, viewer) = await HostLoaded();
+
+        var document = viewer.Document;
+        var requested = new List<string>();
+
+        viewer.OpenRequested += (_, request) =>
+        {
+            requested.AddRange(request.Paths);
+            request.Handled = true;
+        };
+
+        Assert.True(await viewer.OpenAsync(new[] { "one.svg", "two.svg" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "one.svg", "two.svg" }, requested);
+        Assert.Same(document, viewer.Document);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Handled_Request_Waits_For_What_The_Host_Handed_Back()
+    {
+        // Opening is asynchronous wherever it happens, and a host that places the paths itself is
+        // the only one that knows when they are open. Without this the call returns while the files
+        // are still being read, and anything that acts on "opened" acts too early.
+        var (window, viewer) = Host();
+
+        var host = new TaskCompletionSource();
+
+        viewer.OpenRequested += (_, request) =>
+        {
+            request.Handled = true;
+            request.Completion = host.Task;
+        };
+
+        var open = viewer.OpenAsync(new[] { "one.svg" });
+
+        Assert.False(open.IsCompleted);
+
+        host.SetResult();
+
+        Assert.True(await open);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task An_Unhandled_Open_Request_Still_Loads_The_First_Path_That_Works()
+    {
+        var (window, viewer) = Host();
+
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-{Guid.NewGuid():N}.svg");
+        File.WriteAllText(path, Parametric);
+
+        try
+        {
+            Assert.True(await viewer.OpenAsync(new[] { "missing.svg", path }));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(path, viewer.DocumentPath);
+        }
+        finally
+        {
+            File.Delete(path);
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Closing_Releases_The_Document_And_Empties_The_Viewer()
+    {
+        // A host that discards a viewer -- a tab being closed -- is the only thing that disposes the
+        // last document loaded into it.
+        var (window, viewer) = await HostLoaded();
+
+        var document = viewer.Document!;
+
+        viewer.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(viewer.Document);
+        Assert.Empty(viewer.Parameters);
+        Assert.Null(document.Svg.Picture);
+
+        window.Close();
+    }
+
     private static SKColor CentrePixel(Window window)
     {
         var frame = window.CaptureRenderedFrame()
