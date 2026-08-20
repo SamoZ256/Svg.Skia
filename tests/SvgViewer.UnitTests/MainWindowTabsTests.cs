@@ -1,0 +1,401 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Headless;
+using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+using Xunit;
+// Aliased because the shell's namespace and the viewer control share the name SvgViewer.
+using MainWindow = SvgViewer.MainWindow;
+using ViewerControl = Svg.Viewer.Skia.Avalonia.SvgViewer;
+
+namespace SvgViewer.UnitTests;
+
+/// <summary>
+/// The shell's tab strip: a tab per drawing, dragged into the order its owner wants, scrolling
+/// sideways once there are more than fit.
+/// </summary>
+/// <remarks>
+/// Driven through simulated pointer input rather than by calling the handlers, because everything
+/// that makes reordering work is in the plumbing — that a tunnelling handler sees a press
+/// <see cref="TabItem"/> handles itself, that the capture keeps moves arriving once the pointer has
+/// left the tab, and that the close button is not a drag handle. Calling the handlers directly would
+/// assert none of it.
+/// </remarks>
+public class MainWindowTabsTests
+{
+    private const string Drawing = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+          <rect width="24" height="24" fill="#00ff00" />
+        </svg>
+        """;
+
+    /// <summary>Opens a window holding <paramref name="count"/> drawings beyond the one it starts on.</summary>
+    private static async Task<(MainWindow Window, TabControl Tabs)> Host(int count)
+    {
+        var window = new MainWindow();
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+
+        await Settle(tabs);
+
+        var paths = new string[count];
+
+        for (var index = 0; index < count; index++)
+        {
+            paths[index] = Path.Combine(Path.GetTempPath(), $"svg-viewer-tab-{index}-{Guid.NewGuid():N}.svg");
+            File.WriteAllText(paths[index], Drawing);
+        }
+
+        try
+        {
+            var first = (ViewerControl)((TabItem)tabs.Items[0]!).Content!;
+
+            // The same request the toolbar's Open and a drop both raise, which is what the window
+            // turns into a tab each.
+            Assert.True(await first.OpenAsync(paths));
+            Dispatcher.UIThread.RunJobs();
+        }
+        finally
+        {
+            foreach (var path in paths)
+            {
+                File.Delete(path);
+            }
+        }
+
+        return (window, tabs);
+    }
+
+    /// <summary>Waits for the drawing the window opens with.</summary>
+    /// <remarks>
+    /// The window starts loading its bundled sample as it is constructed, and that load leaves the
+    /// UI thread. A tab holding nothing is reused rather than added to, so a test that opens files
+    /// before the sample lands gets one tab fewer than it asked for — and only on a busy machine,
+    /// which is how this first showed up in a full solution run and not on its own.
+    /// </remarks>
+    private static async Task Settle(TabControl tabs)
+    {
+        var viewer = (ViewerControl)((TabItem)tabs.Items[0]!).Content!;
+
+        for (var attempt = 0; attempt < 200 && viewer.Document is null; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Assert.NotNull(viewer.Document);
+    }
+
+    /// <summary>The drawing in each tab, in strip order, by file name.</summary>
+    private static string[] Order(TabControl tabs) => tabs.Items
+        .OfType<TabItem>()
+        .Select(item => ((ViewerControl)item.Content!).DocumentPath is { } path
+            ? Path.GetFileName(path)
+            : "<empty>")
+        .ToArray();
+
+    /// <summary>
+    /// The button still down, which a simulated move does not carry on its own.
+    /// </summary>
+    /// <remarks>
+    /// The window reads it to tell a drag from a pointer wandering back over the strip after the
+    /// button was let go somewhere it could not see.
+    /// </remarks>
+    private const RawInputModifiers Held = RawInputModifiers.LeftMouseButton;
+
+    private static Point Centre(Visual root, Visual target)
+        => target.TranslatePoint(new Point(target.Bounds.Width / 2d, target.Bounds.Height / 2d), root)
+           ?? throw new InvalidOperationException("The control is not in the window's visual tree.");
+
+    private static void Drag(MainWindow window, TabItem tab, Point to, double firstStep)
+    {
+        var from = Centre(window, tab);
+
+        window.MouseDown(from, MouseButton.Left);
+
+        // Past the threshold first, because one long move would reorder without ever proving that a
+        // press on its own does not.
+        window.MouseMove(new Point(from.X + firstStep, from.Y), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseMove(to, Held);
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseUp(to, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
+    public void The_Window_Starts_On_One_Tab()
+    {
+        var window = new MainWindow();
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Single(window.FindControl<TabControl>("Tabs")!.Items);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Every_File_Opened_Gets_A_Tab_Of_Its_Own()
+    {
+        var (window, tabs) = await Host(3);
+
+        Assert.Equal(4, tabs.Items.Count);
+        Assert.Equal(4, Order(tabs).Distinct().Count());
+        Assert.Same(tabs.Items[^1], tabs.SelectedItem);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Closing_The_Last_Tab_Leaves_An_Empty_One_For_The_Next_Drawing()
+    {
+        var (window, tabs) = await Host(0);
+
+        var only = (TabItem)tabs.Items[0]!;
+        var close = (Button)((StackPanel)only.Header!).Children[1];
+
+        close.RaiseEvent(new global::Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        // Not the window closing, and not nothing: somewhere to open the next file.
+        Assert.Single(tabs.Items);
+        Assert.NotSame(only, tabs.Items[0]);
+        Assert.Equal(new[] { "<empty>" }, Order(tabs));
+
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-tab-{Guid.NewGuid():N}.svg");
+        File.WriteAllText(path, Drawing);
+
+        try
+        {
+            // An empty tab is filled rather than left standing in front of the drawing.
+            Assert.True(await ((ViewerControl)((TabItem)tabs.Items[0]!).Content!).OpenAsync(new[] { path }));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Single(tabs.Items);
+            Assert.Equal(new[] { Path.GetFileName(path) }, Order(tabs));
+        }
+        finally
+        {
+            File.Delete(path);
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Dragging_The_Last_Tab_To_The_Front_Reorders_It()
+    {
+        var (window, tabs) = await Host(3);
+
+        var before = Order(tabs);
+        var dragged = (TabItem)tabs.Items[^1]!;
+        var target = Centre(window, (TabItem)tabs.Items[0]!);
+
+        Drag(window, dragged, new Point(target.X - 2d, target.Y), firstStep: -6d);
+
+        Assert.Equal(new[] { before[^1] }.Concat(before[..^1]), Order(tabs));
+
+        // The dragged tab keeps the drawing under the pointer, which removing the selected item
+        // from the strip would otherwise swap.
+        Assert.Same(dragged, tabs.SelectedItem);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Dragging_A_Tab_One_Place_To_The_Right_Swaps_It_With_Its_Neighbour()
+    {
+        var (window, tabs) = await Host(3);
+
+        var before = Order(tabs);
+        var dragged = (TabItem)tabs.Items[0]!;
+        var neighbour = Centre(window, (TabItem)tabs.Items[1]!);
+
+        Drag(window, dragged, new Point(neighbour.X + 2d, neighbour.Y), firstStep: 6d);
+
+        var expected = before.ToArray();
+        (expected[0], expected[1]) = (expected[1], expected[0]);
+
+        Assert.Equal(expected, Order(tabs));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Dragged_Tab_Follows_The_Pointer_And_Is_Put_Down_On_Release()
+    {
+        var (window, tabs) = await Host(3);
+
+        var dragged = (TabItem)tabs.Items[0]!;
+        var from = Centre(window, dragged);
+        var to = new Point(from.X + 40d, from.Y);
+
+        window.MouseDown(from, MouseButton.Left);
+        window.MouseMove(new Point(from.X + 6d, from.Y), Held);
+        Dispatcher.UIThread.RunJobs();
+        window.MouseMove(to, Held);
+        Dispatcher.UIThread.RunJobs();
+
+        // Carried by the pointer, not merely swapped into place: the tab is drawn away from where it
+        // has been laid out, by however far the pointer has taken it.
+        var carried = Assert.IsType<TranslateTransform>(dragged.RenderTransform);
+        Assert.True(Math.Abs(carried.X) > 1d, $"the tab did not move with the pointer: {carried.X}");
+        Assert.Equal(1, dragged.ZIndex);
+
+        window.MouseUp(to, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(dragged.RenderTransform);
+        Assert.Equal(0, dragged.ZIndex);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task One_Drag_Can_Pass_Several_Tabs_Without_Being_Let_Go_Of()
+    {
+        var (window, tabs) = await Host(3);
+
+        var before = Order(tabs);
+        var dragged = (TabItem)tabs.Items[0]!;
+        var from = Centre(window, dragged);
+
+        window.MouseDown(from, MouseButton.Left);
+        window.MouseMove(new Point(from.X + 6d, from.Y), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        // Each move crosses one more neighbour, which is what a real drag does: the swap must not
+        // end the gesture that caused it.
+        foreach (var index in new[] { 1, 2, 3 })
+        {
+            var neighbour = Centre(window, (TabItem)tabs.Items[index]!);
+            window.MouseMove(new Point(neighbour.X + 2d, neighbour.Y), Held);
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(
+                tabs.Items.IndexOf(dragged) == index,
+                $"the drag stopped after {index - 1} swap(s): {string.Join(", ", Order(tabs))}");
+        }
+
+        window.MouseUp(Centre(window, dragged), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(before[1..].Append(before[0]), Order(tabs));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Button_Released_Outside_The_Window_Does_Not_Leave_The_Tab_Dragging()
+    {
+        var (window, tabs) = await Host(3);
+
+        var before = Order(tabs);
+        var dragged = (TabItem)tabs.Items[0]!;
+        var from = Centre(window, dragged);
+
+        window.MouseDown(from, MouseButton.Left);
+        window.MouseMove(new Point(from.X + 6d, from.Y), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotNull(dragged.RenderTransform);
+
+        // The pointer comes back over the strip with the button up, which is all the window ever
+        // learns about a release that happened somewhere else.
+        var neighbour = Centre(window, (TabItem)tabs.Items[2]!);
+        window.MouseMove(new Point(neighbour.X + 2d, neighbour.Y));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(dragged.RenderTransform);
+        Assert.Equal(before, Order(tabs));
+
+        // And moving on does not pick the tab back up.
+        window.MouseMove(new Point(neighbour.X + 20d, neighbour.Y));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(dragged.RenderTransform);
+        Assert.Equal(before, Order(tabs));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Press_That_Barely_Moves_Is_A_Click_And_Not_A_Drag()
+    {
+        var (window, tabs) = await Host(3);
+
+        var before = Order(tabs);
+        var point = Centre(window, (TabItem)tabs.Items[0]!);
+
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseMove(new Point(point.X + 1d, point.Y), Held);
+        window.MouseUp(point, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(before, Order(tabs));
+        Assert.Same(tabs.Items[0], tabs.SelectedItem);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Pressing_The_Close_Button_Closes_That_Tab_Rather_Than_Dragging_It()
+    {
+        var (window, tabs) = await Host(3);
+
+        var before = Order(tabs);
+        var item = (TabItem)tabs.Items[1]!;
+        var close = (Button)((StackPanel)item.Header!).Children[1];
+        var point = Centre(window, close);
+
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(before.Where((_, index) => index != 1), Order(tabs));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task More_Tabs_Than_Fit_Scroll_Sideways_Instead_Of_Wrapping()
+    {
+        var (window, tabs) = await Host(24);
+
+        var strip = tabs.GetVisualDescendants().OfType<ScrollViewer>().First(v => v.Name == "PART_TabStrip");
+
+        Assert.True(
+            strip.Extent.Width > strip.Viewport.Width,
+            $"The strip does not overflow: extent {strip.Extent}, viewport {strip.Viewport}.");
+
+        // Wrapping is what Fluent's own template does, and it pushes the drawing down a row.
+        Assert.True(
+            strip.Extent.Height <= strip.Viewport.Height + 1d,
+            $"The tabs wrapped onto a second row: extent {strip.Extent}, viewport {strip.Viewport}.");
+
+        // Opening scrolled the newest tab into view, so there is room to the left and none to the right.
+        var offset = strip.Offset.X;
+        Assert.True(offset > 0d, "The newest tab was not scrolled into view.");
+
+        window.MouseWheel(Centre(window, strip), new Vector(0d, 1d));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(
+            strip.Offset.X < offset,
+            $"The wheel did not scroll the strip: {offset} -> {strip.Offset.X}.");
+
+        window.Close();
+    }
+}

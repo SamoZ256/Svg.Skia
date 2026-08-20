@@ -4,5 +4,37 @@
         Width="1180" Height="760"
         MinWidth="720" MinHeight="480"
         Title="SVG viewer">
+
+  <Window.Styles>
+    <!--
+      Fluent's own TabControl template wraps the tabs onto a second row as they overflow, which
+      pushes the drawing down and moves every tab as one is added. One row that scrolls instead
+      leaves a tab where its owner put it, which is the point of being able to arrange them.
+    -->
+    <Style Selector="TabControl#Tabs">
+      <Setter Property="ItemsPanel">
+        <ItemsPanelTemplate>
+          <StackPanel Orientation="Horizontal" />
+        </ItemsPanelTemplate>
+      </Setter>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <DockPanel>
+            <ScrollViewer Name="PART_TabStrip" DockPanel.Dock="Top"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled">
+              <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+            </ScrollViewer>
+            <ContentPresenter Name="PART_SelectedContentHost"
+                              Margin="{TemplateBinding Padding}"
+                              Content="{TemplateBinding SelectedContent}"
+                              ContentTemplate="{TemplateBinding SelectedContentTemplate}" />
+          </DockPanel>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+  </Window.Styles>
+
   <TabControl x:Name="Tabs" Padding="0" />
+
 </Window>

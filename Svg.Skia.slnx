@@ -118,6 +118,7 @@
     <Project Path="tests/Svg.Controls.Skia.Uno.UnitTests/Svg.Controls.Skia.Uno.UnitTests.csproj" />
     <Project Path="tests/Svg.Editor.Skia.Avalonia.UnitTests/Svg.Editor.Skia.Avalonia.UnitTests.csproj" />
     <Project Path="tests/Svg.Viewer.Skia.Avalonia.UnitTests/Svg.Viewer.Skia.Avalonia.UnitTests.csproj" />
+    <Project Path="tests/SvgViewer.UnitTests/SvgViewer.UnitTests.csproj" />
     <Project Path="tests/Svg.Editor.Skia.UnitTests/Svg.Editor.Skia.UnitTests.csproj" />
     <Project Path="tests/Svg.Editor.Svg.UnitTests/Svg.Editor.Svg.UnitTests.csproj" />
     <Project Path="tests/Svg.CodeGen.Skia.Projects.UnitTests/Svg.CodeGen.Skia.Projects.UnitTests.csproj" />
