@@ -8,6 +8,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -148,6 +149,47 @@ public class MainWindowTabsTests
     }
 
     [AvaloniaFact]
+    public async Task The_Strip_Appears_With_The_Second_Drawing_And_Goes_Again_With_It()
+    {
+        var (window, tabs) = await Host(1);
+
+        var strip = tabs.GetVisualDescendants().OfType<Border>().First(b => b.Name == "PART_TabStripBand");
+
+        Assert.Equal(2, tabs.Items.Count);
+        Assert.True(strip.IsVisible, "the strip is hidden while two drawings are open");
+
+        var second = (TabItem)tabs.Items[1]!;
+        var close = (Button)((StackPanel)second.Header!).Children[1];
+
+        close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        // One drawing is not a window with one tab in it.
+        Assert.Single(tabs.Items);
+        Assert.False(strip.IsVisible, "the strip is still shown for a single drawing");
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Window_On_Its_Own_Drawing_Shows_No_Strip()
+    {
+        var window = new MainWindow();
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var strip = tabs.GetVisualDescendants().OfType<Border>().First(b => b.Name == "PART_TabStripBand");
+
+        // The first tab is added before the control is templated, so this is also the check that the
+        // strip settles itself as the template arrives.
+        Assert.Single(tabs.Items);
+        Assert.False(strip.IsVisible);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task Every_File_Opened_Gets_A_Tab_Of_Its_Own()
     {
         var (window, tabs) = await Host(3);
@@ -167,7 +209,7 @@ public class MainWindowTabsTests
         var only = (TabItem)tabs.Items[0]!;
         var close = (Button)((StackPanel)only.Header!).Children[1];
 
-        close.RaiseEvent(new global::Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
         // Not the window closing, and not nothing: somewhere to open the next file.

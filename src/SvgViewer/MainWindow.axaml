@@ -114,7 +114,7 @@
       <Setter Property="Template">
         <ControlTemplate>
           <DockPanel>
-            <Border DockPanel.Dock="Top" Background="#10808080"
+            <Border Name="PART_TabStripBand" DockPanel.Dock="Top" Background="#10808080"
                     BorderBrush="#20808080" BorderThickness="0,0,0,1">
               <ScrollViewer Name="PART_TabStrip"
                             HorizontalScrollBarVisibility="Auto"
