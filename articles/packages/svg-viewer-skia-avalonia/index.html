@@ -205,6 +205,14 @@
 <td>Opening a drawing from a path, text, stream or picker</td>
 </tr>
 <tr>
+<td><code>OpenRequested</code></td>
+<td>Taking over what a picked or dropped file does — a tab per drawing, say</td>
+</tr>
+<tr>
+<td><code>Close</code></td>
+<td>Releasing the open document when the viewer itself is discarded</td>
+</tr>
+<tr>
 <td><code>Parameters</code> / <code>ParameterValues</code></td>
 <td>Reading what is declared and what is bound</td>
 </tr>
@@ -236,6 +244,20 @@
 </code></pre>
 <p>Every row is seeded by <em>evaluating</em> the declared <code>default</code>, so <code>default=&quot;tau / 4&quot;</code> works as well as a literal does.</p>
 <p>The format itself — <code>&lt;e:code&gt;</code>, the operators, and the placeholder mechanism — is specified in <code>SVG_EXPRESSIONS.md</code> at the root of the repository.</p>
+<h2 id="one-document-per-viewer">One document per viewer</h2>
+<p>The control shows one drawing, and opening another replaces it. A host that wants several at once
+puts a viewer in each pane and handles <code>OpenRequested</code>, which is raised for every file the user
+picks or drops before any of them is read:</p>
+<pre><code class="language-csharp">viewer.OpenRequested += (_, request) =&gt;
+{
+    request.Handled = true;                              // the viewer loads nothing
+    request.Completion = OpenInTabsAsync(request.Paths); // what OpenAsync waits on
+};
+</code></pre>
+<p>Hand back what you started. The event is synchronous, so without <code>Completion</code> a host has no way to
+say it has not finished, and <code>OpenAsync</code> completes while the files are still being read.</p>
+<p><code>src/SvgViewer</code> is that host: one viewer per tab, a new tab per file opened, and <code>Close</code> on the
+viewer whose tab goes away.</p>
 <h2 id="two-things-worth-knowing">Two things worth knowing</h2>
 <p>It does <strong>not</strong> host <code>Avalonia.Svg.Skia.Svg</code>. That control sizes itself to the drawing it fits, so it cannot fill a viewport and its zoom is bounded by its own clip. The viewer draws onto <code>SKCanvasControl</code> and owns the transform, which is what makes fit and actual-size exact.</p>
 <p>Loading is the only work off the UI thread. Binding a value evaluates a model that is already compiled, on the UI thread, coalesced to one call per frame, so a slider drag stays smooth and two changes keep the order they were made in.</p>
