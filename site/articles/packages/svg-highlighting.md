@@ -25,7 +25,7 @@ dotnet add package Svg.Highlighting
 | --- | --- |
 | `SvgSourceHighlighter` | `Tokenize` for a whole document, `Lines` for one row at a time |
 | `SvgSourceToken` | A range into the source and what it is; `Text` cuts it only when asked |
-| `SvgSourceTokenKind` | Text, punctuation, element, attribute, value, comment, expression |
+| `SvgSourceTokenKind` | Text, punctuation, element, attribute, value, comment, and the expression kinds below |
 | `SvgSourceLine` | One line's tokens, its number, and the rest of it past a limit |
 
 ## Colouring a document
@@ -39,6 +39,32 @@ foreach (var line in SvgSourceHighlighter.Lines(File.ReadAllText("badge.svg")))
     }
 }
 ```
+
+## The expression language is split too
+
+`{{ … }}` placeholders, `<e:let>` bodies and a declaration's `default`, `min`, `max` and `step` are
+not left as one piece: they are handed to `Svg.Expressions`' own lexer, so what you see coloured is
+what the compiler reads. That last group is easy to miss — `max="tau"` and `step="1/60"` look like
+ordinary attribute values and are code. That matters more
+than it sounds:
+
+| Written | Coloured as |
+| --- | --- |
+| `hsl`, `mix`, `lerp` | `ExpressionFunction` — names the language defines |
+| `pi`, `tau` | `ExpressionConstant` |
+| `55%` | one `ExpressionNumber`, sign included — a percent is a *suffix on a literal*, never an operator |
+| `and`, `or`, `not`, `lt`, `ge` | `ExpressionKeyword` — word forms of the symbolic operators, which exist because XML escaping makes `<` and `&&` awkward inside an attribute |
+| `#3fb5b5` | `ExpressionColor` |
+| `true`, `false` | `ExpressionConstant` — they lex as names, but the parser reads them as boolean literals |
+| `hue`, `sweep` | `ExpressionIdentifier` — a parameter, a let, or a typo; telling those apart needs the document |
+| `{{`, `}}`, whitespace | `Expression` |
+
+A tokenizer written by hand here would have coloured the percent as an operator and the word forms
+as names. Reusing the lexer is what keeps the pane and the compiler saying the same thing.
+
+An expression the language refuses — a lone `=`, a half-typed call — colours as far as it read and
+leaves the remainder plain. Someone reading a file to find out why it will not compile is exactly
+who has a source view open.
 
 ## It describes rather than validates
 

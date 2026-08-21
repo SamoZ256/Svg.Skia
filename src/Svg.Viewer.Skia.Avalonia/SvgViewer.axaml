@@ -19,6 +19,14 @@
           <SolidColorBrush x:Key="SvgViewerSourceValueBrush" Color="#CE9178" />
           <SolidColorBrush x:Key="SvgViewerSourceCommentBrush" Color="#6A9955" />
           <SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#C586C0" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionNumberBrush" Color="#B5CEA8" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionColorBrush" Color="#4EC9B0" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionFunctionBrush" Color="#DCDCAA" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionConstantBrush" Color="#4FC1FF" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionKeywordBrush" Color="#C586C0" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionOperatorBrush" Color="#D4D4D4" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionPunctuationBrush" Color="#909090" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionIdentifierBrush" Color="#9CDCFE" />
           <SolidColorBrush x:Key="SvgViewerSourceLineNumberBrush" Color="#5A5A5A" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
@@ -29,6 +37,14 @@
           <SolidColorBrush x:Key="SvgViewerSourceValueBrush" Color="#A31515" />
           <SolidColorBrush x:Key="SvgViewerSourceCommentBrush" Color="#008000" />
           <SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#A626A4" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionNumberBrush" Color="#098658" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionColorBrush" Color="#0E7C6B" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionFunctionBrush" Color="#795E26" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionConstantBrush" Color="#0070C1" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionKeywordBrush" Color="#A626A4" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionOperatorBrush" Color="#1F1F1F" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionPunctuationBrush" Color="#5A5A5A" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionIdentifierBrush" Color="#001080" />
           <SolidColorBrush x:Key="SvgViewerSourceLineNumberBrush" Color="#A0A0A0" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>

@@ -313,9 +313,17 @@ reloading, and a viewer must not make every other `SKSvg` in the application ret
 grammar, because the package would then carry a text editor and no stock XML grammar colours
 `{{ … }}` or an `<e:let>` body as code. It is **its own project because it draws nothing**: no
 brushes, no controls, nothing from Avalonia, which is what lets the editor share it and what makes
-the two things heading there — colouring the expression language by running `Svg.Expressions`' own
-lexer over an `Expression` span, and diagnostics — belong on that side of the seam rather than in a
-UI. A token is a range into the document rather than a copy, which is both what keeps a whole file
+the two things belonging there — colouring the expression language, and diagnostics — sit on that
+side of the seam rather than in a UI. The first is done: `SvgSourceExpressions` hands a `{{ … }}`
+span, an `<e:let>` body, or an `<e:param>`'s `default`/`min`/`max`/`step` — all four of which are
+expression text, not words — to **`Svg.Expressions`' own lexer**, reached through an `InternalsVisibleTo`
+grant, because a second description of the language would drift from it — `%` is a suffix on a number
+literal rather than an operator, and `and`/`or`/`not`/`lt`/`le`/`gt`/`ge`/`eq`/`ne` are word forms of
+the symbolic operators, neither of which is guessable from the text. Three traps in using it: a number
+token's `Text` excludes the `%` the lexer already consumed, so the span is widened by hand;
+`true`/`false` lex as identifiers but the *parser* reads them as boolean literals, so they are
+coloured as values; and the lexer throws on malformed input, so a refusal re-lexes the prefix before `ExprException.Position` and
+leaves the remainder plain — which is also the position a diagnostic will underline. A token is a range into the document rather than a copy, which is both what keeps a whole file
 affordable to hold and what a diagnostic needs to point at. Its invariant is that concatenating the tokens reproduces the input, which is
 what lets it describe a malformed document rather than refuse it. The pane is **a row per line in a
 virtualising list**, because one text block holding a whole drawing is what made colouring

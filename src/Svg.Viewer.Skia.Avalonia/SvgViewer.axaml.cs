@@ -611,6 +611,14 @@ public partial class SvgViewer : UserControl
             SvgSourceTokenKind.Value => "SvgViewerSourceValueBrush",
             SvgSourceTokenKind.Comment => "SvgViewerSourceCommentBrush",
             SvgSourceTokenKind.Expression => "SvgViewerSourceExpressionBrush",
+            SvgSourceTokenKind.ExpressionNumber => "SvgViewerSourceExpressionNumberBrush",
+            SvgSourceTokenKind.ExpressionColor => "SvgViewerSourceExpressionColorBrush",
+            SvgSourceTokenKind.ExpressionFunction => "SvgViewerSourceExpressionFunctionBrush",
+            SvgSourceTokenKind.ExpressionConstant => "SvgViewerSourceExpressionConstantBrush",
+            SvgSourceTokenKind.ExpressionKeyword => "SvgViewerSourceExpressionKeywordBrush",
+            SvgSourceTokenKind.ExpressionOperator => "SvgViewerSourceExpressionOperatorBrush",
+            SvgSourceTokenKind.ExpressionPunctuation => "SvgViewerSourceExpressionPunctuationBrush",
+            SvgSourceTokenKind.ExpressionIdentifier => "SvgViewerSourceExpressionIdentifierBrush",
             _ => "SvgViewerSourceTextBrush",
         };
 

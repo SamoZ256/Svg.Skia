@@ -80,8 +80,11 @@ resources you can override:
 <SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#C586C0" />
 ```
 
-`…ElementBrush`, `…AttributeBrush`, `…ValueBrush`, `…CommentBrush`, `…PunctuationBrush` and
-`…TextBrush` are the rest.
+`…ElementBrush`, `…AttributeBrush`, `…ValueBrush`, `…CommentBrush`, `…PunctuationBrush`,
+`…TextBrush` and `…LineNumberBrush` cover the markup, and the expression language has its own:
+`…ExpressionNumberBrush`, `…ExpressionColorBrush`, `…ExpressionFunctionBrush`,
+`…ExpressionConstantBrush`, `…ExpressionKeywordBrush`, `…ExpressionOperatorBrush`,
+`…ExpressionPunctuationBrush` and `…ExpressionIdentifierBrush`.
 
 There is no size at which colouring gives up. The pane is a row per line in a virtualising list, so
 only the lines on screen are ever laid out: a 132KB drawing of 340 lines opens in 94ms with 17 rows

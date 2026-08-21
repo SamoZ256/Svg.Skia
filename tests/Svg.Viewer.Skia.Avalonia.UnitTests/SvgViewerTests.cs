@@ -472,11 +472,17 @@ public class SvgViewerTests
         var runs = RealisedRuns(viewer);
 
         var element = runs.First(r => r.Text == "rect").Foreground;
-        var expression = runs.First(r => r.Text == "{{ tint }}").Foreground;
+        var name = runs.First(r => r.Text == "tint").Foreground;
+        var fence = runs.First(r => r.Text == "{{").Foreground;
 
         Assert.NotNull(element);
-        Assert.NotNull(expression);
-        Assert.NotEqual(element, expression);
+        Assert.NotNull(name);
+        Assert.NotNull(fence);
+
+        // An element, a name inside an expression and the fence around it are three different
+        // things, and the pane paints them as three.
+        Assert.NotEqual(element, name);
+        Assert.NotEqual(name, fence);
 
         window.Close();
     }
@@ -511,8 +517,10 @@ public class SvgViewerTests
             realised < 200,
             $"{realised} rows were built for a {lines.Count}-line drawing; the list is not virtualising");
 
-        // Still coloured, all the way down: the rows that exist carry expression runs.
-        Assert.Contains(RealisedRuns(viewer), r => r.Text == "{{ tint }}");
+        // Still coloured, all the way down: the rows that exist carry expression runs, split into
+        // the language rather than left as one piece.
+        Assert.Contains(RealisedRuns(viewer), r => r.Text == "tint");
+        Assert.Contains(RealisedRuns(viewer), r => r.Text == "{{");
 
         window.Close();
     }

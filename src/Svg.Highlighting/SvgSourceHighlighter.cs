@@ -28,9 +28,47 @@ public enum SvgSourceTokenKind
     Comment,
 
     /// <summary>
-    /// Expression code: the <c>{{ … }}</c> part of a value, and the body of an <c>&lt;e:let&gt;</c>.
+    /// Expression code that is not one of the kinds below: the <c>{{</c> and <c>}}</c> that fence a
+    /// placeholder, the whitespace between pieces, and anything past a point the language cannot
+    /// read.
     /// </summary>
     Expression,
+
+    /// <summary>A number in an expression, percent sign and all — <c>55%</c> is one literal.</summary>
+    ExpressionNumber,
+
+    /// <summary>A colour literal in an expression, such as <c>#3fb5b5</c>.</summary>
+    ExpressionColor,
+
+    /// <summary>A name the language defines as a function: <c>hsl</c>, <c>mix</c>, <c>lerp</c>.</summary>
+    ExpressionFunction,
+
+    /// <summary>
+    /// A value the language spells as a word: <c>pi</c>, <c>tau</c>, <c>true</c>, <c>false</c>.
+    /// </summary>
+    ExpressionConstant,
+
+    /// <summary>
+    /// A word form of an operator — <c>and</c>, <c>or</c>, <c>not</c>, <c>lt</c>, <c>eq</c> and the
+    /// rest — which exist because XML escaping makes <c>&lt;</c> and <c>&amp;&amp;</c> awkward to
+    /// author inside an attribute.
+    /// </summary>
+    ExpressionKeyword,
+
+    /// <summary>A symbolic operator.</summary>
+    ExpressionOperator,
+
+    /// <summary>Parentheses and commas.</summary>
+    ExpressionPunctuation,
+
+    /// <summary>
+    /// Anything else the language reads as a name: a parameter, a let, or a typo.
+    /// </summary>
+    /// <remarks>
+    /// Telling those three apart needs the document's declarations and a way to say a name is wrong,
+    /// which is what diagnostics will be for. Until then they share a colour.
+    /// </remarks>
+    ExpressionIdentifier,
 }
 
 /// <summary>
@@ -174,6 +212,10 @@ public static class SvgSourceHighlighter
     public const int RowTokenLimit = 250;
 
     /// <summary>Splits <paramref name="source"/>, never throwing and never losing a character.</summary>
+    /// <remarks>
+    /// Expression spans are split again by <see cref="SvgSourceExpressions"/>, so what comes back is
+    /// markup and code in one flat sequence — a consumer needs a brush per kind and nothing else.
+    /// </remarks>
     public static IReadOnlyList<SvgSourceToken> Tokenize(string? source)
     {
         var tokens = new List<SvgSourceToken>();
@@ -191,15 +233,15 @@ public static class SvgSourceHighlighter
         while (index < source!.Length)
         {
             var open = source.IndexOf('<', index);
-            var body = IsLet(element) ? SvgSourceTokenKind.Expression : SvgSourceTokenKind.Text;
+            var let = IsLet(element);
 
             if (open < 0)
             {
-                Add(tokens, source, index, source.Length, body);
+                AddBody(tokens, source, index, source.Length, let);
                 break;
             }
 
-            Add(tokens, source, index, open, body);
+            AddBody(tokens, source, index, open, let);
 
             index = source[open..] switch
             {
@@ -214,6 +256,23 @@ public static class SvgSourceHighlighter
         return tokens;
     }
 
+    /// <summary>Adds text between tags, as code when the element it belongs to is a let.</summary>
+    private static void AddBody(List<SvgSourceToken> tokens, string source, int start, int end, bool let)
+    {
+        if (end <= start)
+        {
+            return;
+        }
+
+        if (let)
+        {
+            SvgSourceExpressions.Code(tokens, source, start, end);
+            return;
+        }
+
+        Add(tokens, source, start, end, SvgSourceTokenKind.Text);
+    }
+
     /// <summary>Takes everything up to and including <paramref name="close"/> as one comment-like run.</summary>
     private static int Fenced(List<SvgSourceToken> tokens, string source, int start, string close)
     {
@@ -226,24 +285,28 @@ public static class SvgSourceHighlighter
     }
 
     /// <summary>
-    /// Whether text inside this element is expression code.
+    /// Whether a name is <paramref name="local"/>, whatever prefix it carries.
     /// </summary>
     /// <remarks>
     /// By local name, because the prefix bound to the extension's namespace is the document's choice
     /// — <c>e</c> by convention and in every example, but nothing requires it.
     /// </remarks>
-    private static bool IsLet(string? element)
-    {
-        if (element is null)
-        {
-            return false;
-        }
+    private static bool Is(string? name, string local)
+        => name is { } && name.AsSpan(name.LastIndexOf(':') + 1).Equals(local, StringComparison.Ordinal);
 
-        var colon = element.LastIndexOf(':');
+    /// <summary>Whether text inside this element is expression code.</summary>
+    private static bool IsLet(string? element) => Is(element, "let");
 
-
-        return element.AsSpan(colon + 1).Equals("let", StringComparison.Ordinal);
-    }
+    /// <summary>
+    /// Whether this attribute of an <c>&lt;e:param&gt;</c> holds an expression rather than a word.
+    /// </summary>
+    /// <remarks>
+    /// <c>name</c> and <c>type</c> are neither: they are the parameter's identity. The other four
+    /// are code — <c>default="tau / 4"</c>, <c>max="100%"</c> and <c>step="1/60"</c> are all things
+    /// the language evaluates, so showing them as strings hides what they are.
+    /// </remarks>
+    private static bool IsDeclaredExpression(string? element, string? attribute)
+        => Is(element, "param") && attribute is "default" or "min" or "max" or "step";
 
     private static int Tag(List<SvgSourceToken> tokens, string source, int start, ref string? element)
     {
@@ -274,6 +337,8 @@ public static class SvgSourceHighlighter
         element = closing ? null : source[index..name];
 
         index = name;
+
+        string? attributeName = null;
 
         while (index < end)
         {
@@ -309,7 +374,15 @@ public static class SvgSourceHighlighter
                 var quote = source.IndexOf(character, index + 1);
                 var valueEnd = quote < 0 ? end : quote + 1;
 
-                Value(tokens, source, index, valueEnd);
+                if (IsDeclaredExpression(element, attributeName))
+                {
+                    Declared(tokens, source, index, valueEnd, quote);
+                }
+                else
+                {
+                    Value(tokens, source, index, valueEnd);
+                }
+
                 index = valueEnd;
                 continue;
             }
@@ -330,10 +403,25 @@ public static class SvgSourceHighlighter
             }
 
             Add(tokens, source, index, attribute, SvgSourceTokenKind.Attribute);
+            attributeName = source[index..attribute];
             index = attribute;
         }
 
         return end;
+    }
+
+    /// <summary>Adds a value whose whole content is expression code, quotes excepted.</summary>
+    private static void Declared(List<SvgSourceToken> tokens, string source, int start, int end, int quote)
+    {
+        // The quotes belong to the markup, not to the expression — and an unterminated value has
+        // only the opening one.
+        Add(tokens, source, start, start + 1, SvgSourceTokenKind.Value);
+
+        var close = quote < 0 ? end : quote;
+
+        SvgSourceExpressions.Code(tokens, source, start + 1, close);
+
+        Add(tokens, source, close, end, SvgSourceTokenKind.Value);
     }
 
     /// <summary>Adds a value, lifting any <c>{{ … }}</c> out of it.</summary>
@@ -355,13 +443,13 @@ public static class SvgSourceHighlighter
             var expressionEnd = close < 0 || close + 2 > end ? end : close + 2;
 
             Add(tokens, source, index, open, SvgSourceTokenKind.Value);
-            Add(tokens, source, open, expressionEnd, SvgSourceTokenKind.Expression);
+            SvgSourceExpressions.Placeholder(tokens, source, open, expressionEnd);
 
             index = expressionEnd;
         }
     }
 
-    private static void Add(List<SvgSourceToken> tokens, string source, int start, int end, SvgSourceTokenKind kind)
+    internal static void Add(List<SvgSourceToken> tokens, string source, int start, int end, SvgSourceTokenKind kind)
     {
         if (end > start)
         {
