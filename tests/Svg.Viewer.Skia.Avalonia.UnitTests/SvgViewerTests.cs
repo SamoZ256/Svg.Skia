@@ -1,13 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using SkiaSharp;
 using Svg.Expressions;
 using Xunit;
@@ -351,6 +355,111 @@ public class SvgViewerTests
         Assert.Null(document.Svg.Picture);
 
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_Source_Pane_Shows_The_Drawing_As_It_Was_Read()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        // Hidden until asked for: a viewer is for looking at the drawing.
+        Assert.False(viewer.ShowSource);
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var pane = viewer.GetVisualDescendants().OfType<SelectableTextBlock>()
+            .First(t => t.Name == "SourceText");
+
+        // The text the picture was built from, comments, formatting and expressions intact.
+        Assert.Equal(Parametric, pane.Text);
+        Assert.Contains("{{ tint }}", pane.Text, StringComparison.Ordinal);
+        Assert.True(pane.Bounds.Height > 0d, "the pane is not laid out");
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Hiding_The_Source_Pane_Gives_Its_Room_Back_To_The_Drawing()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var withSource = viewer.Canvas.Bounds.Height;
+
+        viewer.ShowSource = false;
+        Dispatcher.UIThread.RunJobs();
+
+        // Not merely invisible: a hidden pane whose row kept its height would leave a strip of
+        // nothing under the drawing.
+        Assert.True(
+            viewer.Canvas.Bounds.Height > withSource,
+            $"the drawing did not grow back: {withSource} -> {viewer.Canvas.Bounds.Height}");
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_Toolbar_Toggle_And_The_Property_Follow_Each_Other()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        var button = viewer.GetVisualDescendants().OfType<ToggleButton>()
+            .First(b => b.Name == "SourceButton");
+
+        button.IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(viewer.ShowSource);
+
+        viewer.ShowSource = false;
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(button.IsChecked);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Too_Large_To_Lay_Out_Is_Cut_Rather_Than_Shown_Whole()
+    {
+        var (window, viewer) = Host();
+
+        // Comfortably past whatever the pane is willing to lay out.
+        var padding = new string(' ', 400_000);
+        var markup = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect width="24" height="24" fill="#00ff00" />{padding}
+            </svg>
+            """;
+
+        Assert.True(await viewer.LoadTextAsync(markup));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var pane = viewer.GetVisualDescendants().OfType<SelectableTextBlock>()
+            .First(t => t.Name == "SourceText");
+
+        Assert.NotNull(pane.Text);
+        Assert.True(pane.Text!.Length < markup.Length, "the whole drawing was handed to one text block");
+        Assert.Contains("more characters not shown", pane.Text, StringComparison.Ordinal);
+
+        // The document still carries all of it; only the pane is cut.
+        Assert.Equal(markup, viewer.Document!.SourceText);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Drawing_Read_From_A_Stream_Carries_Its_Text_Too()
+    {
+        // The loader consumes the stream, so this is the case that has to buffer to keep the text.
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(Parametric));
+
+        using var document = SvgViewerDocument.Load(stream);
+
+        Assert.Equal(Parametric, document.SourceText);
     }
 
     private static SKColor CentrePixel(Window window)

@@ -48,7 +48,7 @@ await Viewer.LoadAsync("badge.svg");
 | `Close` | Releasing the open document when the viewer itself is discarded |
 | `Parameters` / `ParameterValues` | Reading what is declared and what is bound |
 | `TrySetParameterValue` / `ResetParameters` | Driving values from host UI |
-| `ShowToolBar` / `ShowParameterPanel` / `ShowStatusBar` | Supplying your own chrome |
+| `ShowToolBar` / `ShowParameterPanel` / `ShowStatusBar` / `ShowSource` | Supplying your own chrome |
 | `FileDialogService` | Custom storage or picker integration |
 | `Canvas` | Direct access to the surface for zoom and pan |
 | `DocumentOpened` / `ErrorRaised` / `ParameterValueChanged` | Syncing host titles and status |
@@ -64,6 +64,25 @@ A `number` parameter uses the `min`, `max` and `step` its author declared, falli
 Every row is seeded by *evaluating* the declared `default`, so `default="tau / 4"` works as well as a literal does.
 
 The format itself — `<e:code>`, the operators, and the placeholder mechanism — is specified in `SVG_EXPRESSIONS.md` at the root of the repository.
+
+## Reading the drawing's text
+
+The **Source** toggle in the toolbar opens a pane under the drawing showing the document as it was
+read — comments, formatting and `{{ … }}` expressions exactly as their author wrote them. It is
+read-only; editing SVG is what `Svg.Editor.Skia.Avalonia` is for.
+
+The text is `SvgViewerDocument.SourceText`, captured while loading, so it is what the picture was
+built from rather than whatever the file says later. A host that would rather show it its own way —
+a window, a docked tool panel — reads that property and leaves `ShowSource` off:
+
+```csharp
+var text = viewer.Document?.SourceText;
+```
+
+Drawings loaded from text or from a stream carry it too, so a viewer fed by a database or an archive
+shows source like any other. Only the pane truncates, at 200,000 characters, because one text block
+lays out every character it is handed and an exported drawing is routinely megabytes of path data;
+`SourceText` itself is always whole.
 
 ## One document per viewer
 

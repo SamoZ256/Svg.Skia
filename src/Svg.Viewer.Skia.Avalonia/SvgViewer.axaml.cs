@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
@@ -47,6 +48,14 @@ public partial class SvgViewer : UserControl
     private readonly TextBlock _zoomText;
     private readonly Border _errorPanel;
     private readonly SelectableTextBlock _errorText;
+    private readonly Border _sourceHost;
+    private readonly GridSplitter _sourceSplitter;
+    private readonly SelectableTextBlock _sourceText;
+    private readonly ToggleButton _sourceButton;
+    private readonly Grid _body;
+
+    /// <summary>What the source pane's row was last set to, so hiding it can be undone.</summary>
+    private GridLength _sourceHeight;
 
     private SvgViewerDocument? _document;
     private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
@@ -67,6 +76,13 @@ public partial class SvgViewer : UserControl
         _zoomText = this.FindControl<TextBlock>("ZoomText")!;
         _errorPanel = this.FindControl<Border>("ErrorPanel")!;
         _errorText = this.FindControl<SelectableTextBlock>("ErrorText")!;
+        _sourceHost = this.FindControl<Border>("SourcePanelHost")!;
+        _sourceSplitter = this.FindControl<GridSplitter>("SourceSplitter")!;
+        _sourceText = this.FindControl<SelectableTextBlock>("SourceText")!;
+        _sourceButton = this.FindControl<ToggleButton>("SourceButton")!;
+        _body = this.FindControl<Grid>("Body")!;
+
+        _sourceHeight = _body.RowDefinitions[2].Height;
 
         this.FindControl<Button>("OpenButton")!.Click += async (_, _) => await OpenAsync();
         this.FindControl<Button>("FitButton")!.Click += (_, _) => _canvas.Fit();
@@ -76,6 +92,8 @@ public partial class SvgViewer : UserControl
         this.FindControl<Button>("ZoomOutButton")!.Click += (_, _) => _canvas.ZoomOut();
         this.FindControl<Button>("ResetParametersButton")!.Click += (_, _) => ResetParameters();
 
+        _sourceButton.IsCheckedChanged += (_, _) => ShowSource = _sourceButton.IsChecked == true;
+
         _canvas.ViewChanged += (_, _) => UpdateZoomText();
         _parameters.ValueChanged += (_, _) => RequestApply();
 
@@ -84,6 +102,7 @@ public partial class SvgViewer : UserControl
 
         UpdateZoomText();
         UpdateStatus();
+        ShowSource = false;
     }
 
     /// <summary>Raised once a document has loaded and its parameters are built.</summary>
@@ -137,6 +156,42 @@ public partial class SvgViewer : UserControl
         {
             _parameterHost.IsVisible = value;
             _splitter.IsVisible = value;
+        }
+    }
+
+    /// <summary>
+    /// Whether the drawing's text is shown under it.
+    /// </summary>
+    /// <remarks>
+    /// A pane rather than a window of its own, because this control is dropped into applications
+    /// that own their windows: one opening unbidden is not something an embedder can place, own or
+    /// suppress. A host that wants a window can put <see cref="SvgViewerDocument.SourceText"/> in one.
+    /// </remarks>
+    public bool ShowSource
+    {
+        get => _sourceHost.IsVisible;
+        set
+        {
+            if (_sourceHost.IsVisible == value)
+            {
+                return;
+            }
+
+            // The row carries the height, so hiding the pane has to zero it or the drawing keeps
+            // paying for a strip it cannot see. What the splitter was dragged to comes back.
+            if (value)
+            {
+                _body.RowDefinitions[2].Height = _sourceHeight;
+            }
+            else
+            {
+                _sourceHeight = _body.RowDefinitions[2].Height;
+                _body.RowDefinitions[2].Height = new GridLength(0d);
+            }
+
+            _sourceHost.IsVisible = value;
+            _sourceSplitter.IsVisible = value;
+            _sourceButton.IsChecked = value;
         }
     }
 
@@ -253,6 +308,7 @@ public partial class SvgViewer : UserControl
         ShowError(document.DeclarationError);
         UpdateStatus();
         UpdateZoomText();
+        UpdateSource();
 
         DocumentOpened?.Invoke(this, document);
     }
@@ -278,6 +334,7 @@ public partial class SvgViewer : UserControl
         ShowError(null);
         UpdateStatus();
         UpdateZoomText();
+        UpdateSource();
     }
 
     // ---- parameters ---------------------------------------------------------------------------
@@ -433,6 +490,24 @@ public partial class SvgViewer : UserControl
 
     private void UpdateZoomText()
         => _zoomText.Text = (_canvas.Scale * 100d).ToString("0", CultureInfo.CurrentCulture) + "%";
+
+    /// <summary>How much of a drawing's text the pane will show.</summary>
+    /// <remarks>
+    /// One <see cref="SelectableTextBlock"/> lays out every character it is given, and a drawing
+    /// exported by a design tool is routinely megabytes of path data. Cutting it keeps opening one
+    /// from stalling the application; the file is still on disk for anything that wants all of it.
+    /// </remarks>
+    internal const int SourceLimit = 200_000;
+
+    private void UpdateSource()
+    {
+        var source = _document?.SourceText;
+
+        _sourceText.Text = source is { Length: > SourceLimit }
+            ? source[..SourceLimit]
+              + $"{Environment.NewLine}{Environment.NewLine}… {source.Length - SourceLimit:N0} more characters not shown."
+            : source ?? string.Empty;
+    }
 
     private void UpdateStatus()
     {

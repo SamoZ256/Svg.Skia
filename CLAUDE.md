@@ -305,7 +305,10 @@ document, so the shell holds one control per tab and handles `OpenRequested` —
 picked or dropped file before any of them is read — to put each in a tab of its own; `Close` on the
 control is what disposes the document of a tab that goes away. A handled request hands its
 `Completion` back, because the event is synchronous and `OpenAsync` would otherwise complete while
-the files were still being read — which is what failed on CI and passed locally.
+the files were still being read — which is what failed on CI and passed locally. `ShowSource` opens
+a pane of the drawing's text, held as `SvgViewerDocument.SourceText` and captured at load: `SKSvg`
+can keep its own source, but only behind the process-wide `CacheOriginalStream` toggle it uses for
+reloading, and a viewer must not make every other `SKSvg` in the application retain its file.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.

@@ -21,6 +21,8 @@
         <Button x:Name="ZoomInButton" Content="+" Width="30" ToolTip.Tip="Zoom in (Ctrl++, or scroll up)" />
         <Rectangle Width="1" Fill="#30808080" Margin="4,2" />
         <Button x:Name="ResetParametersButton" Content="Reset parameters" />
+        <ToggleButton x:Name="SourceButton" Content="Source"
+                      ToolTip.Tip="Show the drawing's text" />
       </StackPanel>
     </Border>
 
@@ -37,16 +39,35 @@
       </StackPanel>
     </Border>
 
-    <Grid x:Name="Body" ColumnDefinitions="*,6,Auto">
+    <Grid x:Name="Body" RowDefinitions="*,6,220">
 
-      <viewer:SvgViewerCanvas x:Name="PART_Canvas" Grid.Column="0" />
+      <Grid x:Name="Drawing" Grid.Row="0" ColumnDefinitions="*,6,Auto">
 
-      <GridSplitter x:Name="Splitter" Grid.Column="1"
-                    ResizeDirection="Columns" Background="Transparent" />
+        <viewer:SvgViewerCanvas x:Name="PART_Canvas" Grid.Column="0" />
 
-      <Border x:Name="ParameterPanelHost" Grid.Column="2"
-              Width="300" BorderThickness="1,0,0,0" BorderBrush="#20808080">
-        <viewer:SvgViewerParameterPanel x:Name="PART_Parameters" />
+        <GridSplitter x:Name="Splitter" Grid.Column="1"
+                      ResizeDirection="Columns" Background="Transparent" />
+
+        <Border x:Name="ParameterPanelHost" Grid.Column="2"
+                Width="300" BorderThickness="1,0,0,0" BorderBrush="#20808080">
+          <viewer:SvgViewerParameterPanel x:Name="PART_Parameters" />
+        </Border>
+
+      </Grid>
+
+      <!--
+        The text sits under the drawing rather than beside it because SVG lines are long, and the
+        column to the right is the parameters' and only 300px wide.
+      -->
+      <GridSplitter x:Name="SourceSplitter" Grid.Row="1"
+                    ResizeDirection="Rows" Background="Transparent" />
+
+      <Border x:Name="SourcePanelHost" Grid.Row="2"
+              BorderThickness="0,1,0,0" BorderBrush="#20808080">
+        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+          <SelectableTextBlock x:Name="SourceText" Padding="8"
+                               FontFamily="monospace" FontSize="12" />
+        </ScrollViewer>
       </Border>
 
     </Grid>
