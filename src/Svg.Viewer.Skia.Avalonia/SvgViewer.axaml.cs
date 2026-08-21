@@ -13,6 +13,8 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Controls.Templates;
+using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -52,7 +54,7 @@ public partial class SvgViewer : UserControl
     private readonly SelectableTextBlock _errorText;
     private readonly Border _sourceHost;
     private readonly GridSplitter _sourceSplitter;
-    private readonly SelectableTextBlock _sourceText;
+    private readonly ItemsControl _sourceLines;
     private readonly ToggleButton _sourceButton;
     private readonly Grid _body;
 
@@ -83,7 +85,8 @@ public partial class SvgViewer : UserControl
         _errorText = this.FindControl<SelectableTextBlock>("ErrorText")!;
         _sourceHost = this.FindControl<Border>("SourcePanelHost")!;
         _sourceSplitter = this.FindControl<GridSplitter>("SourceSplitter")!;
-        _sourceText = this.FindControl<SelectableTextBlock>("SourceText")!;
+        _sourceLines = this.FindControl<ItemsControl>("SourceLines")!;
+        _sourceLines.ItemTemplate = new FuncDataTemplate<SvgViewerSourceLine>((_, _) => BuildLine(), supportsRecycling: true);
         _sourceButton = this.FindControl<ToggleButton>("SourceButton")!;
         _body = this.FindControl<Grid>("Body")!;
 
@@ -508,11 +511,11 @@ public partial class SvgViewer : UserControl
 
     /// <summary>How much of a drawing's text the pane will show.</summary>
     /// <remarks>
-    /// One <see cref="SelectableTextBlock"/> lays out every character it is given, and a drawing
-    /// exported by a design tool is routinely megabytes of path data. Cutting it keeps opening one
-    /// from stalling the application; the file is still on disk for anything that wants all of it.
+    /// Not a layout limit any more — the rows virtualise, so length costs nothing to display. It is
+    /// a backstop on what is held: the tokens for a drawing this size are a few tens of megabytes,
+    /// and something has to say no to a file that is pathological rather than large.
     /// </remarks>
-    internal const int SourceLimit = 200_000;
+    internal const int SourceLimit = 2_000_000;
 
     private void UpdateSource()
     {
@@ -543,31 +546,64 @@ public partial class SvgViewer : UserControl
               + $"{Environment.NewLine}{Environment.NewLine}… {source.Length - SourceLimit:N0} more characters not shown."
             : source ?? string.Empty;
 
-        var tokens = SvgViewerSourceHighlighter.Tokenize(text);
-
-        if (tokens.Count > SvgViewerSourceHighlighter.TokenLimit)
-        {
-            // Plain, which is what the pane did before it could colour anything, and still instant.
-            _sourceText.Inlines?.Clear();
-            _sourceText.Text = text;
-            return;
-        }
-
-        var inlines = new InlineCollection();
-
-        foreach (var token in tokens)
-        {
-            inlines.Add(new Run(token.Text) { Foreground = SourceBrush(token.Kind) });
-        }
-
-        _sourceText.Text = null;
-        _sourceText.Inlines = inlines;
+        _sourceLines.ItemsSource = SvgViewerSourceHighlighter.Lines(text);
     }
 
-    private IBrush? SourceBrush(SvgViewerSourceTokenKind kind)
+    /// <summary>Builds one row: its number, and its text coloured a piece at a time.</summary>
+    /// <remarks>
+    /// The runs are made here, as a row is realised, rather than held with the tokens — which is
+    /// what keeps a drawing of a hundred thousand lines costing what the forty on screen cost.
+    /// </remarks>
+    private Control BuildLine()
+    {
+        var number = new TextBlock
+        {
+            Width = 44d,
+            Margin = new Thickness(0d, 0d, 8d, 0d),
+            TextAlignment = TextAlignment.Right,
+            Foreground = SourceBrush(null),
+        };
+
+        var text = new SelectableTextBlock();
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Children = { number, text } };
+
+        row.DataContextChanged += (_, _) =>
+        {
+            if (row.DataContext is not SvgViewerSourceLine line)
+            {
+                return;
+            }
+
+            number.Text = line.Number.ToString(CultureInfo.CurrentCulture);
+
+            var inlines = new InlineCollection();
+            var coloured = Math.Min(line.Tokens.Count, SvgViewerSourceHighlighter.RowTokenLimit);
+
+            for (var index = 0; index < coloured; index++)
+            {
+                var token = line.Tokens[index];
+
+                inlines.Add(new Run(token.Text) { Foreground = SourceBrush(token.Kind) });
+            }
+
+            if (line.Tokens.Count > coloured)
+            {
+                inlines.Add(new Run(line.Rest(coloured)) { Foreground = SourceBrush(SvgViewerSourceTokenKind.Text) });
+            }
+
+            text.Inlines = inlines;
+        };
+
+        return row;
+    }
+
+    /// <summary>The brush for a kind of token, or for a line number when given none.</summary>
+    private IBrush? SourceBrush(SvgViewerSourceTokenKind? kind)
     {
         var key = kind switch
         {
+            null => "SvgViewerSourceLineNumberBrush",
             SvgViewerSourceTokenKind.Punctuation => "SvgViewerSourcePunctuationBrush",
             SvgViewerSourceTokenKind.Element => "SvgViewerSourceElementBrush",
             SvgViewerSourceTokenKind.Attribute => "SvgViewerSourceAttributeBrush",

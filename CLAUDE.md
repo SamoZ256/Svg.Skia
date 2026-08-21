@@ -312,9 +312,16 @@ reloading, and a viewer must not make every other `SKSvg` in the application ret
 `SvgViewerSourceHighlighter` colours it — hand-written rather than an editor library's grammar,
 because the package would then carry a text editor and no stock XML grammar colours `{{ … }}` or an
 `<e:let>` body as code. Its invariant is that concatenating the tokens reproduces the input, which is
-what lets it describe a malformed document rather than refuse it. **Colouring stops above 5,000
-tokens**: tokenizing 200,000 characters takes 7ms, but one styled `Run` each costs 130ms at 1,100
-runs and 18 seconds at 45,000, so past the limit the pane shows plain text.
+what lets it describe a malformed document rather than refuse it. The pane is **a row per line in a
+virtualising list**, because one text block holding a whole drawing is what made colouring
+size-limited at all: tokenizing 200,000 characters takes 7ms, but one styled `Run` each costs 130ms
+at 1,100 runs and 18 seconds at 45,000 in a single block. Rows lay out only what is on screen — a
+132KB drawing opens in 94ms with 17 rows built. Two things that arrangement needs. The `ScrollViewer`
+must be the **pane's**, not a template on the `ItemsControl`: given its own template the list
+realises every row it has, measured as 4,000 of 4,000 against 16 when simply placed in a scroller.
+And a row colours at most `RowTokenLimit` pieces before showing the rest plainly, since virtualising
+by line bounds a document but not a line — the same 132KB minified onto one line took 1.4s before
+that, 340ms after.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.

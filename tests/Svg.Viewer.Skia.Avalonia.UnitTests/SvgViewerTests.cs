@@ -371,12 +371,10 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var pane = Pane(viewer);
-
         // The text the picture was built from, comments, formatting and expressions intact.
-        Assert.Equal(Parametric, PaneText(pane));
-        Assert.Contains("{{ tint }}", PaneText(pane), StringComparison.Ordinal);
-        Assert.True(pane.Bounds.Height > 0d, "the pane is not laid out");
+        Assert.Equal(Parametric, PaneText(viewer));
+        Assert.Contains("{{ tint }}", PaneText(viewer), StringComparison.Ordinal);
+        Assert.True(Pane(viewer).Bounds.Height > 0d, "the pane is not laid out");
 
         window.Close();
     }
@@ -427,8 +425,8 @@ public class SvgViewerTests
     {
         var (window, viewer) = Host();
 
-        // Comfortably past whatever the pane is willing to lay out.
-        var padding = new string(' ', 400_000);
+        // Comfortably past whatever the pane is willing to hold.
+        var padding = new string(' ', 2_100_000);
         var markup = $"""
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
               <rect width="24" height="24" fill="#00ff00" />{padding}
@@ -440,7 +438,7 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var shown = PaneText(Pane(viewer));
+        var shown = PaneText(viewer);
 
         Assert.True(shown.Length < markup.Length, "the whole drawing was handed to one text block");
         Assert.Contains("more characters not shown", shown, StringComparison.Ordinal);
@@ -519,9 +517,7 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var runs = Pane(viewer).Inlines!.OfType<Run>().ToList();
-
-        Assert.Equal(Parametric, string.Concat(runs.Select(r => r.Text)));
+        var runs = RealisedRuns(viewer);
 
         var element = runs.First(r => r.Text == "rect").Foreground;
         var expression = runs.First(r => r.Text == "{{ tint }}").Foreground;
@@ -534,31 +530,71 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
-    public async Task A_Document_Of_Too_Many_Pieces_Is_Shown_Plain_Rather_Than_Slowly()
+    public async Task A_Drawing_Of_Any_Size_Is_Coloured_Because_Only_What_Shows_Is_Built()
     {
-        // Colouring costs 130ms at 1,100 runs and 18 seconds at 45,000, so past the limit the pane
-        // goes back to what it did before: plain text, instantly.
+        // Colouring used to stop above 5,000 tokens, which 43% of this repository's own sample
+        // drawings exceed. Rows that virtualise have no such limit: the cost is the screenful.
         var (window, viewer) = Host();
 
         var shapes = new StringBuilder();
 
-        for (var i = 0; i < SvgViewerSourceHighlighter.TokenLimit; i++)
+        for (var i = 0; i < 4_000; i++)
         {
-            shapes.Append(CultureInfo.InvariantCulture, $"<rect x=\"{i % 50}\" y=\"1\" width=\"1\" height=\"1\" />");
+            shapes.Append(CultureInfo.InvariantCulture, $"  <rect x=\"{i % 50}\" y=\"1\" width=\"1\" height=\"1\" fill=\"{{{{ tint }}}}\" />\n");
         }
 
         Assert.True(await viewer.LoadTextAsync(
-            $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 50 50\" width=\"50\" height=\"50\">{shapes}</svg>"));
+            $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 50 50\" width=\"50\" height=\"50\">\n{shapes}</svg>"));
 
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var pane = Pane(viewer);
+        var lines = Pane(viewer).ItemsSource!.Cast<SvgViewerSourceLine>().ToList();
 
-        Assert.True(pane.Inlines is null or { Count: 0 }, "the pane coloured a document it should not have");
-        Assert.False(string.IsNullOrEmpty(pane.Text));
+        Assert.True(lines.Count > 4_000, $"only {lines.Count} lines were prepared");
+
+        var realised = Pane(viewer).GetVisualDescendants().OfType<SelectableTextBlock>().Count();
+
+        Assert.True(
+            realised < 200,
+            $"{realised} rows were built for a {lines.Count}-line drawing; the list is not virtualising");
+
+        // Still coloured, all the way down: the rows that exist carry expression runs.
+        Assert.Contains(RealisedRuns(viewer), r => r.Text == "{{ tint }}");
 
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Minified_Drawing_Colours_What_It_Can_And_Still_Shows_All_Of_It()
+    {
+        // Virtualising by line bounds what a document costs, not what a line costs, and a minified
+        // drawing is the whole file on one: 132KB of it took 1.4s as a single row, 340ms once the
+        // row stopped colouring past its limit.
+        var (window, viewer) = Host();
+
+        var shapes = new StringBuilder();
+
+        for (var i = 0; i < 500; i++)
+        {
+            shapes.Append(CultureInfo.InvariantCulture, $"<rect x=\"{i % 50}\" y=\"1\" width=\"1\" height=\"1\" />");
+        }
+
+        var markup = $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 50 50\" width=\"50\" height=\"50\">{shapes}</svg>";
+
+        Assert.True(await viewer.LoadTextAsync(markup));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var runs = RealisedRuns(viewer);
+
+        Assert.True(
+            runs.Count <= SvgViewerSourceHighlighter.RowTokenLimit + 1,
+            $"the row was built from {runs.Count} runs");
+
+        // Bounded, but nothing is missing: what is not coloured is still shown.
+        Assert.Equal(markup, string.Concat(runs.Select(r => r.Text)));
     }
 
     [AvaloniaFact]
@@ -570,14 +606,12 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var pane = Pane(viewer);
-
-        var dark = pane.Inlines!.OfType<Run>().First(r => r.Text == "rect").Foreground;
+        var dark = RealisedRuns(viewer).First(r => r.Text == "rect").Foreground;
 
         window.RequestedThemeVariant = ThemeVariant.Light;
         Dispatcher.UIThread.RunJobs();
 
-        var light = pane.Inlines!.OfType<Run>().First(r => r.Text == "rect").Foreground;
+        var light = RealisedRuns(viewer).First(r => r.Text == "rect").Foreground;
 
         // A palette chosen for a dark background is unreadable on a white one.
         Assert.NotEqual(dark?.ToString(), light?.ToString());
@@ -585,14 +619,25 @@ public class SvgViewerTests
         window.Close();
     }
 
-    /// <summary>What the pane is showing, however it is carrying it.</summary>
-    private static string PaneText(SelectableTextBlock pane)
-        => pane.Inlines is { Count: > 0 } inlines
-            ? string.Concat(inlines.OfType<Run>().Select(r => r.Text))
-            : pane.Text ?? string.Empty;
+    private static ItemsControl Pane(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<ItemsControl>().First(c => c.Name == "SourceLines");
 
-    private static SelectableTextBlock Pane(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<SelectableTextBlock>().First(t => t.Name == "SourceText");
+    /// <summary>What the pane is showing, joined back into one string.</summary>
+    /// <remarks>
+    /// From the lines it was given rather than from the rows on screen, because the rows on screen
+    /// are deliberately only the handful that fit.
+    /// </remarks>
+    private static string PaneText(SvgViewer viewer)
+        => string.Join(
+            Environment.NewLine,
+            Pane(viewer).ItemsSource!.Cast<SvgViewerSourceLine>()
+                .Select(line => string.Concat(line.Tokens.Select(t => t.Text))));
+
+    /// <summary>The runs of every row the list has actually realised.</summary>
+    private static List<Run> RealisedRuns(SvgViewer viewer)
+        => Pane(viewer).GetVisualDescendants().OfType<SelectableTextBlock>()
+            .SelectMany(t => t.Inlines?.OfType<Run>() ?? Enumerable.Empty<Run>())
+            .ToList();
 
     private static SKColor CentrePixel(Window window)
     {

@@ -33,8 +33,53 @@ internal enum SvgViewerSourceTokenKind
     Expression,
 }
 
-/// <summary>One run of text and what it is.</summary>
-internal readonly record struct SvgViewerSourceToken(string Text, SvgViewerSourceTokenKind Kind);
+/// <summary>
+/// One run of text and what it is, as a range into the document rather than a copy of it.
+/// </summary>
+/// <remarks>
+/// The pane holds the tokens for a whole drawing now that it shows one a line at a time, and a
+/// substring each would be tens of megabytes for a file it can display comfortably. The text is cut
+/// only when a line is actually realised on screen.
+/// </remarks>
+internal readonly record struct SvgViewerSourceToken(string Source, int Start, int Length, SvgViewerSourceTokenKind Kind)
+{
+    public string Text => Source.Substring(Start, Length);
+}
+
+/// <summary>One line of a drawing, and what its pieces are.</summary>
+internal sealed class SvgViewerSourceLine
+{
+    public SvgViewerSourceLine(int number, IReadOnlyList<SvgViewerSourceToken> tokens)
+    {
+        Number = number;
+        Tokens = tokens;
+    }
+
+    /// <summary>Counting from one, as an editor would show it.</summary>
+    public int Number { get; }
+
+    public IReadOnlyList<SvgViewerSourceToken> Tokens { get; }
+
+    /// <summary>The rest of the line from <paramref name="from"/> on, as one uncoloured piece.</summary>
+    /// <remarks>
+    /// Virtualising by line bounds what a document costs, but not what a <em>line</em> costs, and a
+    /// minified drawing is the whole file on one of them: 132KB of it took 1.4 seconds to colour as
+    /// a single row. Past <see cref="SvgViewerSourceHighlighter.RowTokenLimit"/> the remainder is
+    /// shown plainly, so the text is all there and the row costs what plain text costs.
+    /// </remarks>
+    public string Rest(int from)
+    {
+        if (from >= Tokens.Count)
+        {
+            return string.Empty;
+        }
+
+        var first = Tokens[from];
+        var last = Tokens[^1];
+
+        return first.Source[first.Start..(last.Start + last.Length)];
+    }
+}
 
 /// <summary>
 /// Splits a drawing's text into coloured pieces.
@@ -56,17 +101,68 @@ internal readonly record struct SvgViewerSourceToken(string Text, SvgViewerSourc
 internal static class SvgViewerSourceHighlighter
 {
     /// <summary>
-    /// Above this many tokens the caller should show plain text instead.
+    /// Splits a drawing into lines, which is what the pane shows one of at a time.
     /// </summary>
     /// <remarks>
-    /// Splitting the text is free — under 7ms for 200,000 characters. Laying the pieces out is not:
-    /// one styled run each costs 130ms at 1,100 runs, 433ms at 4,500, and 18 seconds at 45,000,
-    /// because the text stack's cost climbs far faster than the count does. The limit counts tokens
-    /// rather than characters because that is what is actually being paid for: a drawing exported as
-    /// enormous path data is a handful of tokens per kilobyte and colours fine at any size, while
-    /// markup of many tiny elements reaches the limit while still small.
+    /// A line at a time because the cost of colouring was never the splitting — 7ms for 200,000
+    /// characters — but laying out one styled run per token: 130ms at 1,100 runs, 433ms at 4,500 and
+    /// 18 seconds at 45,000, in a single text block. Rows in a virtualising list lay out only what is
+    /// on screen, so a 132KB drawing costs what a 2KB one does and there is no size at which the
+    /// pane gives up and shows plain text.
     /// </remarks>
-    public const int TokenLimit = 5_000;
+    public static IReadOnlyList<SvgViewerSourceLine> Lines(string? source)
+    {
+        var lines = new List<SvgViewerSourceLine>();
+        var current = new List<SvgViewerSourceToken>();
+
+        foreach (var token in Tokenize(source))
+        {
+            var start = token.Start;
+            var end = token.Start + token.Length;
+
+            for (var index = start; index < end; index++)
+            {
+                if (token.Source[index] != '\n')
+                {
+                    continue;
+                }
+
+                // A carriage return would otherwise be drawn as a glyph at the end of every line.
+                var stop = index > start && token.Source[index - 1] == '\r' ? index - 1 : index;
+
+                if (stop > start)
+                {
+                    current.Add(token with { Start = start, Length = stop - start });
+                }
+
+                lines.Add(new SvgViewerSourceLine(lines.Count + 1, current.ToArray()));
+                current.Clear();
+
+                start = index + 1;
+            }
+
+            if (end > start)
+            {
+                current.Add(token with { Start = start, Length = end - start });
+            }
+        }
+
+        if (current.Count > 0 || lines.Count == 0)
+        {
+            lines.Add(new SvgViewerSourceLine(lines.Count + 1, current.ToArray()));
+        }
+
+        return lines;
+    }
+
+    /// <summary>
+    /// How many pieces of one line are coloured before the rest is shown plainly.
+    /// </summary>
+    /// <remarks>
+    /// An ordinary line of SVG is a few dozen tokens and never reaches this. A minified drawing is
+    /// one line of tens of thousands, which is the case this exists for.
+    /// </remarks>
+    public const int RowTokenLimit = 250;
 
     /// <summary>Splits <paramref name="source"/>, never throwing and never losing a character.</summary>
     public static IReadOnlyList<SvgViewerSourceToken> Tokenize(string? source)
@@ -135,6 +231,7 @@ internal static class SvgViewerSourceHighlighter
         }
 
         var colon = element.LastIndexOf(':');
+
 
         return element.AsSpan(colon + 1).Equals("let", StringComparison.Ordinal);
     }
@@ -259,7 +356,7 @@ internal static class SvgViewerSourceHighlighter
     {
         if (end > start)
         {
-            tokens.Add(new SvgViewerSourceToken(source[start..end], kind));
+            tokens.Add(new SvgViewerSourceToken(source, start, end - start, kind));
         }
     }
 }

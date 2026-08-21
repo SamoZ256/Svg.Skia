@@ -82,11 +82,12 @@ palette is theme resources you can override:
 `…ElementBrush`, `…AttributeBrush`, `…ValueBrush`, `…CommentBrush`, `…PunctuationBrush` and
 `…TextBrush` are the rest.
 
-Colouring stops above 5,000 tokens, and the pane falls back to plain text. Splitting the text is
-free — under 7ms for 200,000 characters — but one styled run per token is not: 130ms at 1,100 runs,
-433ms at 4,500, and 18 seconds at 45,000. The limit counts tokens rather than characters because
-that is what is paid for; a drawing that is mostly enormous path data is a few tokens per kilobyte
-and stays coloured at any size.
+There is no size at which colouring gives up. The pane is a row per line in a virtualising list, so
+only the lines on screen are ever laid out: a 132KB drawing of 340 lines opens in 94ms with 17 rows
+built. What that does not bound is a single enormous *line* — a minified drawing is the whole file on
+one — so a row colours its first 250 pieces and shows the remainder plainly, which took that same
+132KB minified from 1.4s to 340ms. Nothing is hidden either way; the uncoloured remainder is still
+there to read and select.
 
 The text is `SvgViewerDocument.SourceText`, captured while loading, so it is what the picture was
 built from rather than whatever the file says later. A host that would rather show it its own way —
@@ -97,9 +98,8 @@ var text = viewer.Document?.SourceText;
 ```
 
 Drawings loaded from text or from a stream carry it too, so a viewer fed by a database or an archive
-shows source like any other. Only the pane truncates, at 200,000 characters, because one text block
-lays out every character it is handed and an exported drawing is routinely megabytes of path data;
-`SourceText` itself is always whole.
+shows source like any other. The pane holds at most 2,000,000 characters — a backstop on what is kept in
+memory rather than a layout limit — while `SourceText` itself is always whole.
 
 ## One document per viewer
 

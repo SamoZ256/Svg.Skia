@@ -19,6 +19,7 @@
           <SolidColorBrush x:Key="SvgViewerSourceValueBrush" Color="#CE9178" />
           <SolidColorBrush x:Key="SvgViewerSourceCommentBrush" Color="#6A9955" />
           <SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#C586C0" />
+          <SolidColorBrush x:Key="SvgViewerSourceLineNumberBrush" Color="#5A5A5A" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
           <SolidColorBrush x:Key="SvgViewerSourceTextBrush" Color="#1F1F1F" />
@@ -28,6 +29,7 @@
           <SolidColorBrush x:Key="SvgViewerSourceValueBrush" Color="#A31515" />
           <SolidColorBrush x:Key="SvgViewerSourceCommentBrush" Color="#008000" />
           <SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#A626A4" />
+          <SolidColorBrush x:Key="SvgViewerSourceLineNumberBrush" Color="#A0A0A0" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>
@@ -93,9 +95,23 @@
 
       <Border x:Name="SourcePanelHost" Grid.Row="2"
               BorderThickness="0,1,0,0" BorderBrush="#20808080">
+        <!--
+          A row per line in a virtualising list, so only the lines on screen are ever laid out. One
+          text block holding the whole drawing is what put a size limit on colouring at all.
+        -->
         <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-          <SelectableTextBlock x:Name="SourceText" Padding="8"
-                               FontFamily="monospace" FontSize="12" />
+          <!--
+            The scroller is the pane's, not the list's: an ItemsControl given a template of its own
+            realises every row it has, however its panel is set. Measured at 4,000 rows — all 4,000
+            built inside a custom template, 16 with the list simply placed in a ScrollViewer.
+          -->
+          <ItemsControl x:Name="SourceLines" Margin="8,6">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <VirtualizingStackPanel />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+          </ItemsControl>
         </ScrollViewer>
       </Border>
 
