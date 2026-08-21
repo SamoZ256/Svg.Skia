@@ -28,6 +28,7 @@
           <SolidColorBrush x:Key="SvgViewerSourceExpressionPunctuationBrush" Color="#909090" />
           <SolidColorBrush x:Key="SvgViewerSourceExpressionIdentifierBrush" Color="#9CDCFE" />
           <SolidColorBrush x:Key="SvgViewerSourceLineNumberBrush" Color="#5A5A5A" />
+          <SolidColorBrush x:Key="SvgViewerSourceErrorBrush" Color="#FF6B6B" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
           <SolidColorBrush x:Key="SvgViewerSourceTextBrush" Color="#1F1F1F" />
@@ -46,6 +47,7 @@
           <SolidColorBrush x:Key="SvgViewerSourceExpressionPunctuationBrush" Color="#5A5A5A" />
           <SolidColorBrush x:Key="SvgViewerSourceExpressionIdentifierBrush" Color="#001080" />
           <SolidColorBrush x:Key="SvgViewerSourceLineNumberBrush" Color="#A0A0A0" />
+          <SolidColorBrush x:Key="SvgViewerSourceErrorBrush" Color="#D40000" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>

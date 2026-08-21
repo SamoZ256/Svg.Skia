@@ -26,7 +26,9 @@ dotnet add package Svg.Highlighting
 | `SvgSourceHighlighter` | `Tokenize` for a whole document, `Lines` for one row at a time |
 | `SvgSourceToken` | A range into the source and what it is; `Text` cuts it only when asked |
 | `SvgSourceTokenKind` | Text, punctuation, element, attribute, value, comment, and the expression kinds below |
-| `SvgSourceLine` | One line's tokens, its number, and the rest of it past a limit |
+| `SvgSourceLine` | One line's tokens, its number and range, and the rest of it past a limit |
+| `SvgSourceDiagnostics` | `Analyse` — what is wrong with the expressions in a document |
+| `SvgSourceDiagnostic` | A range, a severity and a message, in the same coordinates as a token |
 
 ## Colouring a document
 
@@ -65,6 +67,39 @@ as names. Reusing the lexer is what keeps the pane and the compiler saying the s
 An expression the language refuses — a lone `=`, a half-typed call — colours as far as it read and
 leaves the remainder plain. Someone reading a file to find out why it will not compile is exactly
 who has a source view open.
+
+## Saying what is wrong
+
+`Analyse` reports mistakes in a document's expressions, through the language's own checker — so an
+unknown name, a function called with the wrong number of arguments and a type mismatch are worded
+and decided by the compiler, not by an imitation of it:
+
+```csharp
+foreach (var diagnostic in SvgSourceDiagnostics.Analyse(text))
+{
+    Underline(diagnostic.Start, diagnostic.Length, diagnostic.Message);
+}
+```
+
+Ranges are in the same coordinates as tokens, so a view that already has the tokens can mark the
+offending one without being told anything else. Where the checker refuses mid-expression, the mark
+covers the piece it stopped on rather than the whole line.
+
+Scope follows the language rather than convenience. A `{{ … }}` sees everything the document
+declares; an `<e:let>` sees the parameters and the lets before it, but not itself; a `default`, `min`,
+`max` or `step` sees **neither** — a default may not reference other parameters, because an ordering
+dependency between them would be invisible in the document, so checking one against the full table
+would accept what the code generator then rejects.
+
+Two boundaries worth knowing. It does not know what an *attribute* expects: `opacity="{{ tint }}"` is
+a well-formed colour expression written where a number belongs, and saying so needs the table of
+which SVG attribute takes which type, which lives in the scene compiler. And a document whose
+`<e:code>` block cannot be read at all reports nothing here — every name would look undeclared, and
+that one real error is reported by `SvgExpressionDeclarations` when it reads the block.
+
+Splitting is context-free and analysing is not, which is why they are separate calls: colouring a
+placeholder needs only the span, checking it needs the whole file. Splitting a 132KB drawing twice —
+once for lines, once for analysis — costs about 12ms.
 
 ## It describes rather than validates
 

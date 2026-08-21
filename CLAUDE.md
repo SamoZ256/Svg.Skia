@@ -314,7 +314,16 @@ grammar, because the package would then carry a text editor and no stock XML gra
 `{{ … }}` or an `<e:let>` body as code. It is **its own project because it draws nothing**: no
 brushes, no controls, nothing from Avalonia, which is what lets the editor share it and what makes
 the two things belonging there — colouring the expression language, and diagnostics — sit on that
-side of the seam rather than in a UI. The first is done: `SvgSourceExpressions` hands a `{{ … }}`
+side of the seam rather than in a UI. `SvgSourceDiagnostics.Analyse` is the second: it reads the
+`<e:code>` block and runs `ExprChecker` over every expression, so unknown names, arity and type
+errors are the compiler's verdict rather than an imitation. **Splitting is context-free, analysing is
+not** — colouring a placeholder needs the span, checking it needs every declaration in the file —
+which is why they are separate passes, at about 12ms for the extra tokenize on a 132KB drawing.
+Scope follows the language: a `{{ … }}` sees everything declared, an `<e:let>` sees the lets before
+it, and a `default`/`min`/`max`/`step` sees nothing declared at all, since a default may not
+reference other parameters. Two things it deliberately does not do: check an expression against the
+type its *attribute* expects, which needs the scene compiler's attribute table; and report anything
+when the `<e:code>` block itself will not read, since every name would then look undeclared. The first is done: `SvgSourceExpressions` hands a `{{ … }}`
 span, an `<e:let>` body, or an `<e:param>`'s `default`/`min`/`max`/`step` — all four of which are
 expression text, not words — to **`Svg.Expressions`' own lexer**, reached through an `InternalsVisibleTo`
 grant, because a second description of the language would drift from it — `%` is a suffix on a number

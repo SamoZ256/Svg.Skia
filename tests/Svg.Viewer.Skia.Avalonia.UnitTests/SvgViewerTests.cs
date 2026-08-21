@@ -579,6 +579,104 @@ public class SvgViewerTests
         window.Close();
     }
 
+
+    private const string Mistyped = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="tint" type="color" default="#ff0000" />
+            </e:code>
+          </defs>
+          <rect x="0" y="0" width="24" height="24" fill="{{ tnit }}" />
+        </svg>
+        """;
+
+    [AvaloniaFact]
+    public async Task The_Pane_Underlines_The_Name_Nothing_Declares()
+    {
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync(Mistyped));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var runs = RealisedRuns(viewer);
+        var wrong = runs.First(r => r.Text == "tnit");
+
+        Assert.NotNull(wrong.TextDecorations);
+
+        // Only the piece that is wrong: the drawing around it reads normally.
+        Assert.All(
+            runs.Where(r => r.Text is "rect" or "fill" or "{{"),
+            r => Assert.Null(r.TextDecorations));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_With_Nothing_Wrong_Is_Not_Marked()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.All(RealisedRuns(viewer), r => Assert.Null(r.TextDecorations));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_Message_Is_On_The_Line_That_Carries_The_Mistake()
+    {
+        // A tooltip rather than a panel: the pane is where the file is, and a message about a name
+        // is worth nothing away from the name.
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync(Mistyped));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var rows = Pane(viewer).GetVisualDescendants().OfType<SelectableTextBlock>().ToList();
+        var marked = rows.Where(r => ToolTip.GetTip(r) is string).ToList();
+
+        var one = Assert.Single(marked);
+
+        Assert.Contains("tnit", (string)ToolTip.GetTip(one)!, StringComparison.Ordinal);
+        Assert.Contains("tnit", string.Concat(one.Inlines!.OfType<Run>().Select(r => r.Text)), StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+
+    [AvaloniaFact]
+    public async Task Every_Piece_Of_The_Pane_Is_Painted_With_Something()
+    {
+        // A brush key is a string, and a rename that catches one silently paints nothing: the line
+        // numbers disappeared exactly that way, because "SvgViewerSourceLineNumberBrush" contains
+        // the name of a type that was renamed around it.
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync(Parametric));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.All(RealisedRuns(viewer), r => Assert.NotNull(r.Foreground));
+
+        var numbers = Pane(viewer).GetVisualDescendants().OfType<TextBlock>()
+            .Where(t => t is not SelectableTextBlock)
+            .ToList();
+
+        Assert.NotEmpty(numbers);
+        Assert.All(numbers, n => Assert.NotNull(n.Foreground));
+        Assert.All(numbers, n => Assert.False(string.IsNullOrEmpty(n.Text)));
+
+        window.Close();
+    }
+
     private static ItemsControl Pane(SvgViewer viewer)
         => viewer.GetVisualDescendants().OfType<ItemsControl>().First(c => c.Name == "SourceLines");
 

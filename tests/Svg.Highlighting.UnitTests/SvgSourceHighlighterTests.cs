@@ -187,4 +187,20 @@ public class SvgSourceHighlighterTests
         Assert.Contains(Of(source, SvgSourceTokenKind.Value), t => t.Text == "\"tau\"");
     }
 
+    [Theory]
+    [InlineData("<svg>\n  <rect />\n</svg>")]
+    [InlineData("one\n\nthree\n")]
+    [InlineData("\r\nwindows\r\nendings\r\n")]
+    [InlineData("")]
+    public void A_Line_Knows_Where_It_Is(string source)
+    {
+        // The range is what anything keyed to a position is found by — a diagnostic, for one — so it
+        // has to agree with the text even for a line with nothing on it.
+        foreach (var line in SvgSourceHighlighter.Lines(source))
+        {
+            var slice = source.Substring(line.Start, line.Length);
+
+            Assert.Equal(string.Concat(line.Tokens.Select(t => t.Text)), slice.TrimEnd('\r'));
+        }
+    }
 }

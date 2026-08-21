@@ -87,14 +87,26 @@ public readonly record struct SvgSourceToken(string Source, int Start, int Lengt
 /// <summary>One line of a drawing, and what its pieces are.</summary>
 public sealed class SvgSourceLine
 {
-    public SvgSourceLine(int number, IReadOnlyList<SvgSourceToken> tokens)
+    public SvgSourceLine(int number, int start, int length, IReadOnlyList<SvgSourceToken> tokens)
     {
         Number = number;
+        Start = start;
+        Length = length;
         Tokens = tokens;
     }
 
     /// <summary>Counting from one, as an editor would show it.</summary>
     public int Number { get; }
+
+    /// <summary>Where the line begins in the document.</summary>
+    /// <remarks>
+    /// A line knows its own range so that anything keyed to a position — a diagnostic, a search hit,
+    /// a bookmark — can be found for it without walking the tokens of every other line.
+    /// </remarks>
+    public int Start { get; }
+
+    /// <summary>How long the line is, its ending newline excluded.</summary>
+    public int Length { get; }
 
     public IReadOnlyList<SvgSourceToken> Tokens { get; }
 
@@ -161,6 +173,9 @@ public static class SvgSourceHighlighter
         var lines = new List<SvgSourceLine>();
         var current = new List<SvgSourceToken>();
 
+        // Where the line being gathered began, which the tokens cannot say for a line that is empty.
+        var from = 0;
+
         foreach (var token in Tokenize(source))
         {
             var start = token.Start;
@@ -181,9 +196,10 @@ public static class SvgSourceHighlighter
                     current.Add(token with { Start = start, Length = stop - start });
                 }
 
-                lines.Add(new SvgSourceLine(lines.Count + 1, current.ToArray()));
+                lines.Add(new SvgSourceLine(lines.Count + 1, from, stop - from, current.ToArray()));
                 current.Clear();
 
+                from = index + 1;
                 start = index + 1;
             }
 
@@ -195,7 +211,7 @@ public static class SvgSourceHighlighter
 
         if (current.Count > 0 || lines.Count == 0)
         {
-            lines.Add(new SvgSourceLine(lines.Count + 1, current.ToArray()));
+            lines.Add(new SvgSourceLine(lines.Count + 1, from, Math.Max(0, (source?.Length ?? 0) - from), current.ToArray()));
         }
 
         return lines;
@@ -216,7 +232,10 @@ public static class SvgSourceHighlighter
     /// Expression spans are split again by <see cref="SvgSourceExpressions"/>, so what comes back is
     /// markup and code in one flat sequence — a consumer needs a brush per kind and nothing else.
     /// </remarks>
-    public static IReadOnlyList<SvgSourceToken> Tokenize(string? source)
+    public static IReadOnlyList<SvgSourceToken> Tokenize(string? source) => Tokenize(source, null);
+
+    /// <summary>Splits, and records where the expression code was if asked.</summary>
+    internal static IReadOnlyList<SvgSourceToken> Tokenize(string? source, List<SvgSourceSite>? sites)
     {
         var tokens = new List<SvgSourceToken>();
 
@@ -237,11 +256,11 @@ public static class SvgSourceHighlighter
 
             if (open < 0)
             {
-                AddBody(tokens, source, index, source.Length, let);
+                AddBody(tokens, source, index, source.Length, let, sites);
                 break;
             }
 
-            AddBody(tokens, source, index, open, let);
+            AddBody(tokens, source, index, open, let, sites);
 
             index = source[open..] switch
             {
@@ -249,7 +268,7 @@ public static class SvgSourceHighlighter
                 var rest when rest.StartsWith("<![CDATA[", StringComparison.Ordinal) => Fenced(tokens, source, open, "]]>"),
                 var rest when rest.StartsWith("<?", StringComparison.Ordinal) => Fenced(tokens, source, open, "?>"),
                 var rest when rest.StartsWith("<!", StringComparison.Ordinal) => Fenced(tokens, source, open, ">"),
-                _ => Tag(tokens, source, open, ref element),
+                _ => Tag(tokens, source, open, ref element, sites),
             };
         }
 
@@ -257,7 +276,13 @@ public static class SvgSourceHighlighter
     }
 
     /// <summary>Adds text between tags, as code when the element it belongs to is a let.</summary>
-    private static void AddBody(List<SvgSourceToken> tokens, string source, int start, int end, bool let)
+    private static void AddBody(
+        List<SvgSourceToken> tokens,
+        string source,
+        int start,
+        int end,
+        bool let,
+        List<SvgSourceSite>? sites)
     {
         if (end <= start)
         {
@@ -266,7 +291,7 @@ public static class SvgSourceHighlighter
 
         if (let)
         {
-            SvgSourceExpressions.Code(tokens, source, start, end);
+            SvgSourceExpressions.Code(tokens, source, start, end, SvgSourceSiteKind.Let, sites);
             return;
         }
 
@@ -308,7 +333,12 @@ public static class SvgSourceHighlighter
     private static bool IsDeclaredExpression(string? element, string? attribute)
         => Is(element, "param") && attribute is "default" or "min" or "max" or "step";
 
-    private static int Tag(List<SvgSourceToken> tokens, string source, int start, ref string? element)
+    private static int Tag(
+        List<SvgSourceToken> tokens,
+        string source,
+        int start,
+        ref string? element,
+        List<SvgSourceSite>? sites)
     {
         // An unclosed tag runs to the end of the document rather than swallowing the rest silently.
         var close = source.IndexOf('>', start);
@@ -376,11 +406,11 @@ public static class SvgSourceHighlighter
 
                 if (IsDeclaredExpression(element, attributeName))
                 {
-                    Declared(tokens, source, index, valueEnd, quote);
+                    Declared(tokens, source, index, valueEnd, quote, sites);
                 }
                 else
                 {
-                    Value(tokens, source, index, valueEnd);
+                    Value(tokens, source, index, valueEnd, sites);
                 }
 
                 index = valueEnd;
@@ -411,7 +441,13 @@ public static class SvgSourceHighlighter
     }
 
     /// <summary>Adds a value whose whole content is expression code, quotes excepted.</summary>
-    private static void Declared(List<SvgSourceToken> tokens, string source, int start, int end, int quote)
+    private static void Declared(
+        List<SvgSourceToken> tokens,
+        string source,
+        int start,
+        int end,
+        int quote,
+        List<SvgSourceSite>? sites)
     {
         // The quotes belong to the markup, not to the expression — and an unterminated value has
         // only the opening one.
@@ -419,13 +455,13 @@ public static class SvgSourceHighlighter
 
         var close = quote < 0 ? end : quote;
 
-        SvgSourceExpressions.Code(tokens, source, start + 1, close);
+        SvgSourceExpressions.Code(tokens, source, start + 1, close, SvgSourceSiteKind.Declaration, sites);
 
         Add(tokens, source, close, end, SvgSourceTokenKind.Value);
     }
 
     /// <summary>Adds a value, lifting any <c>{{ … }}</c> out of it.</summary>
-    private static void Value(List<SvgSourceToken> tokens, string source, int start, int end)
+    private static void Value(List<SvgSourceToken> tokens, string source, int start, int end, List<SvgSourceSite>? sites)
     {
         var index = start;
 
@@ -443,7 +479,7 @@ public static class SvgSourceHighlighter
             var expressionEnd = close < 0 || close + 2 > end ? end : close + 2;
 
             Add(tokens, source, index, open, SvgSourceTokenKind.Value);
-            SvgSourceExpressions.Placeholder(tokens, source, open, expressionEnd);
+            SvgSourceExpressions.Placeholder(tokens, source, open, expressionEnd, sites);
 
             index = expressionEnd;
         }

@@ -65,6 +65,10 @@ public partial class SvgViewer : UserControl
     /// <summary>Whether the pane's text is stale — a document arrived, or the theme changed.</summary>
     private bool _sourceStale = true;
 
+    /// <summary>What is wrong with the drawing, by the line it is wrong on.</summary>
+    private IReadOnlyDictionary<int, List<SvgSourceDiagnostic>> _sourceMarks =
+        new Dictionary<int, List<SvgSourceDiagnostic>>();
+
     private SvgViewerDocument? _document;
     private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
     private int _loadVersion;
@@ -547,7 +551,64 @@ public partial class SvgViewer : UserControl
               + $"{Environment.NewLine}{Environment.NewLine}… {source.Length - SourceLimit:N0} more characters not shown."
             : source ?? string.Empty;
 
-        _sourceLines.ItemsSource = SvgSourceHighlighter.Lines(text);
+        var lines = SvgSourceHighlighter.Lines(text);
+
+        // Splitting a document is context-free, checking one is not — it reads every declaration in
+        // the file — so this is a second pass, and one that costs nothing on a drawing with no
+        // expressions in it.
+        _sourceMarks = Mark(lines, SvgSourceDiagnostics.Analyse(text));
+
+        _sourceLines.ItemsSource = lines;
+    }
+
+    /// <summary>Files each diagnostic under the line it starts on.</summary>
+    /// <remarks>
+    /// By line rather than by position, because a row is realised on its own and has no way to search
+    /// a document it never sees the whole of.
+    /// </remarks>
+    private static Dictionary<int, List<SvgSourceDiagnostic>> Mark(
+        IReadOnlyList<SvgSourceLine> lines,
+        IReadOnlyList<SvgSourceDiagnostic> diagnostics)
+    {
+        var marks = new Dictionary<int, List<SvgSourceDiagnostic>>();
+
+        foreach (var diagnostic in diagnostics)
+        {
+            var low = 0;
+            var high = lines.Count - 1;
+            var found = -1;
+
+            while (low <= high)
+            {
+                var middle = (low + high) / 2;
+
+                if (lines[middle].Start <= diagnostic.Start)
+                {
+                    found = middle;
+                    low = middle + 1;
+                }
+                else
+                {
+                    high = middle - 1;
+                }
+            }
+
+            if (found < 0)
+            {
+                continue;
+            }
+
+            var number = lines[found].Number;
+
+            if (!marks.TryGetValue(number, out var on))
+            {
+                marks[number] = on = new List<SvgSourceDiagnostic>();
+            }
+
+            on.Add(diagnostic);
+        }
+
+        return marks;
     }
 
     /// <summary>Builds one row: its number, and its text coloured a piece at a time.</summary>
@@ -578,6 +639,13 @@ public partial class SvgViewer : UserControl
 
             number.Text = line.Number.ToString(CultureInfo.CurrentCulture);
 
+            var marks = _sourceMarks.TryGetValue(line.Number, out var on) ? on : null;
+
+            number.Foreground = marks is null ? SourceBrush(null) : ErrorBrush();
+            ToolTip.SetTip(text, marks is null ? null : string.Join("\n", marks.Select(m => m.Message)));
+
+            var underline = marks is null ? null : Underline();
+
             var inlines = new InlineCollection();
             var coloured = Math.Min(line.Tokens.Count, SvgSourceHighlighter.RowTokenLimit);
 
@@ -585,7 +653,16 @@ public partial class SvgViewer : UserControl
             {
                 var token = line.Tokens[index];
 
-                inlines.Add(new Run(token.Text) { Foreground = SourceBrush(token.Kind) });
+                var run = new Run(token.Text) { Foreground = SourceBrush(token.Kind) };
+
+                // Under the piece that is wrong rather than the line it is on: a line of markup is
+                // long, and "something here" is most of what a reader already knows.
+                if (marks is { } && marks.Any(m => m.Start < token.Start + token.Length && token.Start < m.Start + m.Length))
+                {
+                    run.TextDecorations = underline;
+                }
+
+                inlines.Add(run);
             }
 
             if (line.Tokens.Count > coloured)
@@ -599,12 +676,33 @@ public partial class SvgViewer : UserControl
         return row;
     }
 
+    private IBrush? ErrorBrush()
+        => this.TryFindResource("SvgViewerSourceErrorBrush", ActualThemeVariant, out var brush) ? brush as IBrush : null;
+
+    /// <summary>
+    /// A red underline, built per pass because the brush it draws with follows the theme.
+    /// </summary>
+    /// <remarks>
+    /// Solid and 2px: a dashed one under 12pt type reads as a smudge, and an editor's wavy line is
+    /// not something the text stack draws — <see cref="TextDecoration"/> offers a stroke, a
+    /// thickness and a dash array, so weight is the only dial that makes a mark obvious.
+    /// </remarks>
+    private TextDecorationCollection Underline() => new()
+    {
+        new TextDecoration
+        {
+            Location = TextDecorationLocation.Underline,
+            Stroke = ErrorBrush(),
+            StrokeThickness = 2d,
+        },
+    };
+
     /// <summary>The brush for a kind of token, or for a line number when given none.</summary>
     private IBrush? SourceBrush(SvgSourceTokenKind? kind)
     {
         var key = kind switch
         {
-            null => "SvgSourceLineNumberBrush",
+            null => "SvgViewerSourceLineNumberBrush",
             SvgSourceTokenKind.Punctuation => "SvgViewerSourcePunctuationBrush",
             SvgSourceTokenKind.Element => "SvgViewerSourceElementBrush",
             SvgSourceTokenKind.Attribute => "SvgViewerSourceAttributeBrush",
