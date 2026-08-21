@@ -9,7 +9,6 @@
   </PropertyGroup>
 
   <Import Project="..\..\build\ReferenceAssemblies.props" />
-  <Import Project="..\..\build\SignAssembly.props" />
   <Import Project="..\..\build\XUnit.v3.props" />
   <Import Project="..\..\build\SkiaSharp.props" />
   <Import Project="..\..\build\SkiaSharp.Native.props" />
@@ -20,6 +19,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Svg.Viewer.Skia.Avalonia\Svg.Viewer.Skia.Avalonia.csproj" />
+    <!-- Named rather than left transitive: the pane's tests speak about tokens and lines. -->
+    <ProjectReference Include="..\..\src\Svg.Highlighting\Svg.Highlighting.csproj" />
   </ItemGroup>
 
   <ItemGroup>

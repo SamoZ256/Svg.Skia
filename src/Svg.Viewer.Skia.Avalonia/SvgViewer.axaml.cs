@@ -20,6 +20,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Svg.Expressions;
+using Svg.Highlighting;
 using Svg.Skia;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -86,7 +87,7 @@ public partial class SvgViewer : UserControl
         _sourceHost = this.FindControl<Border>("SourcePanelHost")!;
         _sourceSplitter = this.FindControl<GridSplitter>("SourceSplitter")!;
         _sourceLines = this.FindControl<ItemsControl>("SourceLines")!;
-        _sourceLines.ItemTemplate = new FuncDataTemplate<SvgViewerSourceLine>((_, _) => BuildLine(), supportsRecycling: true);
+        _sourceLines.ItemTemplate = new FuncDataTemplate<SvgSourceLine>((_, _) => BuildLine(), supportsRecycling: true);
         _sourceButton = this.FindControl<ToggleButton>("SourceButton")!;
         _body = this.FindControl<Grid>("Body")!;
 
@@ -546,7 +547,7 @@ public partial class SvgViewer : UserControl
               + $"{Environment.NewLine}{Environment.NewLine}… {source.Length - SourceLimit:N0} more characters not shown."
             : source ?? string.Empty;
 
-        _sourceLines.ItemsSource = SvgViewerSourceHighlighter.Lines(text);
+        _sourceLines.ItemsSource = SvgSourceHighlighter.Lines(text);
     }
 
     /// <summary>Builds one row: its number, and its text coloured a piece at a time.</summary>
@@ -570,7 +571,7 @@ public partial class SvgViewer : UserControl
 
         row.DataContextChanged += (_, _) =>
         {
-            if (row.DataContext is not SvgViewerSourceLine line)
+            if (row.DataContext is not SvgSourceLine line)
             {
                 return;
             }
@@ -578,7 +579,7 @@ public partial class SvgViewer : UserControl
             number.Text = line.Number.ToString(CultureInfo.CurrentCulture);
 
             var inlines = new InlineCollection();
-            var coloured = Math.Min(line.Tokens.Count, SvgViewerSourceHighlighter.RowTokenLimit);
+            var coloured = Math.Min(line.Tokens.Count, SvgSourceHighlighter.RowTokenLimit);
 
             for (var index = 0; index < coloured; index++)
             {
@@ -589,7 +590,7 @@ public partial class SvgViewer : UserControl
 
             if (line.Tokens.Count > coloured)
             {
-                inlines.Add(new Run(line.Rest(coloured)) { Foreground = SourceBrush(SvgViewerSourceTokenKind.Text) });
+                inlines.Add(new Run(line.Rest(coloured)) { Foreground = SourceBrush(SvgSourceTokenKind.Text) });
             }
 
             text.Inlines = inlines;
@@ -599,17 +600,17 @@ public partial class SvgViewer : UserControl
     }
 
     /// <summary>The brush for a kind of token, or for a line number when given none.</summary>
-    private IBrush? SourceBrush(SvgViewerSourceTokenKind? kind)
+    private IBrush? SourceBrush(SvgSourceTokenKind? kind)
     {
         var key = kind switch
         {
-            null => "SvgViewerSourceLineNumberBrush",
-            SvgViewerSourceTokenKind.Punctuation => "SvgViewerSourcePunctuationBrush",
-            SvgViewerSourceTokenKind.Element => "SvgViewerSourceElementBrush",
-            SvgViewerSourceTokenKind.Attribute => "SvgViewerSourceAttributeBrush",
-            SvgViewerSourceTokenKind.Value => "SvgViewerSourceValueBrush",
-            SvgViewerSourceTokenKind.Comment => "SvgViewerSourceCommentBrush",
-            SvgViewerSourceTokenKind.Expression => "SvgViewerSourceExpressionBrush",
+            null => "SvgSourceLineNumberBrush",
+            SvgSourceTokenKind.Punctuation => "SvgViewerSourcePunctuationBrush",
+            SvgSourceTokenKind.Element => "SvgViewerSourceElementBrush",
+            SvgSourceTokenKind.Attribute => "SvgViewerSourceAttributeBrush",
+            SvgSourceTokenKind.Value => "SvgViewerSourceValueBrush",
+            SvgSourceTokenKind.Comment => "SvgViewerSourceCommentBrush",
+            SvgSourceTokenKind.Expression => "SvgViewerSourceExpressionBrush",
             _ => "SvgViewerSourceTextBrush",
         };
 

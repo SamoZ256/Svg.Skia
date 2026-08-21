@@ -17,6 +17,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using SkiaSharp;
 using Svg.Expressions;
+using Svg.Highlighting;
 using Xunit;
 
 namespace Svg.Viewer.Skia.Avalonia.UnitTests;
@@ -460,55 +461,6 @@ public class SvgViewerTests
         Assert.Equal(Parametric, document.SourceText);
     }
 
-    [AvaloniaTheory]
-    [InlineData("<svg><rect fill=\"#fff\" /></svg>")]
-    [InlineData("<!-- a comment --><svg/>")]
-    [InlineData("<?xml version=\"1.0\"?><svg><![CDATA[ raw < > text ]]></svg>")]
-    [InlineData("<svg fill=\"{{ hsl(hue, 74%, 55%) }}\" />")]
-    [InlineData("text before <svg attr='single' > and after")]
-    [InlineData("<svg <<< unclosed attr=\"no end")]
-    [InlineData("<!-- unterminated comment")]
-    [InlineData("no markup at all")]
-    [InlineData("")]
-    public void Splitting_The_Source_Never_Loses_A_Character(string source)
-    {
-        // The pane shows what the file says. A highlighter that drops, reorders or invents a
-        // character while colouring would quietly lie about the document.
-        var tokens = SvgViewerSourceHighlighter.Tokenize(source);
-
-        Assert.Equal(source, string.Concat(tokens.Select(t => t.Text)));
-    }
-
-    [AvaloniaFact]
-    public void An_Expression_Is_Not_Just_Another_Attribute_Value()
-    {
-        // The reason for colouring at all: an XML grammar sees a string here.
-        var tokens = SvgViewerSourceHighlighter.Tokenize("<circle fill=\"{{ hsl(hue, 74%, 55%) }}\" r=\"10\" />");
-
-        Assert.Contains(tokens, t =>
-            t.Kind == SvgViewerSourceTokenKind.Expression && t.Text == "{{ hsl(hue, 74%, 55%) }}");
-
-        Assert.Contains(tokens, t => t.Kind == SvgViewerSourceTokenKind.Element && t.Text == "circle");
-        Assert.Contains(tokens, t => t.Kind == SvgViewerSourceTokenKind.Attribute && t.Text == "fill");
-        Assert.Contains(tokens, t => t.Kind == SvgViewerSourceTokenKind.Value && t.Text == "\"10\"");
-    }
-
-    [AvaloniaFact]
-    public void A_Let_Body_Is_Expression_Code_As_Much_As_A_Placeholder_Is()
-    {
-        // <e:let name="primary">hsl(hue, 74%, 55%)</e:let> is the same language as {{ … }}, and the
-        // declarations everything else in the drawing refers to. As XML text it would be prose.
-        var tokens = SvgViewerSourceHighlighter.Tokenize(
-            "<e:code><e:let name=\"primary\">hsl(hue, 74%, 55%)</e:let><e:param name=\"hue\" /></e:code>");
-
-        Assert.Contains(tokens, t =>
-            t.Kind == SvgViewerSourceTokenKind.Expression && t.Text == "hsl(hue, 74%, 55%)");
-
-        // The element that merely holds them is not code, and neither is a self-closing one.
-        Assert.DoesNotContain(tokens, t =>
-            t.Kind == SvgViewerSourceTokenKind.Expression && t.Text.Contains("param", StringComparison.Ordinal));
-    }
-
     [AvaloniaFact]
     public async Task The_Source_Pane_Colours_What_It_Shows()
     {
@@ -549,7 +501,7 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var lines = Pane(viewer).ItemsSource!.Cast<SvgViewerSourceLine>().ToList();
+        var lines = Pane(viewer).ItemsSource!.Cast<SvgSourceLine>().ToList();
 
         Assert.True(lines.Count > 4_000, $"only {lines.Count} lines were prepared");
 
@@ -590,7 +542,7 @@ public class SvgViewerTests
         var runs = RealisedRuns(viewer);
 
         Assert.True(
-            runs.Count <= SvgViewerSourceHighlighter.RowTokenLimit + 1,
+            runs.Count <= SvgSourceHighlighter.RowTokenLimit + 1,
             $"the row was built from {runs.Count} runs");
 
         // Bounded, but nothing is missing: what is not coloured is still shown.
@@ -630,7 +582,7 @@ public class SvgViewerTests
     private static string PaneText(SvgViewer viewer)
         => string.Join(
             Environment.NewLine,
-            Pane(viewer).ItemsSource!.Cast<SvgViewerSourceLine>()
+            Pane(viewer).ItemsSource!.Cast<SvgSourceLine>()
                 .Select(line => string.Concat(line.Tokens.Select(t => t.Text))));
 
     /// <summary>The runs of every row the list has actually realised.</summary>

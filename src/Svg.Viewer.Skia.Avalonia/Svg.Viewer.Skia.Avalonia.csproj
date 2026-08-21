@@ -28,6 +28,7 @@
     <ProjectReference Include="..\Skia.Controls.Avalonia\Skia.Controls.Avalonia.csproj" />
     <ProjectReference Include="..\Svg.Skia\Svg.Skia.csproj" />
     <ProjectReference Include="..\Svg.Expressions\Svg.Expressions.csproj" />
+    <ProjectReference Include="..\Svg.Highlighting\Svg.Highlighting.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -309,9 +309,14 @@ the files were still being read — which is what failed on CI and passed locall
 a pane of the drawing's text, held as `SvgViewerDocument.SourceText` and captured at load: `SKSvg`
 can keep its own source, but only behind the process-wide `CacheOriginalStream` toggle it uses for
 reloading, and a viewer must not make every other `SKSvg` in the application retain its file.
-`SvgViewerSourceHighlighter` colours it — hand-written rather than an editor library's grammar,
-because the package would then carry a text editor and no stock XML grammar colours `{{ … }}` or an
-`<e:let>` body as code. Its invariant is that concatenating the tokens reproduces the input, which is
+`src/Svg.Highlighting` splits it into coloured pieces — hand-written rather than an editor library's
+grammar, because the package would then carry a text editor and no stock XML grammar colours
+`{{ … }}` or an `<e:let>` body as code. It is **its own project because it draws nothing**: no
+brushes, no controls, nothing from Avalonia, which is what lets the editor share it and what makes
+the two things heading there — colouring the expression language by running `Svg.Expressions`' own
+lexer over an `Expression` span, and diagnostics — belong on that side of the seam rather than in a
+UI. A token is a range into the document rather than a copy, which is both what keeps a whole file
+affordable to hold and what a diagnostic needs to point at. Its invariant is that concatenating the tokens reproduces the input, which is
 what lets it describe a malformed document rather than refuse it. The pane is **a row per line in a
 virtualising list**, because one text block holding a whole drawing is what made colouring
 size-limited at all: tokenizing 200,000 characters takes 7ms, but one styled `Run` each costs 130ms

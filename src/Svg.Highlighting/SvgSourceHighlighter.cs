@@ -4,10 +4,10 @@
 using System;
 using System.Collections.Generic;
 
-namespace Svg.Viewer.Skia.Avalonia;
+namespace Svg.Highlighting;
 
 /// <summary>What a piece of a drawing's text is, for the purpose of colouring it.</summary>
-internal enum SvgViewerSourceTokenKind
+public enum SvgSourceTokenKind
 {
     /// <summary>Anything between tags, and the whitespace inside one.</summary>
     Text,
@@ -37,19 +37,19 @@ internal enum SvgViewerSourceTokenKind
 /// One run of text and what it is, as a range into the document rather than a copy of it.
 /// </summary>
 /// <remarks>
-/// The pane holds the tokens for a whole drawing now that it shows one a line at a time, and a
-/// substring each would be tens of megabytes for a file it can display comfortably. The text is cut
-/// only when a line is actually realised on screen.
+/// A view holds the tokens for a whole drawing once it shows them a line at a time, and a substring
+/// each would be tens of megabytes for a file it can display comfortably. The text is cut only when
+/// a line is actually realised on screen. Ranges are also what a diagnostic will want to point at.
 /// </remarks>
-internal readonly record struct SvgViewerSourceToken(string Source, int Start, int Length, SvgViewerSourceTokenKind Kind)
+public readonly record struct SvgSourceToken(string Source, int Start, int Length, SvgSourceTokenKind Kind)
 {
     public string Text => Source.Substring(Start, Length);
 }
 
 /// <summary>One line of a drawing, and what its pieces are.</summary>
-internal sealed class SvgViewerSourceLine
+public sealed class SvgSourceLine
 {
-    public SvgViewerSourceLine(int number, IReadOnlyList<SvgViewerSourceToken> tokens)
+    public SvgSourceLine(int number, IReadOnlyList<SvgSourceToken> tokens)
     {
         Number = number;
         Tokens = tokens;
@@ -58,14 +58,14 @@ internal sealed class SvgViewerSourceLine
     /// <summary>Counting from one, as an editor would show it.</summary>
     public int Number { get; }
 
-    public IReadOnlyList<SvgViewerSourceToken> Tokens { get; }
+    public IReadOnlyList<SvgSourceToken> Tokens { get; }
 
     /// <summary>The rest of the line from <paramref name="from"/> on, as one uncoloured piece.</summary>
     /// <remarks>
     /// Virtualising by line bounds what a document costs, but not what a <em>line</em> costs, and a
     /// minified drawing is the whole file on one of them: 132KB of it took 1.4 seconds to colour as
-    /// a single row. Past <see cref="SvgViewerSourceHighlighter.RowTokenLimit"/> the remainder is
-    /// shown plainly, so the text is all there and the row costs what plain text costs.
+    /// a single row. Past <see cref="SvgSourceHighlighter.RowTokenLimit"/> a consumer shows the
+    /// remainder plainly, so the text is all there and the row costs what plain text costs.
     /// </remarks>
     public string Rest(int from)
     {
@@ -82,14 +82,14 @@ internal sealed class SvgViewerSourceLine
 }
 
 /// <summary>
-/// Splits a drawing's text into coloured pieces.
+/// Splits an SVG document into coloured pieces.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Hand-written rather than a grammar from an editor library, for two reasons. A viewer package
-/// should not make everyone who references it carry a text editor, and no stock XML grammar knows
-/// what <c>{{ hsl(hue, 74%, 55%) }}</c> is — to one of those it is a string like any other, when it
-/// is the thing a reader opened the pane to find.
+/// Hand-written rather than a grammar from an editor library, for two reasons. Neither a viewer nor
+/// an editor should make everyone who references it carry a text editor, and no stock XML grammar
+/// knows what <c>{{ hsl(hue, 74%, 55%) }}</c> is — to one of those it is a string like any other,
+/// when it is the thing a reader opened a source view to find.
 /// </para>
 /// <para>
 /// It describes rather than validates: a malformed document still colours, because refusing to
@@ -97,8 +97,16 @@ internal sealed class SvgViewerSourceLine
 /// invariant that keeps that honest is that concatenating every token reproduces the input exactly,
 /// which is asserted for well-formed and broken documents alike.
 /// </para>
+/// <para>
+/// This assembly knows nothing about how any of it is drawn — no brushes, no controls — which is
+/// what lets a viewer pane and an editor share it. Two things are meant to arrive here rather than
+/// in either of them: colouring the expression language itself, which subdivides
+/// <see cref="SvgSourceTokenKind.Expression"/> by running <c>Svg.Expressions</c>' own lexer over the
+/// span; and diagnostics, which have the ranges they need already, since a token is a position in
+/// the document rather than a copy of part of it.
+/// </para>
 /// </remarks>
-internal static class SvgViewerSourceHighlighter
+public static class SvgSourceHighlighter
 {
     /// <summary>
     /// Splits a drawing into lines, which is what the pane shows one of at a time.
@@ -108,12 +116,12 @@ internal static class SvgViewerSourceHighlighter
     /// characters — but laying out one styled run per token: 130ms at 1,100 runs, 433ms at 4,500 and
     /// 18 seconds at 45,000, in a single text block. Rows in a virtualising list lay out only what is
     /// on screen, so a 132KB drawing costs what a 2KB one does and there is no size at which the
-    /// pane gives up and shows plain text.
+    /// consumer gives up and shows plain text.
     /// </remarks>
-    public static IReadOnlyList<SvgViewerSourceLine> Lines(string? source)
+    public static IReadOnlyList<SvgSourceLine> Lines(string? source)
     {
-        var lines = new List<SvgViewerSourceLine>();
-        var current = new List<SvgViewerSourceToken>();
+        var lines = new List<SvgSourceLine>();
+        var current = new List<SvgSourceToken>();
 
         foreach (var token in Tokenize(source))
         {
@@ -135,7 +143,7 @@ internal static class SvgViewerSourceHighlighter
                     current.Add(token with { Start = start, Length = stop - start });
                 }
 
-                lines.Add(new SvgViewerSourceLine(lines.Count + 1, current.ToArray()));
+                lines.Add(new SvgSourceLine(lines.Count + 1, current.ToArray()));
                 current.Clear();
 
                 start = index + 1;
@@ -149,7 +157,7 @@ internal static class SvgViewerSourceHighlighter
 
         if (current.Count > 0 || lines.Count == 0)
         {
-            lines.Add(new SvgViewerSourceLine(lines.Count + 1, current.ToArray()));
+            lines.Add(new SvgSourceLine(lines.Count + 1, current.ToArray()));
         }
 
         return lines;
@@ -160,14 +168,15 @@ internal static class SvgViewerSourceHighlighter
     /// </summary>
     /// <remarks>
     /// An ordinary line of SVG is a few dozen tokens and never reaches this. A minified drawing is
-    /// one line of tens of thousands, which is the case this exists for.
+    /// one line of tens of thousands, which is the case this exists for: a consumer that builds one
+    /// styled run per token pays for every one of them on that row.
     /// </remarks>
     public const int RowTokenLimit = 250;
 
     /// <summary>Splits <paramref name="source"/>, never throwing and never losing a character.</summary>
-    public static IReadOnlyList<SvgViewerSourceToken> Tokenize(string? source)
+    public static IReadOnlyList<SvgSourceToken> Tokenize(string? source)
     {
-        var tokens = new List<SvgViewerSourceToken>();
+        var tokens = new List<SvgSourceToken>();
 
         if (string.IsNullOrEmpty(source))
         {
@@ -182,7 +191,7 @@ internal static class SvgViewerSourceHighlighter
         while (index < source!.Length)
         {
             var open = source.IndexOf('<', index);
-            var body = IsLet(element) ? SvgViewerSourceTokenKind.Expression : SvgViewerSourceTokenKind.Text;
+            var body = IsLet(element) ? SvgSourceTokenKind.Expression : SvgSourceTokenKind.Text;
 
             if (open < 0)
             {
@@ -206,12 +215,12 @@ internal static class SvgViewerSourceHighlighter
     }
 
     /// <summary>Takes everything up to and including <paramref name="close"/> as one comment-like run.</summary>
-    private static int Fenced(List<SvgViewerSourceToken> tokens, string source, int start, string close)
+    private static int Fenced(List<SvgSourceToken> tokens, string source, int start, string close)
     {
         var end = source.IndexOf(close, start, StringComparison.Ordinal);
         end = end < 0 ? source.Length : end + close.Length;
 
-        Add(tokens, source, start, end, SvgViewerSourceTokenKind.Comment);
+        Add(tokens, source, start, end, SvgSourceTokenKind.Comment);
 
         return end;
     }
@@ -236,7 +245,7 @@ internal static class SvgViewerSourceHighlighter
         return element.AsSpan(colon + 1).Equals("let", StringComparison.Ordinal);
     }
 
-    private static int Tag(List<SvgViewerSourceToken> tokens, string source, int start, ref string? element)
+    private static int Tag(List<SvgSourceToken> tokens, string source, int start, ref string? element)
     {
         // An unclosed tag runs to the end of the document rather than swallowing the rest silently.
         var close = source.IndexOf('>', start);
@@ -250,7 +259,7 @@ internal static class SvgViewerSourceHighlighter
             index++;
         }
 
-        Add(tokens, source, start, index, SvgViewerSourceTokenKind.Punctuation);
+        Add(tokens, source, start, index, SvgSourceTokenKind.Punctuation);
 
         var name = index;
         while (name < end && !char.IsWhiteSpace(source[name]) && source[name] is not ('>' or '/'))
@@ -258,7 +267,7 @@ internal static class SvgViewerSourceHighlighter
             name++;
         }
 
-        Add(tokens, source, index, name, SvgViewerSourceTokenKind.Element);
+        Add(tokens, source, index, name, SvgSourceTokenKind.Element);
 
         // A closing tag ends whatever was open; a self-closing one never opens anything.
         var closing = index > start + 1;
@@ -278,7 +287,7 @@ internal static class SvgViewerSourceHighlighter
                     run++;
                 }
 
-                Add(tokens, source, index, run, SvgViewerSourceTokenKind.Text);
+                Add(tokens, source, index, run, SvgSourceTokenKind.Text);
                 index = run;
                 continue;
             }
@@ -290,7 +299,7 @@ internal static class SvgViewerSourceHighlighter
                     element = null;
                 }
 
-                Add(tokens, source, index, index + 1, SvgViewerSourceTokenKind.Punctuation);
+                Add(tokens, source, index, index + 1, SvgSourceTokenKind.Punctuation);
                 index++;
                 continue;
             }
@@ -320,7 +329,7 @@ internal static class SvgViewerSourceHighlighter
                 attribute++;
             }
 
-            Add(tokens, source, index, attribute, SvgViewerSourceTokenKind.Attribute);
+            Add(tokens, source, index, attribute, SvgSourceTokenKind.Attribute);
             index = attribute;
         }
 
@@ -328,7 +337,7 @@ internal static class SvgViewerSourceHighlighter
     }
 
     /// <summary>Adds a value, lifting any <c>{{ … }}</c> out of it.</summary>
-    private static void Value(List<SvgViewerSourceToken> tokens, string source, int start, int end)
+    private static void Value(List<SvgSourceToken> tokens, string source, int start, int end)
     {
         var index = start;
 
@@ -338,25 +347,25 @@ internal static class SvgViewerSourceHighlighter
 
             if (open < 0 || open >= end)
             {
-                Add(tokens, source, index, end, SvgViewerSourceTokenKind.Value);
+                Add(tokens, source, index, end, SvgSourceTokenKind.Value);
                 return;
             }
 
             var close = source.IndexOf("}}", open, StringComparison.Ordinal);
             var expressionEnd = close < 0 || close + 2 > end ? end : close + 2;
 
-            Add(tokens, source, index, open, SvgViewerSourceTokenKind.Value);
-            Add(tokens, source, open, expressionEnd, SvgViewerSourceTokenKind.Expression);
+            Add(tokens, source, index, open, SvgSourceTokenKind.Value);
+            Add(tokens, source, open, expressionEnd, SvgSourceTokenKind.Expression);
 
             index = expressionEnd;
         }
     }
 
-    private static void Add(List<SvgViewerSourceToken> tokens, string source, int start, int end, SvgViewerSourceTokenKind kind)
+    private static void Add(List<SvgSourceToken> tokens, string source, int start, int end, SvgSourceTokenKind kind)
     {
         if (end > start)
         {
-            tokens.Add(new SvgViewerSourceToken(source, start, end - start, kind));
+            tokens.Add(new SvgSourceToken(source, start, end - start, kind));
         }
     }
 }

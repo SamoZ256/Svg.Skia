@@ -73,7 +73,8 @@ read-only; editing SVG is what `Svg.Editor.Skia.Avalonia` is for.
 
 It is coloured as XML, and — because no stock grammar knows the extension — `{{ … }}` placeholders
 and `<e:let>` bodies are coloured as the expression code they are, not as strings and prose. The
-palette is theme resources you can override:
+splitting is [Svg.Highlighting](svg-highlighting), which draws nothing; the palette here is theme
+resources you can override:
 
 ```xml
 <SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#C586C0" />
