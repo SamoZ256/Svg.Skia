@@ -4,6 +4,35 @@
              x:Class="Svg.Viewer.Skia.Avalonia.SvgViewer"
              DragDrop.AllowDrop="True">
 
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <!--
+        Resources rather than constants so a host can restyle the pane, and theme dictionaries
+        because a palette picked for a dark background is unreadable on a white one.
+      -->
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="SvgViewerSourceTextBrush" Color="#D4D4D4" />
+          <SolidColorBrush x:Key="SvgViewerSourcePunctuationBrush" Color="#808080" />
+          <SolidColorBrush x:Key="SvgViewerSourceElementBrush" Color="#569CD6" />
+          <SolidColorBrush x:Key="SvgViewerSourceAttributeBrush" Color="#9CDCFE" />
+          <SolidColorBrush x:Key="SvgViewerSourceValueBrush" Color="#CE9178" />
+          <SolidColorBrush x:Key="SvgViewerSourceCommentBrush" Color="#6A9955" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#C586C0" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="SvgViewerSourceTextBrush" Color="#1F1F1F" />
+          <SolidColorBrush x:Key="SvgViewerSourcePunctuationBrush" Color="#6E6E6E" />
+          <SolidColorBrush x:Key="SvgViewerSourceElementBrush" Color="#0000C0" />
+          <SolidColorBrush x:Key="SvgViewerSourceAttributeBrush" Color="#0451A5" />
+          <SolidColorBrush x:Key="SvgViewerSourceValueBrush" Color="#A31515" />
+          <SolidColorBrush x:Key="SvgViewerSourceCommentBrush" Color="#008000" />
+          <SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#A626A4" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
   <DockPanel LastChildFill="True">
 
     <Border x:Name="ToolBarPanel" DockPanel.Dock="Top"

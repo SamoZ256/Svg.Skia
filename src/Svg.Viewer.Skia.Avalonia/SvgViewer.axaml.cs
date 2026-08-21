@@ -10,9 +10,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Svg.Expressions;
@@ -57,6 +59,9 @@ public partial class SvgViewer : UserControl
     /// <summary>What the source pane's row was last set to, so hiding it can be undone.</summary>
     private GridLength _sourceHeight;
 
+    /// <summary>Whether the pane's text is stale — a document arrived, or the theme changed.</summary>
+    private bool _sourceStale = true;
+
     private SvgViewerDocument? _document;
     private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
     private int _loadVersion;
@@ -99,6 +104,14 @@ public partial class SvgViewer : UserControl
 
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
+
+        // The palette is resolved once per pass rather than bound per run: a document is thousands
+        // of runs, and that many dynamic resource subscriptions costs more than redoing the pass.
+        ActualThemeVariantChanged += (_, _) =>
+        {
+            _sourceStale = true;
+            RenderSource();
+        };
 
         UpdateZoomText();
         UpdateStatus();
@@ -192,6 +205,8 @@ public partial class SvgViewer : UserControl
             _sourceHost.IsVisible = value;
             _sourceSplitter.IsVisible = value;
             _sourceButton.IsChecked = value;
+
+            RenderSource();
         }
     }
 
@@ -501,12 +516,68 @@ public partial class SvgViewer : UserControl
 
     private void UpdateSource()
     {
+        _sourceStale = true;
+        RenderSource();
+    }
+
+    /// <summary>
+    /// Fills the pane, coloured where that is affordable.
+    /// </summary>
+    /// <remarks>
+    /// Only when the pane is up, because the toggle starts off and laying out a document nobody
+    /// asked to see is the whole cost of the feature paid for nothing.
+    /// </remarks>
+    private void RenderSource()
+    {
+        if (!_sourceStale || !_sourceHost.IsVisible)
+        {
+            return;
+        }
+
+        _sourceStale = false;
+
         var source = _document?.SourceText;
 
-        _sourceText.Text = source is { Length: > SourceLimit }
+        var text = source is { Length: > SourceLimit }
             ? source[..SourceLimit]
               + $"{Environment.NewLine}{Environment.NewLine}… {source.Length - SourceLimit:N0} more characters not shown."
             : source ?? string.Empty;
+
+        var tokens = SvgViewerSourceHighlighter.Tokenize(text);
+
+        if (tokens.Count > SvgViewerSourceHighlighter.TokenLimit)
+        {
+            // Plain, which is what the pane did before it could colour anything, and still instant.
+            _sourceText.Inlines?.Clear();
+            _sourceText.Text = text;
+            return;
+        }
+
+        var inlines = new InlineCollection();
+
+        foreach (var token in tokens)
+        {
+            inlines.Add(new Run(token.Text) { Foreground = SourceBrush(token.Kind) });
+        }
+
+        _sourceText.Text = null;
+        _sourceText.Inlines = inlines;
+    }
+
+    private IBrush? SourceBrush(SvgViewerSourceTokenKind kind)
+    {
+        var key = kind switch
+        {
+            SvgViewerSourceTokenKind.Punctuation => "SvgViewerSourcePunctuationBrush",
+            SvgViewerSourceTokenKind.Element => "SvgViewerSourceElementBrush",
+            SvgViewerSourceTokenKind.Attribute => "SvgViewerSourceAttributeBrush",
+            SvgViewerSourceTokenKind.Value => "SvgViewerSourceValueBrush",
+            SvgViewerSourceTokenKind.Comment => "SvgViewerSourceCommentBrush",
+            SvgViewerSourceTokenKind.Expression => "SvgViewerSourceExpressionBrush",
+            _ => "SvgViewerSourceTextBrush",
+        };
+
+        return this.TryFindResource(key, ActualThemeVariant, out var brush) ? brush as IBrush : null;
     }
 
     private void UpdateStatus()

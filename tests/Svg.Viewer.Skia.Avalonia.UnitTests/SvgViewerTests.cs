@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Styling;
+using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -368,12 +371,11 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var pane = viewer.GetVisualDescendants().OfType<SelectableTextBlock>()
-            .First(t => t.Name == "SourceText");
+        var pane = Pane(viewer);
 
         // The text the picture was built from, comments, formatting and expressions intact.
-        Assert.Equal(Parametric, pane.Text);
-        Assert.Contains("{{ tint }}", pane.Text, StringComparison.Ordinal);
+        Assert.Equal(Parametric, PaneText(pane));
+        Assert.Contains("{{ tint }}", PaneText(pane), StringComparison.Ordinal);
         Assert.True(pane.Bounds.Height > 0d, "the pane is not laid out");
 
         window.Close();
@@ -438,12 +440,10 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var pane = viewer.GetVisualDescendants().OfType<SelectableTextBlock>()
-            .First(t => t.Name == "SourceText");
+        var shown = PaneText(Pane(viewer));
 
-        Assert.NotNull(pane.Text);
-        Assert.True(pane.Text!.Length < markup.Length, "the whole drawing was handed to one text block");
-        Assert.Contains("more characters not shown", pane.Text, StringComparison.Ordinal);
+        Assert.True(shown.Length < markup.Length, "the whole drawing was handed to one text block");
+        Assert.Contains("more characters not shown", shown, StringComparison.Ordinal);
 
         // The document still carries all of it; only the pane is cut.
         Assert.Equal(markup, viewer.Document!.SourceText);
@@ -461,6 +461,138 @@ public class SvgViewerTests
 
         Assert.Equal(Parametric, document.SourceText);
     }
+
+    [AvaloniaTheory]
+    [InlineData("<svg><rect fill=\"#fff\" /></svg>")]
+    [InlineData("<!-- a comment --><svg/>")]
+    [InlineData("<?xml version=\"1.0\"?><svg><![CDATA[ raw < > text ]]></svg>")]
+    [InlineData("<svg fill=\"{{ hsl(hue, 74%, 55%) }}\" />")]
+    [InlineData("text before <svg attr='single' > and after")]
+    [InlineData("<svg <<< unclosed attr=\"no end")]
+    [InlineData("<!-- unterminated comment")]
+    [InlineData("no markup at all")]
+    [InlineData("")]
+    public void Splitting_The_Source_Never_Loses_A_Character(string source)
+    {
+        // The pane shows what the file says. A highlighter that drops, reorders or invents a
+        // character while colouring would quietly lie about the document.
+        var tokens = SvgViewerSourceHighlighter.Tokenize(source);
+
+        Assert.Equal(source, string.Concat(tokens.Select(t => t.Text)));
+    }
+
+    [AvaloniaFact]
+    public void An_Expression_Is_Not_Just_Another_Attribute_Value()
+    {
+        // The reason for colouring at all: an XML grammar sees a string here.
+        var tokens = SvgViewerSourceHighlighter.Tokenize("<circle fill=\"{{ hsl(hue, 74%, 55%) }}\" r=\"10\" />");
+
+        Assert.Contains(tokens, t =>
+            t.Kind == SvgViewerSourceTokenKind.Expression && t.Text == "{{ hsl(hue, 74%, 55%) }}");
+
+        Assert.Contains(tokens, t => t.Kind == SvgViewerSourceTokenKind.Element && t.Text == "circle");
+        Assert.Contains(tokens, t => t.Kind == SvgViewerSourceTokenKind.Attribute && t.Text == "fill");
+        Assert.Contains(tokens, t => t.Kind == SvgViewerSourceTokenKind.Value && t.Text == "\"10\"");
+    }
+
+    [AvaloniaFact]
+    public void A_Let_Body_Is_Expression_Code_As_Much_As_A_Placeholder_Is()
+    {
+        // <e:let name="primary">hsl(hue, 74%, 55%)</e:let> is the same language as {{ … }}, and the
+        // declarations everything else in the drawing refers to. As XML text it would be prose.
+        var tokens = SvgViewerSourceHighlighter.Tokenize(
+            "<e:code><e:let name=\"primary\">hsl(hue, 74%, 55%)</e:let><e:param name=\"hue\" /></e:code>");
+
+        Assert.Contains(tokens, t =>
+            t.Kind == SvgViewerSourceTokenKind.Expression && t.Text == "hsl(hue, 74%, 55%)");
+
+        // The element that merely holds them is not code, and neither is a self-closing one.
+        Assert.DoesNotContain(tokens, t =>
+            t.Kind == SvgViewerSourceTokenKind.Expression && t.Text.Contains("param", StringComparison.Ordinal));
+    }
+
+    [AvaloniaFact]
+    public async Task The_Source_Pane_Colours_What_It_Shows()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var runs = Pane(viewer).Inlines!.OfType<Run>().ToList();
+
+        Assert.Equal(Parametric, string.Concat(runs.Select(r => r.Text)));
+
+        var element = runs.First(r => r.Text == "rect").Foreground;
+        var expression = runs.First(r => r.Text == "{{ tint }}").Foreground;
+
+        Assert.NotNull(element);
+        Assert.NotNull(expression);
+        Assert.NotEqual(element, expression);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Document_Of_Too_Many_Pieces_Is_Shown_Plain_Rather_Than_Slowly()
+    {
+        // Colouring costs 130ms at 1,100 runs and 18 seconds at 45,000, so past the limit the pane
+        // goes back to what it did before: plain text, instantly.
+        var (window, viewer) = Host();
+
+        var shapes = new StringBuilder();
+
+        for (var i = 0; i < SvgViewerSourceHighlighter.TokenLimit; i++)
+        {
+            shapes.Append(CultureInfo.InvariantCulture, $"<rect x=\"{i % 50}\" y=\"1\" width=\"1\" height=\"1\" />");
+        }
+
+        Assert.True(await viewer.LoadTextAsync(
+            $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 50 50\" width=\"50\" height=\"50\">{shapes}</svg>"));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var pane = Pane(viewer);
+
+        Assert.True(pane.Inlines is null or { Count: 0 }, "the pane coloured a document it should not have");
+        Assert.False(string.IsNullOrEmpty(pane.Text));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_Palette_Follows_The_Theme()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        window.RequestedThemeVariant = ThemeVariant.Dark;
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var pane = Pane(viewer);
+
+        var dark = pane.Inlines!.OfType<Run>().First(r => r.Text == "rect").Foreground;
+
+        window.RequestedThemeVariant = ThemeVariant.Light;
+        Dispatcher.UIThread.RunJobs();
+
+        var light = pane.Inlines!.OfType<Run>().First(r => r.Text == "rect").Foreground;
+
+        // A palette chosen for a dark background is unreadable on a white one.
+        Assert.NotEqual(dark?.ToString(), light?.ToString());
+
+        window.Close();
+    }
+
+    /// <summary>What the pane is showing, however it is carrying it.</summary>
+    private static string PaneText(SelectableTextBlock pane)
+        => pane.Inlines is { Count: > 0 } inlines
+            ? string.Concat(inlines.OfType<Run>().Select(r => r.Text))
+            : pane.Text ?? string.Empty;
+
+    private static SelectableTextBlock Pane(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<SelectableTextBlock>().First(t => t.Name == "SourceText");
 
     private static SKColor CentrePixel(Window window)
     {

@@ -309,6 +309,12 @@ the files were still being read — which is what failed on CI and passed locall
 a pane of the drawing's text, held as `SvgViewerDocument.SourceText` and captured at load: `SKSvg`
 can keep its own source, but only behind the process-wide `CacheOriginalStream` toggle it uses for
 reloading, and a viewer must not make every other `SKSvg` in the application retain its file.
+`SvgViewerSourceHighlighter` colours it — hand-written rather than an editor library's grammar,
+because the package would then carry a text editor and no stock XML grammar colours `{{ … }}` or an
+`<e:let>` body as code. Its invariant is that concatenating the tokens reproduces the input, which is
+what lets it describe a malformed document rather than refuse it. **Colouring stops above 5,000
+tokens**: tokenizing 200,000 characters takes 7ms, but one styled `Run` each costs 130ms at 1,100
+runs and 18 seconds at 45,000, so past the limit the pane shows plain text.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.

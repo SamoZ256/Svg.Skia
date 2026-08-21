@@ -71,6 +71,23 @@ The **Source** toggle in the toolbar opens a pane under the drawing showing the 
 read — comments, formatting and `{{ … }}` expressions exactly as their author wrote them. It is
 read-only; editing SVG is what `Svg.Editor.Skia.Avalonia` is for.
 
+It is coloured as XML, and — because no stock grammar knows the extension — `{{ … }}` placeholders
+and `<e:let>` bodies are coloured as the expression code they are, not as strings and prose. The
+palette is theme resources you can override:
+
+```xml
+<SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#C586C0" />
+```
+
+`…ElementBrush`, `…AttributeBrush`, `…ValueBrush`, `…CommentBrush`, `…PunctuationBrush` and
+`…TextBrush` are the rest.
+
+Colouring stops above 5,000 tokens, and the pane falls back to plain text. Splitting the text is
+free — under 7ms for 200,000 characters — but one styled run per token is not: 130ms at 1,100 runs,
+433ms at 4,500, and 18 seconds at 45,000. The limit counts tokens rather than characters because
+that is what is paid for; a drawing that is mostly enormous path data is a few tokens per kilobyte
+and stays coloured at any size.
+
 The text is `SvgViewerDocument.SourceText`, captured while loading, so it is what the picture was
 built from rather than whatever the file says later. A host that would rather show it its own way —
 a window, a docked tool panel — reads that property and leaves `ShowSource` off:
