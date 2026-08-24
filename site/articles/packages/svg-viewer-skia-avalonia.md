@@ -86,15 +86,20 @@ resources you can override:
 `…ExpressionConstantBrush`, `…ExpressionKeywordBrush`, `…ExpressionOperatorBrush`,
 `…ExpressionPunctuationBrush` and `…ExpressionIdentifierBrush`.
 
-There is no size at which colouring gives up. The pane is a row per line in a virtualising list, so
-only the lines on screen are ever laid out: a 132KB drawing of 340 lines opens in 94ms with 17 rows
-built. What that does not bound is a single enormous *line* — a minified drawing is the whole file on
-one — so a row colours its first 250 pieces and shows the remainder plainly, which took that same
-132KB minified from 1.4s to 340ms. Nothing is hidden either way; the uncoloured remainder is still
-there to read and select.
+The pane is an [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit) editor over one document,
+so **a selection can cross a line** and the text can be taken away whole. It is read-only for now.
+You need nothing in your `App.axaml`: AvaloniaEdit supplies its own theme, and the viewer carries the
+style include regardless.
 
-Mistakes are underlined where they are written, the line's number is marked in the gutter, and the
-message is on the line as a tooltip. `…ErrorBrush` is the key for both. That covers the drawing's
+There is no size at which colouring gives up, because only the lines on screen are ever coloured: a
+132KB drawing of 340 lines opens in 102ms. What that does not bound is a single enormous *line* — a
+minified drawing is the whole file on one — so a line is coloured for its first 250 pieces and the
+rest left plain, which takes that same 132KB minified to 217ms. Nothing is hidden either way; the
+uncoloured remainder is still there to read and select.
+
+Mistakes get a wavy underline where they are written, and hovering one shows its message.
+`…ErrorBrush` is the key for the mark. `SourceDiagnostics` is the same list if you would rather show
+it your own way — a problems panel, a status line. That covers the drawing's
 expressions and the `<e:code>` block alike: a name nothing declares, a range on a colour, a `min`
 above its `max`, a `default` that will not resolve. What counts as a mistake is
 [Svg.Highlighting](svg-highlighting)'s answer, which is the language's own checker — and a

@@ -109,26 +109,6 @@ public sealed class SvgSourceLine
     public int Length { get; }
 
     public IReadOnlyList<SvgSourceToken> Tokens { get; }
-
-    /// <summary>The rest of the line from <paramref name="from"/> on, as one uncoloured piece.</summary>
-    /// <remarks>
-    /// Virtualising by line bounds what a document costs, but not what a <em>line</em> costs, and a
-    /// minified drawing is the whole file on one of them: 132KB of it took 1.4 seconds to colour as
-    /// a single row. Past <see cref="SvgSourceHighlighter.RowTokenLimit"/> a consumer shows the
-    /// remainder plainly, so the text is all there and the row costs what plain text costs.
-    /// </remarks>
-    public string Rest(int from)
-    {
-        if (from >= Tokens.Count)
-        {
-            return string.Empty;
-        }
-
-        var first = Tokens[from];
-        var last = Tokens[^1];
-
-        return first.Source[first.Start..(last.Start + last.Length)];
-    }
 }
 
 /// <summary>
@@ -164,9 +144,9 @@ public static class SvgSourceHighlighter
     /// <remarks>
     /// A line at a time because the cost of colouring was never the splitting — 7ms for 200,000
     /// characters — but laying out one styled run per token: 130ms at 1,100 runs, 433ms at 4,500 and
-    /// 18 seconds at 45,000, in a single text block. Rows in a virtualising list lay out only what is
-    /// on screen, so a 132KB drawing costs what a 2KB one does and there is no size at which the
-    /// consumer gives up and shows plain text.
+    /// 18 seconds at 45,000, in a single text block. A consumer that lays out only the lines on
+    /// screen pays for the screenful instead, so a 132KB drawing costs what a 2KB one does and there
+    /// is no size at which it gives up and shows plain text.
     /// </remarks>
     public static IReadOnlyList<SvgSourceLine> Lines(string? source)
     {
@@ -218,12 +198,13 @@ public static class SvgSourceHighlighter
     }
 
     /// <summary>
-    /// How many pieces of one line are coloured before the rest is shown plainly.
+    /// How many pieces of one line are coloured before the rest is left plain.
     /// </summary>
     /// <remarks>
-    /// An ordinary line of SVG is a few dozen tokens and never reaches this. A minified drawing is
-    /// one line of tens of thousands, which is the case this exists for: a consumer that builds one
-    /// styled run per token pays for every one of them on that row.
+    /// Colouring by line bounds what a document costs but not what a <em>line</em> costs, and a
+    /// minified drawing is the whole file on one of them. An ordinary line of SVG is a few dozen
+    /// tokens and never reaches this; 132KB on a single line took 1.1 seconds coloured whole and
+    /// 39ms stopping here. Nothing is hidden either way — the text past it is still there, plain.
     /// </remarks>
     public const int RowTokenLimit = 250;
 

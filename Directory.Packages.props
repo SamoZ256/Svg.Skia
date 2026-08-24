@@ -16,6 +16,11 @@
     <PackageVersion Include="Avalonia.Headless.XUnit" Version="$(AvaloniaVersion)" />
     <PackageVersion Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaVersion)" />
     <PackageVersion Include="Avalonia.Controls.ColorPicker" Version="$(AvaloniaVersion)" />
+    <!--
+      Its own version rather than $(AvaloniaVersion): a separate product on a separate cadence, and
+      tying them would break the first time Avalonia ships a minor that AvaloniaEdit has not.
+    -->
+    <PackageVersion Include="Avalonia.AvaloniaEdit" Version="12.0.0" />
     <PackageVersion Include="Microsoft.Maui.Controls" Version="10.0.20" />
     <PackageVersion Include="Microsoft.Maui.Controls.Compatibility" Version="10.0.20" />
     <PackageVersion Include="Microsoft.Build.Tasks.Core" Version="18.0.2" />

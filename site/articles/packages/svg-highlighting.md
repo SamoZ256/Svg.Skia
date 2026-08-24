@@ -135,9 +135,9 @@ A malformed document still colours — refusing to colour the file someone is tr
 
 ## Two limits, and why they are not the same
 
-Splitting is cheap — under 7ms for 200,000 characters — so there is no limit on tokenizing. The cost lands on whoever builds a styled run per token: 130ms at 1,100 runs, 433ms at 4,500 and 18 seconds at 45,000, in a single text block.
+Splitting is cheap — under 7ms for 200,000 characters — so there is no limit on tokenizing. The cost lands on whoever draws the result: one styled run per token costs 130ms at 1,100 runs, 433ms at 4,500 and 18 seconds at 45,000, in a single text block.
 
-`Lines` is the answer to the first half: a view that virtualises rows lays out only what is on screen, so a 132KB drawing costs what a 2KB one does. `RowTokenLimit` is the answer to the second: virtualising by line bounds a document but not a *line*, and a minified drawing is the whole file on one of them — 132KB of it took 1.4 seconds as a single row, and 340ms once the row stopped colouring past 250 pieces. `SvgSourceLine.Rest` hands back the remainder so nothing is hidden.
+`Lines` is the answer to the first half: a view that colours only the lines on screen — an editor, a virtualising list — pays for the screenful, so a 132KB drawing costs what a 2KB one does. `RowTokenLimit` is the answer to the second: colouring by line bounds a document but not a *line*, and a minified drawing is the whole file on one of them — 132KB of it took 1.1 seconds coloured whole, and 39ms stopping at 250 pieces. Nothing is hidden either way, since the text past the limit is simply left plain.
 
 ## Related docs
 

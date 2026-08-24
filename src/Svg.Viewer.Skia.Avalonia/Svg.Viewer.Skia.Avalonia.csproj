@@ -33,6 +33,8 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Controls.ColorPicker" />
+    <!-- The source pane is a text editor: selection across lines, squiggles, and one day editing. -->
+    <PackageReference Include="Avalonia.AvaloniaEdit" />
   </ItemGroup>
 
   <ItemGroup>
