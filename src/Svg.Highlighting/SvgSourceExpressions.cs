@@ -66,7 +66,8 @@ internal static class SvgSourceExpressions
         int start,
         int end,
         SvgSourceSiteKind site = SvgSourceSiteKind.Placeholder,
-        List<SvgSourceSite>? sites = null)
+        List<SvgSourceSite>? sites = null,
+        string? attribute = null)
     {
         if (end <= start)
         {
@@ -76,7 +77,7 @@ internal static class SvgSourceExpressions
         // Every expression in a document passes through here, which makes this the one place that
         // knows where the code in it is. Checking one needs the whole document's declarations, so it
         // cannot happen while splitting — but recording where to look costs nothing.
-        sites?.Add(new SvgSourceSite(start, end - start, site));
+        sites?.Add(new SvgSourceSite(start, end - start, site, Attribute: attribute));
 
         var text = source.Substring(start, end - start);
         var lexed = Read(text);

@@ -340,6 +340,11 @@ public static class SvgSourceHighlighter
         ref string? element,
         List<SvgSourceSite>? sites)
     {
+        // A declaration's attributes may be written in any order, so what it declares is not known
+        // until the tag is closed. The sites it contributes are stamped with the name afterwards.
+        var declared = sites?.Count ?? 0;
+        string? name = null;
+
         // An unclosed tag runs to the end of the document rather than swallowing the rest silently.
         var close = source.IndexOf('>', start);
         var end = close < 0 ? source.Length : close + 1;
@@ -354,19 +359,19 @@ public static class SvgSourceHighlighter
 
         Add(tokens, source, start, index, SvgSourceTokenKind.Punctuation);
 
-        var name = index;
-        while (name < end && !char.IsWhiteSpace(source[name]) && source[name] is not ('>' or '/'))
+        var local = index;
+        while (local < end && !char.IsWhiteSpace(source[local]) && source[local] is not ('>' or '/'))
         {
-            name++;
+            local++;
         }
 
-        Add(tokens, source, index, name, SvgSourceTokenKind.Element);
+        Add(tokens, source, index, local, SvgSourceTokenKind.Element);
 
         // A closing tag ends whatever was open; a self-closing one never opens anything.
         var closing = index > start + 1;
-        element = closing ? null : source[index..name];
+        element = closing ? null : source[index..local];
 
-        index = name;
+        index = local;
 
         string? attributeName = null;
 
@@ -406,11 +411,12 @@ public static class SvgSourceHighlighter
 
                 if (IsDeclaredExpression(element, attributeName))
                 {
-                    Declared(tokens, source, index, valueEnd, quote, sites);
+                    Declared(tokens, source, index, valueEnd, quote, sites, attributeName);
                 }
                 else
                 {
                     Value(tokens, source, index, valueEnd, sites);
+                    name ??= attributeName == "name" ? source[(index + 1)..(quote < 0 ? valueEnd : quote)] : null;
                 }
 
                 index = valueEnd;
@@ -437,6 +443,17 @@ public static class SvgSourceHighlighter
             index = attribute;
         }
 
+        if (name is { } && sites is { })
+        {
+            for (var at = declared; at < sites.Count; at++)
+            {
+                if (sites[at].Kind == SvgSourceSiteKind.Declaration)
+                {
+                    sites[at] = sites[at] with { Owner = name };
+                }
+            }
+        }
+
         return end;
     }
 
@@ -447,7 +464,8 @@ public static class SvgSourceHighlighter
         int start,
         int end,
         int quote,
-        List<SvgSourceSite>? sites)
+        List<SvgSourceSite>? sites,
+        string? attribute)
     {
         // The quotes belong to the markup, not to the expression — and an unterminated value has
         // only the opening one.
@@ -455,7 +473,7 @@ public static class SvgSourceHighlighter
 
         var close = quote < 0 ? end : quote;
 
-        SvgSourceExpressions.Code(tokens, source, start + 1, close, SvgSourceSiteKind.Declaration, sites);
+        SvgSourceExpressions.Code(tokens, source, start + 1, close, SvgSourceSiteKind.Declaration, sites, attribute);
 
         Add(tokens, source, close, end, SvgSourceTokenKind.Value);
     }

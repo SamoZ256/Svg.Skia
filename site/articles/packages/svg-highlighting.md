@@ -91,11 +91,39 @@ declares; an `<e:let>` sees the parameters and the lets before it, but not itsel
 dependency between them would be invisible in the document, so checking one against the full table
 would accept what the code generator then rejects.
 
-Two boundaries worth knowing. It does not know what an *attribute* expects: `opacity="{{ tint }}"` is
+One boundary worth knowing: it does not know what an *attribute* expects. `opacity="{{ tint }}"` is
 a well-formed colour expression written where a number belongs, and saying so needs the table of
-which SVG attribute takes which type, which lives in the scene compiler. And a document whose
-`<e:code>` block cannot be read at all reports nothing here — every name would look undeclared, and
-that one real error is reported by `SvgExpressionDeclarations` when it reads the block.
+which SVG attribute takes which type, which lives in the scene compiler.
+
+## The declarations are checked too
+
+A mistake in the `<e:code>` block is reported the same way, at the attribute it is about rather than
+as a sentence somewhere else:
+
+```xml
+<e:param name="tint" type="color" min="0" max="1" />
+<!--                                   ^ a colour has no range -->
+```
+
+Every declaration is read, so a block with three mistakes in it reports three rather than hiding two
+behind the first, and the parameters after a bad one are not lost with it. A rule about something the
+document left out — a missing `type`, a `<e:let>` with nothing in it — has nothing of its own to
+point at, so it marks the declaration. A document that is not well-formed XML is reported here as
+well, which is the one moment a source view is most likely to be open.
+
+A document whose declarations are wrong reports **those and nothing else**. With a declaration
+refused, the symbol table is missing what it would have contributed, so every use of that name would
+read as undeclared — a hundred of those bury the few that are real.
+
+Rules and places stay apart. The rules live in `SvgExpressionDeclarations.Builder`, where both
+readers of a block reach them, and each names the `SvgDeclarationPart` it means; turning a part into
+a place is the reader's half, because only the one that reads source text has positions to give. If
+you want the same thing without a source view, `SvgExpressionDeclarations.Parse(text, out var
+diagnostics)` is what this calls.
+
+Some of it needs numbers rather than types — `min` above its `max`, a `step` of zero, a `default`
+that type-checks and still will not produce a value — so `Analyse` evaluates those, which reading a
+document deliberately never does.
 
 Splitting is context-free and analysing is not, which is why they are separate calls: colouring a
 placeholder needs only the span, checking it needs the whole file. Splitting a 132KB drawing twice —
