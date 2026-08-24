@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -10,6 +11,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 // Aliased because this application's namespace is also called SvgViewer.
 using ViewerControl = Svg.Viewer.Skia.Avalonia.SvgViewer;
@@ -62,12 +64,17 @@ public partial class MainWindow : Window
     {
         AvaloniaXamlLoader.Load(this);
 
+        ConfirmDiscard = AskDiscard;
+
         _tabs = this.FindControl<TabControl>("Tabs")!;
         _tabs.SelectionChanged += (_, _) => UpdateTitle();
         _tabs.TemplateApplied += OnTabsTemplateApplied;
 
         // On the strip rather than on each tab, and tunnelling because TabItem handles a press
         // itself to become the selected tab, so a bubbling handler would never see it.
+        // Tunnelling so the editor in the pane does not get first refusal on it.
+        AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
+
         _tabs.AddHandler(PointerPressedEvent, OnTabPointerPressed, RoutingStrategies.Tunnel);
         _tabs.AddHandler(PointerMovedEvent, OnTabPointerMoved, RoutingStrategies.Tunnel);
         _tabs.AddHandler(PointerReleasedEvent, OnTabPointerReleased, RoutingStrategies.Tunnel);
@@ -112,12 +119,23 @@ public partial class MainWindow : Window
             Content = viewer
         };
 
-        close.Click += (_, _) => CloseTab(item);
+        close.Click += async (_, _) => await CloseTabAsync(item);
+
+        var name = "drawing";
 
         viewer.DocumentOpened += (_, document) =>
         {
-            title.Text = document.Path is { } path ? Path.GetFileName(path) : "drawing";
+            name = document.Path is { } path ? Path.GetFileName(path) : "drawing";
+            title.Text = name;
             item[ToolTip.TipProperty] = document.Path;
+            UpdateTitle();
+        };
+
+        // A dot rather than an asterisk: the tab already ends in a close button, and two marks
+        // competing for the same corner read as one smudge.
+        viewer.SourceModifiedChanged += (_, modified) =>
+        {
+            title.Text = modified ? name + " •" : name;
             UpdateTitle();
         };
 
@@ -311,6 +329,129 @@ public partial class MainWindow : Window
 
     // ---- lifetime ----------------------------------------------------------------------------
 
+    /// <summary>
+    /// How the window asks whether work that is not on disk may be thrown away.
+    /// </summary>
+    /// <remarks>
+    /// Replaceable for the reason the file picker is: a modal is the one thing a test cannot drive,
+    /// and the guard against losing an edit is the last thing that should go untested for want of a
+    /// way to answer it. Given the whole sentence rather than a name, because closing a window can
+    /// be about several drawings at once.
+    /// </remarks>
+    public Func<string, Task<bool>> ConfirmDiscard { get; set; }
+
+    private async Task CloseTabAsync(TabItem item)
+    {
+        // A close button is one click away from losing an edit, and nothing else would have said so.
+        if (item.Content is ViewerControl { IsSourceModified: true } editing
+            && !await ConfirmDiscard(Describe(new[] { Name(editing) })))
+        {
+            return;
+        }
+
+        CloseTab(item);
+    }
+
+    /// <summary>Whether the close has already been answered for, so the second one goes through.</summary>
+    private bool _closeConfirmed;
+
+    /// <summary>
+    /// Asks before the window takes every unsaved drawing with it.
+    /// </summary>
+    /// <remarks>
+    /// Closing is synchronous and asking is not, so the close is called off, the question put, and
+    /// the close started again once there is an answer. Tabs are guarded one at a time by their own
+    /// close button; this is the path that would otherwise take all of them at once.
+    /// </remarks>
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        base.OnClosing(e);
+
+        if (_closeConfirmed || e.Cancel)
+        {
+            return;
+        }
+
+        var unsaved = Unsaved();
+
+        if (unsaved.Count == 0)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+
+        // Posted rather than started here, so the close finishes being called off before anything
+        // asks about it. A prompt that answered immediately would otherwise re-enter Close from
+        // inside OnClosing, which is true of a test's stub and would be true of a cached answer.
+        Dispatcher.UIThread.Post(async () => await ConfirmThenClose(unsaved));
+    }
+
+    private async Task ConfirmThenClose(IReadOnlyList<string> unsaved)
+    {
+        if (!await ConfirmDiscard(Describe(unsaved)))
+        {
+            return;
+        }
+
+        _closeConfirmed = true;
+
+        Close();
+    }
+
+    /// <summary>Every open drawing with changes that are not on disk.</summary>
+    private IReadOnlyList<string> Unsaved()
+        => _tabs.Items.OfType<TabItem>()
+            .Select(item => item.Content as ViewerControl)
+            .Where(viewer => viewer is { IsSourceModified: true })
+            .Select(viewer => Name(viewer!))
+            .ToList();
+
+    private static string Name(ViewerControl viewer)
+        => viewer.DocumentPath is { } path ? Path.GetFileName(path) : "A drawing";
+
+    private static string Describe(IReadOnlyList<string> unsaved)
+        => unsaved.Count == 1
+            ? $"{unsaved[0]} has changes that have not been saved."
+            : $"{unsaved.Count} drawings have changes that have not been saved.";
+
+    /// <summary>Asks whether edits that are not on disk may be thrown away.</summary>
+    private async Task<bool> AskDiscard(string message)
+    {
+        var discard = new Button { Content = "Discard changes" };
+        var keep = new Button { Content = "Keep editing", IsDefault = true };
+
+        var dialog = new Window
+        {
+            Title = "Unsaved changes",
+            SizeToContent = SizeToContent.WidthAndHeight,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false,
+            ShowInTaskbar = false,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(20d),
+                Spacing = 16d,
+                Children =
+                {
+                    new TextBlock { Text = message },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 8d,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Children = { discard, keep }
+                    }
+                }
+            }
+        };
+
+        discard.Click += (_, _) => dialog.Close(true);
+        keep.Click += (_, _) => dialog.Close(false);
+
+        return await dialog.ShowDialog<bool>(this);
+    }
+
     private void CloseTab(TabItem item)
     {
         _tabs.Items.Remove(item);
@@ -328,6 +469,28 @@ public partial class MainWindow : Window
         UpdateTitle();
     }
 
+    /// <summary>Saves the drawing in the selected tab.</summary>
+    /// <remarks>
+    /// The modifier follows the platform rather than being spelled Control, so this is Cmd+S on
+    /// macOS and Ctrl+S everywhere else, which is what each of them means by "save".
+    /// </remarks>
+    private async void OnKeyDown(object? sender, KeyEventArgs e)
+    {
+        var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+
+        if (e.Key != Key.S || e.KeyModifiers != command)
+        {
+            return;
+        }
+
+        e.Handled = true;
+
+        if ((_tabs.SelectedItem as TabItem)?.Content is ViewerControl viewer)
+        {
+            await viewer.SaveSourceAsync();
+        }
+    }
+
     /// <summary>Shows the strip only once there is a choice to make.</summary>
     /// <remarks>
     /// A window on a single drawing is not a window with one tab in it: the strip would be a row of
@@ -343,10 +506,10 @@ public partial class MainWindow : Window
 
     private void UpdateTitle()
     {
-        var path = (_tabs.SelectedItem as TabItem)?.Content is ViewerControl viewer
-            ? viewer.DocumentPath
-            : null;
+        var open = (_tabs.SelectedItem as TabItem)?.Content as ViewerControl;
+        var path = open?.DocumentPath;
+        var mark = open is { IsSourceModified: true } ? " •" : string.Empty;
 
-        Title = path is { } ? $"{Path.GetFileName(path)} — SVG viewer" : "SVG viewer";
+        Title = path is { } ? $"{Path.GetFileName(path)}{mark} — SVG viewer" : "SVG viewer";
     }
 }

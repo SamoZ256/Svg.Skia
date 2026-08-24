@@ -100,9 +100,24 @@ resources you can override:
 `…ExpressionPunctuationBrush` and `…ExpressionIdentifierBrush`.
 
 The pane is an [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit) editor over one document,
-so **a selection can cross a line** and the text can be taken away whole. It is read-only for now.
-You need nothing in your `App.axaml`: AvaloniaEdit supplies its own theme, and the viewer carries the
-style include regardless.
+so **a selection can cross a line** and the text can be taken away whole. You need nothing in your
+`App.axaml`: AvaloniaEdit supplies its own theme, and the viewer carries the style include regardless.
+
+**It is editable.** Type, and the drawing follows a fifth of a second after you stop — the whole
+document is re-read each time, which costs about 43ms for a 132KB drawing, so nothing is incremental
+and nothing is stale. Half-typed markup does not parse, and that is the ordinary case: the picture
+you already have stays up while the marks move to what is now wrong. Undo, redo and find come with
+the editor.
+
+`IsSourceModified` says whether there are edits not on disk and `SourceModifiedChanged` announces it;
+`SaveSourceAsync` writes them back, asking through `FileDialogService` when the drawing has no file
+of its own. In `src/SvgViewer` that is Cmd/Ctrl+S, a dot on the tab, and a prompt before anything
+throws work away — closing a tab asks about that drawing, closing the window asks once about every
+unsaved one it is holding. The control raises, the host decides, the same way opening works.
+
+Two rules worth knowing. A drawing too large to show whole is **read-only**: the pane holds a cut
+copy, and saving that would behead the file. And a save keeps the byte order mark the file arrived
+with, so nothing changes in a part of it you did not edit.
 
 There is no size at which colouring gives up, because only the lines on screen are ever coloured: a
 132KB drawing of 340 lines opens in 102ms. What that does not bound is a single enormous *line* — a

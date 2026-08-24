@@ -72,6 +72,36 @@ public partial class SvgViewer : UserControl
     /// <summary>Whether the drawing has been analysed, which is not the same as being shown.</summary>
     private bool _sourceAnalysed;
 
+    /// <summary>Whether the pane is showing less than the whole drawing, which it may not edit.</summary>
+    private bool _sourceTruncated;
+
+    /// <summary>Whether the text is being replaced rather than typed, so an edit is not a change.</summary>
+    private bool _sourceLoading;
+
+    /// <summary>
+    /// Whether the editor is holding the open drawing, and is therefore the truth about it.
+    /// </summary>
+    /// <remarks>
+    /// False until the pane has been opened for this document, and false again the moment another is
+    /// loaded: a document that arrives while the pane is closed leaves the editor holding the last
+    /// one's text, and asking that what is wrong with the drawing would answer about the wrong file.
+    /// </remarks>
+    private bool _sourceShown;
+
+    /// <summary>What the modified flag last was, so the change can be raised rather than polled.</summary>
+    private bool _sourceModified;
+
+    /// <summary>
+    /// Waits for typing to stop before rebuilding the drawing.
+    /// </summary>
+    /// <remarks>
+    /// A timer rather than <see cref="RequestApply"/>'s coalescing: that runs once a frame, which is
+    /// what a slider drag wants and the opposite of what this does. Rebuilding is whole-document —
+    /// 18ms to parse a 132KB drawing, 13ms to split it and 12ms to check it — so waiting for a pause
+    /// is what makes it free, and nothing incremental is needed.
+    /// </remarks>
+    private readonly DispatcherTimer _rebuild = new() { Interval = TimeSpan.FromMilliseconds(200d) };
+
     private SvgViewerDocument? _document;
     private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
     private int _loadVersion;
@@ -118,6 +148,13 @@ public partial class SvgViewer : UserControl
         _sourceEditor.TextArea.TextView.BackgroundRenderers.Add(_sourceMarkers);
         _sourceEditor.TextArea.TextView.PointerHover += OnSourceHover;
         _sourceEditor.TextArea.TextView.PointerHoverStopped += (_, _) => HideSourceTip();
+        _sourceEditor.TextChanged += (_, _) => OnSourceEdited();
+
+        _rebuild.Tick += (_, _) =>
+        {
+            _rebuild.Stop();
+            RebuildFromSource();
+        };
 
         _canvas.ViewChanged += (_, _) => UpdateZoomText();
         _parameters.ValueChanged += (_, _) => RequestApply();
@@ -398,7 +435,21 @@ public partial class SvgViewer : UserControl
             return;
         }
 
+        // Row by row where the whole list does not match, because the text is being edited: adding
+        // one <e:param> used to discard every value bound to the others, which was a rare annoyance
+        // when a reload meant reopening a file and is a constant one while someone is typing.
+        var kept = _rows.ToDictionary(row => row.Name, StringComparer.Ordinal);
+
         _rows = SvgViewerParameterFactory.Create(declarations);
+
+        foreach (var row in _rows)
+        {
+            if (kept.TryGetValue(row.Name, out var previous) && previous.Type == row.Type)
+            {
+                TrySetParameterValue(row.Name, previous.ToExprValue());
+            }
+        }
+
         _parameters.Parameters = _rows;
     }
 
@@ -555,18 +606,32 @@ public partial class SvgViewer : UserControl
     private void ForgetSource()
     {
         _sourceStale = true;
+        _sourceShown = false;
         _sourceAnalysed = false;
         _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
+
+        _rebuild.Stop();
     }
 
+    /// <summary>The text everything else works from: the editor's once it is holding the drawing.</summary>
+    private string PaneSource() => _sourceShown ? _sourceEditor.Text : SourceText();
+
     /// <summary>The drawing's text, cut to what the pane will hold.</summary>
+    /// <remarks>
+    /// A cut is recorded because it makes the pane read-only. Editing a truncated drawing and saving
+    /// it would behead the file and write the sentence below into it, which is a way to lose work
+    /// that no warning makes acceptable.
+    /// </remarks>
     private string SourceText()
     {
         var source = _document?.SourceText;
 
-        return source is { Length: > SourceLimit }
-            ? source[..SourceLimit]
+        _sourceTruncated = source is { Length: > SourceLimit };
+
+        return _sourceTruncated
+            ? source![..SourceLimit]
               + $"{Environment.NewLine}{Environment.NewLine}… {source.Length - SourceLimit:N0} more characters not shown."
+              + $"{Environment.NewLine}This drawing is too large to edit here."
             : source ?? string.Empty;
     }
 
@@ -586,7 +651,7 @@ public partial class SvgViewer : UserControl
         }
 
         _sourceAnalysed = true;
-        _sourceDiagnostics = SvgSourceDiagnostics.Analyse(SourceText());
+        _sourceDiagnostics = SvgSourceDiagnostics.Analyse(PaneSource());
 
         return _sourceDiagnostics;
     }
@@ -609,14 +674,158 @@ public partial class SvgViewer : UserControl
 
         var text = SourceText();
 
-        _sourceColorizer.Show(SvgSourceHighlighter.Lines(text));
-        _sourceMarkers.Show(Diagnostics());
-
         HideSourceTip();
 
-        _sourceEditor.Document = new TextDocument(text);
+        // Replacing the document resets the caret, the scroll and the undo stack, so it happens on a
+        // load and never on an edit. TextChanged fires for this too, and the flag is what tells the
+        // two apart.
+        _sourceLoading = true;
+
+        try
+        {
+            _sourceEditor.Document = new TextDocument(text);
+            _sourceEditor.Document.UndoStack.MarkAsOriginalFile();
+        }
+        finally
+        {
+            _sourceLoading = false;
+        }
+
+        _sourceEditor.IsReadOnly = _document is null || _sourceTruncated;
+        _sourceShown = true;
+
+        RaiseModified();
+        RefreshSource();
+    }
+
+    /// <summary>Re-colours and re-marks what the pane is showing, without disturbing it.</summary>
+    private void RefreshSource()
+    {
+        _sourceColorizer.Show(SvgSourceHighlighter.Lines(_sourceEditor.Text));
+        _sourceMarkers.Show(Diagnostics());
 
         PaintSource();
+    }
+
+    /// <summary>Taken as a keystroke: the analysis is stale, and the drawing follows in a moment.</summary>
+    private void OnSourceEdited()
+    {
+        if (_sourceLoading || !_sourceShown)
+        {
+            return;
+        }
+
+        _sourceAnalysed = false;
+
+        RaiseModified();
+
+        _rebuild.Stop();
+        _rebuild.Start();
+    }
+
+    /// <summary>
+    /// Builds the drawing again from the text in the pane.
+    /// </summary>
+    /// <remarks>
+    /// Half-typed markup does not parse, so a refusal is the ordinary case and must cost nothing: the
+    /// picture that is up stays up and only the marks move. The colours and diagnostics are refreshed
+    /// either way, because they are what the reader is steering by while the drawing cannot follow.
+    /// </remarks>
+    private void RebuildFromSource()
+    {
+        RefreshSource();
+
+        if (_document is not { } open)
+        {
+            return;
+        }
+
+        SvgViewerDocument rebuilt;
+
+        try
+        {
+            rebuilt = open.Reload(_sourceEditor.Text);
+        }
+        catch (Exception)
+        {
+            // Not readable as SVG, which is what a document looks like in the middle of being typed.
+            ShowError(Trouble());
+            return;
+        }
+
+        _document = rebuilt;
+        _canvas.Svg = rebuilt.Svg;
+
+        RebuildParameters(rebuilt);
+
+        // A fresh picture starts unbound, so the values on the panel have to be put back on it or
+        // every parameter snaps to its default as the text is typed.
+        Apply();
+
+        open.Dispose();
+
+        UpdateStatus();
+        ShowError(Trouble());
+    }
+
+    /// <summary>Whether the pane holds edits that are not on disk.</summary>
+    public bool IsSourceModified
+        => _sourceShown && _sourceEditor.Document is { } document && !document.UndoStack.IsOriginalFile;
+
+    /// <summary>Raised when <see cref="IsSourceModified"/> changes, for a host that marks its chrome.</summary>
+    public event EventHandler<bool>? SourceModifiedChanged;
+
+    private void RaiseModified()
+    {
+        var modified = IsSourceModified;
+
+        if (modified == _sourceModified)
+        {
+            return;
+        }
+
+        _sourceModified = modified;
+        SourceModifiedChanged?.Invoke(this, modified);
+    }
+
+    /// <summary>
+    /// Writes the pane's text back to a file.
+    /// </summary>
+    /// <remarks>
+    /// Asks for somewhere to put it when the drawing has no file of its own — one loaded from text or
+    /// a stream — through the same service the open button uses, so a host that supplied one for
+    /// opening has already supplied one for saving.
+    /// </remarks>
+    /// <returns>Whether anything was written.</returns>
+    public async Task<bool> SaveSourceAsync(string? path = null)
+    {
+        if (_document is not { } document || !_sourceShown)
+        {
+            return false;
+        }
+
+        var target = path ?? document.Path
+            ?? await FileDialogService.SaveSvgAsync(TopLevel.GetTopLevel(this), null).ConfigureAwait(true);
+
+        if (string.IsNullOrEmpty(target))
+        {
+            return false;
+        }
+
+        try
+        {
+            document.Write(_sourceEditor.Text, target!);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            ShowError(failure.Message);
+            return false;
+        }
+
+        _sourceEditor.Document.UndoStack.MarkAsOriginalFile();
+        RaiseModified();
+
+        return true;
     }
 
     /// <summary>Repaints the pane in the current theme, without disturbing what is on screen.</summary>

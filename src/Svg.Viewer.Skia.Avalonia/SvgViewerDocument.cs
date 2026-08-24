@@ -23,12 +23,14 @@ public sealed class SvgViewerDocument : IDisposable
         SKSvg svg,
         string? path,
         string? sourceText,
+        bool byteOrderMark,
         IReadOnlyList<SvgExpressionParameter> declarations,
         string? declarationError)
     {
         Svg = svg;
         Path = path;
         SourceText = sourceText;
+        ByteOrderMark = byteOrderMark;
         Declarations = declarations;
         DeclarationError = declarationError;
     }
@@ -46,6 +48,14 @@ public sealed class SvgViewerDocument : IDisposable
     /// application hold a copy of its file.
     /// </remarks>
     public string? SourceText { get; }
+
+    /// <summary>Whether the file this came from began with a byte order mark.</summary>
+    /// <remarks>
+    /// Remembered so that saving writes back what was read. Both readers strip a mark, and .NET
+    /// writes UTF-8 without one, so a file that had one would quietly lose three bytes on the first
+    /// save — a change to a part of the file nobody edited.
+    /// </remarks>
+    public bool ByteOrderMark { get; }
 
     /// <summary>What the document declares, or empty when it declares nothing or the block is bad.</summary>
     public IReadOnlyList<SvgExpressionParameter> Declarations { get; }
@@ -79,10 +89,14 @@ public sealed class SvgViewerDocument : IDisposable
         }
 
         string? source = null;
+        var mark = false;
 
         try
         {
-            source = File.ReadAllText(path);
+            var bytes = File.ReadAllBytes(path);
+
+            mark = HasByteOrderMark(bytes);
+            source = DecodeUtf8(bytes);
         }
         catch (IOException)
         {
@@ -93,7 +107,7 @@ public sealed class SvgViewerDocument : IDisposable
         {
         }
 
-        return Describe(svg, path, source);
+        return Describe(svg, path, source, mark);
     }
 
     public static SvgViewerDocument LoadFromSvg(string svgText, string? path = null)
@@ -135,8 +149,76 @@ public sealed class SvgViewerDocument : IDisposable
             throw new InvalidOperationException("The stream could not be read as SVG.");
         }
 
-        return Describe(svg, path, DecodeUtf8(buffer.ToArray()));
+        var bytes = buffer.ToArray();
+
+        return Describe(svg, path, DecodeUtf8(bytes), HasByteOrderMark(bytes));
     }
+
+    /// <summary>The same drawing, rebuilt from edited text.</summary>
+    /// <remarks>
+    /// Through a stream and a base URI rather than <see cref="SKSvg.FromSvg"/>, which has none: a
+    /// drawing with an <c>&lt;image href="logo.png"&gt;</c> beside it resolves the image when loaded
+    /// from its path and loses it the moment it is rebuilt from text. Measured rather than assumed —
+    /// the centre pixel goes from the image's colour to the placeholder grey and back again once a
+    /// base URI is supplied.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The text is not readable as SVG.</exception>
+    public SvgViewerDocument Reload(string svgText)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        var svg = new SKSvg();
+
+        using var buffer = new MemoryStream(Encoding.UTF8.GetBytes(svgText));
+
+        if (svg.Load(buffer, null, BaseUri()) is null)
+        {
+            svg.Dispose();
+            throw new InvalidOperationException("The text could not be read as SVG.");
+        }
+
+        return Describe(svg, Path, svgText, ByteOrderMark);
+    }
+
+    /// <summary>Writes text to a file, in the encoding this drawing was read in.</summary>
+    /// <remarks>
+    /// The encoding rather than the default, so a file that arrived with a byte order mark keeps it.
+    /// Writing is here because this is what knows how the bytes came in; deciding <em>whether</em> to
+    /// write is a host's, as choosing what to open is.
+    /// </remarks>
+    public void Write(string svgText, string path)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        if (path is null)
+        {
+            throw new ArgumentNullException(nameof(path));
+        }
+
+        File.WriteAllText(path, svgText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: ByteOrderMark));
+    }
+
+    /// <summary>What a relative reference resolves against, or null when there is no file.</summary>
+    private Uri? BaseUri()
+    {
+        if (Path is null)
+        {
+            return null;
+        }
+
+        var directory = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(Path));
+
+        return directory is null ? null : new Uri(directory + System.IO.Path.DirectorySeparatorChar);
+    }
+
+    private static bool HasByteOrderMark(byte[] bytes)
+        => bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
 
     /// <summary>Reads bytes as text, honouring a byte order mark if there is one.</summary>
     private static string DecodeUtf8(byte[] bytes)
@@ -146,7 +228,7 @@ public sealed class SvgViewerDocument : IDisposable
         return reader.ReadToEnd();
     }
 
-    private static SvgViewerDocument Describe(SKSvg svg, string? path, string? sourceText)
+    private static SvgViewerDocument Describe(SKSvg svg, string? path, string? sourceText, bool byteOrderMark = false)
     {
         IReadOnlyList<SvgExpressionParameter> declarations;
         string? error = null;
@@ -161,7 +243,7 @@ public sealed class SvgViewerDocument : IDisposable
             error = failure.ToDiagnostic();
         }
 
-        return new SvgViewerDocument(svg, path, sourceText, declarations, error);
+        return new SvgViewerDocument(svg, path, sourceText, byteOrderMark, declarations, error);
     }
 
     public void Dispose() => Svg.Dispose();
