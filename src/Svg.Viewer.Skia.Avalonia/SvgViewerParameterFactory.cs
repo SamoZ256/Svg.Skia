@@ -67,11 +67,11 @@ public static class SvgViewerParameterFactory
         {
             range = declaration.ResolveRange();
         }
-        catch (ExprException resolveError)
+        catch (Exception resolveError) when (resolveError is ExprException or ArgumentException)
         {
             // A range that does not resolve is worth reporting, but must not stop the parameter being
             // offered — the document still renders, and the value is still bindable.
-            error ??= resolveError.ToDiagnostic();
+            error ??= Diagnose(resolveError);
             range = SvgExpressionRange.Default;
         }
 
@@ -126,12 +126,21 @@ public static class SvgViewerParameterFactory
                     declaration.Type,
                     $"The default for '{declaration.Name}'");
         }
-        catch (ExprException failure)
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
         {
-            error = failure.ToDiagnostic();
+            error = Diagnose(failure);
             return null;
         }
     }
+
+    /// <summary>How a refusal reads, whether or not it came from the language.</summary>
+    /// <remarks>
+    /// <c>clamp</c> refuses a reversed range by throwing an <see cref="ArgumentException"/> rather
+    /// than the language's own, and a default is evaluated here while a document is being opened. A
+    /// drawing that renders must not fail to open because of a parameter it can still offer.
+    /// </remarks>
+    private static string Diagnose(Exception failure)
+        => failure is ExprException expression ? expression.ToDiagnostic() : failure.Message;
 
     private static Color ToColor(ExprValue? seed)
         => seed?.Type == ExprType.Color

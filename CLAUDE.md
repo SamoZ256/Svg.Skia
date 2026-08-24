@@ -321,9 +321,29 @@ not** — colouring a placeholder needs the span, checking it needs every declar
 which is why they are separate passes, at about 12ms for the extra tokenize on a 132KB drawing.
 Scope follows the language: a `{{ … }}` sees everything declared, an `<e:let>` sees the lets before
 it, and a `default`/`min`/`max`/`step` sees nothing declared at all, since a default may not
-reference other parameters. Two things it deliberately does not do: check an expression against the
-type its *attribute* expects, which needs the scene compiler's attribute table; and report anything
-when the `<e:code>` block itself will not read, since every name would then look undeclared. The first is done: `SvgSourceExpressions` hands a `{{ … }}`
+reference other parameters. The one thing it deliberately does not do is check an expression against
+the type its *attribute* expects, which needs the scene compiler's attribute table.
+
+**What the declarations themselves get wrong is reported there too, at the attribute it is about.**
+The rules stay in `SvgExpressionDeclarations.Builder` — never in one reader — and each now names the
+`SvgDeclarationPart` it is complaining about; turning a part into a place is the reader's half, since
+only the text reader has positions and the tree reader has none, which is what keeps the two
+reporting identically. `Parse(source, out diagnostics)` is that reader: `LoadOptions.SetLineInfo`
+gives it a line and column per element and per *attribute* (3ms on a 212KB drawing), it reads every
+declaration rather than stopping at the first, and it reports a document that is not well-formed
+XML — which the throwing `Parse` still swallows deliberately, since the SVG parser is the authority
+on that. A part with nothing of its own to point at, like a missing `type`, marks the declaration.
+The mark itself is the *token the position falls in*, so a bound underlines its expression and a
+`name` underlines its quoted value. **A document whose declarations are wrong reports those and
+nothing else**: the symbol table is missing whatever the bad declaration would have put in it, so
+every use of that name would read as undeclared and bury the few that are real. `Analyse` also runs
+what only numbers can settle — `min > max`, `step <= 0`, a `default` that type-checks and still will
+not evaluate — which reading a document may not do, and there it must catch `ArgumentException` as
+well as `ExprException`, because `clamp` refuses a reversed range with the former. So does
+`SvgViewerParameterFactory`, for the same reason and on the same path: without it a `default` of
+`clamp(2, 5, 1)` failed the *load* of a drawing that renders.
+
+Colouring the language itself: `SvgSourceExpressions` hands a `{{ … }}`
 span, an `<e:let>` body, or an `<e:param>`'s `default`/`min`/`max`/`step` — all four of which are
 expression text, not words — to **`Svg.Expressions`' own lexer**, reached through an `InternalsVisibleTo`
 grant, because a second description of the language would drift from it — `%` is a suffix on a number

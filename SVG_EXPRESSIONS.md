@@ -465,7 +465,14 @@ error: 'hsl' takes 3 argument(s), but 2 were given.
 ```
 
 `svgc` prints this and exits non-zero. `Svg.SourceGenerator.Skia` reports it as `SVG0001`, so it
-fails the build. Diagnostics are not yet mapped to a location in the `.svg` file.
+fails the build. Neither maps a diagnostic to a location in the `.svg` file yet.
+
+A **source view does**. `SvgExpressionDeclarations.Parse(text, out var diagnostics)` reads every
+declaration rather than stopping at the first and reports each with an offset into the document, and
+`Svg.Highlighting`'s `SvgSourceDiagnostics.Analyse` adds the expressions to that, so
+`Svg.Viewer.Skia.Avalonia` underlines a mistake on the attribute or the name that carries it. A
+document whose declarations are wrong reports those alone: with a declaration refused, every use of
+the name it would have declared reads as undeclared too.
 
 Checks include: unknown names (listing what is in scope), unknown functions (listing what
 exists), wrong arity, wrong argument types, mismatched conditional branches, arithmetic on

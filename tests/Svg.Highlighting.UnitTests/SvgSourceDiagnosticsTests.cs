@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Xunit;
 
@@ -118,10 +119,12 @@ public class SvgSourceDiagnosticsTests
     }
 
     [Fact]
-    public void A_Declarations_Block_That_Cannot_Be_Read_Reports_Nothing_Here()
+    public void A_Bad_Declaration_Is_Reported_Where_It_Is_Written_And_Nothing_Else()
     {
-        // Every name would look undeclared, burying the one error that matters — which the
-        // declaration reader reports on its own.
+        // The block is what is wrong, so the block is what is marked. The undeclared 'nonsense'
+        // below it is not reported: with the declaration refused, its parameter is missing from the
+        // table and every use of the document's names would look undeclared too. A hundred of those
+        // bury the one that is real.
         var source = """
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
               <defs><e:code><e:param name="tint" type="color" min="0" max="1" /></e:code></defs>
@@ -129,7 +132,95 @@ public class SvgSourceDiagnosticsTests
             </svg>
             """;
 
-        Assert.Empty(SvgSourceDiagnostics.Analyse(source));
+        var one = Assert.Single(SvgSourceDiagnostics.Analyse(source));
+
+        Assert.Contains("cannot carry min, max or step", one.Message);
+        Assert.Equal("0", Slice(source, one));
+    }
+
+    [Fact]
+    public void Every_Bad_Declaration_Is_Reported_Rather_Than_Only_The_First()
+    {
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code>
+                <e:param name="1t" type="number" />
+                <e:param name="hue" type="colour" />
+                <e:let name="w"></e:let>
+              </e:code></defs>
+            </svg>
+            """;
+
+        var found = SvgSourceDiagnostics.Analyse(source);
+
+        // A mark is the piece the pane already draws, which is why two of these carry their quotes
+        // and the range attributes below do not: a bound is split into the language, a name is not.
+        Assert.Equal(3, found.Count);
+        Assert.Equal(new[] { "\"1t\"", "\"colour\"", "e:let" }, found.Select(d => Slice(source, d)));
+    }
+
+    [Fact]
+    public void A_Rule_About_Something_Left_Out_Marks_The_Declaration()
+    {
+        // A missing type has nothing of its own to point at, so the declaration missing it is
+        // marked. Underlining nothing, or the whole line, both say less.
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="hue" /></e:code></defs>
+            </svg>
+            """;
+
+        Assert.Equal("e:param", Slice(source, Assert.Single(SvgSourceDiagnostics.Analyse(source))));
+    }
+
+    [Theory]
+    // What only numbers can settle, so it cannot be decided while the document is read.
+    [InlineData("""min="5" max="1" """, "5", "greater than its max")]
+    [InlineData("""min="0" max="1" step="0" """, "0", "greater than zero")]
+    // A default that type-checks and still will not produce a value. clamp refuses a reversed range
+    // by throwing something that is not the language's own exception, which must not escape.
+    [InlineData("""default="clamp(2, 5, 1)" """, "clamp", "cannot be greater than")]
+    public void A_Declaration_Is_Run_As_Well_As_Read(string attributes, string marked, string says)
+    {
+        var source = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="hue" type="number" {attributes}/></e:code></defs>
+            </svg>
+            """;
+
+        var one = Assert.Single(SvgSourceDiagnostics.Analyse(source));
+
+        Assert.Contains(says, one.Message);
+        Assert.Equal(marked, Slice(source, one));
+    }
+
+    [Fact]
+    public void A_Bound_That_Will_Not_Read_Is_Reported_Once()
+    {
+        // The checker rejects it, and running it would reject it again for the same reason. One
+        // mistake, one mark.
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="hue" type="number" min="1 +" max="9" /></e:code></defs>
+            </svg>
+            """;
+
+        Assert.Single(SvgSourceDiagnostics.Analyse(source));
+    }
+
+    [Fact]
+    public void A_Document_That_Is_Not_Well_Formed_Says_Where_It_Stopped()
+    {
+        // Silently contributing no declarations is what the reader does, because the SVG parser is
+        // the authority on well-formedness. That leaves a source view showing a file with an unclosed
+        // tag and nothing said about it, which is the one moment someone needs telling.
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="hue" type="number" /></e:code>
+            </svg>
+            """;
+
+        Assert.True(Assert.Single(SvgSourceDiagnostics.Analyse(source)).Start > 0);
     }
 
     [Fact]
