@@ -397,8 +397,14 @@ one `<e:param>` used to discard every bound value. **Editing is refused above `S
 because the pane holds a cut copy and saving it would behead the file and write the note explaining
 the cut into it. Saving keeps the byte order mark the file arrived with, or every save would churn
 three bytes nobody edited. Modified state is AvaloniaEdit's `UndoStack.IsOriginalFile`, so undoing
-back to the start clears the mark; the dot on the tab, Cmd/Ctrl+S and the prompt before discarding
-are the **shell's**, as opening is.
+back to the start clears the mark; the dot on the tab, Cmd/Ctrl+S and the prompts before discarding
+are the **shell's**, as opening is. Two prompts, because there are two ways to lose an edit: a tab's
+close button takes one drawing, and closing the window takes every one at once, so `OnClosing`
+cancels, asks about all of them together, and closes again once answered — posted rather than run
+inline, or an answer that arrives immediately re-enters `Close` from inside `OnClosing`. The prompt
+is a **replaceable delegate** on `MainWindow` for the reason `ISvgViewerFileDialogService` is an
+interface: a modal is the one thing a test cannot answer, and the only guard against losing work is
+the last thing that should go untested for want of a way to say no to it.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.

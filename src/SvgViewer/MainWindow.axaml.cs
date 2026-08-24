@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -10,6 +11,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 // Aliased because this application's namespace is also called SvgViewer.
 using ViewerControl = Svg.Viewer.Skia.Avalonia.SvgViewer;
@@ -61,6 +63,8 @@ public partial class MainWindow : Window
     public MainWindow(string? path)
     {
         AvaloniaXamlLoader.Load(this);
+
+        ConfirmDiscard = AskDiscard;
 
         _tabs = this.FindControl<TabControl>("Tabs")!;
         _tabs.SelectionChanged += (_, _) => UpdateTitle();
@@ -325,11 +329,22 @@ public partial class MainWindow : Window
 
     // ---- lifetime ----------------------------------------------------------------------------
 
+    /// <summary>
+    /// How the window asks whether work that is not on disk may be thrown away.
+    /// </summary>
+    /// <remarks>
+    /// Replaceable for the reason the file picker is: a modal is the one thing a test cannot drive,
+    /// and the guard against losing an edit is the last thing that should go untested for want of a
+    /// way to answer it. Given the whole sentence rather than a name, because closing a window can
+    /// be about several drawings at once.
+    /// </remarks>
+    public Func<string, Task<bool>> ConfirmDiscard { get; set; }
+
     private async Task CloseTabAsync(TabItem item)
     {
         // A close button is one click away from losing an edit, and nothing else would have said so.
         if (item.Content is ViewerControl { IsSourceModified: true } editing
-            && !await ConfirmDiscard(editing.DocumentPath is { } path ? Path.GetFileName(path) : "This drawing"))
+            && !await ConfirmDiscard(Describe(new[] { Name(editing) })))
         {
             return;
         }
@@ -337,8 +352,71 @@ public partial class MainWindow : Window
         CloseTab(item);
     }
 
+    /// <summary>Whether the close has already been answered for, so the second one goes through.</summary>
+    private bool _closeConfirmed;
+
+    /// <summary>
+    /// Asks before the window takes every unsaved drawing with it.
+    /// </summary>
+    /// <remarks>
+    /// Closing is synchronous and asking is not, so the close is called off, the question put, and
+    /// the close started again once there is an answer. Tabs are guarded one at a time by their own
+    /// close button; this is the path that would otherwise take all of them at once.
+    /// </remarks>
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        base.OnClosing(e);
+
+        if (_closeConfirmed || e.Cancel)
+        {
+            return;
+        }
+
+        var unsaved = Unsaved();
+
+        if (unsaved.Count == 0)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+
+        // Posted rather than started here, so the close finishes being called off before anything
+        // asks about it. A prompt that answered immediately would otherwise re-enter Close from
+        // inside OnClosing, which is true of a test's stub and would be true of a cached answer.
+        Dispatcher.UIThread.Post(async () => await ConfirmThenClose(unsaved));
+    }
+
+    private async Task ConfirmThenClose(IReadOnlyList<string> unsaved)
+    {
+        if (!await ConfirmDiscard(Describe(unsaved)))
+        {
+            return;
+        }
+
+        _closeConfirmed = true;
+
+        Close();
+    }
+
+    /// <summary>Every open drawing with changes that are not on disk.</summary>
+    private IReadOnlyList<string> Unsaved()
+        => _tabs.Items.OfType<TabItem>()
+            .Select(item => item.Content as ViewerControl)
+            .Where(viewer => viewer is { IsSourceModified: true })
+            .Select(viewer => Name(viewer!))
+            .ToList();
+
+    private static string Name(ViewerControl viewer)
+        => viewer.DocumentPath is { } path ? Path.GetFileName(path) : "A drawing";
+
+    private static string Describe(IReadOnlyList<string> unsaved)
+        => unsaved.Count == 1
+            ? $"{unsaved[0]} has changes that have not been saved."
+            : $"{unsaved.Count} drawings have changes that have not been saved.";
+
     /// <summary>Asks whether edits that are not on disk may be thrown away.</summary>
-    private async Task<bool> ConfirmDiscard(string name)
+    private async Task<bool> AskDiscard(string message)
     {
         var discard = new Button { Content = "Discard changes" };
         var keep = new Button { Content = "Keep editing", IsDefault = true };
@@ -356,7 +434,7 @@ public partial class MainWindow : Window
                 Spacing = 16d,
                 Children =
                 {
-                    new TextBlock { Text = $"{name} has changes that have not been saved." },
+                    new TextBlock { Text = message },
                     new StackPanel
                     {
                         Orientation = Orientation.Horizontal,

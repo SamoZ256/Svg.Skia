@@ -111,8 +111,9 @@ the editor.
 
 `IsSourceModified` says whether there are edits not on disk and `SourceModifiedChanged` announces it;
 `SaveSourceAsync` writes them back, asking through `FileDialogService` when the drawing has no file
-of its own. In `src/SvgViewer` that is Cmd/Ctrl+S, a dot on the tab, and a prompt before a close
-throws work away — the control raises, the host decides, the same way opening works.
+of its own. In `src/SvgViewer` that is Cmd/Ctrl+S, a dot on the tab, and a prompt before anything
+throws work away — closing a tab asks about that drawing, closing the window asks once about every
+unsaved one it is holding. The control raises, the host decides, the same way opening works.
 
 Two rules worth knowing. A drawing too large to show whole is **read-only**: the pane holds a cut
 copy, and saving that would behead the file. And a save keeps the byte order mark the file arrived
