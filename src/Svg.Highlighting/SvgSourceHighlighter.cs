@@ -485,16 +485,19 @@ public static class SvgSourceHighlighter
 
         while (index < end)
         {
-            var open = source.IndexOf("{{", index, StringComparison.Ordinal);
+            // Bounded by the value, not left to run to the end of the document: an unbounded search
+            // rescans everything after each attribute, which is one whole file per attribute on the
+            // overwhelmingly common document that has no placeholders in it at all.
+            var open = source.IndexOf("{{", index, end - index, StringComparison.Ordinal);
 
-            if (open < 0 || open >= end)
+            if (open < 0)
             {
                 Add(tokens, source, index, end, SvgSourceTokenKind.Value);
                 return;
             }
 
-            var close = source.IndexOf("}}", open, StringComparison.Ordinal);
-            var expressionEnd = close < 0 || close + 2 > end ? end : close + 2;
+            var close = source.IndexOf("}}", open, end - open, StringComparison.Ordinal);
+            var expressionEnd = close < 0 ? end : close + 2;
 
             Add(tokens, source, index, open, SvgSourceTokenKind.Value);
             SvgSourceExpressions.Placeholder(tokens, source, open, expressionEnd, sites);
