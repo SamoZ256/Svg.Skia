@@ -41,24 +41,17 @@ public static class SvgViewerParameterFactory
             throw new ArgumentNullException(nameof(declaration));
         }
 
-        var seed = Seed(declaration, out var seedError);
+        var seed = Seed(declaration);
 
-        SvgViewerParameter row = declaration.Type switch
+        return declaration.Type switch
         {
-            ExprType.Number => Number(declaration, seed, ref seedError),
+            ExprType.Number => Number(declaration, seed),
             ExprType.Color => new SvgViewerColorParameter(declaration, ToColor(seed)),
             _ => new SvgViewerBooleanParameter(declaration, seed?.Type == ExprType.Boolean && seed.Value.AsBoolean)
         };
-
-        row.ErrorText = seedError;
-
-        return row;
     }
 
-    private static SvgViewerNumberParameter Number(
-        SvgExpressionParameter declaration,
-        ExprValue? seed,
-        ref string? error)
+    private static SvgViewerNumberParameter Number(SvgExpressionParameter declaration, ExprValue? seed)
     {
         var value = seed?.Type == ExprType.Number ? seed.Value.AsNumber : 0d;
 
@@ -67,11 +60,12 @@ public static class SvgViewerParameterFactory
         {
             range = declaration.ResolveRange();
         }
-        catch (ExprException resolveError)
+        catch (Exception resolveError) when (resolveError is ExprException or ArgumentException)
         {
-            // A range that does not resolve is worth reporting, but must not stop the parameter being
-            // offered — the document still renders, and the value is still bindable.
-            error ??= resolveError.ToDiagnostic();
+            // Swallowed rather than reported: what is wrong with a range is marked in the source
+            // pane, at the attribute it is wrong in, and saying it twice made the panel repeat what
+            // the file already shows. The parameter is still offered — the document renders, and the
+            // value is still bindable.
             range = SvgExpressionRange.Default;
         }
 
@@ -107,10 +101,8 @@ public static class SvgViewerParameterFactory
     /// expression — <c>tau / 4</c>, <c>hsl(200, 60%, 50%)</c> — and because resolving it the same way
     /// is what makes the value shown here the value an unsupplied parameter would render with.
     /// </remarks>
-    private static ExprValue? Seed(SvgExpressionParameter declaration, out string? error)
+    private static ExprValue? Seed(SvgExpressionParameter declaration)
     {
-        error = null;
-
         if (declaration.DefaultExpression is null)
         {
             return null;
@@ -126,9 +118,12 @@ public static class SvgViewerParameterFactory
                     declaration.Type,
                     $"The default for '{declaration.Name}'");
         }
-        catch (ExprException failure)
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
         {
-            error = failure.ToDiagnostic();
+            // clamp refuses a reversed range by throwing an ArgumentException rather than the
+            // language's own, and a default is evaluated here while a document is being opened: a
+            // drawing that renders must not fail to open because of a parameter it can still offer.
+            // What was wrong with it is the source pane's to say.
             return null;
         }
     }

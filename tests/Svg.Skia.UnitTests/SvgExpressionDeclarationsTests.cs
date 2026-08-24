@@ -359,6 +359,132 @@ public class SvgExpressionDeclarationsTests
         Assert.Equal(5f, ExprEvaluator.Create(SvgExpressionDeclarations.Parse(Markup("""<e:param name="t" type="number" default="5" min="0" max="1" />"""))).Evaluate("t").AsNumber);
     }
 
+    // ---- what is wrong, and where it was written ------------------------------------------------
+
+    [Fact]
+    public void A_Document_That_Is_Right_Reports_Nothing()
+    {
+        SvgExpressionDeclarations.Parse(
+            Markup("""<e:param name="t" type="number" min="0" max="1" /><e:let name="w">t * 2</e:let>"""),
+            out var diagnostics);
+
+        Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public void Every_Bad_Declaration_Is_Reported_Rather_Than_Only_The_First()
+    {
+        // Three mistakes, three diagnostics. Throwing at the first is what hides the other two, and
+        // a source view wants to underline all of them at once.
+        var markup = Markup("""
+            <e:param name="1t" type="number" /><e:param name="tint" type="color" min="0" max="1" /><e:let name="w"></e:let>
+            """);
+
+        SvgExpressionDeclarations.Parse(markup, out var diagnostics);
+
+        Assert.Equal(3, diagnostics.Count);
+        Assert.Contains("is not a valid name", diagnostics[0].Message);
+        Assert.Contains("cannot carry min, max or step", diagnostics[1].Message);
+        Assert.Contains("has no expression", diagnostics[2].Message);
+    }
+
+    [Fact]
+    public void What_Could_Be_Read_Survives_A_Bad_Declaration()
+    {
+        // The parameters after a bad one are not lost with it: a pane that stopped showing the rest
+        // of the document because of one typo would be worse than the typo.
+        var declarations = SvgExpressionDeclarations.Parse(
+            Markup("""<e:param name="t" type="number" /><e:param name="bad" /><e:param name="u" type="number" />"""),
+            out var diagnostics);
+
+        Assert.Single(diagnostics);
+        Assert.Equal(new[] { "t", "u" }, declarations.Parameters.Select(p => p.Name));
+    }
+
+    [Fact]
+    public void The_First_Mistake_Is_Still_What_The_Throwing_Reader_Throws()
+    {
+        // One decides, so the two cannot disagree about which mistake matters.
+        var markup = Markup("""<e:param name="1t" type="number" /><e:let name="w"></e:let>""");
+
+        SvgExpressionDeclarations.Parse(markup, out var diagnostics);
+
+        Assert.Equal(
+            Assert.Throws<ExprException>(() => SvgExpressionDeclarations.Parse(markup)).Message,
+            diagnostics[0].Message);
+    }
+
+    [Theory]
+    // A name that is wrong points at the name, not at the declaration carrying it.
+    [InlineData("""<e:param name="1t" type="number" />""", "1t")]
+    [InlineData("""<e:param name="sin" type="number" />""", "sin")]
+    // A redeclaration is marked where it is redeclared, not where the name was first used. The name
+    // rule runs before the type is read, which is the language's fixed visit order.
+    [InlineData("""<e:param name="hue" type="number" /><e:param name="hue" type="colour" />""", "hue")]
+    // The type is what is unknown, so the type is what is marked.
+    [InlineData("""<e:param name="t" type="colour" />""", "colour")]
+    // A range on something with no range: the one to delete is the first one written.
+    [InlineData("""<e:param name="tint" type="color" min="0" max="1" />""", "0")]
+    [InlineData("""<e:param name="on" type="boolean" step="2" />""", "2")]
+    // Half a range points at the half that is there.
+    [InlineData("""<e:param name="t" type="number" min="3" />""", "3")]
+    [InlineData("""<e:param name="t" type="number" max="7" />""", "7")]
+    public void A_Mistake_Is_Reported_Where_It_Was_Written(string body, string offender)
+    {
+        var markup = Markup(body);
+
+        SvgExpressionDeclarations.Parse(markup, out var diagnostics);
+
+        var diagnostic = diagnostics[diagnostics.Count - 1];
+
+        Assert.Equal(markup.LastIndexOf(offender, StringComparison.Ordinal), diagnostic.Position);
+    }
+
+    [Theory]
+    // Nothing of its own to point at, so it points at the declaration that is missing it.
+    [InlineData("""<e:param name="t" />""")]
+    [InlineData("""<e:param type="number" />""")]
+    public void A_Rule_About_Something_Left_Out_Points_At_The_Declaration(string body)
+    {
+        var markup = Markup(body);
+
+        SvgExpressionDeclarations.Parse(markup, out var diagnostics);
+
+        Assert.Equal(markup.IndexOf("e:param", StringComparison.Ordinal), Assert.Single(diagnostics).Position);
+    }
+
+    [Fact]
+    public void A_Let_With_Nothing_In_It_Points_At_The_Let()
+    {
+        // Whitespace is not an expression, and underlining the whitespace would say nothing.
+        var markup = Markup("""<e:let name="w">   </e:let>""");
+
+        SvgExpressionDeclarations.Parse(markup, out var diagnostics);
+
+        Assert.Equal(markup.IndexOf("e:let", StringComparison.Ordinal), Assert.Single(diagnostics).Position);
+    }
+
+    [Fact]
+    public void A_Document_That_Is_Not_Well_Formed_Says_Where_It_Stopped()
+    {
+        // Reported here and nowhere else: the throwing reader contributes no declarations and says
+        // nothing, because the SVG parser is the authority on well-formedness. Saying where is still
+        // worth doing, and this is the one place holding the text.
+        var markup = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}">
+              <defs><e:code><e:param name="t" type="number" /></e:code>
+            </svg>
+            """;
+
+        var declarations = SvgExpressionDeclarations.Parse(markup, out var diagnostics);
+
+        Assert.True(declarations.IsEmpty);
+        Assert.True(Assert.Single(diagnostics).Position > 0);
+
+        // And still not a failure: reading a malformed document must not throw here.
+        Assert.True(SvgExpressionDeclarations.Parse(markup).IsEmpty);
+    }
+
     private static string Markup(string body)
         => $"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">

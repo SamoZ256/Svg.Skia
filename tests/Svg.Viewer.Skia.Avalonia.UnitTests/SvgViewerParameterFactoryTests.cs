@@ -54,7 +54,6 @@ public class SvgViewerParameterFactoryTests
         Assert.Equal(255, row.Color.R);
         Assert.Equal(0, row.Color.G);
         Assert.Equal(0, row.Color.B);
-        Assert.Null(row.ErrorText);
     }
 
     [Fact]
@@ -67,17 +66,15 @@ public class SvgViewerParameterFactoryTests
         Assert.Equal(0x80, row.Color.R);
         Assert.Equal(0x80, row.Color.G);
         Assert.Equal(0x80, row.Color.B);
-        Assert.Null(row.ErrorText);
     }
 
     [Fact]
-    public void A_Malformed_Default_Is_Reported_Rather_Than_Thrown()
+    public void A_Malformed_Default_Is_Swallowed_Rather_Than_Thrown()
     {
         // The parameter still has to be offered: the document renders, and the value is bindable.
+        // What is wrong with the default is marked in the source pane, where the default is.
         var row = Number("""<e:param name="t" type="number" default="hsl(1, 2)" />""");
 
-        Assert.True(row.HasError);
-        Assert.Contains("hsl", row.ErrorText);
         Assert.Equal(0d, row.Value);
     }
 
@@ -128,12 +125,11 @@ public class SvgViewerParameterFactoryTests
     }
 
     [Fact]
-    public void A_Range_That_Does_Not_Resolve_Is_Reported_And_Falls_Back()
+    public void A_Range_That_Does_Not_Resolve_Falls_Back()
     {
+        // Reported in the source pane, at the min it is wrong in, rather than here.
         var row = Number("""<e:param name="t" type="number" min="1" max="0" />""");
 
-        Assert.True(row.HasError);
-        Assert.Contains("greater than its max", row.ErrorText);
         Assert.Equal(0d, row.Minimum);
         Assert.Equal(1d, row.Maximum);
     }

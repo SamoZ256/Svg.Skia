@@ -25,6 +25,8 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Headless.XUnit" />
+    <!-- Named rather than left transitive: the pane's tests speak about the editor. -->
+    <PackageReference Include="Avalonia.AvaloniaEdit" />
   </ItemGroup>
 
 </Project>

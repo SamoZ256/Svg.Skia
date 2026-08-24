@@ -87,36 +87,28 @@ public readonly record struct SvgSourceToken(string Source, int Start, int Lengt
 /// <summary>One line of a drawing, and what its pieces are.</summary>
 public sealed class SvgSourceLine
 {
-    public SvgSourceLine(int number, IReadOnlyList<SvgSourceToken> tokens)
+    public SvgSourceLine(int number, int start, int length, IReadOnlyList<SvgSourceToken> tokens)
     {
         Number = number;
+        Start = start;
+        Length = length;
         Tokens = tokens;
     }
 
     /// <summary>Counting from one, as an editor would show it.</summary>
     public int Number { get; }
 
-    public IReadOnlyList<SvgSourceToken> Tokens { get; }
-
-    /// <summary>The rest of the line from <paramref name="from"/> on, as one uncoloured piece.</summary>
+    /// <summary>Where the line begins in the document.</summary>
     /// <remarks>
-    /// Virtualising by line bounds what a document costs, but not what a <em>line</em> costs, and a
-    /// minified drawing is the whole file on one of them: 132KB of it took 1.4 seconds to colour as
-    /// a single row. Past <see cref="SvgSourceHighlighter.RowTokenLimit"/> a consumer shows the
-    /// remainder plainly, so the text is all there and the row costs what plain text costs.
+    /// A line knows its own range so that anything keyed to a position — a diagnostic, a search hit,
+    /// a bookmark — can be found for it without walking the tokens of every other line.
     /// </remarks>
-    public string Rest(int from)
-    {
-        if (from >= Tokens.Count)
-        {
-            return string.Empty;
-        }
+    public int Start { get; }
 
-        var first = Tokens[from];
-        var last = Tokens[^1];
+    /// <summary>How long the line is, its ending newline excluded.</summary>
+    public int Length { get; }
 
-        return first.Source[first.Start..(last.Start + last.Length)];
-    }
+    public IReadOnlyList<SvgSourceToken> Tokens { get; }
 }
 
 /// <summary>
@@ -152,14 +144,17 @@ public static class SvgSourceHighlighter
     /// <remarks>
     /// A line at a time because the cost of colouring was never the splitting — 7ms for 200,000
     /// characters — but laying out one styled run per token: 130ms at 1,100 runs, 433ms at 4,500 and
-    /// 18 seconds at 45,000, in a single text block. Rows in a virtualising list lay out only what is
-    /// on screen, so a 132KB drawing costs what a 2KB one does and there is no size at which the
-    /// consumer gives up and shows plain text.
+    /// 18 seconds at 45,000, in a single text block. A consumer that lays out only the lines on
+    /// screen pays for the screenful instead, so a 132KB drawing costs what a 2KB one does and there
+    /// is no size at which it gives up and shows plain text.
     /// </remarks>
     public static IReadOnlyList<SvgSourceLine> Lines(string? source)
     {
         var lines = new List<SvgSourceLine>();
         var current = new List<SvgSourceToken>();
+
+        // Where the line being gathered began, which the tokens cannot say for a line that is empty.
+        var from = 0;
 
         foreach (var token in Tokenize(source))
         {
@@ -181,9 +176,10 @@ public static class SvgSourceHighlighter
                     current.Add(token with { Start = start, Length = stop - start });
                 }
 
-                lines.Add(new SvgSourceLine(lines.Count + 1, current.ToArray()));
+                lines.Add(new SvgSourceLine(lines.Count + 1, from, stop - from, current.ToArray()));
                 current.Clear();
 
+                from = index + 1;
                 start = index + 1;
             }
 
@@ -195,19 +191,20 @@ public static class SvgSourceHighlighter
 
         if (current.Count > 0 || lines.Count == 0)
         {
-            lines.Add(new SvgSourceLine(lines.Count + 1, current.ToArray()));
+            lines.Add(new SvgSourceLine(lines.Count + 1, from, Math.Max(0, (source?.Length ?? 0) - from), current.ToArray()));
         }
 
         return lines;
     }
 
     /// <summary>
-    /// How many pieces of one line are coloured before the rest is shown plainly.
+    /// How many pieces of one line are coloured before the rest is left plain.
     /// </summary>
     /// <remarks>
-    /// An ordinary line of SVG is a few dozen tokens and never reaches this. A minified drawing is
-    /// one line of tens of thousands, which is the case this exists for: a consumer that builds one
-    /// styled run per token pays for every one of them on that row.
+    /// Colouring by line bounds what a document costs but not what a <em>line</em> costs, and a
+    /// minified drawing is the whole file on one of them. An ordinary line of SVG is a few dozen
+    /// tokens and never reaches this; 132KB on a single line took 1.1 seconds coloured whole and
+    /// 39ms stopping here. Nothing is hidden either way — the text past it is still there, plain.
     /// </remarks>
     public const int RowTokenLimit = 250;
 
@@ -216,7 +213,10 @@ public static class SvgSourceHighlighter
     /// Expression spans are split again by <see cref="SvgSourceExpressions"/>, so what comes back is
     /// markup and code in one flat sequence — a consumer needs a brush per kind and nothing else.
     /// </remarks>
-    public static IReadOnlyList<SvgSourceToken> Tokenize(string? source)
+    public static IReadOnlyList<SvgSourceToken> Tokenize(string? source) => Tokenize(source, null);
+
+    /// <summary>Splits, and records where the expression code was if asked.</summary>
+    internal static IReadOnlyList<SvgSourceToken> Tokenize(string? source, List<SvgSourceSite>? sites)
     {
         var tokens = new List<SvgSourceToken>();
 
@@ -237,11 +237,11 @@ public static class SvgSourceHighlighter
 
             if (open < 0)
             {
-                AddBody(tokens, source, index, source.Length, let);
+                AddBody(tokens, source, index, source.Length, let, sites);
                 break;
             }
 
-            AddBody(tokens, source, index, open, let);
+            AddBody(tokens, source, index, open, let, sites);
 
             index = source[open..] switch
             {
@@ -249,7 +249,7 @@ public static class SvgSourceHighlighter
                 var rest when rest.StartsWith("<![CDATA[", StringComparison.Ordinal) => Fenced(tokens, source, open, "]]>"),
                 var rest when rest.StartsWith("<?", StringComparison.Ordinal) => Fenced(tokens, source, open, "?>"),
                 var rest when rest.StartsWith("<!", StringComparison.Ordinal) => Fenced(tokens, source, open, ">"),
-                _ => Tag(tokens, source, open, ref element),
+                _ => Tag(tokens, source, open, ref element, sites),
             };
         }
 
@@ -257,7 +257,13 @@ public static class SvgSourceHighlighter
     }
 
     /// <summary>Adds text between tags, as code when the element it belongs to is a let.</summary>
-    private static void AddBody(List<SvgSourceToken> tokens, string source, int start, int end, bool let)
+    private static void AddBody(
+        List<SvgSourceToken> tokens,
+        string source,
+        int start,
+        int end,
+        bool let,
+        List<SvgSourceSite>? sites)
     {
         if (end <= start)
         {
@@ -266,7 +272,7 @@ public static class SvgSourceHighlighter
 
         if (let)
         {
-            SvgSourceExpressions.Code(tokens, source, start, end);
+            SvgSourceExpressions.Code(tokens, source, start, end, SvgSourceSiteKind.Let, sites);
             return;
         }
 
@@ -308,8 +314,18 @@ public static class SvgSourceHighlighter
     private static bool IsDeclaredExpression(string? element, string? attribute)
         => Is(element, "param") && attribute is "default" or "min" or "max" or "step";
 
-    private static int Tag(List<SvgSourceToken> tokens, string source, int start, ref string? element)
+    private static int Tag(
+        List<SvgSourceToken> tokens,
+        string source,
+        int start,
+        ref string? element,
+        List<SvgSourceSite>? sites)
     {
+        // A declaration's attributes may be written in any order, so what it declares is not known
+        // until the tag is closed. The sites it contributes are stamped with the name afterwards.
+        var declared = sites?.Count ?? 0;
+        string? name = null;
+
         // An unclosed tag runs to the end of the document rather than swallowing the rest silently.
         var close = source.IndexOf('>', start);
         var end = close < 0 ? source.Length : close + 1;
@@ -324,19 +340,19 @@ public static class SvgSourceHighlighter
 
         Add(tokens, source, start, index, SvgSourceTokenKind.Punctuation);
 
-        var name = index;
-        while (name < end && !char.IsWhiteSpace(source[name]) && source[name] is not ('>' or '/'))
+        var local = index;
+        while (local < end && !char.IsWhiteSpace(source[local]) && source[local] is not ('>' or '/'))
         {
-            name++;
+            local++;
         }
 
-        Add(tokens, source, index, name, SvgSourceTokenKind.Element);
+        Add(tokens, source, index, local, SvgSourceTokenKind.Element);
 
         // A closing tag ends whatever was open; a self-closing one never opens anything.
         var closing = index > start + 1;
-        element = closing ? null : source[index..name];
+        element = closing ? null : source[index..local];
 
-        index = name;
+        index = local;
 
         string? attributeName = null;
 
@@ -376,11 +392,12 @@ public static class SvgSourceHighlighter
 
                 if (IsDeclaredExpression(element, attributeName))
                 {
-                    Declared(tokens, source, index, valueEnd, quote);
+                    Declared(tokens, source, index, valueEnd, quote, sites, attributeName);
                 }
                 else
                 {
-                    Value(tokens, source, index, valueEnd);
+                    Value(tokens, source, index, valueEnd, sites);
+                    name ??= attributeName == "name" ? source[(index + 1)..(quote < 0 ? valueEnd : quote)] : null;
                 }
 
                 index = valueEnd;
@@ -407,11 +424,29 @@ public static class SvgSourceHighlighter
             index = attribute;
         }
 
+        if (name is { } && sites is { })
+        {
+            for (var at = declared; at < sites.Count; at++)
+            {
+                if (sites[at].Kind == SvgSourceSiteKind.Declaration)
+                {
+                    sites[at] = sites[at] with { Owner = name };
+                }
+            }
+        }
+
         return end;
     }
 
     /// <summary>Adds a value whose whole content is expression code, quotes excepted.</summary>
-    private static void Declared(List<SvgSourceToken> tokens, string source, int start, int end, int quote)
+    private static void Declared(
+        List<SvgSourceToken> tokens,
+        string source,
+        int start,
+        int end,
+        int quote,
+        List<SvgSourceSite>? sites,
+        string? attribute)
     {
         // The quotes belong to the markup, not to the expression — and an unterminated value has
         // only the opening one.
@@ -419,31 +454,34 @@ public static class SvgSourceHighlighter
 
         var close = quote < 0 ? end : quote;
 
-        SvgSourceExpressions.Code(tokens, source, start + 1, close);
+        SvgSourceExpressions.Code(tokens, source, start + 1, close, SvgSourceSiteKind.Declaration, sites, attribute);
 
         Add(tokens, source, close, end, SvgSourceTokenKind.Value);
     }
 
     /// <summary>Adds a value, lifting any <c>{{ … }}</c> out of it.</summary>
-    private static void Value(List<SvgSourceToken> tokens, string source, int start, int end)
+    private static void Value(List<SvgSourceToken> tokens, string source, int start, int end, List<SvgSourceSite>? sites)
     {
         var index = start;
 
         while (index < end)
         {
-            var open = source.IndexOf("{{", index, StringComparison.Ordinal);
+            // Bounded by the value, not left to run to the end of the document: an unbounded search
+            // rescans everything after each attribute, which is one whole file per attribute on the
+            // overwhelmingly common document that has no placeholders in it at all.
+            var open = source.IndexOf("{{", index, end - index, StringComparison.Ordinal);
 
-            if (open < 0 || open >= end)
+            if (open < 0)
             {
                 Add(tokens, source, index, end, SvgSourceTokenKind.Value);
                 return;
             }
 
-            var close = source.IndexOf("}}", open, StringComparison.Ordinal);
-            var expressionEnd = close < 0 || close + 2 > end ? end : close + 2;
+            var close = source.IndexOf("}}", open, end - open, StringComparison.Ordinal);
+            var expressionEnd = close < 0 ? end : close + 2;
 
             Add(tokens, source, index, open, SvgSourceTokenKind.Value);
-            SvgSourceExpressions.Placeholder(tokens, source, open, expressionEnd);
+            SvgSourceExpressions.Placeholder(tokens, source, open, expressionEnd, sites);
 
             index = expressionEnd;
         }

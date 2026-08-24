@@ -10,15 +10,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
-using Avalonia.Controls.Templates;
-using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using AvaloniaEdit;
+using AvaloniaEdit.Document;
 using Svg.Expressions;
 using Svg.Highlighting;
 using Svg.Skia;
@@ -55,7 +54,9 @@ public partial class SvgViewer : UserControl
     private readonly SelectableTextBlock _errorText;
     private readonly Border _sourceHost;
     private readonly GridSplitter _sourceSplitter;
-    private readonly ItemsControl _sourceLines;
+    private readonly TextEditor _sourceEditor;
+    private readonly SvgViewerSourceColorizer _sourceColorizer;
+    private readonly SvgViewerSourceMarkers _sourceMarkers;
     private readonly ToggleButton _sourceButton;
     private readonly Grid _body;
 
@@ -64,6 +65,12 @@ public partial class SvgViewer : UserControl
 
     /// <summary>Whether the pane's text is stale — a document arrived, or the theme changed.</summary>
     private bool _sourceStale = true;
+
+    /// <summary>What is wrong with the drawing, for whatever a pointer comes to rest on.</summary>
+    private IReadOnlyList<SvgSourceDiagnostic> _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
+
+    /// <summary>Whether the drawing has been analysed, which is not the same as being shown.</summary>
+    private bool _sourceAnalysed;
 
     private SvgViewerDocument? _document;
     private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
@@ -86,8 +93,7 @@ public partial class SvgViewer : UserControl
         _errorText = this.FindControl<SelectableTextBlock>("ErrorText")!;
         _sourceHost = this.FindControl<Border>("SourcePanelHost")!;
         _sourceSplitter = this.FindControl<GridSplitter>("SourceSplitter")!;
-        _sourceLines = this.FindControl<ItemsControl>("SourceLines")!;
-        _sourceLines.ItemTemplate = new FuncDataTemplate<SvgSourceLine>((_, _) => BuildLine(), supportsRecycling: true);
+        _sourceEditor = this.FindControl<TextEditor>("SourceEditor")!;
         _sourceButton = this.FindControl<ToggleButton>("SourceButton")!;
         _body = this.FindControl<Grid>("Body")!;
 
@@ -103,19 +109,25 @@ public partial class SvgViewer : UserControl
 
         _sourceButton.IsCheckedChanged += (_, _) => ShowSource = _sourceButton.IsChecked == true;
 
+        // The splitter colours, the marker draws, and both ask for a brush when they need one rather
+        // than being handed a palette, so a theme change is a repaint and not a rebuild.
+        _sourceColorizer = new SvgViewerSourceColorizer(SourceBrush);
+        _sourceMarkers = new SvgViewerSourceMarkers(ErrorBrush);
+
+        _sourceEditor.TextArea.TextView.LineTransformers.Add(_sourceColorizer);
+        _sourceEditor.TextArea.TextView.BackgroundRenderers.Add(_sourceMarkers);
+        _sourceEditor.TextArea.TextView.PointerHover += OnSourceHover;
+        _sourceEditor.TextArea.TextView.PointerHoverStopped += (_, _) => HideSourceTip();
+
         _canvas.ViewChanged += (_, _) => UpdateZoomText();
         _parameters.ValueChanged += (_, _) => RequestApply();
 
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
 
-        // The palette is resolved once per pass rather than bound per run: a document is thousands
-        // of runs, and that many dynamic resource subscriptions costs more than redoing the pass.
-        ActualThemeVariantChanged += (_, _) =>
-        {
-            _sourceStale = true;
-            RenderSource();
-        };
+        // A repaint rather than a reload: rebuilding the document would send the reader back to the
+        // top of the file because the theme changed under them.
+        ActualThemeVariantChanged += (_, _) => PaintSource();
 
         UpdateZoomText();
         UpdateStatus();
@@ -213,6 +225,17 @@ public partial class SvgViewer : UserControl
             RenderSource();
         }
     }
+
+    /// <summary>
+    /// What is wrong with the open drawing, as ranges into <see cref="SvgViewerDocument.SourceText"/>.
+    /// </summary>
+    /// <remarks>
+    /// Analysed on first ask and kept until the document changes, rather than only when the pane is
+    /// opened: the error panel needs to know whether a failed binding is the drawing's fault before
+    /// anyone has asked to read it. A host that wants a problems list of its own reads these; the
+    /// pane marks them in place.
+    /// </remarks>
+    public IReadOnlyList<SvgSourceDiagnostic> SourceDiagnostics => Diagnostics();
 
     /// <summary>The values currently bound, keyed by parameter name.</summary>
     public IReadOnlyDictionary<string, ExprValue> ParameterValues => BuildValues();
@@ -316,6 +339,10 @@ public partial class SvgViewer : UserControl
         _document = document;
         _canvas.Svg = document.Svg;
 
+        // Before Apply below, which asks what is wrong with the drawing: leaving the previous
+        // analysis in place would answer for the file that was open a moment ago.
+        ForgetSource();
+
         RebuildParameters(document);
 
         // A document that declares parameters renders its placeholders until values are bound, which
@@ -324,7 +351,7 @@ public partial class SvgViewer : UserControl
 
         previous?.Dispose();
 
-        ShowError(document.DeclarationError);
+        ShowError(Trouble());
         UpdateStatus();
         UpdateZoomText();
         UpdateSource();
@@ -456,13 +483,13 @@ public partial class SvgViewer : UserControl
         try
         {
             document.Svg.SetExpressionValues(BuildValues());
-            ShowError(document.DeclarationError);
+            ShowError(Trouble());
         }
         catch (ExprException failure)
         {
             // Binding is all or nothing, so the previous rendering is still up. The control's value
             // is deliberately left alone: it is what the user has to see in order to correct it.
-            ShowError(failure.ToDiagnostic());
+            ShowError(Explain(failure));
         }
         catch (Exception failure)
         {
@@ -520,12 +547,52 @@ public partial class SvgViewer : UserControl
 
     private void UpdateSource()
     {
-        _sourceStale = true;
+        ForgetSource();
         RenderSource();
     }
 
+    /// <summary>Drops what was known about the drawing that was open.</summary>
+    private void ForgetSource()
+    {
+        _sourceStale = true;
+        _sourceAnalysed = false;
+        _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
+    }
+
+    /// <summary>The drawing's text, cut to what the pane will hold.</summary>
+    private string SourceText()
+    {
+        var source = _document?.SourceText;
+
+        return source is { Length: > SourceLimit }
+            ? source[..SourceLimit]
+              + $"{Environment.NewLine}{Environment.NewLine}… {source.Length - SourceLimit:N0} more characters not shown."
+            : source ?? string.Empty;
+    }
+
     /// <summary>
-    /// Fills the pane, coloured where that is affordable.
+    /// What is wrong with the drawing, analysed at most once per document.
+    /// </summary>
+    /// <remarks>
+    /// Splitting a document is context-free, checking one is not — it reads every declaration in the
+    /// file — so this is a second pass, and one that costs nothing on a drawing with no expressions
+    /// in it.
+    /// </remarks>
+    private IReadOnlyList<SvgSourceDiagnostic> Diagnostics()
+    {
+        if (_sourceAnalysed)
+        {
+            return _sourceDiagnostics;
+        }
+
+        _sourceAnalysed = true;
+        _sourceDiagnostics = SvgSourceDiagnostics.Analyse(SourceText());
+
+        return _sourceDiagnostics;
+    }
+
+    /// <summary>
+    /// Fills the pane.
     /// </summary>
     /// <remarks>
     /// Only when the pane is up, because the toggle starts off and laying out a document nobody
@@ -540,90 +607,109 @@ public partial class SvgViewer : UserControl
 
         _sourceStale = false;
 
-        var source = _document?.SourceText;
+        var text = SourceText();
 
-        var text = source is { Length: > SourceLimit }
-            ? source[..SourceLimit]
-              + $"{Environment.NewLine}{Environment.NewLine}… {source.Length - SourceLimit:N0} more characters not shown."
-            : source ?? string.Empty;
+        _sourceColorizer.Show(SvgSourceHighlighter.Lines(text));
+        _sourceMarkers.Show(Diagnostics());
 
-        _sourceLines.ItemsSource = SvgSourceHighlighter.Lines(text);
+        HideSourceTip();
+
+        _sourceEditor.Document = new TextDocument(text);
+
+        PaintSource();
     }
 
-    /// <summary>Builds one row: its number, and its text coloured a piece at a time.</summary>
+    /// <summary>Repaints the pane in the current theme, without disturbing what is on screen.</summary>
+    private void PaintSource()
+    {
+        if (!_sourceHost.IsVisible)
+        {
+            return;
+        }
+
+        _sourceEditor.Foreground = SourceBrush(SvgSourceTokenKind.Text);
+        _sourceEditor.LineNumbersForeground = Resource("SvgViewerSourceLineNumberBrush");
+
+        _sourceEditor.TextArea.TextView.Redraw();
+    }
+
+    /// <summary>Shows what is wrong with whatever the pointer came to rest on.</summary>
     /// <remarks>
-    /// The runs are made here, as a row is realised, rather than held with the tokens — which is
-    /// what keeps a drawing of a hundred thousand lines costing what the forty on screen cost.
+    /// The token rather than the line it sits on. A line of markup is long, and a message about a
+    /// name is worth much less at the other end of one.
     /// </remarks>
-    private Control BuildLine()
+    private void OnSourceHover(object? sender, PointerEventArgs e)
     {
-        var number = new TextBlock
+        var view = _sourceEditor.TextArea.TextView;
+
+        if (_sourceDiagnostics.Count == 0 || _sourceEditor.Document is not { } document)
         {
-            Width = 44d,
-            Margin = new Thickness(0d, 0d, 8d, 0d),
-            TextAlignment = TextAlignment.Right,
-            Foreground = SourceBrush(null),
-        };
+            return;
+        }
 
-        var text = new SelectableTextBlock();
-
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Children = { number, text } };
-
-        row.DataContextChanged += (_, _) =>
+        if (view.GetPositionFloor(e.GetPosition(view) + view.ScrollOffset) is not { } position)
         {
-            if (row.DataContext is not SvgSourceLine line)
-            {
-                return;
-            }
+            HideSourceTip();
+            return;
+        }
 
-            number.Text = line.Number.ToString(CultureInfo.CurrentCulture);
+        var offset = document.GetOffset(position.Location);
 
-            var inlines = new InlineCollection();
-            var coloured = Math.Min(line.Tokens.Count, SvgSourceHighlighter.RowTokenLimit);
+        var messages = _sourceDiagnostics
+            .Where(d => d.Start <= offset && offset < d.Start + d.Length)
+            .Select(d => d.Message)
+            .ToList();
 
-            for (var index = 0; index < coloured; index++)
-            {
-                var token = line.Tokens[index];
+        if (messages.Count == 0)
+        {
+            HideSourceTip();
+            return;
+        }
 
-                inlines.Add(new Run(token.Text) { Foreground = SourceBrush(token.Kind) });
-            }
+        ToolTip.SetTip(_sourceEditor, string.Join("\n", messages));
+        ToolTip.SetIsOpen(_sourceEditor, true);
 
-            if (line.Tokens.Count > coloured)
-            {
-                inlines.Add(new Run(line.Rest(coloured)) { Foreground = SourceBrush(SvgSourceTokenKind.Text) });
-            }
-
-            text.Inlines = inlines;
-        };
-
-        return row;
+        e.Handled = true;
     }
 
-    /// <summary>The brush for a kind of token, or for a line number when given none.</summary>
-    private IBrush? SourceBrush(SvgSourceTokenKind? kind)
+    private void HideSourceTip()
     {
-        var key = kind switch
-        {
-            null => "SvgSourceLineNumberBrush",
-            SvgSourceTokenKind.Punctuation => "SvgViewerSourcePunctuationBrush",
-            SvgSourceTokenKind.Element => "SvgViewerSourceElementBrush",
-            SvgSourceTokenKind.Attribute => "SvgViewerSourceAttributeBrush",
-            SvgSourceTokenKind.Value => "SvgViewerSourceValueBrush",
-            SvgSourceTokenKind.Comment => "SvgViewerSourceCommentBrush",
-            SvgSourceTokenKind.Expression => "SvgViewerSourceExpressionBrush",
-            SvgSourceTokenKind.ExpressionNumber => "SvgViewerSourceExpressionNumberBrush",
-            SvgSourceTokenKind.ExpressionColor => "SvgViewerSourceExpressionColorBrush",
-            SvgSourceTokenKind.ExpressionFunction => "SvgViewerSourceExpressionFunctionBrush",
-            SvgSourceTokenKind.ExpressionConstant => "SvgViewerSourceExpressionConstantBrush",
-            SvgSourceTokenKind.ExpressionKeyword => "SvgViewerSourceExpressionKeywordBrush",
-            SvgSourceTokenKind.ExpressionOperator => "SvgViewerSourceExpressionOperatorBrush",
-            SvgSourceTokenKind.ExpressionPunctuation => "SvgViewerSourceExpressionPunctuationBrush",
-            SvgSourceTokenKind.ExpressionIdentifier => "SvgViewerSourceExpressionIdentifierBrush",
-            _ => "SvgViewerSourceTextBrush",
-        };
-
-        return this.TryFindResource(key, ActualThemeVariant, out var brush) ? brush as IBrush : null;
+        ToolTip.SetIsOpen(_sourceEditor, false);
+        ToolTip.SetTip(_sourceEditor, null);
     }
+
+    private IBrush? ErrorBrush() => Resource("SvgViewerSourceErrorBrush");
+
+    /// <summary>The brush for a kind of token.</summary>
+    private IBrush? SourceBrush(SvgSourceTokenKind kind) => Resource(kind switch
+    {
+        SvgSourceTokenKind.Punctuation => "SvgViewerSourcePunctuationBrush",
+        SvgSourceTokenKind.Element => "SvgViewerSourceElementBrush",
+        SvgSourceTokenKind.Attribute => "SvgViewerSourceAttributeBrush",
+        SvgSourceTokenKind.Value => "SvgViewerSourceValueBrush",
+        SvgSourceTokenKind.Comment => "SvgViewerSourceCommentBrush",
+        SvgSourceTokenKind.Expression => "SvgViewerSourceExpressionBrush",
+        SvgSourceTokenKind.ExpressionNumber => "SvgViewerSourceExpressionNumberBrush",
+        SvgSourceTokenKind.ExpressionColor => "SvgViewerSourceExpressionColorBrush",
+        SvgSourceTokenKind.ExpressionFunction => "SvgViewerSourceExpressionFunctionBrush",
+        SvgSourceTokenKind.ExpressionConstant => "SvgViewerSourceExpressionConstantBrush",
+        SvgSourceTokenKind.ExpressionKeyword => "SvgViewerSourceExpressionKeywordBrush",
+        SvgSourceTokenKind.ExpressionOperator => "SvgViewerSourceExpressionOperatorBrush",
+        SvgSourceTokenKind.ExpressionPunctuation => "SvgViewerSourceExpressionPunctuationBrush",
+        SvgSourceTokenKind.ExpressionIdentifier => "SvgViewerSourceExpressionIdentifierBrush",
+        _ => "SvgViewerSourceTextBrush",
+    });
+
+    /// <summary>
+    /// Every brush the pane paints with, by the one route.
+    /// </summary>
+    /// <remarks>
+    /// A key is a string, and a rename that catches one paints nothing and says nothing: the line
+    /// numbers went unpainted for two commits exactly that way. One lookup is what a test can check
+    /// every key against.
+    /// </remarks>
+    internal IBrush? Resource(string key)
+        => this.TryFindResource(key, ActualThemeVariant, out var brush) ? brush as IBrush : null;
 
     private void UpdateStatus()
     {
@@ -640,6 +726,50 @@ public partial class SvgViewer : UserControl
             ? $"{name} — no parameters"
             : $"{name} — {count} parameter{(count == 1 ? string.Empty : "s")}";
     }
+
+    /// <summary>
+    /// What is wrong with the open drawing, said once and for as long as it is true.
+    /// </summary>
+    /// <remarks>
+    /// A standing statement rather than a reaction: a drawing with mistakes in it has them from the
+    /// moment it opens, and finding that out by moving an unrelated slider is the wrong way round.
+    /// The count and the pointer are all it gives, because the pane marks each one on the line that
+    /// carries it, and repeating the compiler's words down here says the same thing twice in the
+    /// place least able to point at it.
+    /// </remarks>
+    private string? Trouble()
+    {
+        if (_document is not { } document)
+        {
+            return null;
+        }
+
+        var found = Diagnostics();
+
+        if (found.Count == 0)
+        {
+            // Nothing to mark, because the text could not be kept: say what the reader said.
+            return document.DeclarationError;
+        }
+
+        return found.Count == 1
+            ? "This drawing has an error, marked in the Source pane. Changing a parameter may not take effect until it is fixed."
+            : $"This drawing has {found.Count} errors, marked in the Source pane. Changing a parameter may not take effect until they are fixed.";
+    }
+
+    /// <summary>
+    /// What to say about a binding that did not happen.
+    /// </summary>
+    /// <remarks>
+    /// Whatever was already being said, when the fault is one the pane marks: the standing message
+    /// covers it, and swapping the text on a click is what this stopped doing. Anything the pane
+    /// does not cover — a value the host supplied of the wrong type, a parameter left unbound — is
+    /// reported in full, since for those this panel is the only place at all.
+    /// </remarks>
+    private string? Explain(ExprException failure)
+        => Diagnostics().Any(d => string.Equals(d.Message, failure.Message, StringComparison.Ordinal))
+            ? Trouble()
+            : failure.ToDiagnostic();
 
     private void ShowError(string? message)
     {

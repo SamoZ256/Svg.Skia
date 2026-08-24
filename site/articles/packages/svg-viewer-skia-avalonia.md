@@ -63,6 +63,19 @@ A `number` parameter uses the `min`, `max` and `step` its author declared, falli
 
 Every row is seeded by *evaluating* the declared `default`, so `default="tau / 4"` works as well as a literal does.
 
+A `default` that will not evaluate, or a range whose ends are the wrong way round, does not stop the
+parameter being offered: the drawing still renders and the value is still bindable, the row falls back
+to a placeholder and the default range. What is wrong with it is marked in the source pane, at the
+attribute it is wrong in — the panel does not repeat it.
+
+A drawing with mistakes in it says so from the moment it opens, in the status bar and through
+`ErrorRaised` — *"This drawing has 6 errors, marked in the Source pane. Changing a parameter may not
+take effect until they are fixed."* It is a standing statement, not a reaction: it does not wait for
+a control to be touched, and it does not change when one is. The count and the pointer are all it
+gives, because the pane marks each mistake on the line that carries it, which a status bar cannot do.
+Anything the pane does not cover, such as a value supplied of the wrong type, is still reported there
+in full.
+
 The format itself — `<e:code>`, the operators, and the placeholder mechanism — is specified in `SVG_EXPRESSIONS.md` at the root of the repository.
 
 ## Reading the drawing's text
@@ -86,12 +99,24 @@ resources you can override:
 `…ExpressionConstantBrush`, `…ExpressionKeywordBrush`, `…ExpressionOperatorBrush`,
 `…ExpressionPunctuationBrush` and `…ExpressionIdentifierBrush`.
 
-There is no size at which colouring gives up. The pane is a row per line in a virtualising list, so
-only the lines on screen are ever laid out: a 132KB drawing of 340 lines opens in 94ms with 17 rows
-built. What that does not bound is a single enormous *line* — a minified drawing is the whole file on
-one — so a row colours its first 250 pieces and shows the remainder plainly, which took that same
-132KB minified from 1.4s to 340ms. Nothing is hidden either way; the uncoloured remainder is still
-there to read and select.
+The pane is an [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit) editor over one document,
+so **a selection can cross a line** and the text can be taken away whole. It is read-only for now.
+You need nothing in your `App.axaml`: AvaloniaEdit supplies its own theme, and the viewer carries the
+style include regardless.
+
+There is no size at which colouring gives up, because only the lines on screen are ever coloured: a
+132KB drawing of 340 lines opens in 102ms. What that does not bound is a single enormous *line* — a
+minified drawing is the whole file on one — so a line is coloured for its first 250 pieces and the
+rest left plain, which takes that same 132KB minified to 217ms. Nothing is hidden either way; the
+uncoloured remainder is still there to read and select.
+
+Mistakes get a wavy underline where they are written, and hovering one shows its message.
+`…ErrorBrush` is the key for the mark. `SourceDiagnostics` is the same list if you would rather show
+it your own way — a problems panel, a status line. That covers the drawing's
+expressions and the `<e:code>` block alike: a name nothing declares, a range on a colour, a `min`
+above its `max`, a `default` that will not resolve. What counts as a mistake is
+[Svg.Highlighting](svg-highlighting)'s answer, which is the language's own checker — and a
+declaration that is wrong is marked on the attribute that is wrong, not summarised above the drawing.
 
 The text is `SvgViewerDocument.SourceText`, captured while loading, so it is what the picture was
 built from rather than whatever the file says later. A host that would rather show it its own way —

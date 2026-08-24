@@ -1,8 +1,19 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia"
+             xmlns:edit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
              x:Class="Svg.Viewer.Skia.Avalonia.SvgViewer"
              DragDrop.AllowDrop="True">
+
+  <UserControl.Styles>
+    <!--
+      Belt and braces. AvaloniaEdit 12 supplies its own control theme once a base theme is loaded
+      (measured as byte-identical frames with this include, without it, and with it on the
+      Application), so a host needs nothing. Only Fluent was tried, and one line here is cheaper
+      than a host on another theme finding an unstyled control.
+    -->
+    <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
+  </UserControl.Styles>
 
   <UserControl.Resources>
     <ResourceDictionary>
@@ -28,6 +39,7 @@
           <SolidColorBrush x:Key="SvgViewerSourceExpressionPunctuationBrush" Color="#909090" />
           <SolidColorBrush x:Key="SvgViewerSourceExpressionIdentifierBrush" Color="#9CDCFE" />
           <SolidColorBrush x:Key="SvgViewerSourceLineNumberBrush" Color="#5A5A5A" />
+          <SolidColorBrush x:Key="SvgViewerSourceErrorBrush" Color="#FF6B6B" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
           <SolidColorBrush x:Key="SvgViewerSourceTextBrush" Color="#1F1F1F" />
@@ -46,6 +58,7 @@
           <SolidColorBrush x:Key="SvgViewerSourceExpressionPunctuationBrush" Color="#5A5A5A" />
           <SolidColorBrush x:Key="SvgViewerSourceExpressionIdentifierBrush" Color="#001080" />
           <SolidColorBrush x:Key="SvgViewerSourceLineNumberBrush" Color="#A0A0A0" />
+          <SolidColorBrush x:Key="SvgViewerSourceErrorBrush" Color="#D40000" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>
@@ -112,23 +125,19 @@
       <Border x:Name="SourcePanelHost" Grid.Row="2"
               BorderThickness="0,1,0,0" BorderBrush="#20808080">
         <!--
-          A row per line in a virtualising list, so only the lines on screen are ever laid out. One
-          text block holding the whole drawing is what put a size limit on colouring at all.
+          One document rather than a control per line, which is what lets a selection cross one.
+          The editor virtualises by itself and colours only the lines on screen, so there is no size
+          at which this gives up. Read-only for now; editing is the reason it is an editor.
         -->
-        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-          <!--
-            The scroller is the pane's, not the list's: an ItemsControl given a template of its own
-            realises every row it has, however its panel is set. Measured at 4,000 rows — all 4,000
-            built inside a custom template, 16 with the list simply placed in a ScrollViewer.
-          -->
-          <ItemsControl x:Name="SourceLines" Margin="8,6">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate>
-                <VirtualizingStackPanel />
-              </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-          </ItemsControl>
-        </ScrollViewer>
+        <edit:TextEditor x:Name="SourceEditor"
+                         IsReadOnly="True"
+                         ShowLineNumbers="True"
+                         WordWrap="False"
+                         FontFamily="Cascadia Mono,Menlo,Consolas,DejaVu Sans Mono,monospace"
+                         FontSize="12"
+                         Padding="8,6"
+                         HorizontalScrollBarVisibility="Auto"
+                         VerticalScrollBarVisibility="Auto" />
       </Border>
 
     </Grid>

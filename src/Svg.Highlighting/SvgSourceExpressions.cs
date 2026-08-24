@@ -31,7 +31,12 @@ namespace Svg.Highlighting;
 internal static class SvgSourceExpressions
 {
     /// <summary>Adds a <c>{{ … }}</c> placeholder: its fences, and the code between them.</summary>
-    public static void Placeholder(List<SvgSourceToken> tokens, string source, int start, int end)
+    public static void Placeholder(
+        List<SvgSourceToken> tokens,
+        string source,
+        int start,
+        int end,
+        List<SvgSourceSite>? sites = null)
     {
         const int fence = 2;
 
@@ -46,7 +51,7 @@ internal static class SvgSourceExpressions
             SvgSourceHighlighter.Add(tokens, source, start, from, SvgSourceTokenKind.Expression);
         }
 
-        Code(tokens, source, from, to);
+        Code(tokens, source, from, to, SvgSourceSiteKind.Placeholder, sites);
 
         if (closed)
         {
@@ -55,12 +60,24 @@ internal static class SvgSourceExpressions
     }
 
     /// <summary>Adds a span that is expression code with nothing fencing it — a let's body.</summary>
-    public static void Code(List<SvgSourceToken> tokens, string source, int start, int end)
+    public static void Code(
+        List<SvgSourceToken> tokens,
+        string source,
+        int start,
+        int end,
+        SvgSourceSiteKind site = SvgSourceSiteKind.Placeholder,
+        List<SvgSourceSite>? sites = null,
+        string? attribute = null)
     {
         if (end <= start)
         {
             return;
         }
+
+        // Every expression in a document passes through here, which makes this the one place that
+        // knows where the code in it is. Checking one needs the whole document's declarations, so it
+        // cannot happen while splitting — but recording where to look costs nothing.
+        sites?.Add(new SvgSourceSite(start, end - start, site, Attribute: attribute));
 
         var text = source.Substring(start, end - start);
         var lexed = Read(text);
