@@ -93,10 +93,12 @@ one — so a row colours its first 250 pieces and shows the remainder plainly, w
 132KB minified from 1.4s to 340ms. Nothing is hidden either way; the uncoloured remainder is still
 there to read and select.
 
-Mistakes in the drawing's expressions are underlined where they are written, the line's number is
-marked in the gutter, and the message is on the line as a tooltip. `…ErrorBrush` is the key for both.
-What counts as a mistake is [Svg.Highlighting](svg-highlighting)'s answer, which is the language's
-own checker.
+Mistakes are underlined where they are written, the line's number is marked in the gutter, and the
+message is on the line as a tooltip. `…ErrorBrush` is the key for both. That covers the drawing's
+expressions and the `<e:code>` block alike: a name nothing declares, a range on a colour, a `min`
+above its `max`, a `default` that will not resolve. What counts as a mistake is
+[Svg.Highlighting](svg-highlighting)'s answer, which is the language's own checker — and a
+declaration that is wrong is marked on the attribute that is wrong, not summarised above the drawing.
 
 The text is `SvgViewerDocument.SourceText`, captured while loading, so it is what the picture was
 built from rather than whatever the file says later. A host that would rather show it its own way —

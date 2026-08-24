@@ -7,12 +7,12 @@ using System.Text;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Styling;
 using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using SkiaSharp;
@@ -650,6 +650,83 @@ public class SvgViewerTests
         window.Close();
     }
 
+
+    private const string BadlyDeclared = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="tint" type="color" min="0" max="1" />
+            </e:code>
+          </defs>
+          <rect x="0" y="0" width="24" height="24" fill="{{ tint }}" />
+        </svg>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Mistake_In_The_Declarations_Is_Marked_Where_It_Was_Written()
+    {
+        // It used to be a sentence in a panel above the drawing, which said what was wrong and left
+        // finding it to the reader. A range on a colour is four characters in a file of forty lines.
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync(BadlyDeclared));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var marked = RealisedRuns(viewer).Where(r => r.TextDecorations is { }).ToList();
+
+        Assert.Equal("0", Assert.Single(marked).Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Declaration_The_Pane_Marks_Does_Not_Bury_The_Drawing_In_Cascades()
+    {
+        // With the declaration refused its parameter is missing from the table, so every use of the
+        // name it would have declared reads as undeclared. One mistake, one mark.
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync(BadlyDeclared));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var rows = Pane(viewer).GetVisualDescendants().OfType<SelectableTextBlock>().ToList();
+
+        Assert.Single(rows, r => ToolTip.GetTip(r) is string);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Default_That_Will_Not_Resolve_Still_Opens_The_Drawing()
+    {
+        // clamp refuses a reversed range by throwing something that is not the language's own
+        // exception, and a viewer that let that out would fail to open a file it can render.
+        var (window, viewer) = Host();
+
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code>
+                  <e:param name="hue" type="number" default="clamp(2, 5, 1)" />
+                </e:code>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="#3fb5b5" />
+            </svg>
+            """;
+
+        Assert.True(await viewer.LoadTextAsync(source));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("clamp", Assert.Single(RealisedRuns(viewer), r => r.TextDecorations is { }).Text);
+
+        window.Close();
+    }
 
     [AvaloniaFact]
     public async Task Every_Piece_Of_The_Pane_Is_Painted_With_Something()
