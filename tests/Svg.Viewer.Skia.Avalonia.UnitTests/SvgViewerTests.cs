@@ -822,6 +822,213 @@ public class SvgViewerTests
         window.Close();
     }
 
+    /// <summary>Types into the pane and waits for the rebuild the pause triggers.</summary>
+    private static async Task Type(SvgViewer viewer, string text)
+    {
+        Pane(viewer).Document.Text = text;
+        Dispatcher.UIThread.RunJobs();
+
+        // Real time, because the debounce is a real timer: the point of it is that it waits.
+        await Task.Delay(400).ConfigureAwait(true);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
+    public async Task Typing_In_The_Pane_Rebuilds_The_Drawing()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var before = viewer.Svg!.Picture;
+
+        await Type(viewer, Parametric.Replace("24", "48", StringComparison.Ordinal));
+
+        Assert.NotSame(before, viewer.Svg!.Picture);
+        Assert.Contains("48", viewer.Document!.SourceText!, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Text_That_Will_Not_Parse_Keeps_The_Drawing_That_Is_Up()
+    {
+        // The ordinary state of a document halfway through being typed. Losing the picture at every
+        // unbalanced bracket would make the pane unusable for the thing it is for.
+        var (window, viewer) = await HostLoaded();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var before = viewer.Svg!.Picture;
+
+        await Type(viewer, "<svg><rect ");
+
+        // The pane took it and the rebuild was attempted; the drawing is what did not follow.
+        Assert.Equal("<svg><rect ", PaneText(viewer));
+        Assert.Same(before, viewer.Svg!.Picture);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Relative_Image_Survives_An_Edit()
+    {
+        // Rebuilding through FromSvg loses it: that overload has no base URI, so a drawing renders
+        // its image when opened from a path and shows the placeholder the moment it is typed in.
+        var directory = Path.Combine(Path.GetTempPath(), "svg-edit-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            using (var bitmap = new SKBitmap(20, 20))
+            {
+                using (var canvas = new SKCanvas(bitmap))
+                {
+                    canvas.Clear(new SKColor(0xFF, 0x00, 0x00));
+                }
+
+                using var image = SKImage.FromBitmap(bitmap);
+                using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+                using var file = File.Create(Path.Combine(directory, "logo.png"));
+                data.SaveTo(file);
+            }
+
+            var markup = """
+                <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+                     width="20" height="20" viewBox="0 0 20 20">
+                  <image xlink:href="logo.png" x="0" y="0" width="20" height="20" />
+                </svg>
+                """;
+
+            var path = Path.Combine(directory, "drawing.svg");
+            File.WriteAllText(path, markup);
+
+            var (window, viewer) = Host();
+
+            Assert.True(await viewer.LoadAsync(path));
+            viewer.ShowSource = true;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(new SKColor(0xFF, 0, 0), Centre(viewer));
+
+            await Type(viewer, markup.Replace("</svg>", "<!-- edited --></svg>", StringComparison.Ordinal));
+
+            // The rebuild really happened — otherwise the original picture would still be up and the
+            // image would be resolved for the wrong reason.
+            Assert.Contains("<!-- edited -->", viewer.Document!.SourceText!, StringComparison.Ordinal);
+            Assert.Equal(new SKColor(0xFF, 0, 0), Centre(viewer));
+
+            window.Close();
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>The middle of the drawing the viewer is holding, rendered on its own.</summary>
+    private static SKColor Centre(SvgViewer viewer)
+    {
+        using var bitmap = new SKBitmap(20, 20);
+
+        using (var canvas = new SKCanvas(bitmap))
+        {
+            canvas.Clear(SKColors.White);
+            canvas.DrawPicture(viewer.Svg!.Picture);
+        }
+
+        return bitmap.GetPixel(10, 10);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Too_Large_To_Show_Whole_Cannot_Be_Edited()
+    {
+        // Editing a cut document and saving it would behead the file and write the note explaining
+        // the cut into it. There is no warning that makes that acceptable.
+        var (window, viewer) = Host();
+
+        // Past the pane's own backstop, which it does not expose and this must therefore restate.
+        var padding = new string(' ', 2_000_001);
+
+        Assert.True(await viewer.LoadTextAsync(
+            $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\" width=\"1\" height=\"1\"><!--{padding}--></svg>"));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(Pane(viewer).IsReadOnly);
+        Assert.Contains("too large to edit", PaneText(viewer), StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Saving_Writes_The_Pane_Back_And_Clears_The_Mark()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "svg-save-" + Guid.NewGuid().ToString("N") + ".svg");
+        File.WriteAllText(path, Parametric);
+
+        try
+        {
+            var (window, viewer) = Host();
+
+            Assert.True(await viewer.LoadAsync(path));
+            viewer.ShowSource = true;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(viewer.IsSourceModified);
+
+            await Type(viewer, Parametric.Replace("24", "48", StringComparison.Ordinal));
+
+            Assert.True(viewer.IsSourceModified);
+
+            Assert.True(await viewer.SaveSourceAsync());
+
+            Assert.False(viewer.IsSourceModified);
+            Assert.Contains("48", File.ReadAllText(path), StringComparison.Ordinal);
+
+            window.Close();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task A_Bound_Value_Survives_An_Edit_That_Adds_A_Parameter()
+    {
+        // Every value used to go when the declarations changed shape, which was rare when a reload
+        // meant reopening a file and is constant while someone is typing one.
+        var (window, viewer) = await HostLoaded();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.TrySetParameterValue("tint", ExprValue.Color(0x11, 0x22, 0x33, 0xFF)));
+        Dispatcher.UIThread.RunJobs();
+
+        await Type(
+            viewer,
+            Parametric.Replace(
+                "</e:code>",
+                "  <e:param name=\"extra\" type=\"number\" default=\"1\" />\n    </e:code>",
+                StringComparison.Ordinal));
+
+        // The rebuild really happened, so the surviving value survived something.
+        Assert.Contains(viewer.Parameters, p => p.Name == "extra");
+
+        var tint = Assert.IsType<SvgViewerColorParameter>(viewer.Parameters.Single(p => p.Name == "tint"));
+
+        Assert.Equal(0x11, tint.Color.R);
+        Assert.Equal(0x22, tint.Color.G);
+        Assert.Equal(0x33, tint.Color.B);
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public async Task A_Selection_Can_Cross_A_Line()
     {

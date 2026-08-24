@@ -54,4 +54,25 @@ public class SvgViewerFileDialogService : ISvgViewerFileDialogService
 
         return files?.Select(file => file.TryGetLocalPath()).FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
     }
+
+    public async Task<string?> SaveSvgAsync(TopLevel? owner, string? suggested)
+    {
+        var storage = owner?.StorageProvider;
+        if (storage is null || !storage.CanSave)
+        {
+            return null;
+        }
+
+        var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save svg file",
+            SuggestedFileName = string.IsNullOrWhiteSpace(suggested) ? "drawing.svg" : suggested,
+            DefaultExtension = "svg",
+            FileTypeChoices = new List<FilePickerFileType> { SvgFileType, AllFileType }
+        }).ConfigureAwait(true);
+
+        var path = file?.TryGetLocalPath();
+
+        return string.IsNullOrWhiteSpace(path) ? null : path;
+    }
 }

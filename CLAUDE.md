@@ -378,6 +378,28 @@ smudge. Two things split lines now, this splitter and the editor's document, and
 they agree on a CRLF file — a disagreement would put every colour one character out and nothing
 else would notice.
 
+**The pane is editable, and that reverses which way the truth runs.** The file used to be it; now the
+`TextDocument` is, and the picture is derived from it. So `RenderSource` replaces the document only
+on a load — doing it on an edit would reset the caret, the scroll and the undo stack every keystroke
+— and `RefreshSource` re-colours without touching it. `_sourceShown` says whether the editor is
+holding *this* document, because one loaded while the pane is closed leaves the editor showing the
+last one and everything keyed off the wrong text. Typing restarts a 200ms `DispatcherTimer`,
+deliberately not `RequestApply`'s once-a-frame coalescing: a frame is right for a slider and wrong
+for "has typing stopped". On its tick the whole document is rebuilt — 18ms to parse a 132KB drawing,
+13ms to split it, 12ms to check it — so nothing incremental is needed. **A refusal is the ordinary
+case**: half-typed markup does not parse, and the picture that is up stays up while only the marks
+move. **`SvgViewerDocument.Reload` goes through a stream and a base URI**, never `SKSvg.FromSvg`,
+which has none — a drawing with an `<image href="logo.png">` beside it resolves it from a path and
+loses it the instant it is rebuilt from text, measured as the centre pixel turning placeholder grey.
+A fresh picture starts unbound, so `Apply()` has to follow every rebuild or parameters snap to their
+defaults as you type; `RebuildParameters` now matches row by row for the same reason, since adding
+one `<e:param>` used to discard every bound value. **Editing is refused above `SourceLimit`**,
+because the pane holds a cut copy and saving it would behead the file and write the note explaining
+the cut into it. Saving keeps the byte order mark the file arrived with, or every save would churn
+three bytes nobody edited. Modified state is AvaloniaEdit's `UndoStack.IsOriginalFile`, so undoing
+back to the start clears the mark; the dot on the tab, Cmd/Ctrl+S and the prompt before discarding
+are the **shell's**, as opening is.
+
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.
 `samples/SvgRecipeDemo` does the same for the recipe path and links that demo's `LivePreview.cs`
