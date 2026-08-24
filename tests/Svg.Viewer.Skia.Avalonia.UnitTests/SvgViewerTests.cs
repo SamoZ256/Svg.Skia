@@ -7,7 +7,6 @@ using System.Text;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -15,6 +14,7 @@ using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using AvaloniaEdit;
 using SkiaSharp;
 using Svg.Expressions;
 using Svg.Highlighting;
@@ -471,9 +471,9 @@ public class SvgViewerTests
 
         var runs = RealisedRuns(viewer);
 
-        var element = runs.First(r => r.Text == "rect").Foreground;
-        var name = runs.First(r => r.Text == "tint").Foreground;
-        var fence = runs.First(r => r.Text == "{{").Foreground;
+        var element = runs.First(r => r.Text == "rect").Brush;
+        var name = runs.First(r => r.Text == "tint").Brush;
+        var fence = runs.First(r => r.Text == "{{").Brush;
 
         Assert.NotNull(element);
         Assert.NotNull(name);
@@ -491,7 +491,8 @@ public class SvgViewerTests
     public async Task A_Drawing_Of_Any_Size_Is_Coloured_Because_Only_What_Shows_Is_Built()
     {
         // Colouring used to stop above 5,000 tokens, which 43% of this repository's own sample
-        // drawings exceed. Rows that virtualise have no such limit: the cost is the screenful.
+        // drawings exceed. An editor that builds only the lines on screen has no such limit: the
+        // cost is the screenful.
         var (window, viewer) = Host();
 
         var shapes = new StringBuilder();
@@ -507,18 +508,18 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var lines = Pane(viewer).ItemsSource!.Cast<SvgSourceLine>().ToList();
+        var lines = Pane(viewer).Document.LineCount;
 
-        Assert.True(lines.Count > 4_000, $"only {lines.Count} lines were prepared");
+        Assert.True(lines > 4_000, $"only {lines} lines were prepared");
 
-        var realised = Pane(viewer).GetVisualDescendants().OfType<SelectableTextBlock>().Count();
+        var built = Pane(viewer).TextArea.TextView.VisualLines.Count;
 
         Assert.True(
-            realised < 200,
-            $"{realised} rows were built for a {lines.Count}-line drawing; the list is not virtualising");
+            built < 200,
+            $"{built} lines were built for a {lines}-line drawing; the editor is not virtualising");
 
-        // Still coloured, all the way down: the rows that exist carry expression runs, split into
-        // the language rather than left as one piece.
+        // Still coloured: the lines that exist carry expression pieces, split into the language
+        // rather than left as one.
         Assert.Contains(RealisedRuns(viewer), r => r.Text == "tint");
         Assert.Contains(RealisedRuns(viewer), r => r.Text == "{{");
 
@@ -547,14 +548,16 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
+        // The limit, plus the one piece the remainder is left as. That piece is not brushless — it
+        // takes the editor's own foreground — so it is counted here like any other.
         var runs = RealisedRuns(viewer);
 
         Assert.True(
             runs.Count <= SvgSourceHighlighter.RowTokenLimit + 1,
-            $"the row was built from {runs.Count} runs");
+            $"the line was built from {runs.Count} pieces");
 
-        // Bounded, but nothing is missing: what is not coloured is still shown.
-        Assert.Equal(markup, string.Concat(runs.Select(r => r.Text)));
+        // Bounded, but nothing is missing: what is not coloured is still there to read.
+        Assert.Equal(markup, PaneText(viewer));
     }
 
     [AvaloniaFact]
@@ -566,12 +569,12 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var dark = RealisedRuns(viewer).First(r => r.Text == "rect").Foreground;
+        var dark = RealisedRuns(viewer).First(r => r.Text == "rect").Brush;
 
         window.RequestedThemeVariant = ThemeVariant.Light;
         Dispatcher.UIThread.RunJobs();
 
-        var light = RealisedRuns(viewer).First(r => r.Text == "rect").Foreground;
+        var light = RealisedRuns(viewer).First(r => r.Text == "rect").Brush;
 
         // A palette chosen for a dark background is unreadable on a white one.
         Assert.NotEqual(dark?.ToString(), light?.ToString());
@@ -601,15 +604,14 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var runs = RealisedRuns(viewer);
-        var wrong = runs.First(r => r.Text == "tnit");
+        // The mark is drawn rather than decorated, so what is asserted is where it is drawn: the
+        // span the pane holds, resolved against the text it is showing.
+        var one = Assert.Single(viewer.SourceDiagnostics);
 
-        Assert.NotNull(wrong.TextDecorations);
+        Assert.Equal("tnit", PaneText(viewer).Substring(one.Start, one.Length));
 
-        // Only the piece that is wrong: the drawing around it reads normally.
-        Assert.All(
-            runs.Where(r => r.Text is "rect" or "fill" or "{{"),
-            r => Assert.Null(r.TextDecorations));
+        // Something red is actually on screen, and only over that one word.
+        Assert.True(ErrorPixels(window, viewer) > 0, "nothing was marked");
 
         window.Close();
     }
@@ -622,7 +624,8 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        Assert.All(RealisedRuns(viewer), r => Assert.Null(r.TextDecorations));
+        Assert.Empty(viewer.SourceDiagnostics);
+        Assert.Equal(0, ErrorPixels(window, viewer));
 
         window.Close();
     }
@@ -639,13 +642,12 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var rows = Pane(viewer).GetVisualDescendants().OfType<SelectableTextBlock>().ToList();
-        var marked = rows.Where(r => ToolTip.GetTip(r) is string).ToList();
+        var one = Assert.Single(viewer.SourceDiagnostics);
 
-        var one = Assert.Single(marked);
-
-        Assert.Contains("tnit", (string)ToolTip.GetTip(one)!, StringComparison.Ordinal);
-        Assert.Contains("tnit", string.Concat(one.Inlines!.OfType<Run>().Select(r => r.Text)), StringComparison.Ordinal);
+        // The message names what is wrong, and the span it is filed under is that word and no more,
+        // so a pointer resting anywhere on it finds this and a pointer beside it does not.
+        Assert.Contains("tnit", one.Message, StringComparison.Ordinal);
+        Assert.Equal("tnit", PaneText(viewer).Substring(one.Start, one.Length));
 
         window.Close();
     }
@@ -674,9 +676,10 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var marked = RealisedRuns(viewer).Where(r => r.TextDecorations is { }).ToList();
+        var one = Assert.Single(viewer.SourceDiagnostics);
 
-        Assert.Equal("0", Assert.Single(marked).Text);
+        Assert.Equal("0", PaneText(viewer).Substring(one.Start, one.Length));
+        Assert.True(ErrorPixels(window, viewer) > 0, "nothing was marked");
 
         window.Close();
     }
@@ -693,9 +696,7 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var rows = Pane(viewer).GetVisualDescendants().OfType<SelectableTextBlock>().ToList();
-
-        Assert.Single(rows, r => ToolTip.GetTip(r) is string);
+        Assert.Single(viewer.SourceDiagnostics);
 
         window.Close();
     }
@@ -723,17 +724,105 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal("clamp", Assert.Single(RealisedRuns(viewer), r => r.TextDecorations is { }).Text);
+        var one = Assert.Single(viewer.SourceDiagnostics);
+
+        Assert.Equal("clamp", PaneText(viewer).Substring(one.Start, one.Length));
 
         window.Close();
     }
 
     [AvaloniaFact]
-    public async Task Every_Piece_Of_The_Pane_Is_Painted_With_Something()
+    public async Task The_Source_Is_Shown_In_A_Monospaced_Font()
+    {
+        // The rows it replaced set no font at all and inherited the UI's, so a drawing's text was
+        // shown in a proportional face — which for markup means nothing lines up under anything.
+        var (window, viewer) = await HostLoaded();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var editor = Pane(viewer);
+        var typeface = new Typeface(editor.FontFamily);
+
+        static double Width(Typeface typeface, double size, string text)
+            => new FormattedText(
+                text,
+                CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight,
+                typeface,
+                size,
+                Brushes.Black).Width;
+
+        var narrow = Width(typeface, editor.FontSize, "iiiiiiii");
+        var wide = Width(typeface, editor.FontSize, "mmmmmmmm");
+
+        Assert.True(
+            Math.Abs(narrow - wide) < 0.5d,
+            $"'{editor.FontFamily}' is not monospaced: eight i's are {narrow:F1}px and eight m's are {wide:F1}px");
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Selection_Can_Cross_A_Line()
+    {
+        // The reason the pane is an editor at all. A control per line could show a file and could
+        // colour it, but a reader could never take a piece of it away.
+        var (window, viewer) = await HostLoaded();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var editor = Pane(viewer);
+        var second = editor.Document.GetLineByNumber(2);
+        var third = editor.Document.GetLineByNumber(3);
+
+        editor.Select(second.Offset, third.EndOffset - second.Offset);
+
+        Assert.Contains("\n", editor.SelectedText, StringComparison.Ordinal);
+        Assert.Contains(editor.Document.GetText(second), editor.SelectedText, StringComparison.Ordinal);
+        Assert.Contains(editor.Document.GetText(third), editor.SelectedText, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Windows_Drawing_Splits_Into_The_Same_Lines_Twice()
+    {
+        // Two things split lines now: the highlighter, which produces the tokens, and the editor's
+        // document, which decides what line an offset is on. A disagreement about a carriage return
+        // would put every colour on a line one character out, and nothing else would notice.
+        var (window, viewer) = Host();
+
+        var markup = Parametric.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace("\n", "\r\n", StringComparison.Ordinal);
+
+        Assert.True(await viewer.LoadTextAsync(markup));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var document = Pane(viewer).Document;
+        var lines = SvgSourceHighlighter.Lines(document.Text);
+
+        Assert.Contains("\r\n", document.Text, StringComparison.Ordinal);
+        Assert.Equal(document.LineCount, lines.Count);
+
+        for (var number = 1; number <= document.LineCount; number++)
+        {
+            Assert.Equal(document.GetLineByNumber(number).Offset, lines[number - 1].Start);
+        }
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Every_Brush_The_Pane_Asks_For_Is_There_To_Find()
     {
         // A brush key is a string, and a rename that catches one silently paints nothing: the line
         // numbers disappeared exactly that way, because "SvgViewerSourceLineNumberBrush" contains
-        // the name of a type that was renamed around it.
+        // the name of a type that was renamed around it. Asked of the resources rather than of what
+        // was drawn, so a key nothing happens to be painted with is still checked.
         var (window, viewer) = Host();
 
         Assert.True(await viewer.LoadTextAsync(Parametric));
@@ -741,38 +830,106 @@ public class SvgViewerTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        Assert.All(RealisedRuns(viewer), r => Assert.NotNull(r.Foreground));
-
-        var numbers = Pane(viewer).GetVisualDescendants().OfType<TextBlock>()
-            .Where(t => t is not SelectableTextBlock)
+        var keys = Enum.GetValues<SvgSourceTokenKind>()
+            .Select(kind => $"SvgViewerSource{kind}Brush")
+            .Concat(new[] { "SvgViewerSourceLineNumberBrush", "SvgViewerSourceErrorBrush" })
+            .Distinct()
             .ToList();
 
-        Assert.NotEmpty(numbers);
-        Assert.All(numbers, n => Assert.NotNull(n.Foreground));
-        Assert.All(numbers, n => Assert.False(string.IsNullOrEmpty(n.Text)));
+        foreach (var variant in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+        {
+            foreach (var key in keys)
+            {
+                Assert.True(
+                    viewer.TryFindResource(key, variant, out var brush) && brush is IBrush,
+                    $"{key} does not resolve in {variant}");
+            }
+        }
+
+        // And the pane really did paint with them.
+        Assert.All(RealisedRuns(viewer), r => Assert.NotNull(r.Brush));
 
         window.Close();
     }
 
-    private static ItemsControl Pane(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<ItemsControl>().First(c => c.Name == "SourceLines");
+    private static TextEditor Pane(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<TextEditor>().First(c => c.Name == "SourceEditor");
 
-    /// <summary>What the pane is showing, joined back into one string.</summary>
+    /// <summary>What the pane is showing, which is the whole document rather than the rows on screen.</summary>
+    private static string PaneText(SvgViewer viewer) => Pane(viewer).Text;
+
+    /// <summary>
+    /// The coloured pieces of every line the editor has actually built.
+    /// </summary>
     /// <remarks>
-    /// From the lines it was given rather than from the rows on screen, because the rows on screen
-    /// are deliberately only the handful that fit.
+    /// A visual line is split into elements wherever the colouriser asked for a colour, so an
+    /// element is what a styled run used to be: a stretch of text and the brush it is drawn in.
     /// </remarks>
-    private static string PaneText(SvgViewer viewer)
-        => string.Join(
-            Environment.NewLine,
-            Pane(viewer).ItemsSource!.Cast<SvgSourceLine>()
-                .Select(line => string.Concat(line.Tokens.Select(t => t.Text))));
+    private static List<(string Text, IBrush? Brush)> RealisedRuns(SvgViewer viewer)
+    {
+        var editor = Pane(viewer);
+        var runs = new List<(string, IBrush?)>();
 
-    /// <summary>The runs of every row the list has actually realised.</summary>
-    private static List<Run> RealisedRuns(SvgViewer viewer)
-        => Pane(viewer).GetVisualDescendants().OfType<SelectableTextBlock>()
-            .SelectMany(t => t.Inlines?.OfType<Run>() ?? Enumerable.Empty<Run>())
-            .ToList();
+        foreach (var line in editor.TextArea.TextView.VisualLines)
+        {
+            foreach (var element in line.Elements)
+            {
+                var start = line.FirstDocumentLine.Offset + element.RelativeTextOffset;
+
+                runs.Add((editor.Document.GetText(start, element.DocumentLength), element.TextRunProperties.ForegroundBrush));
+            }
+        }
+
+        return runs;
+    }
+
+    /// <summary>
+    /// How much of the frame is painted in the error colour, which is what a squiggle is made of.
+    /// </summary>
+    /// <remarks>
+    /// A drawn mark cannot be asserted the way a TextDecoration could, so this asks the frame. The
+    /// error brush is a colour nothing else in the palette is close to, and the count is only ever
+    /// compared against zero.
+    /// </remarks>
+    private static int ErrorPixels(Window window, SvgViewer viewer)
+    {
+        Assert.True(viewer.TryFindResource("SvgViewerSourceErrorBrush", viewer.ActualThemeVariant, out var value));
+
+        var wanted = ((ISolidColorBrush)value!).Color;
+
+        var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("No rendered frame was captured.");
+
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-marks-{Guid.NewGuid():N}.png");
+        frame.Save(path);
+
+        try
+        {
+            using var bitmap = SKBitmap.Decode(path);
+            var found = 0;
+
+            for (var y = 0; y < bitmap!.Height; y++)
+            {
+                for (var x = 0; x < bitmap.Width; x++)
+                {
+                    var pixel = bitmap.GetPixel(x, y);
+
+                    if (Math.Abs(pixel.Red - wanted.R) < 24
+                        && Math.Abs(pixel.Green - wanted.G) < 24
+                        && Math.Abs(pixel.Blue - wanted.B) < 24)
+                    {
+                        found++;
+                    }
+                }
+            }
+
+            return found;
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 
     private static SKColor CentrePixel(Window window)
     {

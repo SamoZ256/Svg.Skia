@@ -354,16 +354,29 @@ token's `Text` excludes the `%` the lexer already consumed, so the span is widen
 coloured as values; and the lexer throws on malformed input, so a refusal re-lexes the prefix before `ExprException.Position` and
 leaves the remainder plain — which is also the position a diagnostic will underline. A token is a range into the document rather than a copy, which is both what keeps a whole file
 affordable to hold and what a diagnostic needs to point at. Its invariant is that concatenating the tokens reproduces the input, which is
-what lets it describe a malformed document rather than refuse it. The pane is **a row per line in a
-virtualising list**, because one text block holding a whole drawing is what made colouring
-size-limited at all: tokenizing 200,000 characters takes 7ms, but one styled `Run` each costs 130ms
-at 1,100 runs and 18 seconds at 45,000 in a single block. Rows lay out only what is on screen — a
-132KB drawing opens in 94ms with 17 rows built. Two things that arrangement needs. The `ScrollViewer`
-must be the **pane's**, not a template on the `ItemsControl`: given its own template the list
-realises every row it has, measured as 4,000 of 4,000 against 16 when simply placed in a scroller.
-And a row colours at most `RowTokenLimit` pieces before showing the rest plainly, since virtualising
-by line bounds a document but not a line — the same 132KB minified onto one line took 1.4s before
-that, 340ms after.
+what lets it describe a malformed document rather than refuse it.
+
+The pane is **AvaloniaEdit**, one `TextDocument` rather than a control per line, which is what lets a
+selection cross one and is where editing will start. It was rejected when the pane was first built,
+on two grounds that no longer hold: `Avalonia.AvaloniaEdit` **depends on Avalonia and nothing else**
+(TextMate is a separate opt-in package), and it wants **no grammar** — `SvgViewerSourceColorizer` is
+a `DocumentColorizingTransformer` that answers "what colour is this range" from
+`SvgSourceHighlighter.Lines()`, so the splitter stays the authority on what `{{ … }}` is. **No
+`StyleInclude` is needed** either: AvaloniaEdit 12 themes itself once a base theme is loaded,
+measured as byte-identical frames with the include, without it, and with it on the `Application`,
+against a control case with no themes at all that gives a null template and no pixels. One is in
+`<UserControl.Styles>` regardless, since only Fluent was tried.
+
+Two things this arrangement needs. `ColorizeLine` runs **only for the lines on screen**, so a large
+drawing costs what a small one does — but that bounds a document and not a *line*, and a minified
+drawing is the whole file on one. So the colouriser still stops at `RowTokenLimit`: 132KB on one
+line took 1.1s coloured whole and 39ms stopping there, and the pane opens it in 217ms against the
+340ms the row-based one took. And a diagnostic is **drawn, not decorated** —
+`SvgViewerSourceMarkers` is an `IBackgroundRenderer` painting a wave, because `TextDecoration`
+offers only a stroke, a thickness and a dash array, and a dashed line under 12pt type reads as a
+smudge. Two things split lines now, this splitter and the editor's document, and a test pins that
+they agree on a CRLF file — a disagreement would put every colour one character out and nothing
+else would notice.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.
