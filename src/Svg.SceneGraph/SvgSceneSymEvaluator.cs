@@ -33,9 +33,9 @@ internal static class SvgSceneSymEvaluator
         {
             case SymSource source:
                 {
-                    // The same two labels the emitter uses, so a bad document reports identically
-                    // whichever back end reads it.
-                    var what = expected == ExprType.Color ? "A paint expression" : "An opacity expression";
+                    // Named by the language rather than here, so a bad document reports identically
+                    // whichever back end reads it, and there is one label to add a case to.
+                    var what = ExprFunctions.DescribeUse(expected);
 
                     return evaluator.EvaluateTo(source.Text, expected, what);
                 }

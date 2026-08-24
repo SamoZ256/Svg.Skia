@@ -300,6 +300,14 @@ public static class SvgSourceDiagnostics
         IReadOnlyList<SvgSourceToken> tokens,
         string source)
     {
+        // A mark never begins on a space. A rule about an expression as a whole reports position
+        // zero, which in `default=" 1 "` is the gap before the value, and a one-space underline is
+        // a mark a reader cannot see. The first thing actually written is what it is about.
+        while (at < stop && at < source.Length && char.IsWhiteSpace(source[at]))
+        {
+            at++;
+        }
+
         foreach (var token in tokens)
         {
             if (token.Kind is SvgSourceTokenKind.Expression or SvgSourceTokenKind.Text)

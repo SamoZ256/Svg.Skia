@@ -231,6 +231,22 @@ public class SvgSourceDiagnosticsTests
         Assert.Empty(SvgSourceDiagnostics.Analyse(null));
     }
 
+    [Fact]
+    public void A_Mark_Never_Begins_On_A_Space()
+    {
+        // A rule about a value as a whole reports position zero, which here is the gap the author
+        // left before writing it. A one-space underline is a mark nobody can see.
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="tint" type="color" default=" 1 " /></e:code></defs>
+            </svg>
+            """;
+
+        var one = Assert.Single(SvgSourceDiagnostics.Analyse(source));
+
+        Assert.Equal("1", Slice(source, one));
+    }
+
     private static string Slice(string source, SvgSourceDiagnostic diagnostic)
         => source.Substring(diagnostic.Start, diagnostic.Length);
 }

@@ -142,6 +142,22 @@ public static class ExprFunctions
             _ => throw new ExprException($"Unknown type '{text}'. Expected number, color or boolean.", position, part: part)
         };
 
+    /// <summary>
+    /// What an expression in a document is called, by the type its attribute demands.
+    /// </summary>
+    /// <remarks>
+    /// One definition rather than one per back end: it was a ternary in the emitter and the same
+    /// ternary in the scene evaluator, kept in step by a comment saying so. Neither could express
+    /// the boolean case, so <c>visibility</c> — the only attribute that is a condition rather than
+    /// a value — was told it was an opacity.
+    /// </remarks>
+    public static string DescribeUse(ExprType expected) => expected switch
+    {
+        ExprType.Color => "A paint expression",
+        ExprType.Boolean => "A visibility expression",
+        _ => "An opacity expression",
+    };
+
     /// <summary>How a type is named in a diagnostic.</summary>
     public static string Describe(ExprType type)
         => type switch
