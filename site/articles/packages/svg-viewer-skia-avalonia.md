@@ -68,6 +68,14 @@ parameter being offered: the drawing still renders and the value is still bindab
 to a placeholder and the default range. What is wrong with it is marked in the source pane, at the
 attribute it is wrong in — the panel does not repeat it.
 
+A drawing with mistakes in it says so from the moment it opens, in the status bar and through
+`ErrorRaised` — *"This drawing has 6 errors, marked in the Source pane. Changing a parameter may not
+take effect until they are fixed."* It is a standing statement, not a reaction: it does not wait for
+a control to be touched, and it does not change when one is. The count and the pointer are all it
+gives, because the pane marks each mistake on the line that carries it, which a status bar cannot do.
+Anything the pane does not cover, such as a value supplied of the wrong type, is still reported there
+in full.
+
 The format itself — `<e:code>`, the operators, and the placeholder mechanism — is specified in `SVG_EXPRESSIONS.md` at the root of the repository.
 
 ## Reading the drawing's text

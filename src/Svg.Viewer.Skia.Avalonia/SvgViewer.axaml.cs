@@ -69,6 +69,9 @@ public partial class SvgViewer : UserControl
     /// <summary>What is wrong with the drawing, for whatever a pointer comes to rest on.</summary>
     private IReadOnlyList<SvgSourceDiagnostic> _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
 
+    /// <summary>Whether the drawing has been analysed, which is not the same as being shown.</summary>
+    private bool _sourceAnalysed;
+
     private SvgViewerDocument? _document;
     private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
     private int _loadVersion;
@@ -227,11 +230,12 @@ public partial class SvgViewer : UserControl
     /// What is wrong with the open drawing, as ranges into <see cref="SvgViewerDocument.SourceText"/>.
     /// </summary>
     /// <remarks>
-    /// Empty until the pane has been opened, because analysing a document nobody asked to read is
-    /// the cost of the feature paid for nothing. A host that wants a problems list of its own reads
-    /// these; the pane marks them in place.
+    /// Analysed on first ask and kept until the document changes, rather than only when the pane is
+    /// opened: the error panel needs to know whether a failed binding is the drawing's fault before
+    /// anyone has asked to read it. A host that wants a problems list of its own reads these; the
+    /// pane marks them in place.
     /// </remarks>
-    public IReadOnlyList<SvgSourceDiagnostic> SourceDiagnostics => _sourceDiagnostics;
+    public IReadOnlyList<SvgSourceDiagnostic> SourceDiagnostics => Diagnostics();
 
     /// <summary>The values currently bound, keyed by parameter name.</summary>
     public IReadOnlyDictionary<string, ExprValue> ParameterValues => BuildValues();
@@ -335,6 +339,10 @@ public partial class SvgViewer : UserControl
         _document = document;
         _canvas.Svg = document.Svg;
 
+        // Before Apply below, which asks what is wrong with the drawing: leaving the previous
+        // analysis in place would answer for the file that was open a moment ago.
+        ForgetSource();
+
         RebuildParameters(document);
 
         // A document that declares parameters renders its placeholders until values are bound, which
@@ -343,7 +351,7 @@ public partial class SvgViewer : UserControl
 
         previous?.Dispose();
 
-        ShowError(document.DeclarationError);
+        ShowError(Trouble());
         UpdateStatus();
         UpdateZoomText();
         UpdateSource();
@@ -475,13 +483,13 @@ public partial class SvgViewer : UserControl
         try
         {
             document.Svg.SetExpressionValues(BuildValues());
-            ShowError(document.DeclarationError);
+            ShowError(Trouble());
         }
         catch (ExprException failure)
         {
             // Binding is all or nothing, so the previous rendering is still up. The control's value
             // is deliberately left alone: it is what the user has to see in order to correct it.
-            ShowError(failure.ToDiagnostic());
+            ShowError(Explain(failure));
         }
         catch (Exception failure)
         {
@@ -539,8 +547,48 @@ public partial class SvgViewer : UserControl
 
     private void UpdateSource()
     {
-        _sourceStale = true;
+        ForgetSource();
         RenderSource();
+    }
+
+    /// <summary>Drops what was known about the drawing that was open.</summary>
+    private void ForgetSource()
+    {
+        _sourceStale = true;
+        _sourceAnalysed = false;
+        _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
+    }
+
+    /// <summary>The drawing's text, cut to what the pane will hold.</summary>
+    private string SourceText()
+    {
+        var source = _document?.SourceText;
+
+        return source is { Length: > SourceLimit }
+            ? source[..SourceLimit]
+              + $"{Environment.NewLine}{Environment.NewLine}… {source.Length - SourceLimit:N0} more characters not shown."
+            : source ?? string.Empty;
+    }
+
+    /// <summary>
+    /// What is wrong with the drawing, analysed at most once per document.
+    /// </summary>
+    /// <remarks>
+    /// Splitting a document is context-free, checking one is not — it reads every declaration in the
+    /// file — so this is a second pass, and one that costs nothing on a drawing with no expressions
+    /// in it.
+    /// </remarks>
+    private IReadOnlyList<SvgSourceDiagnostic> Diagnostics()
+    {
+        if (_sourceAnalysed)
+        {
+            return _sourceDiagnostics;
+        }
+
+        _sourceAnalysed = true;
+        _sourceDiagnostics = SvgSourceDiagnostics.Analyse(SourceText());
+
+        return _sourceDiagnostics;
     }
 
     /// <summary>
@@ -559,20 +607,10 @@ public partial class SvgViewer : UserControl
 
         _sourceStale = false;
 
-        var source = _document?.SourceText;
-
-        var text = source is { Length: > SourceLimit }
-            ? source[..SourceLimit]
-              + $"{Environment.NewLine}{Environment.NewLine}… {source.Length - SourceLimit:N0} more characters not shown."
-            : source ?? string.Empty;
-
-        // Splitting a document is context-free, checking one is not — it reads every declaration in
-        // the file — so this is a second pass, and one that costs nothing on a drawing with no
-        // expressions in it.
-        _sourceDiagnostics = SvgSourceDiagnostics.Analyse(text);
+        var text = SourceText();
 
         _sourceColorizer.Show(SvgSourceHighlighter.Lines(text));
-        _sourceMarkers.Show(_sourceDiagnostics);
+        _sourceMarkers.Show(Diagnostics());
 
         HideSourceTip();
 
@@ -688,6 +726,50 @@ public partial class SvgViewer : UserControl
             ? $"{name} — no parameters"
             : $"{name} — {count} parameter{(count == 1 ? string.Empty : "s")}";
     }
+
+    /// <summary>
+    /// What is wrong with the open drawing, said once and for as long as it is true.
+    /// </summary>
+    /// <remarks>
+    /// A standing statement rather than a reaction: a drawing with mistakes in it has them from the
+    /// moment it opens, and finding that out by moving an unrelated slider is the wrong way round.
+    /// The count and the pointer are all it gives, because the pane marks each one on the line that
+    /// carries it, and repeating the compiler's words down here says the same thing twice in the
+    /// place least able to point at it.
+    /// </remarks>
+    private string? Trouble()
+    {
+        if (_document is not { } document)
+        {
+            return null;
+        }
+
+        var found = Diagnostics();
+
+        if (found.Count == 0)
+        {
+            // Nothing to mark, because the text could not be kept: say what the reader said.
+            return document.DeclarationError;
+        }
+
+        return found.Count == 1
+            ? "This drawing has an error, marked in the Source pane. Changing a parameter may not take effect until it is fixed."
+            : $"This drawing has {found.Count} errors, marked in the Source pane. Changing a parameter may not take effect until they are fixed.";
+    }
+
+    /// <summary>
+    /// What to say about a binding that did not happen.
+    /// </summary>
+    /// <remarks>
+    /// Whatever was already being said, when the fault is one the pane marks: the standing message
+    /// covers it, and swapping the text on a click is what this stopped doing. Anything the pane
+    /// does not cover — a value the host supplied of the wrong type, a parameter left unbound — is
+    /// reported in full, since for those this panel is the only place at all.
+    /// </remarks>
+    private string? Explain(ExprException failure)
+        => Diagnostics().Any(d => string.Equals(d.Message, failure.Message, StringComparison.Ordinal))
+            ? Trouble()
+            : failure.ToDiagnostic();
 
     private void ShowError(string? message)
     {

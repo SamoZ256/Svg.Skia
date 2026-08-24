@@ -156,7 +156,12 @@ public class SvgViewerTests
             """));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains(errors, m => m.Contains("cannot carry min, max or step", StringComparison.Ordinal));
+        // The count and where to look, not the compiler's words: those are marked on the line the
+        // range is written on, which is somewhere a status bar cannot point.
+        Assert.Contains(errors, m => m.Contains("This drawing has an error", StringComparison.Ordinal));
+        Assert.Contains(errors, m => m.Contains("Source pane", StringComparison.Ordinal));
+        Assert.Contains(viewer.SourceDiagnostics, d => d.Message.Contains("cannot carry min, max or step", StringComparison.Ordinal));
+
         Assert.Empty(viewer.Parameters);
         Assert.NotNull(viewer.Svg!.Picture);
 
@@ -759,6 +764,60 @@ public class SvgViewerTests
         Assert.True(
             Math.Abs(narrow - wide) < 0.5d,
             $"'{editor.FontFamily}' is not monospaced: eight i's are {narrow:F1}px and eight m's are {wide:F1}px");
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_With_A_Mistake_Says_So_From_The_Moment_It_Opens()
+    {
+        // Not a reaction to anything. It used to take moving an unrelated control to find out, which
+        // is the wrong way round: the drawing has been wrong since it was opened.
+        var (window, viewer) = Host();
+
+        var errors = new List<string>();
+        viewer.ErrorRaised += (_, message) => errors.Add(message);
+
+        // Deliberately without opening the pane: whether the drawing is at fault has to be knowable
+        // before anyone has asked to read it.
+        Assert.True(await viewer.LoadTextAsync(Mistyped));
+        Dispatcher.UIThread.RunJobs();
+
+        var opened = Assert.Single(errors.Distinct());
+
+        Assert.Contains("This drawing has an error", opened, StringComparison.Ordinal);
+        Assert.Contains("Source pane", opened, StringComparison.Ordinal);
+
+        // Not the compiler's words a second time: those belong on the line that carries them.
+        Assert.DoesNotContain("tnit", opened, StringComparison.Ordinal);
+        Assert.Contains(viewer.SourceDiagnostics, d => d.Message.Contains("tnit", StringComparison.Ordinal));
+
+        // And it says the same thing after a control is touched rather than something new.
+        errors.Clear();
+        viewer.ResetParameters();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.All(errors, m => Assert.Equal(opened, m));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_With_Nothing_Wrong_Says_Nothing()
+    {
+        var (window, viewer) = Host();
+
+        var errors = new List<string>();
+        viewer.ErrorRaised += (_, message) => errors.Add(message);
+
+        Assert.True(await viewer.LoadTextAsync(Parametric));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.ResetParameters();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(errors);
+        Assert.Empty(viewer.SourceDiagnostics);
 
         window.Close();
     }
