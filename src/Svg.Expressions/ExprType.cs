@@ -14,11 +14,16 @@ public enum ExprType
 
 public sealed class ExprException : Exception
 {
-    public ExprException(string message, int position, string? expressionText = null)
+    public ExprException(
+        string message,
+        int position,
+        string? expressionText = null,
+        SvgDeclarationPart? part = null)
         : base(message)
     {
         Position = position;
         ExpressionText = expressionText;
+        Part = part;
     }
 
     // Zero based offset into the expression text, so callers can point at the offending token.
@@ -30,8 +35,19 @@ public sealed class ExprException : Exception
     /// </summary>
     public string? ExpressionText { get; }
 
+    /// <summary>
+    /// Which part of a declaration this is about, when it is about one.
+    /// </summary>
+    /// <remarks>
+    /// A rule knows what it is complaining about; only a reader knows where that was written. So the
+    /// rules say which part and the reader turns that into a position, which is the only arrangement
+    /// where both readers keep reporting identically — the one that walks a parsed tree has no
+    /// positions to give, and says so by ignoring this.
+    /// </remarks>
+    public SvgDeclarationPart? Part { get; }
+
     public ExprException WithExpressionText(string text)
-        => ExpressionText is null ? new ExprException(Message, Position, text) : this;
+        => ExpressionText is null ? new ExprException(Message, Position, text, Part) : this;
 
     /// <summary>Renders the message with the expression and a caret under the offending token.</summary>
     public string ToDiagnostic()

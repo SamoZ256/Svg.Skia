@@ -133,13 +133,13 @@ public static class ExprFunctions
            name == "true" ||
            name == "false";
 
-    public static ExprType ParseType(string text, int position)
+    public static ExprType ParseType(string text, int position, SvgDeclarationPart? part = null)
         => text switch
         {
             "number" => ExprType.Number,
             "color" => ExprType.Color,
             "boolean" => ExprType.Boolean,
-            _ => throw new ExprException($"Unknown type '{text}'. Expected number, color or boolean.", position)
+            _ => throw new ExprException($"Unknown type '{text}'. Expected number, color or boolean.", position, part: part)
         };
 
     /// <summary>How a type is named in a diagnostic.</summary>
