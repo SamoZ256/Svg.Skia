@@ -31,8 +31,6 @@
                 TickFrequency="{Binding TickFrequency}"
                 IsSnapToTickEnabled="{Binding HasStep}"
                 Value="{Binding Value, Mode=TwoWay}" />
-        <TextBlock Text="{Binding ErrorText}" IsVisible="{Binding HasError}"
-                   Foreground="#FF5555" FontSize="11" TextWrapping="Wrap" />
       </StackPanel>
     </DataTemplate>
 

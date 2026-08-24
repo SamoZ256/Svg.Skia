@@ -63,6 +63,11 @@ A `number` parameter uses the `min`, `max` and `step` its author declared, falli
 
 Every row is seeded by *evaluating* the declared `default`, so `default="tau / 4"` works as well as a literal does.
 
+A `default` that will not evaluate, or a range whose ends are the wrong way round, does not stop the
+parameter being offered: the drawing still renders and the value is still bindable, the row falls back
+to a placeholder and the default range. What is wrong with it is marked in the source pane, at the
+attribute it is wrong in — the panel does not repeat it.
+
 The format itself — `<e:code>`, the operators, and the placeholder mechanism — is specified in `SVG_EXPRESSIONS.md` at the root of the repository.
 
 ## Reading the drawing's text

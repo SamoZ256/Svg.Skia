@@ -19,8 +19,6 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// </remarks>
 public abstract class SvgViewerParameter : INotifyPropertyChanged
 {
-    private string? _errorText;
-
     protected SvgViewerParameter(SvgExpressionParameter declaration)
     {
         Declaration = declaration ?? throw new ArgumentNullException(nameof(declaration));
@@ -47,18 +45,6 @@ public abstract class SvgViewerParameter : INotifyPropertyChanged
     /// <summary>Whether the value differs from the one the document declares.</summary>
     public abstract bool IsModified { get; }
 
-    /// <summary>
-    /// Why this parameter could not be seeded from its declared default, or why the last binding
-    /// naming it failed. Null when there is nothing wrong.
-    /// </summary>
-    public string? ErrorText
-    {
-        get => _errorText;
-        internal set => Set(ref _errorText, value);
-    }
-
-    public bool HasError => _errorText is { };
-
     public abstract void ResetToDefault();
 
     protected void Set<T>(ref T field, T value, [CallerMemberName] string? property = null)
@@ -70,12 +56,6 @@ public abstract class SvgViewerParameter : INotifyPropertyChanged
 
         field = value;
         Raise(property);
-
-        if (string.Equals(property, nameof(ErrorText), StringComparison.Ordinal))
-        {
-            Raise(nameof(HasError));
-            return;
-        }
 
         // Any value change can change both, and a host listens for one signal rather than knowing
         // which subclass it holds.
