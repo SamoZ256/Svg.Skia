@@ -2922,6 +2922,9 @@ public class W3CTestSuiteTests : SvgUnitTest
     [InlineData("text-tspan-01-b", 0.022)]
     [InlineData("text-tspan-02-b", 0.022)]
     [InlineData("text-ws-01-t", 0.022)]
+    // Resolves its font through the *system* font manager, so its error legitimately differs
+    // across the ubuntu, windows and macos legs. A hairline failure here wants the threshold
+    // nudged, not a re-captured baseline: the baseline is not what moved.
     [InlineData("text-ws-02-t", 0.022)]
     [InlineData("text-ws-03-t", 0.022)]
     [InlineData("types-basic-01-f", 0.022)]

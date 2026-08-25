@@ -4,6 +4,15 @@ using System;
 
 namespace ShimSkiaSharp;
 
+/// <summary>
+/// Every command a picture can hold, for anything that walks one.
+/// </summary>
+/// <remarks>
+/// No default implementations, because this multi-targets netstandard2.0 and net461 where the
+/// language has none. So adding a <c>CanvasCommand</c> is a breaking change for every implementor
+/// outside this repository, and needs an arm in the <c>DeepClone</c> switch in <c>SKCanvas.cs</c>
+/// as well — the compiler will not ask for that one.
+/// </remarks>
 public interface ICanvasCommandVisitor
 {
     void Visit(ClipPathCanvasCommand cmd);
