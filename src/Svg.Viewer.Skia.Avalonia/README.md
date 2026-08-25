@@ -1,7 +1,7 @@
 # Svg.Viewer.Skia.Avalonia
 
-A reusable Avalonia SVG viewer for the [expression extension](../../SVG_EXPRESSIONS.md): open a
-drawing, zoom and pan it, and drive the parameters it declares from controls built to match.
+A reusable Avalonia SVG viewer for the SVG expression extension: open a drawing, zoom and pan it,
+and drive the parameters it declares from controls built to match.
 
 ```xml
 <viewer:SvgViewer x:Name="Viewer" />

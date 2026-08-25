@@ -1,7 +1,7 @@
 # SvgRecipeDemo
 
-The [recipe](../../SVG_EXPRESSIONS.md#9-converting-an-existing-drawing) workflow as a live
-editor. Edit the recipe on the left; the converted SVG and the drawing both follow.
+The recipe workflow as a live editor. Edit the recipe on the left; the converted SVG and the
+drawing both follow.
 
 ```sh
 dotnet run --project samples/SvgRecipeDemo
@@ -70,8 +70,7 @@ enabled and state ? (accent ? accentColor : (isLight ? whiteColor70 : blackColor
 ```
 
 No parameter declares a `default`, so every one is required. Colour parameters could not have one
-anyway — a colour is not a C# compile-time constant
-([§1.2](../../SVG_EXPRESSIONS.md#12-the-declaration-block)).
+anyway — a colour is not a C# compile-time constant.
 
 ## Things to try
 
@@ -89,5 +88,5 @@ anyway — a colour is not a C# compile-time constant
 differs — `enabled and state` is never reached by a sweep that changes a single parameter. The
 combinations are worth exploring in the window.
 - Put an expression somewhere unsupported, `<replace>` on a colour inside a `stroke-width`, and
-  watch nothing happen — [§7](../../SVG_EXPRESSIONS.md#7-limitations) explains why unsupported
-  attributes fail silently.
+  watch it do nothing: the parser lifts an expression only out of `fill`, `stroke`, `stop-color`,
+  `opacity` and `visibility`, and the source pane marks one written anywhere else.

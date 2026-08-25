@@ -106,7 +106,7 @@ public class SvgSourceAttributesTests
     [Fact]
     public void An_Expression_In_An_Attribute_That_Takes_None_Says_So()
     {
-        // The limitation SVG_EXPRESSIONS.md used to call silent. The parser does not lift these, so
+        // The parser does not lift an expression out of these attributes, so
         // the braces stay in the value and the converter refuses them -- a true refusal for a
         // misleading reason. What an author needs told is that the attribute takes no expression.
         var source = """

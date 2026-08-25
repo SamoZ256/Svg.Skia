@@ -4,10 +4,10 @@ A map for working in this repository. `AGENTS.md` covers commit and PR conventio
 Chrome-override capture workflow.
 
 **Keep this file under 100 lines.** It is a map, not a record of what anyone learned. Detail belongs
-beside the thing it is about: a trap goes in a comment next to the code, the expression format goes
-in `SVG_EXPRESSIONS.md`, a package's design and its measurements go in `site/articles/packages/`,
-and why a line is the way it is goes in the commit that wrote it. Do not append here after every
-change — add only what someone could not find by reading the code.
+beside the thing it is about: a trap goes in a comment next to the code, a package's design and its
+measurements go in `site/articles/packages/`, and why a line is the way it is goes in the commit
+that wrote it. Do not append here after every change — add only what someone could not find by
+reading the code.
 
 ## Rules
 
@@ -23,8 +23,6 @@ change — add only what someone could not find by reading the code.
 - **Format only the files you changed** (`--include`, below). Measured: 16.8s scoped against 73s
   solution-wide, and solution-wide reformats `src/Svg.Expressions/ExprLexer.cs` and the whole
   `externals/SVG` submodule every time — churn that then has to be reverted.
-- **Keep `SVG_EXPRESSIONS.md` current in the same change** as anything altering the expression
-  extension. It specifies syntax and usage only; how any of it works belongs in comments.
 
 ## Setup
 
@@ -88,8 +86,8 @@ ShimSkiaSharp.SKPicture   flat list of CanvasCommand — the renderer-independen
   a zero threshold. Add a case there when emitting anything new, or an emitter change can be green
   across thousands of tests and still draw the wrong picture.
 - **The expression extension** (`{{ … }}` in attributes) spans `Svg.Custom`, `ShimSkiaSharp/Symbolic`,
-  `Svg.SceneGraph`, `src/Svg.Expressions` and `Svg.CodeGen.Skia/Expressions`. `SVG_EXPRESSIONS.md`
-  specifies it; `src/Svg.Highlighting` colours and diagnoses it for a source view.
+  `Svg.SceneGraph`, `src/Svg.Expressions` and `Svg.CodeGen.Skia/Expressions`; `src/Svg.Highlighting`
+  colours and diagnoses it for a source view.
 
 ## Known state
 

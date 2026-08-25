@@ -86,7 +86,7 @@ so before the sentence is read — a wide blur with a wash over it, because defo
 drawing out of focus rather than as glass in front of one. The card takes no room either, and the
 drawing can still be panned around it. Both reach a host through `ErrorRaised`.
 
-The format itself — `<e:code>`, the operators, and the placeholder mechanism — is specified in `SVG_EXPRESSIONS.md` at the root of the repository.
+The format itself — `<e:code>`, the operators, and the placeholder mechanism — is what `Svg.Expressions` implements.
 
 ## Reading the drawing's text
 

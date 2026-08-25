@@ -882,7 +882,7 @@ Options:
 
 A recipe (`-r`) rewrites a plain drawing into the expression format before it is generated from,
 so one drawing can be parameterised for a whole icon set. `--emit svg` writes that converted
-document instead of C#. See [SVG_EXPRESSIONS.md](SVG_EXPRESSIONS.md).
+document instead of C#.
 
 #### Resizing
 

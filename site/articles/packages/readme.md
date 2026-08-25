@@ -19,6 +19,7 @@ Packaged tools such as `Svg.Skia.Converter` and `svgc` stay documented under [Sa
 | `Svg.Model` | You need the intermediate drawable and picture model for inspection, mutation, or custom pipelines. | [Svg.Model](svg-model) |
 | `Svg.Custom` | You want the underlying SVG DOM and parser that the renderer consumes, including animation elements. | [Svg.Custom](svg-custom) |
 | `ShimSkiaSharp` | You need a cloneable command-model equivalent of key SkiaSharp drawing primitives. | [ShimSkiaSharp](shim-skiasharp) |
+| `Svg.Expressions` | You are authoring drawings in the SVG expression extension and want its syntax, or you want the language's own lexer, parser and type checker. | [Svg.Expressions](svg-expressions) |
 
 ## UI packages
 
