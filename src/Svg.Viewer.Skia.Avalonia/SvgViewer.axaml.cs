@@ -436,9 +436,7 @@ public partial class SvgViewer : UserControl
 
         // Values survive a reload whose parameters are unchanged. Opening the same file again, or
         // re-reading one that was edited elsewhere, must not silently discard what was set.
-        if (_rows.Count == declarations.Count
-            && _rows.Select(r => r.Name).SequenceEqual(declarations.Select(d => d.Name), StringComparer.Ordinal)
-            && _rows.Select(r => r.Type).SequenceEqual(declarations.Select(d => d.Type)))
+        if (_rows.Count == declarations.Count && _rows.Zip(declarations).All(pair => Same(pair.First, pair.Second)))
         {
             return;
         }
@@ -452,7 +450,10 @@ public partial class SvgViewer : UserControl
 
         foreach (var row in _rows)
         {
-            if (kept.TryGetValue(row.Name, out var previous) && previous.Type == row.Type)
+            // Only a value somebody chose. One still sitting where its default put it should follow
+            // that default when the text changes it, or editing default="180" to "90" would rebuild
+            // the row and then put 180 straight back.
+            if (kept.TryGetValue(row.Name, out var previous) && previous.Type == row.Type && previous.IsModified)
             {
                 TrySetParameterValue(row.Name, previous.ToExprValue());
             }
@@ -460,6 +461,21 @@ public partial class SvgViewer : UserControl
 
         _parameters.Parameters = _rows;
     }
+
+    /// <summary>Whether a row already standing was built from this declaration.</summary>
+    /// <remarks>
+    /// Everything a row is made of, not the name and the type alone. Those two were enough when a
+    /// reload meant reopening a file, where the declarations came back identical — with the source
+    /// editable, changing a <c>step</c> or a bound leaves both untouched, and the panel went on
+    /// showing what the file said before the edit.
+    /// </remarks>
+    private static bool Same(SvgViewerParameter row, SvgExpressionParameter declared)
+        => row.Type == declared.Type
+           && string.Equals(row.Name, declared.Name, StringComparison.Ordinal)
+           && string.Equals(row.Declaration.DefaultExpression, declared.DefaultExpression, StringComparison.Ordinal)
+           && string.Equals(row.Declaration.MinExpression, declared.MinExpression, StringComparison.Ordinal)
+           && string.Equals(row.Declaration.MaxExpression, declared.MaxExpression, StringComparison.Ordinal)
+           && string.Equals(row.Declaration.StepExpression, declared.StepExpression, StringComparison.Ordinal);
 
     public void ResetParameters()
     {

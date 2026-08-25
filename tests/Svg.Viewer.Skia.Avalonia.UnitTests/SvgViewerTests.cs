@@ -1076,6 +1076,77 @@ public class SvgViewerTests
         window.Close();
     }
 
+    /// <summary>One number parameter, so an edit to its range can be watched arriving.</summary>
+    private static string Ranged(string step, string fallback = "180") =>
+        $"""
+         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+           <defs><e:code><e:param name="hue" type="number" default="{fallback}" min="0" max="360" step="{step}" /></e:code></defs>
+           <rect width="24" height="24" fill="#3fb5b5" />
+         </svg>
+         """;
+
+    [AvaloniaFact]
+    public async Task A_Step_Edited_In_The_Source_Reaches_The_Slider()
+    {
+        // The panel kept whatever the file said when it was opened. The guard that carries bound
+        // values across a reload compared names and types, and a step is neither — so editing one
+        // changed the file, the diagnostics and the drawing, and left the slider alone.
+        var (window, viewer) = await HostLoaded(Ranged("30"));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(30d, viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Step);
+
+        await Type(viewer, Ranged("5"));
+
+        var row = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single();
+
+        Assert.Equal(5d, row.Step);
+        Assert.Equal(5d, row.TickFrequency);
+
+        // All the way through the binding, not just on the row.
+        Assert.Equal(5d, viewer.GetVisualDescendants().OfType<Slider>().First().TickFrequency);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Value_Nobody_Chose_Follows_The_Default_It_Came_From()
+    {
+        // Rebuilding a row and putting the old value straight back would mean editing a default
+        // changed nothing on screen. A value someone dragged is theirs; one still sitting where the
+        // default put it is the file's.
+        var (window, viewer) = await HostLoaded(Ranged("5"));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        await Type(viewer, Ranged("5", fallback: "90"));
+
+        Assert.Equal(90d, viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Value);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Value_Somebody_Chose_Survives_An_Edit_To_The_Default()
+    {
+        var (window, viewer) = await HostLoaded(Ranged("5"));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.TrySetParameterValue("hue", ExprValue.Number(45f)));
+        Dispatcher.UIThread.RunJobs();
+
+        await Type(viewer, Ranged("5", fallback: "90"));
+
+        Assert.Equal(45d, viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Value);
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public async Task A_Selection_Can_Cross_A_Line()
     {
