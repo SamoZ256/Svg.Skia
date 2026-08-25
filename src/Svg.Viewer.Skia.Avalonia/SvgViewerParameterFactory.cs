@@ -53,7 +53,7 @@ public static class SvgViewerParameterFactory
 
     private static SvgViewerNumberParameter Number(SvgExpressionParameter declaration, ExprValue? seed)
     {
-        var value = seed?.Type == ExprType.Number ? seed.Value.AsNumber : 0d;
+        var value = seed?.Type == ExprType.Number ? Widen(seed.Value.AsNumber) : 0d;
 
         SvgExpressionRange range;
         try
@@ -69,8 +69,8 @@ public static class SvgViewerParameterFactory
             range = SvgExpressionRange.Default;
         }
 
-        double minimum = range.Minimum;
-        double maximum = range.Maximum;
+        double minimum = Widen(range.Minimum);
+        double maximum = Widen(range.Maximum);
 
         // A document that declares no range still has to get a usable slider, and the 0..1 fallback
         // is useless for a default of 217. Infer from the seed instead, then round outwards so the
@@ -92,7 +92,31 @@ public static class SvgViewerParameterFactory
         minimum = Math.Min(minimum, value);
         maximum = Math.Max(maximum, value);
 
-        return new SvgViewerNumberParameter(declaration, value, minimum, maximum, range.Step);
+        return new SvgViewerNumberParameter(declaration, value, minimum, maximum, Widen(range.Step));
+    }
+
+    /// <summary>
+    /// Widens a number the language computed to the double a control wants.
+    /// </summary>
+    /// <remarks>
+    /// Through decimal, whose float constructor rounds to seven significant digits — which is what a
+    /// float carries and no more. Widening plainly keeps the binary tail instead, so a declared
+    /// <c>step="0.1"</c> arrives as 0.10000000149011612 and a slider two ticks along reads
+    /// 0.200000002980232: not a wrong number, but seventeen digits of one that has seven. Narrowing
+    /// the result gives back the same float, so nothing the evaluator sees changes — which is why
+    /// this is a widening and not a rounding of the parameter. Decimal's range is narrower than
+    /// float's, so what it cannot hold is widened plainly rather than refused.
+    /// </remarks>
+    private static double Widen(float value)
+    {
+        try
+        {
+            return (double)(decimal)value;
+        }
+        catch (OverflowException)
+        {
+            return value;
+        }
     }
 
     /// <summary>The declared default, evaluated as the binder will evaluate it.</summary>

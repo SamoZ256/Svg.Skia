@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using Svg.Expressions;
 using Xunit;
@@ -122,6 +123,27 @@ public class SvgViewerParameterFactoryTests
         Assert.Equal(0d, row.Minimum);
         Assert.Equal(5d, row.Maximum);
         Assert.Equal(5d, row.Value);
+    }
+
+    [Theory]
+    [InlineData("0.1")]
+    [InlineData("0.2")]
+    [InlineData("0.3")]
+    public void A_Step_Carries_No_More_Digits_Than_A_Float_Has(string step)
+    {
+        // A float widened to a double keeps its binary tail: 0.1 arrives as 0.10000000149011612,
+        // and a slider two ticks along reads 0.200000002980232. Seventeen digits of a number that
+        // has seven, in a box somebody has to read.
+        var row = Number($"""<e:param name="t" type="number" default="0" min="0" max="1" step="{step}" />""");
+
+        var declared = double.Parse(step, CultureInfo.InvariantCulture);
+
+        Assert.Equal(declared, row.Step);
+        Assert.Equal(declared * 2d, row.Minimum + (2d * row.TickFrequency));
+
+        // And it is the same float either way, so what the evaluator computes with is untouched.
+        // This is a widening said properly, not a rounding of the parameter.
+        Assert.Equal((float)declared, (float)row.Step);
     }
 
     [Fact]

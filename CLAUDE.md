@@ -341,7 +341,13 @@ what only numbers can settle — `min > max`, `step <= 0`, a `default` that type
 not evaluate — which reading a document may not do, and there it must catch `ArgumentException` as
 well as `ExprException`, because `clamp` refuses a reversed range with the former. So does
 `SvgViewerParameterFactory`, for the same reason and on the same path: without it a `default` of
-`clamp(2, 5, 1)` failed the *load* of a drawing that renders. The viewer says all this in **two
+`clamp(2, 5, 1)` failed the *load* of a drawing that renders. It also **widens through decimal**
+rather than plainly: the language computes in `float`, the controls want `double`, and a plainly
+widened float keeps its binary tail — a declared `step="0.1"` arrives as 0.10000000149011612 and a
+slider two ticks along reads 0.200000002980232, seventeen digits of a number that has seven.
+`decimal(float)` rounds to the seven significant digits a float actually carries, and narrowing back
+gives the same float, so this is the widening said properly and **not** a rounding of the parameter —
+rounding one would change what the evaluator computes with and break step with the code generator. The viewer says all this in **two
 places for two kinds of thing**: a note beside the status bar counting what the pane already marks —
 on the row that is already there, since one appearing and vanishing per edit would shove the viewer
 about while someone typed — and, for what has no line to be put on, a card **over the drawing, frosting it**,
