@@ -15,7 +15,7 @@ dotnet add package Svg.Highlighting
 ## Choose this package when
 
 - you are showing SVG text to someone and want it coloured as markup,
-- you want the SVG expression extension's `{{ … }}` placeholders and `<e:let>` bodies recognised as code rather than as strings and prose,
+- you want the SVG expression extension's `{%{{{ … }}}%}` placeholders and `<e:let>` bodies recognised as code rather than as strings and prose,
 - you need to colour a large file without laying all of it out at once,
 - you want positions into the document — for a diagnostic, a squiggle, or a jump — rather than copies of parts of it.
 
@@ -44,7 +44,7 @@ foreach (var line in SvgSourceHighlighter.Lines(File.ReadAllText("badge.svg")))
 
 ## The expression language is split too
 
-`{{ … }}` placeholders, `<e:let>` bodies and a declaration's `default`, `min`, `max` and `step` are
+`{%{{{ … }}}%}` placeholders, `<e:let>` bodies and a declaration's `default`, `min`, `max` and `step` are
 not left as one piece: they are handed to `Svg.Expressions`' own lexer, so what you see coloured is
 what the compiler reads. That last group is easy to miss — `max="tau"` and `step="1/60"` look like
 ordinary attribute values and are code. That matters more
@@ -59,7 +59,7 @@ than it sounds:
 | `#3fb5b5` | `ExpressionColor` |
 | `true`, `false` | `ExpressionConstant` — they lex as names, but the parser reads them as boolean literals |
 | `hue`, `sweep` | `ExpressionIdentifier` — a parameter, a let, or a typo; telling those apart needs the document |
-| `{{`, `}}`, whitespace | `Expression` |
+| {%{`{{`, `}}`}%}, whitespace | `Expression` |
 
 A tokenizer written by hand here would have coloured the percent as an operator and the word forms
 as names. Reusing the lexer is what keeps the pane and the compiler saying the same thing.
@@ -85,13 +85,13 @@ Ranges are in the same coordinates as tokens, so a view that already has the tok
 offending one without being told anything else. Where the checker refuses mid-expression, the mark
 covers the piece it stopped on rather than the whole line.
 
-Scope follows the language rather than convenience. A `{{ … }}` sees everything the document
+Scope follows the language rather than convenience. A `{%{{{ … }}}%}` sees everything the document
 declares; an `<e:let>` sees the parameters and the lets before it, but not itself; a `default`, `min`,
 `max` or `step` sees **neither** — a default may not reference other parameters, because an ordering
 dependency between them would be invisible in the document, so checking one against the full table
 would accept what the code generator then rejects.
 
-One boundary worth knowing: it does not know what an *attribute* expects. `opacity="{{ tint }}"` is
+One boundary worth knowing: it does not know what an *attribute* expects. `opacity="{%{{{ tint }}}%}"` is
 a well-formed colour expression written where a number belongs, and saying so needs the table of
 which SVG attribute takes which type, which lives in the scene compiler.
 

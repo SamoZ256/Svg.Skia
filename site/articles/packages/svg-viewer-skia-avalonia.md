@@ -89,10 +89,10 @@ The format itself — `<e:code>`, the operators, and the placeholder mechanism �
 ## Reading the drawing's text
 
 The **Source** toggle in the toolbar opens a pane under the drawing showing the document as it was
-read — comments, formatting and `{{ … }}` expressions exactly as their author wrote them. It is
+read — comments, formatting and `{%{{{ … }}}%}` expressions exactly as their author wrote them. It is
 read-only; editing SVG is what `Svg.Editor.Skia.Avalonia` is for.
 
-It is coloured as XML, and — because no stock grammar knows the extension — `{{ … }}` placeholders
+It is coloured as XML, and — because no stock grammar knows the extension — `{%{{{ … }}}%}` placeholders
 and `<e:let>` bodies are coloured as the expression code they are, not as strings and prose. The
 splitting is [Svg.Highlighting](svg-highlighting), which draws nothing; the palette here is theme
 resources you can override:

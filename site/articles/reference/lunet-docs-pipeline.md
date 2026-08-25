@@ -43,6 +43,25 @@ When a new public package lands in `src/`:
 4. Update [Packages and Namespaces](packages-and-namespaces) and [API Coverage Index](api-coverage-index).
 5. Rebuild the docs site locally with `./build-docs.sh`.
 
+## Authoring note: literal braces
+
+Scriban runs over every `.md` before Markdown does, and it does not spare code spans. A literal
+{%%{ `{{` or `}}` }%%} written as prose is parsed as a template expression, and anything Scriban
+cannot parse there — {%%{ the `…` in `{{ … }}` }%%}, for instance — fails that page and every menu
+entry pointing at it, which fails the whole build. Wrap the braces in a Scriban raw block, which
+emits its contents verbatim:
+
+{%%{
+```text
+to render  `{{ … }}`   write  `{%{{{ … }}}%}`
+to render  `{{`, `}}`  write  `{%{`{{`, `}}`}%}`
+```
+}%%}
+
+Use more percent signs — {%%%{ `{%%{` … `}%%}` }%%%} — when the block itself has to contain one, as
+this section does. This matters most in `site/articles/packages/svg-highlighting.md` and the viewer
+article, which are about the expression extension and so quote its delimiters throughout.
+
 ## Styling pipeline note
 
 Lunet `1.0.10` on macOS 15 has a Dart Sass platform detection issue. To avoid that:
