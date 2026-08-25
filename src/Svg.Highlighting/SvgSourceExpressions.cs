@@ -36,7 +36,8 @@ internal static class SvgSourceExpressions
         string source,
         int start,
         int end,
-        List<SvgSourceSite>? sites = null)
+        List<SvgSourceSite>? sites = null,
+        string? attribute = null)
     {
         const int fence = 2;
 
@@ -51,7 +52,7 @@ internal static class SvgSourceExpressions
             SvgSourceHighlighter.Add(tokens, source, start, from, SvgSourceTokenKind.Expression);
         }
 
-        Code(tokens, source, from, to, SvgSourceSiteKind.Placeholder, sites);
+        Code(tokens, source, from, to, SvgSourceSiteKind.Placeholder, sites, attribute);
 
         if (closed)
         {

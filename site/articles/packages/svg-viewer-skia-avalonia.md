@@ -77,9 +77,9 @@ line is where the detail belongs. It sits beside the status rather than under it
 and the viewer does not shift as it comes and goes while you edit. It is a standing statement, not a
 reaction: it does not wait for a control to be touched, and it does not change when one is.
 
-**A card over the drawing, frosting it**, for what has no line to be put on: a value of the
-wrong type for the attribute holding it, a document that would not load, a parameter the host left
-unbound. In every one of those the drawing on screen is not what the file says, and the frosting says
+**A card over the drawing, frosting it**, for what has no line to be put on — chiefly a document
+that would not load at all, where there is no pane to mark because there is no drawing. In every one
+of those the drawing on screen is not what the file says, and the frosting says
 so before the sentence is read — a wide blur with a wash over it, because defocus alone reads as a
 drawing out of focus rather than as glass in front of one. The card takes no room either, and the
 drawing can still be panned around it. Both reach a host through `ErrorRaised`.
@@ -145,7 +145,8 @@ is written, which is the one failure the library is least able to report for its
 dropped, the property keeps its default, and the drawing renders wrong without a word. A declaration
 inside `style="…"` is marked the same way, and on the declaration rather than the whole attribute. An
 expression written in an attribute that does not take one, `stroke-width="{%{{{ w }}}%}"`, is marked
-too, and says which attributes do. What counts as a mistake is
+too, and says which attributes do — as is one written in an attribute that takes a *different* kind,
+such as a colour in `opacity`. What counts as a mistake is
 [Svg.Highlighting](svg-highlighting)'s answer, which is the language's own checker — and a
 declaration that is wrong is marked on the attribute that is wrong, not summarised above the drawing.
 

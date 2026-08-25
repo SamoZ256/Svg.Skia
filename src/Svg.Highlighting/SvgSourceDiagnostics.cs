@@ -49,11 +49,12 @@ public readonly record struct SvgSourceDiagnostic(
 /// <see cref="SvgSourceHighlighter"/>, and it starts by reading the <c>&lt;e:code&gt;</c> block.
 /// </para>
 /// <para>
-/// What it does not know is what an attribute expects of an <em>expression</em>.
-/// <c>opacity="{{ tint }}"</c> is a well-formed colour expression written where a number belongs, and
-/// saying so needs the table of which SVG attribute takes which type — which lives in the scene
-/// compiler. So an expression is checked on its own terms and not against its use, while a value
-/// that is not an expression is checked against exactly the converter that will be given it.
+/// An expression is checked against its use as well as on its own terms:
+/// <c>opacity="{{ tint }}"</c> is well-formed and still wrong, because that attribute scales an
+/// alpha and a colour is not a number. What each of the five attributes wants is
+/// <see cref="SvgExpressionAttributes.TypeFor"/>, and the refusal is
+/// <see cref="ExprChecker.CheckAs"/>'s — the same one the emitter and the renderer already raise
+/// while reading the document, so all three say the same sentence and this only says it sooner.
 /// </para>
 /// <para>
 /// What the declaration block itself gets wrong — a name that is not a name, a range on a colour, a
@@ -147,7 +148,16 @@ public static class SvgSourceDiagnostics
 
             try
             {
-                var typed = scope.Check(text);
+                // A placeholder is checked against what the attribute holding it will do with the
+                // answer, where that is known. Both back ends already refuse a paint expression
+                // that is not a colour; asking the same question here only moves the same refusal
+                // from generating or rendering the drawing to reading it, and the label comes from
+                // the language so all three say it identically.
+                var typed = site.Kind == SvgSourceSiteKind.Placeholder
+                            && site.Attribute is { } attribute
+                            && SvgExpressionAttributes.TypeFor(attribute) is { } expected
+                    ? scope.CheckAs(text, expected, ExprFunctions.DescribeUse(expected))
+                    : scope.Check(text);
 
                 if (site.Kind == SvgSourceSiteKind.Let && lets < declarations.Lets.Count)
                 {

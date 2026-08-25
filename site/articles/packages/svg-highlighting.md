@@ -94,9 +94,17 @@ declares; an `<e:let>` sees the parameters and the lets before it, but not itsel
 dependency between them would be invisible in the document, so checking one against the full table
 would accept what the code generator then rejects.
 
-One boundary worth knowing: it does not know what an *attribute* expects of an **expression**.
-`opacity="{%{{{ tint }}}%}"` is a well-formed colour expression written where a number belongs, and saying
-so needs the table of which SVG attribute takes which type, which lives in the scene compiler.
+An expression is checked against its **use** as well as on its own terms:
+
+```xml
+<rect opacity="{%{{{ tint }}}%}" />
+<!--             ^ An opacity expression must be a number expression, but this one is a colour. -->
+```
+
+`fill`, `stroke` and `stop-color` want a colour, `opacity` a number, `visibility` a boolean. Both
+back ends already refuse the wrong one as they read the document — the emitter and the renderer — so
+this asks the same question earlier and reports it in the same words, rather than letting a drawing
+open and fail when it is generated or drawn.
 
 ## The attribute values are checked too
 

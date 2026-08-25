@@ -32,15 +32,17 @@ public static class SvgExpressionAttributes
     // The placeholder has to survive the model's own short circuits, which branch on the value:
     // "none" would drop the paint entirely and an opacity of 1 would skip creating a layer, and
     // in either case there would be nothing left for the expression to attach to.
-    private static readonly Dictionary<string, string> s_placeholders = new(StringComparer.Ordinal)
+    // The type is here rather than in a table of its own because both answers are about the same
+    // five attributes, and two tables would be two places to add the sixth.
+    private static readonly Dictionary<string, (string Placeholder, ExprType Type)> s_placeholders = new(StringComparer.Ordinal)
     {
-        ["fill"] = "#808080",
-        ["stroke"] = "#808080",
-        ["stop-color"] = "#808080",
-        ["opacity"] = "1",
+        ["fill"] = ("#808080", ExprType.Color),
+        ["stroke"] = ("#808080", ExprType.Color),
+        ["stop-color"] = ("#808080", ExprType.Color),
+        ["opacity"] = ("1", ExprType.Number),
         // A hidden element contributes no commands at all, so the placeholder has to be the
         // visible state or there would be nothing left to make conditional.
-        ["visibility"] = "visible"
+        ["visibility"] = ("visible", ExprType.Boolean)
     };
 
     /// <summary>Attributes an expression can currently drive.</summary>
@@ -71,7 +73,18 @@ public static class SvgExpressionAttributes
     public static string KeyFor(string localName) => Namespace + ":" + localName;
 
     public static string PlaceholderFor(string localName)
-        => s_placeholders.TryGetValue(localName, out var placeholder) ? placeholder : "#808080";
+        => s_placeholders.TryGetValue(localName, out var supported) ? supported.Placeholder : "#808080";
+
+    /// <summary>What an expression in <paramref name="localName"/> has to evaluate to, or null.</summary>
+    /// <remarks>
+    /// Not a rule of the language but of where the language is used: an <c>opacity</c> is a number
+    /// because it scales an alpha, a <c>fill</c> is a colour because it is one. Both back ends
+    /// already check this as they read the document -- the emitter through
+    /// <c>SymCSharpEmitter</c> and the renderer through <c>SvgSceneSymEvaluator</c> -- so saying it
+    /// here as well only moves the same answer earlier.
+    /// </remarks>
+    public static ExprType? TypeFor(string localName)
+        => s_placeholders.TryGetValue(localName, out var supported) ? supported.Type : null;
 
     /// <summary>Returns true when <paramref name="value"/> is <c>{{ ... }}</c>, yielding the inside.</summary>
     public static bool TryUnwrap(string? value, out string expression)

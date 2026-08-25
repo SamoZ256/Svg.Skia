@@ -396,7 +396,7 @@ public static class SvgSourceHighlighter
                 }
                 else
                 {
-                    Value(tokens, source, index, valueEnd, sites);
+                    Value(tokens, source, index, valueEnd, sites, attributeName);
                     name ??= attributeName == "name" ? source[(index + 1)..(quote < 0 ? valueEnd : quote)] : null;
                 }
 
@@ -460,7 +460,18 @@ public static class SvgSourceHighlighter
     }
 
     /// <summary>Adds a value, lifting any <c>{{ … }}</c> out of it.</summary>
-    private static void Value(List<SvgSourceToken> tokens, string source, int start, int end, List<SvgSourceSite>? sites)
+    /// <remarks>
+    /// The attribute is carried through because what a placeholder may evaluate to depends on which
+    /// one holds it -- a <c>fill</c> wants a colour and an <c>opacity</c> a number -- and this is
+    /// the only point that knows both.
+    /// </remarks>
+    private static void Value(
+        List<SvgSourceToken> tokens,
+        string source,
+        int start,
+        int end,
+        List<SvgSourceSite>? sites,
+        string? attribute)
     {
         var index = start;
 
@@ -481,7 +492,7 @@ public static class SvgSourceHighlighter
             var expressionEnd = close < 0 ? end : close + 2;
 
             Add(tokens, source, index, open, SvgSourceTokenKind.Value);
-            SvgSourceExpressions.Placeholder(tokens, source, open, expressionEnd, sites);
+            SvgSourceExpressions.Placeholder(tokens, source, open, expressionEnd, sites, attribute);
 
             index = expressionEnd;
         }
