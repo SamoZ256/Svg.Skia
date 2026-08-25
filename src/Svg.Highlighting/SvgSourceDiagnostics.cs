@@ -29,7 +29,7 @@ public readonly record struct SvgSourceDiagnostic(
     string Message);
 
 /// <summary>
-/// Finds what is wrong with the expressions in a document.
+/// Finds what is wrong with a document.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -38,16 +38,22 @@ public readonly record struct SvgSourceDiagnostic(
 /// number where a colour belongs. Nothing here decides what is an error.
 /// </para>
 /// <para>
+/// The SVG around the expressions is checked the same way and on the same terms, by
+/// <see cref="SvgSourceAttributes"/> — through the converter each attribute actually uses, so a
+/// value that will not convert is the parser's verdict rather than this library's.
+/// </para>
+/// <para>
 /// Splitting a document is context-free — a <c>{{ … }}</c> colours the same wherever it is — but
 /// checking one is not: what a name may refer to depends on every declaration in the file, and on
 /// where the expression is written. So this is a document-level pass, separate from
 /// <see cref="SvgSourceHighlighter"/>, and it starts by reading the <c>&lt;e:code&gt;</c> block.
 /// </para>
 /// <para>
-/// What it does not know is what an attribute expects. <c>opacity="{{ tint }}"</c> is a well-formed
-/// colour expression written where a number belongs, and saying so needs the table of which SVG
-/// attribute takes which type — which lives in the scene compiler, a dependency this library has no
-/// other reason to carry. So an expression is checked on its own terms and not against its use.
+/// What it does not know is what an attribute expects of an <em>expression</em>.
+/// <c>opacity="{{ tint }}"</c> is a well-formed colour expression written where a number belongs, and
+/// saying so needs the table of which SVG attribute takes which type — which lives in the scene
+/// compiler. So an expression is checked on its own terms and not against its use, while a value
+/// that is not an expression is checked against exactly the converter that will be given it.
 /// </para>
 /// <para>
 /// What the declaration block itself gets wrong — a name that is not a name, a range on a colour, a
@@ -58,14 +64,15 @@ public readonly record struct SvgSourceDiagnostic(
 /// was about.
 /// </para>
 /// <para>
-/// A document whose declarations are wrong reports those and nothing else. The symbol table is
-/// missing whatever the bad declaration would have put in it, so every use of that name would look
-/// undeclared — a hundred of those bury the few that are real.
+/// A document whose declarations are wrong reports those and no <em>expressions</em>. The symbol
+/// table is missing whatever the bad declaration would have put in it, so every use of that name
+/// would look undeclared — a hundred of those bury the few that are real. Attribute values are
+/// reported regardless, since no converter consults the symbol table.
 /// </para>
 /// </remarks>
 public static class SvgSourceDiagnostics
 {
-    /// <summary>Reports what is wrong with the declarations and expressions in <paramref name="source"/>.</summary>
+    /// <summary>Reports what is wrong with <paramref name="source"/>: its declarations, its expressions and its attribute values.</summary>
     /// <remarks>
     /// Empty rather than throwing for a document that cannot be read at all: a source view exists to
     /// show a file, and one that vanished because its own error reporting failed would be absurd.
@@ -87,21 +94,38 @@ public static class SvgSourceDiagnostics
         // extension's namespace.
         var declarations = SvgExpressionDeclarations.Parse(source, out var declared);
 
+        // What a converter thinks of a value does not depend on the symbol table, so this runs
+        // whatever the declarations turned out to be.
+        SvgSourceAttributes.Analyse(source!, tokens, found);
+
         if (declared.Count > 0)
         {
             foreach (var diagnostic in declared)
             {
                 found.Add(Mark(diagnostic.Position, source!.Length, diagnostic.Message, tokens, source));
             }
-
-            return found;
         }
-
-        if (sites.Count == 0)
+        else if (sites.Count > 0)
         {
-            return found;
+            Check(found, declarations, sites, tokens, source!);
         }
 
+        // Document order, because three passes produced these and none knows about the others: what
+        // only numbers can settle is found after every expression has been checked, and what a
+        // converter refuses is found before any of it, so a file read top to bottom reads in order.
+        found.Sort(static (left, right) => left.Start.CompareTo(right.Start));
+
+        return found;
+    }
+
+    /// <summary>Checks every expression in the document, in the scope the language gives it.</summary>
+    private static void Check(
+        List<SvgSourceDiagnostic> found,
+        SvgExpressionDeclarations declarations,
+        IReadOnlyList<SvgSourceSite> sites,
+        IReadOnlyList<SvgSourceToken> tokens,
+        string source)
+    {
         // Held by reference on purpose: each let is added as it checks, which is what puts the ones
         // declared earlier in scope for the ones after them and leaves a let out of its own scope.
         var symbols = declarations.CreateSymbolTable();
@@ -118,7 +142,7 @@ public static class SvgSourceDiagnostics
 
         foreach (var site in sites)
         {
-            var text = source!.Substring(site.Start, site.Length);
+            var text = source.Substring(site.Start, site.Length);
             var scope = site.Kind == SvgSourceSiteKind.Declaration ? isolated : checker;
 
             try
@@ -132,7 +156,7 @@ public static class SvgSourceDiagnostics
             }
             catch (ExprException failure)
             {
-                found.Add(Describe(failure, site, tokens, source!));
+                found.Add(Describe(failure, site, tokens, source));
 
                 if (site.Owner is { } owner)
                 {
@@ -148,14 +172,7 @@ public static class SvgSourceDiagnostics
             }
         }
 
-        Resolve(found, declarations, reported, sites, tokens, source!);
-
-        // Document order, because two passes produced these and neither knows about the other: what
-        // only numbers can settle is found after every expression has been checked, which would
-        // otherwise report a bound in the declarations below a mistake in the drawing.
-        found.Sort(static (left, right) => left.Start.CompareTo(right.Start));
-
-        return found;
+        Resolve(found, declarations, reported, sites, tokens, source);
     }
 
     /// <summary>
@@ -293,7 +310,12 @@ public static class SvgSourceDiagnostics
             source);
 
     /// <summary>Marks the piece of the document at <paramref name="at"/>.</summary>
-    private static SvgSourceDiagnostic Mark(
+    /// <remarks>
+    /// Internal rather than private because the attribute pass wants the same two behaviours: a mark
+    /// that never begins on a space, and one that covers the piece the pane already draws rather than
+    /// a caret under one character.
+    /// </remarks>
+    internal static SvgSourceDiagnostic Mark(
         int at,
         int stop,
         string message,

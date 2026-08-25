@@ -485,9 +485,12 @@ number, one end of a range without the other, a reversed range, and a `step` of 
 
 ## 7. Limitations
 
-**Unsupported attributes fail silently.** `stroke-width="{{ w }}"` is not lifted by the parser,
-so it is treated as an ordinary malformed value and ignored — no error. A typo in an attribute
-name behaves the same way.
+**Unsupported attributes do nothing.** `stroke-width="{{ w }}"` is not lifted by the parser, so the
+braces stay in the value and it is ignored like any other value the attribute cannot take. Rendering
+does not fail and nothing is written to the console; a source view that analyses the document —
+`Svg.Highlighting`, and so the viewer's **Source** pane — marks it and says which attributes do take
+an expression. A typo in an attribute name is still silent, since an attribute the parser does not
+recognise is kept rather than refused.
 
 **Geometry and transforms are not supported.** Coordinates cannot be expressions. Bounds, clips,
 filter regions and `objectBoundingBox` gradient units are all derived from geometry, and each needs

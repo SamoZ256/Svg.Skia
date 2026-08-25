@@ -4,7 +4,9 @@ title: "Svg.Highlighting"
 
 # Svg.Highlighting
 
-`Svg.Highlighting` splits an SVG document into coloured pieces for a source view. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what `Svg.Viewer.Skia.Avalonia`'s source pane is built on.
+`Svg.Highlighting` splits an SVG document into coloured pieces for a source view, and says what is wrong with it. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what `Svg.Viewer.Skia.Avalonia`'s source pane is built on.
+
+It depends on `Svg.Expressions` for the expression language's own lexer and checker, and on `Svg.Custom` for the SVG parser's own converters. Both are there so that what is coloured and what is called wrong are decided by the things that actually read a drawing, rather than by a second description of them.
 
 ## Install
 
@@ -17,7 +19,8 @@ dotnet add package Svg.Highlighting
 - you are showing SVG text to someone and want it coloured as markup,
 - you want the SVG expression extension's `{%{{{ … }}}%}` placeholders and `<e:let>` bodies recognised as code rather than as strings and prose,
 - you need to colour a large file without laying all of it out at once,
-- you want positions into the document — for a diagnostic, a squiggle, or a jump — rather than copies of parts of it.
+- you want positions into the document — for a diagnostic, a squiggle, or a jump — rather than copies of parts of it,
+- you want to be told what a drawing gets wrong: a name nothing declares, or an attribute value the SVG parser silently drops.
 
 ## Main types
 
@@ -27,7 +30,7 @@ dotnet add package Svg.Highlighting
 | `SvgSourceToken` | A range into the source and what it is; `Text` cuts it only when asked |
 | `SvgSourceTokenKind` | Text, punctuation, element, attribute, value, comment, and the expression kinds below |
 | `SvgSourceLine` | One line's tokens, its number and range, and the rest of it past a limit |
-| `SvgSourceDiagnostics` | `Analyse` — what is wrong with the expressions in a document |
+| `SvgSourceDiagnostics` | `Analyse` — what is wrong with the expressions and the attribute values in a document |
 | `SvgSourceDiagnostic` | A range, a severity and a message, in the same coordinates as a token |
 
 ## Colouring a document
@@ -91,9 +94,39 @@ declares; an `<e:let>` sees the parameters and the lets before it, but not itsel
 dependency between them would be invisible in the document, so checking one against the full table
 would accept what the code generator then rejects.
 
-One boundary worth knowing: it does not know what an *attribute* expects. `opacity="{%{{{ tint }}}%}"` is
-a well-formed colour expression written where a number belongs, and saying so needs the table of
-which SVG attribute takes which type, which lives in the scene compiler.
+One boundary worth knowing: it does not know what an *attribute* expects of an **expression**.
+`opacity="{%{{{ tint }}}%}"` is a well-formed colour expression written where a number belongs, and saying
+so needs the table of which SVG attribute takes which type, which lives in the scene compiler.
+
+## The attribute values are checked too
+
+A value that is not an expression is checked as well, by the converter that attribute actually uses:
+
+```xml
+<rect width="abc" />
+<!--        ^ 'width' cannot be set from 'abc'. The input string '' was not in a correct format. -->
+```
+
+This is the failure the parser is least able to report on its own. The generated `SvgElement.SetValue`
+catches whatever the converter threw, warns to `Trace` and **returns `true` regardless**, so the property
+keeps its default and nothing above it can tell a value that converted from one that did not. A drawing
+opens, renders wrong, and says nothing.
+
+The converter is asked directly, so the verdict and the wording are the parser's; only the sentence
+naming the attribute and the value is added, because a converter is answering about a bare string and
+its own message names neither. An expression written in an attribute that does not take one —
+`stroke-width="{%{{{ w }}}%}"` — is reported too, and says which attributes do.
+
+Nothing is reported where the parser would not have asked a converter at all: a `var(…)`, a value it
+rewrites first (`opacity="50%"`), one it stages as authored (`inherit`, `initial`, `unset`), one it
+keeps raw (`mix-blend-mode`, an `on…` handler), an attribute in a foreign namespace, or an element name
+it does not know. **A wave under a value the drawing used correctly is worse than no wave**, so anything
+that cannot be settled is left alone — a rule held to across the 525 drawings of the W3C suite, where
+the only four marks are values this parser genuinely does not apply.
+
+The other boundary: a converter that refuses nothing cannot be reported through. A path builder reads
+`d` as far as it makes sense and drops the rest, so `d="QQQ"` converts as happily as a real path does.
+Calling that an error would mean deciding that unread input is one.
 
 ## The declarations are checked too
 

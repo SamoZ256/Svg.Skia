@@ -46,6 +46,28 @@ public static class SvgExpressionAttributes
     /// <summary>Attributes an expression can currently drive.</summary>
     public static bool IsSupported(string localName) => s_placeholders.ContainsKey(localName);
 
+    /// <summary>The attributes an expression can drive.</summary>
+    /// <remarks>
+    /// Read off the table above rather than written out again, so adding a placeholder cannot leave
+    /// a second list saying the extension lifts something else.
+    /// </remarks>
+    public static IReadOnlyList<string> Supported { get; } = new List<string>(s_placeholders.Keys);
+
+    /// <summary>
+    /// Why an expression written in <paramref name="localName"/> will do nothing, or null where it
+    /// will work.
+    /// </summary>
+    /// <remarks>
+    /// The extension's own rule, said out loud. An unlifted attribute keeps its braces, so the value
+    /// reaching the parser is <c>{{ w }}</c> and every converter refuses it -- which reads as a
+    /// malformed number rather than as the real answer, that this attribute takes no expression at
+    /// all. Being told which attributes do is the useful half.
+    /// </remarks>
+    public static string? WhyUnsupported(string localName)
+        => IsSupported(localName)
+            ? null
+            : $"'{localName}' does not take an expression. The parser lifts {string.Join(", ", Supported)}, and reads a {Open} … {Close} written anywhere else as an ordinary value.";
+
     public static string KeyFor(string localName) => Namespace + ":" + localName;
 
     public static string PlaceholderFor(string localName)

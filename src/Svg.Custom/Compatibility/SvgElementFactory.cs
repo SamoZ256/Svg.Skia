@@ -24,6 +24,8 @@ namespace Svg
     {
         private static readonly ConcurrentDictionary<Type, HashSet<string>> s_eventDescriptorAttributeNamesByType = new();
 
+        private static readonly ConcurrentDictionary<Type, Dictionary<string, ISvgPropertyDescriptor>> s_propertiesByType = new();
+
         private readonly SvgInlineStyleAttributeParser inlineStyleAttributeParser = new();
 
         internal bool PreserveJavaScriptDomState { get; set; }
@@ -661,6 +663,216 @@ namespace Svg
                    attributeName.Equals("ry", StringComparison.OrdinalIgnoreCase) ||
                    attributeName.Equals("width", StringComparison.OrdinalIgnoreCase) ||
                    attributeName.Equals("height", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// An element of <paramref name="elementName"/> to ask about attributes, or null for a name
+        /// this factory does not know.
+        /// </summary>
+        /// <remarks>
+        /// For a caller checking a document rather than reading one: which converter an attribute
+        /// uses depends on the element carrying it, and the descriptors are reached through an
+        /// instance. Nothing is ever parented, rendered or kept, so one per name serves a whole
+        /// document. A name this does not know is one <see cref="SvgUnknownElement"/> would take,
+        /// which accepts anything and so can be wrong about nothing.
+        /// </remarks>
+        internal static SvgElement CreateProbe(string elementName)
+        {
+            if (elementName == "svg")
+            {
+                return new SvgFragment();
+            }
+
+            return availableElementsWithoutSvg.TryGetValue(elementName, out var known)
+                ? known.CreateInstance()
+                : null;
+        }
+
+        /// <summary>
+        /// Why the converter for <paramref name="attributeName"/> refuses
+        /// <paramref name="attributeValue"/>, or null when it does not refuse it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The one question <see cref="SetPropertyValue"/> cannot be asked. Its answer is discarded
+        /// twice over: the generated <c>SvgElement.SetValue</c> catches whatever the converter threw,
+        /// warns to <see cref="Trace"/> and returns <c>true</c> regardless, so the property keeps its
+        /// default and the caller is told the value was taken. That is the right behaviour for
+        /// reading a drawing -- one bad number should not cost the picture -- and no use at all to
+        /// something reporting what is wrong with one.
+        /// </para>
+        /// <para>
+        /// So this asks the converter directly, through the descriptor <c>SetValue</c> would have
+        /// picked. Nothing here decides what is wrong with a value: the converter that attribute
+        /// actually uses does, and its refusal is the message. A table written here of which name
+        /// accepts what would be a second description of the same rules.
+        /// </para>
+        /// <para>
+        /// The tests above the converter mirror <see cref="SetPropertyValue"/>, and each returns
+        /// null exactly where that method reaches an answer without asking a converter -- a value it
+        /// rewrites first, stages as authored, or stores raw. A source view saying a valid document
+        /// is wrong is worse than one saying nothing, so anything this cannot settle is not settled.
+        /// </para>
+        /// <para>
+        /// What it therefore cannot report is a converter that refuses nothing. A path builder reads
+        /// <c>d</c> as far as it makes sense and drops the rest without complaint -- <c>d="QQQ"</c>
+        /// converts as happily as a real path does -- so nonsense there is invisible here. Calling
+        /// that an error would mean deciding that unread input is one, which is a rule this does not
+        /// have and would have to invent.
+        /// </para>
+        /// </remarks>
+        internal static string FindAttributeFault(
+            SvgElement element,
+            string ns,
+            string attributeName,
+            string attributeValue,
+            SvgDocument document)
+        {
+            if (element is null || attributeName is null || attributeValue is null)
+            {
+                return null;
+            }
+
+            // Never bound at all, so never converted.
+            if (!CanBindAttributeNamespace(ns) ||
+                (ns.Length == 0 && (attributeName == "xmlns" || attributeName == "version" || attributeName == "marker")) ||
+                attributeName.StartsWith("xmlns", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            if (SvgExpressionAttributes.TryUnwrap(attributeValue, out _))
+            {
+                // Expression code, not a value. Where the parser lifts it, what it evaluates to is
+                // not known until it is bound and the extension's own checker has already read it.
+                // Where it does not, the braces stay in the value and every converter refuses them,
+                // which is a true refusal reported for the wrong reason: the answer is not that this
+                // is a malformed number but that the attribute takes no expression at all.
+                return SvgExpressionAttributes.WhyUnsupported(attributeName);
+            }
+
+            if (IsEventDescriptorAttribute(element, attributeName) ||
+                SvgCssVariableResolver.IsCustomPropertyName(attributeName))
+            {
+                return null;
+            }
+
+            // A custom property is substituted before the converter sees anything, and what it holds
+            // is a question about the cascade rather than about this attribute.
+            if (attributeValue.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return null;
+            }
+
+            // Kept as custom attributes, ahead of any converter.
+            if (attributeName == "mix-blend-mode" || attributeName == "isolation" || attributeName == "text-decoration")
+            {
+                return null;
+            }
+
+            if (attributeName == "stop-opacity" && IsCssIdentifier(attributeValue, "inherit"))
+            {
+                return null;
+            }
+
+            if (attributeName == "opacity" && attributeValue == "undefined")
+            {
+                return null;
+            }
+
+            // Rewritten before conversion; a percentage this refuses is dropped rather than reported.
+            if (TryHandlePercentageOpacityAttribute(attributeName, attributeValue, out var normalized))
+            {
+                return null;
+            }
+
+            attributeValue = normalized;
+
+            if (ShouldKeepComputedStyleDeclaration(attributeName, attributeValue) ||
+                ShouldIgnoreInvalidPresentationStyleAttribute(attributeName, attributeValue))
+            {
+                return null;
+            }
+
+            // Staged as authored wherever the cascade still has to see the word.
+            if (IsCssIdentifier(attributeValue, "inherit") ||
+                IsCssIdentifier(attributeValue, "initial") ||
+                IsCssIdentifier(attributeValue, "unset"))
+            {
+                return null;
+            }
+
+            var descriptor = FindProperty(element, attributeName);
+
+            if (descriptor is null || descriptor.Converter is null)
+            {
+                // Not an attribute this element converts. Whether that makes it a mistake is a
+                // question about names, which this does not answer.
+                return null;
+            }
+
+            try
+            {
+                descriptor.Converter.ConvertFrom(document, CultureInfo.InvariantCulture, attributeValue);
+            }
+            catch (Exception failure)
+            {
+                return Explain(attributeName, attributeValue, (failure.InnerException ?? failure).Message);
+            }
+
+            return null;
+        }
+
+        /// <summary>Says which attribute a converter's refusal was about.</summary>
+        /// <remarks>
+        /// The converter decides, and what it decided is kept word for word -- but it is answering
+        /// about a string it was handed, so its own message names neither the attribute nor the
+        /// value. <c>The input string '' was not in a correct format</c> is the whole of what a unit
+        /// converter says about <c>width="abc"</c>. Naming the two is the reader's half, the same as
+        /// finding somewhere to point; the verdict is still entirely the converter's.
+        /// </remarks>
+        private static string Explain(string attributeName, string attributeValue, string message)
+        {
+            var detail = string.IsNullOrWhiteSpace(message) ? string.Empty : " " + message.Trim();
+
+            return $"'{attributeName}' cannot be set from '{attributeValue}'.{detail}";
+        }
+
+        /// <summary>The descriptor <c>SvgElement.SetValue</c> would pick for an attribute.</summary>
+        /// <remarks>
+        /// <para>
+        /// The generated <c>GetProperties</c> yields a type's own descriptors before its base's and
+        /// drops any the derived type shadows, so the first match is the one that would be used.
+        /// </para>
+        /// <para>
+        /// Built once per type because it is walked once per attribute, and it is a chain of
+        /// iterators over every property an element inherits -- around a hundred of them on anything
+        /// that can be painted. Searching it for each attribute in turn made checking a 57KB drawing
+        /// cost 34ms; a dictionary makes the same drawing 3.4ms, which is what splitting it into
+        /// coloured pieces costs.
+        /// </para>
+        /// </remarks>
+        private static ISvgPropertyDescriptor FindProperty(SvgElement element, string attributeName)
+        {
+            var properties = s_propertiesByType.GetOrAdd(element.GetType(), _ => CreatePropertyMap(element));
+
+            return properties.TryGetValue(attributeName, out var descriptor) ? descriptor : null;
+        }
+
+        private static Dictionary<string, ISvgPropertyDescriptor> CreatePropertyMap(SvgElement element)
+        {
+            var properties = new Dictionary<string, ISvgPropertyDescriptor>(StringComparer.Ordinal);
+
+            foreach (var property in element.GetProperties())
+            {
+                if (property.DescriptorType == DescriptorType.Property &&
+                    !properties.ContainsKey(property.AttributeName))
+                {
+                    properties[property.AttributeName] = property;
+                }
+            }
+
+            return properties;
         }
 
         private static bool IsCssIdentifier(string value, string identifier)

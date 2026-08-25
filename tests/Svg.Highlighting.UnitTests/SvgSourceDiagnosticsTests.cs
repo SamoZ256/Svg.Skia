@@ -224,8 +224,11 @@ public class SvgSourceDiagnosticsTests
     }
 
     [Fact]
-    public void A_Document_With_No_Expressions_Is_Not_Analysed_At_All()
+    public void A_Document_With_Nothing_Wrong_With_It_Has_Nothing_To_Say()
     {
+        // This used to say that a document with no expressions was not analysed at all, which was
+        // the whole cost of the pass on an ordinary drawing. It is now read for what its attribute
+        // values convert to as well, so what is pinned here is the answer rather than the work.
         Assert.Empty(SvgSourceDiagnostics.Analyse("<svg><rect fill=\"#fff\" /></svg>"));
         Assert.Empty(SvgSourceDiagnostics.Analyse(""));
         Assert.Empty(SvgSourceDiagnostics.Analyse(null));
