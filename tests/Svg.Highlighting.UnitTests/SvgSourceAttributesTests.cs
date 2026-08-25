@@ -235,6 +235,44 @@ public class SvgSourceAttributesTests
     }
 
     [Fact]
+    public void An_Id_Used_Twice_Is_A_Warning_On_The_Later_One()
+    {
+        // The first keeps the name -- that is what the id manager does -- so the first is not what
+        // is wrong. A warning, because the drawing opens and draws one of them.
+        var one = Assert.Single(Of("<rect id=\"a\" /><rect id=\"a\" />"));
+
+        Assert.Equal(SvgSourceSeverity.Warning, one.Severity);
+        Assert.Equal("The id 'a' is already used in this drawing, and a reference to it finds the first.", one.Message);
+        Assert.Equal("\"a\"", Marked("<rect id=\"a\" /><rect id=\"a\" />"));
+    }
+
+    [Fact]
+    public void Every_Repeat_After_The_First_Is_Reported()
+    {
+        Assert.Equal(2, Of("<rect id=\"a\" /><rect id=\"a\" /><rect id=\"a\" />").Length);
+    }
+
+    [Fact]
+    public void A_Repeated_Id_Does_Not_Also_Break_What_Refers_To_It()
+    {
+        // One warning, not a warning and an unresolved reference: the name is still there to find.
+        var one = Assert.Single(
+            Of("<defs><linearGradient id=\"g\" /><linearGradient id=\"g\" /></defs><rect fill=\"url(#g)\" />"));
+
+        Assert.Equal(SvgSourceSeverity.Warning, one.Severity);
+    }
+
+    [Theory]
+    [InlineData("<rect id=\"a\" /><rect id=\"b\" />")]
+    [InlineData("<rect /><rect />")]
+    // Nothing was named, so nothing was named twice.
+    [InlineData("<rect id=\"\" /><rect id=\"\" />")]
+    public void Ids_That_Differ_Are_Not_Reported(string body)
+    {
+        Assert.Empty(Of(body));
+    }
+
+    [Fact]
     public void A_Reference_To_An_Id_The_Drawing_Does_Not_Have_Is_Reported()
     {
         // The most ordinary way for a drawing to come out wrong, and today the quietest: the
@@ -455,6 +493,15 @@ public class SvgSourceAttributesTests
             "color-prof-01-f.svg",
             "interact-cursor-01-f.svg",
             "linking-uri-01-b.svg",
+
+            // And drawings that use one id twice, which the suite does by accident rather than to
+            // test anything: every reference to the name finds the first of them.
+            "animate-elem-24-t.svg",
+            "animate-pservers-grad-01-b.svg",
+            "filters-light-05-f.svg",
+            "masking-intro-01-f.svg",
+            "struct-image-12-b.svg",
+            "struct-use-12-f.svg",
         };
 
         var read = 0;

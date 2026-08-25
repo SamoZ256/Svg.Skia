@@ -137,7 +137,8 @@ uncoloured remainder is still there to read and select.
 
 Mistakes get a wavy underline where they are written, and hovering one shows its message.
 `…ErrorBrush` is the key for the mark, and `…WarningBrush` for the lighter one — an element name
-this renderer does not know is a warning, since the drawing still opens without it. `SourceDiagnostics` is the same list if you would rather show
+this renderer does not know, or an id used twice, is a warning, since the drawing still opens either
+way. `SourceDiagnostics` is the same list if you would rather show
 it your own way — a problems panel, a status line. That covers the drawing's
 expressions and the `<e:code>` block alike: a name nothing declares, a range on a colour, a `min`
 above its `max`, a `default` that will not resolve.

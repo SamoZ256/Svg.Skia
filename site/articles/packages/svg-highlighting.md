@@ -153,6 +153,10 @@ fallback names nothing (`fill="url(#a) none"` uses the fallback, which is what S
 parser does), nor does a list, an external file, or a drawing that contains a `<script>` — code can
 make an id after the document is read.
 
+An id used twice is a **warning** on the later one. Every `url(#…)` and `href` resolves through the
+id manager, which keeps the first it was given, so a repeat quietly decides which element a reference
+means while the file reads as though it says something else.
+
 An element name the parser does not know — `<rekt>`, or a real SVG element this renderer has not
 implemented — is a **warning** rather than an error: it and everything inside it draw nothing, but the
 drawing still opens. The table cannot tell a typo from something unimplemented, so the wording says

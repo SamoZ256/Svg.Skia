@@ -84,9 +84,21 @@ internal static class SvgSourceAttributes
                 scripted = true;
             }
 
-            if ((string?)element.Attribute("id") is { Length: > 0 } id)
+            if ((string?)element.Attribute("id") is { Length: > 0 } id && !ids.Add(id)
+                && element.Attribute("id") is { } repeated)
             {
-                ids.Add(id);
+                // The second and every later one. An id is what every url(#…) and href resolves
+                // through, and the manager keeps the first it was given -- so a repeat quietly
+                // decides which element a reference means, and the file reads as though it says
+                // something it does not. A warning because the drawing still opens, and draws one
+                // of them.
+                found.Add(SvgSourceDiagnostics.Mark(
+                    positions.Value(repeated),
+                    source.Length,
+                    $"The id '{id}' is already used in this drawing, and a reference to it finds the first.",
+                    tokens,
+                    source,
+                    SvgSourceSeverity.Warning));
             }
         }
 
