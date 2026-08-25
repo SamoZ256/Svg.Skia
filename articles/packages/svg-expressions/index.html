@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html data-lunet-theme-mode="system" data-lunet-theme-storage-key="lunet-theme" data-lunet-css-prefix="lunet" lang="en" itemscope itemtype="http://schema.org/WebPage">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="generator" content="lunet 1.0.10.0">
+    <script>(function(){const root=document.documentElement;const key=root.getAttribute("data-lunet-theme-storage-key")||"lunet-theme";const fallback=root.getAttribute("data-lunet-theme-mode")||"system";let stored=null;try{stored=localStorage.getItem(key);}catch(_){stored=null;}const mode=(stored==="light"||stored==="dark"||stored==="system")?stored:fallback;const prefersDark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches;const resolved=mode==="system"?(prefersDark?"dark":"light"):mode;root.setAttribute("data-lunet-theme-mode",mode);root.setAttribute("data-bs-theme",resolved);}());</script>
+    <link rel='icon' href='/Svg.Skia/favicon.ico' sizes='32x32'>
+    <title>Svg.Expressions | Svg.Skia</title>
+    <link rel="stylesheet" href="/Svg.Skia/css/lite.css">
+    <script src="/Svg.Skia/js/lite-defer.js" defer></script>
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@wieslawsoltes">
+<meta name="twitter:title" content="Svg.Expressions | Svg.Skia">
+<meta name="twitter:description" content="Svg.Expressions Svg.Expressions is the SVG expression extension: an addition to SVG that lets an attribute value be an expression instead of a literal, so one drawing can stand for a whole family of them. &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; xmlns:e=&quot;https://svg.skia/expr/1.0&quot; width=&quot;64&quot; height=&quot;64&quot;> &lt;defs> &lt;e:code> &lt;e:param name=&quot;level&quot; type=&quot;number&quot; default=&quot;0&quot; /> &lt;e:let name=&quot;alert&quot;>level ge 0.8&lt;/e:let> &lt;/e:code> &lt;/defs> &lt;circle cx=&quot;32&quot; cy=&quot;32&quot; r=&quot;20&quot; fill=&quot;{{ level > 0.9 ? #ff0000 : hsl(200, 74%, 55%) }}&quot; visibility=&quot;{{ alert }}&quot;...">
+<meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
+<meta name="twitter:image:alt" content="Svg.Expressions | Svg.Skia">
+<meta property="og:title" content="Svg.Expressions | Svg.Skia">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
+<meta property="og:description" content="Svg.Expressions Svg.Expressions is the SVG expression extension: an addition to SVG that lets an attribute value be an expression instead of a literal, so one drawing can stand for a whole family of them. &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; xmlns:e=&quot;https://svg.skia/expr/1.0&quot; width=&quot;64&quot; height=&quot;64&quot;> &lt;defs> &lt;e:code> &lt;e:param name=&quot;level&quot; type=&quot;number&quot; default=&quot;0&quot; /> &lt;e:let name=&quot;alert&quot;>level ge 0.8&lt;/e:let> &lt;/e:code> &lt;/defs> &lt;circle cx=&quot;32&quot; cy=&quot;32&quot; r=&quot;20&quot; fill=&quot;{{ level > 0.9 ? #ff0000 : hsl(200, 74%, 55%) }}&quot; visibility=&quot;{{ alert }}&quot;...">
+<meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
+<meta property="og:image:alt" content="Svg.Expressions | Svg.Skia">
+  </head>
+  <body>
+
+    <div id="lunet" class="container">
+      <nav class="navbar navbar-expand-md sticky-top">
+        <a class="navbar-brand" href="/Svg.Skia/">
+          <img class="lunet-logo" src="/Svg.Skia/images/logo.svg" alt="Svg.Skia" width="96" height="96">
+          <span class="visually-hidden">Home</span>
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+          data-bs-target="#navbarSupportedContent"
+          aria-controls="navbarSupportedContent"
+          aria-expanded="false"
+          aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div id="navbarSupportedContent" class="collapse navbar-collapse justify-content-between">
+<ol id='nav-id-home-0' class='navbar-nav nav-level0 show '>
+  <li id='nav-item-home-1' class='nav-item '>
+    <span class='nav-item-row'><a href='/Svg.Skia/' class='nav-link  '><i class='bi bi-house-door' aria-hidden='true'></i> Home</a></span>  </li>
+  <li id='nav-item-home-2' class='nav-item  active'>
+    <span class='nav-item-row'><a href='/Svg.Skia/articles/' class='nav-link  '><i class='bi bi-book' aria-hidden='true'></i> Docs</a></span>  </li>
+  <li id='nav-item-home-3' class='nav-item '>
+    <span class='nav-item-row'><a href='/Svg.Skia/api/' class='nav-link  '><i class='bi bi-braces' aria-hidden='true'></i> API</a></span>  </li>
+</ol>
+          <ol class="navbar-nav flex-grow-1" style="padding-right: 0.5rem;">
+            <li class="nav-item w-100">
+                <div class="lunet-search dropdown w-100">
+                  <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input id="search-input" type="search" class="form-control" placeholder="Search... (Alt+s)" aria-label="Search" aria-controls="search-results" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-search-empty-message="Enter words to search..." data-search-no-results-message="No results found.">
+                    <ul id="search-results" class="dropdown-menu w-100 p-0" style="max-height: 50vh;" role="listbox" aria-labelledby="search-input"></ul>
+                  </div>
+                </div>
+            </li>
+          </ol>
+          <div class="d-flex align-items-center gap-2 flex-shrink-0 navbar-right">
+            <div class="dropdown">
+              <button
+                id="theme-mode-toggle"
+                class="btn btn-outline-secondary btn-sm lunet-theme-toggle dropdown-toggle"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+                aria-label="Theme">
+                <i class="bi bi-circle-half" data-lunet-theme-toggle-icon aria-hidden="true"></i>
+                <span
+                  data-lunet-theme-toggle-label
+                  data-theme-system-label="System"
+                  data-theme-light-label="Light"
+                  data-theme-dark-label="Dark">Theme</span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="theme-mode-toggle">
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="system"><i class="bi bi-circle-half me-2"></i>System</button></li>
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="light"><i class="bi bi-sun-fill me-2"></i>Light</button></li>
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="dark"><i class="bi bi-moon-stars-fill me-2"></i>Dark</button></li>
+              </ul>
+            </div>
+<ol id='nav-id-home2-0' class='navbar-nav nav-level0 show flex-shrink-0'>
+  <li id='nav-item-home2-1' class='nav-item '>
+    <span class='nav-item-row'><a href='https://github.com/wieslawsoltes/Svg.Skia' class='nav-link  btn btn-info'><i class="bi bi-github"></i> GitHub</a></span>  </li>
+</ol>
+          </div>
+        </div>
+      </nav>
+      <div class="lunet lunet-articles">
+        <section data-prismjs-copy="" data-prismjs-copy-success="" data-prismjs-copy-timeout="1200" data-copy-tooltip="Copy to Clipboard." data-copy-tooltip-success="Copied!" data-copy-tooltip-error="Failed to copy!">
+
+<div class="container-xxl">
+  <div class="row">
+      <!-- Left sidebar - responsive offcanvas (offcanvas on mobile, visible sidebar on md+) -->
+      <nav id="docs-sidebar-menu" class="col-md-3 col-lg-3 col-xl-3 col-xxl-2 offcanvas-md offcanvas-start sticky-md-top menu-sidebar align-self-start order-1 order-md-0" tabindex="-1" aria-labelledby="docs-sidebar-menu-label" aria-expanded="true">
+        <div class="offcanvas-header">
+          <h5 class="offcanvas-title" id="docs-sidebar-menu-label">Menu</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body">
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.eae3b3891b6e2dc99fed4f90647687c2.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-24,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+        </div>
+      </nav>
+      <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
+      <aside id="docs-sidebar-toc" class="col-12 col-xxl-2 sticky-xxl-top menu-sidebar align-self-start order-0 order-xxl-2 collapse d-xxl-block" aria-expanded="true">
+        <h3 class="toc-title">On this page</h3>
+        <nav class="js-toc"></nav>
+      </aside>
+      <!-- Main content column -->
+      <div class="col-12 col-md-9 col-lg-9 col-xl-9 col-xxl-8 order-2 order-md-1 js-toc-content">
+        <ol class='breadcrumb'>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/' class='breadcrumb-link  '><i class='bi bi-house-door' aria-hidden='true'></i> Home</a>  </li>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/articles/' class='breadcrumb-link  '><i class='bi bi-book' aria-hidden='true'></i> Docs</a>  </li>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/articles/packages/' class='breadcrumb-link  '>Packages</a>  </li>
+          <li class='breadcrumb-item  active'>
+            Svg.Expressions  </li>
+        </ol>
+
+        <p id="lunet-results"></p>
+        <!-- Toggle buttons visible only on small screens -->
+        <div class="d-md-none mb-3">
+          <button
+            class="btn btn-outline-secondary btn-sm me-2"
+            type="button"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#docs-sidebar-menu"
+            aria-controls="docs-sidebar-menu"
+            aria-label="Toggle docs menu">
+            Menu
+          </button>
+          <button
+            class="btn btn-outline-secondary btn-sm d-xxl-none"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#docs-sidebar-toc"
+            aria-controls="docs-sidebar-toc"
+            aria-expanded="false"
+            aria-label="Toggle Table Of Contents">
+            On this page
+          </button>
+        </div>
+<!-- lunet:summarize -->
+<h1 id="svgexpressions">Svg.Expressions</h1>
+<p><code>Svg.Expressions</code> is the SVG expression extension: an addition to SVG that lets an attribute value be
+an <strong>expression</strong> instead of a literal, so one drawing can stand for a whole family of them.</p>
+<pre><code class="language-xml">&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; xmlns:e=&quot;https://svg.skia/expr/1.0&quot; width=&quot;64&quot; height=&quot;64&quot;&gt;
+  &lt;defs&gt;
+    &lt;e:code&gt;
+      &lt;e:param name=&quot;level&quot; type=&quot;number&quot; default=&quot;0&quot; /&gt;
+      &lt;e:let name=&quot;alert&quot;&gt;level ge 0.8&lt;/e:let&gt;
+    &lt;/e:code&gt;
+  &lt;/defs&gt;
+
+  &lt;circle cx=&quot;32&quot; cy=&quot;32&quot; r=&quot;20&quot;
+          fill=&quot;{{ level &gt; 0.9 ? #ff0000 : hsl(200, 74%, 55%) }}&quot;
+          visibility=&quot;{{ alert }}&quot; /&gt;
+&lt;/svg&gt;
+</code></pre>
+<p>The package itself is the language — lexer, parser and type checker — shared by everything that reads
+the format. This article is the format: what you may write and what it means. Rendering a drawing
+with values supplied is <a href="/Svg.Skia/articles/packages/svg-skia">Svg.Skia</a>; turning one into C# is
+<a href="/Svg.Skia/articles/packages/svg-codegen-skia">Svg.CodeGen.Skia</a> and <a href="/Svg.Skia/articles/packages/svg-sourcegenerator-skia">Svg.SourceGenerator.Skia</a>;
+colouring and checking one for a source view is <a href="/Svg.Skia/articles/packages/svg-highlighting">Svg.Highlighting</a>.</p>
+<h2 id="install">Install</h2>
+<pre><code class="language-bash">dotnet add package Svg.Expressions
+</code></pre>
+<p>You need it directly only to lex, parse or type-check expression text yourself. The packages above
+reference it already.</p>
+<h2 id="1-two-pieces-of-syntax">1. Two pieces of syntax</h2>
+<h3 id="11-inline-expressions">1.1 Inline expressions</h3>
+<p>An expression is written directly in the attribute it drives, wrapped in double braces:</p>
+<pre><code class="language-xml">&lt;rect fill=&quot;{{ primary }}&quot; opacity=&quot;{{ fade }}&quot; /&gt;
+</code></pre>
+<p>The whole attribute value must be the expression. A value that merely <em>contains</em> braces is left
+alone — <code>fill=&quot;url(#g) {{ x }}&quot;</code> is an ordinary (invalid) value, not an expression.</p>
+<p>Whitespace inside the braces is trimmed, so <code>{{primary}}</code> and <code>{{ primary }}</code> are equivalent.</p>
+<p>A drawing written this way has no design-time value: the expression replaces the attribute rather
+than sitting beside it, so a tool that does not know the extension shows a stand-in colour rather
+than the intended one. In exchange there is one source of truth per attribute and no second value to
+keep in sync.</p>
+<h3 id="12-the-declaration-block">1.2 The declaration block</h3>
+<p>Parameters and named intermediates are declared in a foreign-namespace element, which conforming SVG
+renderers ignore:</p>
+<pre><code class="language-xml">&lt;defs&gt;
+  &lt;e:code&gt;
+    &lt;e:param name=&quot;t&quot;    type=&quot;number&quot;  default=&quot;0&quot; /&gt;
+    &lt;e:param name=&quot;hue&quot;  type=&quot;number&quot;  default=&quot;217&quot; min=&quot;0&quot; max=&quot;360&quot; step=&quot;1&quot; /&gt;
+    &lt;e:param name=&quot;tint&quot; type=&quot;color&quot;   /&gt;
+    &lt;e:param name=&quot;bold&quot; type=&quot;boolean&quot; default=&quot;false&quot; /&gt;
+
+    &lt;e:let name=&quot;wave&quot;&gt;(sin(t * tau) + 1) / 2&lt;/e:let&gt;
+    &lt;e:let name=&quot;shade&quot;&gt;mix(tint, #000000, wave)&lt;/e:let&gt;
+  &lt;/e:code&gt;
+&lt;/defs&gt;
+</code></pre>
+<p>The namespace URI is <code>https://svg.skia/expr/1.0</code>. Matching is by <strong>URI, not prefix</strong> — call it <code>e:</code>,
+<code>expr:</code> or anything else. The block may appear anywhere in the document (<code>&lt;defs&gt;</code> is conventional),
+and multiple blocks are merged in document order.</p>
+<p><strong><code>&lt;e:param&gt;</code></strong> declares a parameter. <code>name</code> and <code>type</code> are required.</p>
+<p><code>default</code> is an expression, and makes the parameter optional. With no <code>default</code> the parameter is
+<strong>required</strong> — nothing is invented, so a value never appears that is written nowhere in the document.</p>
+<p>Two rules follow:</p>
+<ul>
+<li>A default may use literals, constants and functions but <strong>not other parameters</strong>, since an ordering
+dependency between them would be invisible in the document.</li>
+<li>The parameters <em>with</em> defaults have to come <strong>last</strong>. Declaring one without a default after one
+with a default is an error rather than a silent reordering.</li>
+</ul>
+<p><code>min</code>, <code>max</code> and <code>step</code> describe the range a host should offer — the ends of a slider, and its
+increment. All three are optional, and each is an expression like <code>default</code> is, so <code>max=&quot;tau&quot;</code>,
+<code>max=&quot;100%&quot;</code> and <code>step=&quot;1/60&quot;</code> all work.</p>
+<pre><code class="language-xml">&lt;e:param name=&quot;hue&quot;  type=&quot;number&quot; default=&quot;217&quot; min=&quot;0&quot; max=&quot;360&quot; step=&quot;1&quot; /&gt;
+&lt;e:param name=&quot;fade&quot; type=&quot;number&quot; default=&quot;0.5&quot; step=&quot;5%&quot; /&gt;
+</code></pre>
+<p><code>min</code> and <code>max</code> are given together or not at all. <code>step</code> may stand alone, against the range of <code>0</code> to
+<code>1</code> a parameter has when it declares none. All three are for <code>number</code> only — a colour or boolean
+carrying one is an error, as is a <code>min</code> above its <code>max</code>, or a <code>step</code> of zero or less.</p>
+<p>They are <strong>advice to a host, not a constraint on the value</strong>. Nothing clamps: a value supplied at run
+time is accepted wherever it lies, and a <code>default</code> outside its own range is legal.</p>
+<p><strong><code>&lt;e:let&gt;</code></strong> declares a local. Its type is <strong>inferred</strong> from the expression. Lets resolve in document
+order, so a let may reference parameters and earlier lets, but not later ones — and not itself.</p>
+<p>Names must be valid identifiers (letter or <code>_</code>, then letters, digits or <code>_</code>), must not collide with a
+built-in constant, function or operator word (<a href="#33-operators">§3.3</a>), and must be unique across
+params and lets.</p>
+<h2 id="2-which-attributes-take-an-expression">2. Which attributes take an expression</h2>
+<table class="table">
+<thead>
+<tr>
+<th>Attribute</th>
+<th>Expression type</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fill</code></td>
+<td>color</td>
+<td>Fill colour. An element filled with <code>url(#gradient)</code> is parameterised through its <code>stop-color</code>s instead.</td>
+</tr>
+<tr>
+<td><code>stroke</code></td>
+<td>color</td>
+<td>Stroke colour.</td>
+</tr>
+<tr>
+<td><code>stop-color</code></td>
+<td>color</td>
+<td>Gradient stop colour.</td>
+</tr>
+<tr>
+<td><code>opacity</code></td>
+<td>number</td>
+<td>Group opacity.</td>
+</tr>
+<tr>
+<td><code>visibility</code></td>
+<td>boolean</td>
+<td><code>true</code> meaning visible. Wraps the element's drawing in a condition.</td>
+</tr>
+</tbody>
+</table>
+<p>Everything else — <code>x</code>, <code>y</code>, <code>cx</code>, <code>cy</code>, <code>width</code>, <code>height</code>, <code>d</code>, <code>transform</code>, <code>display</code>,
+<code>stroke-width</code>, <code>fill-opacity</code> — is a literal. Braces written in one of those are read as an ordinary
+value and do nothing; a source view marks it.</p>
+<p><code>visibility</code> is a boolean rather than a value substitution because a hidden element contributes no
+drawing at all. SVG's third value, <code>collapse</code>, means the same as <code>hidden</code> outside CSS table layout,
+so nothing is lost.</p>
+<p>Ordinary attributes still apply alongside an expression: <code>fill-opacity</code>, <code>stroke-opacity</code> and
+<code>stop-opacity</code> scale its alpha, and <code>color-interpolation=&quot;linearRGB&quot;</code> converts it, exactly as they
+would a literal.</p>
+<h2 id="3-language-reference">3. Language reference</h2>
+<h3 id="31-types">3.1 Types</h3>
+<p><code>number</code> (single-precision float), <code>color</code> (RGBA, 8 bits per channel), <code>boolean</code>.</p>
+<p>There are no implicit conversions between them.</p>
+<h3 id="32-literals">3.2 Literals</h3>
+<table class="table">
+<thead>
+<tr>
+<th>Form</th>
+<th>Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1</code>, <code>1.5</code>, <code>.5</code></td>
+<td>number</td>
+<td>Decimal only. No exponent form.</td>
+</tr>
+<tr>
+<td><code>55%</code>, <code>7.4%</code></td>
+<td>number</td>
+<td><code>%</code> is a <strong>suffix</strong>, meaning &quot;divide by 100&quot;. <code>55%</code> is <code>0.55</code>.</td>
+</tr>
+<tr>
+<td><code>#f80</code></td>
+<td>color</td>
+<td>3 hex digits, each doubled.</td>
+</tr>
+<tr>
+<td><code>#f808</code></td>
+<td>color</td>
+<td>4 hex digits, RGBA, each doubled.</td>
+</tr>
+<tr>
+<td><code>#ff8800</code></td>
+<td>color</td>
+<td>6 hex digits, RGB, alpha 255.</td>
+</tr>
+<tr>
+<td><code>#ff880080</code></td>
+<td>color</td>
+<td>8 hex digits, RGBA.</td>
+</tr>
+<tr>
+<td><code>true</code>, <code>false</code></td>
+<td>boolean</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p><code>%</code> is <strong>only</strong> a suffix and never an operator. Use <code>mod(a, b)</code> for the remainder. This keeps <code>55%</code>
+unambiguous; writing <code>a % b</code> is a syntax error with a message saying so.</p>
+<h3 id="33-operators">3.3 Operators</h3>
+<p>Loosest to tightest binding. Each comparison and logical operator has an equivalent <strong>word form</strong>,
+listed alongside:</p>
+<table class="table">
+<thead>
+<tr>
+<th>Precedence</th>
+<th>Operators</th>
+<th>Word form</th>
+<th>Operands</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>c ? a : b</code> (right-associative)</td>
+<td></td>
+<td><code>c</code> boolean; <code>a</code>, <code>b</code> same type</td>
+<td>that type</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>\|\|</code></td>
+<td><code>or</code></td>
+<td>boolean</td>
+<td>boolean</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>&amp;&amp;</code></td>
+<td><code>and</code></td>
+<td>boolean</td>
+<td>boolean</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>==</code> <code>!=</code></td>
+<td><code>eq</code> <code>ne</code></td>
+<td>both operands the same type</td>
+<td>boolean</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code></td>
+<td><code>lt</code> <code>le</code> <code>gt</code> <code>ge</code></td>
+<td>number</td>
+<td>boolean</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>+</code> <code>-</code></td>
+<td></td>
+<td>number</td>
+<td>number</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>*</code> <code>/</code></td>
+<td></td>
+<td>number</td>
+<td>number</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>-x</code> (unary)</td>
+<td></td>
+<td>number</td>
+<td>number</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>!x</code></td>
+<td><code>not x</code></td>
+<td>boolean</td>
+<td>boolean</td>
+</tr>
+</tbody>
+</table>
+<p>Parentheses group as usual.</p>
+<p>Arithmetic on colours is rejected — use <code>mix(a, b, t)</code> to blend. Ordering comparisons (<code>&lt;</code>, <code>&gt;</code>, …)
+are numbers only; <code>==</code> and <code>!=</code> work on any type provided both sides match.</p>
+<h4 id="escaping-and-the-word-forms">Escaping, and the word forms</h4>
+<p>XML requires <code>&lt;</code> and <code>&amp;</code> to be escaped, which makes <code>t &lt; 5</code> and <code>a &amp;&amp; b</code> awkward to author. <code>&gt;</code> does
+<strong>not</strong> need escaping and can always be written literally.</p>
+<p>The word forms exist to avoid the problem entirely, and are exact aliases — same precedence, same
+meaning:</p>
+<pre><code class="language-xml">&lt;e:let name=&quot;inRange&quot;&gt;t gt 0.1 and t lt 0.9&lt;/e:let&gt;
+&lt;e:let name=&quot;escaped&quot;&gt;t &amp;gt; 0.1 &amp;amp;&amp;amp; t &amp;lt; 0.9&lt;/e:let&gt;   &lt;!-- identical --&gt;
+</code></pre>
+<p>The full set is provided rather than only <code>lt</code>/<code>le</code>/<code>and</code>, so the language does not have a word form
+for <code>&lt;</code> but not for <code>&gt;</code>. Both spellings may be mixed freely.</p>
+<p>A <code>CDATA</code> section also works, since element text and CDATA are read the same way:</p>
+<pre><code class="language-xml">&lt;e:let name=&quot;cdata&quot;&gt;&lt;![CDATA[t &lt; 0.9 &amp;&amp; t &gt; 0.1]]&gt;&lt;/e:let&gt;
+</code></pre>
+<p>All nine words — <code>and or not lt le gt ge eq ne</code> — are reserved and cannot be used as parameter or let
+names.</p>
+<h3 id="34-constants">3.4 Constants</h3>
+<table class="table">
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pi</code></td>
+<td>number</td>
+<td>π</td>
+</tr>
+<tr>
+<td><code>tau</code></td>
+<td>number</td>
+<td>2π</td>
+</tr>
+</tbody>
+</table>
+<h3 id="35-functions">3.5 Functions</h3>
+<p>Numeric:</p>
+<table class="table">
+<thead>
+<tr>
+<th>Signature</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sin(x)</code> <code>cos(x)</code> <code>tan(x)</code></td>
+<td><strong>Radians.</strong> For a 0..1 cycle use <code>sin(t * tau)</code>.</td>
+</tr>
+<tr>
+<td><code>abs(x)</code> <code>sqrt(x)</code> <code>floor(x)</code> <code>ceil(x)</code> <code>round(x)</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>pow(x, y)</code> <code>min(a, b)</code> <code>max(a, b)</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>mod(a, b)</code></td>
+<td>Remainder; the sign follows the dividend.</td>
+</tr>
+<tr>
+<td><code>clamp(x, lo, hi)</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>lerp(a, b, t)</code></td>
+<td><code>a + (b - a) * t</code>. <strong><code>t</code> is not clamped</strong>, so it extrapolates outside 0..1.</td>
+</tr>
+</tbody>
+</table>
+<p>Colour:</p>
+<table class="table">
+<thead>
+<tr>
+<th>Signature</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rgb(r, g, b)</code></td>
+<td>Channels <strong>0..255</strong>, clamped. Alpha 255.</td>
+</tr>
+<tr>
+<td><code>rgba(r, g, b, a)</code></td>
+<td>Channels 0..255; alpha <strong>0..1</strong>, clamped.</td>
+</tr>
+<tr>
+<td><code>hsl(h, s, l)</code></td>
+<td><code>h</code> in <strong>degrees</strong>, wrapped, so <code>h + 45</code> needs no <code>mod</code>. <code>s</code> and <code>l</code> are <strong>0..1</strong>, clamped — write them as <code>74%</code>.</td>
+</tr>
+<tr>
+<td><code>hsla(h, s, l, a)</code></td>
+<td>As <code>hsl</code>, alpha 0..1.</td>
+</tr>
+<tr>
+<td><code>mix(a, b, t)</code></td>
+<td>Per-channel linear blend including alpha. <code>t</code> clamped to 0..1.</td>
+</tr>
+<tr>
+<td><code>withAlpha(c, a)</code></td>
+<td>Replaces alpha; <code>a</code> is 0..1, clamped.</td>
+</tr>
+</tbody>
+</table>
+<p>Note the deliberate asymmetry: <code>rgb</code> takes 0..255 and <code>hsl</code> takes degrees plus fractions, matching
+CSS rather than being internally uniform.</p>
+<h3 id="36-grammar">3.6 Grammar</h3>
+<pre><code>conditional    := or ( '?' conditional ':' conditional )?
+or             := and ( ( '||' | 'or' ) and )*
+and            := equality ( ( '&amp;&amp;' | 'and' ) equality )*
+equality       := comparison ( ( '==' | '!=' | 'eq' | 'ne' ) comparison )*
+comparison     := additive ( ( '&lt;' | '&lt;=' | '&gt;' | '&gt;=' | 'lt' | 'le' | 'gt' | 'ge' ) additive )*
+additive       := multiplicative ( ( '+' | '-' ) multiplicative )*
+multiplicative := unary ( ( '*' | '/' ) unary )*
+unary          := ( '-' | '!' | 'not' ) unary | primary
+primary        := number | color | 'true' | 'false'
+                | identifier
+                | identifier '(' ( conditional ( ',' conditional )* )? ')'
+                | '(' conditional ')'
+</code></pre>
+<h2 id="related-docs">Related docs</h2>
+<ul>
+<li><a href="/Svg.Skia/articles/packages/svg-highlighting">Svg.Highlighting</a> — colouring and checking a document that uses the extension</li>
+<li><a href="/Svg.Skia/articles/packages/svg-viewer-skia-avalonia">Svg.Viewer.Skia.Avalonia</a> — a viewer that builds a control per parameter</li>
+<li><a href="/Svg.Skia/articles/packages/svg-codegen-skia">Svg.CodeGen.Skia</a> — turning a drawing into C#</li>
+<li><a href="/Svg.Skia/articles/guides/source-generator-and-svgc">Source Generator and svgc</a></li>
+</ul>
+
+      </div>
+  </div>
+</div>
+
+        </section>
+        <footer>
+          <hr>
+          <p>Copyright &copy; 2026, Wieslaw Soltes aka <a href="https://github.com/wieslawsoltes">wieslawsoltes</a> - Content licensed under the Creative Commons <a href="http://creativecommons.org/licenses/by/2.5/">CC BY 2.5</a> | Site generated by <a href="https://github.com/lunet-io/lunet">lunet</a> hosted on <a href="https://pages.github.com/">GitHub Pages</a></p>
+        </footer>
+      </div>
+    </div>
+
+  </body>
+</html>
