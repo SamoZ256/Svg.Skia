@@ -117,7 +117,7 @@ public class SKSvgSettings
         EnableTextSelectionRendering = true;
         TextSelectionColor = new SkiaSharp.SKColor(0x00, 0x80, 0x00, 0xFF);
         EnableExternalJavaScript = true;
-        JavaScriptTimeoutMilliseconds = 1000;
+        JavaScriptTimeoutMilliseconds = 10000;
         JavaScriptMaxStatements = 10000;
         ThrowOnJavaScriptError = false;
     }

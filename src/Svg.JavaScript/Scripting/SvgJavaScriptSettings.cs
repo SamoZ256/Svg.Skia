@@ -13,7 +13,7 @@ public sealed class SvgJavaScriptSettings
     public SvgJavaScriptSettings()
     {
         EnableExternalJavaScript = true;
-        TimeoutMilliseconds = 1000;
+        TimeoutMilliseconds = 10000;
         MaxStatements = 10000;
         ThrowOnError = false;
     }

@@ -432,6 +432,9 @@ public sealed partial class SvgJavaScriptRuntime
     {
         return new Engine(options =>
         {
+            // This budget is wall clock, not work done: a stalled machine spends it without the
+            // script running at all, so it is a "something has truly hung" ceiling rather than a
+            // performance limit. MaxStatements below is the deterministic runaway guard.
             if (settings.TimeoutMilliseconds > 0)
             {
                 options.TimeoutInterval(TimeSpan.FromMilliseconds(settings.TimeoutMilliseconds));

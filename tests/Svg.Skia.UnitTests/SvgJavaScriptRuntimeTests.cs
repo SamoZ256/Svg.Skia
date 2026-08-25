@@ -1593,7 +1593,6 @@ public class SvgJavaScriptRuntimeTests
         using var svg = new SKSvg();
         svg.Settings.EnableJavaScript = true;
         svg.Settings.ThrowOnJavaScriptError = true;
-        svg.Settings.JavaScriptTimeoutMilliseconds = 3000;
         svg.Load(GetW3CSvgPath("struct-dom-13-f"));
 
         var body = Assert.IsType<SvgGroup>(svg.SourceDocument!.GetElementById("test-body-content")!);
@@ -1907,7 +1906,6 @@ public class SvgJavaScriptRuntimeTests
         using var svg = new SKSvg();
         svg.Settings.EnableJavaScript = true;
         svg.Settings.ThrowOnJavaScriptError = true;
-        svg.Settings.JavaScriptTimeoutMilliseconds = 3000;
         svg.Load(GetW3CSvgPath("svgdom-over-01-f"));
 
         var tt = GetJavaScriptRuntime(svg).GetElement(svg.SourceDocument!.GetElementById("tt")!);
