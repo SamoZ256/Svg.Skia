@@ -117,6 +117,21 @@ naming the attribute and the value is added, because a converter is answering ab
 its own message names neither. An expression written in an attribute that does not take one —
 `stroke-width="{%{{{ w }}}%}"` — is reported too, and says which attributes do.
 
+**Inline styles are checked the same way**, since a declaration reaches the same converter — the
+parser stages it and `SvgElement.FlushStyles` hands it back once the document is read. So
+`fill="#gggggg"` and `style="fill:#gggggg"` are reported alike, and the mark is the declaration
+rather than the attribute holding it:
+
+```xml
+<rect style="fill:red;stroke-width:abc;opacity:.5" />
+<!--                               ^ only this -->
+```
+
+The declarations come from the parser's own scanner, so a `;` inside quotes, inside `url(…)` or
+inside a comment is not a separator, and `!important` comes off the value before anything converts
+it. Where that scanner gives up — or where the attribute held an XML entity, which shifts every
+offset after it — the pieces cannot be placed and nothing is reported.
+
 Nothing is reported where the parser would not have asked a converter at all: a `var(…)`, a value it
 rewrites first (`opacity="50%"`), one it stages as authored (`inherit`, `initial`, `unset`), one it
 keeps raw (`mix-blend-mode`, an `on…` handler), an attribute in a foreign namespace, or an element name

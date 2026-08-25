@@ -96,6 +96,34 @@ internal static class SvgSourceAttributes
 
             foreach (var attribute in element.Attributes())
             {
+                if (attribute.Name.NamespaceName.Length == 0
+                    && attribute.Name.LocalName == "style"
+                    && Declarations(source, positions.Value(attribute), attribute.Value) is { } declarations)
+                {
+                    foreach (var declaration in declarations)
+                    {
+                        var refused = SvgElementFactory.FindStyleFault(
+                            probe,
+                            declaration.Name,
+                            declaration.Value,
+                            owner);
+
+                        if (refused is not null)
+                        {
+                            // The span of the declaration rather than the token it sits in: a style
+                            // attribute is one value to the splitter, and underlining all of it to
+                            // say one declaration in six is wrong points at the wrong thing.
+                            found.Add(new SvgSourceDiagnostic(
+                                declaration.Start,
+                                declaration.Length,
+                                SvgSourceSeverity.Error,
+                                refused));
+                        }
+                    }
+
+                    continue;
+                }
+
                 var fault = SvgElementFactory.FindAttributeFault(
                     probe,
                     attribute.Name.NamespaceName,
@@ -113,5 +141,55 @@ internal static class SvgSourceAttributes
                 found.Add(SvgSourceDiagnostics.Mark(at, source.Length, fault, tokens, source));
             }
         }
+    }
+
+    /// <summary>
+    /// The declarations of a <c>style</c> attribute, placed in the document, or null where they
+    /// cannot be.
+    /// </summary>
+    /// <remarks>
+    /// The reader hands over a value with its entities already resolved, so <c>&amp;quot;</c> arrives
+    /// as one character and every offset after it in that attribute is a character short. An
+    /// ampersand anywhere in the raw span is enough to give up on placing the pieces -- and it would
+    /// split them wrongly in any case, since the <c>;</c> ending an entity is not the <c>;</c>
+    /// ending a declaration. The whole value is still checked as one attribute below, which is what
+    /// this returning null asks for.
+    /// </remarks>
+    private static List<(string Name, string Value, int Start, int Length)>? Declarations(
+        string source,
+        int valueStart,
+        string value)
+    {
+        if (valueStart <= 0 || valueStart >= source.Length)
+        {
+            return null;
+        }
+
+        var quote = source[valueStart - 1];
+
+        if (quote is not ('"' or '\''))
+        {
+            return null;
+        }
+
+        var valueEnd = source.IndexOf(quote, valueStart);
+
+        if (valueEnd < 0 || valueEnd - valueStart != value.Length)
+        {
+            return null;
+        }
+
+        var placed = new List<(string, string, int, int)>();
+
+        foreach (var declaration in SvgInlineStyleAttributeParser.Split(value))
+        {
+            placed.Add((
+                declaration.Name,
+                declaration.Value,
+                valueStart + declaration.ValueStart,
+                declaration.ValueLength));
+        }
+
+        return placed;
     }
 }

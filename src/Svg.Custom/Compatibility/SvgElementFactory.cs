@@ -823,6 +823,42 @@ namespace Svg
             return null;
         }
 
+        /// <summary>
+        /// Why the converter for one inline-style declaration refuses its value, or null.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The same question as <see cref="FindAttributeFault"/>, asked where most drawings actually
+        /// put their paint. A declaration reaches the very same converter, only later: the parser
+        /// stages it with <c>AddStyle</c> and <c>SvgElement.FlushStyles</c> hands it back to
+        /// <see cref="SetPropertyValue"/> once the document is read. So <c>fill="#gggggg"</c> and
+        /// <c>style="fill:#gggggg"</c> fail identically, and reporting only the first would be an
+        /// accident of which one the XML reader happened to hand over directly.
+        /// </para>
+        /// <para>
+        /// One step belongs to CSS rather than to SVG: <c>!important</c> is part of the declaration
+        /// and not part of the value, so it comes off before anything is converted. Leaving it on
+        /// would refuse <c>fill: red !important</c>, which is valid and which the parser applies.
+        /// </para>
+        /// </remarks>
+        internal static string FindStyleFault(
+            SvgElement element,
+            string propertyName,
+            string propertyValue,
+            SvgDocument document)
+        {
+            if (propertyValue is null)
+            {
+                return null;
+            }
+
+            var value = propertyValue;
+
+            SvgCssDeclarationPriority.NormalizePriority(ref value, SvgElement.StyleSpecificity_InlineStyle);
+
+            return FindAttributeFault(element, string.Empty, propertyName, value, document);
+        }
+
         /// <summary>Says which attribute a converter's refusal was about.</summary>
         /// <remarks>
         /// The converter decides, and what it decided is kept word for word -- but it is answering

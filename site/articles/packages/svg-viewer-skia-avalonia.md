@@ -142,9 +142,10 @@ above its `max`, a `default` that will not resolve.
 It covers the SVG as well. An attribute value the parser's own converter will not take —
 `width="abc"`, `stroke-miterlimit="20%"`, a unit this renderer does not implement — is marked where it
 is written, which is the one failure the library is least able to report for itself: the value is
-dropped, the property keeps its default, and the drawing renders wrong without a word. An expression
-written in an attribute that does not take one, `stroke-width="{%{{{ w }}}%}"`, is marked too, and says
-which attributes do. What counts as a mistake is
+dropped, the property keeps its default, and the drawing renders wrong without a word. A declaration
+inside `style="…"` is marked the same way, and on the declaration rather than the whole attribute. An
+expression written in an attribute that does not take one, `stroke-width="{%{{{ w }}}%}"`, is marked
+too, and says which attributes do. What counts as a mistake is
 [Svg.Highlighting](svg-highlighting)'s answer, which is the language's own checker — and a
 declaration that is wrong is marked on the attribute that is wrong, not summarised above the drawing.
 

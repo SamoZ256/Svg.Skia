@@ -155,6 +155,72 @@ public class SvgSourceAttributesTests
     }
 
     [Fact]
+    public void A_Declaration_In_A_Style_Attribute_Is_Checked_Like_The_Attribute_It_Stands_For()
+    {
+        // These reach the same converter, only later -- AddStyle stages them and FlushStyles hands
+        // them back once the document is read -- so reporting one spelling and not the other would
+        // be an accident of which the XML reader passed over directly.
+        Assert.Equal("#gggggg", Marked("<rect style=\"fill:#gggggg\" />"));
+        Assert.Equal("abc", Marked("<rect style=\"stroke-width:abc\" />"));
+    }
+
+    [Fact]
+    public void The_Declaration_Is_Marked_Rather_Than_The_Whole_Attribute()
+    {
+        // A style attribute is one value to the splitter. Underlining all of it to say the second of
+        // three declarations is wrong points at the two that are right as well.
+        Assert.Equal("abc", Marked("<rect style=\"fill:red;stroke-width:abc;opacity:.5\" />"));
+    }
+
+    [Fact]
+    public void Important_Is_Part_Of_The_Declaration_And_Not_Of_The_Value()
+    {
+        // CSS strips it before the value is converted, and the parser applies the result. Leaving it
+        // on would refuse a declaration that works.
+        Assert.Empty(Of("<rect style=\"fill:red !important\" />"));
+    }
+
+    [Theory]
+    // The same silences the attribute form keeps, reached through the style form.
+    [InlineData("<rect style=\"fill:var(--c)\" />")]
+    [InlineData("<rect style=\"fill:inherit;width:auto\" />")]
+    [InlineData("<rect style=\"--c: nonsense\" />")]
+    // Nothing was written, which is what a half-typed declaration looks like.
+    [InlineData("<rect style=\"fill:\" />")]
+    [InlineData("<rect style=\"\" />")]
+    // A ';' inside url() does not end a declaration, so there is no 'b)' to complain about.
+    [InlineData("<rect style=\"fill:url(#a;b)\" />")]
+    [InlineData("<rect style=\"/*x*/fill:red\" />")]
+    public void A_Style_The_Parser_Would_Not_Convert_Is_Not_Reported(string body)
+    {
+        Assert.Empty(Of(body));
+    }
+
+    [Fact]
+    public void A_Style_Whose_Pieces_Cannot_Be_Placed_Is_Left_Alone()
+    {
+        // The reader resolves entities, so &quot; arrives as one character and every offset after it
+        // is short -- and the ';' ending an entity is not the ';' ending a declaration. Saying
+        // nothing beats underlining the wrong run of somebody's file.
+        Assert.Empty(Of("<rect style=\"font-family:&quot;A&quot;;stroke-width:abc\" />"));
+
+        // Likewise where the scanner itself gives up.
+        Assert.Empty(Of("<rect style=\"fill:&apos;\" />"));
+    }
+
+    [Fact]
+    public void A_Style_Is_Placed_However_It_Was_Written()
+    {
+        var single = "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect style='stroke-width:abc' /></svg>";
+        var one = Assert.Single(SvgSourceDiagnostics.Analyse(single));
+
+        Assert.Equal("abc", single.Substring(one.Start, one.Length));
+
+        // Whitespace around the colon and across lines is the author's, not the value's.
+        Assert.Equal("abc", Marked("<rect style=\"\n  stroke-width : abc ;\n  fill:red\n\" />"));
+    }
+
+    [Fact]
     public void The_Root_Is_A_Drawing_Like_Any_Other()
     {
         // Easy to lose: the outermost element is the one carrying the size, and a walk written to
