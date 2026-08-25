@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <!--
+      The frameworks its consumers are on: the viewer and both Avalonia editor projects target
+      these. netstandard2.0 would mean a Range polyfill this repository does not have, for a
+      consumer that does not exist yet — add it when one does.
+    -->
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>True</IsPackable>
+    <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+    <RootNamespace>Svg.Highlighting</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Description>Splits an SVG document into coloured pieces for a source view: markup, and the SVG expression extension's placeholders and declarations. Knows nothing about how they are drawn.</Description>
+    <PackageId>Svg.Highlighting</PackageId>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>svg;syntax;highlighting;tokenizer;xml;expressions</PackageTags>
+  </PropertyGroup>
+
+  <Import Project="..\..\build\SourceLink.props" />
+  <Import Project="..\..\build\SignAssembly.props" />
+  <Import Project="..\..\build\ReferenceAssemblies.props" />
+
+  <ItemGroup>
+    <!-- For its lexer: the expression language describes itself, and this colours what it says. -->
+    <ProjectReference Include="..\Svg.Expressions\Svg.Expressions.csproj" />
+  </ItemGroup>
+
+</Project>

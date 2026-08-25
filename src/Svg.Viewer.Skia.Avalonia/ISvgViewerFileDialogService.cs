@@ -16,4 +16,12 @@ namespace Svg.Viewer.Skia.Avalonia;
 public interface ISvgViewerFileDialogService
 {
     Task<string?> OpenSvgAsync(TopLevel? owner);
+
+    /// <summary>Where to write a drawing that has no file of its own, or null to abandon it.</summary>
+    /// <remarks>
+    /// Defaulted rather than declared, so an implementation written before the pane could be edited
+    /// still compiles. Refusing is the honest default: a service that cannot ask cannot answer, and
+    /// a host that wants saving supplies this.
+    /// </remarks>
+    Task<string?> SaveSvgAsync(TopLevel? owner, string? suggested) => Task.FromResult<string?>(null);
 }

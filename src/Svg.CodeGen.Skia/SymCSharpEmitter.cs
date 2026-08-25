@@ -64,7 +64,7 @@ public static class SymCSharpEmitter
                         ?? throw new InvalidOperationException(
                             "No expression compiler is in scope. Emission must run inside SkiaCSharpCodeGen.Generate.");
 
-                    var what = expected == ExprType.Color ? "A paint expression" : "An opacity expression";
+                    var what = ExprFunctions.DescribeUse(expected);
                     sb.Append(compiler.CompileTo(source.Text, expected, what));
                     break;
                 }

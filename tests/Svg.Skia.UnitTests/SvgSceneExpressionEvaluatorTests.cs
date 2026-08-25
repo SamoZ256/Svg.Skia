@@ -382,4 +382,22 @@ public class SvgSceneExpressionEvaluatorTests
         // The same wording the emitter uses, so a bad document reads the same either way.
         Assert.Contains("A paint expression must be a colour expression", error.Message);
     }
+
+    [Fact]
+    public void A_Visibility_Expression_Of_The_Wrong_Type_Is_Not_Called_An_Opacity()
+    {
+        // It was. The label was a ternary on whether the type wanted was a colour, so everything
+        // that was not a paint was an opacity -- and visibility, the one attribute that is a
+        // condition rather than a value, was told it was one.
+        var markup = Wrap(
+            """<e:param name="fade" type="number" />""",
+            """<rect x="0" y="0" width="24" height="24" fill="#3fb5b5" visibility="{{ fade }}" />""");
+
+        var picture = Build(markup);
+
+        var error = Assert.Throws<ExprException>(
+            () => Evaluate(picture, markup, ("fade", ExprValue.Number(1f))));
+
+        Assert.Contains("A visibility expression must be a boolean expression", error.Message);
+    }
 }

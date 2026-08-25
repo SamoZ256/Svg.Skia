@@ -305,7 +305,115 @@ document, so the shell holds one control per tab and handles `OpenRequested` —
 picked or dropped file before any of them is read — to put each in a tab of its own; `Close` on the
 control is what disposes the document of a tab that goes away. A handled request hands its
 `Completion` back, because the event is synchronous and `OpenAsync` would otherwise complete while
-the files were still being read — which is what failed on CI and passed locally.
+the files were still being read — which is what failed on CI and passed locally. `ShowSource` opens
+a pane of the drawing's text, held as `SvgViewerDocument.SourceText` and captured at load: `SKSvg`
+can keep its own source, but only behind the process-wide `CacheOriginalStream` toggle it uses for
+reloading, and a viewer must not make every other `SKSvg` in the application retain its file.
+`src/Svg.Highlighting` splits it into coloured pieces — hand-written rather than an editor library's
+grammar, because the package would then carry a text editor and no stock XML grammar colours
+`{{ … }}` or an `<e:let>` body as code. It is **its own project because it draws nothing**: no
+brushes, no controls, nothing from Avalonia, which is what lets the editor share it and what makes
+the two things belonging there — colouring the expression language, and diagnostics — sit on that
+side of the seam rather than in a UI. `SvgSourceDiagnostics.Analyse` is the second: it reads the
+`<e:code>` block and runs `ExprChecker` over every expression, so unknown names, arity and type
+errors are the compiler's verdict rather than an imitation. **Splitting is context-free, analysing is
+not** — colouring a placeholder needs the span, checking it needs every declaration in the file —
+which is why they are separate passes, at about 12ms for the extra tokenize on a 132KB drawing.
+Scope follows the language: a `{{ … }}` sees everything declared, an `<e:let>` sees the lets before
+it, and a `default`/`min`/`max`/`step` sees nothing declared at all, since a default may not
+reference other parameters. The one thing it deliberately does not do is check an expression against
+the type its *attribute* expects, which needs the scene compiler's attribute table.
+
+**What the declarations themselves get wrong is reported there too, at the attribute it is about.**
+The rules stay in `SvgExpressionDeclarations.Builder` — never in one reader — and each now names the
+`SvgDeclarationPart` it is complaining about; turning a part into a place is the reader's half, since
+only the text reader has positions and the tree reader has none, which is what keeps the two
+reporting identically. `Parse(source, out diagnostics)` is that reader: `LoadOptions.SetLineInfo`
+gives it a line and column per element and per *attribute* (3ms on a 212KB drawing), it reads every
+declaration rather than stopping at the first, and it reports a document that is not well-formed
+XML — which the throwing `Parse` still swallows deliberately, since the SVG parser is the authority
+on that. A part with nothing of its own to point at, like a missing `type`, marks the declaration.
+The mark itself is the *token the position falls in*, so a bound underlines its expression and a
+`name` underlines its quoted value. **A document whose declarations are wrong reports those and
+nothing else**: the symbol table is missing whatever the bad declaration would have put in it, so
+every use of that name would read as undeclared and bury the few that are real. `Analyse` also runs
+what only numbers can settle — `min > max`, `step <= 0`, a `default` that type-checks and still will
+not evaluate — which reading a document may not do, and there it must catch `ArgumentException` as
+well as `ExprException`, because `clamp` refuses a reversed range with the former. So does
+`SvgViewerParameterFactory`, for the same reason and on the same path: without it a `default` of
+`clamp(2, 5, 1)` failed the *load* of a drawing that renders. The viewer says all this in **two
+places for two kinds of thing**: a note beside the status bar counting what the pane already marks —
+on the row that is already there, since one appearing and vanishing per edit would shove the viewer
+about while someone typed — and, for what has no line to be put on, a card **over the drawing, frosting it**,
+because in every case reaching there the picture is not what the file says. Frosting is a 28px blur
+on the canvas *plus* a tinted wash over it: a blur alone reads as a drawing out of focus, and what
+says "there is something in front of this" is the tint — which has to be a **pale** wash on the dark
+theme as well, since a dark one over dark artwork is invisible and leaves only the blur. The wash is
+not hit-testable and the overlay grid has no background, so a pointer reaches the canvas everywhere
+but the card, and the drawing can still be panned while it is being explained.
+
+Colouring the language itself: `SvgSourceExpressions` hands a `{{ … }}`
+span, an `<e:let>` body, or an `<e:param>`'s `default`/`min`/`max`/`step` — all four of which are
+expression text, not words — to **`Svg.Expressions`' own lexer**, reached through an `InternalsVisibleTo`
+grant, because a second description of the language would drift from it — `%` is a suffix on a number
+literal rather than an operator, and `and`/`or`/`not`/`lt`/`le`/`gt`/`ge`/`eq`/`ne` are word forms of
+the symbolic operators, neither of which is guessable from the text. Three traps in using it: a number
+token's `Text` excludes the `%` the lexer already consumed, so the span is widened by hand;
+`true`/`false` lex as identifiers but the *parser* reads them as boolean literals, so they are
+coloured as values; and the lexer throws on malformed input, so a refusal re-lexes the prefix before `ExprException.Position` and
+leaves the remainder plain — which is also the position a diagnostic will underline. A token is a range into the document rather than a copy, which is both what keeps a whole file
+affordable to hold and what a diagnostic needs to point at. Its invariant is that concatenating the tokens reproduces the input, which is
+what lets it describe a malformed document rather than refuse it.
+
+The pane is **AvaloniaEdit**, one `TextDocument` rather than a control per line, which is what lets a
+selection cross one and is where editing will start. It was rejected when the pane was first built,
+on two grounds that no longer hold: `Avalonia.AvaloniaEdit` **depends on Avalonia and nothing else**
+(TextMate is a separate opt-in package), and it wants **no grammar** — `SvgViewerSourceColorizer` is
+a `DocumentColorizingTransformer` that answers "what colour is this range" from
+`SvgSourceHighlighter.Lines()`, so the splitter stays the authority on what `{{ … }}` is. **No
+`StyleInclude` is needed** either: AvaloniaEdit 12 themes itself once a base theme is loaded,
+measured as byte-identical frames with the include, without it, and with it on the `Application`,
+against a control case with no themes at all that gives a null template and no pixels. One is in
+`<UserControl.Styles>` regardless, since only Fluent was tried.
+
+Two things this arrangement needs. `ColorizeLine` runs **only for the lines on screen**, so a large
+drawing costs what a small one does — but that bounds a document and not a *line*, and a minified
+drawing is the whole file on one. So the colouriser still stops at `RowTokenLimit`: 132KB on one
+line took 1.1s coloured whole and 39ms stopping there, and the pane opens it in 217ms against the
+340ms the row-based one took. And a diagnostic is **drawn, not decorated** —
+`SvgViewerSourceMarkers` is an `IBackgroundRenderer` painting a wave, because `TextDecoration`
+offers only a stroke, a thickness and a dash array, and a dashed line under 12pt type reads as a
+smudge. Two things split lines now, this splitter and the editor's document, and a test pins that
+they agree on a CRLF file — a disagreement would put every colour one character out and nothing
+else would notice.
+
+**The pane is editable, and that reverses which way the truth runs.** The file used to be it; now the
+`TextDocument` is, and the picture is derived from it. So `RenderSource` replaces the document only
+on a load — doing it on an edit would reset the caret, the scroll and the undo stack every keystroke
+— and `RefreshSource` re-colours without touching it. `_sourceShown` says whether the editor is
+holding *this* document, because one loaded while the pane is closed leaves the editor showing the
+last one and everything keyed off the wrong text. Typing restarts a 200ms `DispatcherTimer`,
+deliberately not `RequestApply`'s once-a-frame coalescing: a frame is right for a slider and wrong
+for "has typing stopped". On its tick the whole document is rebuilt — 18ms to parse a 132KB drawing,
+13ms to split it, 12ms to check it — so nothing incremental is needed. **A refusal is the ordinary
+case**: half-typed markup does not parse, and the picture that is up stays up while only the marks
+move. **`SvgViewerDocument.Reload` goes through a stream and a base URI**, never `SKSvg.FromSvg`,
+which has none — a drawing with an `<image href="logo.png">` beside it resolves it from a path and
+loses it the instant it is rebuilt from text, measured as the centre pixel turning placeholder grey.
+A fresh picture starts unbound, so `Apply()` has to follow every rebuild or parameters snap to their
+defaults as you type; `RebuildParameters` now matches row by row for the same reason, since adding
+one `<e:param>` used to discard every bound value. **Editing is refused above `SourceLimit`**,
+because the pane holds a cut copy and saving it would behead the file and write the note explaining
+the cut into it. Saving keeps the byte order mark the file arrived with, or every save would churn
+three bytes nobody edited. Modified state is AvaloniaEdit's `UndoStack.IsOriginalFile`, so undoing
+back to the start clears the mark; the dot on the tab, Cmd/Ctrl+S and the prompts before discarding
+are the **shell's**, as opening is. Two prompts, because there are two ways to lose an edit: a tab's
+close button takes one drawing, and closing the window takes every one at once, so `OnClosing`
+cancels, asks about all of them together, and closes again once answered — posted rather than run
+inline, or an answer that arrives immediately re-enters `Close` from inside `OnClosing`. The prompt
+is a **replaceable delegate** on `MainWindow` for the reason `ISvgViewerFileDialogService` is an
+interface: a modal is the one thing a test cannot answer, and the only guard against losing work is
+the last thing that should go untested for want of a way to say no to it.
 
 `samples/SvgExpressionsDemo` is the worked example; it also has a `--render <dir>` mode that
 writes PNGs without opening a window, which is the practical way to verify rendering changes.
