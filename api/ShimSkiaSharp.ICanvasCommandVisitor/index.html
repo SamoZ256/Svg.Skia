@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="ICanvasCommandVisitor Interface | Svg.Skia">
-<meta name="twitter:description" content="ICanvasCommandVisitor Interface Definition Namespace ShimSkiaSharp Assembly ShimSkiaSharp.dll View source public interface ICanvasCommandVisitor Filter members: Tip: use kind:method, kind:property, kind:ctor. Press Esc to clear. Methods (15) Visit(BeginConditionalCanvasCommand) Visit(ClipPathCanvasCommand) Visit(ClipRectCanvasCommand) Visit(DrawImageCanvasCommand) Visit(DrawPathCanvasCommand) Visit(DrawPictureCanvasCommand) Visit(DrawPositionedTextRunCanvasCommand) Visit(DrawTextBlobCanvasCommand) Visit(DrawTextCanvasCommand) Visit(DrawTextOnPathCanvasCommand) Visit(EndConditionalCanvasCommand) Visit(RestoreCanvasCommand) Visit(SaveCanvasCommand) Visit(SaveLayerCanvasCommand) Visit(SetMatrixCanvasCommand) Copyright © 2026, Wieslaw Soltes aka wieslawsoltes - Content licensed under the Creative Commons...">
+<meta name="twitter:description" content="ICanvasCommandVisitor Interface Definition Namespace ShimSkiaSharp Assembly ShimSkiaSharp.dll View source Every command a picture can hold, for anything that walks one. public interface ICanvasCommandVisitor Remarks No default implementations, because this multi-targets netstandard2.0 and net461 where the language has none. So adding a CanvasCommand is a breaking change for every implementor outside this repository, and needs an arm in the DeepClone switch in SKCanvas.cs as well — the compiler will not ask...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="ICanvasCommandVisitor Interface | Svg.Skia">
 <meta property="og:title" content="ICanvasCommandVisitor Interface | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="ICanvasCommandVisitor Interface Definition Namespace ShimSkiaSharp Assembly ShimSkiaSharp.dll View source public interface ICanvasCommandVisitor Filter members: Tip: use kind:method, kind:property, kind:ctor. Press Esc to clear. Methods (15) Visit(BeginConditionalCanvasCommand) Visit(ClipPathCanvasCommand) Visit(ClipRectCanvasCommand) Visit(DrawImageCanvasCommand) Visit(DrawPathCanvasCommand) Visit(DrawPictureCanvasCommand) Visit(DrawPositionedTextRunCanvasCommand) Visit(DrawTextBlobCanvasCommand) Visit(DrawTextCanvasCommand) Visit(DrawTextOnPathCanvasCommand) Visit(EndConditionalCanvasCommand) Visit(RestoreCanvasCommand) Visit(SaveCanvasCommand) Visit(SaveLayerCanvasCommand) Visit(SetMatrixCanvasCommand) Copyright © 2026, Wieslaw Soltes aka wieslawsoltes - Content licensed under the Creative Commons...">
+<meta property="og:description" content="ICanvasCommandVisitor Interface Definition Namespace ShimSkiaSharp Assembly ShimSkiaSharp.dll View source Every command a picture can hold, for anything that walks one. public interface ICanvasCommandVisitor Remarks No default implementations, because this multi-targets netstandard2.0 and net461 where the language has none. So adding a CanvasCommand is a breaking change for every implementor outside this repository, and needs an arm in the DeepClone switch in SKCanvas.cs as well — the compiler will not ask...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="ICanvasCommandVisitor Interface | Svg.Skia">
   </head>
@@ -153,12 +153,18 @@
 <div><span class="api-dotnet-label">Assembly</span> ShimSkiaSharp.dll</div>
 </div>
 <div class="api-dotnet-definition-actions">
-<a class="api-dotnet-action" href="https://github.com/SamoZ256/Svg.Skia/blob/master/src/ShimSkiaSharp/ICanvasCommandVisitor.cs#L6" target="_blank" rel="noopener">View source</a>
+<a class="api-dotnet-action" href="https://github.com/SamoZ256/Svg.Skia/blob/master/src/ShimSkiaSharp/ICanvasCommandVisitor.cs#L15" target="_blank" rel="noopener">View source</a>
 </div>
 </div>
 </div>
+<p>Every command a picture can hold, for anything that walks one.</p>
 <pre><code class="language-csharp">public interface ICanvasCommandVisitor
 </code></pre>
+<h2 id="remarks">Remarks</h2>
+<p>No default implementations, because this multi-targets netstandard2.0 and net461 where the
+language has none. So adding a <code>CanvasCommand</code> is a breaking change for every implementor
+outside this repository, and needs an arm in the <code>DeepClone</code> switch in <code>SKCanvas.cs</code>
+as well — the compiler will not ask for that one.</p>
 <div class="api-dotnet-member-filter" data-api-dotnet-filter>
 <div class="api-dotnet-member-filter-row">
 <label class="api-dotnet-member-filter-label" for="api-dotnet-member-filter-shimskiasharp-icanvascommandvisitor">Filter members:</label>

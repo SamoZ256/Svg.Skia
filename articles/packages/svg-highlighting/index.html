@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html data-lunet-theme-mode="system" data-lunet-theme-storage-key="lunet-theme" data-lunet-css-prefix="lunet" lang="en" itemscope itemtype="http://schema.org/WebPage">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="generator" content="lunet 1.0.10.0">
+    <script>(function(){const root=document.documentElement;const key=root.getAttribute("data-lunet-theme-storage-key")||"lunet-theme";const fallback=root.getAttribute("data-lunet-theme-mode")||"system";let stored=null;try{stored=localStorage.getItem(key);}catch(_){stored=null;}const mode=(stored==="light"||stored==="dark"||stored==="system")?stored:fallback;const prefersDark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches;const resolved=mode==="system"?(prefersDark?"dark":"light"):mode;root.setAttribute("data-lunet-theme-mode",mode);root.setAttribute("data-bs-theme",resolved);}());</script>
+    <link rel='icon' href='/Svg.Skia/favicon.ico' sizes='32x32'>
+    <title>Svg.Highlighting | Svg.Skia</title>
+    <link rel="stylesheet" href="/Svg.Skia/css/lite.css">
+    <script src="/Svg.Skia/js/lite-defer.js" defer></script>
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@wieslawsoltes">
+<meta name="twitter:title" content="Svg.Highlighting | Svg.Skia">
+<meta name="twitter:description" content="Svg.Highlighting Svg.Highlighting splits an SVG document into coloured pieces for a source view. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what Svg.Viewer.Skia.Avalonia's source pane is built on. Install dotnet add package Svg.Highlighting Choose this package when you are showing SVG text to someone and want it coloured as markup,...">
+<meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
+<meta name="twitter:image:alt" content="Svg.Highlighting | Svg.Skia">
+<meta property="og:title" content="Svg.Highlighting | Svg.Skia">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
+<meta property="og:description" content="Svg.Highlighting Svg.Highlighting splits an SVG document into coloured pieces for a source view. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what Svg.Viewer.Skia.Avalonia's source pane is built on. Install dotnet add package Svg.Highlighting Choose this package when you are showing SVG text to someone and want it coloured as markup,...">
+<meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
+<meta property="og:image:alt" content="Svg.Highlighting | Svg.Skia">
+  </head>
+  <body>
+
+    <div id="lunet" class="container">
+      <nav class="navbar navbar-expand-md sticky-top">
+        <a class="navbar-brand" href="/Svg.Skia/">
+          <img class="lunet-logo" src="/Svg.Skia/images/logo.svg" alt="Svg.Skia" width="96" height="96">
+          <span class="visually-hidden">Home</span>
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+          data-bs-target="#navbarSupportedContent"
+          aria-controls="navbarSupportedContent"
+          aria-expanded="false"
+          aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div id="navbarSupportedContent" class="collapse navbar-collapse justify-content-between">
+<ol id='nav-id-home-0' class='navbar-nav nav-level0 show '>
+  <li id='nav-item-home-1' class='nav-item '>
+    <span class='nav-item-row'><a href='/Svg.Skia/' class='nav-link  '><i class='bi bi-house-door' aria-hidden='true'></i> Home</a></span>  </li>
+  <li id='nav-item-home-2' class='nav-item  active'>
+    <span class='nav-item-row'><a href='/Svg.Skia/articles/' class='nav-link  '><i class='bi bi-book' aria-hidden='true'></i> Docs</a></span>  </li>
+  <li id='nav-item-home-3' class='nav-item '>
+    <span class='nav-item-row'><a href='/Svg.Skia/api/' class='nav-link  '><i class='bi bi-braces' aria-hidden='true'></i> API</a></span>  </li>
+</ol>
+          <ol class="navbar-nav flex-grow-1" style="padding-right: 0.5rem;">
+            <li class="nav-item w-100">
+                <div class="lunet-search dropdown w-100">
+                  <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input id="search-input" type="search" class="form-control" placeholder="Search... (Alt+s)" aria-label="Search" aria-controls="search-results" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-search-empty-message="Enter words to search..." data-search-no-results-message="No results found.">
+                    <ul id="search-results" class="dropdown-menu w-100 p-0" style="max-height: 50vh;" role="listbox" aria-labelledby="search-input"></ul>
+                  </div>
+                </div>
+            </li>
+          </ol>
+          <div class="d-flex align-items-center gap-2 flex-shrink-0 navbar-right">
+            <div class="dropdown">
+              <button
+                id="theme-mode-toggle"
+                class="btn btn-outline-secondary btn-sm lunet-theme-toggle dropdown-toggle"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+                aria-label="Theme">
+                <i class="bi bi-circle-half" data-lunet-theme-toggle-icon aria-hidden="true"></i>
+                <span
+                  data-lunet-theme-toggle-label
+                  data-theme-system-label="System"
+                  data-theme-light-label="Light"
+                  data-theme-dark-label="Dark">Theme</span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="theme-mode-toggle">
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="system"><i class="bi bi-circle-half me-2"></i>System</button></li>
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="light"><i class="bi bi-sun-fill me-2"></i>Light</button></li>
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="dark"><i class="bi bi-moon-stars-fill me-2"></i>Dark</button></li>
+              </ul>
+            </div>
+<ol id='nav-id-home2-0' class='navbar-nav nav-level0 show flex-shrink-0'>
+  <li id='nav-item-home2-1' class='nav-item '>
+    <span class='nav-item-row'><a href='https://github.com/wieslawsoltes/Svg.Skia' class='nav-link  btn btn-info'><i class="bi bi-github"></i> GitHub</a></span>  </li>
+</ol>
+          </div>
+        </div>
+      </nav>
+      <div class="lunet lunet-articles">
+        <section data-prismjs-copy="" data-prismjs-copy-success="" data-prismjs-copy-timeout="1200" data-copy-tooltip="Copy to Clipboard." data-copy-tooltip-success="Copied!" data-copy-tooltip-error="Failed to copy!">
+
+<div class="container-xxl">
+  <div class="row">
+      <!-- Left sidebar - responsive offcanvas (offcanvas on mobile, visible sidebar on md+) -->
+      <nav id="docs-sidebar-menu" class="col-md-3 col-lg-3 col-xl-3 col-xxl-2 offcanvas-md offcanvas-start sticky-md-top menu-sidebar align-self-start order-1 order-md-0" tabindex="-1" aria-labelledby="docs-sidebar-menu-label" aria-expanded="true">
+        <div class="offcanvas-header">
+          <h5 class="offcanvas-title" id="docs-sidebar-menu-label">Menu</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body">
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.94aecd6a468e41c4681277fa56978a00.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-23,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+        </div>
+      </nav>
+      <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
+      <aside id="docs-sidebar-toc" class="col-12 col-xxl-2 sticky-xxl-top menu-sidebar align-self-start order-0 order-xxl-2 collapse d-xxl-block" aria-expanded="true">
+        <h3 class="toc-title">On this page</h3>
+        <nav class="js-toc"></nav>
+      </aside>
+      <!-- Main content column -->
+      <div class="col-12 col-md-9 col-lg-9 col-xl-9 col-xxl-8 order-2 order-md-1 js-toc-content">
+        <ol class='breadcrumb'>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/' class='breadcrumb-link  '><i class='bi bi-house-door' aria-hidden='true'></i> Home</a>  </li>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/articles/' class='breadcrumb-link  '><i class='bi bi-book' aria-hidden='true'></i> Docs</a>  </li>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/articles/packages/' class='breadcrumb-link  '>Packages</a>  </li>
+          <li class='breadcrumb-item  active'>
+            Svg.Highlighting  </li>
+        </ol>
+
+        <p id="lunet-results"></p>
+        <!-- Toggle buttons visible only on small screens -->
+        <div class="d-md-none mb-3">
+          <button
+            class="btn btn-outline-secondary btn-sm me-2"
+            type="button"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#docs-sidebar-menu"
+            aria-controls="docs-sidebar-menu"
+            aria-label="Toggle docs menu">
+            Menu
+          </button>
+          <button
+            class="btn btn-outline-secondary btn-sm d-xxl-none"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#docs-sidebar-toc"
+            aria-controls="docs-sidebar-toc"
+            aria-expanded="false"
+            aria-label="Toggle Table Of Contents">
+            On this page
+          </button>
+        </div>
+<!-- lunet:summarize -->
+<h1 id="svghighlighting">Svg.Highlighting</h1>
+<p><code>Svg.Highlighting</code> splits an SVG document into coloured pieces for a source view. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what <code>Svg.Viewer.Skia.Avalonia</code>'s source pane is built on.</p>
+<h2 id="install">Install</h2>
+<pre><code class="language-bash">dotnet add package Svg.Highlighting
+</code></pre>
+<h2 id="choose-this-package-when">Choose this package when</h2>
+<ul>
+<li>you are showing SVG text to someone and want it coloured as markup,</li>
+<li>you want the SVG expression extension's <code>{{ … }}</code> placeholders and <code>&lt;e:let&gt;</code> bodies recognised as code rather than as strings and prose,</li>
+<li>you need to colour a large file without laying all of it out at once,</li>
+<li>you want positions into the document — for a diagnostic, a squiggle, or a jump — rather than copies of parts of it.</li>
+</ul>
+<h2 id="main-types">Main types</h2>
+<table class="table">
+<thead>
+<tr>
+<th>Type</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SvgSourceHighlighter</code></td>
+<td><code>Tokenize</code> for a whole document, <code>Lines</code> for one row at a time</td>
+</tr>
+<tr>
+<td><code>SvgSourceToken</code></td>
+<td>A range into the source and what it is; <code>Text</code> cuts it only when asked</td>
+</tr>
+<tr>
+<td><code>SvgSourceTokenKind</code></td>
+<td>Text, punctuation, element, attribute, value, comment, and the expression kinds below</td>
+</tr>
+<tr>
+<td><code>SvgSourceLine</code></td>
+<td>One line's tokens, its number and range, and the rest of it past a limit</td>
+</tr>
+<tr>
+<td><code>SvgSourceDiagnostics</code></td>
+<td><code>Analyse</code> — what is wrong with the expressions in a document</td>
+</tr>
+<tr>
+<td><code>SvgSourceDiagnostic</code></td>
+<td>A range, a severity and a message, in the same coordinates as a token</td>
+</tr>
+</tbody>
+</table>
+<h2 id="colouring-a-document">Colouring a document</h2>
+<pre><code class="language-csharp">foreach (var line in SvgSourceHighlighter.Lines(File.ReadAllText(&quot;badge.svg&quot;)))
+{
+    foreach (var token in line.Tokens)
+    {
+        Paint(token.Text, BrushFor(token.Kind));
+    }
+}
+</code></pre>
+<h2 id="the-expression-language-is-split-too">The expression language is split too</h2>
+<p><code>{{ … }}</code> placeholders, <code>&lt;e:let&gt;</code> bodies and a declaration's <code>default</code>, <code>min</code>, <code>max</code> and <code>step</code> are
+not left as one piece: they are handed to <code>Svg.Expressions</code>' own lexer, so what you see coloured is
+what the compiler reads. That last group is easy to miss — <code>max=&quot;tau&quot;</code> and <code>step=&quot;1/60&quot;</code> look like
+ordinary attribute values and are code. That matters more
+than it sounds:</p>
+<table class="table">
+<thead>
+<tr>
+<th>Written</th>
+<th>Coloured as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hsl</code>, <code>mix</code>, <code>lerp</code></td>
+<td><code>ExpressionFunction</code> — names the language defines</td>
+</tr>
+<tr>
+<td><code>pi</code>, <code>tau</code></td>
+<td><code>ExpressionConstant</code></td>
+</tr>
+<tr>
+<td><code>55%</code></td>
+<td>one <code>ExpressionNumber</code>, sign included — a percent is a <em>suffix on a literal</em>, never an operator</td>
+</tr>
+<tr>
+<td><code>and</code>, <code>or</code>, <code>not</code>, <code>lt</code>, <code>ge</code></td>
+<td><code>ExpressionKeyword</code> — word forms of the symbolic operators, which exist because XML escaping makes <code>&lt;</code> and <code>&amp;&amp;</code> awkward inside an attribute</td>
+</tr>
+<tr>
+<td><code>#3fb5b5</code></td>
+<td><code>ExpressionColor</code></td>
+</tr>
+<tr>
+<td><code>true</code>, <code>false</code></td>
+<td><code>ExpressionConstant</code> — they lex as names, but the parser reads them as boolean literals</td>
+</tr>
+<tr>
+<td><code>hue</code>, <code>sweep</code></td>
+<td><code>ExpressionIdentifier</code> — a parameter, a let, or a typo; telling those apart needs the document</td>
+</tr>
+<tr>
+<td><code>{{</code>, <code>}}</code>, whitespace</td>
+<td><code>Expression</code></td>
+</tr>
+</tbody>
+</table>
+<p>A tokenizer written by hand here would have coloured the percent as an operator and the word forms
+as names. Reusing the lexer is what keeps the pane and the compiler saying the same thing.</p>
+<p>An expression the language refuses — a lone <code>=</code>, a half-typed call — colours as far as it read and
+leaves the remainder plain. Someone reading a file to find out why it will not compile is exactly
+who has a source view open.</p>
+<h2 id="saying-what-is-wrong">Saying what is wrong</h2>
+<p><code>Analyse</code> reports mistakes in a document's expressions, through the language's own checker — so an
+unknown name, a function called with the wrong number of arguments and a type mismatch are worded
+and decided by the compiler, not by an imitation of it:</p>
+<pre><code class="language-csharp">foreach (var diagnostic in SvgSourceDiagnostics.Analyse(text))
+{
+    Underline(diagnostic.Start, diagnostic.Length, diagnostic.Message);
+}
+</code></pre>
+<p>Ranges are in the same coordinates as tokens, so a view that already has the tokens can mark the
+offending one without being told anything else. Where the checker refuses mid-expression, the mark
+covers the piece it stopped on rather than the whole line.</p>
+<p>Scope follows the language rather than convenience. A <code>{{ … }}</code> sees everything the document
+declares; an <code>&lt;e:let&gt;</code> sees the parameters and the lets before it, but not itself; a <code>default</code>, <code>min</code>,
+<code>max</code> or <code>step</code> sees <strong>neither</strong> — a default may not reference other parameters, because an ordering
+dependency between them would be invisible in the document, so checking one against the full table
+would accept what the code generator then rejects.</p>
+<p>One boundary worth knowing: it does not know what an <em>attribute</em> expects. <code>opacity=&quot;{{ tint }}&quot;</code> is
+a well-formed colour expression written where a number belongs, and saying so needs the table of
+which SVG attribute takes which type, which lives in the scene compiler.</p>
+<h2 id="the-declarations-are-checked-too">The declarations are checked too</h2>
+<p>A mistake in the <code>&lt;e:code&gt;</code> block is reported the same way, at the attribute it is about rather than
+as a sentence somewhere else:</p>
+<pre><code class="language-xml">&lt;e:param name=&quot;tint&quot; type=&quot;color&quot; min=&quot;0&quot; max=&quot;1&quot; /&gt;
+&lt;!--                                   ^ a colour has no range --&gt;
+</code></pre>
+<p>Every declaration is read, so a block with three mistakes in it reports three rather than hiding two
+behind the first, and the parameters after a bad one are not lost with it. A rule about something the
+document left out — a missing <code>type</code>, a <code>&lt;e:let&gt;</code> with nothing in it — has nothing of its own to
+point at, so it marks the declaration. A document that is not well-formed XML is reported here as
+well, which is the one moment a source view is most likely to be open.</p>
+<p>A document whose declarations are wrong reports <strong>those and nothing else</strong>. With a declaration
+refused, the symbol table is missing what it would have contributed, so every use of that name would
+read as undeclared — a hundred of those bury the few that are real.</p>
+<p>Rules and places stay apart. The rules live in <code>SvgExpressionDeclarations.Builder</code>, where both
+readers of a block reach them, and each names the <code>SvgDeclarationPart</code> it means; turning a part into
+a place is the reader's half, because only the one that reads source text has positions to give. If
+you want the same thing without a source view, <code>SvgExpressionDeclarations.Parse(text, out var diagnostics)</code> is what this calls.</p>
+<p>Some of it needs numbers rather than types — <code>min</code> above its <code>max</code>, a <code>step</code> of zero, a <code>default</code>
+that type-checks and still will not produce a value — so <code>Analyse</code> evaluates those, which reading a
+document deliberately never does.</p>
+<p>Splitting is context-free and analysing is not, which is why they are separate calls: colouring a
+placeholder needs only the span, checking it needs the whole file. Splitting a 132KB drawing twice —
+once for lines, once for analysis — costs about 12ms.</p>
+<h2 id="it-describes-rather-than-validates">It describes rather than validates</h2>
+<p>A malformed document still colours — refusing to colour the file someone is trying to find the fault in would be perverse. What keeps that honest is an invariant asserted over CDATA, processing instructions, an unterminated comment and an unclosed tag alike: <strong>concatenating every token reproduces the input exactly</strong>. Colouring can never quietly alter, drop or reorder what a file says.</p>
+<h2 id="two-limits-and-why-they-are-not-the-same">Two limits, and why they are not the same</h2>
+<p>Splitting is cheap — under 7ms for 200,000 characters — so there is no limit on tokenizing. The cost lands on whoever draws the result: one styled run per token costs 130ms at 1,100 runs, 433ms at 4,500 and 18 seconds at 45,000, in a single text block.</p>
+<p><code>Lines</code> is the answer to the first half: a view that colours only the lines on screen — an editor, a virtualising list — pays for the screenful, so a 132KB drawing costs what a 2KB one does. <code>RowTokenLimit</code> is the answer to the second: colouring by line bounds a document but not a <em>line</em>, and a minified drawing is the whole file on one of them — 132KB of it took 1.1 seconds coloured whole, and 39ms stopping at 250 pieces. Nothing is hidden either way, since the text past the limit is simply left plain.</p>
+<h2 id="related-docs">Related docs</h2>
+<ul>
+<li><a href="/Svg.Skia/articles/packages/svg-viewer-skia-avalonia">Svg.Viewer.Skia.Avalonia</a></li>
+<li><a href="/Svg.Skia/articles/packages/svg-codegen-skia">Svg.CodeGen.Skia</a></li>
+</ul>
+
+      </div>
+  </div>
+</div>
+
+        </section>
+        <footer>
+          <hr>
+          <p>Copyright &copy; 2026, Wieslaw Soltes aka <a href="https://github.com/wieslawsoltes">wieslawsoltes</a> - Content licensed under the Creative Commons <a href="http://creativecommons.org/licenses/by/2.5/">CC BY 2.5</a> | Site generated by <a href="https://github.com/lunet-io/lunet">lunet</a> hosted on <a href="https://pages.github.com/">GitHub Pages</a></p>
+        </footer>
+      </div>
+    </div>
+
+  </body>
+</html>

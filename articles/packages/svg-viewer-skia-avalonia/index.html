@@ -98,7 +98,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.93b936f0eddb4412cd8924e2ce2da2ac.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-22,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.94aecd6a468e41c4681277fa56978a00.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-22,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
         </div>
       </nav>
       <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
@@ -221,7 +221,7 @@
 <td>Driving values from host UI</td>
 </tr>
 <tr>
-<td><code>ShowToolBar</code> / <code>ShowParameterPanel</code> / <code>ShowStatusBar</code></td>
+<td><code>ShowToolBar</code> / <code>ShowParameterPanel</code> / <code>ShowStatusBar</code> / <code>ShowSource</code></td>
 <td>Supplying your own chrome</td>
 </tr>
 <tr>
@@ -243,7 +243,75 @@
 <pre><code class="language-xml">&lt;e:param name=&quot;hue&quot; type=&quot;number&quot; default=&quot;217&quot; min=&quot;0&quot; max=&quot;360&quot; step=&quot;1&quot; /&gt;
 </code></pre>
 <p>Every row is seeded by <em>evaluating</em> the declared <code>default</code>, so <code>default=&quot;tau / 4&quot;</code> works as well as a literal does.</p>
+<p>A <code>default</code> that will not evaluate, or a range whose ends are the wrong way round, does not stop the
+parameter being offered: the drawing still renders and the value is still bindable, the row falls back
+to a placeholder and the default range. What is wrong with it is marked in the source pane, at the
+attribute it is wrong in — the panel does not repeat it.</p>
+<p>A drawing with mistakes in it says so from the moment it opens, in two places for two different
+things.</p>
+<p><strong>A note in the status bar</strong> — <em>&quot;6 errors, marked in the Source pane&quot;</em> — for everything the pane
+already marks on the line that carries it. The count and the pointer are all it gives, because the
+line is where the detail belongs. It sits beside the status rather than under it, so it takes no room
+and the viewer does not shift as it comes and goes while you edit. It is a standing statement, not a
+reaction: it does not wait for a control to be touched, and it does not change when one is.</p>
+<p><strong>A card over the drawing, frosting it</strong>, for what has no line to be put on: a value of the
+wrong type for the attribute holding it, a document that would not load, a parameter the host left
+unbound. In every one of those the drawing on screen is not what the file says, and the frosting says
+so before the sentence is read — a wide blur with a wash over it, because defocus alone reads as a
+drawing out of focus rather than as glass in front of one. The card takes no room either, and the
+drawing can still be panned around it. Both reach a host through <code>ErrorRaised</code>.</p>
 <p>The format itself — <code>&lt;e:code&gt;</code>, the operators, and the placeholder mechanism — is specified in <code>SVG_EXPRESSIONS.md</code> at the root of the repository.</p>
+<h2 id="reading-the-drawings-text">Reading the drawing's text</h2>
+<p>The <strong>Source</strong> toggle in the toolbar opens a pane under the drawing showing the document as it was
+read — comments, formatting and <code>{{ … }}</code> expressions exactly as their author wrote them. It is
+read-only; editing SVG is what <code>Svg.Editor.Skia.Avalonia</code> is for.</p>
+<p>It is coloured as XML, and — because no stock grammar knows the extension — <code>{{ … }}</code> placeholders
+and <code>&lt;e:let&gt;</code> bodies are coloured as the expression code they are, not as strings and prose. The
+splitting is <a href="/Svg.Skia/articles/packages/svg-highlighting">Svg.Highlighting</a>, which draws nothing; the palette here is theme
+resources you can override:</p>
+<pre><code class="language-xml">&lt;SolidColorBrush x:Key=&quot;SvgViewerSourceExpressionBrush&quot; Color=&quot;#C586C0&quot; /&gt;
+</code></pre>
+<p><code>…ElementBrush</code>, <code>…AttributeBrush</code>, <code>…ValueBrush</code>, <code>…CommentBrush</code>, <code>…PunctuationBrush</code>,
+<code>…TextBrush</code> and <code>…LineNumberBrush</code> cover the markup, and the expression language has its own:
+<code>…ExpressionNumberBrush</code>, <code>…ExpressionColorBrush</code>, <code>…ExpressionFunctionBrush</code>,
+<code>…ExpressionConstantBrush</code>, <code>…ExpressionKeywordBrush</code>, <code>…ExpressionOperatorBrush</code>,
+<code>…ExpressionPunctuationBrush</code> and <code>…ExpressionIdentifierBrush</code>.</p>
+<p>The pane is an <a href="https://github.com/AvaloniaUI/AvaloniaEdit">AvaloniaEdit</a> editor over one document,
+so <strong>a selection can cross a line</strong> and the text can be taken away whole. You need nothing in your
+<code>App.axaml</code>: AvaloniaEdit supplies its own theme, and the viewer carries the style include regardless.</p>
+<p><strong>It is editable.</strong> Type, and the drawing follows a fifth of a second after you stop — the whole
+document is re-read each time, which costs about 43ms for a 132KB drawing, so nothing is incremental
+and nothing is stale. Half-typed markup does not parse, and that is the ordinary case: the picture
+you already have stays up while the marks move to what is now wrong. Undo, redo and find come with
+the editor.</p>
+<p><code>IsSourceModified</code> says whether there are edits not on disk and <code>SourceModifiedChanged</code> announces it;
+<code>SaveSourceAsync</code> writes them back, asking through <code>FileDialogService</code> when the drawing has no file
+of its own. In <code>src/SvgViewer</code> that is Cmd/Ctrl+S, a dot on the tab, and a prompt before anything
+throws work away — closing a tab asks about that drawing, closing the window asks once about every
+unsaved one it is holding. The control raises, the host decides, the same way opening works.</p>
+<p>Two rules worth knowing. A drawing too large to show whole is <strong>read-only</strong>: the pane holds a cut
+copy, and saving that would behead the file. And a save keeps the byte order mark the file arrived
+with, so nothing changes in a part of it you did not edit.</p>
+<p>There is no size at which colouring gives up, because only the lines on screen are ever coloured: a
+132KB drawing of 340 lines opens in 102ms. What that does not bound is a single enormous <em>line</em> — a
+minified drawing is the whole file on one — so a line is coloured for its first 250 pieces and the
+rest left plain, which takes that same 132KB minified to 217ms. Nothing is hidden either way; the
+uncoloured remainder is still there to read and select.</p>
+<p>Mistakes get a wavy underline where they are written, and hovering one shows its message.
+<code>…ErrorBrush</code> is the key for the mark. <code>SourceDiagnostics</code> is the same list if you would rather show
+it your own way — a problems panel, a status line. That covers the drawing's
+expressions and the <code>&lt;e:code&gt;</code> block alike: a name nothing declares, a range on a colour, a <code>min</code>
+above its <code>max</code>, a <code>default</code> that will not resolve. What counts as a mistake is
+<a href="/Svg.Skia/articles/packages/svg-highlighting">Svg.Highlighting</a>'s answer, which is the language's own checker — and a
+declaration that is wrong is marked on the attribute that is wrong, not summarised above the drawing.</p>
+<p>The text is <code>SvgViewerDocument.SourceText</code>, captured while loading, so it is what the picture was
+built from rather than whatever the file says later. A host that would rather show it its own way —
+a window, a docked tool panel — reads that property and leaves <code>ShowSource</code> off:</p>
+<pre><code class="language-csharp">var text = viewer.Document?.SourceText;
+</code></pre>
+<p>Drawings loaded from text or from a stream carry it too, so a viewer fed by a database or an archive
+shows source like any other. The pane holds at most 2,000,000 characters — a backstop on what is kept in
+memory rather than a layout limit — while <code>SourceText</code> itself is always whole.</p>
 <h2 id="one-document-per-viewer">One document per viewer</h2>
 <p>The control shows one drawing, and opening another replaces it. A host that wants several at once
 puts a viewer in each pane and handles <code>OpenRequested</code>, which is raised for every file the user

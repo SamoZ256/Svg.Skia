@@ -196,6 +196,18 @@
 <li>Update <a href="/Svg.Skia/articles/reference/packages-and-namespaces">Packages and Namespaces</a> and <a href="/Svg.Skia/articles/reference/api-coverage-index">API Coverage Index</a>.</li>
 <li>Rebuild the docs site locally with <code>./build-docs.sh</code>.</li>
 </ol>
+<h2 id="authoring-note-literal-braces">Authoring note: literal braces</h2>
+<p>Scriban runs over every <code>.md</code> before Markdown does, and it does not spare code spans. A literal
+<code>{{</code> or <code>}}</code>  written as prose is parsed as a template expression, and anything Scriban
+cannot parse there —  the <code>…</code> in <code>{{ … }}</code> , for instance — fails that page and every menu
+entry pointing at it, which fails the whole build. Wrap the braces in a Scriban raw block, which
+emits its contents verbatim:</p>
+<pre><code class="language-text">to render  `{{ … }}`   write  `{%{{{ … }}}%}`
+to render  `{{`, `}}`  write  `{%{`{{`, `}}`}%}`
+</code></pre>
+<p>Use more percent signs —  <code>{%%{</code> … <code>}%%}</code>  — when the block itself has to contain one, as
+this section does. This matters most in <code>site/articles/packages/svg-highlighting.md</code> and the viewer
+article, which are about the expression extension and so quote its delimiters throughout.</p>
 <h2 id="styling-pipeline-note">Styling pipeline note</h2>
 <p>Lunet <code>1.0.10</code> on macOS 15 has a Dart Sass platform detection issue. To avoid that:</p>
 <ul>
