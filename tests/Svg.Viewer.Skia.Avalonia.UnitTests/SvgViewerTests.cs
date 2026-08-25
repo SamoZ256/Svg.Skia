@@ -810,26 +810,27 @@ public class SvgViewerTests
     private static Grid Overlay(SvgViewer viewer)
         => viewer.GetVisualDescendants().OfType<Grid>().First(g => g.Name == "ErrorPanel");
 
+    /// <summary>The standing count beside the status, which says what the pane is marking.</summary>
+    private static TextBlock Note(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "NoteText");
+
     [AvaloniaFact]
     public async Task What_Cannot_Be_Marked_Is_Put_Over_The_Drawing_And_Blurs_It()
     {
-        // fill wants a colour and hue is a number. The pane cannot mark that — an expression is
-        // checked on its own terms, and on its own terms this one is faultless — so it arrives when
-        // the value binds, with nowhere in the file to point at. Over the drawing is where it goes,
-        // because in every case that reaches here the drawing is not what the file says.
+        // A document that will not be read at all. There is no pane to mark, because there is no
+        // drawing -- so the only place left to say it is over the one still on screen, and in every
+        // case that reaches here what is on screen is not what the file says.
+        //
+        // This used to be fill="{{ hue }}" with hue a number, which arrived when the value bound
+        // and had nowhere to point. The pane checks an expression against the attribute holding it
+        // now, so that one is marked instead; the test below pins that. Most of what binding can
+        // refuse is marked for the same reason, which is what the card is meant to give way to.
         var (window, viewer) = Host();
 
-        Assert.True(await viewer.LoadTextAsync("""
-            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
-              <defs><e:code><e:param name="hue" type="number" default="204" /></e:code></defs>
-              <rect x="0" y="0" width="24" height="24" fill="{{ hue }}" />
-            </svg>
-            """));
+        Assert.False(await viewer.LoadTextAsync("this is not a drawing"));
         Dispatcher.UIThread.RunJobs();
 
-        // On opening it, without touching anything. Loading binds the declared defaults, so the
-        // fault is found then — it used to be found then and wiped a line later, and appeared only
-        // when a parameter was next moved.
+        // On opening it, without touching anything.
         Assert.True(Overlay(viewer).IsVisible);
         Assert.IsType<BlurEffect>(viewer.Canvas.Effect);
 
@@ -840,11 +841,83 @@ public class SvgViewerTests
         Assert.NotNull(scrim.Background);
         Assert.False(scrim.IsHitTestVisible);
 
-        // And it is still there after one is.
+        // And it is still there after a parameter is touched.
         viewer.ResetParameters();
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(Overlay(viewer).IsVisible);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Warning_Is_Counted_As_One_And_Not_Called_An_Error()
+    {
+        // <rekt> is not an element this renderer knows, so it draws nothing -- but the drawing still
+        // opened, and the status bar saying "1 error" about a file that works would be a lie.
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rekt x="0" y="0" width="24" height="24" />
+            </svg>
+            """));
+        Dispatcher.UIThread.RunJobs();
+
+        var one = Assert.Single(viewer.SourceDiagnostics);
+
+        Assert.Equal(SvgSourceSeverity.Warning, one.Severity);
+        Assert.Equal("1 warning, marked in the Source pane", Note(viewer).Text);
+
+        // And it is not put over the drawing either: the pane has a line to say it on.
+        Assert.False(Overlay(viewer).IsVisible);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Errors_And_Warnings_Are_Counted_Apart()
+    {
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rekt />
+              <rect width="abc" height="10" />
+            </svg>
+            """));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("1 error and 1 warning, marked in the Source pane", Note(viewer).Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task What_The_Pane_Can_Mark_Is_Not_Also_Put_Over_The_Drawing()
+    {
+        // fill wants a colour and hue is a number. Both back ends refuse that as they read the
+        // drawing, and the pane now says so on the line that carries it -- so the card stays down.
+        // Saying it twice, once where it happened and once over the picture, is the thing the card
+        // exists to avoid.
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="hue" type="number" default="204" /></e:code></defs>
+              <rect x="0" y="0" width="24" height="24" fill="{{ hue }}" />
+            </svg>
+            """));
+        Dispatcher.UIThread.RunJobs();
+
+        var marked = Assert.Single(viewer.SourceDiagnostics);
+
+        Assert.Equal(
+            "A paint expression must be a colour expression, but this one is a number.",
+            marked.Message);
+
+        Assert.False(Overlay(viewer).IsVisible);
+        Assert.Null(viewer.Canvas.Effect);
 
         window.Close();
     }
@@ -1216,7 +1289,7 @@ public class SvgViewerTests
 
         var keys = Enum.GetValues<SvgSourceTokenKind>()
             .Select(kind => $"SvgViewerSource{kind}Brush")
-            .Concat(new[] { "SvgViewerSourceLineNumberBrush", "SvgViewerSourceErrorBrush" })
+            .Concat(new[] { "SvgViewerSourceLineNumberBrush", "SvgViewerSourceErrorBrush", "SvgViewerSourceWarningBrush" })
             .Distinct()
             .ToList();
 

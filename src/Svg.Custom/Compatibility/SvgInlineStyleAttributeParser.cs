@@ -36,6 +36,91 @@ internal sealed class SvgInlineStyleAttributeParser
         }
     }
 
+    /// <summary>
+    /// Every declaration in <paramref name="styleText"/>, each with the span of its value.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For a caller checking a document rather than reading one. It walks the same scanner
+    /// <see cref="TryApplyInlineDeclarations"/> does -- which is the point, since where one
+    /// declaration ends and the next begins is not a semicolon-split: a <c>;</c> inside quotes,
+    /// inside <c>url(…)</c> or inside a comment is not a separator, and a second answer to that
+    /// would mark the wrong piece of somebody's file.
+    /// </para>
+    /// <para>
+    /// Empty wherever that scanner gives up, rather than a partial reading. Its caller falls back to
+    /// a full CSS parser at that point, and this has no positions to offer for what that finds --
+    /// saying nothing is the honest answer, and an inline style is exactly where a half-typed one
+    /// sits while someone is still typing it.
+    /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// A tuple rather than a type of its own, because this assembly still targets netstandard2.0,
+    /// where a positional record's init accessors have no <c>IsExternalInit</c> to compile against.
+    /// </remarks>
+    internal static List<(string Name, string Value, int ValueStart, int ValueLength)> Split(string styleText)
+    {
+        var found = new List<(string Name, string Value, int ValueStart, int ValueLength)>();
+
+        if (string.IsNullOrWhiteSpace(styleText))
+        {
+            return found;
+        }
+
+        var index = 0;
+
+        while (true)
+        {
+            if (!SkipIgnorableStyleContent(styleText, ref index))
+            {
+                found.Clear();
+                return found;
+            }
+
+            if (index >= styleText.Length)
+            {
+                return found;
+            }
+
+            var declarationStart = index;
+
+            if (!TryFindInlineDeclarationEnd(styleText, ref index, out var declarationEnd) ||
+                !TryFindInlineDeclarationSeparator(styleText, declarationStart, declarationEnd, out var separatorIndex))
+            {
+                found.Clear();
+                return found;
+            }
+
+            var name = NormalizeInlineDeclarationName(styleText, declarationStart, separatorIndex - declarationStart);
+
+            if (string.IsNullOrEmpty(name))
+            {
+                found.Clear();
+                return found;
+            }
+
+            var value = NormalizeInlineDeclarationSegment(styleText, separatorIndex + 1, declarationEnd - separatorIndex - 1);
+
+            // The span is trimmed to what was written, so a mark lands on the value rather than on
+            // the gap after the colon.
+            var valueStart = separatorIndex + 1;
+
+            while (valueStart < declarationEnd && char.IsWhiteSpace(styleText[valueStart]))
+            {
+                valueStart++;
+            }
+
+            var valueEnd = declarationEnd;
+
+            while (valueEnd > valueStart && char.IsWhiteSpace(styleText[valueEnd - 1]))
+            {
+                valueEnd--;
+            }
+
+            found.Add((name, value, valueStart, valueEnd - valueStart));
+        }
+    }
+
     private static bool TryApplyInlineDeclarations(SvgElement element, string styleText)
     {
         if (string.IsNullOrWhiteSpace(styleText))

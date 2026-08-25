@@ -72,14 +72,16 @@ A drawing with mistakes in it says so from the moment it opens, in two places fo
 things.
 
 **A note in the status bar** — *"6 errors, marked in the Source pane"* — for everything the pane
-already marks on the line that carries it. The count and the pointer are all it gives, because the
+already marks on the line that carries it. Errors and warnings are counted apart and worded apart
+(*"1 error and 1 warning"*), because a warning is something the drawing opened in spite of; a note
+that is only warnings is painted in the warning colour rather than the error one. The count and the pointer are all it gives, because the
 line is where the detail belongs. It sits beside the status rather than under it, so it takes no room
 and the viewer does not shift as it comes and goes while you edit. It is a standing statement, not a
 reaction: it does not wait for a control to be touched, and it does not change when one is.
 
-**A card over the drawing, frosting it**, for what has no line to be put on: a value of the
-wrong type for the attribute holding it, a document that would not load, a parameter the host left
-unbound. In every one of those the drawing on screen is not what the file says, and the frosting says
+**A card over the drawing, frosting it**, for what has no line to be put on — chiefly a document
+that would not load at all, where there is no pane to mark because there is no drawing. In every one
+of those the drawing on screen is not what the file says, and the frosting says
 so before the sentence is read — a wide blur with a wash over it, because defocus alone reads as a
 drawing out of focus rather than as glass in front of one. The card takes no room either, and the
 drawing can still be panned around it. Both reach a host through `ErrorRaised`.
@@ -134,10 +136,23 @@ rest left plain, which takes that same 132KB minified to 217ms. Nothing is hidde
 uncoloured remainder is still there to read and select.
 
 Mistakes get a wavy underline where they are written, and hovering one shows its message.
-`…ErrorBrush` is the key for the mark. `SourceDiagnostics` is the same list if you would rather show
+`…ErrorBrush` is the key for the mark, and `…WarningBrush` for the lighter one — an element name
+this renderer does not know, or an id used twice, is a warning, since the drawing still opens either
+way. `SourceDiagnostics` is the same list if you would rather show
 it your own way — a problems panel, a status line. That covers the drawing's
 expressions and the `<e:code>` block alike: a name nothing declares, a range on a colour, a `min`
-above its `max`, a `default` that will not resolve. What counts as a mistake is
+above its `max`, a `default` that will not resolve.
+
+It covers the SVG as well. An attribute value the parser's own converter will not take —
+`width="abc"`, `stroke-miterlimit="20%"`, a unit this renderer does not implement — is marked where it
+is written, which is the one failure the library is least able to report for itself: the value is
+dropped, the property keeps its default, and the drawing renders wrong without a word. A declaration
+inside `style="…"` is marked the same way, and on the declaration rather than the whole attribute. So
+is `clip-path="url(#gone)"` — a reference to an id the drawing does not contain, which is the most
+ordinary way for a picture to come out wrong and, until now, the quietest. An
+expression written in an attribute that does not take one, `stroke-width="{%{{{ w }}}%}"`, is marked
+too, and says which attributes do — as is one written in an attribute that takes a *different* kind,
+such as a colour in `opacity`. What counts as a mistake is
 [Svg.Highlighting](svg-highlighting)'s answer, which is the language's own checker — and a
 declaration that is wrong is marked on the attribute that is wrong, not summarised above the drawing.
 

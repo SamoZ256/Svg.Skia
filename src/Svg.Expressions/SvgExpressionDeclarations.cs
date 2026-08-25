@@ -316,12 +316,20 @@ public sealed class SvgExpressionDeclarations
     /// Turns the line and column an XML reader reports into an offset into the document.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Both readers of a <c>&lt;e:code&gt;</c> block enforce the same rules, and only this one has a
     /// document to point into: the other walks a parsed tree that never held a position. So the
     /// mapping from a rule's <see cref="SvgDeclarationPart"/> to somewhere in the text lives here,
     /// and the rules stay in <see cref="Builder"/> where both readers reach them.
+    /// </para>
+    /// <para>
+    /// Internal rather than private because the same problem turns up once more: an SVG document
+    /// keeps no source position either, so anything reporting what is wrong with a drawing has to
+    /// read the text a second time and turn what the reader says back into an offset. A second copy
+    /// of this would be a second set of answers about where a quote is.
+    /// </para>
     /// </remarks>
-    private sealed class Positions
+    internal sealed class Positions
     {
         private readonly string _text;
         private readonly List<int> _lines = new() { 0 };
@@ -373,7 +381,7 @@ public sealed class SvgExpressionDeclarations
         /// is. Pointing past the quote also lands inside the expression a <c>default</c> or a bound
         /// holds, so a view that colours those marks the piece rather than the string.
         /// </remarks>
-        private int Value(XAttribute? attribute)
+        public int Value(XAttribute? attribute)
         {
             if (attribute is null || !((IXmlLineInfo)attribute).HasLineInfo())
             {

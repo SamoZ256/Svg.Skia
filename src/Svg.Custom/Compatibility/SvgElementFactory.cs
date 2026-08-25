@@ -24,6 +24,8 @@ namespace Svg
     {
         private static readonly ConcurrentDictionary<Type, HashSet<string>> s_eventDescriptorAttributeNamesByType = new();
 
+        private static readonly ConcurrentDictionary<Type, Dictionary<string, ISvgPropertyDescriptor>> s_propertiesByType = new();
+
         private readonly SvgInlineStyleAttributeParser inlineStyleAttributeParser = new();
 
         internal bool PreserveJavaScriptDomState { get; set; }
@@ -661,6 +663,362 @@ namespace Svg
                    attributeName.Equals("ry", StringComparison.OrdinalIgnoreCase) ||
                    attributeName.Equals("width", StringComparison.OrdinalIgnoreCase) ||
                    attributeName.Equals("height", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// An element of <paramref name="elementName"/> to ask about attributes, or null for a name
+        /// this factory does not know.
+        /// </summary>
+        /// <remarks>
+        /// For a caller checking a document rather than reading one: which converter an attribute
+        /// uses depends on the element carrying it, and the descriptors are reached through an
+        /// instance. Nothing is ever parented, rendered or kept, so one per name serves a whole
+        /// document. A name this does not know is one <see cref="SvgUnknownElement"/> would take,
+        /// which accepts anything and so can be wrong about nothing.
+        /// </remarks>
+        internal static SvgElement CreateProbe(string elementName)
+        {
+            if (elementName == "svg")
+            {
+                return new SvgFragment();
+            }
+
+            return availableElementsWithoutSvg.TryGetValue(elementName, out var known)
+                ? known.CreateInstance()
+                : null;
+        }
+
+        /// <summary>
+        /// The id in this document that <paramref name="attributeValue"/> names, or null where it
+        /// names none.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Which attributes hold a reference is not asked, because the value says so: a
+        /// <c>url(#…)</c> is one wherever it is written, and an <c>href</c> beginning with <c>#</c>
+        /// is one by definition. That matters -- deciding by name would need the three separate
+        /// tables an attribute's meaning is spread across, and would still miss whatever this
+        /// renderer has not implemented.
+        /// </para>
+        /// <para>
+        /// A paint that carries a fallback -- <c>fill="url(#a) none"</c> -- names nothing here, and
+        /// deliberately: SVG says the fallback is used when the reference does not resolve, and
+        /// <see cref="SvgPaintServerFactory"/> implements exactly that. Anything written after the
+        /// <c>url(…)</c> is treated the same way, which under-reports a filter list rather than
+        /// risk calling a working document broken.
+        /// </para>
+        /// <para>
+        /// The unwrapping mirrors <c>SvgElementIdManager.GetUrlString</c>, which is private to a file
+        /// this repository does not own. Ten lines of quote-stripping is the whole of it; if it ever
+        /// stops agreeing, a reference that resolves at run time is reported here as missing.
+        /// </para>
+        /// </remarks>
+        internal static string FindReferencedId(string attributeName, string attributeValue)
+        {
+            if (string.IsNullOrEmpty(attributeValue))
+            {
+                return null;
+            }
+
+            var value = attributeValue.Trim();
+
+            if (string.Equals(attributeName, "href", StringComparison.Ordinal))
+            {
+                return value.Length > 1 && value[0] == '#' ? value.Substring(1) : null;
+            }
+
+            if (!value.StartsWith("url(", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var close = value.IndexOf(')', 4);
+
+            if (close < 0)
+            {
+                // No closing parenthesis, so there is no id to be sure of.
+                return null;
+            }
+
+            // Whatever follows the url(…) makes this a fallback or a list, and either way something
+            // else is there to be used. Found by the closing parenthesis rather than by the end of
+            // the value, because a fallback can end in one too: `url(#a) green icc-color(…)` and
+            // `filter="url(#a) url(#b)"` both do, and reading to the last one takes the whole
+            // remainder for an id.
+            if (value.Substring(close + 1).Trim().Length > 0)
+            {
+                return null;
+            }
+
+            var inside = value.Substring(4, close - 4).Trim();
+
+            if (inside.Length > 1
+                && ((inside[0] == '"' && inside[inside.Length - 1] == '"')
+                    || (inside[0] == '\'' && inside[inside.Length - 1] == '\'')))
+            {
+                inside = inside.Substring(1, inside.Length - 2).Trim();
+            }
+
+            // Only a same-document reference. Anything else is a file this pass cannot open.
+            return inside.Length > 1 && inside[0] == '#' ? inside.Substring(1) : null;
+        }
+
+        /// <summary>
+        /// Why an element of <paramref name="elementName"/> draws nothing, or null where this parser
+        /// knows the name.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// An unrecognised name becomes an <see cref="SvgUnknownElement"/>, which is read, kept, and
+        /// drawn by nothing -- it and everything inside it. That is the right thing to do with a
+        /// document you are trying to show, and it is indistinguishable from a name the author got
+        /// right, which is the half worth saying out loud.
+        /// </para>
+        /// <para>
+        /// A warning rather than a refusal, and the wording says <em>this renderer</em> rather than
+        /// <em>SVG</em>, because the table cannot tell the two apart: <c>&lt;rekt&gt;</c> is a typo
+        /// and <c>&lt;view&gt;</c> is real SVG that is simply not implemented here, and both arrive
+        /// as the same miss. The drawing still opens either way.
+        /// </para>
+        /// <para>
+        /// <c>&lt;style&gt;</c> is the one name that misses the table and is still used: the loader
+        /// picks the unknown elements of that name back out and reads them as stylesheets.
+        /// </para>
+        /// </remarks>
+        internal static string FindElementFault(string elementName)
+        {
+            if (string.IsNullOrEmpty(elementName)
+                || elementName == "style"
+                || elementName == "svg"
+                || availableElementsWithoutSvg.ContainsKey(elementName))
+            {
+                return null;
+            }
+
+            return $"'{elementName}' is not an element this renderer knows, so it and everything inside it draw nothing.";
+        }
+
+        /// <summary>
+        /// Why the converter for <paramref name="attributeName"/> refuses
+        /// <paramref name="attributeValue"/>, or null when it does not refuse it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The one question <see cref="SetPropertyValue"/> cannot be asked. Its answer is discarded
+        /// twice over: the generated <c>SvgElement.SetValue</c> catches whatever the converter threw,
+        /// warns to <see cref="Trace"/> and returns <c>true</c> regardless, so the property keeps its
+        /// default and the caller is told the value was taken. That is the right behaviour for
+        /// reading a drawing -- one bad number should not cost the picture -- and no use at all to
+        /// something reporting what is wrong with one.
+        /// </para>
+        /// <para>
+        /// So this asks the converter directly, through the descriptor <c>SetValue</c> would have
+        /// picked. Nothing here decides what is wrong with a value: the converter that attribute
+        /// actually uses does, and its refusal is the message. A table written here of which name
+        /// accepts what would be a second description of the same rules.
+        /// </para>
+        /// <para>
+        /// The tests above the converter mirror <see cref="SetPropertyValue"/>, and each returns
+        /// null exactly where that method reaches an answer without asking a converter -- a value it
+        /// rewrites first, stages as authored, or stores raw. A source view saying a valid document
+        /// is wrong is worse than one saying nothing, so anything this cannot settle is not settled.
+        /// </para>
+        /// <para>
+        /// What it therefore cannot report is a converter that refuses nothing. A path builder reads
+        /// <c>d</c> as far as it makes sense and drops the rest without complaint -- <c>d="QQQ"</c>
+        /// converts as happily as a real path does -- so nonsense there is invisible here. Calling
+        /// that an error would mean deciding that unread input is one, which is a rule this does not
+        /// have and would have to invent.
+        /// </para>
+        /// </remarks>
+        internal static string FindAttributeFault(
+            SvgElement element,
+            string ns,
+            string attributeName,
+            string attributeValue,
+            SvgDocument document)
+        {
+            if (element is null || attributeName is null || attributeValue is null)
+            {
+                return null;
+            }
+
+            // Never bound at all, so never converted.
+            if (!CanBindAttributeNamespace(ns) ||
+                (ns.Length == 0 && (attributeName == "xmlns" || attributeName == "version" || attributeName == "marker")) ||
+                attributeName.StartsWith("xmlns", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            if (SvgExpressionAttributes.TryUnwrap(attributeValue, out _))
+            {
+                // Expression code, not a value. Where the parser lifts it, what it evaluates to is
+                // not known until it is bound and the extension's own checker has already read it.
+                // Where it does not, the braces stay in the value and every converter refuses them,
+                // which is a true refusal reported for the wrong reason: the answer is not that this
+                // is a malformed number but that the attribute takes no expression at all.
+                return SvgExpressionAttributes.WhyUnsupported(attributeName);
+            }
+
+            if (IsEventDescriptorAttribute(element, attributeName) ||
+                SvgCssVariableResolver.IsCustomPropertyName(attributeName))
+            {
+                return null;
+            }
+
+            // A custom property is substituted before the converter sees anything, and what it holds
+            // is a question about the cascade rather than about this attribute.
+            if (attributeValue.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return null;
+            }
+
+            // Kept as custom attributes, ahead of any converter.
+            if (attributeName == "mix-blend-mode" || attributeName == "isolation" || attributeName == "text-decoration")
+            {
+                return null;
+            }
+
+            if (attributeName == "stop-opacity" && IsCssIdentifier(attributeValue, "inherit"))
+            {
+                return null;
+            }
+
+            if (attributeName == "opacity" && attributeValue == "undefined")
+            {
+                return null;
+            }
+
+            // Rewritten before conversion; a percentage this refuses is dropped rather than reported.
+            if (TryHandlePercentageOpacityAttribute(attributeName, attributeValue, out var normalized))
+            {
+                return null;
+            }
+
+            attributeValue = normalized;
+
+            if (ShouldKeepComputedStyleDeclaration(attributeName, attributeValue) ||
+                ShouldIgnoreInvalidPresentationStyleAttribute(attributeName, attributeValue))
+            {
+                return null;
+            }
+
+            // Staged as authored wherever the cascade still has to see the word.
+            if (IsCssIdentifier(attributeValue, "inherit") ||
+                IsCssIdentifier(attributeValue, "initial") ||
+                IsCssIdentifier(attributeValue, "unset"))
+            {
+                return null;
+            }
+
+            var descriptor = FindProperty(element, attributeName);
+
+            if (descriptor is null || descriptor.Converter is null)
+            {
+                // Not an attribute this element converts. Whether that makes it a mistake is a
+                // question about names, which this does not answer.
+                return null;
+            }
+
+            try
+            {
+                descriptor.Converter.ConvertFrom(document, CultureInfo.InvariantCulture, attributeValue);
+            }
+            catch (Exception failure)
+            {
+                return Explain(attributeName, attributeValue, (failure.InnerException ?? failure).Message);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Why the converter for one inline-style declaration refuses its value, or null.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The same question as <see cref="FindAttributeFault"/>, asked where most drawings actually
+        /// put their paint. A declaration reaches the very same converter, only later: the parser
+        /// stages it with <c>AddStyle</c> and <c>SvgElement.FlushStyles</c> hands it back to
+        /// <see cref="SetPropertyValue"/> once the document is read. So <c>fill="#gggggg"</c> and
+        /// <c>style="fill:#gggggg"</c> fail identically, and reporting only the first would be an
+        /// accident of which one the XML reader happened to hand over directly.
+        /// </para>
+        /// <para>
+        /// One step belongs to CSS rather than to SVG: <c>!important</c> is part of the declaration
+        /// and not part of the value, so it comes off before anything is converted. Leaving it on
+        /// would refuse <c>fill: red !important</c>, which is valid and which the parser applies.
+        /// </para>
+        /// </remarks>
+        internal static string FindStyleFault(
+            SvgElement element,
+            string propertyName,
+            string propertyValue,
+            SvgDocument document)
+        {
+            if (propertyValue is null)
+            {
+                return null;
+            }
+
+            var value = propertyValue;
+
+            SvgCssDeclarationPriority.NormalizePriority(ref value, SvgElement.StyleSpecificity_InlineStyle);
+
+            return FindAttributeFault(element, string.Empty, propertyName, value, document);
+        }
+
+        /// <summary>Says which attribute a converter's refusal was about.</summary>
+        /// <remarks>
+        /// The converter decides, and what it decided is kept word for word -- but it is answering
+        /// about a string it was handed, so its own message names neither the attribute nor the
+        /// value. <c>The input string '' was not in a correct format</c> is the whole of what a unit
+        /// converter says about <c>width="abc"</c>. Naming the two is the reader's half, the same as
+        /// finding somewhere to point; the verdict is still entirely the converter's.
+        /// </remarks>
+        private static string Explain(string attributeName, string attributeValue, string message)
+        {
+            var detail = string.IsNullOrWhiteSpace(message) ? string.Empty : " " + message.Trim();
+
+            return $"'{attributeName}' cannot be set from '{attributeValue}'.{detail}";
+        }
+
+        /// <summary>The descriptor <c>SvgElement.SetValue</c> would pick for an attribute.</summary>
+        /// <remarks>
+        /// <para>
+        /// The generated <c>GetProperties</c> yields a type's own descriptors before its base's and
+        /// drops any the derived type shadows, so the first match is the one that would be used.
+        /// </para>
+        /// <para>
+        /// Built once per type because it is walked once per attribute, and it is a chain of
+        /// iterators over every property an element inherits -- around a hundred of them on anything
+        /// that can be painted. Searching it for each attribute in turn made checking a 57KB drawing
+        /// cost 34ms; a dictionary makes the same drawing 3.4ms, which is what splitting it into
+        /// coloured pieces costs.
+        /// </para>
+        /// </remarks>
+        private static ISvgPropertyDescriptor FindProperty(SvgElement element, string attributeName)
+        {
+            var properties = s_propertiesByType.GetOrAdd(element.GetType(), _ => CreatePropertyMap(element));
+
+            return properties.TryGetValue(attributeName, out var descriptor) ? descriptor : null;
+        }
+
+        private static Dictionary<string, ISvgPropertyDescriptor> CreatePropertyMap(SvgElement element)
+        {
+            var properties = new Dictionary<string, ISvgPropertyDescriptor>(StringComparer.Ordinal);
+
+            foreach (var property in element.GetProperties())
+            {
+                if (property.DescriptorType == DescriptorType.Property &&
+                    !properties.ContainsKey(property.AttributeName))
+                {
+                    properties[property.AttributeName] = property;
+                }
+            }
+
+            return properties;
         }
 
         private static bool IsCssIdentifier(string value, string identifier)

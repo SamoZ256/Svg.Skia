@@ -29,6 +29,12 @@
   <ItemGroup>
     <!-- For its lexer: the expression language describes itself, and this colours what it says. -->
     <ProjectReference Include="..\Svg.Expressions\Svg.Expressions.csproj" />
+    <!--
+      For its converters: SVG describes what each attribute accepts, and this reports what it says.
+      A table of types written here would be a second description of the same rules, and would drift
+      from the one the parser actually uses.
+    -->
+    <ProjectReference Include="..\Svg.Custom\Svg.Custom.csproj" />
   </ItemGroup>
 
 </Project>

@@ -4,7 +4,9 @@ title: "Svg.Highlighting"
 
 # Svg.Highlighting
 
-`Svg.Highlighting` splits an SVG document into coloured pieces for a source view. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what `Svg.Viewer.Skia.Avalonia`'s source pane is built on.
+`Svg.Highlighting` splits an SVG document into coloured pieces for a source view, and says what is wrong with it. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what `Svg.Viewer.Skia.Avalonia`'s source pane is built on.
+
+It depends on `Svg.Expressions` for the expression language's own lexer and checker, and on `Svg.Custom` for the SVG parser's own converters. Both are there so that what is coloured and what is called wrong are decided by the things that actually read a drawing, rather than by a second description of them.
 
 ## Install
 
@@ -17,7 +19,8 @@ dotnet add package Svg.Highlighting
 - you are showing SVG text to someone and want it coloured as markup,
 - you want the SVG expression extension's `{%{{{ … }}}%}` placeholders and `<e:let>` bodies recognised as code rather than as strings and prose,
 - you need to colour a large file without laying all of it out at once,
-- you want positions into the document — for a diagnostic, a squiggle, or a jump — rather than copies of parts of it.
+- you want positions into the document — for a diagnostic, a squiggle, or a jump — rather than copies of parts of it,
+- you want to be told what a drawing gets wrong: a name nothing declares, or an attribute value the SVG parser silently drops.
 
 ## Main types
 
@@ -27,7 +30,7 @@ dotnet add package Svg.Highlighting
 | `SvgSourceToken` | A range into the source and what it is; `Text` cuts it only when asked |
 | `SvgSourceTokenKind` | Text, punctuation, element, attribute, value, comment, and the expression kinds below |
 | `SvgSourceLine` | One line's tokens, its number and range, and the rest of it past a limit |
-| `SvgSourceDiagnostics` | `Analyse` — what is wrong with the expressions in a document |
+| `SvgSourceDiagnostics` | `Analyse` — what is wrong with the expressions and the attribute values in a document |
 | `SvgSourceDiagnostic` | A range, a severity and a message, in the same coordinates as a token |
 
 ## Colouring a document
@@ -91,9 +94,88 @@ declares; an `<e:let>` sees the parameters and the lets before it, but not itsel
 dependency between them would be invisible in the document, so checking one against the full table
 would accept what the code generator then rejects.
 
-One boundary worth knowing: it does not know what an *attribute* expects. `opacity="{%{{{ tint }}}%}"` is
-a well-formed colour expression written where a number belongs, and saying so needs the table of
-which SVG attribute takes which type, which lives in the scene compiler.
+An expression is checked against its **use** as well as on its own terms:
+
+```xml
+<rect opacity="{%{{{ tint }}}%}" />
+<!--             ^ An opacity expression must be a number expression, but this one is a colour. -->
+```
+
+`fill`, `stroke` and `stop-color` want a colour, `opacity` a number, `visibility` a boolean. Both
+back ends already refuse the wrong one as they read the document — the emitter and the renderer — so
+this asks the same question earlier and reports it in the same words, rather than letting a drawing
+open and fail when it is generated or drawn.
+
+## The attribute values are checked too
+
+A value that is not an expression is checked as well, by the converter that attribute actually uses:
+
+```xml
+<rect width="abc" />
+<!--        ^ 'width' cannot be set from 'abc'. The input string '' was not in a correct format. -->
+```
+
+This is the failure the parser is least able to report on its own. The generated `SvgElement.SetValue`
+catches whatever the converter threw, warns to `Trace` and **returns `true` regardless**, so the property
+keeps its default and nothing above it can tell a value that converted from one that did not. A drawing
+opens, renders wrong, and says nothing.
+
+The converter is asked directly, so the verdict and the wording are the parser's; only the sentence
+naming the attribute and the value is added, because a converter is answering about a bare string and
+its own message names neither. An expression written in an attribute that does not take one —
+`stroke-width="{%{{{ w }}}%}"` — is reported too, and says which attributes do.
+
+**Inline styles are checked the same way**, since a declaration reaches the same converter — the
+parser stages it and `SvgElement.FlushStyles` hands it back once the document is read. So
+`fill="#gggggg"` and `style="fill:#gggggg"` are reported alike, and the mark is the declaration
+rather than the attribute holding it:
+
+```xml
+<rect style="fill:red;stroke-width:abc;opacity:.5" />
+<!--                               ^ only this -->
+```
+
+The declarations come from the parser's own scanner, so a `;` inside quotes, inside `url(…)` or
+inside a comment is not a separator, and `!important` comes off the value before anything converts
+it. Where that scanner gives up — or where the attribute held an XML entity, which shifts every
+offset after it — the pieces cannot be placed and nothing is reported.
+
+A reference to an id the drawing does not contain is reported too:
+
+```xml
+<rect clip-path="url(#gone)" />
+<!--             ^ Nothing in this drawing has the id 'gone'. -->
+```
+
+Which attributes hold a reference is not asked, because the value says so — a `url(#…)` is one
+wherever it is written, and an `href` beginning with `#` is one by definition. A paint that carries a
+fallback names nothing (`fill="url(#a) none"` uses the fallback, which is what SVG says and what the
+parser does), nor does a list, an external file, or a drawing that contains a `<script>` — code can
+make an id after the document is read.
+
+An id used twice is a **warning** on the later one. Every `url(#…)` and `href` resolves through the
+id manager, which keeps the first it was given, so a repeat quietly decides which element a reference
+means while the file reads as though it says something else.
+
+An element name the parser does not know — `<rekt>`, or a real SVG element this renderer has not
+implemented — is a **warning** rather than an error: it and everything inside it draw nothing, but the
+drawing still opens. The table cannot tell a typo from something unimplemented, so the wording says
+what *this renderer* knows rather than what SVG defines, and the severity says the same. `<style>` is
+exempt, being the one name that misses the table and is still used.
+
+`SvgSourceDiagnostic.Severity` is what tells the two apart; a host that draws them the same way is
+saying a working document is broken.
+
+Nothing is reported where the parser would not have asked a converter at all: a `var(…)`, a value it
+rewrites first (`opacity="50%"`), one it stages as authored (`inherit`, `initial`, `unset`), one it
+keeps raw (`mix-blend-mode`, an `on…` handler), an attribute in a foreign namespace, or an element name
+it does not know. **A wave under a value the drawing used correctly is worse than no wave**, so anything
+that cannot be settled is left alone — a rule held to across the 525 drawings of the W3C suite, where
+the only four marks are values this parser genuinely does not apply.
+
+The other boundary: a converter that refuses nothing cannot be reported through. A path builder reads
+`d` as far as it makes sense and drops the rest, so `d="QQQ"` converts as happily as a real path does.
+Calling that an error would mean deciding that unread input is one.
 
 ## The declarations are checked too
 

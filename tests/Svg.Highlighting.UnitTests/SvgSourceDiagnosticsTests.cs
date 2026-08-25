@@ -70,12 +70,43 @@ public class SvgSourceDiagnosticsTests
     }
 
     [Fact]
-    public void An_Expression_Is_Checked_On_Its_Own_Terms_And_Not_Against_Its_Use()
+    public void An_Expression_Is_Checked_Against_What_Its_Attribute_Will_Do_With_It()
     {
-        // opacity="{{ tint }}" is a well-formed colour expression in a place that takes a number,
-        // and nothing here says so: which attribute expects which type lives in the scene compiler.
-        // Pinned rather than left silent, because it is the obvious next thing to want.
-        Assert.Empty(Of("<rect opacity=\"{{ tint }}\" />"));
+        // opacity="{{ tint }}" is a well-formed colour expression in a place that takes a number.
+        // This used to be pinned as silent, on the grounds that which attribute expects which type
+        // lived in the scene compiler -- but both back ends already refuse it as they read the
+        // document, so the answer only had to be asked for earlier.
+        var one = Assert.Single(Of("<rect opacity=\"{{ tint }}\" />"));
+
+        // Worded by the language, so the pane, the emitter and the renderer say the same sentence.
+        Assert.Equal(
+            "An opacity expression must be a number expression, but this one is a colour.",
+            one.Message);
+    }
+
+    [Fact]
+    public void Every_Attribute_An_Expression_Can_Drive_Knows_What_It_Wants()
+    {
+        Assert.Equal("A paint expression must be a colour expression, but this one is a number.",
+            Assert.Single(Of("<rect fill=\"{{ hue }}\" />")).Message);
+
+        Assert.Equal("A paint expression must be a colour expression, but this one is a number.",
+            Assert.Single(Of("<rect stroke=\"{{ hue }}\" />")).Message);
+
+        Assert.Equal("A visibility expression must be a boolean expression, but this one is a number.",
+            Assert.Single(Of("<rect visibility=\"{{ hue }}\" />")).Message);
+
+        // And the ones that match say nothing.
+        Assert.Empty(Of("<rect fill=\"{{ primary }}\" stroke=\"{{ tint }}\" opacity=\"{{ hue / 360 }}\" visibility=\"{{ hue gt 1 }}\" />"));
+        Assert.Empty(Of("<stop stop-color=\"{{ tint }}\" />"));
+    }
+
+    [Fact]
+    public void What_Is_Wrong_With_An_Expression_Is_Said_Before_What_It_Evaluates_To_Is()
+    {
+        // A name nothing declares is reported as that rather than as a type, because the checker
+        // has to read the expression before it can have a type to compare.
+        Assert.Contains("sweeep", Assert.Single(Of("<rect opacity=\"{{ sweeep }}\" />")).Message);
     }
 
     [Fact]
@@ -224,8 +255,11 @@ public class SvgSourceDiagnosticsTests
     }
 
     [Fact]
-    public void A_Document_With_No_Expressions_Is_Not_Analysed_At_All()
+    public void A_Document_With_Nothing_Wrong_With_It_Has_Nothing_To_Say()
     {
+        // This used to say that a document with no expressions was not analysed at all, which was
+        // the whole cost of the pass on an ordinary drawing. It is now read for what its attribute
+        // values convert to as well, so what is pinned here is the answer rather than the work.
         Assert.Empty(SvgSourceDiagnostics.Analyse("<svg><rect fill=\"#fff\" /></svg>"));
         Assert.Empty(SvgSourceDiagnostics.Analyse(""));
         Assert.Empty(SvgSourceDiagnostics.Analyse(null));
