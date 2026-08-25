@@ -40,6 +40,7 @@
           <SolidColorBrush x:Key="SvgViewerSourceExpressionIdentifierBrush" Color="#9CDCFE" />
           <SolidColorBrush x:Key="SvgViewerSourceLineNumberBrush" Color="#5A5A5A" />
           <SolidColorBrush x:Key="SvgViewerSourceErrorBrush" Color="#FF6B6B" />
+          <SolidColorBrush x:Key="SvgViewerFaultBackgroundBrush" Color="#F21C1C1C" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
           <SolidColorBrush x:Key="SvgViewerSourceTextBrush" Color="#1F1F1F" />
@@ -59,6 +60,7 @@
           <SolidColorBrush x:Key="SvgViewerSourceExpressionIdentifierBrush" Color="#001080" />
           <SolidColorBrush x:Key="SvgViewerSourceLineNumberBrush" Color="#A0A0A0" />
           <SolidColorBrush x:Key="SvgViewerSourceErrorBrush" Color="#D40000" />
+          <SolidColorBrush x:Key="SvgViewerFaultBackgroundBrush" Color="#F7FFFFFF" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>
@@ -88,22 +90,45 @@
 
     <Border x:Name="StatusPanel" DockPanel.Dock="Bottom"
             Padding="8,4" BorderThickness="0,1,0,0" BorderBrush="#20808080">
-      <StackPanel Spacing="4">
-        <TextBlock x:Name="StatusText" Opacity="0.65" TextTrimming="CharacterEllipsis" />
-        <Border x:Name="ErrorPanel" IsVisible="False"
-                Padding="8" CornerRadius="4"
-                Background="#33FF5555" BorderBrush="#88FF5555" BorderThickness="1">
-          <SelectableTextBlock x:Name="ErrorText"
-                               FontFamily="monospace" FontSize="11" TextWrapping="Wrap" />
-        </Border>
-      </StackPanel>
+      <!--
+        Two columns rather than two rows: a note about the drawing arrives and goes as it is edited,
+        and a row that appears with it would shove the whole viewer up and down while someone types.
+      -->
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock x:Name="StatusText" Grid.Column="0" Opacity="0.65" TextTrimming="CharacterEllipsis" />
+        <TextBlock x:Name="NoteText" Grid.Column="1" IsVisible="False"
+                   Margin="12,0,0,0" TextTrimming="CharacterEllipsis"
+                   Foreground="{DynamicResource SvgViewerSourceErrorBrush}" />
+      </Grid>
     </Border>
 
     <Grid x:Name="Body" RowDefinitions="*,6,220">
 
       <Grid x:Name="Drawing" Grid.Row="0" ColumnDefinitions="*,6,Auto">
 
-        <viewer:SvgViewerCanvas x:Name="PART_Canvas" Grid.Column="0" />
+        <Grid Grid.Column="0">
+
+          <viewer:SvgViewerCanvas x:Name="PART_Canvas" />
+
+          <!--
+            Over the drawing rather than under it, because what it says is that the drawing is not
+            to be trusted, and the blur behind it says the same thing without words. The grid has no
+            background of its own, so a pointer reaches the canvas everywhere except on the card —
+            the drawing can still be panned while it is being explained.
+          -->
+          <Grid x:Name="ErrorPanel" IsVisible="False">
+            <Border MaxWidth="520" Padding="16" CornerRadius="6"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    BorderThickness="1"
+                    Background="{DynamicResource SvgViewerFaultBackgroundBrush}"
+                    BorderBrush="{DynamicResource SvgViewerSourceErrorBrush}">
+              <SelectableTextBlock x:Name="ErrorText"
+                                   FontFamily="Cascadia Mono,Menlo,Consolas,DejaVu Sans Mono,monospace"
+                                   FontSize="11" TextWrapping="Wrap" />
+            </Border>
+          </Grid>
+
+        </Grid>
 
         <GridSplitter x:Name="Splitter" Grid.Column="1"
                       ResizeDirection="Columns" Background="Transparent" />

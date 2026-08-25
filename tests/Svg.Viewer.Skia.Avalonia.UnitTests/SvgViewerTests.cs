@@ -158,7 +158,7 @@ public class SvgViewerTests
 
         // The count and where to look, not the compiler's words: those are marked on the line the
         // range is written on, which is somewhere a status bar cannot point.
-        Assert.Contains(errors, m => m.Contains("This drawing has an error", StringComparison.Ordinal));
+        Assert.Contains(errors, m => m.Contains("1 error", StringComparison.Ordinal));
         Assert.Contains(errors, m => m.Contains("Source pane", StringComparison.Ordinal));
         Assert.Contains(viewer.SourceDiagnostics, d => d.Message.Contains("cannot carry min, max or step", StringComparison.Ordinal));
 
@@ -785,8 +785,12 @@ public class SvgViewerTests
 
         var opened = Assert.Single(errors.Distinct());
 
-        Assert.Contains("This drawing has an error", opened, StringComparison.Ordinal);
+        Assert.Contains("1 error", opened, StringComparison.Ordinal);
         Assert.Contains("Source pane", opened, StringComparison.Ordinal);
+
+        // A note, not a panel: it takes no room from the drawing and nothing is put over it.
+        Assert.False(Overlay(viewer).IsVisible);
+        Assert.Null(viewer.Canvas.Effect);
 
         // Not the compiler's words a second time: those belong on the line that carries them.
         Assert.DoesNotContain("tnit", opened, StringComparison.Ordinal);
@@ -798,6 +802,42 @@ public class SvgViewerTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.All(errors, m => Assert.Equal(opened, m));
+
+        window.Close();
+    }
+
+    /// <summary>The card put over the drawing for what cannot be said on a line of it.</summary>
+    private static Grid Overlay(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<Grid>().First(g => g.Name == "ErrorPanel");
+
+    [AvaloniaFact]
+    public async Task What_Cannot_Be_Marked_Is_Put_Over_The_Drawing_And_Blurs_It()
+    {
+        // fill wants a colour and hue is a number. The pane cannot mark that — an expression is
+        // checked on its own terms, and on its own terms this one is faultless — so it arrives when
+        // the value binds, with nowhere in the file to point at. Over the drawing is where it goes,
+        // because in every case that reaches here the drawing is not what the file says.
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="hue" type="number" default="204" /></e:code></defs>
+              <rect x="0" y="0" width="24" height="24" fill="{{ hue }}" />
+            </svg>
+            """));
+        Dispatcher.UIThread.RunJobs();
+
+        // On opening it, without touching anything. Loading binds the declared defaults, so the
+        // fault is found then — it used to be found then and wiped a line later, and appeared only
+        // when a parameter was next moved.
+        Assert.True(Overlay(viewer).IsVisible);
+        Assert.IsType<BlurEffect>(viewer.Canvas.Effect);
+
+        // And it is still there after one is.
+        viewer.ResetParameters();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(Overlay(viewer).IsVisible);
 
         window.Close();
     }

@@ -50,8 +50,9 @@ public partial class SvgViewer : UserControl
     private readonly GridSplitter _splitter;
     private readonly TextBlock _statusText;
     private readonly TextBlock _zoomText;
-    private readonly Border _errorPanel;
+    private readonly Grid _errorPanel;
     private readonly SelectableTextBlock _errorText;
+    private readonly TextBlock _noteText;
     private readonly Border _sourceHost;
     private readonly GridSplitter _sourceSplitter;
     private readonly TextEditor _sourceEditor;
@@ -119,8 +120,9 @@ public partial class SvgViewer : UserControl
         _splitter = this.FindControl<GridSplitter>("Splitter")!;
         _statusText = this.FindControl<TextBlock>("StatusText")!;
         _zoomText = this.FindControl<TextBlock>("ZoomText")!;
-        _errorPanel = this.FindControl<Border>("ErrorPanel")!;
+        _errorPanel = this.FindControl<Grid>("ErrorPanel")!;
         _errorText = this.FindControl<SelectableTextBlock>("ErrorText")!;
+        _noteText = this.FindControl<TextBlock>("NoteText")!;
         _sourceHost = this.FindControl<Border>("SourcePanelHost")!;
         _sourceSplitter = this.FindControl<GridSplitter>("SourceSplitter")!;
         _sourceEditor = this.FindControl<TextEditor>("SourceEditor")!;
@@ -353,7 +355,8 @@ public partial class SvgViewer : UserControl
         catch (Exception failure)
         {
             // The current document is untouched, so whatever was on screen stays there.
-            ShowError(failure.Message);
+            ShowNote(null);
+            ShowFault(failure.Message);
             UpdateStatus();
             return false;
         }
@@ -382,13 +385,17 @@ public partial class SvgViewer : UserControl
 
         RebuildParameters(document);
 
+        // What the document says about itself, before binding gets the last word on it. The other
+        // way round, Apply reported a fault with nowhere to point at and this wiped it a line later,
+        // so it appeared only when a parameter was next touched.
+        ShowTrouble();
+
         // A document that declares parameters renders its placeholders until values are bound, which
         // is never what someone opening a file wants to look at.
         Apply();
 
         previous?.Dispose();
 
-        ShowError(Trouble());
         UpdateStatus();
         UpdateZoomText();
         UpdateSource();
@@ -414,7 +421,8 @@ public partial class SvgViewer : UserControl
         _rows = Array.Empty<SvgViewerParameter>();
         _parameters.Parameters = _rows;
 
-        ShowError(null);
+        ShowNote(null);
+        ShowFault(null);
         UpdateStatus();
         UpdateZoomText();
         UpdateSource();
@@ -534,17 +542,19 @@ public partial class SvgViewer : UserControl
         try
         {
             document.Svg.SetExpressionValues(BuildValues());
-            ShowError(Trouble());
+            ShowTrouble();
         }
         catch (ExprException failure)
         {
             // Binding is all or nothing, so the previous rendering is still up. The control's value
             // is deliberately left alone: it is what the user has to see in order to correct it.
-            ShowError(Explain(failure));
+            ShowNote(Note());
+            ShowFault(IsMarked(failure) ? null : failure.ToDiagnostic());
         }
         catch (Exception failure)
         {
-            ShowError(failure.Message);
+            ShowNote(Note());
+            ShowFault(failure.Message);
         }
 
         // The picture is swapped in place, and nothing about the control changed, so the repaint has
@@ -749,7 +759,7 @@ public partial class SvgViewer : UserControl
         catch (Exception)
         {
             // Not readable as SVG, which is what a document looks like in the middle of being typed.
-            ShowError(Trouble());
+            ShowTrouble();
             return;
         }
 
@@ -758,14 +768,16 @@ public partial class SvgViewer : UserControl
 
         RebuildParameters(rebuilt);
 
+        ShowTrouble();
+
         // A fresh picture starts unbound, so the values on the panel have to be put back on it or
-        // every parameter snaps to its default as the text is typed.
+        // every parameter snaps to its default as the text is typed. It reports last for the same
+        // reason as on a load: what it finds has nowhere else to be said.
         Apply();
 
         open.Dispose();
 
         UpdateStatus();
-        ShowError(Trouble());
     }
 
     /// <summary>Whether the pane holds edits that are not on disk.</summary>
@@ -818,7 +830,7 @@ public partial class SvgViewer : UserControl
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
-            ShowError(failure.Message);
+            ShowFault(failure.Message);
             return false;
         }
 
@@ -946,46 +958,93 @@ public partial class SvgViewer : UserControl
     /// carries it, and repeating the compiler's words down here says the same thing twice in the
     /// place least able to point at it.
     /// </remarks>
-    private string? Trouble()
+    private string? Note()
     {
-        if (_document is not { } document)
+        if (_document is null)
         {
             return null;
         }
 
-        var found = Diagnostics();
+        var found = Diagnostics().Count;
 
-        if (found.Count == 0)
+        return found switch
         {
-            // Nothing to mark, because the text could not be kept: say what the reader said.
-            return document.DeclarationError;
-        }
-
-        return found.Count == 1
-            ? "This drawing has an error, marked in the Source pane. Changing a parameter may not take effect until it is fixed."
-            : $"This drawing has {found.Count} errors, marked in the Source pane. Changing a parameter may not take effect until they are fixed.";
+            0 => null,
+            1 => "1 error, marked in the Source pane",
+            _ => $"{found} errors, marked in the Source pane",
+        };
     }
 
     /// <summary>
-    /// What to say about a binding that did not happen.
+    /// What is wrong with nowhere in the file to say it, or null.
     /// </summary>
     /// <remarks>
-    /// Whatever was already being said, when the fault is one the pane marks: the standing message
-    /// covers it, and swapping the text on a click is what this stopped doing. Anything the pane
-    /// does not cover — a value the host supplied of the wrong type, a parameter left unbound — is
-    /// reported in full, since for those this panel is the only place at all.
+    /// The one case the drawing itself can carry: a document whose declarations would not read and
+    /// whose text could not be kept, so there is no pane to mark and nothing to point at.
     /// </remarks>
-    private string? Explain(ExprException failure)
-        => Diagnostics().Any(d => string.Equals(d.Message, failure.Message, StringComparison.Ordinal))
-            ? Trouble()
-            : failure.ToDiagnostic();
+    private string? Fault()
+        => Diagnostics().Count == 0 ? _document?.DeclarationError : null;
 
-    private void ShowError(string? message)
+    /// <summary>Says everything that is standing about the open drawing.</summary>
+    private void ShowTrouble()
     {
-        _errorText.Text = message ?? string.Empty;
-        _errorPanel.IsVisible = !string.IsNullOrEmpty(message);
+        ShowNote(Note());
+        ShowFault(Fault());
+    }
+
+    /// <summary>Whether the pane already marks what this failure is about.</summary>
+    private bool IsMarked(ExprException failure)
+        => Diagnostics().Any(d => string.Equals(d.Message, failure.Message, StringComparison.Ordinal));
+
+    /// <summary>
+    /// How far the drawing is put out of focus while something is being said over it.
+    /// </summary>
+    /// <remarks>
+    /// Enough to read a card against and to say without words that what is behind it is not to be
+    /// trusted, and not so much that the drawing stops being recognisable — a reader still wants to
+    /// see which drawing they are being told about.
+    /// </remarks>
+    private const double FaultBlur = 8d;
+
+    /// <summary>
+    /// Says what is wrong with the drawing, in the status bar, beside what is already there.
+    /// </summary>
+    /// <remarks>
+    /// A note rather than a panel: it is about things the pane marks on the line that carries them,
+    /// so its whole job is to say how many and where to look. On the row that already exists,
+    /// because a note that came and went with every edit would shove the viewer up and down while
+    /// someone typed.
+    /// </remarks>
+    private void ShowNote(string? message)
+    {
+        _noteText.Text = message ?? string.Empty;
+        _noteText.IsVisible = !string.IsNullOrEmpty(message);
 
         if (!string.IsNullOrEmpty(message))
+        {
+            ErrorRaised?.Invoke(this, message!);
+        }
+    }
+
+    /// <summary>
+    /// Says what has no line to be said on, over the drawing it is about.
+    /// </summary>
+    /// <remarks>
+    /// Over rather than under. What reaches here is what the pane cannot mark — a value of the wrong
+    /// type for the attribute holding it, a document that would not load, a parameter the host left
+    /// unbound — and in every one of those the drawing on screen is not what the file says. Blurring
+    /// it says that before the sentence is read, and takes no room from anything to say it.
+    /// </remarks>
+    private void ShowFault(string? message)
+    {
+        var shown = !string.IsNullOrEmpty(message);
+
+        _errorText.Text = message ?? string.Empty;
+        _errorPanel.IsVisible = shown;
+
+        _canvas.Effect = shown ? new BlurEffect { Radius = FaultBlur } : null;
+
+        if (shown)
         {
             ErrorRaised?.Invoke(this, message!);
         }

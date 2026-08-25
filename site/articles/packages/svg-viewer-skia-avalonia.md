@@ -68,13 +68,20 @@ parameter being offered: the drawing still renders and the value is still bindab
 to a placeholder and the default range. What is wrong with it is marked in the source pane, at the
 attribute it is wrong in — the panel does not repeat it.
 
-A drawing with mistakes in it says so from the moment it opens, in the status bar and through
-`ErrorRaised` — *"This drawing has 6 errors, marked in the Source pane. Changing a parameter may not
-take effect until they are fixed."* It is a standing statement, not a reaction: it does not wait for
-a control to be touched, and it does not change when one is. The count and the pointer are all it
-gives, because the pane marks each mistake on the line that carries it, which a status bar cannot do.
-Anything the pane does not cover, such as a value supplied of the wrong type, is still reported there
-in full.
+A drawing with mistakes in it says so from the moment it opens, in two places for two different
+things.
+
+**A note in the status bar** — *"6 errors, marked in the Source pane"* — for everything the pane
+already marks on the line that carries it. The count and the pointer are all it gives, because the
+line is where the detail belongs. It sits beside the status rather than under it, so it takes no room
+and the viewer does not shift as it comes and goes while you edit. It is a standing statement, not a
+reaction: it does not wait for a control to be touched, and it does not change when one is.
+
+**A card over the drawing, which blurs behind it**, for what has no line to be put on: a value of the
+wrong type for the attribute holding it, a document that would not load, a parameter the host left
+unbound. In every one of those the drawing on screen is not what the file says, and the blur says so
+before the sentence is read. The card takes no room either, and the drawing can still be panned
+around it. Both reach a host through `ErrorRaised`.
 
 The format itself — `<e:code>`, the operators, and the placeholder mechanism — is specified in `SVG_EXPRESSIONS.md` at the root of the repository.
 
