@@ -72,7 +72,9 @@ A drawing with mistakes in it says so from the moment it opens, in two places fo
 things.
 
 **A note in the status bar** — *"6 errors, marked in the Source pane"* — for everything the pane
-already marks on the line that carries it. The count and the pointer are all it gives, because the
+already marks on the line that carries it. Errors and warnings are counted apart and worded apart
+(*"1 error and 1 warning"*), because a warning is something the drawing opened in spite of; a note
+that is only warnings is painted in the warning colour rather than the error one. The count and the pointer are all it gives, because the
 line is where the detail belongs. It sits beside the status rather than under it, so it takes no room
 and the viewer does not shift as it comes and goes while you edit. It is a standing statement, not a
 reaction: it does not wait for a control to be touched, and it does not change when one is.
@@ -134,7 +136,8 @@ rest left plain, which takes that same 132KB minified to 217ms. Nothing is hidde
 uncoloured remainder is still there to read and select.
 
 Mistakes get a wavy underline where they are written, and hovering one shows its message.
-`…ErrorBrush` is the key for the mark. `SourceDiagnostics` is the same list if you would rather show
+`…ErrorBrush` is the key for the mark, and `…WarningBrush` for the lighter one — an element name
+this renderer does not know is a warning, since the drawing still opens without it. `SourceDiagnostics` is the same list if you would rather show
 it your own way — a problems panel, a status line. That covers the drawing's
 expressions and the `<e:code>` block alike: a name nothing declares, a range on a colour, a `min`
 above its `max`, a `default` that will not resolve.

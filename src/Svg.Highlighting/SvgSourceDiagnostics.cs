@@ -330,7 +330,8 @@ public static class SvgSourceDiagnostics
         int stop,
         string message,
         IReadOnlyList<SvgSourceToken> tokens,
-        string source)
+        string source,
+        SvgSourceSeverity severity = SvgSourceSeverity.Error)
     {
         // A mark never begins on a space. A rule about an expression as a whole reports position
         // zero, which in `default=" 1 "` is the gap before the value, and a one-space underline is
@@ -349,7 +350,7 @@ public static class SvgSourceDiagnostics
 
             if (token.Start <= at && at < token.Start + token.Length && token.Length > 0)
             {
-                return new SvgSourceDiagnostic(token.Start, token.Length, SvgSourceSeverity.Error, message);
+                return new SvgSourceDiagnostic(token.Start, token.Length, severity, message);
             }
         }
 
@@ -361,6 +362,6 @@ public static class SvgSourceDiagnostics
             end++;
         }
 
-        return new SvgSourceDiagnostic(start, Math.Max(1, end - start), SvgSourceSeverity.Error, message);
+        return new SvgSourceDiagnostic(start, Math.Max(1, end - start), severity, message);
     }
 }

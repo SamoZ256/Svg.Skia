@@ -91,6 +91,20 @@ internal static class SvgSourceAttributes
 
             if (probe is null)
             {
+                // A name the parser does not know, so there is no element to ask what its own
+                // attributes mean. Its children are still visited on their own account: a real
+                // <rect> inside a misspelt group is still a <rect> with a value that must convert.
+                if (SvgElementFactory.FindElementFault(name) is { } unknown)
+                {
+                    found.Add(SvgSourceDiagnostics.Mark(
+                        positions.Of(element, null),
+                        source.Length,
+                        unknown,
+                        tokens,
+                        source,
+                        SvgSourceSeverity.Warning));
+                }
+
                 continue;
             }
 

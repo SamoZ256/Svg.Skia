@@ -232,12 +232,54 @@ public class SvgSourceAttributesTests
     }
 
     [Fact]
-    public void An_Element_The_Parser_Does_Not_Know_Is_Asked_Nothing()
+    public void An_Element_The_Parser_Does_Not_Know_Is_A_Warning_On_Its_Name()
     {
-        // It becomes an SvgUnknownElement, which accepts anything and so can be wrong about nothing.
-        // Whether the name itself is a mistake is a question this does not answer.
-        Assert.Empty(Of("<rekt width=\"abc\" />"));
+        // It becomes an SvgUnknownElement: read, kept, and drawn by nothing. A warning rather than
+        // an error because the drawing still opens, and the mark is the name because the name is
+        // the whole of what is wrong.
+        var one = Assert.Single(Of("<rekt width=\"abc\" />"));
+
+        Assert.Equal(SvgSourceSeverity.Warning, one.Severity);
+        Assert.Equal("rekt", Marked("<rekt width=\"abc\" />"));
+
+        // Its own attributes are not asked about -- there is no element to ask -- which is why the
+        // bad width above is not a second diagnostic.
+        Assert.StartsWith("'rekt' is not an element this renderer knows", one.Message);
+    }
+
+    [Fact]
+    public void A_Real_Element_Inside_An_Unknown_One_Is_Still_A_Real_Element()
+    {
+        var found = Of("<rekt><rect width=\"abc\" /></rekt>");
+
+        Assert.Equal(2, found.Length);
+        Assert.Equal(SvgSourceSeverity.Warning, found[0].Severity);
+        Assert.Equal(SvgSourceSeverity.Error, found[1].Severity);
+    }
+
+    [Fact]
+    public void An_Element_Written_In_Another_Namespace_Is_Not_This_Parsers_Business()
+    {
         Assert.Empty(Of("<foo:bar xmlns:foo=\"urn:x\" width=\"abc\" />"));
+    }
+
+    [Fact]
+    public void Style_Misses_The_Table_And_Is_Still_Used()
+    {
+        // The one name that is not in the element table and is not a mistake: the loader picks the
+        // unknown elements of that name back out and reads them as stylesheets.
+        Assert.Empty(Of("<style>rect { fill: red }</style>"));
+    }
+
+    [Fact]
+    public void An_Element_This_Renderer_Does_Not_Implement_Reads_The_Same_As_A_Typo()
+    {
+        // <view> is real SVG 1.1. The table cannot tell it from a misspelling, and the wording does
+        // not pretend otherwise -- it says what this renderer knows, not what SVG defines. That is
+        // the whole reason it is a warning.
+        var one = Assert.Single(Of("<view viewBox=\"0 0 1 1\" />"));
+
+        Assert.Equal(SvgSourceSeverity.Warning, one.Severity);
     }
 
     [Fact]
@@ -305,8 +347,19 @@ public class SvgSourceAttributesTests
             "types-dom-07-f.svg",
         };
 
+        // Elements of SVG 1.1 this renderer does not implement. Kept apart from the list above
+        // because they are a different claim: nothing is wrong with these drawings, and what the
+        // warning says is that this renderer will not draw part of them.
+        var unimplemented = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "color-prof-01-f.svg",
+            "interact-cursor-01-f.svg",
+            "linking-uri-01-b.svg",
+        };
+
         var read = 0;
-        var marked = new List<string>();
+        var errors = new List<string>();
+        var warned = new List<string>();
 
         foreach (var file in Directory.EnumerateFiles(directory, "*.svg").OrderBy(path => path, StringComparer.Ordinal))
         {
@@ -324,14 +377,26 @@ public class SvgSourceAttributesTests
             read++;
 
             var name = Path.GetFileName(file);
+            var found = SvgSourceDiagnostics.Analyse(text);
 
-            if (SvgSourceDiagnostics.Analyse(text).Count > 0 && !known.Contains(name))
+            if (found.Any(diagnostic => diagnostic.Severity == SvgSourceSeverity.Error) && !known.Contains(name))
             {
-                marked.Add(name);
+                errors.Add(name);
+            }
+
+            if (found.Any(diagnostic => diagnostic.Severity == SvgSourceSeverity.Warning))
+            {
+                warned.Add(name);
             }
         }
 
         Assert.True(read > 500, $"Only {read} drawings were read; the suite looks incomplete.");
-        Assert.Empty(marked);
+
+        // The invariant that matters, and the strict one: nothing valid is called wrong.
+        Assert.Empty(errors);
+
+        // Warnings are named too, so a change that starts warning about a drawing nobody expected
+        // fails here saying which.
+        Assert.Equal(unimplemented.OrderBy(name => name, StringComparer.Ordinal), warned);
     }
 }

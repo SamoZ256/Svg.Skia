@@ -140,6 +140,15 @@ inside a comment is not a separator, and `!important` comes off the value before
 it. Where that scanner gives up — or where the attribute held an XML entity, which shifts every
 offset after it — the pieces cannot be placed and nothing is reported.
 
+An element name the parser does not know — `<rekt>`, or a real SVG element this renderer has not
+implemented — is a **warning** rather than an error: it and everything inside it draw nothing, but the
+drawing still opens. The table cannot tell a typo from something unimplemented, so the wording says
+what *this renderer* knows rather than what SVG defines, and the severity says the same. `<style>` is
+exempt, being the one name that misses the table and is still used.
+
+`SvgSourceDiagnostic.Severity` is what tells the two apart; a host that draws them the same way is
+saying a working document is broken.
+
 Nothing is reported where the parser would not have asked a converter at all: a `var(…)`, a value it
 rewrites first (`opacity="50%"`), one it stages as authored (`inherit`, `initial`, `unset`), one it
 keeps raw (`mix-blend-mode`, an `on…` handler), an attribute in a foreign namespace, or an element name

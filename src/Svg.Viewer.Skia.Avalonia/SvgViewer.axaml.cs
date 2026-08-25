@@ -13,6 +13,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
+using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -144,7 +145,7 @@ public partial class SvgViewer : UserControl
         // The splitter colours, the marker draws, and both ask for a brush when they need one rather
         // than being handed a palette, so a theme change is a repaint and not a rebuild.
         _sourceColorizer = new SvgViewerSourceColorizer(SourceBrush);
-        _sourceMarkers = new SvgViewerSourceMarkers(ErrorBrush);
+        _sourceMarkers = new SvgViewerSourceMarkers(ErrorBrush, WarningBrush);
 
         _sourceEditor.TextArea.TextView.LineTransformers.Add(_sourceColorizer);
         _sourceEditor.TextArea.TextView.BackgroundRenderers.Add(_sourceMarkers);
@@ -917,6 +918,8 @@ public partial class SvgViewer : UserControl
 
     private IBrush? ErrorBrush() => Resource("SvgViewerSourceErrorBrush");
 
+    private IBrush? WarningBrush() => Resource("SvgViewerSourceWarningBrush");
+
     /// <summary>The brush for a kind of token.</summary>
     private IBrush? SourceBrush(SvgSourceTokenKind kind) => Resource(kind switch
     {
@@ -981,15 +984,41 @@ public partial class SvgViewer : UserControl
             return null;
         }
 
-        var found = Diagnostics().Count;
+        var found = Diagnostics();
 
-        return found switch
+        var errors = 0;
+        var warnings = 0;
+
+        foreach (var diagnostic in found)
         {
-            0 => null,
-            1 => "1 error, marked in the Source pane",
-            _ => $"{found} errors, marked in the Source pane",
-        };
+            if (diagnostic.Severity == SvgSourceSeverity.Warning)
+            {
+                warnings++;
+            }
+            else
+            {
+                errors++;
+            }
+        }
+
+        // Counted apart because they do not mean the same thing. A warning is something the drawing
+        // opened in spite of -- an element this renderer does not know, say -- and calling six of
+        // those six errors would be the status bar saying a working file is broken.
+        if (errors == 0 && warnings == 0)
+        {
+            return null;
+        }
+
+        var said = errors == 0
+            ? Count(warnings, "warning")
+            : warnings == 0
+                ? Count(errors, "error")
+                : $"{Count(errors, "error")} and {Count(warnings, "warning")}";
+
+        return $"{said}, marked in the Source pane";
     }
+
+    private static string Count(int many, string what) => many == 1 ? $"1 {what}" : $"{many} {what}s";
 
     /// <summary>
     /// What is wrong with nowhere in the file to say it, or null.
@@ -1036,6 +1065,18 @@ public partial class SvgViewer : UserControl
     {
         _noteText.Text = message ?? string.Empty;
         _noteText.IsVisible = !string.IsNullOrEmpty(message);
+
+        if (!string.IsNullOrEmpty(message))
+        {
+            // Through the resource rather than a resolved brush, so the note follows a theme change
+            // like everything else does. A note that is only warnings is not painted as an error.
+            var key = _sourceDiagnostics.Any(d => d.Severity == SvgSourceSeverity.Error)
+                      || _sourceDiagnostics.Count == 0
+                ? "SvgViewerSourceErrorBrush"
+                : "SvgViewerSourceWarningBrush";
+
+            _noteText[!TextBlock.ForegroundProperty] = new DynamicResourceExtension(key);
+        }
 
         if (!string.IsNullOrEmpty(message))
         {

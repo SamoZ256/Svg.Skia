@@ -810,6 +810,10 @@ public class SvgViewerTests
     private static Grid Overlay(SvgViewer viewer)
         => viewer.GetVisualDescendants().OfType<Grid>().First(g => g.Name == "ErrorPanel");
 
+    /// <summary>The standing count beside the status, which says what the pane is marking.</summary>
+    private static TextBlock Note(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "NoteText");
+
     [AvaloniaFact]
     public async Task What_Cannot_Be_Marked_Is_Put_Over_The_Drawing_And_Blurs_It()
     {
@@ -842,6 +846,49 @@ public class SvgViewerTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(Overlay(viewer).IsVisible);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Warning_Is_Counted_As_One_And_Not_Called_An_Error()
+    {
+        // <rekt> is not an element this renderer knows, so it draws nothing -- but the drawing still
+        // opened, and the status bar saying "1 error" about a file that works would be a lie.
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rekt x="0" y="0" width="24" height="24" />
+            </svg>
+            """));
+        Dispatcher.UIThread.RunJobs();
+
+        var one = Assert.Single(viewer.SourceDiagnostics);
+
+        Assert.Equal(SvgSourceSeverity.Warning, one.Severity);
+        Assert.Equal("1 warning, marked in the Source pane", Note(viewer).Text);
+
+        // And it is not put over the drawing either: the pane has a line to say it on.
+        Assert.False(Overlay(viewer).IsVisible);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Errors_And_Warnings_Are_Counted_Apart()
+    {
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rekt />
+              <rect width="abc" height="10" />
+            </svg>
+            """));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("1 error and 1 warning, marked in the Source pane", Note(viewer).Text);
 
         window.Close();
     }
@@ -1242,7 +1289,7 @@ public class SvgViewerTests
 
         var keys = Enum.GetValues<SvgSourceTokenKind>()
             .Select(kind => $"SvgViewerSource{kind}Brush")
-            .Concat(new[] { "SvgViewerSourceLineNumberBrush", "SvgViewerSourceErrorBrush" })
+            .Concat(new[] { "SvgViewerSourceLineNumberBrush", "SvgViewerSourceErrorBrush", "SvgViewerSourceWarningBrush" })
             .Distinct()
             .ToList();
 

@@ -689,6 +689,41 @@ namespace Svg
         }
 
         /// <summary>
+        /// Why an element of <paramref name="elementName"/> draws nothing, or null where this parser
+        /// knows the name.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// An unrecognised name becomes an <see cref="SvgUnknownElement"/>, which is read, kept, and
+        /// drawn by nothing -- it and everything inside it. That is the right thing to do with a
+        /// document you are trying to show, and it is indistinguishable from a name the author got
+        /// right, which is the half worth saying out loud.
+        /// </para>
+        /// <para>
+        /// A warning rather than a refusal, and the wording says <em>this renderer</em> rather than
+        /// <em>SVG</em>, because the table cannot tell the two apart: <c>&lt;rekt&gt;</c> is a typo
+        /// and <c>&lt;view&gt;</c> is real SVG that is simply not implemented here, and both arrive
+        /// as the same miss. The drawing still opens either way.
+        /// </para>
+        /// <para>
+        /// <c>&lt;style&gt;</c> is the one name that misses the table and is still used: the loader
+        /// picks the unknown elements of that name back out and reads them as stylesheets.
+        /// </para>
+        /// </remarks>
+        internal static string FindElementFault(string elementName)
+        {
+            if (string.IsNullOrEmpty(elementName)
+                || elementName == "style"
+                || elementName == "svg"
+                || availableElementsWithoutSvg.ContainsKey(elementName))
+            {
+                return null;
+            }
+
+            return $"'{elementName}' is not an element this renderer knows, so it and everything inside it draw nothing.";
+        }
+
+        /// <summary>
         /// Why the converter for <paramref name="attributeName"/> refuses
         /// <paramref name="attributeValue"/>, or null when it does not refuse it.
         /// </summary>

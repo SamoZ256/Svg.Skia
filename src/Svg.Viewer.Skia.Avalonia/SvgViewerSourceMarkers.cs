@@ -35,10 +35,15 @@ internal sealed class SvgViewerSourceMarkers : IBackgroundRenderer
 
     private readonly Func<IBrush?> _brush;
 
+    private readonly Func<IBrush?> _warning;
+
     private IReadOnlyList<SvgSourceDiagnostic> _diagnostics = Array.Empty<SvgSourceDiagnostic>();
 
-    public SvgViewerSourceMarkers(Func<IBrush?> brush)
-        => _brush = brush ?? throw new ArgumentNullException(nameof(brush));
+    public SvgViewerSourceMarkers(Func<IBrush?> brush, Func<IBrush?> warning)
+    {
+        _brush = brush ?? throw new ArgumentNullException(nameof(brush));
+        _warning = warning ?? throw new ArgumentNullException(nameof(warning));
+    }
 
     /// <summary>Above the text rather than behind it, so a mark is not lost under a selection.</summary>
     public KnownLayer Layer => KnownLayer.Selection;
@@ -52,12 +57,23 @@ internal sealed class SvgViewerSourceMarkers : IBackgroundRenderer
             return;
         }
 
-        if (_brush() is not { } brush)
+        // Resolved per draw rather than held, so a theme change is a repaint. A warning is drawn in
+        // its own colour because it says something different: the drawing still opened.
+        var pens = new Dictionary<SvgSourceSeverity, Pen>();
+
+        foreach (var severity in new[] { SvgSourceSeverity.Error, SvgSourceSeverity.Warning })
+        {
+            if ((severity == SvgSourceSeverity.Warning ? _warning() : _brush()) is { } found)
+            {
+                pens[severity] = new Pen(found, 1.2d);
+            }
+        }
+
+        if (pens.Count == 0)
         {
             return;
         }
 
-        var pen = new Pen(brush, 1.2d);
         var length = textView.Document.TextLength;
 
         foreach (var diagnostic in _diagnostics)
@@ -66,6 +82,11 @@ internal sealed class SvgViewerSourceMarkers : IBackgroundRenderer
             var end = Math.Max(start, Math.Min(diagnostic.Start + diagnostic.Length, length));
 
             if (end <= start)
+            {
+                continue;
+            }
+
+            if (!pens.TryGetValue(diagnostic.Severity, out var pen))
             {
                 continue;
             }
