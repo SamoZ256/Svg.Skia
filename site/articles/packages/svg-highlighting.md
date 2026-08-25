@@ -140,6 +140,19 @@ inside a comment is not a separator, and `!important` comes off the value before
 it. Where that scanner gives up — or where the attribute held an XML entity, which shifts every
 offset after it — the pieces cannot be placed and nothing is reported.
 
+A reference to an id the drawing does not contain is reported too:
+
+```xml
+<rect clip-path="url(#gone)" />
+<!--             ^ Nothing in this drawing has the id 'gone'. -->
+```
+
+Which attributes hold a reference is not asked, because the value says so — a `url(#…)` is one
+wherever it is written, and an `href` beginning with `#` is one by definition. A paint that carries a
+fallback names nothing (`fill="url(#a) none"` uses the fallback, which is what SVG says and what the
+parser does), nor does a list, an external file, or a drawing that contains a `<script>` — code can
+make an id after the document is read.
+
 An element name the parser does not know — `<rekt>`, or a real SVG element this renderer has not
 implemented — is a **warning** rather than an error: it and everything inside it draw nothing, but the
 drawing still opens. The table cannot tell a typo from something unimplemented, so the wording says

@@ -689,6 +689,81 @@ namespace Svg
         }
 
         /// <summary>
+        /// The id in this document that <paramref name="attributeValue"/> names, or null where it
+        /// names none.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Which attributes hold a reference is not asked, because the value says so: a
+        /// <c>url(#…)</c> is one wherever it is written, and an <c>href</c> beginning with <c>#</c>
+        /// is one by definition. That matters -- deciding by name would need the three separate
+        /// tables an attribute's meaning is spread across, and would still miss whatever this
+        /// renderer has not implemented.
+        /// </para>
+        /// <para>
+        /// A paint that carries a fallback -- <c>fill="url(#a) none"</c> -- names nothing here, and
+        /// deliberately: SVG says the fallback is used when the reference does not resolve, and
+        /// <see cref="SvgPaintServerFactory"/> implements exactly that. Anything written after the
+        /// <c>url(…)</c> is treated the same way, which under-reports a filter list rather than
+        /// risk calling a working document broken.
+        /// </para>
+        /// <para>
+        /// The unwrapping mirrors <c>SvgElementIdManager.GetUrlString</c>, which is private to a file
+        /// this repository does not own. Ten lines of quote-stripping is the whole of it; if it ever
+        /// stops agreeing, a reference that resolves at run time is reported here as missing.
+        /// </para>
+        /// </remarks>
+        internal static string FindReferencedId(string attributeName, string attributeValue)
+        {
+            if (string.IsNullOrEmpty(attributeValue))
+            {
+                return null;
+            }
+
+            var value = attributeValue.Trim();
+
+            if (string.Equals(attributeName, "href", StringComparison.Ordinal))
+            {
+                return value.Length > 1 && value[0] == '#' ? value.Substring(1) : null;
+            }
+
+            if (!value.StartsWith("url(", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var close = value.IndexOf(')', 4);
+
+            if (close < 0)
+            {
+                // No closing parenthesis, so there is no id to be sure of.
+                return null;
+            }
+
+            // Whatever follows the url(…) makes this a fallback or a list, and either way something
+            // else is there to be used. Found by the closing parenthesis rather than by the end of
+            // the value, because a fallback can end in one too: `url(#a) green icc-color(…)` and
+            // `filter="url(#a) url(#b)"` both do, and reading to the last one takes the whole
+            // remainder for an id.
+            if (value.Substring(close + 1).Trim().Length > 0)
+            {
+                return null;
+            }
+
+            var inside = value.Substring(4, close - 4).Trim();
+
+            if (inside.Length > 1
+                && ((inside[0] == '"' && inside[inside.Length - 1] == '"')
+                    || (inside[0] == '\'' && inside[inside.Length - 1] == '\'')))
+            {
+                inside = inside.Substring(1, inside.Length - 2).Trim();
+            }
+
+            // Only a same-document reference. Anything else is a file this pass cannot open.
+            return inside.Length > 1 && inside[0] == '#' ? inside.Substring(1) : null;
+        }
+
+        /// <summary>
         /// Why an element of <paramref name="elementName"/> draws nothing, or null where this parser
         /// knows the name.
         /// </summary>

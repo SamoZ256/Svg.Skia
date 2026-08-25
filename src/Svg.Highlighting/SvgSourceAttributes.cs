@@ -69,6 +69,27 @@ internal static class SvgSourceAttributes
         // the element carrying it, and a drawing is mostly the same few names over and over.
         var probes = new Dictionary<string, SvgElement?>(StringComparer.Ordinal);
 
+        // Read before anything is checked, because a reference may name an id declared further down
+        // the file than the attribute holding it.
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+
+        var scripted = false;
+
+        foreach (var element in document.Descendants())
+        {
+            if (element.Name.LocalName == "script")
+            {
+                // A document that runs code can make an id after it is read, so this pass cannot
+                // know what will exist by the time anything is drawn.
+                scripted = true;
+            }
+
+            if ((string?)element.Attribute("id") is { Length: > 0 } id)
+            {
+                ids.Add(id);
+            }
+        }
+
         // Nothing is loaded from it. A converter reached for a paint server wants a document to
         // resolve against, and one that has never read a file resolves nothing rather than throwing.
         var owner = new SvgDocument();
@@ -136,6 +157,18 @@ internal static class SvgSourceAttributes
                     }
 
                     continue;
+                }
+
+                if (!scripted
+                    && SvgElementFactory.FindReferencedId(attribute.Name.LocalName, attribute.Value) is { } referenced
+                    && !ids.Contains(referenced))
+                {
+                    found.Add(SvgSourceDiagnostics.Mark(
+                        positions.Value(attribute),
+                        source.Length,
+                        $"Nothing in this drawing has the id '{referenced}'.",
+                        tokens,
+                        source));
                 }
 
                 var fault = SvgElementFactory.FindAttributeFault(

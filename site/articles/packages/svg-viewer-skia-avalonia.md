@@ -146,7 +146,9 @@ It covers the SVG as well. An attribute value the parser's own converter will no
 `width="abc"`, `stroke-miterlimit="20%"`, a unit this renderer does not implement — is marked where it
 is written, which is the one failure the library is least able to report for itself: the value is
 dropped, the property keeps its default, and the drawing renders wrong without a word. A declaration
-inside `style="…"` is marked the same way, and on the declaration rather than the whole attribute. An
+inside `style="…"` is marked the same way, and on the declaration rather than the whole attribute. So
+is `clip-path="url(#gone)"` — a reference to an id the drawing does not contain, which is the most
+ordinary way for a picture to come out wrong and, until now, the quietest. An
 expression written in an attribute that does not take one, `stroke-width="{%{{{ w }}}%}"`, is marked
 too, and says which attributes do — as is one written in an attribute that takes a *different* kind,
 such as a colour in `opacity`. What counts as a mistake is

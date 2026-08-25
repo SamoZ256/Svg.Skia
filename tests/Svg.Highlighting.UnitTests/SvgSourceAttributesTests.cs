@@ -63,7 +63,10 @@ public class SvgSourceAttributesTests
     public void A_Drawing_Whose_Values_All_Convert_Has_Nothing_To_Say()
     {
         Assert.Empty(Of("<rect x=\"1\" y=\"2\" width=\"10\" height=\"1e2\" fill=\"#0f0\" opacity=\".5\" />"));
-        Assert.Empty(Of("<circle cx=\"5%\" cy=\"5em\" r=\"3pt\" stroke=\"url(#g)\" stroke-width=\"2\" />"));
+        // The gradient is really there: a reference that resolves to nothing is a separate report,
+        // and this case is about the converters.
+        Assert.Empty(Of("<defs><linearGradient id=\"g\" /></defs>"
+                        + "<circle cx=\"5%\" cy=\"5em\" r=\"3pt\" stroke=\"url(#g)\" stroke-width=\"2\" />"));
     }
 
     [Fact]
@@ -232,6 +235,91 @@ public class SvgSourceAttributesTests
     }
 
     [Fact]
+    public void A_Reference_To_An_Id_The_Drawing_Does_Not_Have_Is_Reported()
+    {
+        // The most ordinary way for a drawing to come out wrong, and today the quietest: the
+        // reference resolves to null and "broken" and "absent" become the same value on the way to
+        // the scene graph.
+        foreach (var body in new[]
+        {
+            "<rect clip-path=\"url(#gone)\" />",
+            "<rect fill=\"url(#gone)\" />",
+            "<rect filter=\"url(#gone)\" />",
+            "<use href=\"#gone\" />",
+        })
+        {
+            var one = Assert.Single(Of(body));
+
+            Assert.Equal("Nothing in this drawing has the id 'gone'.", one.Message);
+            Assert.Equal(SvgSourceSeverity.Error, one.Severity);
+        }
+    }
+
+    [Fact]
+    public void An_Id_Is_Looked_For_Anywhere_In_The_Drawing()
+    {
+        // Declared after the attribute that names it, which is ordinary in a file that puts its
+        // <defs> at the bottom, so the ids are read before anything is checked.
+        Assert.Empty(Of("<rect fill=\"url(#g)\" /><defs><linearGradient id=\"g\" /></defs>"));
+        Assert.Empty(Of("<defs><linearGradient id=\"g\" /></defs><rect fill=\"url(#g)\" />"));
+    }
+
+    [Theory]
+    // A paint that carries a fallback is not broken: SVG says the fallback is used, and this parser
+    // implements that.
+    [InlineData("<rect fill=\"url(#gone) none\" />")]
+    [InlineData("<rect fill=\"url(#gone) green\" />")]
+    // The fallback ends in a parenthesis of its own, which is why the url is closed by looking for
+    // its own bracket rather than the end of the value.
+    [InlineData("<rect fill=\"url(#gone) green icc-color(acmecmyk, 0.11, 0.48)\" />")]
+    // A list, for the same reason.
+    [InlineData("<rect filter=\"url(#gone) url(#alsogone)\" />")]
+    [InlineData("<rect filter=\"url(#gone) grayscale()\" />")]
+    // Another file, which this pass cannot open to check.
+    [InlineData("<rect fill=\"url(other.svg#g)\" />")]
+    // Not a reference at all.
+    [InlineData("<rect fill=\"#ff0000\" />")]
+    [InlineData("<a href=\"https://example.invalid/\"><rect /></a>")]
+    // No closing bracket, so there is no id to be sure of.
+    [InlineData("<rect fill=\"url(#gone\" />")]
+    public void What_Names_No_Id_Of_This_Drawing_Is_Not_Reported(string body)
+    {
+        Assert.Empty(Of(body));
+    }
+
+    [Fact]
+    public void A_Reference_Is_Read_However_It_Was_Quoted()
+    {
+        Assert.Equal("Nothing in this drawing has the id 'gone'.",
+            Assert.Single(Of("<rect fill=\"url('#gone')\" />")).Message);
+
+        // xlink:href is the same reference under an older spelling.
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+              <use xlink:href="#gone" />
+            </svg>
+            """;
+
+        Assert.Equal("Nothing in this drawing has the id 'gone'.",
+            Assert.Single(SvgSourceDiagnostics.Analyse(source)).Message);
+    }
+
+    [Fact]
+    public void A_Drawing_That_Runs_Code_Is_Not_Told_What_It_Will_Have()
+    {
+        // A script can make an id after the document is read, so what exists by the time anything
+        // is drawn is not a question the text can answer.
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <script>/* builds #made */</script>
+              <rect fill="url(#made)" />
+            </svg>
+            """;
+
+        Assert.Empty(SvgSourceDiagnostics.Analyse(source));
+    }
+
+    [Fact]
     public void An_Element_The_Parser_Does_Not_Know_Is_A_Warning_On_Its_Name()
     {
         // It becomes an SvgUnknownElement: read, kept, and drawn by nothing. A warning rather than
@@ -345,6 +433,18 @@ public class SvgSourceAttributesTests
             "types-dom-02-f.svg",
             "types-dom-05-b.svg",
             "types-dom-07-f.svg",
+
+            // References the suite makes on purpose and leaves unresolved -- #notthere, #unknown,
+            // #invalidlink, #bad-link -- because how a renderer handles them is what is being tested.
+            "filters-felem-01-b.svg",
+            "masking-path-08-b.svg",
+            "masking-path-10-b.svg",
+            "pservers-pattern-07-f.svg",
+            "pservers-pattern-08-f.svg",
+            "pservers-pattern-09-f.svg",
+            "struct-use-12-f.svg",
+            "text-altglyph-02-b.svg",
+            "text-altglyph-03-b.svg",
         };
 
         // Elements of SVG 1.1 this renderer does not implement. Kept apart from the list above
