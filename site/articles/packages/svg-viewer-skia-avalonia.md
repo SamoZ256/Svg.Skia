@@ -77,11 +77,12 @@ line is where the detail belongs. It sits beside the status rather than under it
 and the viewer does not shift as it comes and goes while you edit. It is a standing statement, not a
 reaction: it does not wait for a control to be touched, and it does not change when one is.
 
-**A card over the drawing, which blurs behind it**, for what has no line to be put on: a value of the
+**A card over the drawing, frosting it**, for what has no line to be put on: a value of the
 wrong type for the attribute holding it, a document that would not load, a parameter the host left
-unbound. In every one of those the drawing on screen is not what the file says, and the blur says so
-before the sentence is read. The card takes no room either, and the drawing can still be panned
-around it. Both reach a host through `ErrorRaised`.
+unbound. In every one of those the drawing on screen is not what the file says, and the frosting says
+so before the sentence is read — a wide blur with a wash over it, because defocus alone reads as a
+drawing out of focus rather than as glass in front of one. The card takes no room either, and the
+drawing can still be panned around it. Both reach a host through `ErrorRaised`.
 
 The format itself — `<e:code>`, the operators, and the placeholder mechanism — is specified in `SVG_EXPRESSIONS.md` at the root of the repository.
 

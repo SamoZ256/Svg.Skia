@@ -833,6 +833,13 @@ public class SvgViewerTests
         Assert.True(Overlay(viewer).IsVisible);
         Assert.IsType<BlurEffect>(viewer.Canvas.Effect);
 
+        // The frosting is a wash over the whole drawing, and it does not take the pointer with it:
+        // the drawing can still be panned while it is being explained.
+        var scrim = Overlay(viewer).GetVisualDescendants().OfType<Border>().First(b => b.Name == "FaultScrim");
+
+        Assert.NotNull(scrim.Background);
+        Assert.False(scrim.IsHitTestVisible);
+
         // And it is still there after one is.
         viewer.ResetParameters();
         Dispatcher.UIThread.RunJobs();

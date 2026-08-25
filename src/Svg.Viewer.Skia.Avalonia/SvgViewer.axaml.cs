@@ -997,14 +997,15 @@ public partial class SvgViewer : UserControl
         => Diagnostics().Any(d => string.Equals(d.Message, failure.Message, StringComparison.Ordinal));
 
     /// <summary>
-    /// How far the drawing is put out of focus while something is being said over it.
+    /// How far the drawing is pushed out of focus while something is being said over it.
     /// </summary>
     /// <remarks>
-    /// Enough to read a card against and to say without words that what is behind it is not to be
-    /// trusted, and not so much that the drawing stops being recognisable — a reader still wants to
-    /// see which drawing they are being told about.
+    /// Far enough that shapes become colour rather than edges, which with the wash over it reads as
+    /// glass in front of the drawing rather than a drawing someone forgot to focus. A small radius
+    /// looks like a mistake; this one looks deliberate. Not so far that the drawing stops being
+    /// recognisable — a reader still wants to see which one they are being told about.
     /// </remarks>
-    private const double FaultBlur = 8d;
+    private const double FaultBlur = 28d;
 
     /// <summary>
     /// Says what is wrong with the drawing, in the status bar, beside what is already there.

@@ -344,10 +344,13 @@ well as `ExprException`, because `clamp` refuses a reversed range with the forme
 `clamp(2, 5, 1)` failed the *load* of a drawing that renders. The viewer says all this in **two
 places for two kinds of thing**: a note beside the status bar counting what the pane already marks —
 on the row that is already there, since one appearing and vanishing per edit would shove the viewer
-about while someone typed — and, for what has no line to be put on, a card **over the drawing with
-the canvas blurred behind it**, because in every case reaching there the picture is not what the file
-says. The overlay grid has no background, so a pointer reaches the canvas everywhere but the card and
-the drawing can still be panned while it is being explained.
+about while someone typed — and, for what has no line to be put on, a card **over the drawing, frosting it**,
+because in every case reaching there the picture is not what the file says. Frosting is a 28px blur
+on the canvas *plus* a tinted wash over it: a blur alone reads as a drawing out of focus, and what
+says "there is something in front of this" is the tint — which has to be a **pale** wash on the dark
+theme as well, since a dark one over dark artwork is invisible and leaves only the blur. The wash is
+not hit-testable and the overlay grid has no background, so a pointer reaches the canvas everywhere
+but the card, and the drawing can still be panned while it is being explained.
 
 Colouring the language itself: `SvgSourceExpressions` hands a `{{ … }}`
 span, an `<e:let>` body, or an `<e:param>`'s `default`/`min`/`max`/`step` — all four of which are
