@@ -281,6 +281,80 @@ public class SvgSourceDiagnosticsTests
         Assert.Equal("1", Slice(source, one));
     }
 
+    [Fact]
+    public void An_Undeclared_Prefix_Is_Reported_Rather_Than_Its_Consequences()
+    {
+        // The case this rule exists for. Writing <e:code> without declaring the prefix is the
+        // ordinary way to add expressions to a drawing that already exists, and it leaves the file
+        // with no `https://svg.skia/expr/1.0` in it anywhere -- so the declarations reader, which
+        // looks for exactly that string before it parses anything, concludes there is nothing here
+        // to read. What used to come back was every name in every expression reported as
+        // undeclared, and no word about the prefix.
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <defs><e:code>
+                <e:param name="hue" type="number" default="1" />
+                <e:let name="primary">hue + 1</e:let>
+              </e:code></defs>
+              <rect fill="{{ primary }}" />
+            </svg>
+            """;
+
+        var one = Assert.Single(SvgSourceDiagnostics.Analyse(source));
+
+        Assert.Equal("e:code", Slice(source, one));
+        Assert.Contains("undeclared prefix", one.Message);
+    }
+
+    [Fact]
+    public void A_Document_That_Will_Not_Parse_Is_Reported_Once_And_Only_Once()
+    {
+        // Both passes can see this one: the text names the namespace, so the declarations reader
+        // parses too and refuses for the same reason. Two marks in the same place saying the same
+        // sentence is the regression this guards.
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <g>
+              <rect fill="{{ hue }}" />
+            </svg>
+            """;
+
+        Assert.Single(SvgSourceDiagnostics.Analyse(source));
+    }
+
+    [Fact]
+    public void What_A_Document_That_Parses_Reports_Is_Unchanged()
+    {
+        // The well-formed paths are not routed through the new branch: a bad value still reports,
+        // and so does a bad declaration.
+        var value = Assert.Single(SvgSourceDiagnostics.Analyse(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"abc\" /></svg>"));
+
+        Assert.StartsWith("'width' cannot be set from 'abc'.", value.Message);
+
+        Assert.NotEmpty(SvgSourceDiagnostics.Analyse(Declarations.Replace(
+            "<e:param name=\"tint\" type=\"color\" />",
+            "<e:param name=\"tint\" type=\"color\" min=\"1\" />")));
+    }
+
+    [Fact]
+    public void Entities_Are_Read_By_Both_Passes_Or_One_Contradicts_The_Other()
+    {
+        // The two readers have to agree about what a document is. This one declares its shape as an
+        // entity and its parameters in the same file: read the entities and it is fine, ignore them
+        // and every use of one is undeclared -- and the pass that says whether a document parses at
+        // all would be calling it well-formed while the pass beside it refused the same text.
+        Assert.Empty(SvgSourceDiagnostics.Analyse("""
+            <?xml version="1.0"?>
+            <!DOCTYPE svg [ <!ENTITY Shape "<rect width='10' height='10' />"> ]>
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="tint" type="color" default="#0f0" /></e:code></defs>
+              &Shape;
+              <circle fill="{{ tint }}" r="4" />
+            </svg>
+            """));
+    }
+
     private static string Slice(string source, SvgSourceDiagnostic diagnostic)
         => source.Substring(diagnostic.Start, diagnostic.Length);
 }

@@ -423,9 +423,28 @@ public class SvgSourceAttributesTests
     public void A_Document_That_Is_Not_Well_Formed_Is_Not_Guessed_At()
     {
         // Half-typed markup is the ordinary case in an editor, and saying which values are wrong in
-        // a document nobody can parse would be an invention. Whether to report the markup itself is
-        // a separate question this pass does not answer.
-        Assert.Empty(SvgSourceDiagnostics.Analyse("<svg><rect width=\"abc\""));
+        // a document nobody can parse would be an invention. The markup itself is now reported --
+        // that is the one thing there is to say -- and `abc` is not, though it would be the moment
+        // the author closes the tag.
+        var one = Assert.Single(SvgSourceDiagnostics.Analyse("<svg><rect width=\"abc\""));
+
+        Assert.DoesNotContain("abc", one.Message);
+    }
+
+    [Fact]
+    public void A_Drawing_Whose_Shapes_Are_Entities_Is_Read_The_Way_The_Loader_Reads_It()
+    {
+        // The suite declares shapes in an internal subset and uses them by reference. Ignoring the
+        // DTD would make every one of those an undeclared entity in a file that opens perfectly, so
+        // this pass reads with the settings SvgDocument uses rather than stricter ones.
+        Assert.Empty(SvgSourceDiagnostics.Analyse("""
+            <?xml version="1.0"?>
+            <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+              "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd" [
+              <!ENTITY Shape "<rect width='10' height='10' />">
+            ]>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">&Shape;</svg>
+            """));
     }
 
     [Fact]

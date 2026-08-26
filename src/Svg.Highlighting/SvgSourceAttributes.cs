@@ -38,12 +38,14 @@ internal static class SvgSourceAttributes
 {
     /// <summary>Reports the attribute values in <paramref name="source"/> that will not convert.</summary>
     /// <remarks>
-    /// Silent rather than throwing for a document that cannot be read, for the reason
+    /// Returns why the document could not be read rather than throwing, for the reason
     /// <see cref="SvgSourceDiagnostics.Analyse"/> gives: what is wrong with a file is not a reason to
-    /// take the file off the screen. A document that is not well-formed reports nothing here — saying
-    /// so is a separate question from what a converter thinks of a value.
+    /// take the file off the screen. Nothing is added to <paramref name="found"/> in that case —
+    /// where a document that will not parse should be marked is the caller's to decide, and it is
+    /// the only thing worth saying about one.
     /// </remarks>
-    public static void Analyse(
+    /// <returns>Null when the document is well-formed; what the reader refused otherwise.</returns>
+    public static XmlException? Analyse(
         string source,
         IReadOnlyList<SvgSourceToken> tokens,
         List<SvgSourceDiagnostic> found)
@@ -52,15 +54,25 @@ internal static class SvgSourceAttributes
 
         try
         {
+            // The loader's own settings, because this pass now says whether a document can be read
+            // at all and the loader is what decides that. Reading with anything stricter invents
+            // faults: four W3C fixtures declare their shapes as entities in an internal subset, and
+            // ignoring the DTD turns every use of one into `Reference to undeclared entity` in a
+            // file that opens perfectly. SvgDtdResolver keeps external entities unresolved by
+            // default, so this is the loader's leniency and not more.
             using var reader = XmlReader.Create(
                 new StringReader(source),
-                new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, XmlResolver = null });
+                new XmlReaderSettings
+                {
+                    DtdProcessing = SvgDocument.DisableDtdProcessing ? DtdProcessing.Ignore : DtdProcessing.Parse,
+                    XmlResolver = new SvgDtdResolver(),
+                });
 
             document = XDocument.Load(reader, LoadOptions.SetLineInfo);
         }
-        catch (XmlException)
+        catch (XmlException malformed)
         {
-            return;
+            return malformed;
         }
 
         var positions = new SvgExpressionDeclarations.Positions(source);
@@ -200,6 +212,8 @@ internal static class SvgSourceAttributes
                 found.Add(SvgSourceDiagnostics.Mark(at, source.Length, fault, tokens, source));
             }
         }
+
+        return null;
     }
 
     /// <summary>

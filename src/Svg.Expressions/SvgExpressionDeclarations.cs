@@ -247,9 +247,13 @@ public sealed class SvgExpressionDeclarations
         XDocument document;
         try
         {
+            // Entities are read, because a drawing may declare its shapes as them and a block of
+            // expressions is no reason to stop reading one. The resolver stays null so nothing
+            // external is fetched, which is what SvgDocument's own resolver does by default; this
+            // assembly holds the language and deliberately depends on nothing to reuse that one.
             using var reader = XmlReader.Create(
                 new StringReader(svgText),
-                new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, XmlResolver = null });
+                new XmlReaderSettings { DtdProcessing = DtdProcessing.Parse, XmlResolver = null });
 
             // Line info is what turns a rule's verdict into somewhere to point. Measured at 3ms on a
             // 212KB drawing, against the 7ms it takes merely to split one into tokens.

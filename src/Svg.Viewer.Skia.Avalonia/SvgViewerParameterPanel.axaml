@@ -53,8 +53,11 @@
   <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
     <StackPanel Margin="10">
 
+      <!-- Hidden until a drawing is read: an empty pane before anything is open has nothing to
+           explain, and one behind a file that would not open has nothing to say about it. -->
       <TextBlock x:Name="EmptyLabel"
                  Text="This drawing declares no parameters."
+                 IsVisible="False"
                  Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
 
       <ItemsControl x:Name="Rows" />

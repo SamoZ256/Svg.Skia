@@ -65,6 +65,12 @@ public readonly record struct SvgSourceDiagnostic(
 /// was about.
 /// </para>
 /// <para>
+/// A document that is not well-formed XML reports that alone. Every other rule here reads a parsed
+/// document, so with nothing to parse they would be answering a question about text that does not
+/// yet mean anything -- and the missing <c>xmlns:e</c> that makes <c>&lt;e:code&gt;</c> an unbound
+/// prefix would otherwise surface as every expression in the file using an undeclared name.
+/// </para>
+/// <para>
 /// A document whose declarations are wrong reports those and no <em>expressions</em>. The symbol
 /// table is missing whatever the bad declaration would have put in it, so every use of that name
 /// would look undeclared — a hundred of those bury the few that are real. Attribute values are
@@ -75,8 +81,9 @@ public static class SvgSourceDiagnostics
 {
     /// <summary>Reports what is wrong with <paramref name="source"/>: its declarations, its expressions and its attribute values.</summary>
     /// <remarks>
-    /// Empty rather than throwing for a document that cannot be read at all: a source view exists to
-    /// show a file, and one that vanished because its own error reporting failed would be absurd.
+    /// A document that cannot be read at all reports why, and nothing else. Never throws: a source
+    /// view exists to show a file, and one that vanished because its own error reporting failed
+    /// would be absurd.
     /// </remarks>
     public static IReadOnlyList<SvgSourceDiagnostic> Analyse(string? source)
     {
@@ -90,14 +97,35 @@ public static class SvgSourceDiagnostics
         var sites = new List<SvgSourceSite>();
         var tokens = SvgSourceHighlighter.Tokenize(source, sites);
 
+        // Asked first, and of the pass that always parses. A document that is not well-formed has
+        // one thing wrong with it, and everything else here would be a guess at what the text was
+        // going to say -- so this reports the reader's refusal and stops.
+        //
+        // It has to be this pass that answers. The declarations reader gives up on a document with
+        // no expression namespace anywhere in its text before it parses anything, and a document
+        // that uses `<e:code>` without declaring the prefix is exactly that document: the string it
+        // searches for is the one the author forgot. Left to it, the one mistake that breaks the
+        // file is the same mistake that hides the error, and what surfaces instead is every name in
+        // every expression reported as undeclared -- consequences, in place of the cause.
+        if (SvgSourceAttributes.Analyse(source!, tokens, found) is { } malformed)
+        {
+            // The reader's own sentence, position and all. It names the line a second time over the
+            // mark that already points there, which is a small redundancy against trimming a
+            // localised resource string by guessing at its shape.
+            found.Add(Mark(
+                new SvgExpressionDeclarations.Positions(source!).At(malformed.LineNumber, malformed.LinePosition),
+                source!.Length,
+                malformed.Message,
+                tokens,
+                source!));
+
+            return found;
+        }
+
         // Every declaration is read rather than only the first, so a block with three mistakes in it
         // shows three. A document that declares nothing costs one search of the text for the
         // extension's namespace.
         var declarations = SvgExpressionDeclarations.Parse(source, out var declared);
-
-        // What a converter thinks of a value does not depend on the symbol table, so this runs
-        // whatever the declarations turned out to be.
-        SvgSourceAttributes.Analyse(source!, tokens, found);
 
         if (declared.Count > 0)
         {

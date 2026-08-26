@@ -355,10 +355,26 @@ public partial class SvgViewer : UserControl
         }
         catch (Exception failure)
         {
-            // The current document is untouched, so whatever was on screen stays there.
             ShowNote(null);
             ShowFault(failure.Message);
-            UpdateStatus();
+
+            if (_document is null)
+            {
+                // Nothing was open for the failure to leave alone. Reporting on the document here
+                // would say `No drawing open.` over a card naming the line that stopped it -- true
+                // of the viewer, and no answer to someone who just handed it a file. The panel is
+                // told there is no drawing rather than an empty one, so it does not claim the file
+                // declares no parameters when nothing has read it.
+                _statusText.Text = name is { } ? $"{name} couldn't be opened" : "The drawing couldn't be opened.";
+                _parameters.Parameters = null;
+            }
+            else
+            {
+                // The current document is untouched, so whatever was on screen stays there, and its
+                // name is still the true answer to what is open.
+                UpdateStatus();
+            }
+
             return false;
         }
 
@@ -420,7 +436,7 @@ public partial class SvgViewer : UserControl
         _document = null;
 
         _rows = Array.Empty<SvgViewerParameter>();
-        _parameters.Parameters = _rows;
+        _parameters.Parameters = null;
 
         ShowNote(null);
         ShowFault(null);
@@ -437,29 +453,31 @@ public partial class SvgViewer : UserControl
 
         // Values survive a reload whose parameters are unchanged. Opening the same file again, or
         // re-reading one that was edited elsewhere, must not silently discard what was set.
-        if (_rows.Count == declarations.Count && _rows.Zip(declarations).All(pair => Same(pair.First, pair.Second)))
+        if (_rows.Count != declarations.Count || !_rows.Zip(declarations).All(pair => Same(pair.First, pair.Second)))
         {
-            return;
-        }
+            // Row by row where the whole list does not match, because the text is being edited:
+            // adding one <e:param> used to discard every value bound to the others, which was a
+            // rare annoyance when a reload meant reopening a file and is a constant one while
+            // someone is typing.
+            var kept = _rows.ToDictionary(row => row.Name, StringComparer.Ordinal);
 
-        // Row by row where the whole list does not match, because the text is being edited: adding
-        // one <e:param> used to discard every value bound to the others, which was a rare annoyance
-        // when a reload meant reopening a file and is a constant one while someone is typing.
-        var kept = _rows.ToDictionary(row => row.Name, StringComparer.Ordinal);
+            _rows = SvgViewerParameterFactory.Create(declarations);
 
-        _rows = SvgViewerParameterFactory.Create(declarations);
-
-        foreach (var row in _rows)
-        {
-            // Only a value somebody chose. One still sitting where its default put it should follow
-            // that default when the text changes it, or editing default="180" to "90" would rebuild
-            // the row and then put 180 straight back.
-            if (kept.TryGetValue(row.Name, out var previous) && previous.Type == row.Type && previous.IsModified)
+            foreach (var row in _rows)
             {
-                TrySetParameterValue(row.Name, previous.ToExprValue());
+                // Only a value somebody chose. One still sitting where its default put it should
+                // follow that default when the text changes it, or editing default="180" to "90"
+                // would rebuild the row and then put 180 straight back.
+                if (kept.TryGetValue(row.Name, out var previous) && previous.Type == row.Type && previous.IsModified)
+                {
+                    TrySetParameterValue(row.Name, previous.ToExprValue());
+                }
             }
         }
 
+        // Told even where no row moved, because this is not only a list: it is the panel finding
+        // out that a drawing was read at all, which is what separates `declares no parameters` from
+        // having nothing to say. The panel leaves identical rows alone, so this costs a comparison.
         _parameters.Parameters = _rows;
     }
 

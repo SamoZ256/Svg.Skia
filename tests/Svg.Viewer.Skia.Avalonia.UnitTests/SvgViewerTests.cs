@@ -185,6 +185,79 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
+    public async Task A_File_That_Will_Not_Open_Says_Which_File()
+    {
+        // `No drawing open.` is true of the viewer and no answer to someone who just handed it a
+        // path: the card names the line that stopped it, and nothing else in the window named the
+        // file the line is in.
+        var (window, viewer) = Host();
+
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-unreadable.svg");
+        File.WriteAllText(path, "<svg><rect");
+
+        try
+        {
+            Assert.False(await viewer.LoadAsync(path));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal($"{Path.GetFileName(path)} couldn't be opened", Status(viewer).Text);
+        }
+        finally
+        {
+            File.Delete(path);
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task A_Pane_With_No_Drawing_Behind_It_Claims_Nothing_About_One()
+    {
+        var (window, viewer) = Host();
+
+        // Before anything is opened there is no drawing to declare nothing.
+        Assert.False(Empty(viewer).IsVisible);
+
+        Assert.False(await viewer.LoadTextAsync("this is not svg"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(Empty(viewer).IsVisible);
+
+        // A drawing that really does declare none is the case the label is for.
+        Assert.True(await viewer.LoadTextAsync("<svg xmlns=\"http://www.w3.org/2000/svg\" />"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(Empty(viewer).IsVisible);
+
+        viewer.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(Empty(viewer).IsVisible);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Failed_Load_Over_An_Open_Drawing_Still_Reports_The_Open_One()
+    {
+        // The other half of the same branch: something is open, it stayed, and its name is still
+        // the true answer to what the status bar is asked.
+        var (window, viewer) = await HostLoaded();
+
+        var before = Status(viewer).Text;
+
+        Assert.False(await viewer.LoadTextAsync("this is not svg"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(before, Status(viewer).Text);
+
+        // Its rows stayed too, so the label has nothing to say about it either.
+        Assert.Equal(3, viewer.Parameters.Count);
+        Assert.False(Empty(viewer).IsVisible);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task Reloading_The_Same_Parameters_Keeps_The_Values_Already_Set()
     {
         // Opening the same drawing again must not silently discard what someone has set up.
@@ -811,6 +884,12 @@ public class SvgViewerTests
         => viewer.GetVisualDescendants().OfType<Grid>().First(g => g.Name == "ErrorPanel");
 
     /// <summary>The standing count beside the status, which says what the pane is marking.</summary>
+    private static TextBlock Status(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "StatusText");
+
+    private static TextBlock Empty(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "EmptyLabel");
+
     private static TextBlock Note(SvgViewer viewer)
         => viewer.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "NoteText");
 
