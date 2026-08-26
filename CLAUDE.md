@@ -1,13 +1,15 @@
 # CLAUDE.md
 
-A map for working in this repository. `AGENTS.md` covers commit and PR conventions, and the W3C
-Chrome-override capture workflow.
+A map for working in this repository. Procedures live in `.claude/skills` — `format` before a commit,
+`chrome-references` for a render baseline; commit and pull request conventions are in
+`.claude/commands/`. Reference: [SVG 1.1](https://www.w3.org/TR/SVG11/) ·
+[Avalonia](https://github.com/AvaloniaUI/Avalonia) · [its docs](https://github.com/AvaloniaUI/avalonia-docs) ·
+[ILSpy](https://github.com/icsharpcode/ILSpy), for reading what a dependency actually compiled to.
 
 **Keep this file under 100 lines.** It is a map, not a record of what anyone learned. Detail belongs
-beside the thing it is about: a trap goes in a comment next to the code, a package's design and its
-measurements go in `site/articles/packages/`, and why a line is the way it is goes in the commit
-that wrote it. Do not append here after every change — add only what someone could not find by
-reading the code.
+beside the thing it is about — a trap in a comment next to the code, a package's design and its
+measurements in `site/articles/packages/`, why a line is the way it is in the commit that wrote it.
+Add only what someone could not find by reading the code.
 
 ## Rules
 
@@ -20,19 +22,17 @@ reading the code.
 - **Run the app when you change one.** For `src/SvgViewer`, the editor, or any GUI project, build it,
   launch it and leave it running so the change can be seen — rather than reporting it done from a
   green test run.
-- **Format only the files you changed** (`--include`, below). Measured: 16.8s scoped against 73s
-  solution-wide, and solution-wide reformats `src/Svg.Expressions/ExprLexer.cs` and the whole
-  `externals/SVG` submodule every time — churn that then has to be reverted.
+- **Keep `samples/TestApp/TestApp.json` out of a commit.** Tracked, and `TestApp` rewrites it on exit
+  (`App.axaml.cs:50-52`), so running the sample leaves it modified without anyone having edited it.
+- **Format only the files you changed.** The `format` skill has the command and the measurements;
+  a solution-wide run rewrites `ExprLexer.cs` and the whole `externals/SVG` submodule every time.
 
 ## Setup
 
 The **.NET 10 SDK** (`global.json` pins `10.0.100`); the build fails outright on .NET 9. Submodules
 are mandatory, not optional — `src/Svg.Custom` compiles its sources straight out of `externals/SVG`,
-and the suites read fixtures from `externals/W3C_SVG_11_TestSuite` and `externals/resvg`.
-
-```sh
-git submodule update --init --recursive
-```
+and the suites read fixtures from `externals/W3C_SVG_11_TestSuite` and `externals/resvg`. Fetch them
+with `git submodule update --init --recursive`.
 
 ## Commands
 
@@ -41,7 +41,7 @@ dotnet build Svg.Skia.slnx -c Release
 dotnet test  Svg.Skia.slnx -c Release                          # ~4300 tests, about a minute
 dotnet test tests/Svg.Skia.UnitTests/Svg.Skia.UnitTests.csproj -c Release \
   -f net10.0 --filter "FullyQualifiedName~W3CTestSuiteTests"   # one project, one subset
-dotnet format Svg.Skia.slnx --no-restore --include <the .cs files you changed>
+dotnet format Svg.Skia.slnx --no-restore --include <changed .cs files>   # or just: the format skill
 dotnet build Svg.Skia.slnx -c Release --no-incremental -v n    # the only way to count warnings
 ```
 

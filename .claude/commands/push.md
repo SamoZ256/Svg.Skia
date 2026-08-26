@@ -18,25 +18,8 @@ $ARGUMENTS
    Stop if there is nothing to commit, or if `git rev-parse --abbrev-ref HEAD` is `HEAD` — a
    detached head is never what I meant.
 
-2. **Format what I changed, not the solution.**
-
-   ```sh
-   FILES=$( { git diff --name-only --diff-filter=ACMR HEAD -- '*.cs'
-              git ls-files -o --exclude-standard -- '*.cs'; } | sort -u )
-   [ -n "$FILES" ] && dotnet format Svg.Skia.slnx --no-restore --include $FILES
-   ```
-
-   The whole solution takes 76s against ~15s scoped, and it reformats `ExprLexer.cs` and the whole
-   `externals/SVG` submodule every single time — churn that then has to be reverted. Scoped to the
-   files a commit touches it produces no collateral at all, so the revert below is a safety net
-   rather than a step you expect to run.
-
-   An empty `$FILES` is harmless if the guard is dropped: `--include ""` formats nothing, and
-   `--include` with no value at all is a hard error, so neither silently widens to the solution.
-
-   If it does dirty something I did not touch, revert that — `git checkout -- <file>`, and
-   `git -C externals/SVG checkout -- .` for the submodule — until `git status --short` shows only
-   my change.
+2. **Format what I changed, not the solution.** Use the `format` skill — it has the command, the
+   measurements behind it, and what to revert if a run dirties something you did not touch.
 
 3. **Build and test** — `dotnet build Svg.Skia.slnx -c Release` and
    `dotnet test Svg.Skia.slnx -c Release` — unless you already ran both since the last edit, in
@@ -47,10 +30,14 @@ $ARGUMENTS
    the `SvgToPng` build error that sat alongside it. Do not reintroduce a standing exception — a
    permitted failure stops being read after a while, which is how both of those survived.
 
-4. **Write the message** per AGENTS.md: a summary under 72 characters, imperative, no prefix. Then
-   a body explaining *why* — the problem, what was rejected and what it cost, anything a reader
-   would otherwise have to rediscover. Numbers and error text where they carry weight. Not a list
-   of the files touched; the diff already says that.
+4. **Write the message.** A summary under 72 characters, imperative, no prefix. Then a body
+   explaining *why* — the problem, what was rejected and what it cost, anything a reader would
+   otherwise have to rediscover. Numbers and error text where they carry weight. Cite the
+   specification section where one settles the question. Not a list of the files touched; the diff
+   already says that.
+
+   The body is the pull request description too — `/merge` opens one with `gh pr create --fill`,
+   which takes it straight from the commit.
 
 5. **Commit and push.** `git push` if the branch has an upstream, `git push -u origin <branch>` if
    it does not. Report the range that moved, or the branch that was created.
