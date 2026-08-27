@@ -297,6 +297,48 @@ public class SvgViewerParameterEditingTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public async Task An_Edit_Leaves_A_View_Somebody_Adjusted_Where_It_Was()
+    {
+        var (window, viewer) = await HostLoaded(Parametric, Radius());
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.Canvas.ZoomIn();
+        viewer.Canvas.ZoomIn();
+        Dispatcher.UIThread.RunJobs();
+
+        var scale = viewer.Canvas.Scale;
+        var offsetX = viewer.Canvas.OffsetX;
+
+        Assert.True(await viewer.AddParameterAsync());
+        await Settle();
+
+        Assert.Equal(scale, viewer.Canvas.Scale, 6);
+        Assert.Equal(offsetX, viewer.Canvas.OffsetX, 6);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task An_Edit_Keeps_A_View_Nobody_Adjusted_Fitted()
+    {
+        var (window, viewer) = await HostLoaded(Parametric, Radius());
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var fitted = viewer.Canvas.Scale;
+
+        Assert.True(await viewer.AddParameterAsync());
+        await Settle();
+
+        Assert.Equal(fitted, viewer.Canvas.Scale, 6);
+
+        window.Close();
+    }
+
     // ---- committing values as defaults ----
 
     [AvaloniaFact]

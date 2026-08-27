@@ -849,7 +849,7 @@ public partial class SvgViewer : UserControl
         }
 
         _document = rebuilt;
-        _canvas.Svg = rebuilt.Svg;
+        _canvas.Replace(rebuilt.Svg);
 
         RebuildParameters(rebuilt);
 
