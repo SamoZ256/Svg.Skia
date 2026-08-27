@@ -95,6 +95,9 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// <summary>Raised when somebody asks to change what one parameter declares.</summary>
     public event EventHandler<SvgViewerParameter>? EditRequested;
 
+    /// <summary>Raised when somebody asks to take one parameter out of the drawing.</summary>
+    public event EventHandler<SvgViewerParameter>? RemoveRequested;
+
     /// <summary>Raised when a let row is finished with and says something the document does not.</summary>
     public event EventHandler<SvgViewerLet>? LetCommitted;
 
@@ -264,6 +267,14 @@ public partial class SvgViewerDeclarationPanel : UserControl
         if (sender is Control { DataContext: SvgViewerParameter parameter })
         {
             EditRequested?.Invoke(this, parameter);
+        }
+    }
+
+    private void OnRemoveClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: SvgViewerParameter parameter })
+        {
+            RemoveRequested?.Invoke(this, parameter);
         }
     }
 

@@ -156,6 +156,7 @@ public partial class SvgViewer : UserControl
         _panel.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
         _panel.CommitRequested += (_, _) => CommitParameterDefaults();
         _panel.EditRequested += async (_, row) => await EditParameterAsync(row).ConfigureAwait(true);
+        _panel.RemoveRequested += (_, row) => RemoveParameter(row);
         _panel.LetCommitted += (_, let) => CommitLet(let);
         _panel.LetMoved += (_, moved) => MoveLet(moved.Let, moved.To);
 
@@ -922,6 +923,39 @@ public partial class SvgViewer : UserControl
 
         return replacement is { } wanted
             && Splice(SvgDeclarationEditor.Update(PaneSource(), parameter.Name, wanted));
+    }
+
+    /// <summary>
+    /// Takes one parameter out of the drawing.
+    /// </summary>
+    /// <remarks>
+    /// Refused while anything still names it, since removing it would leave a drawing that parses
+    /// and draws nothing. The refusal says how many uses there are, which is what tells somebody
+    /// whether the button did nothing or whether they meant something else.
+    /// </remarks>
+    /// <returns>Whether the drawing changed.</returns>
+    public bool RemoveParameter(SvgViewerParameter parameter)
+    {
+        if (parameter is null)
+        {
+            throw new ArgumentNullException(nameof(parameter));
+        }
+
+        if (_document is null)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        return Splice(SvgDeclarationEditor.Remove(PaneSource(), parameter.Name));
     }
 
     /// <summary>

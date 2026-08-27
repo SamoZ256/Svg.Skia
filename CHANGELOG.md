@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+* Added removing a parameter — `SvgDeclarationEditor.Remove`, and a `✕` beside each row's `⋯` in the
+  viewer's panel.
+
+  It is **refused while anything still names it**, with a count of the uses. Removing a used
+  declaration leaves a document that parses perfectly and draws nothing, which is the one outcome
+  this splicing exists to prevent; and a count is what separates a button that did nothing from one
+  that did something unintended. Removing and then reporting the breakage was rejected for the same
+  reason `Open` refuses a document whose declarations are already wrong: the pane would fill with
+  errors about a drawing the application had just broken itself.
+
+  The uses are the ones renaming rewrites, so `SvgDeclarationReferences.Rename` was widened into
+  `Uses` and now consumes what it finds rather than owning the walk — one answer to "where is this
+  named", found by lexing every `{{ … }}` and every `<e:let>` body. A `default`, `min`, `max` or
+  `step` is not searched, because the language puts nothing the document declares in scope there, so
+  a name in one is a different name; a test pins that.
+
+  The declaration goes with the line it sat on, reusing what reordering already needed. The
+  `<e:code>` block stays even when it empties: taking it away is a second decision — about a `<defs>`
+  that may hold other things, and an `xmlns` nothing declares any more — and adding a parameter
+  writes into the block that is already there.
+
 * Fixed a source view reporting an error against text nobody typed. An expression reaches a file
   XML-escaped — a let holding `a < b` can only be written `a &lt; b`, since a bare `<` opens a tag —
   and the highlighter lexed that span raw, stopped at the ampersand, and reported **"Expected

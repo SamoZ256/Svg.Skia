@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -609,5 +610,74 @@ public class SvgViewerParameterEditingTests
 
             return Task.FromResult(_answer);
         }
+    }
+
+    // ---- taking one away ----
+
+    [AvaloniaFact]
+    public async Task A_Parameter_Nothing_Names_Is_Removed_From_The_Drawing()
+    {
+        var (window, viewer) = await HostLoaded(Parametric, Radius());
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        // `fade` is on the rect's opacity, `tint` on its fill, so neither can go. One that nothing
+        // names has to be declared first.
+        Assert.True(await viewer.AddParameterAsync());
+        await Settle();
+
+        var spare = viewer.Parameters.Single(row => row.Name == "radius");
+
+        Assert.True(viewer.RemoveParameter(spare));
+        await Settle();
+
+        Assert.DoesNotContain(viewer.Parameters, row => row.Name == "radius");
+        Assert.DoesNotContain("radius", Pane(viewer).Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Parameter_The_Drawing_Still_Uses_Is_Refused_And_Said_So()
+    {
+        var (window, viewer) = await HostLoaded(Parametric);
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var used = viewer.Parameters.Single(row => row.Name == "tint");
+
+        Assert.False(viewer.RemoveParameter(used));
+        await Settle();
+
+        // Still there, and the pane still holds the placeholder that kept it.
+        Assert.Contains(viewer.Parameters, row => row.Name == "tint");
+        Assert.Contains("{{ tint }}", Pane(viewer).Text);
+        Assert.False(viewer.IsSourceModified);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_Row_Button_Is_What_Asks_For_It()
+    {
+        var (window, viewer) = await HostLoaded(Parametric, Radius());
+
+        Assert.True(await viewer.AddParameterAsync());
+        await Settle();
+
+        var spare = viewer.Parameters.Single(row => row.Name == "radius");
+
+        viewer.GetVisualDescendants()
+            .OfType<Button>()
+            .Single(button => ReferenceEquals(button.DataContext, spare) && button.Content as string == "✕")
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        await Settle();
+
+        Assert.DoesNotContain(viewer.Parameters, row => row.Name == "radius");
+
+        window.Close();
     }
 }

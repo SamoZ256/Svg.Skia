@@ -19,11 +19,6 @@ internal static class SvgDeclarationReferences
     private static readonly XNamespace Ns = SvgExpressionDeclarations.Namespace;
 
     /// <summary>Adds an edit for every use of <paramref name="from"/>, or explains why it cannot.</summary>
-    /// <remarks>
-    /// Only placeholders and let bodies are searched. A <c>default</c>, <c>min</c>, <c>max</c> or
-    /// <c>step</c> is an expression too, but the language puts nothing a document declares in scope
-    /// there, so no name in one can be a use of this.
-    /// </remarks>
     public static string? Rename(
         string svgText,
         XDocument document,
@@ -31,6 +26,35 @@ internal static class SvgDeclarationReferences
         string from,
         string to,
         List<SvgTextEdit> edits)
+    {
+        var found = new List<(int Start, int Length)>();
+
+        if (Uses(svgText, document, positions, from, found) is { } bad)
+        {
+            return bad;
+        }
+
+        foreach (var (start, length) in found)
+        {
+            edits.Add(new SvgTextEdit(start, length, to));
+        }
+
+        return null;
+    }
+
+    /// <summary>Finds where <paramref name="name"/> is used, or explains why it cannot.</summary>
+    /// <remarks>
+    /// Only placeholders and let bodies are searched. A <c>default</c>, <c>min</c>, <c>max</c> or
+    /// <c>step</c> is an expression too, but the language puts nothing a document declares in scope
+    /// there, so no name in one can be a use of this. Renaming rewrites what this finds and removing
+    /// refuses over it, which is the same question asked twice.
+    /// </remarks>
+    public static string? Uses(
+        string svgText,
+        XDocument document,
+        SvgExpressionDeclarations.Positions positions,
+        string name,
+        List<(int Start, int Length)> found)
     {
         foreach (var element in document.Descendants())
         {
@@ -44,7 +68,7 @@ internal static class SvgDeclarationReferences
                     continue;
                 }
 
-                if (Placeholders(svgText, start, end, from, to, edits) is { } bad)
+                if (Placeholders(svgText, start, end, name, found) is { } bad)
                 {
                     return bad;
                 }
@@ -64,7 +88,7 @@ internal static class SvgDeclarationReferences
 
             var close = svgText.IndexOf("</", body, StringComparison.Ordinal);
 
-            if (close >= 0 && In(svgText, body, close, from, to, edits) is { } trouble)
+            if (close >= 0 && In(svgText, body, close, name, found) is { } trouble)
             {
                 return trouble;
             }
@@ -77,9 +101,8 @@ internal static class SvgDeclarationReferences
         string svgText,
         int start,
         int end,
-        string from,
-        string to,
-        List<SvgTextEdit> edits)
+        string name,
+        List<(int Start, int Length)> found)
     {
         var at = start;
 
@@ -99,7 +122,7 @@ internal static class SvgDeclarationReferences
                 return null;
             }
 
-            if (In(svgText, open + 2, close, from, to, edits) is { } bad)
+            if (In(svgText, open + 2, close, name, found) is { } bad)
             {
                 return bad;
             }
@@ -110,8 +133,8 @@ internal static class SvgDeclarationReferences
         return null;
     }
 
-    /// <summary>Adds an edit for each identifier in one expression that names <paramref name="from"/>.</summary>
-    private static string? In(string svgText, int start, int end, string from, string to, List<SvgTextEdit> edits)
+    /// <summary>Finds each identifier in one expression that names <paramref name="name"/>.</summary>
+    private static string? In(string svgText, int start, int end, string name, List<(int Start, int Length)> found)
     {
         if (end <= start)
         {
@@ -130,20 +153,20 @@ internal static class SvgDeclarationReferences
         {
             // Refused rather than skipped: a use that cannot be read is still a use, and renaming
             // around it would leave the drawing naming something that no longer exists.
-            return $"'{text.Trim()}' cannot be read, so renaming cannot find what it uses: {bad.Message}";
+            return $"'{text.Trim()}' cannot be read, so what it uses cannot be found: {bad.Message}";
         }
 
         foreach (var token in tokens)
         {
-            if (token.Kind != ExprTokenKind.Identifier || !string.Equals(token.Text, from, StringComparison.Ordinal))
+            if (token.Kind != ExprTokenKind.Identifier || !string.Equals(token.Text, name, StringComparison.Ordinal))
             {
                 continue;
             }
 
             var at = offsets[token.Position];
-            var past = token.Position + from.Length < offsets.Length ? offsets[token.Position + from.Length] : end;
+            var past = token.Position + name.Length < offsets.Length ? offsets[token.Position + name.Length] : end;
 
-            edits.Add(new SvgTextEdit(at, past - at, to));
+            found.Add((at, past - at));
         }
 
         return null;

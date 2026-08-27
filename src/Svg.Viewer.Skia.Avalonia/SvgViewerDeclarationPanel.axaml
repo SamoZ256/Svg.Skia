@@ -67,10 +67,12 @@
     <!-- Resolved by the concrete row type, so there is no selector to keep in step. -->
     <DataTemplate DataType="viewer:SvgViewerNumberParameter">
       <StackPanel Spacing="2" Margin="0,0,0,10" Classes="row">
-        <Grid ColumnDefinitions="*,Auto,Auto">
+        <Grid ColumnDefinitions="*,Auto,Auto,Auto">
           <TextBlock Grid.Column="0" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
           <Button Grid.Column="2" Classes="edit" Content="⋯" Click="OnEditClick"
                   ToolTip.Tip="Edit this parameter" />
+          <Button Grid.Column="3" Classes="edit" Content="✕" Click="OnRemoveClick"
+                  ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
           <NumericUpDown Grid.Column="1"
                          Width="110"
                          Value="{Binding Value, Mode=TwoWay}"
@@ -88,20 +90,24 @@
     </DataTemplate>
 
     <DataTemplate DataType="viewer:SvgViewerBooleanParameter">
-      <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10" Classes="row">
+      <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
         <TextBlock Grid.Column="0" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
         <CheckBox Grid.Column="1" IsChecked="{Binding Value, Mode=TwoWay}" />
         <Button Grid.Column="2" Classes="edit" Content="⋯" Click="OnEditClick"
                 ToolTip.Tip="Edit this parameter" />
+        <Button Grid.Column="3" Classes="edit" Content="✕" Click="OnRemoveClick"
+                ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
       </Grid>
     </DataTemplate>
 
     <DataTemplate DataType="viewer:SvgViewerColorParameter">
-      <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10" Classes="row">
+      <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
         <TextBlock Grid.Column="0" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
         <ColorPicker Grid.Column="1" Color="{Binding Color, Mode=TwoWay}" />
         <Button Grid.Column="2" Classes="edit" Content="⋯" Click="OnEditClick"
                 ToolTip.Tip="Edit this parameter" />
+        <Button Grid.Column="3" Classes="edit" Content="✕" Click="OnRemoveClick"
+                ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
       </Grid>
     </DataTemplate>
 

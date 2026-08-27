@@ -100,11 +100,14 @@ below is an edit, and each writes the drawing's own text through
 | `AddParameterAsync` | Asks for a parameter and splices it into the `<e:code>` block, creating the block and the namespace if the drawing has neither |
 | `CommitParameterDefaults` | Writes every value that differs from its declared default into the document as that default |
 | `EditParameterAsync` | Asks what one parameter should declare and writes the answer, carrying every use of its name when it is renamed |
+| `RemoveParameter` | Takes a parameter out, refusing while anything still names it |
 | `CommitLet` | Writes what a let row says, declaring it below the lets already there or rewriting the one it stands for |
 | `MoveLet` | Puts a let at another position among the lets, refusing a move that would leave one unresolved |
 
 A row's `⋯` button, which appears while the pointer is over it, is how a parameter is edited. Its
 type is not offered: every expression naming a parameter was checked against the type it has.
+The `✕` beside it removes the parameter, and is refused while the drawing still uses it — the
+refusal says how many uses there are, since a button that did nothing would say less.
 
 A let has no form and no `⋯`: it is a name and an expression, so the row is the editor. `Add let…`
 leaves an empty row to type into, `Enter` or leaving the row writes it, `Escape` puts it back. What

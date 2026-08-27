@@ -202,6 +202,62 @@ public static class SvgDeclarationEditor
         return Verify(svgText, edits, renamed ? replacement.Name : null);
     }
 
+    /// <summary>Takes a parameter out of the drawing, if nothing is using it.</summary>
+    /// <remarks>
+    /// A declaration nothing names is the only one that can go quietly. Removing a used one leaves a
+    /// document that still parses and no longer draws, so it is refused and counted rather than
+    /// applied and reported — the count is what tells somebody whether they meant to.
+    /// </remarks>
+    public static SvgSourceEditResult Remove(string svgText, string name)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        if (!Open(svgText, out var document, out var positions, out var refusal))
+        {
+            return SvgSourceEditResult.Refuse(refusal!);
+        }
+
+        var element = document!
+            .Descendants(Ns + "code")
+            .SelectMany(block => block.Elements(Ns + "param"))
+            .FirstOrDefault(candidate => string.Equals((string?)candidate.Attribute("name"), name, StringComparison.Ordinal));
+
+        if (element is null)
+        {
+            return SvgSourceEditResult.Refuse($"This drawing declares no parameter called '{name}'.");
+        }
+
+        var used = new List<(int Start, int Length)>();
+
+        if (SvgDeclarationReferences.Uses(svgText, document, positions, name, used) is { } trouble)
+        {
+            return SvgSourceEditResult.Refuse(trouble);
+        }
+
+        if (used.Count > 0)
+        {
+            return SvgSourceEditResult.Refuse(
+                used.Count == 1
+                    ? $"'{name}' is still used once. Take that use away first, or the drawing stops rendering."
+                    : $"'{name}' is still used {used.Count} times. Take those uses away first, or the drawing stops rendering.");
+        }
+
+        // The line where it has one, so removing a declaration does not leave the blank it sat on.
+        var (start, length) = Line(svgText, element, positions) is { } line
+            ? (line.Start, line.Length)
+            : positions.Span(element);
+
+        if (start < 0)
+        {
+            return SvgSourceEditResult.Refuse($"'{name}' cannot be found in the document's own text.");
+        }
+
+        return Verify(svgText, new List<SvgTextEdit> { new(start, length, string.Empty) }, null);
+    }
+
     /// <summary>Rewrites a let, carrying its uses with it when the name changes.</summary>
     /// <param name="name">The let as it currently stands.</param>
     /// <param name="newName">What it should be called, which may be what it is called now.</param>

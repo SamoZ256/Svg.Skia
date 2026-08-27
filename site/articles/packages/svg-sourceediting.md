@@ -29,7 +29,7 @@ dotnet add package Svg.SourceEditing
 
 | Type | Role |
 | --- | --- |
-| `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet` and `MoveLet` for the other half of the block |
+| `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet` and `MoveLet` for the other half of the block |
 | `SvgTextEdit` | One span to replace, and `ApplyAll` for a caller holding only a string |
 | `SvgSourceEditResult` | The spans, or why nothing can be done |
 
@@ -83,6 +83,22 @@ the whole rename rather than being skipped — a use that cannot be read is stil
 
 Changing a **type** is refused. Every expression naming a parameter was checked against the type it
 had, so changing one is a change to all of them rather than to the declaration alone.
+
+## Removing needs to know what uses it
+
+`Remove` refuses while anything still names the parameter, and says how many uses it found. Taking a
+used one away leaves a document that parses perfectly and draws nothing, which is the one outcome
+this package exists to prevent; the count is what separates a button that did nothing from one that
+did something unintended.
+
+The uses are the ones `Rename` rewrites — every `{{ … }}` and every `<e:let>` body, found by lexing —
+so the two ask the same question of the same walker. A `default`, `min`, `max` or `step` is not
+searched: the language puts nothing the document declares in scope there, so a name in one is a
+different name.
+
+The declaration goes with the line it sat on. The `<e:code>` block stays even when it empties, since
+taking it away is a second decision — about a `<defs>` that may hold other things, and an `xmlns`
+nothing declares any more — and adding a parameter writes into the block that is already there.
 
 ## Where a let sits is what it means
 
