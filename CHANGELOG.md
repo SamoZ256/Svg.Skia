@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* Added removing a let — `SvgDeclarationEditor.RemoveLet`, and a `✕` on its row — on the same terms
+  as a parameter: refused while anything still names it, with the uses counted. The rule is sharper
+  here, since being named is the whole of what a let is for, so one nothing names is the only kind
+  there is any sense in taking away.
+
+  `Remove` became the same method with the element name passed in, now that there is a second caller
+  to justify one. A row nobody has typed into yet never reaches the editor at all — the panel drops
+  it, because there is nothing in the document to take out.
+
 * Added removing a parameter — `SvgDeclarationEditor.Remove`, and a `✕` beside each row's `⋯` in the
   viewer's panel.
 

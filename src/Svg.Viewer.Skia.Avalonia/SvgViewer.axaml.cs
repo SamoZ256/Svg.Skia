@@ -159,6 +159,7 @@ public partial class SvgViewer : UserControl
         _panel.RemoveRequested += (_, row) => RemoveParameter(row);
         _panel.LetCommitted += (_, let) => CommitLet(let);
         _panel.LetMoved += (_, moved) => MoveLet(moved.Let, moved.To);
+        _panel.LetRemoveRequested += (_, let) => RemoveLet(let);
 
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
@@ -1057,6 +1058,39 @@ public partial class SvgViewer : UserControl
         }
 
         return Splice(SvgDeclarationEditor.MoveLet(PaneSource(), declared.Name, to));
+    }
+
+    /// <summary>
+    /// Takes one let out of the drawing.
+    /// </summary>
+    /// <remarks>
+    /// Refused while anything still names it, as a parameter is. A row nobody has written yet never
+    /// reaches this: the panel throws that one away itself, since there is nothing in the document
+    /// to take out.
+    /// </remarks>
+    /// <returns>Whether the drawing changed.</returns>
+    public bool RemoveLet(SvgViewerLet let)
+    {
+        if (let is null)
+        {
+            throw new ArgumentNullException(nameof(let));
+        }
+
+        if (_document is null || let.Declaration is not { } declared)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        return Splice(SvgDeclarationEditor.RemoveLet(PaneSource(), declared.Name));
     }
 
     /// <summary>Shows what each let currently evaluates to, beside it.</summary>

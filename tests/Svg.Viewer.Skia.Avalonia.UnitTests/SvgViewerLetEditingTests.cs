@@ -355,4 +355,80 @@ public class SvgViewerLetEditingTests
 
         window.Close();
     }
+
+    // ---- taking one away ----
+
+    [AvaloniaFact]
+    public async Task A_Let_Nothing_Names_Is_Removed_From_The_Drawing()
+    {
+        var (window, viewer) = await HostLoaded(Two);
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        // `a` is on the rect's opacity; `b` is named by nothing.
+        Assert.True(viewer.RemoveLet(Row(viewer, "b")));
+        await Settle();
+
+        Assert.Equal(new[] { "a" }, viewer.Lets.Select(let => let.Name).ToArray());
+        Assert.DoesNotContain("tau / 3", Pane(viewer).Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Let_The_Drawing_Still_Uses_Is_Refused()
+    {
+        var (window, viewer) = await HostLoaded(Two);
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(viewer.RemoveLet(Row(viewer, "a")));
+        await Settle();
+
+        Assert.Contains(viewer.Lets, let => let.Name == "a");
+        Assert.Contains("{{ a }}", Pane(viewer).Text);
+        Assert.False(viewer.IsSourceModified);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Removing_A_Row_Nobody_Wrote_Just_Takes_The_Row_Away()
+    {
+        var (window, viewer) = await HostLoaded(Two);
+
+        AddLetButton(viewer).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var draft = Assert.Single(viewer.Lets, let => let.IsDraft);
+
+        Remove(viewer, draft).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        // Nothing to splice: there was never anything in the document to take out.
+        Assert.DoesNotContain(viewer.Lets, let => let.IsDraft);
+        Assert.False(viewer.IsSourceModified);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_Row_Button_Is_What_Asks_For_It()
+    {
+        var (window, viewer) = await HostLoaded(Two);
+
+        Remove(viewer, Row(viewer, "b")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Settle();
+
+        Assert.Equal(new[] { "a" }, viewer.Lets.Select(let => let.Name).ToArray());
+
+        window.Close();
+    }
+
+    private static Button Remove(SvgViewer viewer, SvgViewerLet row)
+        => viewer.GetVisualDescendants()
+            .OfType<Button>()
+            .Single(button => ReferenceEquals(button.DataContext, row) && button.Content as string == "✕");
 }

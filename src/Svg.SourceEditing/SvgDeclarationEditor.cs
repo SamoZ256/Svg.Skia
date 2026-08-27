@@ -209,6 +209,17 @@ public static class SvgDeclarationEditor
     /// applied and reported — the count is what tells somebody whether they meant to.
     /// </remarks>
     public static SvgSourceEditResult Remove(string svgText, string name)
+        => Take(svgText, name, "param");
+
+    /// <summary>Takes a let out of the drawing, if nothing is using it.</summary>
+    /// <remarks>
+    /// The same rule as a parameter, and for a sharper reason: what a let is for is being named, so
+    /// one nothing names is the only kind there is any sense in taking away.
+    /// </remarks>
+    public static SvgSourceEditResult RemoveLet(string svgText, string name)
+        => Take(svgText, name, "let");
+
+    private static SvgSourceEditResult Take(string svgText, string name, string kind)
     {
         if (svgText is null)
         {
@@ -222,12 +233,12 @@ public static class SvgDeclarationEditor
 
         var element = document!
             .Descendants(Ns + "code")
-            .SelectMany(block => block.Elements(Ns + "param"))
+            .SelectMany(block => block.Elements(Ns + kind))
             .FirstOrDefault(candidate => string.Equals((string?)candidate.Attribute("name"), name, StringComparison.Ordinal));
 
         if (element is null)
         {
-            return SvgSourceEditResult.Refuse($"This drawing declares no parameter called '{name}'.");
+            return SvgSourceEditResult.Refuse($"This drawing declares no {kind} called '{name}'.");
         }
 
         var used = new List<(int Start, int Length)>();

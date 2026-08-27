@@ -104,6 +104,9 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// <summary>Raised when a let is dragged to a new position among the lets.</summary>
     public event EventHandler<(SvgViewerLet Let, int To)>? LetMoved;
 
+    /// <summary>Raised when somebody asks to take one let out of the drawing.</summary>
+    public event EventHandler<SvgViewerLet>? LetRemoveRequested;
+
     /// <summary>The rows to show, or null when there is no drawing to declare any.</summary>
     /// <remarks>
     /// Null and empty are different answers, and the label is the whole reason to tell them apart.
@@ -276,6 +279,23 @@ public partial class SvgViewerDeclarationPanel : UserControl
         {
             RemoveRequested?.Invoke(this, parameter);
         }
+    }
+
+    /// <summary>A row nothing has been written for yet is thrown away rather than asked about.</summary>
+    private void OnRemoveLetClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { DataContext: SvgViewerLet let })
+        {
+            return;
+        }
+
+        if (let.IsDraft)
+        {
+            Discard(let);
+            return;
+        }
+
+        LetRemoveRequested?.Invoke(this, let);
     }
 
     private void OnRowValueChanged(object? sender, EventArgs e)

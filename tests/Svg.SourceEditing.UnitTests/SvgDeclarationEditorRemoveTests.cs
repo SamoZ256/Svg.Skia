@@ -7,12 +7,12 @@ using Xunit;
 namespace Svg.SourceEditing.UnitTests;
 
 /// <summary>
-/// Taking a parameter out of a drawing.
+/// Taking a declaration out of a drawing.
 /// </summary>
 /// <remarks>
 /// Removal is the one edit that can leave a document parsing perfectly and drawing nothing, so most
 /// of what is asserted here is what it refuses. The rest is that the line goes with the declaration:
-/// a blank where an <c>&lt;e:param&gt;</c> used to be is not what anybody means by removing it.
+/// a blank where one used to be is not what anybody means by removing it.
 /// </remarks>
 public class SvgDeclarationEditorRemoveTests
 {
@@ -155,5 +155,90 @@ public class SvgDeclarationEditorRemoveTests
         // may hold other things, and about an xmlns nothing declares any more -- and re-adding a
         // parameter writes into the one that is already there.
         Assert.Contains("<e:code>", edited);
+    }
+
+    // ---- and the other half of the block ----
+
+    [Fact]
+    public void A_Let_Nothing_Names_Goes_The_Same_Way()
+    {
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="EXPR-NS" width="10" height="10">
+              <defs>
+                <e:code>
+                  <e:param name="hue" type="number" default="217" />
+                  <e:let name="half">hue / 2</e:let>
+                  <e:let name="spare">tau / 4</e:let>
+                </e:code>
+              </defs>
+              <rect width="10" height="10" fill="{{ hsl(half, 1, 0.5) }}" />
+            </svg>
+            """.Replace("EXPR-NS", Ns);
+
+        var edited = Apply(source, SvgDeclarationEditor.RemoveLet(source, "spare"));
+
+        Assert.Equal(
+            new[] { "half" },
+            SvgExpressionDeclarations.Parse(edited, out _).Lets.Select(l => l.Name).ToArray());
+
+        Assert.DoesNotContain("spare", edited);
+    }
+
+    [Fact]
+    public void A_Let_Another_Let_Still_Names_Is_Refused()
+    {
+        var source = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
+              <defs>
+                <e:code>
+                  <e:param name="hue" type="number" default="217" />
+                  <e:let name="half">hue / 2</e:let>
+                  <e:let name="quarter">half / 2</e:let>
+                </e:code>
+              </defs>
+            </svg>
+            """;
+
+        var result = SvgDeclarationEditor.RemoveLet(source, "half");
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("'half'", result.Refusal);
+    }
+
+    [Fact]
+    public void A_Let_A_Placeholder_Still_Names_Is_Refused()
+    {
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="EXPR-NS" width="10" height="10">
+              <defs>
+                <e:code>
+                  <e:param name="hue" type="number" default="217" />
+                  <e:let name="half">hue / 2</e:let>
+                </e:code>
+              </defs>
+              <rect width="10" height="10" opacity="{{ half / 180 }}" />
+            </svg>
+            """.Replace("EXPR-NS", Ns);
+
+        Assert.False(SvgDeclarationEditor.RemoveLet(source, "half").Succeeded);
+    }
+
+    [Fact]
+    public void A_Let_Is_Not_Found_By_Asking_For_A_Parameter()
+    {
+        var source = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
+              <defs>
+                <e:code>
+                  <e:let name="quarter">tau / 4</e:let>
+                </e:code>
+              </defs>
+            </svg>
+            """;
+
+        // The two are separate lists in the same block, and a caller that mixes them up should be
+        // told rather than have the other one taken away.
+        Assert.False(SvgDeclarationEditor.Remove(source, "quarter").Succeeded);
+        Assert.True(SvgDeclarationEditor.RemoveLet(source, "quarter").Succeeded);
     }
 }

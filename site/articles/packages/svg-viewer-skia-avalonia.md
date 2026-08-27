@@ -103,6 +103,7 @@ below is an edit, and each writes the drawing's own text through
 | `RemoveParameter` | Takes a parameter out, refusing while anything still names it |
 | `CommitLet` | Writes what a let row says, declaring it below the lets already there or rewriting the one it stands for |
 | `MoveLet` | Puts a let at another position among the lets, refusing a move that would leave one unresolved |
+| `RemoveLet` | Takes a let out, refusing while anything still names it |
 
 A row's `⋯` button, which appears while the pointer is over it, is how a parameter is edited. Its
 type is not offered: every expression naming a parameter was checked against the type it has.
@@ -113,7 +114,8 @@ A let has no form and no `⋯`: it is a name and an expression, so the row is th
 leaves an empty row to type into, `Enter` or leaving the row writes it, `Escape` puts it back. What
 is typed is checked against the parameters and the lets above it as it is typed, and nothing is
 written until it checks. Beside each row is what the let evaluates to right now, which follows the
-sliders.
+sliders, and a `✕` that removes it on the same terms as a parameter — a row nothing has been
+typed into yet is simply dropped, since there is nothing in the document to take out.
 
 Its grip drags it up and down, because **where a let sits is what it can name**: one resolves against
 what is declared above it and nothing below. A drag is held inside the positions that still check, so

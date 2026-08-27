@@ -29,7 +29,7 @@ dotnet add package Svg.SourceEditing
 
 | Type | Role |
 | --- | --- |
-| `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet` and `MoveLet` for the other half of the block |
+| `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
 | `SvgTextEdit` | One span to replace, and `ApplyAll` for a caller holding only a string |
 | `SvgSourceEditResult` | The spans, or why nothing can be done |
 
@@ -86,7 +86,8 @@ had, so changing one is a change to all of them rather than to the declaration a
 
 ## Removing needs to know what uses it
 
-`Remove` refuses while anything still names the parameter, and says how many uses it found. Taking a
+`Remove` and `RemoveLet` refuse while anything still names the declaration, and say how many uses
+they found. Taking a
 used one away leaves a document that parses perfectly and draws nothing, which is the one outcome
 this package exists to prevent; the count is what separates a button that did nothing from one that
 did something unintended.
