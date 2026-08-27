@@ -50,7 +50,11 @@ public sealed class SvgColorRule
 /// </summary>
 public sealed class SvgRecipe
 {
-    public const string Namespace = "https://svg.skia/expr/1.0";
+    /// <remarks>
+    /// The language's own constant rather than a second spelling of it: a recipe writes the very
+    /// block the declarations reader reads back, and two literals could drift.
+    /// </remarks>
+    public const string Namespace = SvgExpressionDeclarations.Namespace;
 
     internal static readonly XNamespace Ns = Namespace;
 

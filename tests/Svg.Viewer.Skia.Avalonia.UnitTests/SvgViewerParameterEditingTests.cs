@@ -1,0 +1,359 @@
+// Copyright (c) Wiesław Šoltés. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+using AvaloniaEdit;
+using Svg.Expressions;
+using Xunit;
+
+namespace Svg.Viewer.Skia.Avalonia.UnitTests;
+
+/// <summary>
+/// Declaring a parameter from the panel, and committing values into the drawing as defaults.
+/// </summary>
+/// <remarks>
+/// <para>
+/// What these are really about is that the panel and the pane are one document and not two. A
+/// parameter added from the panel is a change to the drawing's own text, so it makes the document
+/// modified, it saves, it undoes in one step, and it shows up in the pane spelled the way somebody
+/// would have typed it.
+/// </para>
+/// <para>
+/// The splice itself is pinned in Svg.SourceEditing.UnitTests, against documents far more awkward
+/// than these. Here it only has to arrive.
+/// </para>
+/// </remarks>
+public class SvgViewerParameterEditingTests
+{
+    private const string Parametric = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="tint" type="color" default="#ff0000" />
+              <e:param name="fade" type="number" default="1" min="0" max="1" />
+            </e:code>
+          </defs>
+          <!-- the rectangle everything above is for -->
+          <rect x="0" y="0" width="24" height="24" fill="{{ tint }}" opacity="{{ fade }}" />
+        </svg>
+        """;
+
+    private const string Plain = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+          <rect x="0" y="0" width="24" height="24" fill="#ff0000" />
+        </svg>
+        """;
+
+    private static (Window Window, SvgViewer Viewer) Host(SvgExpressionParameter? answer = null)
+    {
+        var viewer = new SvgViewer
+        {
+            ParameterDialogService = new StubParameterDialogService(answer),
+        };
+
+        var window = new Window
+        {
+            Width = 500,
+            Height = 300,
+            Background = Brushes.White,
+            Content = viewer
+        };
+
+        window.Show();
+
+        return (window, viewer);
+    }
+
+    private static async Task<(Window, SvgViewer)> HostLoaded(string markup, SvgExpressionParameter? answer = null)
+    {
+        var (window, viewer) = Host(answer);
+
+        Assert.True(await viewer.LoadTextAsync(markup));
+        Dispatcher.UIThread.RunJobs();
+
+        return (window, viewer);
+    }
+
+    /// <summary>Waits for the rebuild the debounce holds back.</summary>
+    private static async Task Settle()
+    {
+        Dispatcher.UIThread.RunJobs();
+
+        // Real time, because the debounce is a real timer: the point of it is that it waits.
+        await Task.Delay(400).ConfigureAwait(true);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static TextEditor Pane(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<TextEditor>().First(c => c.Name == "SourceEditor");
+
+    private static SvgExpressionParameter Radius(string name = "radius")
+        => new(name, ExprType.Number, "8", "0", "12", null);
+
+    [AvaloniaFact]
+    public async Task A_Parameter_Added_From_The_Panel_Reaches_The_Drawing()
+    {
+        var (window, viewer) = await HostLoaded(Parametric, Radius());
+
+        Assert.True(await viewer.AddParameterAsync());
+        await Settle();
+
+        Assert.Contains(viewer.Parameters, row => row.Name == "radius");
+        Assert.Equal(3, viewer.Parameters.Count);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task It_Works_With_The_Source_Pane_Closed_And_Leaves_The_Document_Saveable()
+    {
+        var file = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".svg");
+        await File.WriteAllTextAsync(file, Parametric).ConfigureAwait(true);
+
+        try
+        {
+            var (window, viewer) = Host(Radius());
+
+            Assert.True(await viewer.LoadAsync(file));
+            Dispatcher.UIThread.RunJobs();
+
+            // The pane has never been opened, which is the state a viewer spends most of its life in.
+            Assert.False(viewer.ShowSource);
+            Assert.False(viewer.IsSourceModified);
+
+            Assert.True(await viewer.AddParameterAsync());
+            await Settle();
+
+            Assert.True(viewer.IsSourceModified);
+            Assert.True(await viewer.SaveSourceAsync());
+
+            var written = await File.ReadAllTextAsync(file).ConfigureAwait(true);
+
+            Assert.Contains("""<e:param name="radius" type="number" default="8" min="0" max="12" />""", written);
+            Assert.False(viewer.IsSourceModified);
+
+            window.Close();
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Everything_Else_In_The_File_Is_Left_Alone()
+    {
+        var (window, viewer) = await HostLoaded(Parametric, Radius());
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(await viewer.AddParameterAsync());
+        await Settle();
+
+        var text = Pane(viewer).Document.Text;
+
+        // The comment and the placeholders are what a regenerated document would have lost.
+        Assert.Contains("<!-- the rectangle everything above is for -->", text);
+        Assert.Contains("fill=\"{{ tint }}\" opacity=\"{{ fade }}\"", text);
+        Assert.Equal(Parametric.Split('\n').Length + 1, text.Split('\n').Length);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_That_Declared_Nothing_Gets_A_Block_And_The_Namespace()
+    {
+        var (window, viewer) = await HostLoaded(Plain, Radius());
+
+        Assert.Empty(viewer.Parameters);
+
+        Assert.True(await viewer.AddParameterAsync());
+        await Settle();
+
+        Assert.Single(viewer.Parameters);
+        Assert.Equal("radius", viewer.Parameters[0].Name);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Adding_One_Is_A_Single_Thing_To_Take_Back()
+    {
+        var (window, viewer) = await HostLoaded(Plain, Radius());
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var before = Pane(viewer).Document.Text;
+
+        Assert.True(await viewer.AddParameterAsync());
+        await Settle();
+
+        // Three spans went in — the namespace, the block and the declaration — and one undo takes
+        // all of them out again.
+        Pane(viewer).Document.UndoStack.Undo();
+        await Settle();
+
+        Assert.Equal(before, Pane(viewer).Document.Text);
+        Assert.Empty(viewer.Parameters);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Value_Somebody_Chose_Survives_The_Addition()
+    {
+        var (window, viewer) = await HostLoaded(Parametric, Radius());
+
+        var fade = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single(row => row.Name == "fade");
+
+        fade.Value = 0.25d;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(await viewer.AddParameterAsync());
+        await Settle();
+
+        // Adding a parameter rewrites the block, so every row is rebuilt. A value nobody typed a
+        // default for should still be where it was left.
+        Assert.Equal(
+            0.25d,
+            viewer.Parameters.OfType<SvgViewerNumberParameter>().Single(row => row.Name == "fade").Value,
+            3);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Nothing_Happens_When_Nobody_Names_A_Parameter()
+    {
+        var (window, viewer) = await HostLoaded(Parametric);
+
+        Assert.False(await viewer.AddParameterAsync());
+        Assert.False(viewer.IsSourceModified);
+        Assert.Equal(2, viewer.Parameters.Count);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Name_Already_Taken_Is_Refused_Rather_Than_Written()
+    {
+        var (window, viewer) = await HostLoaded(Parametric, Radius("tint"));
+
+        var said = string.Empty;
+        viewer.ErrorRaised += (_, message) => said = message;
+
+        Assert.False(await viewer.AddParameterAsync());
+
+        Assert.False(viewer.IsSourceModified);
+        Assert.Equal(2, viewer.Parameters.Count);
+        Assert.Contains("tint", said);
+
+        window.Close();
+    }
+
+    // ---- committing values as defaults ----
+
+    [AvaloniaFact]
+    public async Task Committing_Writes_Every_Changed_Value_As_The_Declared_Default()
+    {
+        var (window, viewer) = await HostLoaded(Parametric);
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Value = 0.5d;
+        viewer.Parameters.OfType<SvgViewerColorParameter>().Single().Color = Color.FromRgb(0, 0, 255);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.CommitParameterDefaults());
+        await Settle();
+
+        var text = Pane(viewer).Document.Text;
+
+        Assert.Contains("default=\"0.5\"", text);
+        Assert.Contains("default=\"#0000ff\"", text);
+
+        // Committed, so nothing differs from the declared defaults any more.
+        Assert.DoesNotContain(viewer.Parameters, row => row.IsModified);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Committing_A_Whole_Panel_Is_A_Single_Thing_To_Take_Back()
+    {
+        var (window, viewer) = await HostLoaded(Parametric);
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var before = Pane(viewer).Document.Text;
+
+        viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Value = 0.5d;
+        viewer.Parameters.OfType<SvgViewerColorParameter>().Single().Color = Color.FromRgb(0, 0, 255);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.CommitParameterDefaults());
+        await Settle();
+
+        Pane(viewer).Document.UndoStack.Undo();
+        await Settle();
+
+        Assert.Equal(before, Pane(viewer).Document.Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Committing_With_Nothing_Changed_Does_Nothing()
+    {
+        var (window, viewer) = await HostLoaded(Parametric);
+
+        Assert.False(viewer.CommitParameterDefaults());
+        Assert.False(viewer.IsSourceModified);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task An_Edit_Is_Refused_While_The_Text_Will_Not_Parse()
+    {
+        var (window, viewer) = await HostLoaded(Parametric, Radius());
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        // What a drawing looks like halfway through being typed.
+        Pane(viewer).Document.Text = Parametric.Replace("</svg>", string.Empty);
+        await Settle();
+
+        var said = string.Empty;
+        viewer.ErrorRaised += (_, message) => said = message;
+
+        Assert.False(await viewer.AddParameterAsync());
+        Assert.NotEmpty(said);
+
+        window.Close();
+    }
+
+    /// <summary>Answers with whatever the test decided, because a modal cannot be driven headlessly.</summary>
+    private sealed class StubParameterDialogService : ISvgViewerParameterDialogService
+    {
+        private readonly SvgExpressionParameter? _answer;
+
+        public StubParameterDialogService(SvgExpressionParameter? answer) => _answer = answer;
+
+        public Task<SvgExpressionParameter?> AskAsync(TopLevel? owner, IReadOnlyCollection<string> taken)
+            => Task.FromResult(_answer);
+    }
+}

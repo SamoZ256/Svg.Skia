@@ -13,8 +13,15 @@ public partial class SvgViewerParameterPanel : UserControl
 {
     private readonly ItemsControl _rows;
     private readonly TextBlock _emptyLabel;
+    private readonly StackPanel _actions;
+    private readonly TextBlock _commitLabel;
+    private readonly Button _commitButton;
+    private readonly Button _addButton;
 
     private IReadOnlyList<SvgViewerParameter> _parameters = Array.Empty<SvgViewerParameter>();
+
+    /// <summary>Whether there is a drawing behind the rows, which null and empty tell apart.</summary>
+    private bool _hasDocument;
 
     public SvgViewerParameterPanel()
     {
@@ -22,10 +29,29 @@ public partial class SvgViewerParameterPanel : UserControl
 
         _rows = this.FindControl<ItemsControl>("Rows")!;
         _emptyLabel = this.FindControl<TextBlock>("EmptyLabel")!;
+        _actions = this.FindControl<StackPanel>("Actions")!;
+        _commitLabel = this.FindControl<TextBlock>("CommitLabel")!;
+        _commitButton = this.FindControl<Button>("CommitButton")!;
+        _addButton = this.FindControl<Button>("AddButton")!;
+
+        _addButton.Click += (_, _) => AddRequested?.Invoke(this, EventArgs.Empty);
+        _commitButton.Click += (_, _) => CommitRequested?.Invoke(this, EventArgs.Empty);
+
+        ShowActions();
     }
 
     /// <summary>Raised when any row's value changes.</summary>
     public event EventHandler<SvgViewerParameter>? ValueChanged;
+
+    /// <summary>Raised when somebody asks to declare a parameter.</summary>
+    /// <remarks>
+    /// The panel asks rather than acts, as it does with a value: it holds rows and knows nothing
+    /// about the document they came from or how one is edited.
+    /// </remarks>
+    public event EventHandler? AddRequested;
+
+    /// <summary>Raised when somebody asks for the current values to become the declared defaults.</summary>
+    public event EventHandler? CommitRequested;
 
     /// <summary>The rows to show, or null when there is no drawing to declare any.</summary>
     /// <remarks>
@@ -46,11 +72,13 @@ public partial class SvgViewerParameterPanel : UserControl
                 // label moves, because rows being identical is not the same fact as whether there
                 // is a drawing behind them.
                 _emptyLabel.IsVisible = value is { Count: 0 };
+                ShowActions();
                 return;
             }
 
             Detach();
 
+            _hasDocument = value is { };
             _parameters = value ?? Array.Empty<SvgViewerParameter>();
 
             foreach (var parameter in _parameters)
@@ -60,6 +88,8 @@ public partial class SvgViewerParameterPanel : UserControl
 
             _rows.ItemsSource = _parameters;
             _emptyLabel.IsVisible = value is { Count: 0 };
+
+            ShowActions();
         }
     }
 
@@ -81,9 +111,46 @@ public partial class SvgViewerParameterPanel : UserControl
 
     private void OnRowValueChanged(object? sender, EventArgs e)
     {
+        ShowActions();
+
         if (sender is SvgViewerParameter parameter)
         {
             ValueChanged?.Invoke(this, parameter);
         }
+    }
+
+    /// <summary>
+    /// Shows what can be done with the rows as they stand.
+    /// </summary>
+    /// <remarks>
+    /// Nothing at all without a drawing, because adding a parameter to no document is not a thing to
+    /// offer. The commit half appears only once some row differs from what the document declares:
+    /// the difference is the reason to commit, so with none there is nothing to say and nothing to
+    /// press.
+    /// </remarks>
+    private void ShowActions()
+    {
+        var open = _hasDocument;
+
+        _actions.IsVisible = open;
+
+        var changed = 0;
+
+        if (open)
+        {
+            foreach (var parameter in _parameters)
+            {
+                if (parameter.IsModified)
+                {
+                    changed++;
+                }
+            }
+        }
+
+        _commitButton.IsVisible = changed > 0;
+        _commitLabel.IsVisible = changed > 0;
+        _commitLabel.Text = changed == 1
+            ? "1 value differs from the declared default."
+            : $"{changed} values differ from the declared defaults.";
     }
 }

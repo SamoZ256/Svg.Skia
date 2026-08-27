@@ -88,6 +88,7 @@
     <Project Path="src/Svg.CodeGen.Skia.Projects/Svg.CodeGen.Skia.Projects.csproj" />
     <Project Path="src/Svg.Expressions/Svg.Expressions.csproj" />
     <Project Path="src/Svg.Highlighting/Svg.Highlighting.csproj" />
+    <Project Path="src/Svg.SourceEditing/Svg.SourceEditing.csproj" />
     <Project Path="src/Svg.Expressions.Recipes/Svg.Expressions.Recipes.csproj" />
     <Project Path="src/Svg.Controls.Avalonia/Svg.Controls.Avalonia.csproj" />
     <Project Path="src/Svg.Controls.Skia.Uno/Svg.Controls.Skia.Uno.csproj" />
@@ -128,5 +129,6 @@
     <Project Path="tests/Svg.Model.UnitTests/Svg.Model.UnitTests.csproj" />
     <Project Path="tests/Svg.JavaScript.UnitTests/Svg.JavaScript.UnitTests.csproj" />
     <Project Path="tests/Svg.Skia.UnitTests/Svg.Skia.UnitTests.csproj" />
+    <Project Path="tests/Svg.SourceEditing.UnitTests/Svg.SourceEditing.UnitTests.csproj" />
   </Folder>
 </Solution>

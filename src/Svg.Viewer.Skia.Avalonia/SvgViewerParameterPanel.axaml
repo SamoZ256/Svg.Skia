@@ -50,19 +50,49 @@
 
   </UserControl.DataTemplates>
 
-  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-    <StackPanel Margin="10">
+  <DockPanel>
 
-      <!-- Hidden until a drawing is read: an empty pane before anything is open has nothing to
-           explain, and one behind a file that would not open has nothing to say about it. -->
-      <TextBlock x:Name="EmptyLabel"
-                 Text="This drawing declares no parameters."
-                 IsVisible="False"
-                 Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
+    <!--
+      Below the rows rather than above them, so that adding a parameter does not move the controls
+      somebody is using, and so the count of what is uncommitted sits nearest the button that
+      commits it.
+    -->
+    <StackPanel DockPanel.Dock="Bottom" x:Name="Actions" Margin="10,0,10,10" Spacing="6">
 
-      <ItemsControl x:Name="Rows" />
+      <Border Height="1" Background="#20808080" Margin="0,4,0,2" />
+
+      <!-- Only there when there is something to commit; a count is the whole of what it has to say. -->
+      <TextBlock x:Name="CommitLabel" IsVisible="False" Opacity="0.6" FontSize="11" TextWrapping="Wrap" />
+
+      <Button x:Name="CommitButton"
+              Content="Commit as defaults"
+              IsVisible="False"
+              HorizontalAlignment="Stretch"
+              HorizontalContentAlignment="Center"
+              ToolTip.Tip="Writes each value into the drawing as the parameter's default. A default written as an expression is replaced by the number it currently evaluates to." />
+
+      <Button x:Name="AddButton"
+              Content="Add parameter…"
+              HorizontalAlignment="Stretch"
+              HorizontalContentAlignment="Center" />
 
     </StackPanel>
-  </ScrollViewer>
+
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Margin="10">
+
+        <!-- Hidden until a drawing is read: an empty pane before anything is open has nothing to
+             explain, and one behind a file that would not open has nothing to say about it. -->
+        <TextBlock x:Name="EmptyLabel"
+                   Text="This drawing declares no parameters."
+                   IsVisible="False"
+                   Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+        <ItemsControl x:Name="Rows" />
+
+      </StackPanel>
+    </ScrollViewer>
+
+  </DockPanel>
 
 </UserControl>

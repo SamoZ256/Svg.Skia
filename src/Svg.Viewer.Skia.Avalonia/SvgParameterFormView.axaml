@@ -1,0 +1,61 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Svg.Viewer.Skia.Avalonia.SvgParameterFormView"
+             Width="360">
+
+  <StackPanel Margin="14" Spacing="8">
+
+    <Grid ColumnDefinitions="90,*" RowDefinitions="Auto">
+      <TextBlock Grid.Column="0" Text="Name" VerticalAlignment="Center" />
+      <TextBox Grid.Column="1" x:Name="NameBox" Watermark="hue" FontFamily="monospace" />
+    </Grid>
+
+    <Grid ColumnDefinitions="90,*">
+      <TextBlock Grid.Column="0" Text="Type" VerticalAlignment="Center" />
+      <ComboBox Grid.Column="1" x:Name="TypeBox" HorizontalAlignment="Stretch" SelectedIndex="0">
+        <ComboBoxItem>number</ComboBoxItem>
+        <ComboBoxItem>color</ComboBoxItem>
+        <ComboBoxItem>boolean</ComboBoxItem>
+      </ComboBox>
+    </Grid>
+
+    <Grid ColumnDefinitions="90,*">
+      <TextBlock Grid.Column="0" Text="Default" VerticalAlignment="Center" />
+      <TextBox Grid.Column="1" x:Name="DefaultBox" Watermark="217" FontFamily="monospace" />
+    </Grid>
+
+    <!--
+      Only a number has a range, and the language refuses min or max on anything else — so rather
+      than let someone fill in a box whose value will be rejected, the boxes are not there.
+    -->
+    <StackPanel x:Name="RangeRows" Spacing="8">
+
+      <Grid ColumnDefinitions="90,*,*,*">
+        <TextBlock Grid.Column="0" Text="Range" VerticalAlignment="Center" />
+        <TextBox Grid.Column="1" x:Name="MinBox" Watermark="min" FontFamily="monospace" Margin="0,0,4,0" />
+        <TextBox Grid.Column="2" x:Name="MaxBox" Watermark="max" FontFamily="monospace" Margin="0,0,4,0" />
+        <TextBox Grid.Column="3" x:Name="StepBox" Watermark="step" FontFamily="monospace" />
+      </Grid>
+
+      <TextBlock Text="A range needs both ends, or neither."
+                 Opacity="0.55" FontSize="11" Margin="90,0,0,0" />
+
+    </StackPanel>
+
+    <!--
+      What the language said, where it said it about something. Kept in the flow rather than in a
+      pop-up so that a form which cannot be submitted says why without being dismissed first.
+    -->
+    <TextBlock x:Name="Trouble"
+               IsVisible="False"
+               TextWrapping="Wrap"
+               Foreground="{DynamicResource SvgViewerSourceErrorBrush}" />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6" Margin="0,4,0,0">
+      <Button x:Name="CancelButton" Content="Cancel" />
+      <Button x:Name="AddButton" Content="Add" IsDefault="True" />
+    </StackPanel>
+
+  </StackPanel>
+
+</UserControl>

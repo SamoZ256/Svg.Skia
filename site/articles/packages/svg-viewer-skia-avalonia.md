@@ -88,6 +88,30 @@ drawing can still be panned around it. Both reach a host through `ErrorRaised`.
 
 The format itself — `<e:code>`, the operators, and the placeholder mechanism — is what `Svg.Expressions` implements.
 
+## Editing, not just showing
+
+Moving a control is a **preview**: it rebuilds the picture and leaves the file alone. Two things are
+edits, and both write the drawing's own text through [Svg.SourceEditing](svg-sourceediting):
+
+| | |
+|---|---|
+| `AddParameterAsync` | Asks for a parameter and splices it into the `<e:code>` block, creating the block and the namespace if the drawing has neither |
+| `CommitParameterDefaults` | Writes every value that differs from its declared default into the document as that default |
+
+Both go through the source pane's text buffer rather than around it, so the undo stack is the one
+history of the document: a parameter added from the panel and a line typed into the pane come off it
+in the order they were done, and an addition that had to declare a namespace and open a block is
+three spans and one undo step.
+
+Neither needs the pane to be open — the buffer and the pane are separate things, so an edit made with
+the pane closed still marks the document modified and still saves. What the pane shows afterwards is
+the file as it was, with one line added: every comment and every placeholder where the author left
+them.
+
+`ParameterDialogService` is how the form is asked for, replaceable for the reason `FileDialogService`
+is. `SvgParameterFormView` is the form itself, a plain control, for a host that wants to ask its own
+way.
+
 ## Reading the drawing's text
 
 The **Source** toggle in the toolbar opens a pane under the drawing showing the document as it was

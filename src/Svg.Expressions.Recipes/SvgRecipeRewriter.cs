@@ -20,8 +20,6 @@ public static class SvgRecipeRewriter
 {
     private const string SvgNamespace = "http://www.w3.org/2000/svg";
 
-    private const string PreferredPrefix = "e";
-
     /// <summary>
     /// The paint attributes an expression can drive. Kept in step with the placeholder table in
     /// <see cref="SvgExpressionAttributes"/>, minus the two that are not colours.
@@ -180,24 +178,18 @@ public static class SvgRecipeRewriter
     }
 
     /// <summary>Declares the extension namespace on the root, reusing an existing prefix for it.</summary>
+    /// <remarks>
+    /// The choice itself belongs to the language, because a source editor splicing the same block
+    /// into text has to reach the same answer: a document holding the extension under two prefixes
+    /// is one nothing would read back correctly.
+    /// </remarks>
     private static void DeclareNamespace(XElement root)
     {
-        var declarations = root.Attributes().Where(a => a.IsNamespaceDeclaration).ToList();
+        var prefix = SvgExpressionDeclarations.NamespacePrefixFor(root, out var declared);
 
-        var existing = declarations.FirstOrDefault(a => a.Value == SvgRecipe.Namespace);
-
-        if (existing is { })
+        if (declared)
         {
             return;
-        }
-
-        var taken = new HashSet<string>(declarations.Select(a => a.Name.LocalName), StringComparer.Ordinal);
-
-        var prefix = PreferredPrefix;
-
-        for (var i = 2; taken.Contains(prefix); i++)
-        {
-            prefix = PreferredPrefix + i.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         root.Add(new XAttribute(XNamespace.Xmlns + prefix, SvgRecipe.Namespace));

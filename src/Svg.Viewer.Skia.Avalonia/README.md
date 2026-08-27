@@ -23,6 +23,8 @@ of these controls.
 - **Builds a control per parameter** — a slider and a value box for a `number`, honouring any
   `min`, `max` and `step` the document declares, a `ColorPicker` for a `color`, a checkbox for a
   `boolean` — seeded from each declared `default`.
+- **Declares a parameter**, from a form in the panel, by writing it into the drawing's own text.
+- **Commits values as defaults**, so a session of moving sliders becomes what the document says.
 
 ## Input
 
@@ -41,6 +43,35 @@ platform gesture, and Avalonia 12.0.0 keeps `Gestures` internal, so there is no 
 subscribe to; two finger scroll is the trackpad path until that is exposed.
 
 Keyboard shortcuts need the canvas focused, which a click gives it.
+
+## Editing, not just showing
+
+Moving a control is a **preview**: it rebuilds the picture and leaves the file alone. Two things are
+edits, and both write the drawing's own text through
+[Svg.SourceEditing](../../site/articles/packages/svg-sourceediting.md):
+
+| | |
+|---|---|
+| `AddParameterAsync` | Asks for a parameter and splices it into the `<e:code>` block, creating the block and the namespace if the drawing has neither |
+| `CommitParameterDefaults` | Writes every value that differs from its declared default into the document as that default |
+
+Both go through the source pane's text buffer rather than around it, which is what makes the undo
+stack the one history of the document: a parameter added from the panel and a line typed into the
+pane come off it in the order they were done. An addition that had to declare a namespace and open a
+block is three spans and **one** undo step.
+
+Neither needs the pane to be open. The buffer and the pane are separate, so an edit made with the
+pane closed still makes the document modified and still saves — and when the pane is opened, the
+change is there, spelled the way somebody would have typed it, with every comment and every
+`{{ … }}` placeholder in the file untouched.
+
+Committing replaces an authored expression with the value it currently holds, so a
+`default="tau / 4"` becomes `default="1.5708"`. That is a real loss of what the author meant, which
+is why the button says so and why one undo puts it back.
+
+`ParameterDialogService` is how the form is asked for, replaceable for the reason
+`FileDialogService` is: a modal is the one part of the viewer a test cannot drive.
+`SvgParameterFormView` is the form itself, a plain control, for a host that wants to ask its own way.
 
 ## Embedding it
 
