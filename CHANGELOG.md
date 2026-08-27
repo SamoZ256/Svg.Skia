@@ -2,6 +2,57 @@
 
 ## Unreleased
 
+* Gave the viewer's panel the other half of an `<e:code>` block: a **Lets** section beside the
+  parameters, where a let is declared, renamed, rewritten and reordered without opening the source.
+  `Svg.SourceEditing` gained `AddLet`, `UpdateLet` and `MoveLet` for it, and
+  `SvgViewerParameterPanel` became `SvgViewerDeclarationPanel` — it no longer holds only parameters.
+
+  **A let has no form.** It is a name and an expression, so the row is the editor: `Add let…` leaves
+  an empty row to type into, `Enter` or leaving it writes it, `Escape` puts it back. A modal would
+  have held the same two boxes the row already has. What is typed is checked against the parameters
+  and the lets above it *as it is typed*, and nothing is spliced until it checks — a half-typed body
+  written into the drawing would stop it rendering, in the pane right beside the row. Beside each row
+  is what the let evaluates to now, which is the thing a source view cannot show and the reason to
+  have the section at all; it is read by evaluating the let's own name against the map
+  `ExprEvaluator.Create` has already filled, so the lets are folded once rather than once per row.
+
+  **Where a let sits is what it can name**, since one resolves against what is declared above it and
+  nothing below. That made reordering a change of meaning, and exposed a hole: `Verify` re-read the
+  document after every splice but only *parsed* it, and parsing records a let without checking its
+  body — so a let dragged above the one it names read back perfectly and rendered as nothing. Every
+  edit now folds the symbol table and type checks each body in order. Only a let the edit is
+  answerable for: the document as it was is checked too, and a body that named nothing before and
+  still names nothing is not the edit's fault — refusing on that would make a parameter uneditable in
+  a drawing somebody is part-way through fixing. The original is re-read only once something failed,
+  so an ordinary splice pays nothing for it.
+
+  A drag is then held inside the positions that still check, rather than refused on the drop: a
+  refused drop reads as the drag having failed. The window is contiguous — moving up is legal until
+  the let passes what it names, and down until it passes what names it — so it is found by trying
+  each candidate order in memory. `MoveLet` refuses anyway, as the backstop that does not depend on
+  the panel getting it right.
+
+  The reordering splice moves the let's **whole line as it was written** rather than re-rendering it,
+  and refuses a let sharing its line with something else instead of cutting it out of one. A body is
+  written with only `&` and `<` escaped, not the four an attribute needs: somebody who types
+  `t > 0.5` should see `t > 0.5` in the pane.
+
+  Reused rather than rebuilt: renaming carries the uses through `SvgDeclarationReferences.Rename`
+  unchanged — it already walked `<e:let>` bodies as well as placeholders, by lexing rather than
+  searching — and `AppendToBlock`, `CreateBlock`, `Render` and the `Builder` seeding were widened to
+  serve both kinds instead of gaining copies. The drag follows what the shell's tab strip already
+  solved (`MainWindow.axaml.cs`): capture the container and not the row, swap at a neighbour's
+  midpoint, treat a release nobody saw as an end. The three `ToExpression()` overrides collapsed into
+  one `SvgViewerParameterFactory.Describe`, so a readout and a committed default cannot disagree.
+  `SvgViewerDocument.Declarations` widened from the parameter list to the whole
+  `SvgExpressionDeclarations`, and `SKSvg` gained `ExpressionDeclarations` with `ExpressionParameters`
+  now a projection of it.
+
+  **Removing a let is not here yet**, and no `RemoveLet` was written for a caller that does not exist.
+  Neither is a node editor: what it would graph is a one-line arithmetic expression, where text is
+  already the better notation, and a node dropped but not wired has no text representation at all —
+  which a pane showing the drawing's own source makes visible immediately.
+
 * Added `Svg.SourceEditing`, which changes what an SVG document declares by replacing spans of the
   document's own text, and used it to give `Svg.Viewer.Skia.Avalonia` two edits: `AddParameterAsync`
   declares a parameter from a form in the panel, `EditParameterAsync` changes what one says, and

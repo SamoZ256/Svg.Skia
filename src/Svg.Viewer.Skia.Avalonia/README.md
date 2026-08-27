@@ -24,6 +24,8 @@ of these controls.
   `min`, `max` and `step` the document declares, a `ColorPicker` for a `color`, a checkbox for a
   `boolean` — seeded from each declared `default`.
 - **Declares a parameter**, from a form in the panel, by writing it into the drawing's own text.
+- **Declares and rewrites a let**, from a row edited in place, showing what each one evaluates to and
+  taking a drag to reorder them.
 - **Commits values as defaults**, so a session of moving sliders becomes what the document says.
 
 ## Input
@@ -55,11 +57,24 @@ edits, and both write the drawing's own text through
 | `AddParameterAsync` | Asks for a parameter and splices it into the `<e:code>` block, creating the block and the namespace if the drawing has neither |
 | `CommitParameterDefaults` | Writes every value that differs from its declared default into the document as that default |
 | `EditParameterAsync` | Asks what one parameter should declare and writes the answer, carrying every use of its name when it is renamed |
+| `CommitLet` | Writes what a let row says, declaring it below the lets already there or rewriting the one it stands for |
+| `MoveLet` | Puts a let at another position among the lets, refusing a move that would leave one unresolved |
 
-A row's `⋯` button, which appears while the pointer is over it, is how one is edited. Its type is
-not offered: every expression naming a parameter was checked against the type it has.
+A row's `⋯` button, which appears while the pointer is over it, is how a parameter is edited. Its
+type is not offered: every expression naming a parameter was checked against the type it has.
 
-All three go through the source pane's text buffer rather than around it, which is what makes the undo
+A let has no form and no `⋯`: it is a name and an expression, so the row is the editor. `Add let…`
+leaves an empty row to type into, `Enter` or leaving the row writes it, and `Escape` puts it back.
+What is typed is checked against the parameters and the lets above it as it is typed, and nothing is
+written until it checks — a half-typed body in the drawing would stop it rendering. Beside each row
+is what the let evaluates to right now, which follows the sliders.
+
+Its grip drags it up and down, because **where a let sits is what it can name**: one resolves against
+what is declared above it and nothing below. A drag is held inside the positions that still check, so
+there is nothing to refuse; `MoveLet` refuses anyway, since the document reads back perfectly well
+either way and only type checking can tell.
+
+All of them go through the source pane's text buffer rather than around it, which is what makes the undo
 stack the one history of the document: a parameter added from the panel and a line typed into the
 pane come off it in the order they were done. An addition that had to declare a namespace and open a
 block is three spans and **one** undo step.
@@ -79,15 +94,15 @@ is why the button says so and why one undo puts it back.
 
 ## Embedding it
 
-`SvgViewer` is the drop-in. `ShowToolBar`, `ShowParameterPanel` and `ShowStatusBar` turn off the
-chrome, and `SvgViewerCanvas` and `SvgViewerParameterPanel` are usable on their own for a host that
+`SvgViewer` is the drop-in. `ShowToolBar`, `ShowDeclarationPanel` and `ShowStatusBar` turn off the
+chrome, and `SvgViewerCanvas` and `SvgViewerDeclarationPanel` are usable on their own for a host that
 wants to supply its own. `SvgViewerDocument` and `SvgViewerParameterFactory` are plain classes with
 no UI, for a host that only wants the loading and seeding.
 
 Replace `FileDialogService` to open files some other way; the default is the platform picker.
 
 No extra theme setup is needed. `ColorPicker` keeps its control theme in its own assembly rather
-than in `FluentTheme`, so `SvgViewerParameterPanel` includes it itself — a host that forgets would
+than in `FluentTheme`, so `SvgViewerDeclarationPanel` includes it itself — a host that forgets would
 otherwise get a colour row templated with nothing, present in the tree and invisible on screen.
 
 ## Two things worth knowing

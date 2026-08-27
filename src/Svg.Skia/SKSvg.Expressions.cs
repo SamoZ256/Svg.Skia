@@ -24,8 +24,8 @@ public partial class SKSvg
     private Dictionary<string, ExprValue>? _expressionValues;
 
     /// <summary>
-    /// The parameters this document's <c>&lt;e:code&gt;</c> block declares, in declaration order.
-    /// Empty when it has none.
+    /// Everything this document's <c>&lt;e:code&gt;</c> block declares, in declaration order. Empty
+    /// when it has none.
     /// </summary>
     /// <remarks>
     /// Read from the document on each call, since the tree is mutable. Loading deliberately does not
@@ -33,8 +33,11 @@ public partial class SKSvg
     /// <c>Load</c> fail on a document that renders perfectly well as placeholders.
     /// </remarks>
     /// <exception cref="ExprException">The declarations are malformed.</exception>
-    public IReadOnlyList<SvgExpressionParameter> ExpressionParameters
-        => SourceDocument?.ExpressionDeclarations.Parameters ?? Array.Empty<SvgExpressionParameter>();
+    public SvgExpressionDeclarations ExpressionDeclarations
+        => SourceDocument?.ExpressionDeclarations ?? SvgExpressionDeclarations.Empty;
+
+    /// <inheritdoc cref="ExpressionDeclarations"/>
+    public IReadOnlyList<SvgExpressionParameter> ExpressionParameters => ExpressionDeclarations.Parameters;
 
     /// <summary>
     /// The values currently bound, or null when the drawing is rendering its placeholders.

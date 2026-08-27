@@ -146,9 +146,9 @@
         <GridSplitter x:Name="Splitter" Grid.Column="1"
                       ResizeDirection="Columns" Background="Transparent" />
 
-        <Border x:Name="ParameterPanelHost" Grid.Column="2"
+        <Border x:Name="DeclarationPanelHost" Grid.Column="2"
                 Width="300" BorderThickness="1,0,0,0" BorderBrush="#20808080">
-          <viewer:SvgViewerParameterPanel x:Name="PART_Parameters" />
+          <viewer:SvgViewerDeclarationPanel x:Name="PART_Declarations" />
         </Border>
 
       </Grid>

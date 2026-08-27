@@ -1,7 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia"
-             x:Class="Svg.Viewer.Skia.Avalonia.SvgViewerParameterPanel">
+             x:Class="Svg.Viewer.Skia.Avalonia.SvgViewerDeclarationPanel">
 
   <UserControl.Styles>
     <!-- ColorPicker ships its control theme in its own assembly, not in FluentTheme. Without this
@@ -33,6 +33,32 @@
 
     <Style Selector="Button.edit:pointerover">
       <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Opacity" Value="0.7" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Margin" Value="0,0,0,6" />
+    </Style>
+
+    <!-- Like the edit button: out of the way until the row is pointed at, and keeping its space so
+         no row changes width. -->
+    <Style Selector="Border.grip">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Cursor" Value="SizeNorthSouth" />
+    </Style>
+
+    <Style Selector=":is(Panel).letrow:pointerover Border.grip">
+      <Setter Property="Opacity" Value="0.5" />
+    </Style>
+
+    <Style Selector="TextBox.field">
+      <Setter Property="FontFamily" Value="monospace" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Padding" Value="4,2" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
   </UserControl.Styles>
 
@@ -79,14 +105,44 @@
       </Grid>
     </DataTemplate>
 
+    <!--
+      Both fields in place, which is why adding a let is an empty row and not a form: there would be
+      nothing in the form the row does not already have. The value on the right is what the let
+      evaluates to right now, and is the whole reason to show a let here rather than in the source.
+    -->
+    <DataTemplate DataType="viewer:SvgViewerLet">
+      <StackPanel Spacing="2" Margin="0,0,0,8" Classes="letrow">
+        <Grid ColumnDefinitions="Auto,110,*">
+          <Border Grid.Column="0" Classes="grip" Width="14" Background="Transparent"
+                  PointerPressed="OnGripPressed"
+                  ToolTip.Tip="Drag to reorder. A let can only name what is declared above it.">
+            <TextBlock Text="⋮⋮" FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBox Grid.Column="1" Classes="field"
+                   Text="{Binding Name, Mode=TwoWay}"
+                   PlaceholderText="name"
+                   KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
+          <TextBox Grid.Column="2" Classes="field" Margin="4,0,0,0"
+                   Text="{Binding Expression, Mode=TwoWay}"
+                   PlaceholderText="expression"
+                   KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
+        </Grid>
+        <TextBlock Text="{Binding Readout}" Opacity="0.55" FontSize="11" FontFamily="monospace"
+                   HorizontalAlignment="Right" Margin="0,1,0,0"
+                   IsVisible="{Binding !HasTrouble}" />
+        <TextBlock Text="{Binding Trouble}" Foreground="#e05252" FontSize="11" TextWrapping="Wrap"
+                   Margin="18,1,0,0"
+                   IsVisible="{Binding HasTrouble}" />
+      </StackPanel>
+    </DataTemplate>
+
   </UserControl.DataTemplates>
 
   <DockPanel>
 
     <!--
-      Below the rows rather than above them, so that adding a parameter does not move the controls
-      somebody is using, and so the count of what is uncommitted sits nearest the button that
-      commits it.
+      Docked so that a count of what is uncommitted is in sight however far the sections above it
+      have been scrolled, and so adding a declaration does not move the controls somebody is using.
     -->
     <StackPanel DockPanel.Dock="Bottom" x:Name="Actions" Margin="10,0,10,10" Spacing="6">
 
@@ -102,15 +158,16 @@
               HorizontalContentAlignment="Center"
               ToolTip.Tip="Writes each value into the drawing as the parameter's default. A default written as an expression is replaced by the number it currently evaluates to." />
 
-      <Button x:Name="AddButton"
-              Content="Add parameter…"
-              HorizontalAlignment="Stretch"
-              HorizontalContentAlignment="Center" />
-
     </StackPanel>
 
+    <!--
+      Two sections in one scroller rather than two tabs: a let almost always names a parameter, and
+      tabs would hide the half somebody needs while typing the other.
+    -->
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-      <StackPanel Margin="10">
+      <StackPanel Margin="10" x:Name="Sections">
+
+        <TextBlock Classes="section" Text="Parameters" />
 
         <!-- Hidden until a drawing is read: an empty pane before anything is open has nothing to
              explain, and one behind a file that would not open has nothing to say about it. -->
@@ -120,6 +177,26 @@
                    Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
 
         <ItemsControl x:Name="Rows" />
+
+        <Button x:Name="AddButton"
+                Content="Add parameter…"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center" />
+
+        <TextBlock Classes="section" Text="Lets" Margin="0,18,0,6" />
+
+        <TextBlock x:Name="EmptyLetLabel"
+                   Text="This drawing declares no lets."
+                   IsVisible="False"
+                   Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+        <ItemsControl x:Name="LetRows" />
+
+        <Button x:Name="AddLetButton"
+                Content="Add let…"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center"
+                ToolTip.Tip="Adds an empty row. A let takes a name and an expression; it is written into the drawing once both are filled in and the expression checks." />
 
       </StackPanel>
     </ScrollViewer>

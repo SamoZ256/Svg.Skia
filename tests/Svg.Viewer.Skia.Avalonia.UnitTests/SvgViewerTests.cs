@@ -107,7 +107,7 @@ public class SvgViewerTests
     {
         var (window, viewer) = await HostLoaded();
 
-        viewer.ShowParameterPanel = false;
+        viewer.ShowDeclarationPanel = false;
         viewer.ShowToolBar = false;
         viewer.ShowStatusBar = false;
         Dispatcher.UIThread.RunJobs();
@@ -309,11 +309,11 @@ public class SvgViewerTests
         var (window, viewer) = Host();
 
         viewer.ShowToolBar = false;
-        viewer.ShowParameterPanel = false;
+        viewer.ShowDeclarationPanel = false;
         viewer.ShowStatusBar = false;
 
         Assert.False(viewer.ShowToolBar);
-        Assert.False(viewer.ShowParameterPanel);
+        Assert.False(viewer.ShowDeclarationPanel);
         Assert.False(viewer.ShowStatusBar);
 
         window.Close();

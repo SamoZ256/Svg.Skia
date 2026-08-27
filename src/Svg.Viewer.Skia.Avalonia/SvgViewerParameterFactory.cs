@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Avalonia.Media;
 using Svg.Expressions;
 
@@ -91,6 +92,21 @@ public static class SvgViewerParameterFactory
 
         return new SvgViewerNumberParameter(declaration, value, minimum, maximum, Widen(range.Step));
     }
+
+    /// <summary>A value as a document would write it.</summary>
+    /// <remarks>
+    /// One spelling for the readout beside a let and for the default a commit writes, so the two
+    /// cannot disagree. Round-trip formatting for a number, since the same parser reads it back;
+    /// three bytes for an opaque colour, because that is how a drawing writes one.
+    /// </remarks>
+    public static string Describe(ExprValue value) => value.Type switch
+    {
+        ExprType.Number => value.AsNumber.ToString("R", CultureInfo.InvariantCulture),
+        ExprType.Color => value.Alpha == byte.MaxValue
+            ? string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}", value.Red, value.Green, value.Blue)
+            : string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}{3:x2}", value.Red, value.Green, value.Blue, value.Alpha),
+        _ => value.AsBoolean ? "true" : "false",
+    };
 
     /// <summary>
     /// Widens a number the language computed to the double a control wants.
