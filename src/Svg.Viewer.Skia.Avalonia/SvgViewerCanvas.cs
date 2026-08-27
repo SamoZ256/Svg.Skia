@@ -83,28 +83,47 @@ public class SvgViewerCanvas : SKCanvasControl
 
     public bool IsPanEnabled { get; set; } = true;
 
+    /// <summary>The drawing on show. Assigning a different one starts it fitted.</summary>
     public SKSvg? Svg
     {
         get => _svg;
         set
         {
-            if (ReferenceEquals(_svg, value))
-            {
-                return;
-            }
-
-            _svg = value;
             _hasFitted = false;
             _userAdjusted = false;
 
-            // A new drawing starts fitted, which is what opening a file should do. When the control
-            // has no size yet the fit waits for one, and asking for a layout pass is what makes that
-            // arrive — a repaint alone would leave the drawing unscaled in the corner.
-            if (!TryFit())
-            {
-                Publish();
-                InvalidateArrange();
-            }
+            Replace(value);
+        }
+    }
+
+    /// <summary>Swaps in a rebuild of the drawing already on show, keeping an adjusted view.</summary>
+    /// <remarks>
+    /// Assigning <see cref="Svg"/> re-fits, which is right for a file being opened and wrong for the
+    /// open one being edited: re-fitting would throw away where the reader was looking, on every
+    /// keystroke. A view nobody has adjusted still re-fits, since the size may be what was edited.
+    /// </remarks>
+    public void Replace(SKSvg? svg)
+    {
+        if (ReferenceEquals(_svg, svg))
+        {
+            return;
+        }
+
+        _svg = svg;
+
+        if (_userAdjusted)
+        {
+            Publish();
+
+            return;
+        }
+
+        // When the control has no size yet the fit waits for one, and asking for a layout pass is
+        // what makes that arrive — a repaint alone would leave the drawing unscaled in the corner.
+        if (!TryFit())
+        {
+            Publish();
+            InvalidateArrange();
         }
     }
 

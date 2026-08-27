@@ -107,7 +107,13 @@ public static class SvgViewerParameterFactory
     /// this is a widening and not a rounding of the parameter. Decimal's range is narrower than
     /// float's, so what it cannot hold is widened plainly rather than refused.
     /// </remarks>
-    private static double Widen(float value)
+    /// <remarks>
+    /// Internal because seeding a row is not the only place a float becomes a row's double:
+    /// <see cref="SvgViewer.TrySetParameterValue"/> puts one back. Both have to land on the same
+    /// double or a row is modified against its own seed by a binary tail nobody chose — which reads
+    /// as a value somebody picked, and is not.
+    /// </remarks>
+    internal static double Widen(float value)
     {
         try
         {

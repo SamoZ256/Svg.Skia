@@ -1,0 +1,13 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia"
+        x:Class="Svg.Viewer.Skia.Avalonia.SvgParameterWindow"
+        Title="Add parameter"
+        SizeToContent="WidthAndHeight"
+        CanResize="False"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+
+  <viewer:SvgParameterFormView x:Name="FormView" />
+
+</Window>

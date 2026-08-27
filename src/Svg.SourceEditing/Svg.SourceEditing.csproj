@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <!--
+      The frameworks its consumers are on, as Svg.Highlighting is: the viewer and the Avalonia
+      editors. netstandard2.0 would be for a consumer that does not exist yet.
+    -->
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>True</IsPackable>
+    <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+    <RootNamespace>Svg.SourceEditing</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Description>Edits the SVG expression extension's declarations as spans of a document's own text, so an editor can add or change a parameter without reformatting the file around it.</Description>
+    <PackageId>Svg.SourceEditing</PackageId>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>svg;expressions;editing;authoring;text;graphics</PackageTags>
+  </PropertyGroup>
+
+  <Import Project="..\..\build\SourceLink.props" />
+  <Import Project="..\..\build\SignAssembly.props" />
+  <Import Project="..\..\build\ReferenceAssemblies.props" />
+
+  <ItemGroup>
+    <!--
+      For the declarations it edits, the rules it validates against, and the position map that says
+      where in the text each of them was written.
+    -->
+    <ProjectReference Include="..\Svg.Expressions\Svg.Expressions.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1051,6 +1051,28 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
+    public async Task Typing_Leaves_A_View_Somebody_Adjusted_Where_It_Was()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.Canvas.ZoomIn();
+        Dispatcher.UIThread.RunJobs();
+
+        var scale = viewer.Canvas.Scale;
+        var offsetX = viewer.Canvas.OffsetX;
+
+        await Type(viewer, Parametric.Replace("default=\"1\"", "default=\"0.5\""));
+
+        Assert.Equal(scale, viewer.Canvas.Scale, 6);
+        Assert.Equal(offsetX, viewer.Canvas.OffsetX, 6);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task Text_That_Will_Not_Parse_Keeps_The_Drawing_That_Is_Up()
     {
         // The ordinary state of a document halfway through being typed. Losing the picture at every

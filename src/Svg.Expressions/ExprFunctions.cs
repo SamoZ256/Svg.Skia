@@ -142,6 +142,21 @@ public static class ExprFunctions
             _ => throw new ExprException($"Unknown type '{text}'. Expected number, color or boolean.", position, part: part)
         };
 
+    /// <summary>How a type is written in a document, which is the spelling <see cref="ParseType"/> takes.</summary>
+    /// <remarks>
+    /// The inverse of the table above and kept beside it, because anything writing a declaration and
+    /// the reader checking it afterwards have to agree on one word. <see cref="Describe"/> is not
+    /// that word: it says "colour", which belongs in a sentence somebody reads rather than in an
+    /// attribute the parser has to accept back.
+    /// </remarks>
+    public static string NameOf(ExprType type)
+        => type switch
+        {
+            ExprType.Number => "number",
+            ExprType.Color => "color",
+            _ => "boolean"
+        };
+
     /// <summary>
     /// What an expression in a document is called, by the type its attribute demands.
     /// </summary>

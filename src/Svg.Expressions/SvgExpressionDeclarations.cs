@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Xml;
@@ -179,6 +180,54 @@ public sealed class SvgExpressionDeclarations
 {
     public const string Namespace = "https://svg.skia/expr/1.0";
 
+    /// <summary>The prefix a document declares this namespace under, or a free one if it does not.</summary>
+    /// <param name="root">The element carrying the document's namespace declarations.</param>
+    /// <param name="declared">Whether the prefix returned is one the document already has.</param>
+    /// <remarks>
+    /// Here rather than in either caller because both a rewriter building a tree and an editor
+    /// splicing text have to answer it the same way, and a document that ends up with the extension
+    /// under two prefixes is one nothing would read back correctly. Reusing an existing prefix comes
+    /// first, so a document already writing <c>x:param</c> keeps writing it.
+    /// </remarks>
+    public static string NamespacePrefixFor(XElement root, out bool declared)
+    {
+        if (root is null)
+        {
+            throw new ArgumentNullException(nameof(root));
+        }
+
+        var declarations = root.Attributes().Where(attribute => attribute.IsNamespaceDeclaration).ToList();
+
+        var existing = declarations.FirstOrDefault(attribute => attribute.Value == Namespace);
+
+        if (existing is { })
+        {
+            declared = true;
+
+            // xmlns="…" declares a default namespace and its own name is the local name; a prefixed
+            // one is xmlns:e, where the prefix is the local name. Only the second can qualify an
+            // element, and a document holding the extension as its default namespace is not one this
+            // can add to under that name.
+            return existing.Name.NamespaceName.Length == 0 ? PreferredPrefix : existing.Name.LocalName;
+        }
+
+        declared = false;
+
+        var taken = new HashSet<string>(declarations.Select(attribute => attribute.Name.LocalName), StringComparer.Ordinal);
+
+        var prefix = PreferredPrefix;
+
+        for (var next = 2; taken.Contains(prefix); next++)
+        {
+            prefix = PreferredPrefix + next.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return prefix;
+    }
+
+    /// <summary>What the extension is spelled as when a document does not already say.</summary>
+    private const string PreferredPrefix = "e";
+
     public static readonly SvgExpressionDeclarations Empty = new(
         Array.Empty<SvgExpressionParameter>(),
         Array.Empty<SvgExpressionLet>());
@@ -244,26 +293,11 @@ public sealed class SvgExpressionDeclarations
 
         var positions = new Positions(svgText);
 
-        XDocument document;
-        try
-        {
-            // Entities are read, because a drawing may declare its shapes as them and a block of
-            // expressions is no reason to stop reading one. The resolver stays null so nothing
-            // external is fetched, which is what SvgDocument's own resolver does by default; this
-            // assembly holds the language and deliberately depends on nothing to reuse that one.
-            using var reader = XmlReader.Create(
-                new StringReader(svgText),
-                new XmlReaderSettings { DtdProcessing = DtdProcessing.Parse, XmlResolver = null });
+        var document = TryLoad(svgText, positions, out var malformed);
 
-            // Line info is what turns a rule's verdict into somewhere to point. Measured at 3ms on a
-            // 212KB drawing, against the 7ms it takes merely to split one into tokens.
-            document = XDocument.Load(reader, LoadOptions.SetLineInfo);
-        }
-        catch (XmlException malformed)
+        if (document is null)
         {
-            found.Add(new SvgDeclarationDiagnostic(
-                positions.At(malformed.LineNumber, malformed.LinePosition),
-                malformed.Message));
+            found.Add(malformed!.Value);
 
             return Empty;
         }
@@ -314,6 +348,40 @@ public sealed class SvgExpressionDeclarations
         }
 
         return builder.Build();
+    }
+
+    /// <summary>Reads a document with the positions an editor or a diagnostic needs, or says why not.</summary>
+    /// <remarks>
+    /// One place so that everything reading a drawing's text this way agrees on how: which entities
+    /// are expanded and what is fetched are not details a second caller should get to decide
+    /// differently, and where a fault is reported has to be the same offset either way.
+    /// </remarks>
+    internal static XDocument? TryLoad(string svgText, Positions positions, out SvgDeclarationDiagnostic? malformed)
+    {
+        malformed = null;
+
+        try
+        {
+            // Entities are read, because a drawing may declare its shapes as them and a block of
+            // expressions is no reason to stop reading one. The resolver stays null so nothing
+            // external is fetched, which is what SvgDocument's own resolver does by default; this
+            // assembly holds the language and deliberately depends on nothing to reuse that one.
+            using var reader = XmlReader.Create(
+                new StringReader(svgText),
+                new XmlReaderSettings { DtdProcessing = DtdProcessing.Parse, XmlResolver = null });
+
+            // Line info is what turns a rule's verdict into somewhere to point. Measured at 3ms on a
+            // 212KB drawing, against the 7ms it takes merely to split one into tokens.
+            return XDocument.Load(reader, LoadOptions.SetLineInfo);
+        }
+        catch (XmlException fault)
+        {
+            malformed = new SvgDeclarationDiagnostic(
+                positions.At(fault.LineNumber, fault.LinePosition),
+                fault.Message);
+
+            return null;
+        }
     }
 
     /// <summary>
@@ -427,6 +495,104 @@ public sealed class SvgExpressionDeclarations
         }
 
         private int At(IXmlLineInfo info) => info.HasLineInfo() ? At(info.LineNumber, info.LinePosition) : 0;
+
+        /// <summary>Where an attribute begins, at the first character of its name.</summary>
+        /// <remarks>
+        /// The reader points here, and <see cref="Value"/> walks on from it to what the attribute
+        /// says. An editor taking an attribute away needs the name back: the span to remove starts
+        /// at it, not at the value.
+        /// </remarks>
+        public int NameStart(XAttribute? attribute)
+            => attribute is null || !((IXmlLineInfo)attribute).HasLineInfo() ? -1 : At((IXmlLineInfo)attribute);
+
+        /// <summary>Where an attribute's value ends, at its closing quote.</summary>
+        /// <remarks>
+        /// The other half of <see cref="Value"/>, and the pair is a span an editor can replace. The
+        /// quote is found rather than assumed to be a double one, because a document may have
+        /// written the value in apostrophes and replacing up to the wrong character would take the
+        /// rest of the tag with it.
+        /// </remarks>
+        public int EndOfValue(XAttribute? attribute)
+        {
+            var start = Value(attribute);
+
+            if (attribute is null || start < 0 || start == 0)
+            {
+                return -1;
+            }
+
+            // Value lands one past the opening quote, so the character before it is the one to
+            // close on. Where it could not find a quote at all it returns the name, and scanning
+            // from there would run to the first quote of the value instead of past it.
+            var quote = _text[start - 1];
+
+            if (quote is not ('"' or '\''))
+            {
+                return -1;
+            }
+
+            var end = _text.IndexOf(quote, start);
+
+            return end < 0 ? -1 : end;
+        }
+
+        /// <summary>The whole of an element, from its opening angle bracket to past its last.</summary>
+        /// <remarks>
+        /// Both spellings, because a declaration may be written either way: <c>&lt;e:param … /&gt;</c>
+        /// closes itself, and <c>&lt;e:let&gt;…&lt;/e:let&gt;</c> does not. Line info points at the
+        /// name rather than the bracket, so the start steps back over it.
+        /// </remarks>
+        public (int Start, int Length) Span(XElement element)
+        {
+            if (element is null || !((IXmlLineInfo)element).HasLineInfo())
+            {
+                return (-1, 0);
+            }
+
+            var name = At((IXmlLineInfo)element);
+            var start = name > 0 && _text[name - 1] == '<' ? name - 1 : name;
+
+            var open = _text.IndexOf('>', name);
+
+            if (open < 0)
+            {
+                return (-1, 0);
+            }
+
+            if (_text[open - 1] == '/')
+            {
+                return (start, open + 1 - start);
+            }
+
+            var close = _text.IndexOf("</", open, StringComparison.Ordinal);
+
+            if (close < 0)
+            {
+                return (-1, 0);
+            }
+
+            var end = _text.IndexOf('>', close);
+
+            return end < 0 ? (-1, 0) : (start, end + 1 - start);
+        }
+
+        /// <summary>Where <paramref name="element"/>'s content begins, just inside its open tag.</summary>
+        /// <remarks>
+        /// An element that closes itself has no content to begin and says so: turning
+        /// <c>&lt;e:code /&gt;</c> into a pair is a rewrite of the element rather than an insertion
+        /// into it, and a caller that wants that replaces <see cref="Span"/> instead.
+        /// </remarks>
+        public int ContentStart(XElement element)
+        {
+            if (element is null || !((IXmlLineInfo)element).HasLineInfo())
+            {
+                return -1;
+            }
+
+            var open = _text.IndexOf('>', At((IXmlLineInfo)element));
+
+            return open < 0 || _text[open - 1] == '/' ? -1 : open + 1;
+        }
     }
 
     /// <summary>

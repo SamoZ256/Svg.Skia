@@ -22,6 +22,7 @@ using AvaloniaEdit.Document;
 using Svg.Expressions;
 using Svg.Highlighting;
 using Svg.Skia;
+using Svg.SourceEditing;
 
 namespace Svg.Viewer.Skia.Avalonia;
 
@@ -84,11 +85,18 @@ public partial class SvgViewer : UserControl
     /// Whether the editor is holding the open drawing, and is therefore the truth about it.
     /// </summary>
     /// <remarks>
-    /// False until the pane has been opened for this document, and false again the moment another is
+    /// <para>
+    /// False until the editor has been given this document, and false again the moment another is
     /// loaded: a document that arrives while the pane is closed leaves the editor holding the last
     /// one's text, and asking that what is wrong with the drawing would answer about the wrong file.
+    /// </para>
+    /// <para>
+    /// Holding the drawing is not the same as being on screen. A parameter added from the panel
+    /// fills the buffer without opening the pane, and from that moment the document is modified and
+    /// can be saved — which it could not be if this meant visibility.
+    /// </para>
     /// </remarks>
-    private bool _sourceShown;
+    private bool _sourceBuffered;
 
     /// <summary>What the modified flag last was, so the change can be raised rather than polled.</summary>
     private bool _sourceModified;
@@ -162,6 +170,12 @@ public partial class SvgViewer : UserControl
         _canvas.ViewChanged += (_, _) => UpdateZoomText();
         _parameters.ValueChanged += (_, _) => RequestApply();
 
+        // Fired and forgotten: a click is not something to await, and the two report what they did
+        // through the note and the drawing like every other edit.
+        _parameters.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
+        _parameters.CommitRequested += (_, _) => CommitParameterDefaults();
+        _parameters.EditRequested += async (_, row) => await EditParameterAsync(row).ConfigureAwait(true);
+
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
 
@@ -195,6 +209,9 @@ public partial class SvgViewer : UserControl
 
     /// <summary>How the viewer asks for a file. Replaceable, and faked in tests.</summary>
     public ISvgViewerFileDialogService FileDialogService { get; set; } = new SvgViewerFileDialogService();
+
+    /// <summary>How the viewer asks what parameter to declare. Replaceable, and faked in tests.</summary>
+    public ISvgViewerParameterDialogService ParameterDialogService { get; set; } = new SvgViewerParameterDialogService();
 
     public SvgViewerDocument? Document => _document;
 
@@ -509,7 +526,11 @@ public partial class SvgViewer : UserControl
         switch (row)
         {
             case SvgViewerNumberParameter number when value.Type == ExprType.Number:
-                number.Value = value.AsNumber;
+                // The same widening the row was seeded through, because these two numbers are
+                // compared: a value put back plainly differs from a seed taken through decimal by
+                // the float's binary tail, and the row would call itself modified for ever over a
+                // difference no one made.
+                number.Value = SvgViewerParameterFactory.Widen(value.AsNumber);
                 return true;
 
             case SvgViewerBooleanParameter boolean when value.Type == ExprType.Boolean:
@@ -651,7 +672,7 @@ public partial class SvgViewer : UserControl
     private void ForgetSource()
     {
         _sourceStale = true;
-        _sourceShown = false;
+        _sourceBuffered = false;
         _sourceAnalysed = false;
         _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
 
@@ -659,7 +680,7 @@ public partial class SvgViewer : UserControl
     }
 
     /// <summary>The text everything else works from: the editor's once it is holding the drawing.</summary>
-    private string PaneSource() => _sourceShown ? _sourceEditor.Text : SourceText();
+    private string PaneSource() => _sourceBuffered ? _sourceEditor.Text : SourceText();
 
     /// <summary>The drawing's text, cut to what the pane will hold.</summary>
     /// <remarks>
@@ -702,15 +723,16 @@ public partial class SvgViewer : UserControl
     }
 
     /// <summary>
-    /// Fills the pane.
+    /// Gives the editor the open drawing, if it does not have it already.
     /// </summary>
     /// <remarks>
-    /// Only when the pane is up, because the toggle starts off and laying out a document nobody
-    /// asked to see is the whole cost of the feature paid for nothing.
+    /// Separate from painting the pane because the two are wanted at different times: showing the
+    /// pane needs both, and an edit from the parameter panel needs only this. Nothing calls it until
+    /// one of those happens, so a drawing nobody asks to see or to change still costs nothing.
     /// </remarks>
-    private void RenderSource()
+    private void EnsureSourceBuffer()
     {
-        if (!_sourceStale || !_sourceHost.IsVisible)
+        if (!_sourceStale)
         {
             return;
         }
@@ -737,15 +759,44 @@ public partial class SvgViewer : UserControl
         }
 
         _sourceEditor.IsReadOnly = _document is null || _sourceTruncated;
-        _sourceShown = true;
+        _sourceBuffered = true;
 
         RaiseModified();
+    }
+
+    /// <summary>
+    /// Fills the pane.
+    /// </summary>
+    /// <remarks>
+    /// Only when the pane is up, because the toggle starts off and laying out a document nobody
+    /// asked to see is the whole cost of the feature paid for nothing. It re-colours on every show
+    /// rather than only the first, because the buffer can have been edited from the parameter panel
+    /// while the pane was closed.
+    /// </remarks>
+    private void RenderSource()
+    {
+        if (!_sourceHost.IsVisible)
+        {
+            return;
+        }
+
+        EnsureSourceBuffer();
         RefreshSource();
     }
 
     /// <summary>Re-colours and re-marks what the pane is showing, without disturbing it.</summary>
+    /// <remarks>
+    /// Nothing to do while the pane is closed: an edit still rebuilds the drawing and still reports
+    /// what is wrong with it, and colouring text nobody is looking at is the one part of that worth
+    /// putting off until they are.
+    /// </remarks>
     private void RefreshSource()
     {
+        if (!_sourceHost.IsVisible)
+        {
+            return;
+        }
+
         _sourceColorizer.Show(SvgSourceHighlighter.Lines(_sourceEditor.Text));
         _sourceMarkers.Show(Diagnostics());
 
@@ -755,7 +806,7 @@ public partial class SvgViewer : UserControl
     /// <summary>Taken as a keystroke: the analysis is stale, and the drawing follows in a moment.</summary>
     private void OnSourceEdited()
     {
-        if (_sourceLoading || !_sourceShown)
+        if (_sourceLoading || !_sourceBuffered)
         {
             return;
         }
@@ -799,7 +850,7 @@ public partial class SvgViewer : UserControl
         }
 
         _document = rebuilt;
-        _canvas.Svg = rebuilt.Svg;
+        _canvas.Replace(rebuilt.Svg);
 
         RebuildParameters(rebuilt);
 
@@ -817,7 +868,7 @@ public partial class SvgViewer : UserControl
 
     /// <summary>Whether the pane holds edits that are not on disk.</summary>
     public bool IsSourceModified
-        => _sourceShown && _sourceEditor.Document is { } document && !document.UndoStack.IsOriginalFile;
+        => _sourceBuffered && _sourceEditor.Document is { } document && !document.UndoStack.IsOriginalFile;
 
     /// <summary>Raised when <see cref="IsSourceModified"/> changes, for a host that marks its chrome.</summary>
     public event EventHandler<bool>? SourceModifiedChanged;
@@ -836,6 +887,168 @@ public partial class SvgViewer : UserControl
     }
 
     /// <summary>
+    /// Asks for a parameter and writes it into the drawing's own text.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An edit here is a splice, not a rewrite: the declaration is inserted where a person would
+    /// have typed it and the rest of the file is left exactly as it was, comments included. What it
+    /// then takes to reach the screen is nothing new — the buffer changes, which is a keystroke as
+    /// far as everything downstream is concerned, and the drawing and the panel follow.
+    /// </para>
+    /// <para>
+    /// It does not need the pane to be open. That is the whole reason the buffer and the pane were
+    /// separated: a parameter added from the panel makes the document modified and saveable whether
+    /// or not anybody is looking at its text.
+    /// </para>
+    /// </remarks>
+    /// <returns>Whether the drawing was changed.</returns>
+    public async Task<bool> AddParameterAsync()
+    {
+        if (_document is null)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        var taken = _rows.Select(row => row.Name).ToList();
+
+        var parameter = await ParameterDialogService
+            .AskAsync(TopLevel.GetTopLevel(this), taken)
+            .ConfigureAwait(true);
+
+        return parameter is { } declared && Splice(SvgDeclarationEditor.Add(PaneSource(), declared));
+    }
+
+    /// <summary>
+    /// Asks what one parameter should declare, and writes the answer into the drawing.
+    /// </summary>
+    /// <remarks>
+    /// A rename is an edit everywhere the drawing names it, not only where it is declared, and the
+    /// whole of it is one thing to take back. The type is not offered: every expression using this
+    /// parameter was checked against the type it has.
+    /// </remarks>
+    /// <returns>Whether the drawing was changed.</returns>
+    public async Task<bool> EditParameterAsync(SvgViewerParameter parameter)
+    {
+        if (parameter is null)
+        {
+            throw new ArgumentNullException(nameof(parameter));
+        }
+
+        if (_document is null)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        // Its own name is not one it clashes with.
+        var taken = _rows
+            .Where(row => !ReferenceEquals(row, parameter))
+            .Select(row => row.Name)
+            .ToList();
+
+        var replacement = await ParameterDialogService
+            .EditAsync(TopLevel.GetTopLevel(this), taken, parameter.Declaration)
+            .ConfigureAwait(true);
+
+        return replacement is { } wanted
+            && Splice(SvgDeclarationEditor.Update(PaneSource(), parameter.Name, wanted));
+    }
+
+    /// <summary>
+    /// Writes every value somebody chose into the drawing as the declared default.
+    /// </summary>
+    /// <remarks>
+    /// One call for the lot, so that a session of moving sliders is one thing to take back rather
+    /// than one per slider. Only the rows that differ from what the document says are written, so
+    /// committing twice in a row does nothing the second time.
+    /// </remarks>
+    /// <returns>Whether the drawing was changed.</returns>
+    public bool CommitParameterDefaults()
+    {
+        if (_document is null)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        var changed = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var row in _rows.Where(row => row.IsModified))
+        {
+            changed[row.Name] = row.ToExpression();
+        }
+
+        return changed.Count > 0 && Splice(SvgDeclarationEditor.SetDefaults(PaneSource(), changed));
+    }
+
+    /// <summary>Puts an edit through the text buffer, as one thing that can be taken back.</summary>
+    /// <remarks>
+    /// Through the buffer rather than around it, which is what makes the undo stack the one history
+    /// of this document: a parameter added from the panel and a line typed into the pane come off it
+    /// in the order they were done. Grouped, because an insertion that had to declare a namespace
+    /// and open a block is three spans and one decision.
+    /// </remarks>
+    private bool Splice(SvgSourceEditResult result)
+    {
+        if (!result.Succeeded)
+        {
+            ShowNote(result.Refusal);
+
+            return false;
+        }
+
+        if (result.Edits.Count == 0 || _sourceEditor.Document is not { } document)
+        {
+            return false;
+        }
+
+        document.BeginUpdate();
+
+        try
+        {
+            // Back to front, so an earlier edit does not move the ones after it.
+            for (var index = result.Edits.Count - 1; index >= 0; index--)
+            {
+                var edit = result.Edits[index];
+
+                document.Replace(edit.Position, edit.Length, edit.Text);
+            }
+        }
+        finally
+        {
+            document.EndUpdate();
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Writes the pane's text back to a file.
     /// </summary>
     /// <remarks>
@@ -846,7 +1059,7 @@ public partial class SvgViewer : UserControl
     /// <returns>Whether anything was written.</returns>
     public async Task<bool> SaveSourceAsync(string? path = null)
     {
-        if (_document is not { } document || !_sourceShown)
+        if (_document is not { } document || !_sourceBuffered)
         {
             return false;
         }

@@ -29,6 +29,7 @@
     <ProjectReference Include="..\Svg.Skia\Svg.Skia.csproj" />
     <ProjectReference Include="..\Svg.Expressions\Svg.Expressions.csproj" />
     <ProjectReference Include="..\Svg.Highlighting\Svg.Highlighting.csproj" />
+    <ProjectReference Include="..\Svg.SourceEditing\Svg.SourceEditing.csproj" />
   </ItemGroup>
 
   <ItemGroup>

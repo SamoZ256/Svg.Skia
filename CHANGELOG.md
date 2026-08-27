@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+* Added `Svg.SourceEditing`, which changes what an SVG document declares by replacing spans of the
+  document's own text, and used it to give `Svg.Viewer.Skia.Avalonia` two edits: `AddParameterAsync`
+  declares a parameter from a form in the panel, `EditParameterAsync` changes what one says, and
+  `CommitParameterDefaults` writes the values somebody chose into the drawing as its declared
+  defaults. Moving a control stays a preview.
+
+  Renaming carries the uses with it: the identifier in every `{{ … }}` and every `<e:let>` body
+  moves with the declaration, found by lexing each site rather than by searching the file's
+  characters — an expression reaches the file XML-escaped, and `amp` is a name the language
+  allows, so a search would rename the inside of `&amp;`. A type cannot be changed: every
+  expression naming a parameter was checked against the type it had.
+
+  The alternative was to parse the drawing, change the tree and write it back, and that was measured
+  rather than assumed: a round trip through `SvgDocument` and `Write` renders identically — `#3c83f5`
+  before and after with `hue = 217`, because foreign attributes are keyed by namespace URI and read
+  back into the key the pipeline uses — but **deletes every comment**, since the reader's node switch
+  has no case for them, turns `fill="{{ primary }}"` into `style="fill:gray;"` plus `e:fill`, and
+  adds a doctype, `version`, `xmlns:xlink` and `xmlns:xml`. Reformatting somebody's whole file to add
+  one parameter is not something a pane showing them that file can do. So an edit is a splice, and
+  everything outside it is untouched byte for byte.
+
+  Spans rather than a rewritten document is also what makes undo work: assigning a text editor's
+  buffer wholesale resets the caret, the scroll and the undo stack, while a span goes through the
+  editor's own replace. An addition that had to declare a namespace and open an `<e:code>` block is
+  three spans and one undo step, and it lands on the same stack as the lines typed into the pane.
+
+  Nothing in the new package decides what is legal: a proposed declaration goes through
+  `SvgExpressionDeclarations.Builder`, the rules both readers already enforce, and the result is read
+  back with `Parse` before it is handed over — so a splice that would leave the document saying
+  something other than what was asked for is refused rather than applied. A document that is not
+  well-formed yet, or whose declarations are already wrong, is refused with a reason rather than
+  guessed at.
+
+  Where a new block goes and which prefix it takes are `Svg.Expressions.Recipes`' existing answers,
+  now shared rather than copied: first inside `<defs>`, creating one if absent, and whatever prefix
+  the document already binds the extension to.
+
+  The viewer's source buffer and its source pane are now separate. `IsSourceModified` and
+  `SaveSourceAsync` used to require the pane to have been opened, which would have made an edit from
+  the panel unsaveable; they now ask whether the editor holds the drawing, which an edit makes true
+  on its own. A drawing nobody opens the pane for or edits still costs nothing.
+
 * Added `Svg.Viewer.Skia.Avalonia`, a reusable Avalonia viewer for drawings using the expression
   extension, with `src/Svg.Studio` as the application built on it. It opens a file by picker or
   drop, zooms and pans — wheel about the cursor, drag, and fit / 1:1 / reset with a percentage
