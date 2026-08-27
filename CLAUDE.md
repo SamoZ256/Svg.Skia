@@ -14,14 +14,15 @@ Add only what someone could not find by reading the code.
 ## Rules
 
 - **Ask before `git commit`, `git push`, or creating a branch, and wait for an answer.** Finishing a
-  change is not permission to record it. A branch decides how work lands, which is a decision to
-  raise before starting rather than to present as already taken.
+  change is not permission to record it, and a branch decides how work lands — raise it beforehand.
 - **Prefer removing code to adding it.** Before adding a helper, a type or an option, widen the one
   already doing that job; before adding a branch, see whether the case can be stopped from arising.
   A net addition is worth a sentence saying what was reused and what could not be.
-- **Run the app when you change one.** For `src/Svg.Studio`, the editor, or any GUI project, build it,
-  launch it and leave it running so the change can be seen — rather than reporting it done from a
-  green test run.
+- **Comment only what the code cannot say** — a trap, a measurement, a rejected alternative — in a
+  sentence or two. Never restate the line below it. Much of the existing prose is longer than this
+  allows; match the rule, not the surroundings.
+- **Run the app when you change one.** For `src/Svg.Studio`, the editor, or any GUI project, build and
+  launch it and leave it running, rather than reporting it done from a green test run.
 - **Keep `samples/TestApp/TestApp.json` out of a commit.** Tracked, and `TestApp` rewrites it on exit
   (`App.axaml.cs:50-52`), so running the sample leaves it modified without anyone having edited it.
 - **Format only the files you changed.** The `format` skill has the command and the measurements;
