@@ -27,6 +27,10 @@
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
+    <Style Selector=":is(Panel).row:pointerover Border.grip">
+      <Setter Property="Opacity" Value="0.65" />
+    </Style>
+
     <Style Selector=":is(Panel).row:pointerover Button.edit">
       <Setter Property="Opacity" Value="0.7" />
     </Style>
@@ -71,21 +75,27 @@
     <!-- Resolved by the concrete row type, so there is no selector to keep in step. -->
     <DataTemplate DataType="viewer:SvgViewerNumberParameter">
       <StackPanel Spacing="2" Margin="0,0,0,10" Classes="row">
-        <Grid ColumnDefinitions="*,Auto,Auto,Auto">
-          <TextBlock Grid.Column="0" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
-          <Button Grid.Column="2" Classes="edit" Content="⋯" Click="OnEditClick"
-                  ToolTip.Tip="Edit this parameter" />
-          <Button Grid.Column="3" Classes="edit" Content="✕" Click="OnRemoveClick"
-                  ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
-          <NumericUpDown Grid.Column="1"
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+          <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                  PointerPressed="OnGripPressed"
+                  ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+            <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <NumericUpDown Grid.Column="2"
                          Width="110"
                          Value="{Binding Value, Mode=TwoWay}"
                          Minimum="{Binding Minimum}"
                          Maximum="{Binding Maximum}"
                          Increment="{Binding TickFrequency}"
                          ShowButtonSpinner="False" />
+          <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
+                  ToolTip.Tip="Edit this parameter" />
+          <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
+                  ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
         </Grid>
-        <Slider Minimum="{Binding Minimum}"
+        <Slider Margin="20,0,0,0"
+                Minimum="{Binding Minimum}"
                 Maximum="{Binding Maximum}"
                 TickFrequency="{Binding TickFrequency}"
                 IsSnapToTickEnabled="{Binding HasStep}"
@@ -94,23 +104,33 @@
     </DataTemplate>
 
     <DataTemplate DataType="viewer:SvgViewerBooleanParameter">
-      <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
-        <TextBlock Grid.Column="0" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
-        <CheckBox Grid.Column="1" IsChecked="{Binding Value, Mode=TwoWay}" />
-        <Button Grid.Column="2" Classes="edit" Content="⋯" Click="OnEditClick"
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
+        <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                PointerPressed="OnGripPressed"
+                ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+          <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+        <CheckBox Grid.Column="2" IsChecked="{Binding Value, Mode=TwoWay}" />
+        <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
                 ToolTip.Tip="Edit this parameter" />
-        <Button Grid.Column="3" Classes="edit" Content="✕" Click="OnRemoveClick"
+        <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
                 ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
       </Grid>
     </DataTemplate>
 
     <DataTemplate DataType="viewer:SvgViewerColorParameter">
-      <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
-        <TextBlock Grid.Column="0" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
-        <ColorPicker Grid.Column="1" Color="{Binding Color, Mode=TwoWay}" />
-        <Button Grid.Column="2" Classes="edit" Content="⋯" Click="OnEditClick"
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
+        <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                PointerPressed="OnGripPressed"
+                ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+          <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+        <ColorPicker Grid.Column="2" Color="{Binding Color, Mode=TwoWay}" />
+        <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
                 ToolTip.Tip="Edit this parameter" />
-        <Button Grid.Column="3" Classes="edit" Content="✕" Click="OnRemoveClick"
+        <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
                 ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
       </Grid>
     </DataTemplate>

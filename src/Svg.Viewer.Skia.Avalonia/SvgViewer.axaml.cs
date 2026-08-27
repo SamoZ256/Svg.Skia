@@ -164,7 +164,8 @@ public partial class SvgViewer : UserControl
         _panel.EditRequested += async (_, row) => await EditParameterAsync(row).ConfigureAwait(true);
         _panel.RemoveRequested += (_, row) => RemoveParameter(row);
         _panel.LetCommitted += (_, let) => CommitLet(let);
-        _panel.LetMoved += (_, moved) => MoveLet(moved.Let, moved.To);
+        _panel.LetMoveRequested = MoveLet;
+        _panel.ParameterMoveRequested = MoveParameter;
         _panel.LetRemoveRequested += (_, let) => RemoveLet(let);
 
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
@@ -1120,6 +1121,40 @@ public partial class SvgViewer : UserControl
         }
 
         return Splice(SvgDeclarationEditor.RemoveLet(PaneSource(), declared.Name));
+    }
+
+    /// <summary>
+    /// Moves a parameter to <paramref name="to"/> among the drawing's parameters.
+    /// </summary>
+    /// <remarks>
+    /// Presentational to this drawing — nothing reads parameters in order — but not to the code
+    /// generated from it, whose signature is written in that order. So a move is refused when it
+    /// would put a parameter with no default after one that has a default, which is C#'s rule about
+    /// optional arguments and the generator's own refusal asked earlier.
+    /// </remarks>
+    /// <returns>Whether the drawing changed.</returns>
+    public bool MoveParameter(SvgViewerParameter parameter, int to)
+    {
+        if (parameter is null)
+        {
+            throw new ArgumentNullException(nameof(parameter));
+        }
+
+        if (_document is null)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        return Splice(SvgDeclarationEditor.MoveParameter(PaneSource(), parameter.Name, to));
     }
 
     /// <summary>Shows what each let currently evaluates to, beside it.</summary>

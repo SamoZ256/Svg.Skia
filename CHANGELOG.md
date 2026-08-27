@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+* Parameters reorder by drag too, with the same grip a let has, and into **any** order.
+
+  Unlike a let, whose position is what it can name, a parameter's position is presentation: a default
+  may not name another parameter, so every order renders the same picture. The C# generator does want
+  one — its signature is written in declaration order, so the parameters with defaults have to come
+  last — and it refuses a document that puts them otherwise, reported by `svgc` as an `error:` line
+  when somebody runs it. That stays a restriction of that back end. A drawing is not stopped from
+  saying what it means because one of the things that reads it would rather it said it differently.
+
+  The drag itself is now written once for both lists rather than twice, which was the point at which
+  it had to be: it carries four details that were each found the hard way — capture the list and not
+  the row, swap at a neighbour's midpoint, treat a release nobody saw as an end, and lay out before
+  placing the carried row. A second copy would have been a second place for those to be forgotten.
+
+  Dropping now asks rather than tells: the panel hands the move to the document and puts the row back
+  if it is declined. The window keeps a drag inside what is legal, so a refusal means the splice
+  declined for its own reasons — a list left showing an order the drawing does not have is worse than
+  a drag that does not land. That was a real hole in the let drag as well, where a refused move left
+  the rows reordered against a file that was not.
+
 * Added removing a let — `SvgDeclarationEditor.RemoveLet`, and a `✕` on its row — on the same terms
   as a parameter: refused while anything still names it, with the uses counted. The rule is sharper
   here, since being named is the whole of what a let is for, so one nothing names is the only kind

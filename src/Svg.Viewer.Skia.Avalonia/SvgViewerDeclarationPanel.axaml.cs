@@ -21,8 +21,6 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// <summary>One control per declared parameter, and one row per declared let.</summary>
 public partial class SvgViewerDeclarationPanel : UserControl
 {
-    private const double DragThreshold = 4d;
-
     private readonly ItemsControl _rows;
     private readonly ItemsControl _letRows;
     private readonly TextBlock _emptyLabel;
@@ -33,22 +31,17 @@ public partial class SvgViewerDeclarationPanel : UserControl
     private readonly Button _addButton;
     private readonly Button _addLetButton;
 
-    /// <summary>Moved rather than replaced, so a drag allocates nothing per frame.</summary>
-    private readonly TranslateTransform _carry = new();
-
     private readonly ObservableCollection<SvgViewerLet> _lets = new();
+    private readonly ObservableCollection<SvgViewerParameter> _parameters = new();
 
-    private IReadOnlyList<SvgViewerParameter> _parameters = Array.Empty<SvgViewerParameter>();
+    private readonly RowDrag<SvgViewerLet> _letDrag;
+    private readonly RowDrag<SvgViewerParameter> _parameterDrag;
+
+    /// <summary>The rows as they were handed over, so the same list twice can be recognised.</summary>
+    private IReadOnlyList<SvgViewerParameter>? _source;
 
     /// <summary>Whether there is a drawing behind the rows, which null and empty tell apart.</summary>
     private bool _hasDocument;
-
-    private SvgViewerLet? _pressed;
-    private int _pressedFrom;
-    private (int Low, int High) _window;
-    private double _grabbedAt;
-    private double _pressedY;
-    private bool _dragging;
 
     public SvgViewerDeclarationPanel()
     {
@@ -68,13 +61,12 @@ public partial class SvgViewerDeclarationPanel : UserControl
         _commitButton.Click += (_, _) => CommitRequested?.Invoke(this, EventArgs.Empty);
         _addLetButton.Click += (_, _) => Draft();
 
+        _rows.ItemsSource = _parameters;
         _letRows.ItemsSource = _lets;
 
-        // On the list rather than on the grip a drag starts from: capturing the list stops an event
-        // ever reaching the grip again, since a captured element's events bubble past it and not
-        // into it, which froze the drag at the moment it began.
-        _letRows.PointerMoved += OnGripMoved;
-        _letRows.PointerReleased += OnGripReleased;
+        _letDrag = new RowDrag<SvgViewerLet>(_letRows, _lets, LetWindow, (let, to) => LetMoveRequested?.Invoke(let, to) == true);
+        _parameterDrag = new RowDrag<SvgViewerParameter>(
+            _rows, _parameters, ParameterWindow, (row, to) => ParameterMoveRequested?.Invoke(row, to) == true);
 
         ShowActions();
     }
@@ -101,8 +93,16 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// <summary>Raised when a let row is finished with and says something the document does not.</summary>
     public event EventHandler<SvgViewerLet>? LetCommitted;
 
-    /// <summary>Raised when a let is dragged to a new position among the lets.</summary>
-    public event EventHandler<(SvgViewerLet Let, int To)>? LetMoved;
+    /// <summary>Asked when a let is dragged to a new position, and answers whether it landed.</summary>
+    /// <remarks>
+    /// A function rather than an event, because this one needs an answer: a splice can decline for
+    /// reasons the drag could not have known, and a list left showing an order the drawing does not
+    /// have is worse than a drag that does not land. Refused, the row goes back where it was.
+    /// </remarks>
+    public Func<SvgViewerLet, int, bool>? LetMoveRequested { get; set; }
+
+    /// <summary>Asked when a parameter is dragged to a new position, on the same terms.</summary>
+    public Func<SvgViewerParameter, int, bool>? ParameterMoveRequested { get; set; }
 
     /// <summary>Raised when somebody asks to take one let out of the drawing.</summary>
     public event EventHandler<SvgViewerLet>? LetRemoveRequested;
@@ -116,10 +116,10 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// </remarks>
     public IReadOnlyList<SvgViewerParameter>? Parameters
     {
-        get => _parameters;
+        get => _source;
         set
         {
-            if (ReferenceEquals(_parameters, value))
+            if (ReferenceEquals(_source, value))
             {
                 // The same rows again, which is a reload that changed none of them: rebuilding the
                 // items would throw away whatever row someone is part-way through editing. Only the
@@ -133,14 +133,16 @@ public partial class SvgViewerDeclarationPanel : UserControl
             Detach();
 
             _hasDocument = value is { };
-            _parameters = value ?? Array.Empty<SvgViewerParameter>();
+            _source = value;
 
-            foreach (var parameter in _parameters)
+            _parameters.Clear();
+
+            foreach (var parameter in value ?? Array.Empty<SvgViewerParameter>())
             {
                 parameter.ValueChanged += OnRowValueChanged;
+                _parameters.Add(parameter);
             }
 
-            _rows.ItemsSource = _parameters;
             _emptyLabel.IsVisible = value is { Count: 0 };
 
             ShowActions();
@@ -450,6 +452,76 @@ public partial class SvgViewerDeclarationPanel : UserControl
         return symbols;
     }
 
+    // ---- dragging a row up or down ---------------------------------------------------------------
+
+    /// <summary>Starts a drag on whichever list the grip belongs to.</summary>
+    private void OnGripPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Control { DataContext: { } row } || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        switch (row)
+        {
+            // A row nobody has written yet is not in the document, so there is no order to move it in.
+            case SvgViewerLet { IsDraft: false } let:
+                _letDrag?.Press(let, e);
+                break;
+
+            case SvgViewerParameter parameter:
+                _parameterDrag?.Press(parameter, e);
+                break;
+        }
+    }
+
+    /// <summary>How far the let at <paramref name="index"/> can be dragged either way.</summary>
+    /// <remarks>
+    /// A window rather than a check on the drop, because a refused drop reads as the drag having
+    /// failed. It is contiguous: moving up is legal until the let passes what it names, and moving
+    /// down until it passes what names it.
+    /// </remarks>
+    private (int Low, int High) LetWindow(int index)
+        => Window(index, _lets.Count, to => Resolves(Reordered(_lets, index, to)));
+
+    /// <summary>How far the parameter at <paramref name="index"/> can be dragged: anywhere.</summary>
+    /// <remarks>
+    /// Unlike a let, whose position is what it can name, a parameter's is presentation. A back end
+    /// may want them in some order of its own — the C# generator needs the ones with defaults last
+    /// — and says so when it is run, rather than a drawing being unable to say what it means.
+    /// </remarks>
+    private (int Low, int High) ParameterWindow(int index) => (0, _parameters.Count - 1);
+
+    /// <summary>The run of positions around <paramref name="index"/> that <paramref name="legal"/> allows.</summary>
+    private static (int Low, int High) Window(int index, int count, Func<int, bool> legal)
+    {
+        var low = index;
+        var high = index;
+
+        while (low > 0 && legal(low - 1))
+        {
+            low--;
+        }
+
+        while (high < count - 1 && legal(high + 1))
+        {
+            high++;
+        }
+
+        return (low, high);
+    }
+
+    private static List<T> Reordered<T>(IReadOnlyList<T> rows, int from, int to)
+    {
+        var order = rows.ToList();
+        var moved = order[from];
+
+        order.RemoveAt(from);
+        order.Insert(to, moved);
+
+        return order;
+    }
+
     /// <summary>Whether every let resolves in this order.</summary>
     private bool Resolves(IEnumerable<SvgViewerLet> order)
     {
@@ -476,169 +548,177 @@ public partial class SvgViewerDeclarationPanel : UserControl
         return true;
     }
 
-    /// <summary>How far the let at <paramref name="index"/> can be dragged either way.</summary>
+    /// <summary>
+    /// Dragging a row up and down a list.
+    /// </summary>
     /// <remarks>
-    /// A window rather than a check on the drop, because a refused drop reads as the drag having
-    /// failed. It is contiguous: moving up is legal until the let passes what it names, and moving
-    /// down until it passes what names it.
+    /// One implementation for both lists, because the second one wanted the same four details the
+    /// first had to find: capture the list and not the row, since reordering takes the row out of
+    /// the items and a captured control that leaves the tree loses the capture; swap at a
+    /// neighbour's midpoint, since trading on contact leaves the pointer over the row it displaced
+    /// and trades straight back; treat a release nobody saw as an end; and lay out before placing
+    /// the carried row, or it sits a whole row-height off for a frame.
     /// </remarks>
-    private (int Low, int High) Window(int index)
+    private sealed class RowDrag<T>
+        where T : class
     {
-        var low = index;
-        var high = index;
+        private const double Threshold = 4d;
 
-        while (low > 0 && Resolves(Reordered(index, low - 1)))
+        private readonly ItemsControl _items;
+        private readonly ObservableCollection<T> _rows;
+        private readonly Func<int, (int Low, int High)> _window;
+
+        /// <summary>Puts the move to the document, which may decline it.</summary>
+        private readonly Func<T, int, bool> _dropped;
+
+        /// <summary>Moved rather than replaced, so a drag allocates nothing per frame.</summary>
+        private readonly TranslateTransform _carry = new();
+
+        private T? _pressed;
+        private int _from;
+        private (int Low, int High) _allowed;
+        private double _grabbedAt;
+        private double _pressedY;
+        private bool _dragging;
+
+        public RowDrag(
+            ItemsControl items,
+            ObservableCollection<T> rows,
+            Func<int, (int Low, int High)> window,
+            Func<T, int, bool> dropped)
         {
-            low--;
+            _items = items;
+            _rows = rows;
+            _window = window;
+            _dropped = dropped;
+
+            _items.PointerMoved += OnMoved;
+            _items.PointerReleased += (_, e) => End(e.Pointer);
         }
 
-        while (high < _lets.Count - 1 && Resolves(Reordered(index, high + 1)))
+        public void Press(T row, PointerPressedEventArgs e)
         {
-            high++;
-        }
-
-        return (low, high);
-    }
-
-    private List<SvgViewerLet> Reordered(int from, int to)
-    {
-        var order = _lets.ToList();
-        var moved = order[from];
-
-        order.RemoveAt(from);
-        order.Insert(to, moved);
-
-        return order;
-    }
-
-    // ---- dragging a let up or down ---------------------------------------------------------------
-
-    private void OnGripPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (sender is not Control { DataContext: SvgViewerLet let }
-            || let.IsDraft
-            || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
-            || _lets.Count < 2)
-        {
-            return;
-        }
-
-        _pressed = let;
-        _pressedFrom = _lets.IndexOf(let);
-        _window = Window(_pressedFrom);
-        _pressedY = e.GetPosition(_letRows).Y;
-        _grabbedAt = _pressedY - (Row(_pressedFrom)?.Bounds.Y ?? 0d);
-        _dragging = false;
-    }
-
-    private void OnGripMoved(object? sender, PointerEventArgs e)
-    {
-        if (_pressed is not { } dragged)
-        {
-            return;
-        }
-
-        // A release the panel never saw — the button let go outside it, or over another application
-        // — leaves a drag that would otherwise resume the moment the pointer comes back.
-        if (!e.GetCurrentPoint(_letRows).Properties.IsLeftButtonPressed)
-        {
-            EndDrag(e.Pointer);
-            return;
-        }
-
-        var y = e.GetPosition(_letRows).Y;
-
-        if (!_dragging)
-        {
-            if (Math.Abs(y - _pressedY) < DragThreshold)
+            if (_rows.Count < 2)
             {
                 return;
             }
 
-            // The list is captured, not the row: reordering takes the row out of the items, and a
-            // captured control that leaves the tree loses the capture.
-            _dragging = true;
-            e.Pointer.Capture(_letRows);
+            _pressed = row;
+            _from = _rows.IndexOf(row);
+            _allowed = _window(_from);
+            _pressedY = e.GetPosition(_items).Y;
+            _grabbedAt = _pressedY - (Row(_from)?.Bounds.Y ?? 0d);
+            _dragging = false;
         }
 
-        var from = _lets.IndexOf(dragged);
-        var to = from;
-
-        for (var index = _window.Low; index <= _window.High; index++)
+        private void OnMoved(object? sender, PointerEventArgs e)
         {
-            if (index == from || Row(index) is not { } neighbour)
+            if (_pressed is not { } dragged)
             {
-                continue;
+                return;
             }
 
-            // Half of a neighbour, not its edge: trading on contact leaves the pointer over the row
-            // it displaced and trades straight back.
-            if (index > from && y > neighbour.Bounds.Center.Y)
+            // A release the panel never saw — the button let go outside it, or over another
+            // application — leaves a drag that would otherwise resume when the pointer comes back.
+            if (!e.GetCurrentPoint(_items).Properties.IsLeftButtonPressed)
             {
-                to = Math.Max(to, index);
+                End(e.Pointer);
+                return;
             }
-            else if (index < from && y < neighbour.Bounds.Center.Y)
+
+            var y = e.GetPosition(_items).Y;
+
+            if (!_dragging)
             {
-                to = Math.Min(to, index);
+                if (Math.Abs(y - _pressedY) < Threshold)
+                {
+                    return;
+                }
+
+                _dragging = true;
+                e.Pointer.Capture(_items);
+            }
+
+            var from = _rows.IndexOf(dragged);
+            var to = from;
+
+            for (var index = _allowed.Low; index <= _allowed.High; index++)
+            {
+                if (index == from || Row(index) is not { } neighbour)
+                {
+                    continue;
+                }
+
+                if (index > from && y > neighbour.Bounds.Center.Y)
+                {
+                    to = Math.Max(to, index);
+                }
+                else if (index < from && y < neighbour.Bounds.Center.Y)
+                {
+                    to = Math.Min(to, index);
+                }
+            }
+
+            if (Row(from) is { } carried)
+            {
+                carried.ZIndex = 0;
+                carried.RenderTransform = null;
+            }
+
+            if (to != from)
+            {
+                _rows.Move(from, to);
+                _items.UpdateLayout();
+            }
+
+            if (Row(_rows.IndexOf(dragged)) is { } row)
+            {
+                row.ZIndex = 1;
+                row.RenderTransform = _carry;
+
+                _carry.Y = y - _grabbedAt - row.Bounds.Y;
             }
         }
 
-        if (Row(from) is { } carried)
+        /// <summary>Puts the dragged row down where the list has already made room for it.</summary>
+        private void End(IPointer? pointer)
         {
-            carried.ZIndex = 0;
-            carried.RenderTransform = null;
+            if (_pressed is not { } dragged)
+            {
+                return;
+            }
+
+            var to = _rows.IndexOf(dragged);
+
+            if (Row(to) is { } row)
+            {
+                row.ZIndex = 0;
+                row.RenderTransform = null;
+            }
+
+            _pressed = null;
+            _dragging = false;
+            _carry.Y = 0d;
+
+            pointer?.Capture(null);
+
+            if (to == _from || to < 0)
+            {
+                return;
+            }
+
+            // Put back where it was if the document would not take it. The window keeps a drag
+            // inside what is legal, so this is the splice refusing for its own reasons — and a list
+            // showing an order the drawing does not have would be worse than the drag not landing.
+            if (!_dropped(dragged, to))
+            {
+                _rows.Move(to, _from);
+            }
         }
 
-        if (to != from)
-        {
-            _lets.Move(from, to);
-
-            // The row is placed against its own laid-out position below, and a move it has not been
-            // arranged for yet would put it a whole row-height off for one frame.
-            _letRows.UpdateLayout();
-        }
-
-        if (Row(_lets.IndexOf(dragged)) is { } row)
-        {
-            row.ZIndex = 1;
-            row.RenderTransform = _carry;
-
-            _carry.Y = y - _grabbedAt - row.Bounds.Y;
-        }
+        private Control? Row(int index)
+            => index >= 0 && index < _rows.Count ? _items.ContainerFromIndex(index) as Control : null;
     }
-
-    private void OnGripReleased(object? sender, PointerReleasedEventArgs e) => EndDrag(e.Pointer);
-
-    /// <summary>Puts the dragged row down where the list has already made room for it.</summary>
-    private void EndDrag(IPointer? pointer)
-    {
-        if (_pressed is not { } dragged)
-        {
-            return;
-        }
-
-        var to = _lets.IndexOf(dragged);
-
-        if (Row(to) is { } row)
-        {
-            row.ZIndex = 0;
-            row.RenderTransform = null;
-        }
-
-        _pressed = null;
-        _dragging = false;
-        _carry.Y = 0d;
-
-        pointer?.Capture(null);
-
-        if (to != _pressedFrom && to >= 0)
-        {
-            LetMoved?.Invoke(this, (dragged, to));
-        }
-    }
-
-    private Control? Row(int index)
-        => index >= 0 && index < _lets.Count ? _letRows.ContainerFromIndex(index) as Control : null;
 
     /// <summary>
     /// Shows what can be done with the rows as they stand.

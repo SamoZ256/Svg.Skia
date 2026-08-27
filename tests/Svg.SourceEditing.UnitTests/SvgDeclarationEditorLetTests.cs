@@ -359,4 +359,73 @@ public class SvgDeclarationEditorLetTests
         Assert.Contains("radius", edited);
         Assert.Contains("saturation / 2", edited);
     }
+
+    // ---- parameters reorder too, under a different rule ----
+
+    private const string Mixed = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="EXPR-NS" width="10" height="10">
+          <defs>
+            <e:code>
+              <e:param name="size" type="number" />
+              <e:param name="hue" type="number" default="217" />
+              <e:param name="tint" type="color" default="#ff0000" />
+            </e:code>
+          </defs>
+        </svg>
+        """;
+
+    private static string[] Parameters(string svgText)
+        => SvgExpressionDeclarations.Parse(svgText, out _).Parameters.Select(p => p.Name).ToArray();
+
+    [Fact]
+    public void Two_Parameters_With_Defaults_Can_Be_Swapped()
+    {
+        var source = Mixed.Replace("EXPR-NS", Ns);
+
+        var edited = Apply(source, SvgDeclarationEditor.MoveParameter(source, "tint", 1));
+
+        Assert.Equal(new[] { "size", "tint", "hue" }, Parameters(edited));
+    }
+
+    [Fact]
+    public void A_Parameter_With_No_Default_Can_Go_Anywhere_The_Author_Wants()
+    {
+        var source = Mixed.Replace("EXPR-NS", Ns);
+
+        // The C# generator needs the ones with defaults last and says so when it is run --
+        // SkiaCSharpCodeGenExpressionTests holds that. It is a rule of that back end and not of
+        // this language, so a document is not stopped from saying it.
+        var edited = Apply(source, SvgDeclarationEditor.MoveParameter(source, "size", 2));
+
+        Assert.Equal(new[] { "hue", "tint", "size" }, Parameters(edited));
+    }
+
+    [Fact]
+    public void Moving_A_Parameter_Leaves_The_Lets_Where_They_Were()
+    {
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="EXPR-NS" width="10" height="10">
+              <defs>
+                <e:code>
+                  <e:param name="hue" type="number" default="217" />
+                  <e:param name="tint" type="color" default="#ff0000" />
+
+                  <e:let name="half">hue / 2</e:let>
+                </e:code>
+              </defs>
+            </svg>
+            """.Replace("EXPR-NS", Ns);
+
+        var edited = Apply(source, SvgDeclarationEditor.MoveParameter(source, "tint", 0));
+
+        Assert.Equal(new[] { "tint", "hue" }, Parameters(edited));
+        Assert.Equal(new[] { "half" }, Order(edited));
+
+        // The blank line between the groups is layout somebody chose, and a reorder within one
+        // group is not a reason to lose it.
+        Assert.Contains("""
+
+                  <e:let name="half">hue / 2</e:let>
+            """.TrimEnd(), edited);
+    }
 }

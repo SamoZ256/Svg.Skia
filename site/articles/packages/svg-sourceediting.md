@@ -29,7 +29,7 @@ dotnet add package Svg.SourceEditing
 
 | Type | Role |
 | --- | --- |
-| `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
+| `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `MoveParameter` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
 | `SvgTextEdit` | One span to replace, and `ApplyAll` for a caller holding only a string |
 | `SvgSourceEditResult` | The spans, or why nothing can be done |
 
@@ -100,6 +100,18 @@ different name.
 The declaration goes with the line it sat on. The `<e:code>` block stays even when it empties, since
 taking it away is a second decision — about a `<defs>` that may hold other things, and an `xmlns`
 nothing declares any more — and adding a parameter writes into the block that is already there.
+
+## Parameters reorder freely; lets do not
+
+Nothing in this language reads parameters in order: a default may not name another parameter, so
+every order renders the same picture. `MoveParameter` therefore allows any of them, and is the one
+move here with no rule to check.
+
+A back end may want its own order. The C# generator writes its signature in declaration order, so
+the ones with defaults have to come last, and it refuses a document that puts them otherwise — as
+`svgc error: …`, when somebody runs it. That is a restriction of that back end and not of the
+language, so it is not enforced here: a drawing is not stopped from saying what it means because one
+of the things that reads it would rather it said it differently.
 
 ## Where a let sits is what it means
 

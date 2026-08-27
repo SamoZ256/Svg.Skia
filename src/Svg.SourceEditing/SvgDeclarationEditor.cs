@@ -331,6 +331,19 @@ public static class SvgDeclarationEditor
     /// catches that, since the document still reads back perfectly well either way.
     /// </remarks>
     public static SvgSourceEditResult MoveLet(string svgText, string name, int toIndex)
+        => Shift(svgText, name, toIndex, "let");
+
+    /// <summary>Moves a parameter to <paramref name="toIndex"/> among the parameters.</summary>
+    /// <remarks>
+    /// Any order at all: nothing in this language reads them in order, since a default may not name
+    /// another parameter. A back end may have its own rule — the C# generator needs the ones with
+    /// defaults last — and refuses there, on its own behalf, rather than narrowing what a document
+    /// is allowed to say.
+    /// </remarks>
+    public static SvgSourceEditResult MoveParameter(string svgText, string name, int toIndex)
+        => Shift(svgText, name, toIndex, "param");
+
+    private static SvgSourceEditResult Shift(string svgText, string name, int toIndex, string kind)
     {
         if (svgText is null)
         {
@@ -342,27 +355,29 @@ public static class SvgDeclarationEditor
             return SvgSourceEditResult.Refuse(refusal!);
         }
 
-        var lets = Lets(document!);
-        var from = lets.FindIndex(candidate => string.Equals((string?)candidate.Attribute("name"), name, StringComparison.Ordinal));
+        var siblings = Declared(document!, kind);
+
+        var from = siblings.FindIndex(candidate => string.Equals((string?)candidate.Attribute("name"), name, StringComparison.Ordinal));
 
         if (from < 0)
         {
-            return SvgSourceEditResult.Refuse($"This drawing declares no let called '{name}'.");
+            return SvgSourceEditResult.Refuse($"This drawing declares no {kind} called '{name}'.");
         }
 
-        if (lets.Select(let => let.Parent).Distinct().Count() > 1)
+        if (siblings.Select(sibling => sibling.Parent).Distinct().Count() > 1)
         {
-            return SvgSourceEditResult.Refuse("This drawing spreads its lets over more than one <e:code> block, so their order is not one list to reorder.");
+            return SvgSourceEditResult.Refuse(
+                "This drawing spreads its declarations over more than one <e:code> block, so their order is not one list to reorder.");
         }
 
-        toIndex = Math.Max(0, Math.Min(toIndex, lets.Count - 1));
+        toIndex = Math.Max(0, Math.Min(toIndex, siblings.Count - 1));
 
         if (toIndex == from)
         {
             return SvgSourceEditResult.Nothing;
         }
 
-        var moved = Line(svgText, lets[from], positions);
+        var moved = Line(svgText, siblings[from], positions);
 
         if (moved is not { } cut)
         {
@@ -370,7 +385,7 @@ public static class SvgDeclarationEditor
                 $"'{name}' shares its line with something else, so there is no line to move. Put it on a line of its own first.");
         }
 
-        var rest = lets.Where((_, index) => index != from).ToList();
+        var rest = siblings.Where((_, index) => index != from).ToList();
         var newline = Newline(svgText);
 
         // The whole line, moved as it was written: reordering must not reformat what it carries.
@@ -401,11 +416,12 @@ public static class SvgDeclarationEditor
     }
 
     /// <summary>Every let in the document, in the order it reads them.</summary>
-    private static List<XElement> Lets(XDocument document)
-        => document.Descendants(Ns + "code").SelectMany(block => block.Elements(Ns + "let")).ToList();
+    /// <summary>Every declaration of one kind, in the order the document reads them.</summary>
+    private static List<XElement> Declared(XDocument document, string kind)
+        => document.Descendants(Ns + "code").SelectMany(block => block.Elements(Ns + kind)).ToList();
 
     private static XElement? Let(XDocument document, string name)
-        => Lets(document).FirstOrDefault(
+        => Declared(document, "let").FirstOrDefault(
             candidate => string.Equals((string?)candidate.Attribute("name"), name, StringComparison.Ordinal));
 
     /// <summary>What sits between a let's tags.</summary>

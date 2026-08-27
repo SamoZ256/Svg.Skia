@@ -582,6 +582,50 @@ public class SvgViewerParameterEditingTests
     }
 
     /// <summary>Answers with whatever the test decided, because a modal cannot be driven headlessly.</summary>
+    // ---- reordering ----
+
+    private const string Required = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="size" type="number" />
+              <e:param name="fade" type="number" default="1" />
+            </e:code>
+          </defs>
+          <rect x="0" y="0" width="{{ size }}" height="24" opacity="{{ fade }}" />
+        </svg>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Parameter_Moved_From_The_Panel_Reaches_The_Drawing()
+    {
+        var (window, viewer) = await HostLoaded(Parametric);
+
+        Assert.Equal(new[] { "tint", "fade" }, viewer.Parameters.Select(row => row.Name).ToArray());
+
+        Assert.True(viewer.MoveParameter(viewer.Parameters[1], 0));
+        await Settle();
+
+        Assert.Equal(new[] { "fade", "tint" }, viewer.Parameters.Select(row => row.Name).ToArray());
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Parameter_With_No_Default_Can_Be_Moved_After_One_That_Has_One()
+    {
+        var (window, viewer) = await HostLoaded(Required);
+
+        // Every order renders the same, since a default may not name another parameter. What the
+        // C# generator wants of them is the generator's to say, when somebody runs it.
+        Assert.True(viewer.MoveParameter(viewer.Parameters.Single(row => row.Name == "size"), 1));
+        await Settle();
+
+        Assert.Equal(new[] { "fade", "size" }, viewer.Parameters.Select(row => row.Name).ToArray());
+
+        window.Close();
+    }
+
     private sealed class StubParameterDialogService : ISvgViewerParameterDialogService
     {
         private readonly SvgExpressionParameter? _answer;
