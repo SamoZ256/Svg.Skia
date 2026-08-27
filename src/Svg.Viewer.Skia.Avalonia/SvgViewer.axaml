@@ -108,7 +108,19 @@
 
     <Grid x:Name="Body" RowDefinitions="*,6,220">
 
-      <Grid x:Name="Drawing" Grid.Row="0" ColumnDefinitions="*,6,Auto">
+      <Grid x:Name="Drawing" Grid.Row="0">
+
+        <!--
+          The width is on the column, not on the border in it. With Auto plus a Width="300" child,
+          the splitter moved the column and the panel stayed 300 wide — so dragging it did nothing.
+          Both ends have a minimum, because a splitter that can be dragged until one side vanishes
+          gives no way back.
+        -->
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" MinWidth="160" />
+          <ColumnDefinition Width="6" />
+          <ColumnDefinition Width="340" MinWidth="260" />
+        </Grid.ColumnDefinitions>
 
         <Grid Grid.Column="0">
 
@@ -147,7 +159,7 @@
                       ResizeDirection="Columns" Background="Transparent" />
 
         <Border x:Name="DeclarationPanelHost" Grid.Column="2"
-                Width="300" BorderThickness="1,0,0,0" BorderBrush="#20808080">
+                BorderThickness="1,0,0,0" BorderBrush="#20808080">
           <viewer:SvgViewerDeclarationPanel x:Name="PART_Declarations" />
         </Border>
 
@@ -155,7 +167,7 @@
 
       <!--
         The text sits under the drawing rather than beside it because SVG lines are long, and the
-        column to the right is the parameters' and only 300px wide.
+        column to the right is the declarations' and a few hundred pixels at most.
       -->
       <GridSplitter x:Name="SourceSplitter" Grid.Row="1"
                     ResizeDirection="Rows" Background="Transparent" />

@@ -15,11 +15,11 @@
          space, so no row changes width and nothing can be clicked unseen. -->
     <Style Selector="Button.edit">
       <Setter Property="Opacity" Value="0" />
-      <Setter Property="Width" Value="22" />
-      <Setter Property="Height" Value="22" />
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
       <Setter Property="Padding" Value="0" />
-      <Setter Property="Margin" Value="4,0,0,0" />
-      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Margin" Value="2,0,0,0" />
+      <Setter Property="FontSize" Value="15" />
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -28,7 +28,7 @@
     </Style>
 
     <Style Selector=":is(Panel).row:pointerover Button.edit">
-      <Setter Property="Opacity" Value="0.55" />
+      <Setter Property="Opacity" Value="0.7" />
     </Style>
 
     <Style Selector="Button.edit:pointerover">
@@ -50,11 +50,11 @@
     </Style>
 
     <Style Selector=":is(Panel).letrow:pointerover Border.grip">
-      <Setter Property="Opacity" Value="0.5" />
+      <Setter Property="Opacity" Value="0.65" />
     </Style>
 
     <Style Selector=":is(Panel).letrow:pointerover Button.edit">
-      <Setter Property="Opacity" Value="0.55" />
+      <Setter Property="Opacity" Value="0.7" />
     </Style>
 
     <Style Selector="TextBox.field">
@@ -121,29 +121,39 @@
       evaluates to right now, and is the whole reason to show a let here rather than in the source.
     -->
     <DataTemplate DataType="viewer:SvgViewerLet">
-      <StackPanel Spacing="2" Margin="0,0,0,8" Classes="letrow">
-        <Grid ColumnDefinitions="Auto,110,*,Auto">
-          <Border Grid.Column="0" Classes="grip" Width="14" Background="Transparent"
+      <StackPanel Spacing="3" Margin="0,0,0,12" Classes="letrow">
+
+        <!-- The name and what it is worth; the body gets its own line below. -->
+        <Grid ColumnDefinitions="Auto,130,*,Auto">
+          <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
                   PointerPressed="OnGripPressed"
                   ToolTip.Tip="Drag to reorder. A let can only name what is declared above it.">
-            <TextBlock Text="⋮⋮" FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
           <TextBox Grid.Column="1" Classes="field"
                    Text="{Binding Name, Mode=TwoWay}"
                    PlaceholderText="name"
                    KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
-          <TextBox Grid.Column="2" Classes="field" Margin="4,0,0,0"
-                   Text="{Binding Expression, Mode=TwoWay}"
-                   PlaceholderText="expression"
-                   KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
+          <TextBlock Grid.Column="2" Text="{Binding Readout}" Opacity="0.55" FontSize="11"
+                     FontFamily="monospace" TextTrimming="CharacterEllipsis"
+                     HorizontalAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0"
+                     IsVisible="{Binding !HasTrouble}" />
           <Button Grid.Column="3" Classes="edit" Content="✕" Click="OnRemoveLetClick"
                   ToolTip.Tip="Remove this let. Refused while the drawing still uses it." />
         </Grid>
-        <TextBlock Text="{Binding Readout}" Opacity="0.55" FontSize="11" FontFamily="monospace"
-                   HorizontalAlignment="Right" Margin="0,1,0,0"
-                   IsVisible="{Binding !HasTrouble}" />
+
+        <!--
+          The whole width, indented under the name. Beside it the box was 116px at the pane's old
+          width — not enough for `hsl(shift + 45, 88%, 62%)`, which is an ordinary let. This is the
+          shape a number parameter already has: what it is called on one line, what it is on the next.
+        -->
+        <TextBox Classes="field" Margin="20,0,0,0"
+                 Text="{Binding Expression, Mode=TwoWay}"
+                 PlaceholderText="expression"
+                 KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
+
         <TextBlock Text="{Binding Trouble}" Foreground="#e05252" FontSize="11" TextWrapping="Wrap"
-                   Margin="18,1,0,0"
+                   Margin="20,0,0,0"
                    IsVisible="{Binding HasTrouble}" />
       </StackPanel>
     </DataTemplate>

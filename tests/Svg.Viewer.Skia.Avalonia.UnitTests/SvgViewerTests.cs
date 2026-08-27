@@ -1492,6 +1492,51 @@ public class SvgViewerTests
         }
     }
 
+    // ---- the panel's width lives on its column ----
+
+    [AvaloniaFact]
+    public async Task The_Panel_Takes_Its_Width_From_Its_Column_And_Not_From_Itself()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        // A Width on the border would leave the splitter moving the column while the panel stayed
+        // the size it was born, which is what dragging it used to do.
+        var host = viewer.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "DeclarationPanelHost");
+
+        Assert.True(double.IsNaN(host.Width), "The panel sets its own width, so the splitter cannot.");
+        Assert.True(Column(viewer).Width.Value > 0d);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Hiding_The_Panel_Gives_Its_Width_Back_To_The_Drawing()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        var column = Column(viewer);
+        var was = column.Width;
+
+        viewer.ShowDeclarationPanel = false;
+        Dispatcher.UIThread.RunJobs();
+
+        // Zeroed, minimum included: a hidden panel that still holds 340px of the window is a strip
+        // the drawing pays for and nobody can see.
+        Assert.Equal(0d, column.Width.Value);
+        Assert.Equal(0d, column.MinWidth);
+
+        viewer.ShowDeclarationPanel = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was.Value, column.Width.Value);
+        Assert.True(column.MinWidth > 0d);
+
+        window.Close();
+    }
+
+    private static ColumnDefinition Column(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "Drawing").ColumnDefinitions[2];
+
     private sealed class StubFileDialogService : ISvgViewerFileDialogService
     {
         private readonly string? _path;

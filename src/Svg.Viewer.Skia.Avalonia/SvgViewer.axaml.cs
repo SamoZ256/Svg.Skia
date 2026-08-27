@@ -55,9 +55,13 @@ public partial class SvgViewer : UserControl
     private readonly SvgViewerSourceMarkers _sourceMarkers;
     private readonly ToggleButton _sourceButton;
     private readonly Grid _body;
+    private readonly Grid _drawing;
 
     /// <summary>What the source pane's row was last set to, so hiding it can be undone.</summary>
     private GridLength _sourceHeight;
+
+    /// <summary>What the panel's column was last set to, for the same reason.</summary>
+    private GridLength _panelWidth;
 
     /// <summary>Whether the pane's text is stale — a document arrived, or the theme changed.</summary>
     private bool _sourceStale = true;
@@ -118,8 +122,10 @@ public partial class SvgViewer : UserControl
         _sourceEditor = this.FindControl<TextEditor>("SourceEditor")!;
         _sourceButton = this.FindControl<ToggleButton>("SourceButton")!;
         _body = this.FindControl<Grid>("Body")!;
+        _drawing = this.FindControl<Grid>("Drawing")!;
 
         _sourceHeight = _body.RowDefinitions[2].Height;
+        _panelWidth = _drawing.ColumnDefinitions[2].Width;
 
         this.FindControl<Button>("OpenButton")!.Click += async (_, _) => await OpenAsync();
         this.FindControl<Button>("FitButton")!.Click += (_, _) => _canvas.Fit();
@@ -227,10 +233,33 @@ public partial class SvgViewer : UserControl
         get => _panelHost.IsVisible;
         set
         {
+            if (_panelHost.IsVisible == value)
+            {
+                return;
+            }
+
+            // The column carries the width, so hiding the panel has to zero it — and its minimum
+            // with it — or the drawing keeps paying for a strip it cannot see. What the splitter was
+            // dragged to comes back.
+            if (value)
+            {
+                _drawing.ColumnDefinitions[2].MinWidth = PanelMinimum;
+                _drawing.ColumnDefinitions[2].Width = _panelWidth;
+            }
+            else
+            {
+                _panelWidth = _drawing.ColumnDefinitions[2].Width;
+                _drawing.ColumnDefinitions[2].MinWidth = 0d;
+                _drawing.ColumnDefinitions[2].Width = new GridLength(0d);
+            }
+
             _panelHost.IsVisible = value;
             _splitter.IsVisible = value;
         }
     }
+
+    /// <summary>The narrowest the panel is worth being, matching what the markup declares.</summary>
+    private const double PanelMinimum = 260d;
 
     /// <summary>
     /// Whether the drawing's text is shown under it.
