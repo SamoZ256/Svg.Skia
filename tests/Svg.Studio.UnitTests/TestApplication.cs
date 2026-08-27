@@ -2,11 +2,11 @@ using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Themes.Fluent;
 
-[assembly: Avalonia.Headless.AvaloniaTestApplication(typeof(SvgViewer.UnitTests.SvgViewerShellTestsAppBuilder))]
+[assembly: Avalonia.Headless.AvaloniaTestApplication(typeof(Svg.Studio.UnitTests.SvgStudioTestsAppBuilder))]
 
-namespace SvgViewer.UnitTests;
+namespace Svg.Studio.UnitTests;
 
-internal static class SvgViewerShellTestsAppBuilder
+internal static class SvgStudioTestsAppBuilder
 {
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<TestApplication>()

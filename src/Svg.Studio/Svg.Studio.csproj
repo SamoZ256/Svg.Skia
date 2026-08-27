@@ -6,7 +6,7 @@
     <LangVersion>latest</LangVersion>
     <IsPackable>False</IsPackable>
     <Nullable>enable</Nullable>
-    <RootNamespace>SvgViewer</RootNamespace>
+    <RootNamespace>Svg.Studio</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

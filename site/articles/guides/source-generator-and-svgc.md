@@ -208,7 +208,7 @@ than this, as a single picture built in the static constructor.
 More than one drawing goes in an XML project file rather than a shell loop:
 
 ```xml
-<!-- icons.svgc -->
+<!-- icons.svgcproj -->
 <svgc>
   <recipe>icons.recipe</recipe>
   <namespace>Demo.Icons</namespace>
@@ -225,7 +225,7 @@ More than one drawing goes in an XML project file rather than a shell loop:
 ```
 
 ```bash
-svgc --projectFile ./icons.svgc
+svgc --projectFile ./icons.svgcproj
 ```
 
 - Every setting at the top is a default each `<svg>` may override, so a shared recipe or namespace is

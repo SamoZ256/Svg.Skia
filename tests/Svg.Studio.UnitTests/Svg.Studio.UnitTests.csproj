@@ -5,7 +5,7 @@
     <OutputType>Exe</OutputType>
     <IsPackable>False</IsPackable>
     <Nullable>enable</Nullable>
-    <RootNamespace>SvgViewer.UnitTests</RootNamespace>
+    <RootNamespace>Svg.Studio.UnitTests</RootNamespace>
   </PropertyGroup>
 
   <Import Project="..\..\build\ReferenceAssemblies.props" />
@@ -18,7 +18,7 @@
   <Import Project="..\..\build\Avalonia.Themes.Fluent.props" />
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\SvgViewer\SvgViewer.csproj" />
+    <ProjectReference Include="..\..\src\Svg.Studio\Svg.Studio.csproj" />
   </ItemGroup>
 
   <ItemGroup>

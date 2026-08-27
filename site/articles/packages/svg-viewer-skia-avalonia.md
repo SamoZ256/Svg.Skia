@@ -17,7 +17,7 @@ dotnet add package Svg.Viewer.Skia.Avalonia
 - you want a ready-made SVG viewer pane in an Avalonia app,
 - you want the parameters a drawing declares exposed as sliders, colour pickers and checkboxes without writing that UI,
 - you want zoom, pan, fit and actual-size behaviour that already works,
-- you want the same stack `src/SvgViewer` is built from.
+- you want the same stack `src/Svg.Studio` is built from.
 
 ## Main types
 
@@ -121,7 +121,7 @@ the editor.
 
 `IsSourceModified` says whether there are edits not on disk and `SourceModifiedChanged` announces it;
 `SaveSourceAsync` writes them back, asking through `FileDialogService` when the drawing has no file
-of its own. In `src/SvgViewer` that is Cmd/Ctrl+S, a dot on the tab, and a prompt before anything
+of its own. In `src/Svg.Studio` that is Cmd/Ctrl+S, a dot on the tab, and a prompt before anything
 throws work away — closing a tab asks about that drawing, closing the window asks once about every
 unsaved one it is holding. The control raises, the host decides, the same way opening works.
 
@@ -185,7 +185,7 @@ viewer.OpenRequested += (_, request) =>
 Hand back what you started. The event is synchronous, so without `Completion` a host has no way to
 say it has not finished, and `OpenAsync` completes while the files are still being read.
 
-`src/SvgViewer` is that host: one viewer per tab, a new tab per file opened, and `Close` on the
+`src/Svg.Studio` is that host: one viewer per tab, a new tab per file opened, and `Close` on the
 viewer whose tab goes away.
 
 ## Two things worth knowing

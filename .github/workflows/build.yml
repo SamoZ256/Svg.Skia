@@ -256,11 +256,11 @@ jobs:
           --self-contained true -p:VersionSuffix="${{ env.VERSION_SUFFIX }}"
           -o artifacts/publish/${{ matrix.rid }}/svgc
 
-      - name: Publish SvgViewer
+      - name: Publish Svg.Studio
         run: >
-          dotnet publish src/SvgViewer/SvgViewer.csproj -c Release -r ${{ matrix.rid }}
+          dotnet publish src/Svg.Studio/Svg.Studio.csproj -c Release -r ${{ matrix.rid }}
           --self-contained true -p:VersionSuffix="${{ env.VERSION_SUFFIX }}"
-          -o artifacts/publish/${{ matrix.rid }}/SvgViewer
+          -o artifacts/publish/${{ matrix.rid }}/Svg.Studio
 
       - name: Upload apps
         uses: actions/upload-artifact@v4

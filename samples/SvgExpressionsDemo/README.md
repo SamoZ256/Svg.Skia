@@ -51,7 +51,7 @@ Consequences worth knowing:
   caret under the offending character — something the Roslyn diagnostics could never do, since they
   named a line of generated C# the author never saw.
 - Numeric parameters use the `min`/`max`/`step` the document declares, and fall back to **0..1**
-  when it declares none. `src/SvgViewer` is the full viewer built on the same idea.
+  when it declares none. `src/Svg.Studio` is the full application built on the same idea.
 
 ## How the extension works
 

@@ -3,7 +3,7 @@
 ## Unreleased
 
 * Added `Svg.Viewer.Skia.Avalonia`, a reusable Avalonia viewer for drawings using the expression
-  extension, with `src/SvgViewer` as the application built on it. It opens a file by picker or
+  extension, with `src/Svg.Studio` as the application built on it. It opens a file by picker or
   drop, zooms and pans — wheel about the cursor, drag, and fit / 1:1 / reset with a percentage
   readout — and builds a control per declared parameter: a slider honouring any `min`/`max`/`step`
   for a `number`, a colour picker for a `color`, a checkbox for a `boolean`, each seeded by
@@ -18,7 +18,7 @@
   native storage provider as the panel is dismissed. `samples/TestApp` crashes there identically, so
   the fault is upstream rather than in this package, and it reproduces in a bare Avalonia app. The
   workaround is `AppBuilder.UseManagedSystemDialogs()`, Avalonia's own managed picker, which
-  `src/SvgViewer` applies on macOS; dropping a file on the viewer or handing a path to
+  `src/Svg.Studio` applies on macOS; dropping a file on the viewer or handing a path to
   `LoadAsync` avoids the picker entirely.
 
   Zooming is on the scroll wheel and on `Ctrl`/`Cmd` `+`/`-`/`0`/`1` as well as the toolbar. A

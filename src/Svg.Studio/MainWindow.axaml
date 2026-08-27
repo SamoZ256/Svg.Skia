@@ -1,9 +1,9 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="SvgViewer.MainWindow"
+        x:Class="Svg.Studio.MainWindow"
         Width="1180" Height="760"
         MinWidth="720" MinHeight="480"
-        Title="SVG viewer">
+        Title="SVG Studio">
 
   <Window.Styles>
     <!--

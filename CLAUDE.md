@@ -19,7 +19,7 @@ Add only what someone could not find by reading the code.
 - **Prefer removing code to adding it.** Before adding a helper, a type or an option, widen the one
   already doing that job; before adding a branch, see whether the case can be stopped from arising.
   A net addition is worth a sentence saying what was reused and what could not be.
-- **Run the app when you change one.** For `src/SvgViewer`, the editor, or any GUI project, build it,
+- **Run the app when you change one.** For `src/Svg.Studio`, the editor, or any GUI project, build it,
   launch it and leave it running so the change can be seen — rather than reporting it done from a
   green test run.
 - **Keep `samples/TestApp/TestApp.json` out of a commit.** Tracked, and `TestApp` rewrites it on exit

@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Dialogs;
 
-namespace SvgViewer;
+namespace Svg.Studio;
 
 internal static class Program
 {

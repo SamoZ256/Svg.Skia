@@ -3,7 +3,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 
-namespace SvgViewer;
+namespace Svg.Studio;
 
 public partial class App : Application
 {

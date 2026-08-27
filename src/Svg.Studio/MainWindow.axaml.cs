@@ -13,10 +13,9 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-// Aliased because this application's namespace is also called SvgViewer.
-using ViewerControl = Svg.Viewer.Skia.Avalonia.SvgViewer;
+using Svg.Viewer.Skia.Avalonia;
 
-namespace SvgViewer;
+namespace Svg.Studio;
 
 /// <summary>
 /// The shell: one tab per open drawing.
@@ -93,9 +92,9 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Adds an empty tab, selects it, and returns the viewer that fills it.</summary>
-    private ViewerControl AddTab()
+    private SvgViewer AddTab()
     {
-        var viewer = new ViewerControl();
+        var viewer = new SvgViewer();
 
         // Both are dressed by the window's styles, which is also where the trimming that keeps one
         // long file name from filling the strip lives.
@@ -161,7 +160,7 @@ public partial class MainWindow : Window
     /// The tab that asked is reused while it holds nothing, so opening from a freshly closed window —
     /// or dropping several files at once — does not leave an empty tab in front of the drawings.
     /// </remarks>
-    private async Task OpenAsync(ViewerControl source, IReadOnlyList<string> paths)
+    private async Task OpenAsync(SvgViewer source, IReadOnlyList<string> paths)
     {
         foreach (var path in paths)
         {
@@ -343,7 +342,7 @@ public partial class MainWindow : Window
     private async Task CloseTabAsync(TabItem item)
     {
         // A close button is one click away from losing an edit, and nothing else would have said so.
-        if (item.Content is ViewerControl { IsSourceModified: true } editing
+        if (item.Content is SvgViewer { IsSourceModified: true } editing
             && !await ConfirmDiscard(Describe(new[] { Name(editing) })))
         {
             return;
@@ -402,12 +401,12 @@ public partial class MainWindow : Window
     /// <summary>Every open drawing with changes that are not on disk.</summary>
     private IReadOnlyList<string> Unsaved()
         => _tabs.Items.OfType<TabItem>()
-            .Select(item => item.Content as ViewerControl)
+            .Select(item => item.Content as SvgViewer)
             .Where(viewer => viewer is { IsSourceModified: true })
             .Select(viewer => Name(viewer!))
             .ToList();
 
-    private static string Name(ViewerControl viewer)
+    private static string Name(SvgViewer viewer)
         => viewer.DocumentPath is { } path ? Path.GetFileName(path) : "A drawing";
 
     private static string Describe(IReadOnlyList<string> unsaved)
@@ -457,7 +456,7 @@ public partial class MainWindow : Window
         _tabs.Items.Remove(item);
 
         // Nothing else disposes the document a discarded viewer is holding.
-        (item.Content as ViewerControl)?.Close();
+        (item.Content as SvgViewer)?.Close();
 
         // The window keeps somewhere to open the next drawing rather than closing itself.
         if (_tabs.Items.Count == 0)
@@ -485,7 +484,7 @@ public partial class MainWindow : Window
 
         e.Handled = true;
 
-        if ((_tabs.SelectedItem as TabItem)?.Content is ViewerControl viewer)
+        if ((_tabs.SelectedItem as TabItem)?.Content is SvgViewer viewer)
         {
             await viewer.SaveSourceAsync();
         }
@@ -506,7 +505,7 @@ public partial class MainWindow : Window
 
     private void UpdateTitle()
     {
-        var open = (_tabs.SelectedItem as TabItem)?.Content as ViewerControl;
+        var open = (_tabs.SelectedItem as TabItem)?.Content as SvgViewer;
         var path = open?.DocumentPath;
         var mark = open is { IsSourceModified: true } ? " •" : string.Empty;
 

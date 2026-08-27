@@ -11,7 +11,8 @@ and drive the parameters it declares from controls built to match.
 await Viewer.LoadAsync("badge.svg");
 ```
 
-`src/SvgViewer` is the whole application built on it, and its window is one control.
+`src/Svg.Studio` is the whole application built on it: the shell owns the tabs, and each tab is one
+of these controls.
 
 ## What it does
 
@@ -94,7 +95,7 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
 ```
 
 It is an application-wide switch, so it belongs to the host rather than to this library;
-`src/SvgViewer` applies it on macOS. Measured against a bare Avalonia app, dismissing the native
+`src/Svg.Studio` applies it on macOS. Measured against a bare Avalonia app, dismissing the native
 panel exits with SIGSEGV while the managed one returns normally.
 
 Dropping a file on the viewer and handing a path to `LoadAsync` also avoid the picker entirely.

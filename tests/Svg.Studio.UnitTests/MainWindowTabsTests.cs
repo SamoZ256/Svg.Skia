@@ -14,12 +14,10 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Svg.Viewer.Skia.Avalonia;
 using Xunit;
-// Aliased because the shell's namespace and the viewer control share the name SvgViewer.
-using MainWindow = SvgViewer.MainWindow;
-using ViewerControl = Svg.Viewer.Skia.Avalonia.SvgViewer;
 
-namespace SvgViewer.UnitTests;
+namespace Svg.Studio.UnitTests;
 
 /// <summary>
 /// The shell's tab strip: a tab per drawing, dragged into the order its owner wants, scrolling
@@ -61,7 +59,7 @@ public class MainWindowTabsTests
 
         try
         {
-            var first = (ViewerControl)((TabItem)tabs.Items[0]!).Content!;
+            var first = (SvgViewer)((TabItem)tabs.Items[0]!).Content!;
 
             // The same request the toolbar's Open and a drop both raise, which is what the window
             // turns into a tab each.
@@ -91,7 +89,7 @@ public class MainWindowTabsTests
     /// </remarks>
     private static async Task Settle(TabControl tabs)
     {
-        var viewer = (ViewerControl)((TabItem)tabs.Items[0]!).Content!;
+        var viewer = (SvgViewer)((TabItem)tabs.Items[0]!).Content!;
 
         for (var attempt = 0; attempt < 200 && viewer.Document is null; attempt++)
         {
@@ -105,7 +103,7 @@ public class MainWindowTabsTests
     /// <summary>The drawing in each tab, in strip order, by file name.</summary>
     private static string[] Order(TabControl tabs) => tabs.Items
         .OfType<TabItem>()
-        .Select(item => ((ViewerControl)item.Content!).DocumentPath is { } path
+        .Select(item => ((SvgViewer)item.Content!).DocumentPath is { } path
             ? Path.GetFileName(path)
             : "<empty>")
         .ToArray();
@@ -179,7 +177,7 @@ public class MainWindowTabsTests
 
         try
         {
-            var viewer = (ViewerControl)((TabItem)tabs.Items[0]!).Content!;
+            var viewer = (SvgViewer)((TabItem)tabs.Items[0]!).Content!;
 
             Assert.True(await viewer.OpenAsync(new[] { path }));
 
@@ -268,7 +266,7 @@ public class MainWindowTabsTests
         try
         {
             // An empty tab is filled rather than left standing in front of the drawing.
-            Assert.True(await ((ViewerControl)((TabItem)tabs.Items[0]!).Content!).OpenAsync(new[] { path }));
+            Assert.True(await ((SvgViewer)((TabItem)tabs.Items[0]!).Content!).OpenAsync(new[] { path }));
 
             Assert.Single(tabs.Items);
             Assert.Equal(new[] { Path.GetFileName(path) }, Order(tabs));
