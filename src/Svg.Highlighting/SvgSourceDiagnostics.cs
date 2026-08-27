@@ -117,7 +117,9 @@ public static class SvgSourceDiagnostics
 
         foreach (var site in sites)
         {
-            var text = source.Substring(site.Start, site.Length);
+            // What the language reads, not what the file holds: `a &lt; b` is one comparison and
+            // not a broken `&&`.
+            var text = site.Text ?? source.Substring(site.Start, site.Length);
             var scope = site.Kind == SvgSourceSiteKind.Declaration ? isolated : checker;
 
             try
@@ -236,9 +238,7 @@ public static class SvgSourceDiagnostics
                 continue;
             }
 
-            var at = site.Start + Math.Max(0, Math.Min(within, site.Length));
-
-            found.Add(Mark(at, site.Start + site.Length, failure.Message, tokens, source));
+            found.Add(Mark(At(site, within), site.Start + site.Length, failure.Message, tokens, source));
             return;
         }
 
@@ -268,11 +268,15 @@ public static class SvgSourceDiagnostics
         IReadOnlyList<SvgSourceToken> tokens,
         string source)
         => Mark(
-            site.Start + Math.Max(0, Math.Min(failure.Position, site.Length)),
+            At(site, failure.Position),
             site.Start + site.Length,
             failure.Message,
             tokens,
             source);
+
+    /// <summary>Where in the document a position the language reported was written.</summary>
+    private static int At(SvgSourceSite site, int within)
+        => ExprText.Written(site.Offsets, within, site.Start + Math.Max(0, Math.Min(within, site.Length)));
 
     /// <summary>Marks the piece of the document at <paramref name="at"/>.</summary>
     /// <remarks>

@@ -30,11 +30,16 @@ internal enum SvgSourceSiteKind
 /// <summary>One piece of expression code, and what it is written in.</summary>
 /// <remarks>
 /// <see cref="Owner"/> and <see cref="Attribute"/> are filled in for a declaration, which is what
-/// places a rule about a named parameter at the attribute it is about.
+/// places a rule about a named parameter at the attribute it is about. <see cref="Text"/> is the
+/// span decoded, which is what the language reads and never what the file holds; a rule about it
+/// reports a position in that text, so <see cref="Offsets"/> is what puts the mark back on the
+/// characters somebody typed.
 /// </remarks>
 internal readonly record struct SvgSourceSite(
     int Start,
     int Length,
     SvgSourceSiteKind Kind,
     string? Owner = null,
-    string? Attribute = null);
+    string? Attribute = null,
+    string? Text = null,
+    int[]? Offsets = null);

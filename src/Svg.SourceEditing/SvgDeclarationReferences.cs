@@ -118,7 +118,7 @@ internal static class SvgDeclarationReferences
             return null;
         }
 
-        var (text, offsets) = Decode(svgText, start, end);
+        var (text, offsets) = ExprText.Decode(svgText, start, end);
 
         List<ExprToken> tokens;
 
@@ -147,80 +147,5 @@ internal static class SvgDeclarationReferences
         }
 
         return null;
-    }
-
-    /// <summary>The text an XML reader would see, and where each of its characters was written.</summary>
-    /// <remarks>
-    /// An expression reaches the file XML-escaped, so <c>a &amp;lt; b</c> is what a let holding
-    /// <c>a &lt; b</c> looks like. Lexing the raw span would choke on the ampersand; searching it for
-    /// the name would rename the <c>amp</c> inside an entity, given a parameter called that — which
-    /// the language allows. So the span is decoded, lexed, and each decoded character remembers where
-    /// it came from.
-    /// </remarks>
-    private static (string Text, int[] Offsets) Decode(string svgText, int start, int end)
-    {
-        var text = new System.Text.StringBuilder(end - start);
-        var offsets = new List<int>(end - start);
-
-        var at = start;
-
-        while (at < end)
-        {
-            if (svgText[at] == '&')
-            {
-                var semicolon = svgText.IndexOf(';', at);
-
-                if (semicolon > at && semicolon < end && Entity(svgText.Substring(at + 1, semicolon - at - 1)) is { } decoded)
-                {
-                    text.Append(decoded);
-                    offsets.Add(at);
-
-                    at = semicolon + 1;
-
-                    continue;
-                }
-            }
-
-            text.Append(svgText[at]);
-            offsets.Add(at);
-
-            at++;
-        }
-
-        // One past the end, so an identifier running to the last character still has somewhere to
-        // measure its length against.
-        offsets.Add(end);
-
-        return (text.ToString(), offsets.ToArray());
-    }
-
-    private static string? Entity(string name) => name switch
-    {
-        "lt" => "<",
-        "gt" => ">",
-        "amp" => "&",
-        "quot" => "\"",
-        "apos" => "'",
-        _ => Numeric(name),
-    };
-
-    private static string? Numeric(string name)
-    {
-        if (name.Length < 2 || name[0] != '#')
-        {
-            return null;
-        }
-
-        var hex = name[1] is 'x' or 'X';
-        var digits = name.Substring(hex ? 2 : 1);
-
-        return int.TryParse(
-            digits,
-            hex ? System.Globalization.NumberStyles.HexNumber : System.Globalization.NumberStyles.None,
-            System.Globalization.CultureInfo.InvariantCulture,
-            out var code)
-            && code is > 0 and <= 0xFFFF
-            ? ((char)code).ToString()
-            : null;
     }
 }

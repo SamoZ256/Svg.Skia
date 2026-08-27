@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+* Fixed a source view reporting an error against text nobody typed. An expression reaches a file
+  XML-escaped — a let holding `a < b` can only be written `a &lt; b`, since a bare `<` opens a tag —
+  and the highlighter lexed that span raw, stopped at the ampersand, and reported **"Expected
+  `&&`"**. Every `&lt;`, `&gt;` and `&amp;` in a let body, a `{{ … }}` placeholder or a declaration's
+  `default`/`min`/`max`/`step` was marked as broken, and the underline sat on the entity rather than
+  on anything wrong.
+
+  Older than the GUI editing that surfaced it, but that is what made it routine: writing `<` from a
+  row *must* produce `&lt;`, so the pane reliably painted an error on text the application had just
+  written itself.
+
+  Each span is now decoded before it is lexed, keeping a map from every decoded character back to
+  where it was written — so a rule that reports where it stopped is still marked on the characters
+  somebody typed rather than four columns to their left. That decoding already existed as
+  `SvgDeclarationReferences.Decode`, which renaming needs for the same reason; it moved to
+  `Svg.Expressions.ExprText`, the one package both this and `Svg.SourceEditing` can see, rather than
+  being written twice.
+
 * Gave the viewer's panel the other half of an `<e:code>` block: a **Lets** section beside the
   parameters, where a let is declared, renamed, rewritten and reordered without opening the source.
   `Svg.SourceEditing` gained `AddLet`, `UpdateLet` and `MoveLet` for it, and

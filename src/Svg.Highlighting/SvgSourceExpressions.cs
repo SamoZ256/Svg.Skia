@@ -63,11 +63,15 @@ internal static class SvgSourceExpressions
             return;
         }
 
+        // Decoded first: an expression reaches the file XML-escaped, so `a < b` is written
+        // `a &lt; b`, and lexing that raw stops at the ampersand and reports a broken `&&`. The map
+        // is what puts each token back where it was written.
+        var (text, offsets) = ExprText.Decode(source, start, end);
+
         // The one place that knows where the code is. Checking needs the whole document's
         // declarations and cannot happen while splitting, but recording where costs nothing.
-        sites?.Add(new SvgSourceSite(start, end - start, site, Attribute: attribute));
+        sites?.Add(new SvgSourceSite(start, end - start, site, Attribute: attribute, Text: text, Offsets: offsets));
 
-        var text = source.Substring(start, end - start);
         var lexed = Read(text);
 
         var cursor = start;
@@ -79,22 +83,22 @@ internal static class SvgSourceExpressions
                 continue;
             }
 
-            var at = start + token.Position;
-            var length = token.Text.Length;
+            var at = ExprText.Written(offsets, token.Position, start);
+            var past = ExprText.Written(offsets, token.Position + token.Text.Length, end);
 
             // Captured before the lexer consumed the percent sign: it belongs to the same literal
             // and would otherwise fall to the gap filler.
-            if (token.Kind == ExprTokenKind.Number && at + length < end && source[at + length] == '%')
+            if (token.Kind == ExprTokenKind.Number && past < end && source[past] == '%')
             {
-                length++;
+                past++;
             }
 
             // The lexer skips whitespace, so the gaps it leaves are filled from the source rather
             // than from the tokens: what comes out has to add back up to what went in.
             SvgSourceHighlighter.Add(tokens, source, cursor, at, SvgSourceTokenKind.Expression);
-            SvgSourceHighlighter.Add(tokens, source, at, at + length, Kind(token));
+            SvgSourceHighlighter.Add(tokens, source, at, past, Kind(token));
 
-            cursor = at + length;
+            cursor = past;
         }
 
         // Whatever is left: trailing whitespace, or everything past the point the language stopped.
