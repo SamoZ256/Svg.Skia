@@ -100,6 +100,82 @@ public static class SvgDeclarationEditor
         return Verify(svgText, edits, parameter.Name);
     }
 
+    /// <summary>Rewrites a declaration, carrying its uses with it when the name changes.</summary>
+    /// <remarks>
+    /// One call because it is one thing a reader did. A rename in particular is an edit in as many
+    /// places as the drawing names it, and every one of them has to land or none should.
+    /// </remarks>
+    /// <param name="name">The declaration as it currently stands.</param>
+    /// <param name="replacement">What it should say. Its type must be the one it already has.</param>
+    public static SvgSourceEditResult Update(string svgText, string name, SvgExpressionParameter replacement)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        if (replacement is null)
+        {
+            throw new ArgumentNullException(nameof(replacement));
+        }
+
+        if (!Open(svgText, out var document, out var positions, out var refusal))
+        {
+            return SvgSourceEditResult.Refuse(refusal!);
+        }
+
+        var element = document!
+            .Descendants(Ns + "code")
+            .SelectMany(block => block.Elements(Ns + "param"))
+            .FirstOrDefault(candidate => string.Equals((string?)candidate.Attribute("name"), name, StringComparison.Ordinal));
+
+        if (element is null)
+        {
+            return SvgSourceEditResult.Refuse($"This drawing declares no parameter called '{name}'.");
+        }
+
+        var declarations = SvgExpressionDeclarations.Parse(svgText, out _);
+
+        if (Rejected(declarations, replacement, replacing: name) is { } bad)
+        {
+            return SvgSourceEditResult.Refuse(bad);
+        }
+
+        var current = declarations.Parameters.First(p => string.Equals(p.Name, name, StringComparison.Ordinal));
+
+        if (current.Type != replacement.Type)
+        {
+            // Everything naming it was checked against the type it had, so changing one is a change
+            // to every expression that uses it rather than to the declaration alone.
+            return SvgSourceEditResult.Refuse(
+                $"'{name}' is a {ExprFunctions.Describe(current.Type)} and cannot become a "
+                + $"{ExprFunctions.Describe(replacement.Type)}. Remove it and declare it again.");
+        }
+
+        var edits = new List<SvgTextEdit>();
+
+        Write(svgText, element, positions, "default", replacement.DefaultExpression, edits);
+        Write(svgText, element, positions, "min", replacement.MinExpression, edits);
+        Write(svgText, element, positions, "max", replacement.MaxExpression, edits);
+        Write(svgText, element, positions, "step", replacement.StepExpression, edits);
+
+        var renamed = !string.Equals(name, replacement.Name, StringComparison.Ordinal);
+
+        if (renamed)
+        {
+            Write(svgText, element, positions, "name", replacement.Name, edits);
+
+            if (SvgDeclarationReferences.Rename(svgText, document, positions, name, replacement.Name, edits) is { } trouble)
+            {
+                return SvgSourceEditResult.Refuse(trouble);
+            }
+        }
+
+        edits.Sort((left, right) => left.Position.CompareTo(right.Position));
+
+        return Verify(svgText, edits, renamed ? replacement.Name : null);
+    }
+
     /// <summary>Writes one attribute of a declaration, adding or removing it as needed.</summary>
     /// <param name="expression">What it should say, or null to take the attribute away.</param>
     public static SvgSourceEditResult Set(
@@ -140,6 +216,11 @@ public static class SvgDeclarationEditor
         if (svgText is null)
         {
             throw new ArgumentNullException(nameof(svgText));
+        }
+
+        if (part == SvgDeclarationPart.Name)
+        {
+            return SvgSourceEditResult.Refuse("Renaming moves every use of the name too, which Update does.");
         }
 
         if (Attribute(part) is not { } attributeName)
@@ -219,7 +300,11 @@ public static class SvgDeclarationEditor
     }
 
     /// <summary>Why the language would not accept this parameter beside the ones already there.</summary>
-    private static string? Rejected(SvgExpressionDeclarations declarations, SvgExpressionParameter parameter)
+    /// <param name="replacing">A declaration this one stands in for, which is not a name it clashes with.</param>
+    private static string? Rejected(
+        SvgExpressionDeclarations declarations,
+        SvgExpressionParameter parameter,
+        string? replacing = null)
     {
         var builder = new SvgExpressionDeclarations.Builder();
 
@@ -227,6 +312,11 @@ public static class SvgDeclarationEditor
         {
             foreach (var existing in declarations.Parameters)
             {
+                if (string.Equals(existing.Name, replacing, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
                 builder.AddParameter(
                     existing.Name,
                     ExprFunctions.NameOf(existing.Type),
@@ -441,6 +531,20 @@ public static class SvgDeclarationEditor
             $"{newline}{rootIndent}{indent}{indent}{indent}{element}" +
             $"{newline}{rootIndent}{indent}{indent}</{prefix}:code>" +
             $"{newline}{rootIndent}{indent}</{defsName}>");
+    }
+
+    private static void Write(
+        string svgText,
+        XElement element,
+        SvgExpressionDeclarations.Positions positions,
+        string attributeName,
+        string? expression,
+        List<SvgTextEdit> edits)
+    {
+        if (Write(svgText, element, positions, attributeName, expression) is { } edit)
+        {
+            edits.Add(edit);
+        }
     }
 
     /// <summary>Writes one attribute of a declaration, or takes it away.</summary>

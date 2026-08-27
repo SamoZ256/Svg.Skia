@@ -174,6 +174,7 @@ public partial class SvgViewer : UserControl
         // through the note and the drawing like every other edit.
         _parameters.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
         _parameters.CommitRequested += (_, _) => CommitParameterDefaults();
+        _parameters.EditRequested += async (_, row) => await EditParameterAsync(row).ConfigureAwait(true);
 
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
@@ -925,6 +926,50 @@ public partial class SvgViewer : UserControl
             .ConfigureAwait(true);
 
         return parameter is { } declared && Splice(SvgDeclarationEditor.Add(PaneSource(), declared));
+    }
+
+    /// <summary>
+    /// Asks what one parameter should declare, and writes the answer into the drawing.
+    /// </summary>
+    /// <remarks>
+    /// A rename is an edit everywhere the drawing names it, not only where it is declared, and the
+    /// whole of it is one thing to take back. The type is not offered: every expression using this
+    /// parameter was checked against the type it has.
+    /// </remarks>
+    /// <returns>Whether the drawing was changed.</returns>
+    public async Task<bool> EditParameterAsync(SvgViewerParameter parameter)
+    {
+        if (parameter is null)
+        {
+            throw new ArgumentNullException(nameof(parameter));
+        }
+
+        if (_document is null)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        // Its own name is not one it clashes with.
+        var taken = _rows
+            .Where(row => !ReferenceEquals(row, parameter))
+            .Select(row => row.Name)
+            .ToList();
+
+        var replacement = await ParameterDialogService
+            .EditAsync(TopLevel.GetTopLevel(this), taken, parameter.Declaration)
+            .ConfigureAwait(true);
+
+        return replacement is { } wanted
+            && Splice(SvgDeclarationEditor.Update(PaneSource(), parameter.Name, wanted));
     }
 
     /// <summary>

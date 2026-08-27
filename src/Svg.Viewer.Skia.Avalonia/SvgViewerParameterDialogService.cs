@@ -22,4 +22,17 @@ public class SvgViewerParameterDialogService : ISvgViewerParameterDialogService
 
         return await new SvgParameterWindow(taken).ShowDialog<SvgExpressionParameter?>(window);
     }
+
+    public async Task<SvgExpressionParameter?> EditAsync(
+        TopLevel? owner,
+        IReadOnlyCollection<string> taken,
+        SvgExpressionParameter existing)
+    {
+        if (owner is not Window window)
+        {
+            return null;
+        }
+
+        return await new SvgParameterWindow(taken, existing).ShowDialog<SvgExpressionParameter?>(window);
+    }
 }

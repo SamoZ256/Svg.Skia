@@ -9,15 +9,42 @@
          where its control should be. Included here rather than left to the host, so a consumer that
          drops this panel in gets a working picker without knowing any of that. -->
     <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml" />
+
+    <!-- Out of sight until the row is being pointed at, the way the shell's tab close button is: a
+         column of them beside every parameter is what would make the panel look busy. It keeps its
+         space, so no row changes width and nothing can be clicked unseen. -->
+    <Style Selector="Button.edit">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Width" Value="22" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="4,0,0,0" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector=":is(Panel).row:pointerover Button.edit">
+      <Setter Property="Opacity" Value="0.55" />
+    </Style>
+
+    <Style Selector="Button.edit:pointerover">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
   </UserControl.Styles>
 
   <UserControl.DataTemplates>
 
     <!-- Resolved by the concrete row type, so there is no selector to keep in step. -->
     <DataTemplate DataType="viewer:SvgViewerNumberParameter">
-      <StackPanel Spacing="2" Margin="0,0,0,10">
-        <Grid ColumnDefinitions="*,Auto">
+      <StackPanel Spacing="2" Margin="0,0,0,10" Classes="row">
+        <Grid ColumnDefinitions="*,Auto,Auto">
           <TextBlock Grid.Column="0" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <Button Grid.Column="2" Classes="edit" Content="⋯" Click="OnEditClick"
+                  ToolTip.Tip="Edit this parameter" />
           <NumericUpDown Grid.Column="1"
                          Width="110"
                          Value="{Binding Value, Mode=TwoWay}"
@@ -35,16 +62,20 @@
     </DataTemplate>
 
     <DataTemplate DataType="viewer:SvgViewerBooleanParameter">
-      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+      <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10" Classes="row">
         <TextBlock Grid.Column="0" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
         <CheckBox Grid.Column="1" IsChecked="{Binding Value, Mode=TwoWay}" />
+        <Button Grid.Column="2" Classes="edit" Content="⋯" Click="OnEditClick"
+                ToolTip.Tip="Edit this parameter" />
       </Grid>
     </DataTemplate>
 
     <DataTemplate DataType="viewer:SvgViewerColorParameter">
-      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+      <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10" Classes="row">
         <TextBlock Grid.Column="0" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
         <ColorPicker Grid.Column="1" Color="{Binding Color, Mode=TwoWay}" />
+        <Button Grid.Column="2" Classes="edit" Content="⋯" Click="OnEditClick"
+                ToolTip.Tip="Edit this parameter" />
       </Grid>
     </DataTemplate>
 

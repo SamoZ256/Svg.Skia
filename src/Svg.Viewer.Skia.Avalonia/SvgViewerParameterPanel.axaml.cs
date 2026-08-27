@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -52,6 +53,9 @@ public partial class SvgViewerParameterPanel : UserControl
 
     /// <summary>Raised when somebody asks for the current values to become the declared defaults.</summary>
     public event EventHandler? CommitRequested;
+
+    /// <summary>Raised when somebody asks to change what one parameter declares.</summary>
+    public event EventHandler<SvgViewerParameter>? EditRequested;
 
     /// <summary>The rows to show, or null when there is no drawing to declare any.</summary>
     /// <remarks>
@@ -106,6 +110,15 @@ public partial class SvgViewerParameterPanel : UserControl
         foreach (var parameter in _parameters)
         {
             parameter.ValueChanged -= OnRowValueChanged;
+        }
+    }
+
+    /// <summary>The row's own button, found through the item it was templated for.</summary>
+    private void OnEditClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: SvgViewerParameter parameter })
+        {
+            EditRequested?.Invoke(this, parameter);
         }
     }
 

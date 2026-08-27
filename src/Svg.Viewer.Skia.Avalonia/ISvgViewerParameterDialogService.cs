@@ -23,4 +23,16 @@ public interface ISvgViewerParameterDialogService
     /// after it is submitted.
     /// </param>
     Task<SvgExpressionParameter?> AskAsync(TopLevel? owner, IReadOnlyCollection<string> taken);
+
+    /// <summary>Asks what an existing parameter should say, or null if nothing should change.</summary>
+    /// <remarks>
+    /// Defaulted so that an implementation written before this existed still compiles, as
+    /// <see cref="ISvgViewerFileDialogService.SaveSvgAsync"/> is. Refusing is the honest answer for
+    /// one that cannot ask.
+    /// </remarks>
+    Task<SvgExpressionParameter?> EditAsync(
+        TopLevel? owner,
+        IReadOnlyCollection<string> taken,
+        SvgExpressionParameter existing)
+        => Task.FromResult<SvgExpressionParameter?>(null);
 }

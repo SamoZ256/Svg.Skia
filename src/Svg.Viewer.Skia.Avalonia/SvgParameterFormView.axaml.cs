@@ -73,6 +73,38 @@ public partial class SvgParameterFormView : UserControl
         set => _taken = value ?? Array.Empty<string>();
     }
 
+    /// <summary>Fills the form in from a declaration that already exists.</summary>
+    /// <remarks>
+    /// The type is shown but cannot be changed. Every expression naming this parameter was checked
+    /// against the type it has, so changing one is a change to all of them rather than to the
+    /// declaration alone — which is a different operation from editing it.
+    /// </remarks>
+    public void Initialize(SvgExpressionParameter existing)
+    {
+        if (existing is null)
+        {
+            throw new ArgumentNullException(nameof(existing));
+        }
+
+        _name.Text = existing.Name;
+        _default.Text = existing.DefaultExpression ?? string.Empty;
+        _minimum.Text = existing.MinExpression ?? string.Empty;
+        _maximum.Text = existing.MaxExpression ?? string.Empty;
+        _step.Text = existing.StepExpression ?? string.Empty;
+
+        _type.SelectedIndex = existing.Type switch
+        {
+            ExprType.Number => 0,
+            ExprType.Color => 1,
+            _ => 2,
+        };
+
+        _type.IsEnabled = false;
+        _add.Content = "Save";
+
+        ShowRange();
+    }
+
     /// <summary>What the form would produce, or null with <paramref name="trouble"/> saying why.</summary>
     /// <remarks>
     /// Public so a test can ask the question the button asks, without a button.

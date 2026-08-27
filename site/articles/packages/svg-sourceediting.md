@@ -29,7 +29,7 @@ dotnet add package Svg.SourceEditing
 
 | Type | Role |
 | --- | --- |
-| `SvgDeclarationEditor` | `Add` a parameter, `Set` one attribute of one, `SetDefaults` for many at once |
+| `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Set` one attribute of one, `SetDefaults` for many |
 | `SvgTextEdit` | One span to replace, and `ApplyAll` for a caller holding only a string |
 | `SvgSourceEditResult` | The spans, or why nothing can be done |
 
@@ -67,6 +67,22 @@ splice can go wrong in ways that still look like text — a quote landed on, a t
 reader is the one thing that can say so. Two extra reads of a document measured at 3ms each is the
 whole cost, and it is why an edit that would leave the document saying something other than what was
 asked for is refused instead of applied.
+
+## Renaming carries the uses with it
+
+`Update` rewrites a declaration, and where the name changes it also rewrites every place the drawing
+names it: the identifier in each `{{ … }}` and in each `<e:let>` body. Renaming only the declaration
+would leave a document that still parses and no longer draws, with nothing about its shape to say
+why.
+
+The uses are found by lexing, not by searching the file's characters. An expression reaches the file
+XML-escaped, so a let holding `a < b` is written `a &lt; b`; and `amp` is a name the language allows,
+so a search would rename the inside of `&amp;` and take the markup with it. Each site is decoded,
+lexed, and every identifier token remembers where it was written. A site that will not lex refuses
+the whole rename rather than being skipped — a use that cannot be read is still a use.
+
+Changing a **type** is refused. Every expression naming a parameter was checked against the type it
+had, so changing one is a change to all of them rather than to the declaration alone.
 
 ## What it refuses
 

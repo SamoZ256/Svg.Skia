@@ -21,13 +21,20 @@ public partial class SvgParameterWindow : Window
     {
     }
 
-    public SvgParameterWindow(IReadOnlyCollection<string> taken)
+    public SvgParameterWindow(IReadOnlyCollection<string> taken, SvgExpressionParameter? existing = null)
     {
         InitializeComponent();
 
         var form = this.FindControl<SvgParameterFormView>("FormView")!;
 
         form.Taken = taken;
+
+        if (existing is { })
+        {
+            Title = "Edit parameter";
+            form.Initialize(existing);
+        }
+
         form.Accepted += (_, parameter) => Close(parameter);
         form.Cancelled += (_, _) => Close(null);
     }

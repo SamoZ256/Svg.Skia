@@ -97,8 +97,12 @@ edits, and both write the drawing's own text through [Svg.SourceEditing](svg-sou
 |---|---|
 | `AddParameterAsync` | Asks for a parameter and splices it into the `<e:code>` block, creating the block and the namespace if the drawing has neither |
 | `CommitParameterDefaults` | Writes every value that differs from its declared default into the document as that default |
+| `EditParameterAsync` | Asks what one parameter should declare and writes the answer, carrying every use of its name when it is renamed |
 
-Both go through the source pane's text buffer rather than around it, so the undo stack is the one
+A row's `⋯` button, which appears while the pointer is over it, is how one is edited. Its type is
+not offered: every expression naming a parameter was checked against the type it has.
+
+All three go through the source pane's text buffer rather than around it, so the undo stack is the one
 history of the document: a parameter added from the panel and a line typed into the pane come off it
 in the order they were done, and an addition that had to declare a namespace and open a block is
 three spans and one undo step.

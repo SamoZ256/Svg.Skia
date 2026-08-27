@@ -339,6 +339,119 @@ public class SvgViewerParameterEditingTests
         window.Close();
     }
 
+    // ---- editing one ----
+
+    [AvaloniaFact]
+    public async Task Editing_A_Parameter_Writes_Its_New_Range()
+    {
+        var (window, viewer) = await HostLoaded(
+            Parametric,
+            new SvgExpressionParameter("fade", ExprType.Number, "1", "0", "4", "0.5"));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var row = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single();
+
+        Assert.True(await viewer.EditParameterAsync(row));
+        await Settle();
+
+        var edited = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single();
+
+        Assert.Equal(4d, edited.Maximum, 6);
+        Assert.Equal(0.5d, edited.Step, 6);
+        Assert.Contains("max=\"4\"", Pane(viewer).Document.Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Renaming_A_Parameter_Carries_The_Places_That_Use_It()
+    {
+        var (window, viewer) = await HostLoaded(
+            Parametric,
+            new SvgExpressionParameter("opacity", ExprType.Number, "1", "0", "1", null));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var row = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single();
+
+        Assert.True(await viewer.EditParameterAsync(row));
+        await Settle();
+
+        var text = Pane(viewer).Document.Text;
+
+        Assert.Contains("{{ opacity }}", text);
+        Assert.DoesNotContain("fade", text);
+        Assert.Contains(viewer.Parameters, p => p.Name == "opacity");
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_Form_Is_Shown_What_The_Parameter_Says_And_Not_Its_Own_Name_As_Taken()
+    {
+        var service = new StubParameterDialogService(null);
+
+        var (window, viewer) = await HostLoaded(Parametric);
+        viewer.ParameterDialogService = service;
+
+        var row = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single();
+
+        Assert.False(await viewer.EditParameterAsync(row));
+
+        Assert.Equal("fade", service.Asked?.Name);
+        Assert.Equal("1", service.Asked?.DefaultExpression);
+        Assert.DoesNotContain("fade", service.Taken!);
+        Assert.Contains("tint", service.Taken!);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Editing_Is_A_Single_Thing_To_Take_Back()
+    {
+        var (window, viewer) = await HostLoaded(
+            Parametric,
+            new SvgExpressionParameter("opacity", ExprType.Number, "1", "0", "1", null));
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var before = Pane(viewer).Document.Text;
+
+        Assert.True(await viewer.EditParameterAsync(viewer.Parameters.OfType<SvgViewerNumberParameter>().Single()));
+        await Settle();
+
+        // The declaration and the placeholder that names it moved together, and come back together.
+        Pane(viewer).Document.UndoStack.Undo();
+        await Settle();
+
+        Assert.Equal(before, Pane(viewer).Document.Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void The_Form_Will_Not_Change_A_Type_It_Was_Opened_On()
+    {
+        var form = new SvgParameterFormView();
+        var window = new Window { Width = 400, Height = 400, Content = form };
+
+        window.Show();
+
+        form.Initialize(new SvgExpressionParameter("tint", ExprType.Color, "#3fb5b5"));
+        Dispatcher.UIThread.RunJobs();
+
+        var type = form.GetVisualDescendants().OfType<ComboBox>().First(c => c.Name == "TypeBox");
+
+        Assert.False(type.IsEnabled);
+        Assert.Equal(ExprType.Color, form.TryBuild(out _)?.Type);
+
+        window.Close();
+    }
+
     // ---- committing values as defaults ----
 
     [AvaloniaFact]
@@ -474,7 +587,27 @@ public class SvgViewerParameterEditingTests
 
         public StubParameterDialogService(SvgExpressionParameter? answer) => _answer = answer;
 
+        /// <summary>What the form was shown, so a test can assert on what it was offered.</summary>
+        public SvgExpressionParameter? Asked { get; private set; }
+
+        public IReadOnlyCollection<string>? Taken { get; private set; }
+
         public Task<SvgExpressionParameter?> AskAsync(TopLevel? owner, IReadOnlyCollection<string> taken)
-            => Task.FromResult(_answer);
+        {
+            Taken = taken;
+
+            return Task.FromResult(_answer);
+        }
+
+        public Task<SvgExpressionParameter?> EditAsync(
+            TopLevel? owner,
+            IReadOnlyCollection<string> taken,
+            SvgExpressionParameter existing)
+        {
+            Asked = existing;
+            Taken = taken;
+
+            return Task.FromResult(_answer);
+        }
     }
 }

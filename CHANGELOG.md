@@ -4,8 +4,15 @@
 
 * Added `Svg.SourceEditing`, which changes what an SVG document declares by replacing spans of the
   document's own text, and used it to give `Svg.Viewer.Skia.Avalonia` two edits: `AddParameterAsync`
-  declares a parameter from a form in the panel, and `CommitParameterDefaults` writes the values
-  somebody chose into the drawing as its declared defaults. Moving a control stays a preview.
+  declares a parameter from a form in the panel, `EditParameterAsync` changes what one says, and
+  `CommitParameterDefaults` writes the values somebody chose into the drawing as its declared
+  defaults. Moving a control stays a preview.
+
+  Renaming carries the uses with it: the identifier in every `{{ … }}` and every `<e:let>` body
+  moves with the declaration, found by lexing each site rather than by searching the file's
+  characters — an expression reaches the file XML-escaped, and `amp` is a name the language
+  allows, so a search would rename the inside of `&amp;`. A type cannot be changed: every
+  expression naming a parameter was checked against the type it had.
 
   The alternative was to parse the drawing, change the tree and write it back, and that was measured
   rather than assumed: a round trip through `SvgDocument` and `Write` renders identically — `#3c83f5`
