@@ -593,26 +593,6 @@ public sealed class SvgExpressionDeclarations
 
             return open < 0 || _text[open - 1] == '/' ? -1 : open + 1;
         }
-
-        /// <summary>Where a child added to <paramref name="element"/> last would be written.</summary>
-        public int InsertionPoint(XElement element)
-        {
-            if (element is null)
-            {
-                return -1;
-            }
-
-            var last = element.Elements().LastOrDefault();
-
-            if (last is null)
-            {
-                return ContentStart(element);
-            }
-
-            var (start, length) = Span(last);
-
-            return start < 0 ? -1 : start + length;
-        }
     }
 
     /// <summary>

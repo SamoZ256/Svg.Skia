@@ -344,17 +344,42 @@ public static class SvgDeclarationEditor
                 $"<{prefix}:code>{newline}{own}{indent}{element}{newline}{own}</{prefix}:code>");
         }
 
-        var last = block.Elements().LastOrDefault();
+        // Among the parameters, not at the end of the block. A block is written in two groups —
+        // the parameters and then the lets that build on them — and although the reader takes them
+        // in any order, a parameter written below the lets that use it reads backwards. So it joins
+        // the last parameter, or goes above the first let when there are none to join.
+        var lastParameter = block.Elements(Ns + "param").LastOrDefault();
 
-        var at = positions.InsertionPoint(block);
+        if (lastParameter is { })
+        {
+            var (start, length) = positions.Span(lastParameter);
 
-        // Line up with the declaration above where there is one, and otherwise one level in from the
-        // block itself — copying what the document does rather than assuming two spaces.
-        var alignment = last is { }
-            ? LeadingWhitespace(svgText, positions.Span(last).Start)
-            : LeadingWhitespace(svgText, positions.Span(block).Start) + indent;
+            if (start >= 0)
+            {
+                return new SvgTextEdit(
+                    start + length,
+                    0,
+                    $"{newline}{LeadingWhitespace(svgText, start)}{element}");
+            }
+        }
 
-        return new SvgTextEdit(at, 0, $"{newline}{alignment}{element}");
+        var first = block.Elements().FirstOrDefault();
+
+        if (first is { } && positions.Span(first).Start is var firstStart && firstStart >= 0)
+        {
+            // Before everything, so it lands above the lets rather than between two of them, where
+            // it would split a group whose order is the one thing about them that matters.
+            return new SvgTextEdit(
+                contentStart,
+                0,
+                $"{newline}{LeadingWhitespace(svgText, firstStart)}{element}");
+        }
+
+        // An empty block, so there is nothing to line up with but the block itself.
+        return new SvgTextEdit(
+            contentStart,
+            0,
+            $"{newline}{LeadingWhitespace(svgText, positions.Span(block).Start)}{indent}{element}");
     }
 
     /// <summary>Writes the block, and the &lt;defs&gt; to hold it if the drawing has none.</summary>

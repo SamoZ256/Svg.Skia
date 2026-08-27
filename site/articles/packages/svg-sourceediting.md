@@ -89,6 +89,12 @@ The namespace prefix is whatever the document already binds the extension to, so
 `x:param` keeps writing it; failing that `e`, and `e2` if something else has taken `e`. That choice
 lives in `Svg.Expressions` because both this and the recipe rewriter have to reach the same answer.
 
+A parameter added to a block that already has some joins the last of them rather than going at the
+end of the block. A block is written in two groups — the parameters, then the lets built on them —
+and although the reader takes declarations in any order, a parameter written below the lets that use
+it reads backwards. With no parameters to join it goes above the first let, rather than between two,
+whose order is the one thing about them that does matter.
+
 Line endings and indentation are read off the document, never assumed: a file written with tabs stays
 written with tabs, and a file with CRLF does not come back with a mixture.
 

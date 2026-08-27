@@ -153,6 +153,60 @@ public class SvgDeclarationEditorAddTests
         Assert.DoesNotContain("<e:code />", edited);
     }
 
+    [Fact]
+    public void A_Parameter_Joins_The_Parameters_Rather_Than_The_End_Of_The_Block()
+    {
+        var source = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
+              <defs>
+                <e:code>
+                  <e:param name="hue" type="number" default="217" />
+
+                  <e:let name="primary">hsl(hue, 91%, 60%)</e:let>
+                  <e:let name="deep">hsl(hue + 5, 71%, 40%)</e:let>
+                </e:code>
+              </defs>
+            </svg>
+            """;
+
+        var edited = Add(source, Number());
+
+        // The two groups are how a block is written and how it is read back. Landing after the lets
+        // would put a declaration below things that use it, which parses but does not read.
+        Assert.True(
+            edited.IndexOf("name=\"radius\"", System.StringComparison.Ordinal)
+                < edited.IndexOf("<e:let", System.StringComparison.Ordinal),
+            "A parameter should be written with the parameters, above the lets.");
+
+        Assert.Contains("""
+                  <e:param name="hue" type="number" default="217" />
+                  <e:param name="radius" type="number" default="40" />
+            """.TrimEnd(), edited);
+    }
+
+    [Fact]
+    public void A_Block_Of_Only_Lets_Takes_The_Parameter_Above_Them()
+    {
+        var source = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
+              <defs>
+                <e:code>
+                  <e:let name="primary">hsl(200, 91%, 60%)</e:let>
+                </e:code>
+              </defs>
+            </svg>
+            """;
+
+        var edited = Add(source, Number());
+
+        Assert.True(
+            edited.IndexOf("<e:param", System.StringComparison.Ordinal)
+                < edited.IndexOf("<e:let", System.StringComparison.Ordinal),
+            "With no parameters to join, one goes above the lets rather than below them.");
+
+        Assert.Equal("40", Declared(edited, "radius").DefaultExpression);
+    }
+
     // ---- a drawing with nothing declared yet ----
 
     [Fact]

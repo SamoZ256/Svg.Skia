@@ -46,6 +46,19 @@ public class SvgViewerParameterEditingTests
         </svg>
         """;
 
+    private const string Grouped = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="tint" type="color" default="#ff0000" />
+
+              <e:let name="deep">mix(tint, #000000, 0.4)</e:let>
+            </e:code>
+          </defs>
+          <rect x="0" y="0" width="24" height="24" fill="{{ deep }}" />
+        </svg>
+        """;
+
     private const string Plain = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
           <rect x="0" y="0" width="24" height="24" fill="#ff0000" />
@@ -184,6 +197,26 @@ public class SvgViewerParameterEditingTests
 
         Assert.Single(viewer.Parameters);
         Assert.Equal("radius", viewer.Parameters[0].Name);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Parameter_Is_Written_With_The_Parameters_And_Not_Below_The_Lets()
+    {
+        var (window, viewer) = await HostLoaded(Grouped, Radius());
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(await viewer.AddParameterAsync());
+        await Settle();
+
+        var text = Pane(viewer).Document.Text;
+
+        Assert.True(
+            text.IndexOf("name=\"radius\"", StringComparison.Ordinal) < text.IndexOf("<e:let", StringComparison.Ordinal),
+            "A parameter added from the panel should join the parameters, above the lets.");
 
         window.Close();
     }
