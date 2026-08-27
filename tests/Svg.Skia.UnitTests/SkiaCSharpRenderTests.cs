@@ -22,21 +22,11 @@ namespace Svg.Skia.UnitTests;
 /// Renders generated C# and compares it against the runtime renderer.
 /// </summary>
 /// <remarks>
-/// The W3C and resvg suites exercise <c>SkiaModel</c>; the code generator's own tests assert the
-/// emitted text and the source generator sample proves it compiles. Nothing else ever draws
-/// generated code, so an emitter change can be green across the whole suite and still produce a
-/// wrong picture. Most cases here have both paths start from the same <c>ShimPicture</c>, so a
-/// difference can only come from the emitter.
-/// <para>
-/// The exception is the expression cases that pass an <c>expectedMarkup</c>: the renderer draws the
-/// placeholder an expression leaves behind, so proving the expression's <em>value</em> arrives means
-/// comparing against a second document that states it as a literal. Those two models differ, so a
-/// difference there can also come from the renderer — which is worth knowing, because an
-/// axis-aligned <c>rect</c> with edges inside the canvas does not rasterise identically through the
-/// two paths (~850 antialiased edge pixels, RMS 0.0045, reproducible with no expressions at all and
-/// covered by no case here). The expression cases avoid that shape rather than inherit the
-/// discrepancy.
-/// </para>
+/// Nothing else ever draws generated code, so an emitter change can be green across the whole suite
+/// and still produce a wrong picture. Most cases start both paths from the same <c>ShimPicture</c>,
+/// so a difference can only be the emitter's; the <c>expectedMarkup</c> cases compare two different
+/// models, and so avoid the axis-aligned rect that does not rasterise identically through both
+/// (~850 antialiased edge pixels, RMS 0.0045, with no expressions involved).
 /// </remarks>
 public class SkiaCSharpRenderTests
 {
@@ -182,9 +172,8 @@ public class SkiaCSharpRenderTests
 
         AssertSamePicture(name, runtime!, generated);
 
-        // The evaluated leg: the runtime path resolving the same expressions against the same
-        // values, which has to produce what the generated code produces. This is what the plain
-        // comparison above cannot show, because the renderer there is drawing the placeholder.
+        // The runtime path resolving the same expressions, which the comparison above cannot show
+        // because the renderer there draws the placeholder.
         var evaluated = SvgSceneExpressionEvaluator.Evaluate(
             model,
             declarations,
@@ -215,9 +204,8 @@ public class SkiaCSharpRenderTests
 
         for (var index = 0; index < arguments.Length; index++)
         {
-            // A null argument is a colour left to its default: the generated parameter is nullable
-            // and coalesces, so leaving the name unbound here is the same thing on the other side —
-            // the evaluator falls back to the declared default too.
+            // A null argument is a colour left to its default, which leaving the name unbound is
+            // on the evaluator's side.
             if (arguments[index] is null)
             {
                 continue;
@@ -337,28 +325,17 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
-    // ---------------------------------------------------------------------------------------------
-    // Expressions. Until these, nothing anywhere drew generated expression code: every case above
-    // passes SvgExpressionDeclarations.Empty and calls a parameterless Record, so the whole language
-    // could emit a wrong value and the suite would stay green.
-    //
-    // Two shapes, and both are needed. Most cases below choose values that land exactly on the
-    // placeholder the renderer draws (#808080 for a paint, 1 for an opacity, visible), so the
-    // comparison is against the same document at a zero threshold. On their own those would also
-    // pass if the emitter ignored expressions entirely and emitted the placeholder — so the ones
-    // taking `expectedMarkup` state the expected value as a literal in a second document, and are
-    // what prove the computed value reaches the paint.
-    // ---------------------------------------------------------------------------------------------
+    // ---- expressions ----
+    // Two shapes, both needed. Most cases pick values landing on the placeholder the renderer draws,
+    // so the comparison is against the same document at a zero threshold — but those alone would
+    // pass if the emitter ignored expressions entirely. The `expectedMarkup` ones state the value as
+    // a literal in a second document, and are what prove it reaches the paint.
 
     [Fact]
     public void An_Expression_Value_Reaches_The_Paint()
-        // The load-bearing one: the placeholder is grey, so red can only come from the expression.
-        //
-        // A circle rather than a rect. An axis-aligned rect whose edges fall inside the canvas
-        // rasterises differently through the two paths — ~850 antialiased edge pixels, an RMS error
-        // of 0.0045 — which has nothing to do with expressions: it reproduces with no declarations
-        // at all, and no case in this file covers that shape. Using one here would test the wrong
-        // thing.
+        // The placeholder is grey, so red can only come from the expression. A circle rather than a
+        // rect: an axis-aligned rect with edges inside the canvas rasterises differently through the
+        // two paths (~850 edge pixels, RMS 0.0045) for reasons unrelated to expressions.
         => AssertExpressionsRenderTheSame(
             "ExprValue",
             """
@@ -532,10 +509,8 @@ public class SkiaCSharpRenderTests
 
     [Fact]
     public void An_Omitted_Colour_Argument_Falls_Back_To_Its_Declared_Default()
-        // A colour cannot be a C# argument default, so the generated parameter is nullable and
-        // coalesces to the compiled default. Passing null here is what a caller omitting the
-        // argument gets, and the expected document states the default as a literal — so this fails
-        // if the fallback is ever dropped, or resolves to something other than what was declared.
+        // Passing null is what a caller omitting the argument gets, and the expected document
+        // states the default as a literal — so this fails if the fallback is dropped or wrong.
         => AssertExpressionsRenderTheSame(
             "ExprColourDefault",
             """
@@ -570,13 +545,10 @@ public class SkiaCSharpRenderTests
 
     [Fact]
     public void A_False_Conditional_Around_A_Transform_Leaves_Later_Geometry_Where_It_Was()
-        // A hidden group carrying a transform, with an untransformed sibling after it that must not
-        // move. This does not distinguish keeping a suppressed range's state commands from deleting
-        // the range — measured, not assumed: the recorder emits Begin, Save, SetMatrix, DrawPath,
-        // Restore, End, so the range's own Restore pops the matrix either way. What it does cover is
-        // that the conditional resolves at all with state commands in the range, and that the
-        // evaluated picture matches generated code through a transform.
-        // The keep-versus-delete difference is pinned by ConditionalRangeTests instead.
+        // Measured, not assumed: the recorder emits Begin, Save, SetMatrix, DrawPath, Restore, End,
+        // so the range's own Restore pops the matrix whether it is kept or deleted. What this covers
+        // is that the conditional resolves with state commands in it; ConditionalRangeTests pins the
+        // keep-versus-delete difference.
         => AssertExpressionsRenderTheSame(
             "ExprHiddenTransform",
             """

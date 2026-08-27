@@ -15,16 +15,9 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// Draws a wavy underline beneath whatever is wrong with the drawing.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Painted rather than decorated. <see cref="TextDecoration"/> offers a stroke, a thickness and a
-/// dash array, so the closest it comes to an editor's squiggle is a dashed line, which under 12pt
-/// type reads as a smudge — the pane drew a solid 2px line for exactly that reason. A background
-/// renderer draws the geometry itself, so the mark can be the one people already recognise.
-/// </para>
-/// <para>
-/// A diagnostic is a range into the same text the tokens point at, so nothing has to be translated:
-/// the editor turns the range into rectangles and this draws a wave along the bottom of each.
-/// </para>
+/// Painted rather than decorated: <see cref="TextDecoration"/> offers only a stroke and a dash
+/// array, and a dashed line under 12pt type reads as a smudge. A background renderer draws the
+/// geometry itself, so the mark is the squiggle people recognise.
 /// </remarks>
 internal sealed class SvgViewerSourceMarkers : IBackgroundRenderer
 {

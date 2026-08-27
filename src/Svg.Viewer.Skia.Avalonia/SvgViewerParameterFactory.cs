@@ -62,19 +62,16 @@ public static class SvgViewerParameterFactory
         }
         catch (Exception resolveError) when (resolveError is ExprException or ArgumentException)
         {
-            // Swallowed rather than reported: what is wrong with a range is marked in the source
-            // pane, at the attribute it is wrong in, and saying it twice made the panel repeat what
-            // the file already shows. The parameter is still offered — the document renders, and the
-            // value is still bindable.
+            // Swallowed: the source pane already marks a bad range at the attribute it is in. The
+            // parameter is still offered, since the document renders.
             range = SvgExpressionRange.Default;
         }
 
         double minimum = Widen(range.Minimum);
         double maximum = Widen(range.Maximum);
 
-        // A document that declares no range still has to get a usable slider, and the 0..1 fallback
-        // is useless for a default of 217. Infer from the seed instead, then round outwards so the
-        // ends read as numbers a person would have chosen.
+        // The 0..1 fallback is useless for a default of 217, so infer from the seed and round
+        // outwards to ends a person would have chosen.
         if (!declaration.HasRange)
         {
             if (value > maximum)
@@ -99,19 +96,15 @@ public static class SvgViewerParameterFactory
     /// Widens a number the language computed to the double a control wants.
     /// </summary>
     /// <remarks>
-    /// Through decimal, whose float constructor rounds to seven significant digits — which is what a
-    /// float carries and no more. Widening plainly keeps the binary tail instead, so a declared
-    /// <c>step="0.1"</c> arrives as 0.10000000149011612 and a slider two ticks along reads
-    /// 0.200000002980232: not a wrong number, but seventeen digits of one that has seven. Narrowing
-    /// the result gives back the same float, so nothing the evaluator sees changes — which is why
-    /// this is a widening and not a rounding of the parameter. Decimal's range is narrower than
-    /// float's, so what it cannot hold is widened plainly rather than refused.
+    /// Through decimal, which rounds to the seven significant digits a float carries. Widening
+    /// plainly keeps the binary tail, so <c>step="0.1"</c> arrives as 0.10000000149011612 and two
+    /// ticks along reads 0.200000002980232. Narrowing gives back the same float, so this is a
+    /// widening and not a rounding; what decimal cannot hold is widened plainly instead.
     /// </remarks>
     /// <remarks>
-    /// Internal because seeding a row is not the only place a float becomes a row's double:
-    /// <see cref="SvgViewer.TrySetParameterValue"/> puts one back. Both have to land on the same
-    /// double or a row is modified against its own seed by a binary tail nobody chose — which reads
-    /// as a value somebody picked, and is not.
+    /// Internal because <see cref="SvgViewer.TrySetParameterValue"/> puts a float back the same way.
+    /// Both must land on the same double, or a row is modified against its own seed by a binary tail
+    /// nobody chose.
     /// </remarks>
     internal static double Widen(float value)
     {
@@ -127,9 +120,8 @@ public static class SvgViewerParameterFactory
 
     /// <summary>The declared default, evaluated as the binder will evaluate it.</summary>
     /// <remarks>
-    /// Through <see cref="ExprEvaluator"/> rather than by parsing a number, because a default is an
-    /// expression — <c>tau / 4</c>, <c>hsl(200, 60%, 50%)</c> — and because resolving it the same way
-    /// is what makes the value shown here the value an unsupplied parameter would render with.
+    /// A default is an expression — <c>tau / 4</c>, <c>hsl(200, 60%, 50%)</c> — and resolving it the
+    /// same way is what makes this the value an unsupplied parameter renders with.
     /// </remarks>
     private static ExprValue? Seed(SvgExpressionParameter declaration)
     {
@@ -150,10 +142,8 @@ public static class SvgViewerParameterFactory
         }
         catch (Exception failure) when (failure is ExprException or ArgumentException)
         {
-            // clamp refuses a reversed range by throwing an ArgumentException rather than the
-            // language's own, and a default is evaluated here while a document is being opened: a
-            // drawing that renders must not fail to open because of a parameter it can still offer.
-            // What was wrong with it is the source pane's to say.
+            // clamp throws ArgumentException rather than the language's own, and this runs while a
+            // document is opening: a drawing that renders must not fail to open.
             return null;
         }
     }

@@ -80,15 +80,12 @@ public sealed class SvgcProjectItem
 /// </summary>
 /// <remarks>
 /// <para>
-/// Every setting is optional and every one is nullable here, so a value the document did not
-/// mention stays distinguishable from one it set — which is what lets a command line flag
-/// override the file rather than merely tie with it.
+/// Every setting is nullable, so a value the document did not mention stays distinguishable from one
+/// it set — which is what lets a command line flag override the file rather than tie with it.
 /// </para>
 /// <para>
-/// A <c>&lt;group&gt;</c> is folded into its drawings as the project is read, so
-/// <see cref="Items"/> is the same flat list either way. That also settles what a group beats: a
-/// drawing carries what its groups said as if it had said it itself, and a drawing's own settings
-/// already beat a command line flag.
+/// A <c>&lt;group&gt;</c> is folded into its drawings as the project is read, so a drawing carries
+/// what its groups said as if it had said it itself.
 /// </para>
 /// </remarks>
 public sealed class SvgcProject

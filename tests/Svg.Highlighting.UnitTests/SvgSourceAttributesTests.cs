@@ -11,10 +11,9 @@ namespace Svg.Highlighting.UnitTests;
 /// mark it.
 /// </summary>
 /// <remarks>
-/// Nothing here decides what is wrong with a value: every message comes from the converter that
-/// attribute actually uses, so these assert placement, what is asked at all, and above all what is
-/// <em>not</em> asked. A wave under a value the drawing used correctly is worse than no wave, so the
-/// silences below are the point of the exercise rather than an afterthought.
+/// Every message comes from the converter the attribute uses, so these assert placement and, above
+/// all, what is <em>not</em> asked: a wave under a value the drawing used correctly is worse than
+/// no wave.
 /// </remarks>
 public class SvgSourceAttributesTests
 {
@@ -43,9 +42,8 @@ public class SvgSourceAttributesTests
     [Fact]
     public void A_Value_The_Converter_Refuses_Is_Reported_Where_It_Is_Written()
     {
-        // The point of the whole exercise. Today this renders as a zero-width rectangle and says
-        // nothing: the converter throws, the generated SetValue catches it, warns to Trace and
-        // returns true, so the property keeps its default and nothing above can tell.
+        // Renders as a zero-width rectangle and says nothing: SetValue catches the converter's
+        // throw, warns to Trace and returns true.
         Assert.Equal("\"abc\"", Marked("<rect width=\"abc\" height=\"10\" />"));
     }
 
@@ -90,9 +88,8 @@ public class SvgSourceAttributesTests
     [Fact]
     public void An_Expression_In_An_Attribute_That_Takes_One_Is_Not_A_Value()
     {
-        // It is code, the extension's own checker has already read it, and what it evaluates to is
-        // not known until it is bound. Converting the braces would refuse every drawing that uses
-        // the extension at all.
+        // Code the extension's checker has already read; converting the braces would refuse every
+        // drawing that uses it.
         var source = """
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
               <defs><e:code><e:param name="tint" type="color" /></e:code></defs>
@@ -106,9 +103,8 @@ public class SvgSourceAttributesTests
     [Fact]
     public void An_Expression_In_An_Attribute_That_Takes_None_Says_So()
     {
-        // The parser does not lift an expression out of these attributes, so
-        // the braces stay in the value and the converter refuses them -- a true refusal for a
-        // misleading reason. What an author needs told is that the attribute takes no expression.
+        // Unlifted, so the braces stay and the converter refuses them — a true refusal for a
+        // misleading reason.
         var source = """
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
               <defs><e:code><e:param name="w" type="number" default="4" /></e:code></defs>
@@ -126,9 +122,8 @@ public class SvgSourceAttributesTests
         {
             Assert.Contains(supported, one.Message, StringComparison.Ordinal);
         }
-        // The braces, rather than the value around them: the pane colours a placeholder as code
-        // wherever it is written, so they are the piece at that offset -- and they are also the part
-        // that does nothing here.
+        // The braces rather than the value: the pane colours a placeholder as code wherever it is
+        // written, and they are also the part doing nothing here.
         Assert.Equal("{{", source.Substring(one.Start, one.Length));
     }
 
@@ -160,9 +155,7 @@ public class SvgSourceAttributesTests
     [Fact]
     public void A_Declaration_In_A_Style_Attribute_Is_Checked_Like_The_Attribute_It_Stands_For()
     {
-        // These reach the same converter, only later -- AddStyle stages them and FlushStyles hands
-        // them back once the document is read -- so reporting one spelling and not the other would
-        // be an accident of which the XML reader passed over directly.
+        // The same converter, only later: AddStyle stages them and FlushStyles hands them back.
         Assert.Equal("#gggggg", Marked("<rect style=\"fill:#gggggg\" />"));
         Assert.Equal("abc", Marked("<rect style=\"stroke-width:abc\" />"));
     }
@@ -202,9 +195,8 @@ public class SvgSourceAttributesTests
     [Fact]
     public void A_Style_Whose_Pieces_Cannot_Be_Placed_Is_Left_Alone()
     {
-        // The reader resolves entities, so &quot; arrives as one character and every offset after it
-        // is short -- and the ';' ending an entity is not the ';' ending a declaration. Saying
-        // nothing beats underlining the wrong run of somebody's file.
+        // Entities arrive resolved, so offsets after one are short and the ';' ending an entity is
+        // not the ';' ending a declaration.
         Assert.Empty(Of("<rect style=\"font-family:&quot;A&quot;;stroke-width:abc\" />"));
 
         // Likewise where the scanner itself gives up.
@@ -275,9 +267,7 @@ public class SvgSourceAttributesTests
     [Fact]
     public void A_Reference_To_An_Id_The_Drawing_Does_Not_Have_Is_Reported()
     {
-        // The most ordinary way for a drawing to come out wrong, and today the quietest: the
-        // reference resolves to null and "broken" and "absent" become the same value on the way to
-        // the scene graph.
+        // The reference resolves to null, so "broken" and "absent" reach the scene graph alike.
         foreach (var body in new[]
         {
             "<rect clip-path=\"url(#gone)\" />",
@@ -360,9 +350,7 @@ public class SvgSourceAttributesTests
     [Fact]
     public void An_Element_The_Parser_Does_Not_Know_Is_A_Warning_On_Its_Name()
     {
-        // It becomes an SvgUnknownElement: read, kept, and drawn by nothing. A warning rather than
-        // an error because the drawing still opens, and the mark is the name because the name is
-        // the whole of what is wrong.
+        // An SvgUnknownElement: read, kept, drawn by nothing. A warning, since the drawing opens.
         var one = Assert.Single(Of("<rekt width=\"abc\" />"));
 
         Assert.Equal(SvgSourceSeverity.Warning, one.Severity);
@@ -400,9 +388,8 @@ public class SvgSourceAttributesTests
     [Fact]
     public void An_Element_This_Renderer_Does_Not_Implement_Reads_The_Same_As_A_Typo()
     {
-        // <view> is real SVG 1.1. The table cannot tell it from a misspelling, and the wording does
-        // not pretend otherwise -- it says what this renderer knows, not what SVG defines. That is
-        // the whole reason it is a warning.
+        // <view> is real SVG 1.1 and the table cannot tell it from a misspelling, so the wording
+        // says what this renderer knows rather than what SVG defines.
         var one = Assert.Single(Of("<view viewBox=\"0 0 1 1\" />"));
 
         Assert.Equal(SvgSourceSeverity.Warning, one.Severity);
@@ -411,10 +398,8 @@ public class SvgSourceAttributesTests
     [Fact]
     public void A_Converter_That_Refuses_Nothing_Reports_Nothing()
     {
-        // The boundary worth knowing. A path builder reads 'd' as far as it makes sense and drops
-        // the rest without complaint, so it converts nonsense as happily as a real path. Calling
-        // that an error would mean deciding that unread input is one -- a rule the parser does not
-        // have, and that this must not invent on its behalf.
+        // A path builder reads 'd' as far as it makes sense and drops the rest, so nonsense
+        // converts as happily as a real path. Calling that an error would invent a rule.
         Assert.Empty(Of("<path d=\"M 1 zz\" />"));
         Assert.Empty(Of("<path d=\"QQQ\" />"));
     }

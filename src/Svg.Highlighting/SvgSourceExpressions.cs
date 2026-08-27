@@ -11,22 +11,10 @@ namespace Svg.Highlighting;
 /// Colours expression code by asking the language what it says.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Through <c>Svg.Expressions</c>' own lexer rather than a second description of the language,
-/// which would drift from it in ways nothing would catch. Two of them are already here: a percent
-/// sign is a <em>suffix on a number literal</em> and never an operator, so that <c>55%</c> reads as
-/// a fraction without making <c>a % b</c> ambiguous; and <c>and</c>, <c>or</c>, <c>not</c>,
-/// <c>lt</c>, <c>le</c>, <c>gt</c>, <c>ge</c>, <c>eq</c> and <c>ne</c> are word forms of the
-/// symbolic operators, because XML escaping makes <c>&lt;</c> and <c>&amp;&amp;</c> awkward to
-/// author inside an attribute. A tokenizer written here would have coloured the first as an
-/// operator and the second as names.
-/// </para>
-/// <para>
-/// The lexer refuses malformed input, and a source view has to colour a file precisely when someone
-/// is working out what is wrong with it. So a failure colours up to where the language stopped
-/// reading and leaves the remainder plain, and the position it stopped at is what a diagnostic will
-/// later underline.
-/// </para>
+/// Through the language's own lexer, not a second description of it: a percent sign is a suffix on a
+/// number literal and never an operator, and <c>and</c>/<c>lt</c>/<c>eq</c> are word forms of the
+/// symbolic ones — a tokenizer written here would have coloured both wrongly. A failure colours up to
+/// where the language stopped and leaves the remainder plain.
 /// </remarks>
 internal static class SvgSourceExpressions
 {
@@ -75,9 +63,8 @@ internal static class SvgSourceExpressions
             return;
         }
 
-        // Every expression in a document passes through here, which makes this the one place that
-        // knows where the code in it is. Checking one needs the whole document's declarations, so it
-        // cannot happen while splitting — but recording where to look costs nothing.
+        // The one place that knows where the code is. Checking needs the whole document's
+        // declarations and cannot happen while splitting, but recording where costs nothing.
         sites?.Add(new SvgSourceSite(start, end - start, site, Attribute: attribute));
 
         var text = source.Substring(start, end - start);
@@ -95,9 +82,8 @@ internal static class SvgSourceExpressions
             var at = start + token.Position;
             var length = token.Text.Length;
 
-            // A number's text is the literal as written, captured before the lexer consumed the
-            // percent sign after it — the sign belongs to the same literal and would otherwise be
-            // left to the gap filler and coloured as though it were something else.
+            // Captured before the lexer consumed the percent sign: it belongs to the same literal
+            // and would otherwise fall to the gap filler.
             if (token.Kind == ExprTokenKind.Number && at + length < end && source[at + length] == '%')
             {
                 length++;
@@ -119,10 +105,8 @@ internal static class SvgSourceExpressions
     /// Lexes as much as the language will accept.
     /// </summary>
     /// <remarks>
-    /// On a refusal the prefix before the offending position is lexed instead, which is what colours
-    /// a half-written expression up to the point it stops making sense. That second attempt is
-    /// guarded too: it cannot fail on anything seen so far, but a highlighter that threw would take
-    /// out the pane showing the file rather than the expression in it.
+    /// On a refusal the prefix before the offending position is lexed instead. That attempt is
+    /// guarded too: a highlighter that threw would take out the pane, not just the expression.
     /// </remarks>
     private static IReadOnlyList<ExprToken> Read(string text)
     {
@@ -163,9 +147,8 @@ internal static class SvgSourceExpressions
     /// What a name is, as far as can be known without the document.
     /// </summary>
     /// <remarks>
-    /// Functions and constants belong to the language, so they are recognisable anywhere. Whether a
-    /// remaining name is a declared parameter, a let, or a typo depends on the <c>&lt;e:code&gt;</c>
-    /// block it sits under — and saying it is a typo is a diagnostic, not a colour.
+    /// Functions and constants belong to the language and are recognisable anywhere; whether another
+    /// name is a parameter, a let or a typo depends on the block, and a typo is a diagnostic.
     /// </remarks>
     private static SvgSourceTokenKind Name(string text)
     {

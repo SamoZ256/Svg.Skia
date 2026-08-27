@@ -14,35 +14,18 @@ namespace Svg.Highlighting;
 /// Finds attribute values the SVG parser's own converters refuse.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The half of a drawing the expression checker does not read. <c>width="abc"</c> is not merely
-/// unreported today: the generated <c>SvgElement.SetValue</c> catches whatever the converter threw,
-/// warns to <c>Trace</c> and returns <c>true</c>, so the property silently keeps its default and
-/// nothing above it can tell that from a value that converted. Reading a drawing should not cost the
-/// picture over one bad number, but a source view exists to say what is wrong with it.
-/// </para>
-/// <para>
-/// Nothing here decides what is wrong with a value. <see cref="SvgElementFactory.FindAttributeFault"/>
-/// asks the converter that attribute actually uses, and its refusal is the message; this half only
-/// turns a place in a parsed tree back into a place in the text.
-/// </para>
-/// <para>
-/// Which is the whole reason this reads the document a second time rather than looking at a loaded
-/// one. An <c>SvgElement</c> holds no line, no column and no offset — the DOM cannot say where any
-/// of it was written — so a diagnostic gathered while loading would have nowhere to point. The text
-/// is also the only thing there is to check while someone is still typing it, which is when a source
-/// view is most likely open and when the document most often will not load at all.
-/// </para>
+/// The half of a drawing the expression checker does not read. <c>width="abc"</c> goes unreported:
+/// <c>SvgElement.SetValue</c> catches whatever the converter threw, warns to <c>Trace</c> and
+/// returns <c>true</c>, so the property keeps its default and nothing above can tell. It reads the
+/// text a second time rather than a loaded document because an <c>SvgElement</c> holds no position,
+/// and text is the only thing there is to check while someone is still typing.
 /// </remarks>
 internal static class SvgSourceAttributes
 {
     /// <summary>Reports the attribute values in <paramref name="source"/> that will not convert.</summary>
     /// <remarks>
-    /// Returns why the document could not be read rather than throwing, for the reason
-    /// <see cref="SvgSourceDiagnostics.Analyse"/> gives: what is wrong with a file is not a reason to
-    /// take the file off the screen. Nothing is added to <paramref name="found"/> in that case —
-    /// where a document that will not parse should be marked is the caller's to decide, and it is
-    /// the only thing worth saying about one.
+    /// Returns why rather than throwing: what is wrong with a file is not a reason to take it off the
+    /// screen. Nothing is added to <paramref name="found"/> — where to mark it is the caller's.
     /// </remarks>
     /// <returns>Null when the document is well-formed; what the reader refused otherwise.</returns>
     public static XmlException? Analyse(
@@ -54,12 +37,9 @@ internal static class SvgSourceAttributes
 
         try
         {
-            // The loader's own settings, because this pass now says whether a document can be read
-            // at all and the loader is what decides that. Reading with anything stricter invents
-            // faults: four W3C fixtures declare their shapes as entities in an internal subset, and
-            // ignoring the DTD turns every use of one into `Reference to undeclared entity` in a
-            // file that opens perfectly. SvgDtdResolver keeps external entities unresolved by
-            // default, so this is the loader's leniency and not more.
+            // The loader's own settings, because anything stricter invents faults: four W3C
+            // fixtures declare their shapes as entities in an internal subset, and ignoring the DTD
+            // turns every use into `Reference to undeclared entity` in a file that opens perfectly.
             using var reader = XmlReader.Create(
                 new StringReader(source),
                 new XmlReaderSettings
@@ -99,11 +79,8 @@ internal static class SvgSourceAttributes
             if ((string?)element.Attribute("id") is { Length: > 0 } id && !ids.Add(id)
                 && element.Attribute("id") is { } repeated)
             {
-                // The second and every later one. An id is what every url(#…) and href resolves
-                // through, and the manager keeps the first it was given -- so a repeat quietly
-                // decides which element a reference means, and the file reads as though it says
-                // something it does not. A warning because the drawing still opens, and draws one
-                // of them.
+                // The manager keeps the first id it was given, so a repeat quietly decides what
+                // every url(#…) means. A warning, because the drawing still opens.
                 found.Add(SvgSourceDiagnostics.Mark(
                     positions.Value(repeated),
                     source.Length,
@@ -136,9 +113,8 @@ internal static class SvgSourceAttributes
 
             if (probe is null)
             {
-                // A name the parser does not know, so there is no element to ask what its own
-                // attributes mean. Its children are still visited on their own account: a real
-                // <rect> inside a misspelt group is still a <rect> with a value that must convert.
+                // No element to ask what its attributes mean. Children are still visited: a real
+                // <rect> inside a misspelt group still has values that must convert.
                 if (SvgElementFactory.FindElementFault(name) is { } unknown)
                 {
                     found.Add(SvgSourceDiagnostics.Mark(
@@ -169,9 +145,8 @@ internal static class SvgSourceAttributes
 
                         if (refused is not null)
                         {
-                            // The span of the declaration rather than the token it sits in: a style
-                            // attribute is one value to the splitter, and underlining all of it to
-                            // say one declaration in six is wrong points at the wrong thing.
+                            // The declaration's span, not the token's: a style attribute is one
+                            // value to the splitter, and underlining all of it points at nothing.
                             found.Add(new SvgSourceDiagnostic(
                                 declaration.Start,
                                 declaration.Length,
@@ -221,12 +196,9 @@ internal static class SvgSourceAttributes
     /// cannot be.
     /// </summary>
     /// <remarks>
-    /// The reader hands over a value with its entities already resolved, so <c>&amp;quot;</c> arrives
-    /// as one character and every offset after it in that attribute is a character short. An
-    /// ampersand anywhere in the raw span is enough to give up on placing the pieces -- and it would
-    /// split them wrongly in any case, since the <c>;</c> ending an entity is not the <c>;</c>
-    /// ending a declaration. The whole value is still checked as one attribute below, which is what
-    /// this returning null asks for.
+    /// Entities arrive already resolved, so <c>&amp;quot;</c> is one character and every offset after
+    /// it is short. An ampersand anywhere in the span gives up on placing the pieces — the <c>;</c>
+    /// ending an entity is not the <c>;</c> ending a declaration.
     /// </remarks>
     private static List<(string Name, string Value, int Start, int Length)>? Declarations(
         string source,

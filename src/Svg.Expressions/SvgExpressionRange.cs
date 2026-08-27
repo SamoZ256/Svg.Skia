@@ -10,16 +10,9 @@ namespace Svg.Expressions;
 /// The range a host should offer for a <see cref="ExprType.Number"/> parameter.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Advice, not a constraint. Nothing clamps a value to this: a value supplied to
-/// <c>SetExpressionValues</c> is accepted wherever it lies, a declared <c>default</c> outside its own
-/// range is legal, and generated C# does not mention the range at all. It exists so a slider has ends
-/// the author chose rather than ends a host guessed.
-/// </para>
-/// <para>
-/// <see cref="Default"/> is what a parameter that declares nothing resolves to, and is deliberately
-/// the 0..1 that hosts hardcoded before the format could express anything else.
-/// </para>
+/// Advice, not a constraint: nothing clamps to it, a default outside its own range is legal, and
+/// generated C# does not mention it. It exists so a slider has ends the author chose.
+/// <see cref="Default"/> is the 0..1 hosts hardcoded before the format could say anything else.
 /// </remarks>
 public readonly struct SvgExpressionRange : IEquatable<SvgExpressionRange>
 {

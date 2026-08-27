@@ -12,17 +12,9 @@ namespace Svg.Viewer.Skia.Avalonia;
 
 /// <summary>The fields of a parameter, and whether the language will have them.</summary>
 /// <remarks>
-/// <para>
-/// A control rather than a window, so that what is worth testing here — that a reserved name is
-/// refused, that a range on a colour is, that the boxes for one appear only for a number — can be
-/// tested without a modal, which is the one thing a headless test cannot drive.
-/// </para>
-/// <para>
-/// It decides nothing about what is legal. The proposed declaration goes through
-/// <see cref="SvgExpressionDeclarations.Builder"/>, the rules both readers of a document enforce,
-/// and what comes back is shown as it was written. A second opinion here would be a second set of
-/// answers about the same names.
-/// </para>
+/// A control rather than a window, so the fields can be tested without a modal. It decides nothing
+/// about what is legal: a proposal goes through <see cref="SvgExpressionDeclarations.Builder"/> and
+/// what comes back is shown as it was written.
 /// </remarks>
 public partial class SvgParameterFormView : UserControl
 {
@@ -75,9 +67,8 @@ public partial class SvgParameterFormView : UserControl
 
     /// <summary>Fills the form in from a declaration that already exists.</summary>
     /// <remarks>
-    /// The type is shown but cannot be changed. Every expression naming this parameter was checked
-    /// against the type it has, so changing one is a change to all of them rather than to the
-    /// declaration alone — which is a different operation from editing it.
+    /// The type is shown but locked: every expression naming this parameter was checked against the
+    /// type it has, so changing one is a change to all of them.
     /// </remarks>
     public void Initialize(SvgExpressionParameter existing)
     {

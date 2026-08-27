@@ -11,16 +11,10 @@ namespace Svg.CodeGen.Skia.Expressions;
 
 /// <summary>Renders a checked expression as C#.</summary>
 /// <remarks>
-/// <para>
-/// Every parenthesis here is deliberate. The output is compared byte for byte by the code
-/// generator's tests, and the shape also protects the meaning: each operand is wrapped so C#
-/// precedence cannot regroup what the language already grouped.
-/// </para>
-/// <para>
-/// A call is emitted as name immediately followed by <c>(</c>, with no space. Helper selection in
-/// <see cref="SkiaCSharpCodeGen"/> works by scanning the finished class for that exact text, so a
-/// space here would silently leave <c>SvgHsl</c> undefined in the generated file.
-/// </para>
+/// Every parenthesis is deliberate: each operand is wrapped so C# precedence cannot regroup what the
+/// language already grouped, and the output is compared byte for byte. A call is emitted as a name
+/// immediately followed by <c>(</c> — helper selection scans the finished class for that exact text,
+/// so a space would leave <c>SvgHsl</c> undefined.
 /// </remarks>
 internal static class ExprCSharpBackend
 {
@@ -47,9 +41,8 @@ internal static class ExprCSharpBackend
         [ExprFunction.Hsla] = ExprHelpers.Hsla,
         [ExprFunction.Mix] = ExprHelpers.Mix,
         [ExprFunction.WithAlpha] = ExprHelpers.WithAlpha
-        // Mod is absent on purpose: there is no BCL function with the semantics we want, so it is
-        // emitted inline below. It used to sit in the language's table as MathF.IEEERemainder,
-        // which is a different operation, carried only to state an arity.
+        // Mod is absent on purpose: no BCL function has the semantics, so it is emitted inline. It
+        // used to be MathF.IEEERemainder here, which is a different operation.
     };
 
     /// <param name="symbolNames">

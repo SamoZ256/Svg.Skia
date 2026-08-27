@@ -44,9 +44,8 @@ public sealed class SvgColorRule
 ///   &lt;/recipe&gt;
 /// </code>
 ///
-/// The recipe is written in the extension's own namespace so that the declaration block is
-/// exactly the block that ends up in the output — there is no second schema to learn, and the
-/// text is copied rather than re-serialised.
+/// Written in the extension's own namespace, so the declaration block is exactly the block that
+/// ends up in the output: no second schema, and the text is copied rather than re-serialised.
 /// </summary>
 public sealed class SvgRecipe
 {
@@ -136,9 +135,8 @@ public sealed class SvgRecipe
                     $"<{element.Name.LocalName}> is not a declaration. Expected <param> or <let> inside <code>.");
             }
 
-            // Copied verbatim: the expression language is type checked by the code generator,
-            // which owns the symbol table. Validating here would mean a second implementation
-            // that could disagree with the first.
+            // Copied verbatim: the code generator owns the symbol table and type checks it, and a
+            // second implementation here could disagree.
             declarations.Add(new XElement(element));
         }
     }
@@ -191,9 +189,8 @@ public sealed class SvgRecipe
         }
     }
 
-    // An expression may be written across several lines, or in CDATA to avoid escaping. It ends
-    // up in an XML attribute, where a newline would be normalised to a space by any reader, so
-    // it is folded here instead — with the same result, but visible in the file.
+    // It ends up in an attribute, where any reader normalises a newline to a space, so folding it
+    // here gives the same result and is visible in the file.
     private static string NormalizeExpression(string? value)
         => value is null ? string.Empty : Regex.Replace(value.Trim(), @"\s+", " ");
 }

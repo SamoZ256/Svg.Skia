@@ -52,10 +52,8 @@ public readonly struct SvgSizeRequest
     /// The size this request asks for, given the one the document already has.
     /// </summary>
     /// <remarks>
-    /// A single dimension derives the other, so the aspect ratio is never changed by halves. Both
-    /// dimensions are taken as given: an aspect ratio that does not match the document's is a box
-    /// to fit the drawing into, and <c>preserveAspectRatio</c> centres it there rather than
-    /// stretching it.
+    /// One dimension derives the other, so an aspect ratio is never changed by halves. Both given is
+    /// a box to fit into, which <c>preserveAspectRatio</c> centres the drawing in.
     /// </remarks>
     public SKSize Resolve(SKSize natural)
     {
@@ -85,19 +83,10 @@ public readonly struct SvgSizeRequest
 
 /// <summary>Resizes a document before it is compiled, rather than scaling what it compiled to.</summary>
 /// <remarks>
-/// <para>
-/// A width and a height read against a viewBox are what size an SVG, so giving a document
-/// different ones is the whole of a resize. The compiler turns them into the transform it builds
-/// the scene under, and folds that into path geometry where it can, so the picture comes out at
-/// the new size rather than wrapped in a scale.
-/// </para>
-/// <para>
-/// It is not everywhere: a subtree the compiler cannot fold — text, most obviously — is emitted
-/// under a matrix instead, exactly as scaling the finished picture would have left it. What
-/// resizing the document buys over that is the part the format itself defines: how a drawing
-/// meets a box that is not its own shape. <c>preserveAspectRatio</c> fits and centres it, and a
-/// scale wrapped around the picture would have to work that out by hand.
-/// </para>
+/// A width and height against a viewBox are what size an SVG, so changing them is the whole of a
+/// resize: the compiler folds the transform into path geometry where it can, rather than wrapping
+/// the picture in a scale. What it buys over scaling is <c>preserveAspectRatio</c> — how a drawing
+/// meets a box that is not its own shape — which a wrapped scale would have to work out by hand.
 /// </remarks>
 public static class SvgSceneSizing
 {
@@ -124,10 +113,8 @@ public static class SvgSceneSizing
         var natural = GetNaturalBounds(fragment, assetLoader);
         var target = request.Resolve(natural.Size);
 
-        // Without a viewBox, width and height are only a viewport: the content keeps its own
-        // coordinates, so a larger one reframes the drawing instead of resizing it. One taken
-        // from the size the document already had turns the new width and height into a scale,
-        // which is what was asked for.
+        // Without a viewBox, width and height are only a viewport and a larger one reframes rather
+        // than resizes. One taken from the document's own size turns them into a scale.
         if (!HasViewBox(fragment))
         {
             fragment.ViewBox = new SvgViewBox(natural.Left, natural.Top, natural.Width, natural.Height);

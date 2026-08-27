@@ -14,9 +14,8 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// One parameter a document declares, as something a control can be bound to.
 /// </summary>
 /// <remarks>
-/// The declaration is immutable and shared; this carries the value a host is currently offering for
-/// it. Kept separate from the declaration so that reloading a document whose parameters are unchanged
-/// can keep the values a user has already set.
+/// Separate from the immutable declaration, so reloading a document whose parameters are unchanged
+/// keeps the values somebody has already set.
 /// </remarks>
 public abstract class SvgViewerParameter : INotifyPropertyChanged
 {
@@ -45,10 +44,8 @@ public abstract class SvgViewerParameter : INotifyPropertyChanged
 
     /// <summary>The value as a document would write it, for committing it as the declared default.</summary>
     /// <remarks>
-    /// The expression language rather than the control's own formatting, because what comes back has
-    /// to be read by the same parser that reads everything else in the block. It is a literal, so
-    /// committing over a default somebody wrote as <c>tau / 4</c> loses that they wrote it that way —
-    /// which is a host's to warn about, not this one's to prevent.
+    /// The expression language, since the same parser reads it back. It is a literal, so committing
+    /// over a <c>tau / 4</c> loses that it was written that way — a host's to warn about.
     /// </remarks>
     public abstract string ToExpression();
 

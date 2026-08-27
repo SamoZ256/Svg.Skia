@@ -12,24 +12,10 @@ public partial class SvgDocument
     /// The <c>&lt;e:code&gt;</c> declarations this document carries, read from the parsed tree.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// A renderer that wants to evaluate a document's expressions needs its parameters: the types are
-    /// what let an expression be checked at all, and the defaults are what stands in for a value the
-    /// host has not supplied. Reading them here means every route into a document has them, including
-    /// <c>Load(XmlReader)</c> and being handed an already-parsed <see cref="SvgDocument"/>, neither of
-    /// which ever had source text to re-parse.
-    /// </para>
-    /// <para>
-    /// <see cref="SvgExpressionDeclarations.Parse"/> works from source text because a foreign
-    /// element's namespace is not visible outside this assembly, so an unqualified <c>param</c> could
-    /// belong to anyone. In here it is visible, so the tree is enough. Both go through
-    /// <see cref="SvgExpressionDeclarations.Builder"/> and so enforce the same rules.
-    /// </para>
-    /// <para>
-    /// Computed on each call rather than cached, because the tree is mutable and a cached answer
-    /// would go stale the moment an editor added a parameter. Callers that need it per frame should
-    /// hold the result.
-    /// </para>
+    /// Read from the tree rather than the text, which every route into a document has —
+    /// <c>Load(XmlReader)</c> and an already-parsed <see cref="SvgDocument"/> never had source to
+    /// re-parse. Both readers go through <see cref="SvgExpressionDeclarations.Builder"/>. Computed
+    /// on each call, since the tree is mutable and an editor can add a parameter to it.
     /// </remarks>
     /// <exception cref="ExprException">
     /// A declaration is malformed — no name, no type, a name that is reserved or declared twice, or a

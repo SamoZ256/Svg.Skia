@@ -40,19 +40,10 @@ internal sealed class SvgInlineStyleAttributeParser
     /// Every declaration in <paramref name="styleText"/>, each with the span of its value.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// For a caller checking a document rather than reading one. It walks the same scanner
-    /// <see cref="TryApplyInlineDeclarations"/> does -- which is the point, since where one
-    /// declaration ends and the next begins is not a semicolon-split: a <c>;</c> inside quotes,
-    /// inside <c>url(…)</c> or inside a comment is not a separator, and a second answer to that
-    /// would mark the wrong piece of somebody's file.
-    /// </para>
-    /// <para>
-    /// Empty wherever that scanner gives up, rather than a partial reading. Its caller falls back to
-    /// a full CSS parser at that point, and this has no positions to offer for what that finds --
-    /// saying nothing is the honest answer, and an inline style is exactly where a half-typed one
-    /// sits while someone is still typing it.
-    /// </para>
+    /// The same scanner <see cref="TryApplyInlineDeclarations"/> walks, because a declaration
+    /// boundary is not a semicolon-split — one inside quotes, <c>url(…)</c> or a comment is not a
+    /// separator, and a second answer would mark the wrong piece of somebody's file. Empty wherever
+    /// that scanner gives up, since the CSS parser its caller falls back to offers no positions.
     /// </remarks>
     /// <remarks>
     /// A tuple rather than a type of its own, because this assembly still targets netstandard2.0,

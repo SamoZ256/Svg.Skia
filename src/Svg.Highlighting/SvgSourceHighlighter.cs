@@ -27,11 +27,8 @@ public enum SvgSourceTokenKind
     /// <summary>A comment, a CDATA section, a processing instruction or a doctype, in full.</summary>
     Comment,
 
-    /// <summary>
-    /// Expression code that is not one of the kinds below: the <c>{{</c> and <c>}}</c> that fence a
-    /// placeholder, the whitespace between pieces, and anything past a point the language cannot
-    /// read.
-    /// </summary>
+    /// <summary>Expression code that is none of the kinds below: the fences, the whitespace between
+    /// pieces, and anything past a point the language cannot read.</summary>
     Expression,
 
     /// <summary>A number in an expression, percent sign and all — <c>55%</c> is one literal.</summary>
@@ -49,9 +46,8 @@ public enum SvgSourceTokenKind
     ExpressionConstant,
 
     /// <summary>
-    /// A word form of an operator — <c>and</c>, <c>or</c>, <c>not</c>, <c>lt</c>, <c>eq</c> and the
-    /// rest — which exist because XML escaping makes <c>&lt;</c> and <c>&amp;&amp;</c> awkward to
-    /// author inside an attribute.
+    /// A word form of an operator, which exist because XML escaping makes <c>&lt;</c> and
+    /// <c>&amp;&amp;</c> awkward to author inside an attribute.
     /// </summary>
     ExpressionKeyword,
 
@@ -75,9 +71,8 @@ public enum SvgSourceTokenKind
 /// One run of text and what it is, as a range into the document rather than a copy of it.
 /// </summary>
 /// <remarks>
-/// A view holds the tokens for a whole drawing once it shows them a line at a time, and a substring
-/// each would be tens of megabytes for a file it can display comfortably. The text is cut only when
-/// a line is actually realised on screen. Ranges are also what a diagnostic will want to point at.
+/// A substring per token would be tens of megabytes for a file a view can display comfortably, so
+/// the text is cut only when a line is realised on screen.
 /// </remarks>
 public readonly record struct SvgSourceToken(string Source, int Start, int Length, SvgSourceTokenKind Kind)
 {
@@ -100,8 +95,8 @@ public sealed class SvgSourceLine
 
     /// <summary>Where the line begins in the document.</summary>
     /// <remarks>
-    /// A line knows its own range so that anything keyed to a position — a diagnostic, a search hit,
-    /// a bookmark — can be found for it without walking the tokens of every other line.
+    /// A line knows its own range, so anything keyed to a position is found without walking every
+    /// other line's tokens.
     /// </remarks>
     public int Start { get; }
 
@@ -115,26 +110,10 @@ public sealed class SvgSourceLine
 /// Splits an SVG document into coloured pieces.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Hand-written rather than a grammar from an editor library, for two reasons. Neither a viewer nor
-/// an editor should make everyone who references it carry a text editor, and no stock XML grammar
-/// knows what <c>{{ hsl(hue, 74%, 55%) }}</c> is — to one of those it is a string like any other,
-/// when it is the thing a reader opened a source view to find.
-/// </para>
-/// <para>
-/// It describes rather than validates: a malformed document still colours, because refusing to
-/// colour the file someone is trying to work out what is wrong with would be perverse. The
-/// invariant that keeps that honest is that concatenating every token reproduces the input exactly,
-/// which is asserted for well-formed and broken documents alike.
-/// </para>
-/// <para>
-/// This assembly knows nothing about how any of it is drawn — no brushes, no controls — which is
-/// what lets a viewer pane and an editor share it. Two things are meant to arrive here rather than
-/// in either of them: colouring the expression language itself, which subdivides
-/// <see cref="SvgSourceTokenKind.Expression"/> by running <c>Svg.Expressions</c>' own lexer over the
-/// span; and diagnostics, which have the ranges they need already, since a token is a position in
-/// the document rather than a copy of part of it.
-/// </para>
+/// Hand-written rather than a stock XML grammar, which would not know what
+/// <c>{{ hsl(hue, 74%, 55%) }}</c> is — to one of those it is a string like any other. It describes
+/// rather than validates, so a malformed document still colours; the invariant keeping that honest
+/// is that concatenating every token reproduces the input exactly, asserted for broken documents too.
 /// </remarks>
 public static class SvgSourceHighlighter
 {
@@ -142,11 +121,9 @@ public static class SvgSourceHighlighter
     /// Splits a drawing into lines, which is what the pane shows one of at a time.
     /// </summary>
     /// <remarks>
-    /// A line at a time because the cost of colouring was never the splitting — 7ms for 200,000
-    /// characters — but laying out one styled run per token: 130ms at 1,100 runs, 433ms at 4,500 and
-    /// 18 seconds at 45,000, in a single text block. A consumer that lays out only the lines on
-    /// screen pays for the screenful instead, so a 132KB drawing costs what a 2KB one does and there
-    /// is no size at which it gives up and shows plain text.
+    /// The cost was never the splitting — 7ms for 200,000 characters — but laying out one styled run
+    /// per token: 130ms at 1,100 runs, 433ms at 4,500, 18 seconds at 45,000. A line at a time means a
+    /// consumer pays for the screenful.
     /// </remarks>
     public static IReadOnlyList<SvgSourceLine> Lines(string? source)
     {

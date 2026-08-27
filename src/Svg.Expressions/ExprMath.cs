@@ -77,9 +77,8 @@ internal static class ExprMath
 /// The double-precision stand-ins used where <c>MathF</c> does not exist.
 /// </summary>
 /// <remarks>
-/// Compiled on every target, not just the one that uses it, so a test host on a modern framework
-/// can compare it against <c>MathF</c> and pin how far apart they are. Otherwise the only
-/// framework where this code runs would be one nothing tests.
+/// Compiled on every target, not only the one that uses it, so a modern test host can compare it
+/// against <c>MathF</c>.
 /// </remarks>
 internal static class ExprMathFallback
 {

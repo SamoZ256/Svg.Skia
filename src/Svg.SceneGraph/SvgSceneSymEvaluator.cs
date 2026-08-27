@@ -12,18 +12,10 @@ namespace Svg.SceneGraph;
 /// <c>SymCSharpEmitter</c>, and the same walk with the same type threading.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The expected type travels <i>down</i> the tree rather than being read off each node, because
-/// position decides it: the factor of an alpha scale is a number even though the node around it is a
-/// colour. Getting that wrong does not fail loudly — it asks the checker for the wrong type and
-/// reports a type error on a document that is fine.
-/// </para>
-/// <para>
-/// A <see cref="SymSource"/> is the only place authored text appears, and it can hold a colour
-/// literal the model wrote itself: an opacity layer is recorded as
-/// <c>ScaleAlpha(Source("#ffffff"), &lt;authored&gt;)</c>, so this cannot shortcut source handling
-/// for nodes the author did not write.
-/// </para>
+/// The expected type travels down the tree rather than being read off each node, because position
+/// decides it: the factor of an alpha scale is a number inside a colour. Getting it wrong reports a
+/// type error on a document that is fine. A <see cref="SymSource"/> can hold a literal the model
+/// wrote itself, so source handling cannot be shortcut for nodes the author did not write.
 /// </remarks>
 internal static class SvgSceneSymEvaluator
 {

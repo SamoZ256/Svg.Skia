@@ -24,18 +24,9 @@ namespace Svg.Skia.UnitTests;
 /// code generator emits for it and runs that. The two answers have to be identical, bit for bit.
 /// </summary>
 /// <remarks>
-/// <para>
-/// This is the test that makes a second back end safe. Everything else about the evaluator can be
-/// argued from the source; whether <c>MathF.Sin</c> and its evaluated counterpart produce the same
-/// float, or whether <c>hsl</c> rounds the way <c>SKColor.FromHsl</c> rounds, cannot. Reading
-/// <c>ExprHelpers</c> and reimplementing carefully is exactly how a one-ulp or one-byte difference
-/// gets shipped.
-/// </para>
-/// <para>
-/// A rendered-pixel comparison would catch some of this, but blurrily: a wrong colour channel that
-/// happens to fall on the same byte, or an unused branch that would have thrown, both pass. Here a
-/// case names the function it is about and fails on the value.
-/// </para>
+/// What makes a second back end safe: whether <c>MathF.Sin</c> and its evaluated counterpart produce
+/// the same float cannot be argued from the source. A rendered-pixel comparison catches this only
+/// blurrily — a wrong channel landing on the same byte passes — where a case here fails on the value.
 /// </remarks>
 public class ExprEvaluatorDifferentialTests
 {
@@ -64,12 +55,11 @@ public class ExprEvaluatorDifferentialTests
 
     private static Argument Boolean(string name, bool value) => new(name, ExprValue.Boolean(value));
 
-    /// <summary>
-    /// Compiles <paramref name="code"/> into a method over <paramref name="arguments"/> and invokes
-    /// it. The helper bodies are emitted unconditionally rather than selected by scanning the text,
-    /// so a helper that the generator would have failed to select still gets exercised here — the
-    /// selection itself is covered by the code generator's own tests.
-    /// </summary>
+    /// <summary>Compiles <paramref name="code"/> into a method and invokes it.</summary>
+    /// <remarks>
+    /// Helper bodies are emitted unconditionally rather than selected by scanning the text, so one
+    /// the generator would have failed to select is still exercised here.
+    /// </remarks>
     private static object Compiled(string code, ExprType resultType, IReadOnlyList<Argument> arguments)
     {
         var parameters = string.Join(
@@ -295,10 +285,8 @@ public class ExprEvaluatorDifferentialTests
     [InlineData("true and false")]
     [InlineData("true or false")]
     [InlineData("2 gt 1 and !false")]
-    // The right operand of a short-circuited operator is never evaluated, in either back end.
-    // clamp with a reversed range throws, which is the only way to tell: a right operand that
-    // merely produces a wrong value gets swallowed by && and || anyway, so a division by zero here
-    // would pass whether or not the operand was evaluated.
+    // clamp with a reversed range throws, which is the only way to tell: a right operand producing
+    // a merely wrong value is swallowed by && and || anyway.
     [InlineData("false and clamp(0, 1, 0) > 0")]
     [InlineData("true or clamp(0, 1, 0) > 0")]
     public void A_Boolean_Expression_Evaluates_To_What_The_Generated_Code_Computes(string expression)

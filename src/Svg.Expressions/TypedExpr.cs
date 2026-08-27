@@ -11,15 +11,9 @@ namespace Svg.Expressions;
 /// or evaluating against values — so neither has to type check anything.
 /// </summary>
 /// <remarks>
-/// <para>
-/// <see cref="Position"/> travels with each node so a back end can raise a diagnostic that still
-/// points at the right place in the authored text.
-/// </para>
-/// <para>
-/// Nothing here is folded or simplified. A back end that emits source has to reproduce what was
-/// written — <c>1 + 2 * 3</c> emits as <c>(1f + (2f * 3f))</c> — and a number keeps its
-/// <see langword="double"/> so narrowing happens once, where the target decides it.
-/// </para>
+/// <see cref="Position"/> travels with each node so a diagnostic still points at the authored text.
+/// Nothing is folded: a back end emitting source has to reproduce what was written, and a number
+/// keeps its <see langword="double"/> so narrowing happens once, where the target decides it.
 /// </remarks>
 public abstract record TypedExpr(ExprType Type, int Position);
 
@@ -34,9 +28,8 @@ public sealed record TypedBoolean(int Position, bool Value)
 
 /// <summary>A parameter or a let, as declared by the document.</summary>
 /// <remarks>
-/// Distinct from <see cref="TypedConstant"/> on purpose. A symbol table entry shadows a built-in
-/// constant, so a back end handed only a name would have to guess which won and would emit the
-/// constant for a document that declared <c>pi</c> itself.
+/// Distinct from <see cref="TypedConstant"/>: a symbol table entry shadows a built-in, so a back end
+/// handed only a name would emit the constant for a document that declared <c>pi</c> itself.
 /// </remarks>
 public sealed record TypedSymbol(ExprType Type, int Position, string Name)
     : TypedExpr(Type, Position);

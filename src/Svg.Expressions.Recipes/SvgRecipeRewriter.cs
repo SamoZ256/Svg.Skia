@@ -75,16 +75,14 @@ public static class SvgRecipeRewriter
 
         foreach (var name in s_paintAttributes)
         {
-            // A declaration in 'style' beats the presentation attribute of the same name, so
-            // when one is present it is the only value worth looking at — rewriting the dead
-            // attribute underneath it would emit an expression that never paints.
+            // A 'style' declaration beats the presentation attribute, so rewriting the dead one
+            // underneath would emit an expression that never paints.
             if (style.TryGetValue(name, out var styleValue))
             {
                 if (TryMatch(styleValue, recipe, counts, out var styleExpression))
                 {
-                    // '{{ }}' is lifted out of attributes, never out of a style declaration, so
-                    // the property has to be promoted to an attribute to take effect. Removing
-                    // it from 'style' is what keeps that attribute the winning value.
+                    // '{{ }}' is lifted out of attributes and never out of a style declaration, so
+                    // the property is promoted and removed from 'style' to stay the winning value.
                     style.Remove(name);
                     element.SetAttributeValue(name, styleExpression);
                     styleChanged = true;
@@ -179,9 +177,8 @@ public static class SvgRecipeRewriter
 
     /// <summary>Declares the extension namespace on the root, reusing an existing prefix for it.</summary>
     /// <remarks>
-    /// The choice itself belongs to the language, because a source editor splicing the same block
-    /// into text has to reach the same answer: a document holding the extension under two prefixes
-    /// is one nothing would read back correctly.
+    /// The choice belongs to the language, because a source editor splicing the same block has to
+    /// reach the same answer.
     /// </remarks>
     private static void DeclareNamespace(XElement root)
     {

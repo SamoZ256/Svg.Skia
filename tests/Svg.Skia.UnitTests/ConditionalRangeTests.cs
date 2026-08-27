@@ -13,19 +13,10 @@ namespace Svg.Skia.UnitTests;
 /// How the evaluator resolves a conditional range, on pictures built by hand.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Built by hand rather than compiled from SVG on purpose. <c>SvgSceneRenderer</c> opens a range
-/// around everything a node contributes, so every range a document can produce is balanced — a
-/// matrix or clip inside one sits inside a <c>Save</c> that the range's own <c>Restore</c> pops. That
-/// makes deleting a false range and keeping its state commands indistinguishable through any SVG,
-/// which the render tests confirm by passing either way.
-/// </para>
-/// <para>
-/// The rewriter still must not depend on it. The balance is the recorder's guarantee, not the
-/// model's, and a picture that arrives some other way has to render the same. These are the tests
-/// that say what the rewriter promises, and they are the ones that fail if a suppressed range starts
-/// being deleted.
-/// </para>
+/// Built by hand on purpose: <c>SvgSceneRenderer</c> balances every range a document can produce, so
+/// through any SVG, deleting a false range and keeping its state commands are indistinguishable. The
+/// balance is the recorder's guarantee and not the model's, so these are the tests that fail if a
+/// suppressed range starts being deleted.
 /// </remarks>
 public class ConditionalRangeTests
 {

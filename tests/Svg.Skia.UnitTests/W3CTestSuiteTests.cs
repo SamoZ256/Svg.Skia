@@ -341,9 +341,8 @@ public class W3CTestSuiteTests : SvgUnitTest
     {
         return name switch
         {
-            // Chrome overrides make the actual gradient bodies line up for these fixtures. The
-            // remaining error comes from the title/revision text bands, which depend on browser
-            // SVG font loading rather than the gradient math the tests are exercising.
+            // The gradient bodies line up; the residual error is the title/revision text bands,
+            // which depend on browser SVG font loading rather than the gradient math.
             "pservers-grad-09-b" or
             "pservers-grad-10-b" or
             "pservers-grad-12-b" => new[]
@@ -351,9 +350,8 @@ public class W3CTestSuiteTests : SvgUnitTest
                 new Rectangle(0, 0, 480, 35),
                 new Rectangle(0, 315, 480, 45)
             },
-            // The W3C pass criteria for these preserveAspectRatio fixtures explicitly exclude label
-            // text. The remaining mismatch is confined to the headings/labels rather than the image
-            // placement itself, so ignore only the text bands and keep the viewports/content active.
+            // The W3C pass criteria exclude label text, and the mismatch is confined to it, so only
+            // the text bands are ignored and the viewports stay active.
             "coords-viewattr-01-b" or
             "coords-viewattr-02-b" => new[]
             {
@@ -418,9 +416,8 @@ public class W3CTestSuiteTests : SvgUnitTest
             {
                 new Rectangle(0, 0, 480, 22)
             },
-            // Chrome and Svg.Skia now agree on the image placement for this external-SVG <image>
-            // fixture. The residual mismatch is only in the heading text band, which the W3C pass
-            // criteria explicitly excludes from the comparison.
+            // Image placement agrees; the residual is the heading text band, which the W3C pass
+            // criteria exclude.
             "coords-viewattr-04-f" => new[]
             {
                 new Rectangle(0, 0, 480, 35)
@@ -431,9 +428,8 @@ public class W3CTestSuiteTests : SvgUnitTest
             {
                 new Rectangle(18, 73, 215, 14)
             },
-            // The filter output itself matches Chrome; the remaining error is isolated to the lower
-            // descriptive label text. The W3C pass criteria explicitly allow labeling variation for
-            // this feColorMatrix fixture, so keep the comparison focused on the rendered bars.
+            // The filter output matches; the error is the lower label text, which the W3C pass
+            // criteria allow to vary.
             "filters-color-01-b" => new[]
             {
                 new Rectangle(0, 104, 480, 14),
@@ -462,10 +458,8 @@ public class W3CTestSuiteTests : SvgUnitTest
                 new Rectangle(0, 198, 95, 20),
                 new Rectangle(0, 305, 190, 55)
             },
-            // This group-inheritance fixture only requires the top and bottom rows to match. Our
-            // font-property sample cells are internally identical between those rows, and the
-            // residual Chrome delta is limited to serif glyph rasterization in those cells plus the
-            // descriptive title/revision text bands that are not part of the inheritance assertion.
+            // Only the top and bottom rows have to match, and they do; the delta is serif glyph
+            // rasterization and the title bands, neither part of the inheritance assertion.
             "struct-group-03-t" => new[]
             {
                 new Rectangle(0, 0, 480, 50),
@@ -473,20 +467,15 @@ public class W3CTestSuiteTests : SvgUnitTest
                 new Rectangle(320, 218, 116, 20),
                 new Rectangle(0, 315, 190, 45)
             },
-            // Chrome and Svg.Skia now agree on the composited panels for this feComposite fixture.
-            // The remaining mismatch is confined to the title/row labels, which the W3C pass
-            // criteria explicitly allow to vary, plus a small residual raster fringe in the panel
-            // edges that stays within a slightly relaxed per-test threshold once the labels are
-            // excluded.
+            // The composited panels agree; the mismatch is the labels, which the pass criteria
+            // allow to vary, plus a raster fringe the relaxed threshold covers.
             "filters-composite-02-b" => new[]
             {
                 new Rectangle(0, 15, 480, 35),
                 new Rectangle(50, 60, 340, 24),
                 new Rectangle(0, 240, 480, 55)
             },
-            // This lighting fixture only requires the bump-map results to be similar, and the
-            // remaining mismatch is isolated to the descriptive heading/parameter text rows rather
-            // than the filtered images themselves.
+            // Only the bump-map results have to be similar; the mismatch is the heading rows.
             "filters-light-01-f" => new[]
             {
                 new Rectangle(0, 12, 480, 48),
@@ -494,9 +483,7 @@ public class W3CTestSuiteTests : SvgUnitTest
                 new Rectangle(0, 198, 480, 24),
                 new Rectangle(0, 305, 190, 55)
             },
-            // The reference PNG for this lighting fixture excludes the descriptive heading and
-            // row labels. The actual lighting panels are already aligned, so keep the comparison
-            // focused on the filtered rectangles.
+            // The reference PNG excludes the heading and row labels; the lighting panels align.
             "filters-light-04-f" => new[]
             {
                 new Rectangle(0, 15, 480, 45),
@@ -538,9 +525,8 @@ public class W3CTestSuiteTests : SvgUnitTest
                 new Rectangle(300, 150, 130, 36),
                 new Rectangle(340, 332, 55, 16)
             },
-            // The scripted flower shape now aligns with the legacy W3C reference. The residual
-            // mismatch is confined to the standalone revision footer text band rather than the
-            // SVGPathSeg DOM behavior under test.
+            // The scripted shape aligns; the residual is the revision footer, not the SVGPathSeg
+            // behaviour under test.
             "paths-dom-02-f" => new[]
             {
                 new Rectangle(0, 305, 480, 55)
@@ -567,9 +553,8 @@ public class W3CTestSuiteTests : SvgUnitTest
             // The animated dash/linecap/linejoin/miter states align with Chrome at the sampled
             // SMIL frame; the residual delta is Skia stroke rasterization on the dense path samples.
             "animate-elem-35-t" => 0.1,
-            // These two W3C rows intentionally stay on the legacy W3C pass images because current
-            // Chrome snapshots do not match the W3C discrete class/to-only non-interpolable states.
-            // The animated shape pixels match; the residual delta is text and frame rasterization.
+            // On the legacy W3C pass images because current Chrome does not match the discrete
+            // to-only non-interpolable states. The animated pixels match; the delta is text.
             "animate-elem-90-b" => 0.043,
             "animate-elem-91-t" => 0.052,
             // The pass criteria for this units fixture allow font-dependent unit rows to vary;
@@ -584,9 +569,8 @@ public class W3CTestSuiteTests : SvgUnitTest
             "struct-frag-04-t" => 0.034,
             "struct-frag-05-t" => 0.045,
             "struct-frag-06-t" => 0.062,
-            // Chrome-compatible fallback now matches the expected small-caps/weight semantics for
-            // these legacy SVG-font descriptor fixtures. The remaining delta is platform text
-            // rasterization in the serif fallback glyphs rather than a semantic layout difference.
+            // The small-caps/weight semantics match; the delta is platform text rasterization in
+            // the serif fallback glyphs, not layout.
             "fonts-desc-02-t" => 0.05,
             "fonts-desc-05-t" => 0.05,
             // This Arabic fallback fixture now matches Chrome's bidi/font-selection behavior. The
@@ -600,17 +584,14 @@ public class W3CTestSuiteTests : SvgUnitTest
             "coords-trans-10-f" => 0.023,
             "coords-trans-11-f" => 0.041,
             "coords-trans-12-f" => 0.023,
-            // These text fixtures are visually aligned with the Chrome captures after switching
-            // textPath rendering to glyph-positioned layout and applying grouped text-anchor
-            // handling, but still retain modest raster differences in curved glyph antialiasing
-            // and platform text blending.
+            // Aligned with Chrome after moving textPath to glyph-positioned layout; what remains is
+            // curved-glyph antialiasing and platform text blending.
             "text-align-02-b" => 0.043,
             "text-align-04-b" => 0.046,
             "text-align-05-b" => 0.048,
             "text-align-06-b" => 0.054,
-            // SkiaSharp 4 ships a newer native Skia whose text rasterizer produces slightly
-            // different antialiasing/blending than SkiaSharp 3 for these bundled-font fixtures.
-            // Geometry and layout still match; the residual delta is platform text raster only.
+            // SkiaSharp 4's newer native Skia rasterizes text slightly differently from 3 for these
+            // bundled-font fixtures. Geometry and layout still match.
             "text-fonts-01-t" => 0.026,
             "text-fonts-02-t" => 0.033,
             "text-fonts-03-t" => 0.029,

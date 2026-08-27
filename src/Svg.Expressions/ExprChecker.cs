@@ -12,19 +12,10 @@ namespace Svg.Expressions;
 /// parses the language; back ends consume <see cref="TypedExpr"/>.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The symbol table is held by reference, not copied. Callers rely on that: a document's lets are
-/// resolved in order against one checker, each being added to the table after it is checked, so a
-/// paint expression later in the document can see all of them. Freezing the table here would make
-/// every reference to a let an unknown name.
-/// </para>
-/// <para>
-/// Checking throws on the first error and visits nodes in a fixed order, both of which are
-/// observable. <c>#fff + nope</c> reports the unknown name rather than the colour arithmetic,
-/// because operands are checked before the operator; <c>t ? nope : 2</c> reports the condition
-/// and never reaches the branches; and an argument count is rejected before any argument is
-/// looked at. Collecting diagnostics instead of throwing would change all three.
-/// </para>
+/// The symbol table is held by reference: a document's lets are added to it as each is checked, so
+/// freezing it would make every reference to one an unknown name. Checking throws on the first error
+/// in a fixed visit order, which is observable — <c>#fff + nope</c> reports the unknown name rather
+/// than the colour arithmetic, because operands are checked before the operator.
 /// </remarks>
 public sealed class ExprChecker
 {
@@ -63,9 +54,8 @@ public sealed class ExprChecker
         }
         catch (ExprException error)
         {
-            // Positions are offsets into this text, so this is the first frame that can attach
-            // the source needed to render a caret. Parsing is inside the try as well, or a
-            // malformed expression would report without one.
+            // The first frame holding the text a caret is measured against. Parsing is inside the
+            // try too, or a malformed expression would report without one.
             throw error.WithExpressionText(text);
         }
     }

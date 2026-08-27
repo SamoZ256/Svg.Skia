@@ -10,17 +10,9 @@ namespace Svg.Expressions;
 /// A value of the expression language: a number, a colour, or a boolean.
 /// </summary>
 /// <remarks>
-/// <para>
-/// A number is a <see cref="float"/>, not a <see cref="double"/>, even though
-/// <see cref="TypedNumber"/> carries a double. The C# back end narrows every literal through
-/// <c>(float)</c> and computes in <c>float</c>, so evaluating in double would produce a different
-/// answer from the generated code for the same document — which is the one thing the two back ends
-/// may not do.
-/// </para>
-/// <para>
-/// A colour is four bytes rather than any renderer's colour type, so the language stays free of
-/// Skia. The model's own colour types convert at the boundary.
-/// </para>
+/// A number is a <see cref="float"/> even though <see cref="TypedNumber"/> carries a double: the C#
+/// back end computes in float, and the two back ends may not disagree about the same document. A
+/// colour is four bytes rather than a renderer's type, so the language stays free of Skia.
 /// </remarks>
 public readonly struct ExprValue : IEquatable<ExprValue>
 {

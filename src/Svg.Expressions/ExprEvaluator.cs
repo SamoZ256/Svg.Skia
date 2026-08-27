@@ -11,16 +11,9 @@ namespace Svg.Expressions;
 /// value back end, which is what a renderer wants of the language every time.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The runtime counterpart of the code generator's <c>ExprCompiler</c>, and deliberately the same
-/// shape. Both are a facade over one checker and one back end, so a change to the language reaches
-/// them symmetrically.
-/// </para>
-/// <para>
-/// Neither the symbol table nor the value map is copied. <see cref="Create"/> keeps adding to both
-/// as it resolves the lets, and the checker holds the table by reference for the same reason — see
-/// <see cref="ExprChecker"/>.
-/// </para>
+/// The runtime counterpart of the code generator's <c>ExprCompiler</c>, and the same shape, so a
+/// change to the language reaches both. Neither the symbol table nor the value map is copied:
+/// <see cref="Create"/> adds to both as it resolves the lets.
 /// </remarks>
 public sealed class ExprEvaluator
 {
@@ -40,19 +33,10 @@ public sealed class ExprEvaluator
     /// lets, returning an evaluator every expression in the document can be evaluated against.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// Every value is resolved here, before anything is evaluated: a supplied value if there is one,
-    /// otherwise the declared <c>default</c>, otherwise an error naming the parameter. Nothing falls
-    /// back to the placeholder, which keeps this the same rule the generated code enforces — there,
-    /// a parameter without a default is simply required. A host that wants the placeholder can bind
-    /// it as a value, so leniency needs no support here.
-    /// </para>
-    /// <para>
-    /// A value supplied for a name the document does not declare is ignored rather than rejected.
-    /// The two directions are not symmetric: asking to render with a value missing is
-    /// under-specified and worth failing, while carrying a stale value across an edit that removed
-    /// a parameter is ordinary and should not stop a drawing appearing.
-    /// </para>
+    /// Supplied value, else the declared <c>default</c>, else an error naming the parameter — the
+    /// same rule generated code enforces by making such a parameter required. A value for a name the
+    /// document does not declare is ignored instead: carrying a stale one across an edit that
+    /// removed a parameter is ordinary and should not stop a drawing appearing.
     /// </remarks>
     public static ExprEvaluator Create(
         SvgExpressionDeclarations declarations,
@@ -128,11 +112,9 @@ public sealed class ExprEvaluator
     /// anything the document declares.
     /// </summary>
     /// <remarks>
-    /// A <c>default</c> may not reference other parameters — the same restriction the code generator
-    /// applies, for the same reason: an ordering dependency between them would be invisible in the
-    /// document — and <c>min</c>, <c>max</c> and <c>step</c> inherit it. Shared rather than
-    /// constructed per call so the two cannot resolve against different scopes, and because it holds
-    /// no state: both maps stay empty, and nothing here ever writes to them.
+    /// A <c>default</c> may not reference other parameters — an ordering dependency between them
+    /// would be invisible in the document — and the bounds inherit it. Shared, since it holds no
+    /// state and two instances could resolve against different scopes.
     /// </remarks>
     internal static readonly ExprEvaluator Isolated = new(
         new Dictionary<string, ExprType>(StringComparer.Ordinal),

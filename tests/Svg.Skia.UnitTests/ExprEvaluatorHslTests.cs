@@ -13,18 +13,10 @@ namespace Svg.Skia.UnitTests;
 /// the generated code calls.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The language has to evaluate without a reference to SkiaSharp, so this one function is
-/// reimplemented rather than delegated — the only place in the evaluator where that is true. A
-/// reimplementation is exactly where a quiet off-by-one lives, and this one nearly did: the final
-/// conversion to a byte <b>truncates</b>, and a rounding version disagrees with SkiaSharp on 40,747
-/// of the 53,361 samples below. Reading the helper and reimplementing it "carefully" is not enough;
-/// the domain has to be swept.
-/// </para>
-/// <para>
-/// The differential suite covers a handful of <c>hsl</c> calls against compiled generated code. This
-/// covers the whole grid, which is what makes the truncation claim a fact rather than a spot check.
-/// </para>
+/// The one function the evaluator reimplements rather than delegates, and it nearly shipped an
+/// off-by-one: the final conversion to a byte <b>truncates</b>, and a rounding version disagrees
+/// with SkiaSharp on 40,747 of the 53,361 samples below. The whole grid is swept, which is what
+/// makes that a fact rather than a spot check.
 /// </remarks>
 public class ExprEvaluatorHslTests
 {

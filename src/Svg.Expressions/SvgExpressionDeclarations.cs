@@ -13,10 +13,8 @@ namespace Svg.Expressions;
 
 /// <summary>Which part of a declaration a rule is complaining about.</summary>
 /// <remarks>
-/// A rule knows what it is about; only a reader knows where that was written. Naming the part is
-/// what lets the two stay apart, so the rules keep living in one place and a reader that has
-/// positions can turn them into one. <see cref="Element"/> is for a rule about something the
-/// document left out, which has nothing of its own to point at.
+/// A rule knows what it is about; only a reader knows where that was written, so naming the part
+/// keeps the two apart. <see cref="Element"/> is for a rule about something the document left out.
 /// </remarks>
 public enum SvgDeclarationPart
 {
@@ -88,17 +86,9 @@ public sealed class SvgExpressionParameter
     /// when it declares none.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// Total, including for a parameter that is not a number: the declarations reader refuses a range
-    /// on one, so there is nothing to report, and a host looping over every parameter is not made to
-    /// branch before it can ask.
-    /// </para>
-    /// <para>
-    /// Evaluated here rather than while the declarations are read, because reading a document must
-    /// not evaluate anything — <c>SKSvg.Load</c> is documented never to, so a malformed block cannot
-    /// fail a load, and <c>SvgDocument.ExpressionDeclarations</c> is recomputed on every access. The
-    /// bounds resolve against nothing at all, exactly as a <c>default</c> does.
-    /// </para>
+    /// Evaluated here rather than while declarations are read, because reading a document must not
+    /// evaluate anything — <c>SKSvg.Load</c> is documented never to, so a malformed block cannot
+    /// fail a load. The bounds resolve against nothing at all, exactly as a <c>default</c> does.
     /// </remarks>
     /// <exception cref="ExprException">
     /// A bound is not a number, <c>min</c> is greater than <c>max</c>, or <c>step</c> is not positive.
@@ -157,8 +147,7 @@ public sealed class SvgExpressionLet
     public string Expression { get; }
 }
 
-// Document level declarations, authored as a foreign-namespace block that conforming SVG renderers
-// ignore:
+// Document level declarations, authored as a foreign-namespace block conforming renderers ignore:
 //
 //   <defs>
 //     <e:code>
@@ -167,15 +156,10 @@ public sealed class SvgExpressionLet
 //     </e:code>
 //   </defs>
 //
-// The declarations are the symbol table every expression in the document is checked against, so
-// they sit beside the language rather than in a back end: the code generator turns them into a
-// method signature, and a runtime evaluator binds values to them.
-//
-// Parse reads the source text rather than the parsed DOM, because the SVG object model exposes a
-// foreign element's namespace only to code inside Svg.Custom: from out here, matching on an
-// unqualified name would claim <param> elements belonging to somebody else's namespace. Svg.Custom
-// itself can see the namespace and reads them straight off the DOM instead — see
-// SvgDocument.ExpressionDeclarations. Both routes go through Builder, so they validate identically.
+// Parse reads the source text rather than the parsed DOM, because a foreign element's namespace is
+// visible only inside Svg.Custom: from out here, an unqualified <param> could belong to anyone.
+// Svg.Custom reads them off the DOM instead. Both routes go through Builder, so they validate
+// identically.
 public sealed class SvgExpressionDeclarations
 {
     public const string Namespace = "https://svg.skia/expr/1.0";
@@ -184,10 +168,8 @@ public sealed class SvgExpressionDeclarations
     /// <param name="root">The element carrying the document's namespace declarations.</param>
     /// <param name="declared">Whether the prefix returned is one the document already has.</param>
     /// <remarks>
-    /// Here rather than in either caller because both a rewriter building a tree and an editor
-    /// splicing text have to answer it the same way, and a document that ends up with the extension
-    /// under two prefixes is one nothing would read back correctly. Reusing an existing prefix comes
-    /// first, so a document already writing <c>x:param</c> keeps writing it.
+    /// Here because a rewriter building a tree and an editor splicing text have to answer it the
+    /// same way: a document holding the extension under two prefixes reads back wrong.
     /// </remarks>
     public static string NamespacePrefixFor(XElement root, out bool declared)
     {
@@ -204,10 +186,8 @@ public sealed class SvgExpressionDeclarations
         {
             declared = true;
 
-            // xmlns="…" declares a default namespace and its own name is the local name; a prefixed
-            // one is xmlns:e, where the prefix is the local name. Only the second can qualify an
-            // element, and a document holding the extension as its default namespace is not one this
-            // can add to under that name.
+            // Only a prefixed declaration can qualify an element, so a document holding the
+            // extension as its default namespace cannot be added to under that name.
             return existing.Name.NamespaceName.Length == 0 ? PreferredPrefix : existing.Name.LocalName;
         }
 
@@ -259,17 +239,8 @@ public sealed class SvgExpressionDeclarations
     /// Reads the declarations, reporting everything wrong with them and where it was written.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// For a caller showing someone the file: a source view, a compiler diagnostic. Every
-    /// declaration is read, so a document with three mistakes reports three rather than hiding two
-    /// behind the first, and what could be read is still returned — the parameters after a bad one
-    /// are not lost with it.
-    /// </para>
-    /// <para>
-    /// A document that is not well-formed XML is reported here too, where <see cref="Parse(string?)"/>
-    /// contributes no declarations and says nothing: the SVG parser is the authority on that and
-    /// will report it, but this is the one place holding the text that can say where.
-    /// </para>
+    /// Every declaration is read, so three mistakes report three rather than hiding two behind the
+    /// first, and the parameters after a bad one are not lost with it.
     /// </remarks>
     public static SvgExpressionDeclarations Parse(
         string? svgText,
@@ -362,10 +333,8 @@ public sealed class SvgExpressionDeclarations
 
         try
         {
-            // Entities are read, because a drawing may declare its shapes as them and a block of
-            // expressions is no reason to stop reading one. The resolver stays null so nothing
-            // external is fetched, which is what SvgDocument's own resolver does by default; this
-            // assembly holds the language and deliberately depends on nothing to reuse that one.
+            // Entities are read, because a drawing may declare its shapes as them. The resolver
+            // stays null so nothing external is fetched.
             using var reader = XmlReader.Create(
                 new StringReader(svgText),
                 new XmlReaderSettings { DtdProcessing = DtdProcessing.Parse, XmlResolver = null });
@@ -384,22 +353,11 @@ public sealed class SvgExpressionDeclarations
         }
     }
 
-    /// <summary>
-    /// Turns the line and column an XML reader reports into an offset into the document.
-    /// </summary>
+    /// <summary>Turns the line and column an XML reader reports into an offset into the document.</summary>
     /// <remarks>
-    /// <para>
-    /// Both readers of a <c>&lt;e:code&gt;</c> block enforce the same rules, and only this one has a
-    /// document to point into: the other walks a parsed tree that never held a position. So the
-    /// mapping from a rule's <see cref="SvgDeclarationPart"/> to somewhere in the text lives here,
-    /// and the rules stay in <see cref="Builder"/> where both readers reach them.
-    /// </para>
-    /// <para>
-    /// Internal rather than private because the same problem turns up once more: an SVG document
-    /// keeps no source position either, so anything reporting what is wrong with a drawing has to
-    /// read the text a second time and turn what the reader says back into an offset. A second copy
-    /// of this would be a second set of answers about where a quote is.
-    /// </para>
+    /// Internal, not private: an SVG document keeps no source position either, so the highlighter and
+    /// the source editor need this too. A second copy would be a second set of answers about where a
+    /// quote is.
     /// </remarks>
     internal sealed class Positions
     {
@@ -507,10 +465,8 @@ public sealed class SvgExpressionDeclarations
 
         /// <summary>Where an attribute's value ends, at its closing quote.</summary>
         /// <remarks>
-        /// The other half of <see cref="Value"/>, and the pair is a span an editor can replace. The
-        /// quote is found rather than assumed to be a double one, because a document may have
-        /// written the value in apostrophes and replacing up to the wrong character would take the
-        /// rest of the tag with it.
+        /// The quote is found rather than assumed to be a double one: a value written in apostrophes
+        /// would otherwise be replaced up to the wrong character, taking the rest of the tag.
         /// </remarks>
         public int EndOfValue(XAttribute? attribute)
         {
@@ -522,8 +478,7 @@ public sealed class SvgExpressionDeclarations
             }
 
             // Value lands one past the opening quote, so the character before it is the one to
-            // close on. Where it could not find a quote at all it returns the name, and scanning
-            // from there would run to the first quote of the value instead of past it.
+            // close on — and where it found no quote it returned the name, which must not be scanned.
             var quote = _text[start - 1];
 
             if (quote is not ('"' or '\''))

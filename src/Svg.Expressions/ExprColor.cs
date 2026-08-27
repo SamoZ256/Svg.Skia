@@ -10,17 +10,9 @@ namespace Svg.Expressions;
 /// writes.
 /// </summary>
 /// <remarks>
-/// <para>
-/// A scene records that it scaled a paint's alpha by an opacity, or converted a colour to linear
-/// RGB, and the code generator reproduces those by calling <c>SvgScaleAlpha</c> and
-/// <c>SvgToLinearRgb</c> in the emitted source. These are the same two operations for a back end
-/// that computes rather than emits.
-/// </para>
-/// <para>
-/// They live here, beside the language, so that everything which has to match <c>ExprHelpers</c>
-/// byte for byte is in one assembly and is covered by one differential test — rather than half of it
-/// being in whichever project happens to walk the model.
-/// </para>
+/// The same two operations the generator emits as <c>SvgScaleAlpha</c> and <c>SvgToLinearRgb</c>,
+/// for a back end that computes rather than emits. Beside the language so that everything which has
+/// to match <c>ExprHelpers</c> is in one assembly under one differential test.
 /// </remarks>
 public static class ExprColor
 {

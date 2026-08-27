@@ -49,18 +49,9 @@ public sealed class RecipeRunResult
 /// whose expressions are evaluated against live values.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Every stage is the shipping code — <see cref="SvgRecipeRewriter"/> for the conversion, and behind
-/// <see cref="LivePreview"/> the scene compiler and <c>SvgSceneExpressionEvaluator</c>. There is no
-/// second implementation here that could drift from what the library does.
-/// </para>
-/// <para>
-/// It used to end in generated C#, which meant the demo doubled as a check that the code generator
-/// produced the same drawing. It no longer does: this renders through the evaluator, while
-/// <c>svgc</c> emits C#. The two agreeing is pinned by the test suite instead —
-/// <c>ExprEvaluatorDifferentialTests</c> compares evaluated values against compiled generated code,
-/// and the render tests compare the two as pixels.
-/// </para>
+/// Every stage is the shipping code, so there is no second implementation here to drift. It renders
+/// through the evaluator while <c>svgc</c> emits C#; the two agreeing is pinned by
+/// <c>ExprEvaluatorDifferentialTests</c> and the render tests rather than by this.
 /// </remarks>
 public sealed class RecipePipeline
 {

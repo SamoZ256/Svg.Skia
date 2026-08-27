@@ -41,19 +41,16 @@ public sealed class SvgViewerDocument : IDisposable
 
     /// <summary>The drawing as it was read, or null if the source could not be kept.</summary>
     /// <remarks>
-    /// Captured here rather than re-read on demand, so what is shown is the text the picture was
-    /// built from and not whatever the file says later. <see cref="SKSvg"/> can retain its own
-    /// source, but only behind the process-wide <see cref="SKSvg.CacheOriginalStream"/> toggle it
-    /// keeps for reloading — a viewer has no business making every other <see cref="SKSvg"/> in the
-    /// application hold a copy of its file.
+    /// Captured rather than re-read, so what is shown is the text the picture was built from.
+    /// <see cref="SKSvg.CacheOriginalStream"/> would do it process-wide, which a viewer has no
+    /// business turning on for every other <see cref="SKSvg"/> in the application.
     /// </remarks>
     public string? SourceText { get; }
 
     /// <summary>Whether the file this came from began with a byte order mark.</summary>
     /// <remarks>
-    /// Remembered so that saving writes back what was read. Both readers strip a mark, and .NET
-    /// writes UTF-8 without one, so a file that had one would quietly lose three bytes on the first
-    /// save — a change to a part of the file nobody edited.
+    /// Both readers strip a mark and .NET writes UTF-8 without one, so a file that had one would
+    /// lose three bytes on the first save.
     /// </remarks>
     public bool ByteOrderMark { get; }
 
@@ -64,10 +61,8 @@ public sealed class SvgViewerDocument : IDisposable
     /// Why the declarations could not be read, or null.
     /// </summary>
     /// <remarks>
-    /// Recorded rather than thrown, because loading deliberately does not read declarations: a
-    /// document with a malformed <c>&lt;e:code&gt;</c> renders its placeholders perfectly well, and
-    /// refusing to show it would throw away the drawing over a block that only the parameter panel
-    /// needs.
+    /// Recorded rather than thrown: a document with a malformed <c>&lt;e:code&gt;</c> renders its
+    /// placeholders perfectly well, and only the parameter panel needs the block.
     /// </remarks>
     public string? DeclarationError { get; }
 
@@ -156,11 +151,9 @@ public sealed class SvgViewerDocument : IDisposable
 
     /// <summary>The same drawing, rebuilt from edited text.</summary>
     /// <remarks>
-    /// Through a stream and a base URI rather than <see cref="SKSvg.FromSvg"/>, which has none: a
-    /// drawing with an <c>&lt;image href="logo.png"&gt;</c> beside it resolves the image when loaded
-    /// from its path and loses it the moment it is rebuilt from text. Measured rather than assumed —
-    /// the centre pixel goes from the image's colour to the placeholder grey and back again once a
-    /// base URI is supplied.
+    /// Through a stream and a base URI, not <see cref="SKSvg.FromSvg"/>, which has none: a drawing
+    /// with an <c>&lt;image href="logo.png"&gt;</c> beside it loses the image the moment it is
+    /// rebuilt from text — measured at the centre pixel, image colour to placeholder grey and back.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The text is not readable as SVG.</exception>
     public SvgViewerDocument Reload(string svgText)
@@ -185,9 +178,8 @@ public sealed class SvgViewerDocument : IDisposable
 
     /// <summary>Writes text to a file, in the encoding this drawing was read in.</summary>
     /// <remarks>
-    /// The encoding rather than the default, so a file that arrived with a byte order mark keeps it.
-    /// Writing is here because this is what knows how the bytes came in; deciding <em>whether</em> to
-    /// write is a host's, as choosing what to open is.
+    /// The encoding it arrived in, so a byte order mark survives. Whether to write is a host's
+    /// decision; how the bytes came in is only known here.
     /// </remarks>
     public void Write(string svgText, string path)
     {

@@ -21,17 +21,10 @@ namespace Svg.Studio;
 /// The shell: one tab per open drawing.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The viewer control holds a single document by design, so the tabs are the shell's rather than
-/// its: the window puts one viewer in each tab and handles their <c>OpenRequested</c>, which is what
-/// turns picking or dropping a file into a new tab instead of replacing what is already up.
-/// </para>
-/// <para>
-/// Reordering is the window's too, because <see cref="TabControl"/> has none to enable: a tab is
-/// dragged by moving it within <see cref="ItemsControl.Items"/> as the pointer crosses its
-/// neighbours, which works precisely because the items <em>are</em> the containers — there is no
-/// data behind them to keep in step.
-/// </para>
+/// The viewer holds one document, so the tabs are the shell's: it puts a viewer in each and handles
+/// their <c>OpenRequested</c>. Reordering is the shell's too, since <see cref="TabControl"/> has
+/// none — a tab is moved within <see cref="ItemsControl.Items"/>, which works because the items are
+/// the containers, with no data behind them to keep in step.
 /// </remarks>
 public partial class MainWindow : Window
 {
@@ -69,9 +62,8 @@ public partial class MainWindow : Window
         _tabs.SelectionChanged += (_, _) => UpdateTitle();
         _tabs.TemplateApplied += OnTabsTemplateApplied;
 
-        // On the strip rather than on each tab, and tunnelling because TabItem handles a press
-        // itself to become the selected tab, so a bubbling handler would never see it.
-        // Tunnelling so the editor in the pane does not get first refusal on it.
+        // On the strip, and tunnelling, because TabItem handles a press itself to become selected
+        // and a bubbling handler would never see it.
         AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
 
         _tabs.AddHandler(PointerPressedEvent, OnTabPointerPressed, RoutingStrategies.Tunnel);
@@ -220,9 +212,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            // Without the capture the moves stop arriving the moment the pointer leaves the tab,
-            // which is immediately: a drag is the pointer going somewhere else. The strip is
-            // captured rather than the tab, because reordering takes the tab out of Items and a
+            // The strip is captured, not the tab: reordering takes the tab out of Items, and a
             // captured control that leaves the tree loses the capture — which ended the drag after
             // its own first swap.
             _dragging = true;
@@ -241,10 +231,9 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            // Half of a neighbour, not its edge: tabs are as wide as their titles, so trading places
-            // on contact would leave the pointer over the tab it just displaced and trade straight
-            // back. Every neighbour is measured rather than only the adjacent one, because a quick
-            // drag lands the pointer several tabs along and should take the tab all the way there.
+            // Half of a neighbour, not its edge: trading on contact leaves the pointer over the tab
+            // it displaced and trades straight back. Every neighbour, because a quick drag lands
+            // several tabs along.
             if (index > from && position.X > neighbour.Bounds.Center.X)
             {
                 to = Math.Max(to, index);
@@ -264,9 +253,7 @@ public partial class MainWindow : Window
             strip.UpdateLayout();
         }
 
-        // The tab follows the pointer, held by the point it was grabbed at. Reordering underneath is
-        // what the strip does; this is what makes it look like the tab is being carried there. The
-        // one transform is moved rather than replaced, so a drag allocates nothing per frame.
+        // The one transform is moved rather than replaced, so a drag allocates nothing per frame.
         _carry.X = position.X - _grabbedAt - dragged.Bounds.X;
     }
 
@@ -332,10 +319,8 @@ public partial class MainWindow : Window
     /// How the window asks whether work that is not on disk may be thrown away.
     /// </summary>
     /// <remarks>
-    /// Replaceable for the reason the file picker is: a modal is the one thing a test cannot drive,
-    /// and the guard against losing an edit is the last thing that should go untested for want of a
-    /// way to answer it. Given the whole sentence rather than a name, because closing a window can
-    /// be about several drawings at once.
+    /// Replaceable for the reason the file picker is: a modal is the one thing a test cannot drive.
+    /// Given the whole sentence rather than a name, since closing can be about several drawings.
     /// </remarks>
     public Func<string, Task<bool>> ConfirmDiscard { get; set; }
 
@@ -359,8 +344,7 @@ public partial class MainWindow : Window
     /// </summary>
     /// <remarks>
     /// Closing is synchronous and asking is not, so the close is called off, the question put, and
-    /// the close started again once there is an answer. Tabs are guarded one at a time by their own
-    /// close button; this is the path that would otherwise take all of them at once.
+    /// the close started again once there is an answer.
     /// </remarks>
     protected override void OnClosing(WindowClosingEventArgs e)
     {
@@ -380,9 +364,8 @@ public partial class MainWindow : Window
 
         e.Cancel = true;
 
-        // Posted rather than started here, so the close finishes being called off before anything
-        // asks about it. A prompt that answered immediately would otherwise re-enter Close from
-        // inside OnClosing, which is true of a test's stub and would be true of a cached answer.
+        // Posted, so the close finishes being called off first: a prompt that answered immediately
+        // would re-enter Close from inside OnClosing, as a test's stub does.
         Dispatcher.UIThread.Post(async () => await ConfirmThenClose(unsaved));
     }
 
@@ -492,8 +475,8 @@ public partial class MainWindow : Window
 
     /// <summary>Shows the strip only once there is a choice to make.</summary>
     /// <remarks>
-    /// A window on a single drawing is not a window with one tab in it: the strip would be a row of
-    /// chrome naming what the title bar already says, above a drawing it takes 34px from.
+    /// One drawing is not one tab: the strip would name what the title bar says, and take 34px from
+    /// the drawing to do it.
     /// </remarks>
     private void UpdateStrip()
     {

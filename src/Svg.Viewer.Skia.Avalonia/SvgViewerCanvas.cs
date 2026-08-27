@@ -16,17 +16,10 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// them.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Built on <see cref="SKCanvasControl"/> rather than the <c>Avalonia.Svg.Skia.Svg</c> control
-/// because that control sizes itself to the drawing it fits — measured, a 100x100 document in a
-/// 400x200 pane arranges at 200x200 — so it can never fill a viewport, and its clip is its own
-/// bounds. A viewer needs the whole pane, so it owns the transform instead.
-/// </para>
-/// <para>
-/// The scale is <b>absolute</b>, not a factor on top of a stretch: fit and one-to-one are then both
-/// expressible, and the readout is a true percentage rather than a number relative to a fit nobody
-/// can see.
-/// </para>
+/// On <see cref="SKCanvasControl"/> rather than the <c>Avalonia.Svg.Skia.Svg</c> control, which
+/// sizes itself to the drawing it fits — a 100x100 document in a 400x200 pane arranges at 200x200 —
+/// so it can never fill a viewport. The scale is absolute, not a factor on a stretch, so fit and
+/// one-to-one are both expressible and the readout is a true percentage.
 /// </remarks>
 public class SvgViewerCanvas : SKCanvasControl
 {
@@ -194,11 +187,8 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         var arranged = base.ArrangeOverride(finalSize);
 
-        // The first arrange is where a document loaded before the control had a size gets its fit.
-        // Against the size being arranged, not Bounds, which is only assigned once this returns.
-        //
-        // Resizing keeps the drawing fitted, but only until the view has been adjusted by hand:
-        // re-fitting after someone has zoomed in would throw away what they were looking at.
+        // Against the size being arranged, not Bounds, which is assigned once this returns. A
+        // resize keeps the drawing fitted only until the view has been adjusted by hand.
         if (!_hasFitted || (!_userAdjusted && arranged != _fittedTo))
         {
             TryFit(arranged);
@@ -277,10 +267,9 @@ public class SvgViewerCanvas : SKCanvasControl
     // ---- gestures ---------------------------------------------------------------------------
 
     /// <remarks>
-    /// This is the trackpad path as well as the mouse one: a two finger scroll arrives as a wheel
-    /// event with a fractional delta, so it zooms smoothly where a mouse notch steps by 1.2. A
-    /// trackpad *pinch* is raised separately by the platform, but Avalonia 12.0.0 keeps
-    /// <c>Gestures</c> internal, so there is no public event to subscribe to for it.
+    /// The trackpad path too: a two finger scroll arrives as a wheel event with a fractional delta.
+    /// A pinch is a separate platform gesture, but Avalonia 12.0.0 keeps <c>Gestures</c> internal,
+    /// so there is no public event for it.
     /// </remarks>
     private void OnWheel(object? sender, PointerWheelEventArgs e)
     {
@@ -409,9 +398,8 @@ public class SvgViewerCanvas : SKCanvasControl
         canvas.Translate((float)state.OffsetX, (float)state.OffsetY);
         canvas.Scale((float)state.Scale);
 
-        // Through SKSvg.Draw rather than DrawPicture, because that brackets itself with
-        // BeginDraw/EndDraw and so cannot have the picture disposed underneath it by a value being
-        // bound on the UI thread.
+        // SKSvg.Draw brackets itself with BeginDraw/EndDraw, so the picture cannot be disposed
+        // underneath it by a value being bound on the UI thread.
         svg.Draw(canvas);
 
         canvas.Restore();

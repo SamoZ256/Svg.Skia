@@ -30,9 +30,8 @@ public static class SvgCodeDeclarationsExtensions
         var symbols = declarations.CreateSymbolTable();
         var compiled = new List<(string, ExprType, string)>();
 
-        // A colour parameter carrying a default reaches the body through a local, so every
-        // reference to it has to be emitted as that local's name instead — including references
-        // from the lets compiled just below.
+        // A colour default reaches the body through a local, so every reference — the lets below
+        // included — must be emitted as that local's name.
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var fallback in declarations.ColourFallbacks())
@@ -42,9 +41,7 @@ public static class SvgCodeDeclarationsExtensions
 
         var compiler = new ExprCompiler(symbols, names);
 
-        // Lets resolve in order, so a let may use the ones declared above it but not below. The
-        // compiler holds `symbols` by reference, so adding to it here is what makes each let
-        // visible to the expressions compiled after it.
+        // Held by reference, so adding here is what puts each let in scope for the ones after it.
         foreach (var let in declarations.Lets)
         {
             var (type, code) = compiler.Compile(let.Expression);
@@ -60,18 +57,10 @@ public static class SvgCodeDeclarationsExtensions
     /// the body reads instead, and the C# for the default it falls back to.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// A colour cannot be a C# argument default — <c>new SKColor(…)</c> is not a compile-time
-    /// constant (CS1736) — so the parameter is emitted as <c>SKColor?</c> defaulting to null and
-    /// coalesced into a local at the top of the method. The local exists because C# forbids
-    /// shadowing: the body cannot declare a <c>tint</c> that reads from a parameter also called
-    /// <c>tint</c>.
-    /// </para>
-    /// <para>
-    /// Computed here rather than in either caller, because <c>Resolve</c> needs the names to rewrite
-    /// references and the generator needs them to declare the locals, and the two disagreeing would
-    /// emit a body referring to a local that does not exist.
-    /// </para>
+    /// <c>new SKColor(…)</c> is not a compile-time constant (CS1736), so a colour parameter is
+    /// emitted as <c>SKColor?</c> and coalesced into a local. Computed here because <c>Resolve</c>
+    /// rewrites references to those names and the generator declares them, and the two disagreeing
+    /// would emit a body naming a local that does not exist.
     /// </remarks>
     public static IReadOnlyList<(string Parameter, string Local, string DefaultCode)> ColourFallbacks(
         this SvgExpressionDeclarations declarations)
@@ -101,9 +90,7 @@ public static class SvgCodeDeclarationsExtensions
                 continue;
             }
 
-            // An author could declare something called `tint__default` themselves, which would make
-            // the generated file fail to compile on a duplicate local rather than do anything
-            // subtle. Cheap enough to rule out.
+            // An author could declare `tint__default` themselves; cheap enough to rule out.
             var local = parameter.Name + "__default";
             while (!taken.Add(local))
             {
@@ -132,9 +119,8 @@ public static class SvgCodeDeclarationsExtensions
             return null;
         }
 
-        // Defaults may not reference other parameters: argument defaults are compile time
-        // constants in C#, and an ordering dependency between them would be invisible here. A
-        // colour default is emitted through a local instead, see ColourFallbacks.
+        // Defaults may not reference other parameters: argument defaults are compile-time constants
+        // in C#, and an ordering dependency between them would be invisible here.
         var compiler = new ExprCompiler(new Dictionary<string, ExprType>(StringComparer.Ordinal));
 
         return compiler.CompileTo(

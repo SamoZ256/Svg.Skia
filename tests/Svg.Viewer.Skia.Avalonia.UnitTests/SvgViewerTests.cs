@@ -187,9 +187,7 @@ public class SvgViewerTests
     [AvaloniaFact]
     public async Task A_File_That_Will_Not_Open_Says_Which_File()
     {
-        // `No drawing open.` is true of the viewer and no answer to someone who just handed it a
-        // path: the card names the line that stopped it, and nothing else in the window named the
-        // file the line is in.
+        // `No drawing open.` is true of the viewer and no answer to someone who handed it a path.
         var (window, viewer) = Host();
 
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-unreadable.svg");
@@ -374,9 +372,8 @@ public class SvgViewerTests
     [AvaloniaFact]
     public async Task A_Handled_Request_Waits_For_What_The_Host_Handed_Back()
     {
-        // Opening is asynchronous wherever it happens, and a host that places the paths itself is
-        // the only one that knows when they are open. Without this the call returns while the files
-        // are still being read, and anything that acts on "opened" acts too early.
+        // Only the host placing the paths knows when they are open; without this the call returns
+        // while the files are still being read.
         var (window, viewer) = Host();
 
         var host = new TaskCompletionSource();
@@ -568,9 +565,7 @@ public class SvgViewerTests
     [AvaloniaFact]
     public async Task A_Drawing_Of_Any_Size_Is_Coloured_Because_Only_What_Shows_Is_Built()
     {
-        // Colouring used to stop above 5,000 tokens, which 43% of this repository's own sample
-        // drawings exceed. An editor that builds only the lines on screen has no such limit: the
-        // cost is the screenful.
+        // Colouring used to stop above 5,000 tokens, which 43% of this repository's samples exceed.
         var (window, viewer) = Host();
 
         var shapes = new StringBuilder();
@@ -607,9 +602,8 @@ public class SvgViewerTests
     [AvaloniaFact]
     public async Task A_Minified_Drawing_Colours_What_It_Can_And_Still_Shows_All_Of_It()
     {
-        // Virtualising by line bounds what a document costs, not what a line costs, and a minified
-        // drawing is the whole file on one: 132KB of it took 1.4s as a single row, 340ms once the
-        // row stopped colouring past its limit.
+        // A minified drawing is the whole file on one line: 132KB took 1.4s as a single row, 340ms
+        // once the row stopped colouring past its limit.
         var (window, viewer) = Host();
 
         var shapes = new StringBuilder();
@@ -896,14 +890,9 @@ public class SvgViewerTests
     [AvaloniaFact]
     public async Task What_Cannot_Be_Marked_Is_Put_Over_The_Drawing_And_Blurs_It()
     {
-        // A document that will not be read at all. There is no pane to mark, because there is no
-        // drawing -- so the only place left to say it is over the one still on screen, and in every
-        // case that reaches here what is on screen is not what the file says.
-        //
-        // This used to be fill="{{ hue }}" with hue a number, which arrived when the value bound
-        // and had nowhere to point. The pane checks an expression against the attribute holding it
-        // now, so that one is marked instead; the test below pins that. Most of what binding can
-        // refuse is marked for the same reason, which is what the card is meant to give way to.
+        // No drawing means no pane to mark, so the only place left is over the one still on screen.
+        // This was fill="{{ hue }}" until the pane began checking an expression against its
+        // attribute; the test below pins that it is marked there instead.
         var (window, viewer) = Host();
 
         Assert.False(await viewer.LoadTextAsync("this is not a drawing"));
@@ -975,10 +964,8 @@ public class SvgViewerTests
     [AvaloniaFact]
     public async Task What_The_Pane_Can_Mark_Is_Not_Also_Put_Over_The_Drawing()
     {
-        // fill wants a colour and hue is a number. Both back ends refuse that as they read the
-        // drawing, and the pane now says so on the line that carries it -- so the card stays down.
-        // Saying it twice, once where it happened and once over the picture, is the thing the card
-        // exists to avoid.
+        // fill wants a colour and hue is a number. The pane says so on the line that carries it, so
+        // the card stays down rather than saying it twice.
         var (window, viewer) = Host();
 
         Assert.True(await viewer.LoadTextAsync("""
@@ -1262,9 +1249,8 @@ public class SvgViewerTests
     [AvaloniaFact]
     public async Task A_Step_Edited_In_The_Source_Reaches_The_Slider()
     {
-        // The panel kept whatever the file said when it was opened. The guard that carries bound
-        // values across a reload compared names and types, and a step is neither — so editing one
-        // changed the file, the diagnostics and the drawing, and left the slider alone.
+        // The guard carrying values across a reload compared names and types, and a step is
+        // neither — so editing one changed everything but the slider.
         var (window, viewer) = await HostLoaded(Ranged("30"));
 
         viewer.ShowSource = true;
@@ -1288,9 +1274,8 @@ public class SvgViewerTests
     [AvaloniaFact]
     public async Task A_Value_Nobody_Chose_Follows_The_Default_It_Came_From()
     {
-        // Rebuilding a row and putting the old value straight back would mean editing a default
-        // changed nothing on screen. A value someone dragged is theirs; one still sitting where the
-        // default put it is the file's.
+        // A value someone dragged is theirs; one still sitting where the default put it is the
+        // file's.
         var (window, viewer) = await HostLoaded(Ranged("5"));
 
         viewer.ShowSource = true;
@@ -1347,9 +1332,8 @@ public class SvgViewerTests
     [AvaloniaFact]
     public async Task A_Windows_Drawing_Splits_Into_The_Same_Lines_Twice()
     {
-        // Two things split lines now: the highlighter, which produces the tokens, and the editor's
-        // document, which decides what line an offset is on. A disagreement about a carriage return
-        // would put every colour on a line one character out, and nothing else would notice.
+        // The highlighter and the editor's document both split lines, and a disagreement about a
+        // carriage return would put every colour one character out.
         var (window, viewer) = Host();
 
         var markup = Parametric.Replace("\r\n", "\n", StringComparison.Ordinal)
@@ -1377,10 +1361,8 @@ public class SvgViewerTests
     [AvaloniaFact]
     public async Task Every_Brush_The_Pane_Asks_For_Is_There_To_Find()
     {
-        // A brush key is a string, and a rename that catches one silently paints nothing: the line
-        // numbers disappeared exactly that way, because "SvgViewerSourceLineNumberBrush" contains
-        // the name of a type that was renamed around it. Asked of the resources rather than of what
-        // was drawn, so a key nothing happens to be painted with is still checked.
+        // A brush key is a string, and the line numbers disappeared when a rename caught
+        // "SvgViewerSourceLineNumberBrush". Asked of the resources, so an unpainted key is checked too.
         var (window, viewer) = Host();
 
         Assert.True(await viewer.LoadTextAsync(Parametric));

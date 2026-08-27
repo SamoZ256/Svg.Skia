@@ -45,20 +45,11 @@ public partial class SKSvg
     /// Binds <paramref name="values"/> to the document's parameters and re-renders.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// Every parameter has to end up with a value: the one supplied here, or the <c>default</c> the
-    /// document declares. A parameter with neither is an error, which is the same rule generated code
-    /// enforces by making such a parameter required. A host that would rather see a placeholder can
-    /// bind one as a value — <c>#808080</c> for a paint — so leniency needs no support here.
-    /// </para>
-    /// <para>
-    /// Nothing is changed unless the whole set resolves, so a failed call leaves the previous
-    /// rendering in place rather than a half-applied one. Passing null goes back to the placeholders.
-    /// </para>
-    /// <para>
-    /// This does not re-parse the document or recompile the scene. It evaluates against the retained
-    /// symbolic model and converts the result, which is what makes dragging a slider affordable.
-    /// </para>
+    /// Every parameter needs a value — supplied here, or the declared <c>default</c> — and one with
+    /// neither is an error, the rule generated code enforces by making it required. Nothing changes
+    /// unless the whole set resolves, so a failed call leaves the last rendering up; null goes back
+    /// to the placeholders. It does not re-parse or recompile, which is what makes a slider drag
+    /// affordable.
     /// </remarks>
     /// <returns>The re-rendered picture, or null when no document is loaded.</returns>
     /// <exception cref="ExprException">

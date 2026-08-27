@@ -15,25 +15,11 @@ namespace Svg.SourceEditing;
 /// Adds and changes <c>&lt;e:code&gt;</c> declarations by replacing spans of a document's own text.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The alternative is to parse a drawing, change the tree and write it back, and that is measurably
-/// worse for a file somebody is looking at: the SVG reader keeps no comments — its node switch has
-/// no case for them — and writing a document out again renames <c>fill="{{ primary }}"</c> to a
-/// placeholder plus a foreign attribute, reorders what it kept, and adds a doctype and two
-/// namespaces nobody asked for. The drawing survives all of that; the file does not.
-/// </para>
-/// <para>
-/// So an edit here is a splice. Everything outside the spans it returns is untouched, byte for byte,
-/// which is the only version of this a source view can show without apologising for it.
-/// </para>
-/// <para>
-/// Nothing here decides what is legal. A proposed declaration is put through
-/// <see cref="SvgExpressionDeclarations.Builder"/>, the same rules the two readers enforce, and its
-/// refusal is the message. The result is then read back with
-/// <see cref="SvgExpressionDeclarations.Parse(string, out IReadOnlyList{SvgDeclarationDiagnostic})"/>
-/// before it is handed over, so a splice that would leave the document saying something different
-/// from what was asked for is refused rather than applied.
-/// </para>
+/// A splice, not a rewrite. Parsing a drawing and writing it back drops every comment — the SVG
+/// reader's node switch has no case for them — turns <c>fill="{{ primary }}"</c> into a placeholder
+/// plus a foreign attribute, and adds a doctype and two namespaces nobody asked for. Nothing here
+/// decides what is legal: a proposal goes through <see cref="SvgExpressionDeclarations.Builder"/>,
+/// and the result is read back before it is handed over.
 /// </remarks>
 public static class SvgDeclarationEditor
 {
@@ -102,8 +88,8 @@ public static class SvgDeclarationEditor
 
     /// <summary>Rewrites a declaration, carrying its uses with it when the name changes.</summary>
     /// <remarks>
-    /// One call because it is one thing a reader did. A rename in particular is an edit in as many
-    /// places as the drawing names it, and every one of them has to land or none should.
+    /// A rename is an edit in as many places as the drawing names it, and every one has to land or
+    /// none should.
     /// </remarks>
     /// <param name="name">The declaration as it currently stands.</param>
     /// <param name="replacement">What it should say. Its type must be the one it already has.</param>
@@ -186,11 +172,7 @@ public static class SvgDeclarationEditor
         => SetAll(svgText, new Dictionary<string, string?>(StringComparer.Ordinal) { [name] = expression }, part);
 
     /// <summary>Writes the <c>default</c> of several declarations at once.</summary>
-    /// <remarks>
-    /// One call rather than a loop, because the whole commit is one thing a reader did and should be
-    /// one thing they can take back. A caller applying these in a text editor gets that by grouping
-    /// them into a single undo step.
-    /// </remarks>
+    /// <remarks>One call rather than a loop, so the whole commit is one thing to take back.</remarks>
     public static SvgSourceEditResult SetDefaults(string svgText, IReadOnlyDictionary<string, string> byName)
     {
         if (byName is null)
@@ -264,9 +246,8 @@ public static class SvgDeclarationEditor
 
     /// <summary>Reads the document, refusing anything an edit cannot be aimed at.</summary>
     /// <remarks>
-    /// Both refusals are what a document looks like in the middle of being typed, which is exactly
-    /// when a panel beside the text might be asked to change it. Neither is worth a mode: the action
-    /// declines and says why, and works again as soon as the text does.
+    /// Both refusals are what a document looks like mid-typing. Neither is worth a mode: the action
+    /// declines and works again as soon as the text does.
     /// </remarks>
     private static bool Open(
         string svgText,
@@ -349,9 +330,8 @@ public static class SvgDeclarationEditor
 
     /// <summary>Applies the edits and reads the result, so a bad splice cannot be handed over.</summary>
     /// <remarks>
-    /// The cheap half of correctness. Producing spans by hand can go wrong in ways that still look
-    /// like text — a quote landed on, a tag left open — and the reader is the one thing that can say
-    /// so. Two extra reads of a document measured at 3ms each is the whole cost.
+    /// Spans produced by hand go wrong in ways that still look like text — a quote landed on, a tag
+    /// left open — and only the reader can say so. Two reads at 3ms each is the whole cost.
     /// </remarks>
     private static SvgSourceEditResult Verify(string svgText, List<SvgTextEdit> edits, string? expected)
     {
@@ -434,10 +414,8 @@ public static class SvgDeclarationEditor
                 $"<{prefix}:code>{newline}{own}{indent}{element}{newline}{own}</{prefix}:code>");
         }
 
-        // Among the parameters, not at the end of the block. A block is written in two groups —
-        // the parameters and then the lets that build on them — and although the reader takes them
-        // in any order, a parameter written below the lets that use it reads backwards. So it joins
-        // the last parameter, or goes above the first let when there are none to join.
+        // Among the parameters, not at the end. The reader takes them in any order, but a parameter
+        // written below the lets that use it reads backwards.
         var lastParameter = block.Elements(Ns + "param").LastOrDefault();
 
         if (lastParameter is { })
@@ -474,10 +452,8 @@ public static class SvgDeclarationEditor
 
     /// <summary>Writes the block, and the &lt;defs&gt; to hold it if the drawing has none.</summary>
     /// <remarks>
-    /// Where SvgRecipeRewriter.InjectDeclarations puts it, and for the reason it gives: first in
-    /// &lt;defs&gt;, where the declarations read as the document's preamble rather than as one more
-    /// definition among the gradients. A drawing that has been through a recipe and one that has
-    /// been through this should not differ in where they keep it.
+    /// Where SvgRecipeRewriter.InjectDeclarations puts it, so a drawing that has been through a
+    /// recipe and one that has been through this keep it in the same place.
     /// </remarks>
     private static SvgTextEdit? CreateBlock(
         string svgText,
@@ -510,9 +486,8 @@ public static class SvgDeclarationEditor
 
         if (at < 0)
         {
-            // A drawing written as <svg /> has nothing in it to parameterise. Rewriting the root into
-            // a pair to hold a block would be a change to the shape of the document rather than an
-            // addition to it, and it is not what anyone reaching for this meant.
+            // <svg /> has nothing in it to parameterise, and rewriting the root into a pair would
+            // change the document's shape rather than add to it.
             return null;
         }
 
@@ -652,10 +627,8 @@ public static class SvgDeclarationEditor
     /// An expression as it can sit inside a double-quoted attribute.
     /// </summary>
     /// <remarks>
-    /// Written out rather than left to an XML writer, because this produces spans of text and never
-    /// has a writer to hand. The set is the one that matters inside a double-quoted value: an
-    /// apostrophe needs nothing there, and a newline in an expression is not something the language
-    /// produces.
+    /// Written out because this produces spans and never has an XML writer to hand. The set is what
+    /// matters inside a double-quoted value.
     /// </remarks>
     private static string Escape(string value)
         => value
@@ -666,8 +639,8 @@ public static class SvgDeclarationEditor
 
     /// <summary>What the document ends its lines with.</summary>
     /// <remarks>
-    /// Read off the document rather than taken from the platform, so that editing a file written on
-    /// one machine on a different one does not leave it with two kinds of line ending.
+    /// Off the document, not the platform: editing a file written elsewhere must not leave it with
+    /// two kinds of line ending.
     /// </remarks>
     private static string Newline(string svgText)
     {
@@ -678,8 +651,7 @@ public static class SvgDeclarationEditor
 
     /// <summary>One level of indentation, as this document writes it.</summary>
     /// <remarks>
-    /// Measured from the first line that is indented at all, so a document written with tabs or with
-    /// four spaces keeps being written that way. Two spaces only where a document has said nothing.
+    /// From the first indented line, so tabs or four spaces keep being written that way.
     /// </remarks>
     private static string IndentUnit(string svgText)
     {

@@ -21,20 +21,16 @@ internal enum SvgSourceSiteKind
     /// document declares is in scope.
     /// </summary>
     /// <remarks>
-    /// A default may use literals, constants and functions but not other parameters — an ordering
-    /// dependency between them would be invisible in the document — and the range attributes
-    /// inherit that. Checking one against the full table would accept what the code generator
-    /// rejects, which is the opposite of what a diagnostic is for.
+    /// A default may not name another parameter — see <see cref="Svg.Expressions.ExprEvaluator"/> —
+    /// so checking one against the full table would accept what the code generator rejects.
     /// </remarks>
     Declaration,
 }
 
 /// <summary>One piece of expression code, and what it is written in.</summary>
 /// <remarks>
-/// <see cref="Owner"/> and <see cref="Attribute"/> are filled in for a <see cref="SvgSourceSiteKind.Declaration"/>,
-/// which is what lets a rule about a named parameter — <c>the min for 'hue' is greater than its
-/// max</c> — be placed at the attribute it is about. The language reports the parameter by name and
-/// which part it means; only the document says where that was written.
+/// <see cref="Owner"/> and <see cref="Attribute"/> are filled in for a declaration, which is what
+/// places a rule about a named parameter at the attribute it is about.
 /// </remarks>
 internal readonly record struct SvgSourceSite(
     int Start,

@@ -11,10 +11,9 @@ namespace Svg.Expressions.Recipes;
 /// The declarations of a <c>style</c> attribute, in order.
 /// </summary>
 /// <remarks>
-/// Drawing tools export paint into <c>style</c> as readily as into presentation attributes, so a
-/// converter that only looked at attributes would find nothing in a large share of real files.
-/// Declarations this class does not touch keep their original text, so promoting one property
-/// does not reformat the rest.
+/// Drawing tools export paint into <c>style</c> as readily as into attributes, so a converter that
+/// only looked at attributes would find nothing in a large share of real files. Untouched
+/// declarations keep their original text.
 /// </remarks>
 internal sealed class SvgRecipeStyle
 {

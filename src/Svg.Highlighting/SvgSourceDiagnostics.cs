@@ -28,54 +28,14 @@ public readonly record struct SvgSourceDiagnostic(
     SvgSourceSeverity Severity,
     string Message);
 
-/// <summary>
-/// Finds what is wrong with a document.
-/// </summary>
+/// <summary>Finds what is wrong with a document.</summary>
 /// <remarks>
-/// <para>
-/// Through the language's own checker, so the wording and the rules are the compiler's rather than
-/// an imitation of them: an unknown name, a function called with the wrong number of arguments, a
-/// number where a colour belongs. Nothing here decides what is an error.
-/// </para>
-/// <para>
-/// The SVG around the expressions is checked the same way and on the same terms, by
-/// <see cref="SvgSourceAttributes"/> — through the converter each attribute actually uses, so a
-/// value that will not convert is the parser's verdict rather than this library's.
-/// </para>
-/// <para>
-/// Splitting a document is context-free — a <c>{{ … }}</c> colours the same wherever it is — but
-/// checking one is not: what a name may refer to depends on every declaration in the file, and on
-/// where the expression is written. So this is a document-level pass, separate from
-/// <see cref="SvgSourceHighlighter"/>, and it starts by reading the <c>&lt;e:code&gt;</c> block.
-/// </para>
-/// <para>
-/// An expression is checked against its use as well as on its own terms:
-/// <c>opacity="{{ tint }}"</c> is well-formed and still wrong, because that attribute scales an
-/// alpha and a colour is not a number. What each of the five attributes wants is
-/// <see cref="SvgExpressionAttributes.TypeFor"/>, and the refusal is
-/// <see cref="ExprChecker.CheckAs"/>'s — the same one the emitter and the renderer already raise
-/// while reading the document, so all three say the same sentence and this only says it sooner.
-/// </para>
-/// <para>
-/// What the declaration block itself gets wrong — a name that is not a name, a range on a colour, a
-/// min above its max — is reported here too, at the attribute it is about. The rules stay in
-/// <see cref="SvgExpressionDeclarations.Builder"/> where both readers of a block reach them; each
-/// says which <see cref="SvgDeclarationPart"/> it means, and turning that into a place in the
-/// document is the reader's half. Nothing here restates a rule or reads a message to decide what it
-/// was about.
-/// </para>
-/// <para>
-/// A document that is not well-formed XML reports that alone. Every other rule here reads a parsed
-/// document, so with nothing to parse they would be answering a question about text that does not
-/// yet mean anything -- and the missing <c>xmlns:e</c> that makes <c>&lt;e:code&gt;</c> an unbound
-/// prefix would otherwise surface as every expression in the file using an undeclared name.
-/// </para>
-/// <para>
-/// A document whose declarations are wrong reports those and no <em>expressions</em>. The symbol
-/// table is missing whatever the bad declaration would have put in it, so every use of that name
-/// would look undeclared — a hundred of those bury the few that are real. Attribute values are
-/// reported regardless, since no converter consults the symbol table.
-/// </para>
+/// Nothing here decides what is an error: every rule and every sentence comes from the language's
+/// own checker, or from the converter an attribute actually uses. Order matters twice over. A
+/// document that is not well-formed reports that alone, because the missing <c>xmlns:e</c> that
+/// makes <c>&lt;e:code&gt;</c> unbound would otherwise surface as every expression naming something
+/// undeclared. And a document whose declarations are wrong reports those and no expressions, since
+/// the symbol table is missing whatever the bad declaration would have put in it.
 /// </remarks>
 public static class SvgSourceDiagnostics
 {
@@ -97,21 +57,10 @@ public static class SvgSourceDiagnostics
         var sites = new List<SvgSourceSite>();
         var tokens = SvgSourceHighlighter.Tokenize(source, sites);
 
-        // Asked first, and of the pass that always parses. A document that is not well-formed has
-        // one thing wrong with it, and everything else here would be a guess at what the text was
-        // going to say -- so this reports the reader's refusal and stops.
-        //
-        // It has to be this pass that answers. The declarations reader gives up on a document with
-        // no expression namespace anywhere in its text before it parses anything, and a document
-        // that uses `<e:code>` without declaring the prefix is exactly that document: the string it
-        // searches for is the one the author forgot. Left to it, the one mistake that breaks the
-        // file is the same mistake that hides the error, and what surfaces instead is every name in
-        // every expression reported as undeclared -- consequences, in place of the cause.
+        // This pass has to answer it, not the declarations reader: that one gives up before parsing
+        // when the namespace string is absent, which is the very mistake being reported.
         if (SvgSourceAttributes.Analyse(source!, tokens, found) is { } malformed)
         {
-            // The reader's own sentence, position and all. It names the line a second time over the
-            // mark that already points there, which is a small redundancy against trimming a
-            // localised resource string by guessing at its shape.
             found.Add(Mark(
                 new SvgExpressionDeclarations.Positions(source!).At(malformed.LineNumber, malformed.LinePosition),
                 source!.Length,
@@ -122,9 +71,8 @@ public static class SvgSourceDiagnostics
             return found;
         }
 
-        // Every declaration is read rather than only the first, so a block with three mistakes in it
-        // shows three. A document that declares nothing costs one search of the text for the
-        // extension's namespace.
+        // Every declaration is read rather than only the first, so a block with three mistakes
+        // shows three.
         var declarations = SvgExpressionDeclarations.Parse(source, out var declared);
 
         if (declared.Count > 0)
@@ -139,9 +87,7 @@ public static class SvgSourceDiagnostics
             Check(found, declarations, sites, tokens, source!);
         }
 
-        // Document order, because three passes produced these and none knows about the others: what
-        // only numbers can settle is found after every expression has been checked, and what a
-        // converter refuses is found before any of it, so a file read top to bottom reads in order.
+        // Document order: three passes produced these and none knows about the others.
         found.Sort(static (left, right) => left.Start.CompareTo(right.Start));
 
         return found;
@@ -176,11 +122,8 @@ public static class SvgSourceDiagnostics
 
             try
             {
-                // A placeholder is checked against what the attribute holding it will do with the
-                // answer, where that is known. Both back ends already refuse a paint expression
-                // that is not a colour; asking the same question here only moves the same refusal
-                // from generating or rendering the drawing to reading it, and the label comes from
-                // the language so all three say it identically.
+                // Checked against what the attribute will do with the answer, so an expression that
+                // is well-formed and still wrong for its use is refused here rather than at render.
                 var typed = site.Kind == SvgSourceSiteKind.Placeholder
                             && site.Attribute is { } attribute
                             && SvgExpressionAttributes.TypeFor(attribute) is { } expected
@@ -213,20 +156,11 @@ public static class SvgSourceDiagnostics
         Resolve(found, declarations, reported, sites, tokens, source);
     }
 
-    /// <summary>
-    /// Reports what only running a declaration's own expressions can find.
-    /// </summary>
+    /// <summary>Reports what only running a declaration's own expressions can find.</summary>
     /// <remarks>
-    /// <para>
-    /// A min above its max, a step that is not positive, a default that type-checks and still will
-    /// not produce a value: these need numbers rather than types, so they cannot be settled while a
-    /// document is read — <c>SKSvg.Load</c> is documented never to evaluate. Analysing is not
+    /// A min above its max, or a step that is not positive, needs numbers rather than types, and
+    /// reading a document never evaluates — <c>SKSvg.Load</c> is documented not to. Analysing is not
     /// reading, so they are settled here.
-    /// </para>
-    /// <para>
-    /// The language reports which parameter and which part of it; where that was written is the
-    /// splitter's answer, since it recorded the attribute each piece of declared code came from.
-    /// </para>
     /// </remarks>
     private static void Resolve(
         List<SvgSourceDiagnostic> found,
@@ -271,9 +205,7 @@ public static class SvgSourceDiagnostics
     /// <summary>Places a rule about a named parameter at the attribute of it the rule is about.</summary>
     /// <remarks>
     /// <c>ArgumentException</c> as well as the language's own: <c>clamp</c> with a reversed range
-    /// throws one, and a pass whose job is to say what is wrong with a file must not be the thing
-    /// that takes the file off the screen. Such a refusal names no part, so the caller says which
-    /// expression it was running.
+    /// throws one, and it names no part, so the caller says which expression it was running.
     /// </remarks>
     private static void Place(
         List<SvgSourceDiagnostic> found,
@@ -324,16 +256,11 @@ public static class SvgSourceDiagnostics
         _ => null,
     };
 
-    /// <summary>
-    /// Turns a refusal into something a view can underline.
-    /// </summary>
+    /// <summary>Turns a refusal into something a view can underline.</summary>
     /// <remarks>
-    /// The language reports a position but no extent, so the span comes from the token that position
-    /// falls in: underlining a name is legible where a caret under one character is not. Where the
-    /// position lands in the uncoloured remainder — everything past a point the lexer could not read
-    /// — there is no piece to mark, so the run of non-space characters starting there is used
-    /// instead. Marking the whole remainder would underline the rest of the line to say one symbol
-    /// is wrong.
+    /// The language reports a position but no extent, so the span is the token it falls in. Past the
+    /// point the lexer stopped there is no token, and the run of non-space characters is used rather
+    /// than the whole remainder, which would underline the rest of the line.
     /// </remarks>
     private static SvgSourceDiagnostic Describe(
         ExprException failure,
@@ -349,9 +276,8 @@ public static class SvgSourceDiagnostics
 
     /// <summary>Marks the piece of the document at <paramref name="at"/>.</summary>
     /// <remarks>
-    /// Internal rather than private because the attribute pass wants the same two behaviours: a mark
-    /// that never begins on a space, and one that covers the piece the pane already draws rather than
-    /// a caret under one character.
+    /// Internal because the attribute pass wants the same two behaviours: a mark that never begins on
+    /// a space, and one that covers a whole piece rather than one character.
     /// </remarks>
     internal static SvgSourceDiagnostic Mark(
         int at,
@@ -361,9 +287,8 @@ public static class SvgSourceDiagnostics
         string source,
         SvgSourceSeverity severity = SvgSourceSeverity.Error)
     {
-        // A mark never begins on a space. A rule about an expression as a whole reports position
-        // zero, which in `default=" 1 "` is the gap before the value, and a one-space underline is
-        // a mark a reader cannot see. The first thing actually written is what it is about.
+        // A rule about a whole expression reports position zero, which in `default=" 1 "` is the
+        // gap before the value — an underline a reader cannot see.
         while (at < stop && at < source.Length && char.IsWhiteSpace(source[at]))
         {
             at++;

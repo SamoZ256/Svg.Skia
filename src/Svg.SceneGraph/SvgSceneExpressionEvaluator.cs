@@ -14,18 +14,10 @@ namespace Svg.SceneGraph;
 /// any renderer can draw without knowing the extension exists.
 /// </summary>
 /// <remarks>
-/// <para>
-/// This is the whole seam. Rewriting the model rather than teaching a renderer to consult
-/// <see cref="SKColor.Expression"/> means <c>SkiaModel</c> and <c>AvaloniaPicture</c> need no changes
-/// at all — and it is the only way that works for the Skia path, where <c>SkiaModel</c> is a shared
-/// static instance with nowhere to keep one document's parameter values.
-/// </para>
-/// <para>
-/// Nothing is mutated. Paints are shared: two elements with equal values get one cached
-/// <see cref="SKPaint"/>, and the symbolic picture has to survive intact for the next set of
-/// parameter values. Untouched subtrees come back as the same instances, so a document with no
-/// expressions costs one walk and no allocation.
-/// </para>
+/// Rewriting the model rather than teaching a renderer to consult <see cref="SKColor.Expression"/>
+/// leaves both back ends unchanged, and is the only way that works for Skia, where
+/// <c>SkiaModel</c> is a shared static with nowhere to keep one document's values. Nothing is
+/// mutated: paints are shared, and an untouched subtree comes back as the same instance.
 /// </remarks>
 public static class SvgSceneExpressionEvaluator
 {
@@ -59,9 +51,8 @@ public static class SvgSceneExpressionEvaluator
     /// <summary>Reference identity, so a shared instance is rewritten once and stays shared.</summary>
     /// <remarks>
     /// Not <c>ReferenceEqualityComparer</c>, which is .NET 5 and up while this targets
-    /// netstandard2.0. Most of the model is records, so the default comparer would compare by value
-    /// and merge two distinct paints that happen to be equal — which would be harmless, but would
-    /// also silently stop the sharing being observable.
+    /// netstandard2.0. The model is mostly records, so the default comparer would merge two distinct
+    /// paints that happen to be equal.
     /// </remarks>
     private sealed class IdentityComparer : IEqualityComparer<object>
     {
@@ -122,10 +113,8 @@ public static class SvgSceneExpressionEvaluator
                 {
                     var close = FindMatchingEnd(source, index, end);
 
-                    // Inside a range that is already dropped, the condition is not evaluated at all.
-                    // Generated code nests the ifs, so at runtime an inner condition behind a false
-                    // outer one never runs either — and evaluating it here could raise an error for
-                    // code that will not execute.
+                    // Generated code nests the ifs, so an inner condition behind a false outer one
+                    // never runs — evaluating it here could raise an error for dead code.
                     var keep = suppressed || Condition(begin);
 
                     RewriteRange(source, index + 1, close, target, suppressed || !keep);
@@ -150,25 +139,11 @@ public static class SvgSceneExpressionEvaluator
                 {
                     if (IsCanvasState(command))
                     {
-                        // Kept, and kept exactly as it is.
-                        //
-                        // Generated code drops a false range wholesale, which it can afford because
-                        // it assigns SetMatrix(TotalMatrix) and whatever comes next restates its own
-                        // absolute matrix. The runtime renderer applies Concat(DeltaMatrix), where a
-                        // dropped delta would leave every later command transformed by the wrong
-                        // matrix.
-                        //
-                        // In practice that difference does not arise: SvgSceneRenderer opens the
-                        // range around everything a node contributes, so a matrix or clip inside it
-                        // is always inside a Save that the range's own Restore pops, and deleting
-                        // the range would be equally correct. This does not rely on that. The
-                        // recorder guarantees the balance, not the model, and a picture that arrives
-                        // any other way — hand-built, or from a recorder that changes — still has to
-                        // render the same. ConditionalRangeTests pins the difference on a picture
-                        // built by hand, because no document produces one.
-                        //
-                        // None of these draws, so leaving their paints unrewritten is safe and
-                        // avoids evaluating expressions belonging to a range that is not drawn.
+                        // Kept, not dropped. Generated code can drop a false range because it
+                        // assigns SetMatrix(TotalMatrix); the runtime renderer applies
+                        // Concat(DeltaMatrix), where a dropped delta mistransforms every later
+                        // command. No document produces such a picture — the recorder balances every
+                        // range — so ConditionalRangeTests pins it on one built by hand.
                         target.Add(command);
                     }
 
@@ -348,8 +323,7 @@ public static class SvgSceneExpressionEvaluator
             }
 
             // Cloned rather than built field by field, so a member added to SKPaint later cannot be
-            // silently dropped here. The clone deep-copies a shader that is then replaced, which is
-            // wasted work on a path that only runs for paints carrying an expression.
+            // silently dropped.
             var clone = paint.Clone();
             clone.Color = color;
             clone.Shader = shader;

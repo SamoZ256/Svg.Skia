@@ -28,18 +28,10 @@ namespace Svg.Skia.UnitTests;
 /// rewriter.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The expression-level suite compares <c>TypedExpr</c> evaluation, which is the language itself. It
-/// cannot see a disagreement introduced <i>above</i> that — in <c>SymCSharpEmitter</c> and the
-/// helpers it calls, or in <c>ExprColor</c> and the rewriter's own conversions. A real one lived
-/// there: <c>SvgToColorF</c> divided a channel by <c>255f</c> while <c>ShimSkiaSharp.SKColor</c>
-/// multiplies by <c>1 / 255.0f</c>, which differ for 126 of the 256 byte values, and it took a
-/// one-pixel difference in a demo render to notice.
-/// </para>
-/// <para>
-/// So these cases exist to make that layer differential too. The alpha scale and the linear-RGB
-/// conversion have exactly the same shape of risk, and nothing else compares them.
-/// </para>
+/// The expression-level suite cannot see a disagreement introduced above the language. A real one
+/// lived there: <c>SvgToColorF</c> divided a channel by <c>255f</c> while
+/// <c>ShimSkiaSharp.SKColor</c> multiplies by <c>1 / 255.0f</c>, differing for 126 of the 256 byte
+/// values, and it took a one-pixel difference in a demo render to notice.
 /// </remarks>
 public class SymNodeDifferentialTests
 {

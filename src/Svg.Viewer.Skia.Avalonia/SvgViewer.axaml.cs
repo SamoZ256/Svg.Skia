@@ -30,17 +30,10 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// A drop-in SVG viewer: open a drawing, zoom and pan it, and drive the parameters it declares.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Loading is the only thing that leaves the UI thread, because parsing a document and compiling its
-/// scene is the expensive half. Binding a value is not: <see cref="SKSvg.SetExpressionValues"/>
-/// evaluates a model that is already there, and doing it on the UI thread is what keeps two changes
-/// in the order the user made them.
-/// </para>
-/// <para>
-/// Nothing here blanks the drawing on an error. A failed load leaves the previous document up, a
-/// malformed declaration block still renders its placeholders, and a rejected value leaves the last
-/// good rendering exactly where it was.
-/// </para>
+/// Loading is the only thing that leaves the UI thread; binding a value evaluates a model that is
+/// already there, and staying on the thread keeps two changes in the order they were made. Nothing
+/// here blanks the drawing on an error — a failed load, a malformed block and a rejected value all
+/// leave what is up where it was.
 /// </remarks>
 public partial class SvgViewer : UserControl
 {
@@ -85,30 +78,18 @@ public partial class SvgViewer : UserControl
     /// Whether the editor is holding the open drawing, and is therefore the truth about it.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// False until the editor has been given this document, and false again the moment another is
-    /// loaded: a document that arrives while the pane is closed leaves the editor holding the last
-    /// one's text, and asking that what is wrong with the drawing would answer about the wrong file.
-    /// </para>
-    /// <para>
-    /// Holding the drawing is not the same as being on screen. A parameter added from the panel
-    /// fills the buffer without opening the pane, and from that moment the document is modified and
-    /// can be saved — which it could not be if this meant visibility.
-    /// </para>
+    /// Not the same as being on screen: a parameter added from the panel fills the buffer without
+    /// opening the pane, and from that moment the document is modified and can be saved.
     /// </remarks>
     private bool _sourceBuffered;
 
     /// <summary>What the modified flag last was, so the change can be raised rather than polled.</summary>
     private bool _sourceModified;
 
-    /// <summary>
-    /// Waits for typing to stop before rebuilding the drawing.
-    /// </summary>
+    /// <summary>Waits for typing to stop before rebuilding the drawing.</summary>
     /// <remarks>
-    /// A timer rather than <see cref="RequestApply"/>'s coalescing: that runs once a frame, which is
-    /// what a slider drag wants and the opposite of what this does. Rebuilding is whole-document —
-    /// 18ms to parse a 132KB drawing, 13ms to split it and 12ms to check it — so waiting for a pause
-    /// is what makes it free, and nothing incremental is needed.
+    /// A timer rather than <see cref="RequestApply"/>'s per-frame coalescing, because rebuilding is
+    /// whole-document: 18ms to parse a 132KB drawing, 13ms to split it and 12ms to check it.
     /// </remarks>
     private readonly DispatcherTimer _rebuild = new() { Interval = TimeSpan.FromMilliseconds(200d) };
 
@@ -201,9 +182,8 @@ public partial class SvgViewer : UserControl
     /// Raised when the user asks for files — picked or dropped — before any of them is read.
     /// </summary>
     /// <remarks>
-    /// The viewer holds one document, so opening replaces what is up. A host that shows several at
-    /// once — the shell, whose tabs are one viewer each — marks the request handled and opens the
-    /// paths its own way; unhandled, the viewer loads them itself as before.
+    /// The viewer holds one document, so opening replaces what is up. A host showing several marks
+    /// the request handled and places the paths itself.
     /// </remarks>
     public event EventHandler<SvgViewerOpenRequestedEventArgs>? OpenRequested;
 
@@ -249,9 +229,8 @@ public partial class SvgViewer : UserControl
     /// Whether the drawing's text is shown under it.
     /// </summary>
     /// <remarks>
-    /// A pane rather than a window of its own, because this control is dropped into applications
-    /// that own their windows: one opening unbidden is not something an embedder can place, own or
-    /// suppress. A host that wants a window can put <see cref="SvgViewerDocument.SourceText"/> in one.
+    /// A pane rather than a window, because an embedder owns its windows and cannot place or
+    /// suppress one that opens unbidden.
     /// </remarks>
     public bool ShowSource
     {
@@ -287,10 +266,8 @@ public partial class SvgViewer : UserControl
     /// What is wrong with the open drawing, as ranges into <see cref="SvgViewerDocument.SourceText"/>.
     /// </summary>
     /// <remarks>
-    /// Analysed on first ask and kept until the document changes, rather than only when the pane is
-    /// opened: the error panel needs to know whether a failed binding is the drawing's fault before
-    /// anyone has asked to read it. A host that wants a problems list of its own reads these; the
-    /// pane marks them in place.
+    /// Analysed on first ask, not only when the pane opens: the error panel needs to know whether a
+    /// failed binding is the drawing's fault before anyone asks to read it.
     /// </remarks>
     public IReadOnlyList<SvgSourceDiagnostic> SourceDiagnostics => Diagnostics();
 
@@ -311,13 +288,8 @@ public partial class SvgViewer : UserControl
     /// </summary>
     /// <remarks>
     /// Separate from <see cref="LoadAsync(string)"/> because this is the user asking, which is what
-    /// <see cref="OpenRequested"/> is about — a host loading a file itself is not opening anything.
-    /// It is also how a test drives a drop without building a drag payload.
-    /// <para>
-    /// Returns whether a drawing is open as a result, and true for a handled request — the host
-    /// placed the paths, and only it knows what became of each. The task waits for whatever the host
-    /// handed back.
-    /// </para>
+    /// <see cref="OpenRequested"/> is about. A handled request returns true: only the host knows what
+    /// became of each path.
     /// </remarks>
     public async Task<bool> OpenAsync(IReadOnlyList<string> paths)
     {
@@ -377,11 +349,8 @@ public partial class SvgViewer : UserControl
 
             if (_document is null)
             {
-                // Nothing was open for the failure to leave alone. Reporting on the document here
-                // would say `No drawing open.` over a card naming the line that stopped it -- true
-                // of the viewer, and no answer to someone who just handed it a file. The panel is
-                // told there is no drawing rather than an empty one, so it does not claim the file
-                // declares no parameters when nothing has read it.
+                // Told there is no drawing rather than an empty one, so the panel does not claim
+                // the file declares no parameters when nothing has read it.
                 _statusText.Text = name is { } ? $"{name} couldn't be opened" : "The drawing couldn't be opened.";
                 _parameters.Parameters = null;
             }
@@ -472,10 +441,8 @@ public partial class SvgViewer : UserControl
         // re-reading one that was edited elsewhere, must not silently discard what was set.
         if (_rows.Count != declarations.Count || !_rows.Zip(declarations).All(pair => Same(pair.First, pair.Second)))
         {
-            // Row by row where the whole list does not match, because the text is being edited:
-            // adding one <e:param> used to discard every value bound to the others, which was a
-            // rare annoyance when a reload meant reopening a file and is a constant one while
-            // someone is typing.
+            // Row by row, because adding one <e:param> used to discard every value bound to the
+            // others — rare when a reload meant reopening a file, constant while someone types.
             var kept = _rows.ToDictionary(row => row.Name, StringComparer.Ordinal);
 
             _rows = SvgViewerParameterFactory.Create(declarations);
@@ -500,10 +467,8 @@ public partial class SvgViewer : UserControl
 
     /// <summary>Whether a row already standing was built from this declaration.</summary>
     /// <remarks>
-    /// Everything a row is made of, not the name and the type alone. Those two were enough when a
-    /// reload meant reopening a file, where the declarations came back identical — with the source
-    /// editable, changing a <c>step</c> or a bound leaves both untouched, and the panel went on
-    /// showing what the file said before the edit.
+    /// All four expressions, not the name and type alone: with the source editable, changing a
+    /// <c>step</c> or a bound leaves those two untouched and the panel showed the pre-edit range.
     /// </remarks>
     private static bool Same(SvgViewerParameter row, SvgExpressionParameter declared)
         => row.Type == declared.Type
@@ -526,10 +491,8 @@ public partial class SvgViewer : UserControl
         switch (row)
         {
             case SvgViewerNumberParameter number when value.Type == ExprType.Number:
-                // The same widening the row was seeded through, because these two numbers are
-                // compared: a value put back plainly differs from a seed taken through decimal by
-                // the float's binary tail, and the row would call itself modified for ever over a
-                // difference no one made.
+                // The same widening the seed took: compared plainly, the float's binary tail would
+                // leave the row modified for ever over a difference nobody made.
                 number.Value = SvgViewerParameterFactory.Widen(value.AsNumber);
                 return true;
 
@@ -561,10 +524,7 @@ public partial class SvgViewer : UserControl
     /// <summary>
     /// Coalesces a burst of changes into one binding per frame.
     /// </summary>
-    /// <remarks>
-    /// Dragging a slider raises a change per tick, and each binding evaluates the model and rebuilds
-    /// a picture. One per frame is the difference between a smooth drag and a queue of stale ones.
-    /// </remarks>
+    /// <remarks>One per frame: a drag raises a change per tick, and each rebuilds a picture.</remarks>
     private void RequestApply()
     {
         if (_applyQueued)
@@ -602,8 +562,8 @@ public partial class SvgViewer : UserControl
         }
         catch (ExprException failure)
         {
-            // Binding is all or nothing, so the previous rendering is still up. The control's value
-            // is deliberately left alone: it is what the user has to see in order to correct it.
+            // All or nothing, so the previous rendering is still up. The control keeps its value:
+            // it is what the user has to see to correct it.
             ShowNote(Note());
             ShowFault(IsMarked(failure) ? null : failure.ToDiagnostic());
         }
@@ -613,8 +573,7 @@ public partial class SvgViewer : UserControl
             ShowFault(failure.Message);
         }
 
-        // The picture is swapped in place, and nothing about the control changed, so the repaint has
-        // to be asked for.
+        // Swapped in place, so nothing about the control changed and the repaint must be asked for.
         _canvas.Publish();
 
         foreach (var row in _rows)
@@ -656,9 +615,8 @@ public partial class SvgViewer : UserControl
 
     /// <summary>How much of a drawing's text the pane will show.</summary>
     /// <remarks>
-    /// Not a layout limit any more — the rows virtualise, so length costs nothing to display. It is
-    /// a backstop on what is held: the tokens for a drawing this size are a few tens of megabytes,
-    /// and something has to say no to a file that is pathological rather than large.
+    /// A backstop on what is held, not on layout: the tokens for a drawing this size are tens of
+    /// megabytes.
     /// </remarks>
     internal const int SourceLimit = 2_000_000;
 
@@ -684,9 +642,8 @@ public partial class SvgViewer : UserControl
 
     /// <summary>The drawing's text, cut to what the pane will hold.</summary>
     /// <remarks>
-    /// A cut is recorded because it makes the pane read-only. Editing a truncated drawing and saving
-    /// it would behead the file and write the sentence below into it, which is a way to lose work
-    /// that no warning makes acceptable.
+    /// A cut is recorded because it makes the pane read-only: saving a truncated drawing would
+    /// behead the file and write the sentence below into it.
     /// </remarks>
     private string SourceText()
     {
@@ -705,9 +662,8 @@ public partial class SvgViewer : UserControl
     /// What is wrong with the drawing, analysed at most once per document.
     /// </summary>
     /// <remarks>
-    /// Splitting a document is context-free, checking one is not — it reads every declaration in the
-    /// file — so this is a second pass, and one that costs nothing on a drawing with no expressions
-    /// in it.
+    /// Splitting is context-free and checking is not, so this is a second pass — and a free one on a
+    /// drawing with no expressions.
     /// </remarks>
     private IReadOnlyList<SvgSourceDiagnostic> Diagnostics()
     {
@@ -726,9 +682,8 @@ public partial class SvgViewer : UserControl
     /// Gives the editor the open drawing, if it does not have it already.
     /// </summary>
     /// <remarks>
-    /// Separate from painting the pane because the two are wanted at different times: showing the
-    /// pane needs both, and an edit from the parameter panel needs only this. Nothing calls it until
-    /// one of those happens, so a drawing nobody asks to see or to change still costs nothing.
+    /// Separate from painting the pane: showing it needs both, an edit from the panel needs only
+    /// this, and a drawing nobody opens or edits costs nothing.
     /// </remarks>
     private void EnsureSourceBuffer()
     {
@@ -768,10 +723,8 @@ public partial class SvgViewer : UserControl
     /// Fills the pane.
     /// </summary>
     /// <remarks>
-    /// Only when the pane is up, because the toggle starts off and laying out a document nobody
-    /// asked to see is the whole cost of the feature paid for nothing. It re-colours on every show
-    /// rather than only the first, because the buffer can have been edited from the parameter panel
-    /// while the pane was closed.
+    /// Only when the pane is up, since the toggle starts off. It re-colours on every show, not only
+    /// the first, because the panel can have edited the buffer while the pane was closed.
     /// </remarks>
     private void RenderSource()
     {
@@ -786,9 +739,8 @@ public partial class SvgViewer : UserControl
 
     /// <summary>Re-colours and re-marks what the pane is showing, without disturbing it.</summary>
     /// <remarks>
-    /// Nothing to do while the pane is closed: an edit still rebuilds the drawing and still reports
-    /// what is wrong with it, and colouring text nobody is looking at is the one part of that worth
-    /// putting off until they are.
+    /// Nothing to do while the pane is closed: an edit still rebuilds and still reports, and only
+    /// the colouring is worth putting off.
     /// </remarks>
     private void RefreshSource()
     {
@@ -823,9 +775,8 @@ public partial class SvgViewer : UserControl
     /// Builds the drawing again from the text in the pane.
     /// </summary>
     /// <remarks>
-    /// Half-typed markup does not parse, so a refusal is the ordinary case and must cost nothing: the
-    /// picture that is up stays up and only the marks move. The colours and diagnostics are refreshed
-    /// either way, because they are what the reader is steering by while the drawing cannot follow.
+    /// Half-typed markup does not parse, so a refusal is the ordinary case: the picture stays up and
+    /// only the marks move, which is what the reader steers by until the drawing can follow.
     /// </remarks>
     private void RebuildFromSource()
     {
@@ -890,17 +841,9 @@ public partial class SvgViewer : UserControl
     /// Asks for a parameter and writes it into the drawing's own text.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// An edit here is a splice, not a rewrite: the declaration is inserted where a person would
-    /// have typed it and the rest of the file is left exactly as it was, comments included. What it
-    /// then takes to reach the screen is nothing new — the buffer changes, which is a keystroke as
-    /// far as everything downstream is concerned, and the drawing and the panel follow.
-    /// </para>
-    /// <para>
-    /// It does not need the pane to be open. That is the whole reason the buffer and the pane were
-    /// separated: a parameter added from the panel makes the document modified and saveable whether
-    /// or not anybody is looking at its text.
-    /// </para>
+    /// A splice, not a rewrite: the rest of the file is left as it was, comments included, and the
+    /// buffer changing is a keystroke as far as everything downstream is concerned. It does not need
+    /// the pane open — which is why the buffer and the pane are separate things.
     /// </remarks>
     /// <returns>Whether the drawing was changed.</returns>
     public async Task<bool> AddParameterAsync()
@@ -932,9 +875,8 @@ public partial class SvgViewer : UserControl
     /// Asks what one parameter should declare, and writes the answer into the drawing.
     /// </summary>
     /// <remarks>
-    /// A rename is an edit everywhere the drawing names it, not only where it is declared, and the
-    /// whole of it is one thing to take back. The type is not offered: every expression using this
-    /// parameter was checked against the type it has.
+    /// A rename is an edit everywhere the drawing names it, and the whole of it is one thing to take
+    /// back. The type is not offered: every expression using it was checked against the type it has.
     /// </remarks>
     /// <returns>Whether the drawing was changed.</returns>
     public async Task<bool> EditParameterAsync(SvgViewerParameter parameter)
@@ -976,9 +918,8 @@ public partial class SvgViewer : UserControl
     /// Writes every value somebody chose into the drawing as the declared default.
     /// </summary>
     /// <remarks>
-    /// One call for the lot, so that a session of moving sliders is one thing to take back rather
-    /// than one per slider. Only the rows that differ from what the document says are written, so
-    /// committing twice in a row does nothing the second time.
+    /// One call for the lot, so a session of moving sliders is one thing to take back. Only rows that
+    /// differ are written, so committing twice does nothing the second time.
     /// </remarks>
     /// <returns>Whether the drawing was changed.</returns>
     public bool CommitParameterDefaults()
@@ -1009,10 +950,9 @@ public partial class SvgViewer : UserControl
 
     /// <summary>Puts an edit through the text buffer, as one thing that can be taken back.</summary>
     /// <remarks>
-    /// Through the buffer rather than around it, which is what makes the undo stack the one history
-    /// of this document: a parameter added from the panel and a line typed into the pane come off it
-    /// in the order they were done. Grouped, because an insertion that had to declare a namespace
-    /// and open a block is three spans and one decision.
+    /// Through the buffer rather than around it, so the undo stack is the one history of the
+    /// document. Grouped, because an insertion that declared a namespace and opened a block is three
+    /// spans and one decision.
     /// </remarks>
     private bool Splice(SvgSourceEditResult result)
     {
@@ -1052,9 +992,8 @@ public partial class SvgViewer : UserControl
     /// Writes the pane's text back to a file.
     /// </summary>
     /// <remarks>
-    /// Asks for somewhere to put it when the drawing has no file of its own — one loaded from text or
-    /// a stream — through the same service the open button uses, so a host that supplied one for
-    /// opening has already supplied one for saving.
+    /// A drawing loaded from text or a stream has no file, so it asks through the same service the
+    /// open button uses.
     /// </remarks>
     /// <returns>Whether anything was written.</returns>
     public async Task<bool> SaveSourceAsync(string? path = null)
@@ -1175,9 +1114,8 @@ public partial class SvgViewer : UserControl
     /// Every brush the pane paints with, by the one route.
     /// </summary>
     /// <remarks>
-    /// A key is a string, and a rename that catches one paints nothing and says nothing: the line
-    /// numbers went unpainted for two commits exactly that way. One lookup is what a test can check
-    /// every key against.
+    /// A key is a string, so a rename that misses one paints nothing and says nothing — the line
+    /// numbers went unpainted for two commits that way. One lookup is what a test can check.
     /// </remarks>
     internal IBrush? Resource(string key)
         => this.TryFindResource(key, ActualThemeVariant, out var brush) ? brush as IBrush : null;
@@ -1202,11 +1140,8 @@ public partial class SvgViewer : UserControl
     /// What is wrong with the open drawing, said once and for as long as it is true.
     /// </summary>
     /// <remarks>
-    /// A standing statement rather than a reaction: a drawing with mistakes in it has them from the
-    /// moment it opens, and finding that out by moving an unrelated slider is the wrong way round.
-    /// The count and the pointer are all it gives, because the pane marks each one on the line that
-    /// carries it, and repeating the compiler's words down here says the same thing twice in the
-    /// place least able to point at it.
+    /// A standing statement, not a reaction: a drawing has its mistakes from the moment it opens.
+    /// A count and a pointer only, because the pane marks each one on the line that carries it.
     /// </remarks>
     private string? Note()
     {
@@ -1276,10 +1211,8 @@ public partial class SvgViewer : UserControl
     /// How far the drawing is pushed out of focus while something is being said over it.
     /// </summary>
     /// <remarks>
-    /// Far enough that shapes become colour rather than edges, which with the wash over it reads as
-    /// glass in front of the drawing rather than a drawing someone forgot to focus. A small radius
-    /// looks like a mistake; this one looks deliberate. Not so far that the drawing stops being
-    /// recognisable — a reader still wants to see which one they are being told about.
+    /// Far enough that shapes become colour rather than edges, so it reads as glass over the drawing
+    /// rather than one somebody forgot to focus — and near enough to stay recognisable.
     /// </remarks>
     private const double FaultBlur = 28d;
 
@@ -1287,10 +1220,8 @@ public partial class SvgViewer : UserControl
     /// Says what is wrong with the drawing, in the status bar, beside what is already there.
     /// </summary>
     /// <remarks>
-    /// A note rather than a panel: it is about things the pane marks on the line that carries them,
-    /// so its whole job is to say how many and where to look. On the row that already exists,
-    /// because a note that came and went with every edit would shove the viewer up and down while
-    /// someone typed.
+    /// On the row that already exists: a note appearing and vanishing with every edit would shove
+    /// the viewer up and down while someone typed.
     /// </remarks>
     private void ShowNote(string? message)
     {
@@ -1319,10 +1250,8 @@ public partial class SvgViewer : UserControl
     /// Says what has no line to be said on, over the drawing it is about.
     /// </summary>
     /// <remarks>
-    /// Over rather than under. What reaches here is what the pane cannot mark — a value of the wrong
-    /// type for the attribute holding it, a document that would not load, a parameter the host left
-    /// unbound — and in every one of those the drawing on screen is not what the file says. Blurring
-    /// it says that before the sentence is read, and takes no room from anything to say it.
+    /// What reaches here is what the pane cannot mark, and in every such case the drawing on screen
+    /// is not what the file says. Blurring it says so before the sentence is read.
     /// </remarks>
     private void ShowFault(string? message)
     {
@@ -1357,9 +1286,8 @@ public sealed class SvgViewerOpenRequestedEventArgs : EventArgs
     /// What the host started, for <see cref="SvgViewer.OpenAsync(IReadOnlyList{string})"/> to wait on.
     /// </summary>
     /// <remarks>
-    /// The event is synchronous, so a host that opens asynchronously — anything reading a file —
-    /// has otherwise no way to say it has not finished, and its caller would be told the drawing is
-    /// open before it had been read.
+    /// The event is synchronous, so a host opening asynchronously has no other way to say it has not
+    /// finished.
     /// </remarks>
     public Task? Completion { get; set; }
 }

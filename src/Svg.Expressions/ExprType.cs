@@ -39,10 +39,8 @@ public sealed class ExprException : Exception
     /// Which part of a declaration this is about, when it is about one.
     /// </summary>
     /// <remarks>
-    /// A rule knows what it is complaining about; only a reader knows where that was written. So the
-    /// rules say which part and the reader turns that into a position, which is the only arrangement
-    /// where both readers keep reporting identically — the one that walks a parsed tree has no
-    /// positions to give, and says so by ignoring this.
+    /// See <see cref="SvgDeclarationPart"/>: the rules name a part and a reader turns it into a
+    /// position. The reader that walks a parsed tree has none to give, and says so by ignoring this.
     /// </remarks>
     public SvgDeclarationPart? Part { get; }
 

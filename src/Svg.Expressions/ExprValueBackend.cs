@@ -8,17 +8,9 @@ namespace Svg.Expressions;
 
 /// <summary>Evaluates a checked expression against values.</summary>
 /// <remarks>
-/// <para>
-/// The sibling of the code generator's C# back end, and pinned against it: every case here has to
-/// produce what the emitted C# computes for the same input, because the same document can go
-/// through either. Where that forces an odd-looking choice, the comment says which line of
-/// <c>ExprHelpers</c> it is copying.
-/// </para>
-/// <para>
-/// Nothing is folded or reordered. Short-circuiting and the one-branch conditional are not
-/// optimisations — they are what C# does, so doing otherwise would change the answer for an
-/// expression whose unused half divides by zero.
-/// </para>
+/// The sibling of the code generator's C# back end and pinned against it: the same document can go
+/// through either. Nothing is folded or reordered — short-circuiting is what C# does, and doing
+/// otherwise would change the answer for an expression whose unused half divides by zero.
 /// </remarks>
 internal static class ExprValueBackend
 {
@@ -42,9 +34,8 @@ internal static class ExprValueBackend
     {
         if (!values.TryGetValue(symbol.Name, out var value))
         {
-            // The checker resolved the name against the symbol table, so reaching here means the
-            // table and the values disagree — a caller that declared a type without binding a
-            // value, not anything the author did.
+            // The checker resolved the name, so reaching here means the table and the values
+            // disagree: a caller declared a type without binding a value.
             throw new ExprException($"No value was bound for '{symbol.Name}'.", symbol.Position);
         }
 
@@ -224,9 +215,8 @@ internal static class ExprValueBackend
     // ExprHelpers.SvgRgba / SvgHsla / SvgWithAlpha all spell the alpha conversion this way.
     private static byte AlphaByte(float value) => (byte)Math.Round(ExprMath.Clamp(value, 0f, 1f) * 255f);
 
-    // ExprHelpers.SvgHsl wraps the hue and scales s and l to percentages before handing them to
-    // SkiaSharp's SKColor.FromHsl. The wrap is load-bearing rather than defensive: FromHsl folds
-    // the hue back into range only once, so it alone would be wrong for something like 720.
+    // The hue wrap is load-bearing, not defensive: SKColor.FromHsl folds it back into range only
+    // once, so it alone would be wrong for something like 720.
     private static ExprValue Hsl(float h, float s, float l)
         => FromHsl(
             ((h % 360f) + 360f) % 360f,
