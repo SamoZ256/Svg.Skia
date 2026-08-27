@@ -95,6 +95,9 @@ public class SvgViewerParameterEditingTests
     private static TextEditor Pane(SvgViewer viewer)
         => viewer.GetVisualDescendants().OfType<TextEditor>().First(c => c.Name == "SourceEditor");
 
+    private static TextBlock CommitLabel(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<TextBlock>().First(c => c.Name == "CommitLabel");
+
     private static SvgExpressionParameter Radius(string name = "radius")
         => new(name, ExprType.Number, "8", "0", "12", null);
 
@@ -285,6 +288,49 @@ public class SvgViewerParameterEditingTests
 
         // Committed, so nothing differs from the declared defaults any more.
         Assert.DoesNotContain(viewer.Parameters, row => row.IsModified);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Committing_A_Value_That_Is_Not_A_Round_Binary_Fraction_Still_Settles()
+    {
+        // 0.5 is exactly representable and 0.37 is not, which is the whole of the difference: the
+        // seed and a restored value have to reach the same double or the row stays modified for
+        // ever and the panel keeps offering to commit what it just committed.
+        var (window, viewer) = await HostLoaded(Parametric);
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Value = 0.37d;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.CommitParameterDefaults());
+        await Settle();
+
+        Assert.DoesNotContain(viewer.Parameters, row => row.IsModified);
+        Assert.False(CommitLabel(viewer).IsVisible);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_Panel_Stops_Offering_To_Commit_Once_It_Has()
+    {
+        var (window, viewer) = await HostLoaded(Parametric);
+
+        Assert.False(CommitLabel(viewer).IsVisible);
+
+        viewer.Parameters.OfType<SvgViewerColorParameter>().Single().Color = Color.FromRgb(0, 0, 255);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(CommitLabel(viewer).IsVisible);
+
+        Assert.True(viewer.CommitParameterDefaults());
+        await Settle();
+
+        Assert.False(CommitLabel(viewer).IsVisible);
 
         window.Close();
     }

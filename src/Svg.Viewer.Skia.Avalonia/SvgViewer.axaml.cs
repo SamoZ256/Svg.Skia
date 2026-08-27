@@ -525,7 +525,11 @@ public partial class SvgViewer : UserControl
         switch (row)
         {
             case SvgViewerNumberParameter number when value.Type == ExprType.Number:
-                number.Value = value.AsNumber;
+                // The same widening the row was seeded through, because these two numbers are
+                // compared: a value put back plainly differs from a seed taken through decimal by
+                // the float's binary tail, and the row would call itself modified for ever over a
+                // difference no one made.
+                number.Value = SvgViewerParameterFactory.Widen(value.AsNumber);
                 return true;
 
             case SvgViewerBooleanParameter boolean when value.Type == ExprType.Boolean:
