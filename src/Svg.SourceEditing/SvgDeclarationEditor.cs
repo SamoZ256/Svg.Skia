@@ -52,14 +52,54 @@ public static class SvgDeclarationEditor
             return SvgSourceEditResult.Refuse(bad);
         }
 
-        var root = document!.Root;
+        return Place(svgText, document!, positions, prefix => Render(prefix, parameter), isLet: false, parameter.Name);
+    }
+
+    /// <summary>Declares a let, creating the block and the namespace if the document has none.</summary>
+    /// <remarks>
+    /// It goes below the lets already there, because that is the only place it can name all of them:
+    /// a let sees what is declared above it and nothing below.
+    /// </remarks>
+    public static SvgSourceEditResult AddLet(string svgText, string name, string expression)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        if (!Open(svgText, out var document, out var positions, out var refusal))
+        {
+            return SvgSourceEditResult.Refuse(refusal!);
+        }
+
+        var declarations = SvgExpressionDeclarations.Parse(svgText, out _);
+
+        if (Rejected(declarations, name, expression) is { } bad)
+        {
+            return SvgSourceEditResult.Refuse(bad);
+        }
+
+        return Place(svgText, document!, positions, prefix => Render(prefix, name, expression), isLet: true, name);
+    }
+
+    /// <summary>Writes a rendered declaration into the document, block and namespace included.</summary>
+    private static SvgSourceEditResult Place(
+        string svgText,
+        XDocument document,
+        SvgExpressionDeclarations.Positions positions,
+        Func<string, string> render,
+        bool isLet,
+        string name)
+    {
+        var root = document.Root;
 
         if (root is null)
         {
-            return SvgSourceEditResult.Refuse("The document has no root element to add a parameter to.");
+            return SvgSourceEditResult.Refuse("The document has no root element to declare anything in.");
         }
 
         var prefix = SvgExpressionDeclarations.NamespacePrefixFor(root, out var declared);
+        var element = render(prefix);
         var newline = Newline(svgText);
         var indent = IndentUnit(svgText);
 
@@ -73,17 +113,17 @@ public static class SvgDeclarationEditor
         var block = document.Descendants(Ns + "code").FirstOrDefault();
 
         var written = block is null
-            ? CreateBlock(svgText, root, positions, prefix, parameter, newline, indent)
-            : AppendToBlock(svgText, block, positions, prefix, parameter, newline, indent);
+            ? CreateBlock(svgText, root, positions, prefix, element, newline, indent)
+            : AppendToBlock(svgText, block, positions, prefix, element, isLet, newline, indent);
 
         if (written is null)
         {
-            return SvgSourceEditResult.Refuse("This drawing has nothing in it to give a parameter to.");
+            return SvgSourceEditResult.Refuse("This drawing has nothing in it to declare anything against.");
         }
 
         edits.Add(written.Value);
 
-        return Verify(svgText, edits, parameter.Name);
+        return Verify(svgText, edits, name);
     }
 
     /// <summary>Rewrites a declaration, carrying its uses with it when the name changes.</summary>
@@ -160,6 +200,202 @@ public static class SvgDeclarationEditor
         edits.Sort((left, right) => left.Position.CompareTo(right.Position));
 
         return Verify(svgText, edits, renamed ? replacement.Name : null);
+    }
+
+    /// <summary>Rewrites a let, carrying its uses with it when the name changes.</summary>
+    /// <param name="name">The let as it currently stands.</param>
+    /// <param name="newName">What it should be called, which may be what it is called now.</param>
+    /// <param name="expression">The body it should have.</param>
+    public static SvgSourceEditResult UpdateLet(string svgText, string name, string newName, string expression)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        if (!Open(svgText, out var document, out var positions, out var refusal))
+        {
+            return SvgSourceEditResult.Refuse(refusal!);
+        }
+
+        if (Let(document!, name) is not { } element)
+        {
+            return SvgSourceEditResult.Refuse($"This drawing declares no let called '{name}'.");
+        }
+
+        var declarations = SvgExpressionDeclarations.Parse(svgText, out _);
+
+        if (Rejected(declarations, newName, expression, replacing: name) is { } bad)
+        {
+            return SvgSourceEditResult.Refuse(bad);
+        }
+
+        if (Body(svgText, element, positions) is not { } body)
+        {
+            return SvgSourceEditResult.Refuse($"'{name}' is not written as a pair of tags with an expression between them.");
+        }
+
+        var edits = new List<SvgTextEdit>
+        {
+            new(body.Start, body.Length, EscapeText(expression)),
+        };
+
+        var renamed = !string.Equals(name, newName, StringComparison.Ordinal);
+
+        if (renamed)
+        {
+            Write(svgText, element, positions, "name", newName, edits);
+
+            if (SvgDeclarationReferences.Rename(svgText, document!, positions, name, newName, edits) is { } trouble)
+            {
+                return SvgSourceEditResult.Refuse(trouble);
+            }
+        }
+
+        edits.Sort((left, right) => left.Position.CompareTo(right.Position));
+
+        return Verify(svgText, edits, renamed ? newName : null);
+    }
+
+    /// <summary>Moves a let to <paramref name="toIndex"/> among the lets.</summary>
+    /// <remarks>
+    /// Reordering is a change of meaning, not of layout: a let resolves against what is declared
+    /// above it, so one dragged past what it names stops resolving. <see cref="Verify"/> is what
+    /// catches that, since the document still reads back perfectly well either way.
+    /// </remarks>
+    public static SvgSourceEditResult MoveLet(string svgText, string name, int toIndex)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        if (!Open(svgText, out var document, out var positions, out var refusal))
+        {
+            return SvgSourceEditResult.Refuse(refusal!);
+        }
+
+        var lets = Lets(document!);
+        var from = lets.FindIndex(candidate => string.Equals((string?)candidate.Attribute("name"), name, StringComparison.Ordinal));
+
+        if (from < 0)
+        {
+            return SvgSourceEditResult.Refuse($"This drawing declares no let called '{name}'.");
+        }
+
+        if (lets.Select(let => let.Parent).Distinct().Count() > 1)
+        {
+            return SvgSourceEditResult.Refuse("This drawing spreads its lets over more than one <e:code> block, so their order is not one list to reorder.");
+        }
+
+        toIndex = Math.Max(0, Math.Min(toIndex, lets.Count - 1));
+
+        if (toIndex == from)
+        {
+            return SvgSourceEditResult.Nothing;
+        }
+
+        var moved = Line(svgText, lets[from], positions);
+
+        if (moved is not { } cut)
+        {
+            return SvgSourceEditResult.Refuse(
+                $"'{name}' shares its line with something else, so there is no line to move. Put it on a line of its own first.");
+        }
+
+        var rest = lets.Where((_, index) => index != from).ToList();
+        var newline = Newline(svgText);
+
+        // The whole line, moved as it was written: reordering must not reformat what it carries.
+        var text = svgText.Substring(cut.Element.Start, cut.Element.Length);
+
+        SvgTextEdit insertion;
+
+        if (toIndex == 0)
+        {
+            var (start, _) = positions.Span(rest[0]);
+
+            // At the tag, not at the start of its line: the indentation already there belongs to
+            // whichever let ends up first, and the one being moved brings a copy of it below.
+            insertion = new SvgTextEdit(start, 0, $"{text}{newline}{LeadingWhitespace(svgText, start)}");
+        }
+        else
+        {
+            var (start, length) = positions.Span(rest[toIndex - 1]);
+
+            insertion = new SvgTextEdit(start + length, 0, $"{newline}{LeadingWhitespace(svgText, start)}{text}");
+        }
+
+        var edits = new List<SvgTextEdit> { new(cut.Start, cut.Length, string.Empty), insertion };
+
+        edits.Sort((left, right) => left.Position.CompareTo(right.Position));
+
+        return Verify(svgText, edits, name);
+    }
+
+    /// <summary>Every let in the document, in the order it reads them.</summary>
+    private static List<XElement> Lets(XDocument document)
+        => document.Descendants(Ns + "code").SelectMany(block => block.Elements(Ns + "let")).ToList();
+
+    private static XElement? Let(XDocument document, string name)
+        => Lets(document).FirstOrDefault(
+            candidate => string.Equals((string?)candidate.Attribute("name"), name, StringComparison.Ordinal));
+
+    /// <summary>What sits between a let's tags.</summary>
+    /// <remarks>
+    /// The closing tag is found by scanning back rather than by its length, since <c>&lt;/e:let &gt;</c>
+    /// is legal. A let with no content at all is refused rather than guessed at.
+    /// </remarks>
+    private static (int Start, int Length)? Body(
+        string svgText,
+        XElement element,
+        SvgExpressionDeclarations.Positions positions)
+    {
+        var start = positions.ContentStart(element);
+        var (at, length) = positions.Span(element);
+
+        if (start < 0 || at < 0)
+        {
+            return null;
+        }
+
+        var end = svgText.LastIndexOf('<', Math.Min(at + length - 1, svgText.Length - 1), Math.Min(length, svgText.Length));
+
+        return end < start ? null : (start, end - start);
+    }
+
+    /// <summary>An element's span together with the line break and indentation that carry it.</summary>
+    /// <remarks>
+    /// Null where it shares its line with something else, which taking the line would delete.
+    /// </remarks>
+    private static (int Start, int Length, (int Start, int Length) Element)? Line(
+        string svgText,
+        XElement element,
+        SvgExpressionDeclarations.Positions positions)
+    {
+        var (start, length) = positions.Span(element);
+
+        if (start < 0)
+        {
+            return null;
+        }
+
+        var indent = LeadingWhitespace(svgText, start).Length;
+        var lineStart = start - indent;
+
+        if (lineStart == 0 || svgText[lineStart - 1] != '\n')
+        {
+            return null;
+        }
+
+        var from = lineStart - 1;
+
+        if (from > 0 && svgText[from - 1] == '\r')
+        {
+            from--;
+        }
+
+        return (from, start + length - from, (start, length));
     }
 
     /// <summary>Writes one attribute of a declaration, adding or removing it as needed.</summary>
@@ -287,32 +523,9 @@ public static class SvgDeclarationEditor
         SvgExpressionParameter parameter,
         string? replacing = null)
     {
-        var builder = new SvgExpressionDeclarations.Builder();
-
         try
         {
-            foreach (var existing in declarations.Parameters)
-            {
-                if (string.Equals(existing.Name, replacing, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                builder.AddParameter(
-                    existing.Name,
-                    ExprFunctions.NameOf(existing.Type),
-                    existing.DefaultExpression,
-                    existing.MinExpression,
-                    existing.MaxExpression,
-                    existing.StepExpression);
-            }
-
-            foreach (var let in declarations.Lets)
-            {
-                builder.AddLet(let.Name, let.Expression);
-            }
-
-            builder.AddParameter(
+            Seed(declarations, replacing).AddParameter(
                 parameter.Name,
                 ExprFunctions.NameOf(parameter.Type),
                 parameter.DefaultExpression,
@@ -326,6 +539,59 @@ public static class SvgDeclarationEditor
         }
 
         return null;
+    }
+
+    /// <summary>Why the language would not accept this let beside the ones already there.</summary>
+    private static string? Rejected(
+        SvgExpressionDeclarations declarations,
+        string name,
+        string expression,
+        string? replacing = null)
+    {
+        try
+        {
+            Seed(declarations, replacing).AddLet(name, expression);
+        }
+        catch (ExprException bad)
+        {
+            return bad.Message;
+        }
+
+        return null;
+    }
+
+    /// <summary>The document's declarations in a builder, less the one being stood in for.</summary>
+    private static SvgExpressionDeclarations.Builder Seed(SvgExpressionDeclarations declarations, string? replacing)
+    {
+        var builder = new SvgExpressionDeclarations.Builder();
+
+        foreach (var existing in declarations.Parameters)
+        {
+            if (string.Equals(existing.Name, replacing, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            builder.AddParameter(
+                existing.Name,
+                ExprFunctions.NameOf(existing.Type),
+                existing.DefaultExpression,
+                existing.MinExpression,
+                existing.MaxExpression,
+                existing.StepExpression);
+        }
+
+        foreach (var let in declarations.Lets)
+        {
+            if (string.Equals(let.Name, replacing, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            builder.AddLet(let.Name, let.Expression);
+        }
+
+        return builder;
     }
 
     /// <summary>Applies the edits and reads the result, so a bad splice cannot be handed over.</summary>
@@ -349,12 +615,73 @@ public static class SvgDeclarationEditor
             return SvgSourceEditResult.Refuse(diagnostics[0].Message);
         }
 
-        if (expected is { } name && !declarations.Parameters.Any(p => string.Equals(p.Name, name, StringComparison.Ordinal)))
+        if (expected is { } name && !Declares(declarations, name))
         {
             return SvgSourceEditResult.Refuse($"'{name}' was written but the document does not read it back.");
         }
 
+        var unresolved = Unresolved(declarations);
+
+        if (unresolved.Count > 0 && Stranded(unresolved, svgText) is { } stranded)
+        {
+            return SvgSourceEditResult.Refuse(stranded);
+        }
+
         return SvgSourceEditResult.From(edits);
+    }
+
+    /// <summary>Whether the document declares <paramref name="name"/> as either kind.</summary>
+    private static bool Declares(SvgExpressionDeclarations declarations, string name)
+        => declarations.Parameters.Any(p => string.Equals(p.Name, name, StringComparison.Ordinal))
+           || declarations.Lets.Any(l => string.Equals(l.Name, name, StringComparison.Ordinal));
+
+    /// <summary>The lets whose bodies do not check, in declaration order.</summary>
+    /// <remarks>
+    /// Reading does not type check, so a let written above the name it uses parses perfectly and
+    /// renders as nothing. Held by reference and added to as each checks, which is what puts the
+    /// ones above a let in its scope and keeps the ones below out.
+    /// </remarks>
+    private static List<(string Name, ExprException Failure)> Unresolved(SvgExpressionDeclarations declarations)
+    {
+        var symbols = declarations.CreateSymbolTable();
+        var checker = new ExprChecker(symbols);
+        var failed = new List<(string, ExprException)>();
+
+        foreach (var let in declarations.Lets)
+        {
+            try
+            {
+                symbols[let.Name] = checker.Check(let.Expression).Type;
+            }
+            catch (ExprException failure)
+            {
+                failed.Add((let.Name, failure));
+            }
+        }
+
+        return failed;
+    }
+
+    /// <summary>Which of these the edit is answerable for, or null if the document arrived that way.</summary>
+    /// <remarks>
+    /// An edit may not break a let that worked; it need not fix one that was already broken.
+    /// Refusing on every unresolved let would make a parameter uneditable in a document somebody is
+    /// part-way through repairing, which is the state <see cref="Open"/> deliberately allows. The
+    /// document is re-read only once something failed, so the usual splice pays nothing for this.
+    /// </remarks>
+    private static string? Stranded(List<(string Name, ExprException Failure)> unresolved, string svgText)
+    {
+        var before = Unresolved(SvgExpressionDeclarations.Parse(svgText, out _));
+
+        foreach (var (name, failure) in unresolved)
+        {
+            if (!before.Any(was => string.Equals(was.Name, name, StringComparison.Ordinal)))
+            {
+                return $"That would leave '{name}' unresolved: {failure.Message}";
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Adds <c>xmlns:e</c> to the root, after whatever it already declares.</summary>
@@ -387,18 +714,17 @@ public static class SvgDeclarationEditor
         return new SvgTextEdit(at, 0, $" xmlns:{prefix}=\"{SvgExpressionDeclarations.Namespace}\"");
     }
 
-    /// <summary>Writes a parameter into a block that already exists.</summary>
+    /// <summary>Writes a rendered declaration into a block that already exists.</summary>
     private static SvgTextEdit? AppendToBlock(
         string svgText,
         XElement block,
         SvgExpressionDeclarations.Positions positions,
         string prefix,
-        SvgExpressionParameter parameter,
+        string element,
+        bool isLet,
         string newline,
         string indent)
     {
-        var element = Render(prefix, parameter);
-
         // A block that closes itself has nothing to append to, so it becomes a pair holding the one
         // declaration. Its own indentation is what the new lines line up with.
         var contentStart = positions.ContentStart(block);
@@ -414,13 +740,15 @@ public static class SvgDeclarationEditor
                 $"<{prefix}:code>{newline}{own}{indent}{element}{newline}{own}</{prefix}:code>");
         }
 
-        // Among the parameters, not at the end. The reader takes them in any order, but a parameter
-        // written below the lets that use it reads backwards.
-        var lastParameter = block.Elements(Ns + "param").LastOrDefault();
+        // Each joins its own group rather than the end of the block: a parameter written below the
+        // lets that use it reads backwards, and a let is only in scope for what follows it.
+        var after = isLet
+            ? block.Elements(Ns + "let").LastOrDefault() ?? block.Elements(Ns + "param").LastOrDefault()
+            : block.Elements(Ns + "param").LastOrDefault();
 
-        if (lastParameter is { })
+        if (after is { })
         {
-            var (start, length) = positions.Span(lastParameter);
+            var (start, length) = positions.Span(after);
 
             if (start >= 0)
             {
@@ -435,8 +763,8 @@ public static class SvgDeclarationEditor
 
         if (first is { } && positions.Span(first).Start is var firstStart && firstStart >= 0)
         {
-            // Before everything, so it lands above the lets rather than between two of them, where
-            // it would split a group whose order is the one thing about them that matters.
+            // A parameter with no parameters to join goes above the lets rather than between two of
+            // them, where it would split a group whose order is the one thing about them that matters.
             return new SvgTextEdit(
                 contentStart,
                 0,
@@ -460,12 +788,10 @@ public static class SvgDeclarationEditor
         XElement root,
         SvgExpressionDeclarations.Positions positions,
         string prefix,
-        SvgExpressionParameter parameter,
+        string element,
         string newline,
         string indent)
     {
-        var element = Render(prefix, parameter);
-
         XNamespace svg = root.Name.Namespace.NamespaceName.Length > 0 ? root.Name.Namespace : SvgNamespace;
 
         var defs = root.Elements(svg + "defs").FirstOrDefault();
@@ -603,6 +929,9 @@ public static class SvgDeclarationEditor
         return builder.Append(" />").ToString();
     }
 
+    private static string Render(string prefix, string name, string expression)
+        => $"<{prefix}:let name=\"{Escape(name)}\">{EscapeText(expression)}</{prefix}:let>";
+
     private static void Attribute(StringBuilder builder, string name, string? value)
     {
         if (value is { })
@@ -636,6 +965,16 @@ public static class SvgDeclarationEditor
             .Replace("<", "&lt;")
             .Replace(">", "&gt;")
             .Replace("\"", "&quot;");
+
+    /// <summary>An expression as it can sit between two tags, where only these two are markup.</summary>
+    /// <remarks>
+    /// Not <see cref="Escape"/>, whose extra two are legal here but would show somebody
+    /// <c>t &amp;gt; 0.5</c> in the source pane for the <c>t &gt; 0.5</c> they typed.
+    /// </remarks>
+    private static string EscapeText(string value)
+        => value
+            .Replace("&", "&amp;")
+            .Replace("<", "&lt;");
 
     /// <summary>What the document ends its lines with.</summary>
     /// <remarks>

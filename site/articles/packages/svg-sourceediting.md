@@ -29,7 +29,7 @@ dotnet add package Svg.SourceEditing
 
 | Type | Role |
 | --- | --- |
-| `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Set` one attribute of one, `SetDefaults` for many |
+| `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet` and `MoveLet` for the other half of the block |
 | `SvgTextEdit` | One span to replace, and `ApplyAll` for a caller holding only a string |
 | `SvgSourceEditResult` | The spans, or why nothing can be done |
 
@@ -70,8 +70,8 @@ asked for is refused instead of applied.
 
 ## Renaming carries the uses with it
 
-`Update` rewrites a declaration, and where the name changes it also rewrites every place the drawing
-names it: the identifier in each `{{ … }}` and in each `<e:let>` body. Renaming only the declaration
+`Update` and `UpdateLet` rewrite a declaration, and where the name changes they also rewrite every
+place the drawing names it: the identifier in each `{{ … }}` and in each `<e:let>` body. Renaming only the declaration
 would leave a document that still parses and no longer draws, with nothing about its shape to say
 why.
 
@@ -83,6 +83,22 @@ the whole rename rather than being skipped — a use that cannot be read is stil
 
 Changing a **type** is refused. Every expression naming a parameter was checked against the type it
 had, so changing one is a change to all of them rather than to the declaration alone.
+
+## Where a let sits is what it means
+
+A let resolves against what is declared above it and nothing below, so `MoveLet` is a change of
+meaning and not of layout. The re-read cannot catch that on its own: a let dragged above the one it
+names reads back perfectly well and renders as nothing. So every edit also folds the symbol table and
+type checks each body in order, and is refused if it leaves a let unresolved.
+
+Only a let the edit is answerable for. Reading does not type check, so a document can hold a body
+that names nothing and still open; refusing on that one too would make an unrelated parameter
+uneditable in a document somebody is part-way through repairing. The check runs against the document
+as it was as well, and only a let that worked before and does not after stops the edit. The original
+is re-read only once something failed, so an ordinary splice pays nothing for this.
+
+`MoveLet` moves the let's whole line as it was written, and refuses a let sharing a line with
+something else rather than cutting it out of one.
 
 ## What it refuses
 
