@@ -469,6 +469,40 @@ public static class SvgSourceHighlighter
         List<SvgSourceSite>? sites,
         string? attribute)
     {
+        // A style attribute is not one value but a list of them, and each declaration drives a
+        // different property — so a placeholder in it is typed by the property it was written in
+        // rather than by "style", which types nothing.
+        if (attribute == "style"
+            && end - start > 2
+            && SvgSourceAttributes.Declarations(source, start + 1, source[(start + 1)..(end - 1)]) is { Count: > 0 } declarations)
+        {
+            var at = start;
+
+            foreach (var declaration in declarations)
+            {
+                // The property, the colon and whatever spacing is around them: ordinary value text.
+                Add(tokens, source, at, declaration.Start, SvgSourceTokenKind.Value);
+                Placeholders(tokens, source, declaration.Start, declaration.Start + declaration.Length, sites, declaration.Name);
+
+                at = declaration.Start + declaration.Length;
+            }
+
+            Add(tokens, source, at, end, SvgSourceTokenKind.Value);
+            return;
+        }
+
+        Placeholders(tokens, source, start, end, sites, attribute);
+    }
+
+    /// <summary>Adds a span of value text, lifting any <c>{{ … }}</c> out of it.</summary>
+    private static void Placeholders(
+        List<SvgSourceToken> tokens,
+        string source,
+        int start,
+        int end,
+        List<SvgSourceSite>? sites,
+        string? attribute)
+    {
         var index = start;
 
         while (index < end)

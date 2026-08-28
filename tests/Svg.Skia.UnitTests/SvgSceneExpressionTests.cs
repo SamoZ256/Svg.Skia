@@ -172,6 +172,81 @@ public class SvgSceneExpressionTests
     }
 
     [Fact]
+    public void An_Expression_In_A_Style_Declaration_Is_Lifted()
+    {
+        // Beside another declaration, since a lift has to leave the rest of the attribute alone.
+        var paints = EnumeratePaints(Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="0" y="0" width="10" height="10" style="stroke: #000; stroke-width: 2; fill: {{ primary }}" />
+            </svg>
+            """)).ToList();
+
+        var fill = Assert.Single(paints, p => p.Style == SKPaintStyle.Fill);
+        var stroke = Assert.Single(paints, p => p.Style == SKPaintStyle.Stroke);
+
+        Assert.Equal(SymNode.Source("primary"), fill.Color!.Value.Expression);
+        Assert.Null(stroke.Color!.Value.Expression);
+    }
+
+    [Fact]
+    public void A_Style_Declaration_The_Fast_Scanner_Refuses_Is_Still_Lifted()
+    {
+        // A malformed declaration beside it sends the whole attribute through the CSS parser
+        // instead, which is a second route to the same funnel rather than a second answer.
+        var paint = SinglePaint("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="0" y="0" width="10" height="10" style="fill: {{ primary }}; stroke:" />
+            </svg>
+            """);
+
+        Assert.Equal(SymNode.Source("primary"), paint.Color!.Value.Expression);
+    }
+
+    [Theory]
+    [InlineData("fill=\"#00ff00\" style=\"fill: {{ primary }}\"")]
+    [InlineData("style=\"fill: {{ primary }}\" fill=\"#00ff00\"")]
+    public void A_Style_Declaration_Beats_The_Presentation_Attribute(string attributes)
+    {
+        // Whichever order they are written in: the cascade decides, not the order the reader
+        // happens to walk the attributes in.
+        var paint = SinglePaint($"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="0" y="0" width="10" height="10" {attributes} />
+            </svg>
+            """);
+
+        Assert.Equal(SymNode.Source("primary"), paint.Color!.Value.Expression);
+    }
+
+    [Fact]
+    public void A_Literal_In_Style_Takes_Down_An_Expression_In_The_Attribute()
+    {
+        // The declaration wins, and what wins is a literal — an expression that is not in play
+        // must not paint, which is what a lifted value would otherwise do.
+        var paint = SinglePaint("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="0" y="0" width="10" height="10" fill="{{ primary }}" style="fill: #00ff00" />
+            </svg>
+            """);
+
+        Assert.Null(paint.Color!.Value.Expression);
+        Assert.Equal(0xff, paint.Color!.Value.Green);
+    }
+
+    [Fact]
+    public void An_Expression_Is_The_Whole_Declaration_Or_Nothing()
+    {
+        // The same rule as an attribute: braces inside a larger value are an ordinary value.
+        var paint = SinglePaint("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="0" y="0" width="10" height="10" fill="#3366cc" style="fill: rgb({{ primary }}, 0, 0)" />
+            </svg>
+            """);
+
+        Assert.Null(paint.Color!.Value.Expression);
+    }
+
+    [Fact]
     public void A_Fill_Opacity_Expression_Scales_The_Literal_Colour()
     {
         var paint = SinglePaint("""

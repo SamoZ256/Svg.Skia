@@ -651,6 +651,29 @@ public class SvgJavaScriptRuntimeTests
     }
 
     [Fact]
+    public void StyleMutation_DropsAnExpressionTheDeclarationUsedToCarry()
+    {
+        // The style attribute is re-applied whole, so a property that no longer holds an
+        // expression has to lose the one it was lifted with — nothing downstream clears it.
+        var document = LoadDocument("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="20" height="20">
+              <rect id="target" style="fill: {{ tint }}" />
+            </svg>
+            """, captureJavaScriptDomState: true);
+
+        var element = document.Descendants().Single(candidate => candidate.ID == "target");
+        var key = SvgExpressionAttributes.KeyFor("fill");
+
+        Assert.Equal("tint", element.CustomAttributes[key]);
+
+        var runtime = new SvgJavaScriptRuntime(document, new SvgJavaScriptSettings { ThrowOnError = true });
+
+        runtime.GetElement(element).style.setProperty("fill", "green");
+
+        Assert.False(element.CustomAttributes.ContainsKey(key));
+    }
+
+    [Fact]
     public void StyleDeclaration_CssTextLengthItemPriorityAndCamelCaseMutateRawStyle()
     {
         var document = LoadDocument("""

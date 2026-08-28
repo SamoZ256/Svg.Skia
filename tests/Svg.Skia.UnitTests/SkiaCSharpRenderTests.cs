@@ -627,6 +627,23 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void An_Expression_In_A_Style_Declaration_Draws_As_The_Attribute_Would()
+        => AssertExpressionsRenderTheSame(
+            "ExprStyleDeclaration",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="10" style="fill: {{ rgb(255, 0, 0) }}; stroke: #111827; stroke-width: 2" />
+            </svg>
+            """,
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="10" style="fill: #ff0000; stroke: #111827; stroke-width: 2" />
+            </svg>
+            """);
+
+    [Fact]
     public void A_Flood_Colour_Takes_An_Expression()
         // The flood is a nested picture behind an image filter, which is the one place a colour
         // reaches the drawing without the emitter walking a command list to get there.

@@ -101,6 +101,10 @@ An expression is checked against its **use** as well as on its own terms:
 <!--             ^ An opacity expression must be a number expression, but this one is a colour. -->
 ```
 
+Inside a `style` attribute the property the declaration names decides, not the word `style`: the
+value is split into declarations first, so `style="fill: {{ hue }}"` is refused for the same reason
+`fill="{{ hue }}"` is.
+
 `fill`, `stroke`, `stop-color`, `flood-color` and `lighting-color` want a colour, `opacity` and the
 three that scale an alpha —
 `fill-opacity`, `stroke-opacity`, `stop-opacity` — a number, `visibility` and `display` a boolean. Both

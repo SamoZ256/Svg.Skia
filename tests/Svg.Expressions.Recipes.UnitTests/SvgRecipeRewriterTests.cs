@@ -80,28 +80,28 @@ public class SvgRecipeRewriterTests
     }
 
     [Fact]
-    public void Apply_PromotesAMatchedStyleDeclarationToAnAttribute()
+    public void Apply_RewritesAMatchedStyleDeclarationWhereItStands()
     {
-        // '{{ }}' is only lifted out of attributes, so a colour living in 'style' has to move or
-        // the expression would never take effect.
+        // A declaration is lifted like an attribute, so the colour is replaced in place rather
+        // than promoted out of 'style' as it once had to be.
         var result = Apply("""
             <svg xmlns="http://www.w3.org/2000/svg"><path style="fill:#3b82f6;stroke-width:2" /></svg>
             """);
 
-        Assert.Contains("fill=\"{{ primary }}\"", result.Svg);
-        Assert.Contains("style=\"stroke-width:2\"", result.Svg);
+        Assert.Contains("style=\"fill:{{ primary }};stroke-width:2\"", result.Svg);
+        Assert.DoesNotContain("fill=\"", result.Svg);
         Assert.DoesNotContain("fill:#3b82f6", result.Svg);
     }
 
     [Fact]
-    public void Apply_DropsTheStyleAttributeWhenPromotingItsOnlyDeclaration()
+    public void Apply_KeepsTheStyleAttributeWhenItsOnlyDeclarationIsRewritten()
     {
         var result = Apply("""
             <svg xmlns="http://www.w3.org/2000/svg"><path style="fill:#3b82f6" /></svg>
             """);
 
-        Assert.DoesNotContain("style=", result.Svg);
-        Assert.Contains("fill=\"{{ primary }}\"", result.Svg);
+        Assert.Contains("style=\"fill:{{ primary }}\"", result.Svg);
+        Assert.DoesNotContain("fill=\"", result.Svg);
     }
 
     [Fact]
@@ -124,7 +124,9 @@ public class SvgRecipeRewriterTests
             <svg xmlns="http://www.w3.org/2000/svg"><path style="fill:#3b82f6;mask:url(#a;b)" /></svg>
             """);
 
-        Assert.Contains("style=\"mask:url(#a;b)\"", result.Svg);
+        // The semicolon inside url(...) is not a declaration boundary, so the mask survives whole
+        // beside the rewritten colour.
+        Assert.Contains("style=\"fill:{{ primary }};mask:url(#a;b)\"", result.Svg);
     }
 
     [Fact]

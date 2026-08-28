@@ -18,6 +18,10 @@ public class SvgSourceHighlighterTests
     [InlineData("<!-- a comment --><svg/>")]
     [InlineData("<?xml version=\"1.0\"?><svg><![CDATA[ raw < > text ]]></svg>")]
     [InlineData("<svg fill=\"{{ hsl(hue, 74%, 55%) }}\" />")]
+    [InlineData("<svg style=\"stroke: #000; fill: {{ primary }}\" />")]
+    [InlineData("<svg style=\"fill: {{ primary }}; mask: url(#a;b)\" />")]
+    [InlineData("<svg style=\"  \" />")]
+    [InlineData("<svg style=\"fill:\" />")]
     [InlineData("text before <svg attr='single' > and after")]
     [InlineData("<svg <<< unclosed attr=\"no end")]
     [InlineData("<!-- unterminated comment")]
@@ -47,6 +51,21 @@ public class SvgSourceHighlighterTests
 
         // The value that is only a value stays one, whole and uncoloured inside.
         Assert.Contains(tokens, t => t.Kind == SvgSourceTokenKind.Value && t.Text == "\"10\"");
+        Assert.DoesNotContain(tokens, t =>
+            t.Kind == SvgSourceTokenKind.Value && t.Text.Contains("hsl", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_Placeholder_In_A_Style_Declaration_Is_Code_Too()
+    {
+        const string source = "<circle style=\"stroke: #000; fill: {{ hsl(hue, 74%, 55%) }}\" r=\"10\" />";
+
+        var tokens = SvgSourceHighlighter.Tokenize(source);
+
+        Assert.Contains(tokens, t => t.Kind == SvgSourceTokenKind.ExpressionFunction && t.Text == "hsl");
+
+        // The declaration around it is not: a property name is not a name in the language.
+        Assert.Contains(tokens, t => t.Kind == SvgSourceTokenKind.Value && t.Text.Contains("stroke", StringComparison.Ordinal));
         Assert.DoesNotContain(tokens, t =>
             t.Kind == SvgSourceTokenKind.Value && t.Text.Contains("hsl", StringComparison.Ordinal));
     }

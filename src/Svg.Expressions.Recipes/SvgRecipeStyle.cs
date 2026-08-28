@@ -66,6 +66,27 @@ internal sealed class SvgRecipeStyle
         return false;
     }
 
+    /// <summary>Replaces the winning declaration's value, leaving every declaration where it sits.</summary>
+    /// <remarks>
+    /// The raw text of that one declaration is rebuilt, so it loses whatever spacing it was written
+    /// with; the others keep theirs, which is what stops a rewrite from reformatting a whole file.
+    /// </remarks>
+    public bool TrySetValue(string name, string value)
+    {
+        for (var i = _declarations.Count - 1; i >= 0; i--)
+        {
+            if (!string.Equals(_declarations[i].Name, name, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            _declarations[i] = new Declaration(name, value, name + ":" + value);
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>Drops every declaration of a property, including the ones it was overriding.</summary>
     public void Remove(string name)
         => _declarations.RemoveAll(declaration => string.Equals(declaration.Name, name, StringComparison.Ordinal));
