@@ -203,6 +203,8 @@ public partial class SvgViewer : UserControl
     /// <summary>How the viewer asks what parameter to declare. Replaceable, and faked in tests.</summary>
     public ISvgViewerParameterDialogService ParameterDialogService { get; set; } = new SvgViewerParameterDialogService();
 
+    public ISvgViewerResizeDialogService ResizeDialogService { get; set; } = new SvgViewerResizeDialogService();
+
     public SvgViewerDocument? Document => _document;
 
     public SKSvg? Svg => _document?.Svg;
@@ -1255,6 +1257,58 @@ public partial class SvgViewer : UserControl
         }
 
         return true;
+    }
+
+    /// <summary>Asks what size the drawing should be, and resizes it to the answer.</summary>
+    /// <returns>Whether the drawing was resized.</returns>
+    public async Task<bool> ResizeAsync()
+    {
+        if (_document is not { } document)
+        {
+            return false;
+        }
+
+        var natural = document.Svg.Picture?.CullRect;
+
+        if (natural is not { Width: > 0f, Height: > 0f })
+        {
+            ShowNote("This drawing has no size to resize from.");
+
+            return false;
+        }
+
+        var request = await ResizeDialogService
+            .AskAsync(TopLevel.GetTopLevel(this), new SvgViewerResize(natural.Value.Width, natural.Value.Height))
+            .ConfigureAwait(true);
+
+        return request is { } size && Resize(size);
+    }
+
+    /// <summary>
+    /// Resizes the drawing, by rewriting the frame its root element declares.
+    /// </summary>
+    /// <remarks>
+    /// An edit to the pane rather than to the picture, so it is the drawing that is a different size
+    /// and not the view of it: the text says so, saving writes it, and taking it back is an undo.
+    /// </remarks>
+    /// <returns>Whether anything was rewritten.</returns>
+    public bool Resize(SvgSizeRequest request)
+    {
+        if (_document is not { } document)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        return Splice(document.Resize(PaneSource(), request));
     }
 
     /// <summary>

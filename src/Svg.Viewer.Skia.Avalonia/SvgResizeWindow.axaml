@@ -1,0 +1,74 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Svg.Viewer.Skia.Avalonia.SvgResizeWindow"
+        Title="Resize drawing"
+        Width="380"
+        SizeToContent="Height"
+        CanResize="False"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+
+  <!--
+    The width is the window's and fixed, not the content's. A TextBox asked to measure itself against
+    unbounded width answers with the width of the text in it, so a dialog that sizes to its content
+    grows and shrinks under the caret as somebody types a number into any of these seven boxes.
+  -->
+  <StackPanel Margin="20" Spacing="14">
+
+    <!--
+      One grid rather than a row each, so the three boxes line up under one another: they are three
+      readings of one size and reading down the column is how that shows.
+    -->
+    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">
+      <TextBlock Grid.Row="0" Grid.Column="0" Text="Width" VerticalAlignment="Center" />
+      <TextBox Grid.Row="0" Grid.Column="1" x:Name="WidthBox" />
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Text="Height" VerticalAlignment="Center" />
+      <TextBox Grid.Row="1" Grid.Column="1" x:Name="HeightBox" />
+
+      <TextBlock Grid.Row="2" Grid.Column="0" Text="Scale" VerticalAlignment="Center" />
+      <TextBox Grid.Row="2" Grid.Column="1" x:Name="ScaleBox" />
+    </Grid>
+
+    <CheckBox x:Name="LockBox" Content="Lock aspect ratio" IsChecked="True"
+              ToolTip.Tip="A scale is one factor for both axes, so it needs the ratio locked" />
+
+    <Separator />
+
+    <!--
+      In the same window as the size, because a padding is a fraction of the size being resized to:
+      seeing both at once is how the result is predicted rather than discovered.
+    -->
+    <TextBlock Text="Padding" Opacity="0.7" />
+
+    <Grid ColumnDefinitions="Auto,*,Auto,*" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="10">
+      <TextBlock Grid.Row="0" Grid.Column="0" Text="Top" VerticalAlignment="Center" />
+      <TextBox Grid.Row="0" Grid.Column="1" x:Name="TopBox" Watermark="0%" />
+
+      <TextBlock Grid.Row="0" Grid.Column="2" Text="Right" VerticalAlignment="Center" />
+      <TextBox Grid.Row="0" Grid.Column="3" x:Name="RightBox" Watermark="0%" />
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Text="Bottom" VerticalAlignment="Center" />
+      <TextBox Grid.Row="1" Grid.Column="1" x:Name="BottomBox" Watermark="0%" />
+
+      <TextBlock Grid.Row="1" Grid.Column="2" Text="Left" VerticalAlignment="Center" />
+      <TextBox Grid.Row="1" Grid.Column="3" x:Name="LeftBox" Watermark="0%" />
+    </Grid>
+
+    <!--
+      Always laid out, never shown and hidden, and given the room the longest refusal needs at this
+      width: a note that arrives while somebody is part way through typing a percentage would
+      otherwise shove the buttons down and back on every keystroke. The same reason the viewer's
+      status bar keeps its note in a column rather than a row.
+    -->
+    <TextBlock x:Name="NoteText" TextWrapping="Wrap" MinHeight="52" MaxLines="3"
+               Foreground="{DynamicResource SvgViewerSourceErrorBrush}" />
+
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button x:Name="CancelButton" Content="Cancel" IsCancel="True" />
+      <Button x:Name="ResizeButton" Content="Resize" IsDefault="True" />
+    </StackPanel>
+
+  </StackPanel>
+
+</Window>

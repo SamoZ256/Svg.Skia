@@ -23,6 +23,9 @@ of these controls.
 - **Builds a control per parameter** — a slider and a value box for a `number`, honouring any
   `min`, `max` and `step` the document declares, a `ColorPicker` for a `color`, a checkbox for a
   `boolean` — seeded from each declared `default`.
+- **Resizes the drawing**, and leaves room around it, by rewriting the `width`, `height` and
+  `viewBox` its root element declares — the same arithmetic svgc resizes by, written back as a text
+  edit, so the pane shows it and an undo takes it back.
 - **Declares a parameter**, from a form in the panel, by writing it into the drawing's own text.
 - **Declares and rewrites a let**, from a row edited in place, showing what each one evaluates to and
   taking a drag to reorder them.

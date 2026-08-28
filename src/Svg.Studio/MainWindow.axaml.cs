@@ -348,6 +348,15 @@ public partial class MainWindow : Window
 
     private async void OnExport(object? sender, EventArgs e) => await ExportAsync();
 
+    /// <summary>Asks the viewer to resize the drawing, which is where the form and the edit live.</summary>
+    private async void OnResize(object? sender, EventArgs e)
+    {
+        if (Selected() is { } viewer)
+        {
+            await viewer.ResizeAsync();
+        }
+    }
+
     /// <summary>
     /// Asks where the selected drawing goes and in which form, and writes it there.
     /// </summary>
