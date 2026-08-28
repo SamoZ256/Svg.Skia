@@ -43,6 +43,16 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// <summary>Whether there is a drawing behind the rows, which null and empty tell apart.</summary>
     private bool _hasDocument;
 
+    /// <summary>The last edit handed to the document, so the same one is not handed over twice.</summary>
+    /// <remarks>
+    /// A row goes on calling itself modified until the rebuild its own edit caused replaces it, and
+    /// the box it was in leaving the tree is a focus loss — so without this, committing with Enter
+    /// and then clicking away wrote the edit again. The second write names what the first one
+    /// renamed away, or declares what it had just added. Never cleared: it is one tuple, and
+    /// clearing it on the rebuild would drop the guard exactly when it is needed.
+    /// </remarks>
+    private (SvgViewerLet Let, string Name, string Expression)? _handed;
+
     public SvgViewerDeclarationPanel()
     {
         AvaloniaXamlLoader.Load(this);
@@ -386,6 +396,16 @@ public partial class SvgViewerDeclarationPanel : UserControl
         {
             return;
         }
+
+        if (_handed is { } last
+            && ReferenceEquals(last.Let, let)
+            && string.Equals(last.Name, name, StringComparison.Ordinal)
+            && string.Equals(last.Expression, expression, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _handed = (let, name, expression);
 
         LetCommitted?.Invoke(this, let);
     }

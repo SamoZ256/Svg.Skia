@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+* Fixed a let edit being written to the drawing twice. Committing a row with `Enter` and then
+  clicking away reported either **"This drawing declares no let called 'deep'."** or **"'deeper' is
+  declared more than once."** — one message for a rename, the other for a new let, both from the same
+  mistake.
+
+  A row goes on calling itself modified until the rebuild its own edit caused replaces it, and the
+  box it was in leaving the tree *is* a focus loss. So the row settled a second time and asked the
+  document for an edit it had already taken: a rename of a name that had just been renamed away, or
+  a declaration of a name that had just been declared. The panel now remembers the last edit it
+  handed over and does not hand the same one over again.
+
 * Every box that holds an expression is syntax-coloured as it is typed — a let's body, and a
   parameter's `default`, `min`, `max` and `step` — from the same table the source pane paints with,
   so `tau` cannot be one colour in the pane and another in the row above it. Not the name boxes: a

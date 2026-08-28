@@ -427,6 +427,79 @@ public class SvgViewerLetEditingTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public async Task A_Rename_Is_Written_Once_However_The_Row_Is_Left()
+    {
+        var (window, viewer) = await HostLoaded(Grouped);
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var row = Row(viewer, "deep");
+        var box = Box(viewer, row, "name");
+
+        box.Focus();
+        row.Name = "shadow";
+
+        box.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+
+        await Settle();
+
+        // The rebuild has replaced the rows, and the box that held this one is on its way out --
+        // which is a focus loss. Asking the document for the same rename a second time names a let
+        // that is no longer there.
+        box.RaiseEvent(new RoutedEventArgs(InputElement.LostFocusEvent));
+
+        await Settle();
+
+        Assert.Equal(string.Empty, Note(viewer));
+        Assert.Contains("{{ shadow }}", Pane(viewer).Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_New_Let_Is_Written_Once_However_The_Row_Is_Left()
+    {
+        var (window, viewer) = await HostLoaded(Grouped);
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        AddLetButton(viewer).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var draft = Assert.Single(viewer.Lets, let => let.IsDraft);
+
+        draft.Name = "deeper";
+        draft.Expression = "mix(deep, #000000, 0.5)";
+
+        var box = Box(viewer, draft, "expression");
+
+        box.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+
+        await Settle();
+
+        // The same row, asked again as it goes: declaring what has just been declared is the other
+        // half of the same mistake, and reads as the name being taken twice.
+        box.RaiseEvent(new RoutedEventArgs(InputElement.LostFocusEvent));
+
+        await Settle();
+
+        Assert.Equal(string.Empty, Note(viewer));
+        Assert.Equal(new[] { "deep", "deeper" }, viewer.Lets.Select(let => let.Name).ToArray());
+
+        window.Close();
+    }
+
+    /// <summary>What the viewer is telling the user, which for a clean edit is nothing.</summary>
+    private static string Note(SvgViewer viewer)
+    {
+        var note = viewer.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "NoteText");
+
+        return note.IsVisible ? note.Text ?? string.Empty : string.Empty;
+    }
+
     private static Button Remove(SvgViewer viewer, SvgViewerLet row)
         => viewer.GetVisualDescendants()
             .OfType<Button>()
