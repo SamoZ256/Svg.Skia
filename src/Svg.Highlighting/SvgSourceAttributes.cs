@@ -200,7 +200,7 @@ internal static class SvgSourceAttributes
     /// it is short. An ampersand anywhere in the span gives up on placing the pieces — the <c>;</c>
     /// ending an entity is not the <c>;</c> ending a declaration.
     /// </remarks>
-    private static List<(string Name, string Value, int Start, int Length)>? Declarations(
+    internal static List<(string Name, string Value, int Start, int Length)>? Declarations(
         string source,
         int valueStart,
         string value)

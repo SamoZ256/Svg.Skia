@@ -102,6 +102,21 @@ public class SvgSourceDiagnosticsTests
     }
 
     [Fact]
+    public void An_Expression_In_A_Style_Declaration_Is_Checked_Against_Its_Property()
+    {
+        // The value of a style attribute is a list, so what a placeholder in it may evaluate to is
+        // decided by the declaration it sits in and not by "style", which decides nothing.
+        Assert.Equal("A paint expression must be a colour expression, but this one is a number.",
+            Assert.Single(Of("<rect style=\"fill: {{ hue }}\" />")).Message);
+
+        Assert.Equal("A visibility expression must be a boolean expression, but this one is a number.",
+            Assert.Single(Of("<rect style=\"stroke: #000; visibility: {{ hue }}\" />")).Message);
+
+        // And the ones that match say nothing.
+        Assert.Empty(Of("<rect style=\"fill: {{ primary }}; opacity: {{ hue / 360 }}\" />"));
+    }
+
+    [Fact]
     public void What_Is_Wrong_With_An_Expression_Is_Said_Before_What_It_Evaluates_To_Is()
     {
         // A name nothing declares is reported as that rather than as a type, because the checker
