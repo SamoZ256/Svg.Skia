@@ -34,7 +34,7 @@ internal static class SvgScenePaintingService
 
         internal bool TryGetStops(
             SvgGradientServer root,
-            float opacity,
+            Sym<float> opacity,
             DrawAttributes ignoreAttributes,
             bool isLinearRgb,
             out GradientStopCacheEntry entry)
@@ -52,7 +52,7 @@ internal static class SvgScenePaintingService
 
         internal void SetStops(
             SvgGradientServer root,
-            float opacity,
+            Sym<float> opacity,
             DrawAttributes ignoreAttributes,
             bool isLinearRgb,
             GradientStopCacheEntry entry)
@@ -64,7 +64,7 @@ internal static class SvgScenePaintingService
 
     private readonly record struct GradientStopCacheKey(
         SvgGradientServer Root,
-        float Opacity,
+        Sym<float> Opacity,
         DrawAttributes IgnoreAttributes,
         bool IsLinearRgb);
 
@@ -145,6 +145,12 @@ internal static class SvgScenePaintingService
         return Math.Min(Math.Max(opacity, 0f), 1f);
     }
 
+    /// <summary>The element's fill or stroke opacity, with the expression driving it if there is one.</summary>
+    private static Sym<float> PaintOpacity(SvgVisualElement svgVisualElement, bool forStroke)
+        => new(
+            AdjustSvgOpacity(forStroke ? svgVisualElement.StrokeOpacity : svgVisualElement.FillOpacity),
+            SvgSceneExpressions.TryGetPaintOpacity(svgVisualElement, forStroke));
+
     internal static SKPaint? GetOpacityPaint(float opacity, SymNode? expression = null)
     {
         var adjustedOpacity = AdjustSvgOpacity(opacity);
@@ -222,7 +228,7 @@ internal static class SvgScenePaintingService
             Style = SKPaintStyle.Fill
         };
 
-        var opacity = AdjustSvgOpacity(svgVisualElement.FillOpacity);
+        var opacity = PaintOpacity(svgVisualElement, forStroke: false);
         return TryApplyPaintServer(
                 svgVisualElement,
                 svgVisualElement.Fill,
@@ -252,7 +258,7 @@ internal static class SvgScenePaintingService
 
         var colorInterpolation = GetColorInterpolation(svgVisualElement);
         var isLinearRgb = colorInterpolation == SvgColourInterpolation.LinearRGB;
-        var opacity = AdjustSvgOpacity(svgVisualElement.FillOpacity);
+        var opacity = PaintOpacity(svgVisualElement, forStroke: false);
         var expression = SvgSceneExpressions.TryGet(svgVisualElement, SvgSceneExpressions.Fill);
         var skColor = GetColor(svgColourServer, opacity, ignoreAttributes, expression);
         if (isLinearRgb)
@@ -300,7 +306,7 @@ internal static class SvgScenePaintingService
             Style = SKPaintStyle.Stroke
         };
 
-        var opacity = AdjustSvgOpacity(svgVisualElement.StrokeOpacity);
+        var opacity = PaintOpacity(svgVisualElement, forStroke: true);
         if (!TryApplyPaintServer(
                 svgVisualElement,
                 svgVisualElement.Stroke,
@@ -345,7 +351,7 @@ internal static class SvgScenePaintingService
     private static bool TryApplyPaintServer(
         SvgVisualElement svgVisualElement,
         SvgPaintServer? server,
-        float opacity,
+        Sym<float> opacity,
         SKRect skBounds,
         SKPaint skPaint,
         bool forStroke,
@@ -420,7 +426,10 @@ internal static class SvgScenePaintingService
                     var colorInterpolation = GetColorInterpolation(svgVisualElement);
                     var isLinearRgb = colorInterpolation == SvgColourInterpolation.LinearRGB;
                     var skColorSpace = isLinearRgb ? SKColorSpace.SrgbLinear : SKColorSpace.Srgb;
-                    var skPatternShader = CreatePatternShader(svgPatternServer, skBounds, svgVisualElement, opacity, assetLoader, ignoreAttributes);
+                    // A pattern paints into a picture of its own, where the alpha is baked into
+                    // every command rather than sitting on one colour, so an expression driving it
+                    // has nowhere to attach and only the value travels.
+                    var skPatternShader = CreatePatternShader(svgPatternServer, skBounds, svgVisualElement, opacity.Value, assetLoader, ignoreAttributes);
                     if (skPatternShader is not null)
                     {
                         skPaint.Shader = skPatternShader;
@@ -556,7 +565,7 @@ internal static class SvgScenePaintingService
     private static bool TryApplyContextPaintServer(
         SvgVisualElement svgVisualElement,
         SvgContextPaintServer svgContextPaintServer,
-        float opacity,
+        Sym<float> opacity,
         SKRect skBounds,
         SKPaint skPaint,
         bool forStroke,
@@ -598,7 +607,7 @@ internal static class SvgScenePaintingService
     private static bool TryApplyColor(
         SvgVisualElement svgVisualElement,
         SvgColourServer svgColourServer,
-        float opacity,
+        Sym<float> opacity,
         SKPaint skPaint,
         DrawAttributes ignoreAttributes,
         bool forStroke)
@@ -633,7 +642,7 @@ internal static class SvgScenePaintingService
 
     private static bool TryApplyFallbackColor(
         SvgPaintServer? fallbackServer,
-        float opacity,
+        Sym<float> opacity,
         SKPaint skPaint,
         DrawAttributes ignoreAttributes,
         SKColorSpace skColorSpace)
@@ -669,7 +678,7 @@ internal static class SvgScenePaintingService
     private static bool TryApplyFallbackPaintServer(
         SvgVisualElement svgVisualElement,
         SvgPaintServer? fallbackServer,
-        float opacity,
+        Sym<float> opacity,
         SKRect skBounds,
         SKPaint skPaint,
         bool forStroke,
@@ -704,13 +713,21 @@ internal static class SvgScenePaintingService
             contextPaintDepth + 1);
     }
 
-    private static SKColor GetColor(SvgColourServer svgColourServer, float opacity, DrawAttributes ignoreAttributes, SymNode? expression = null)
+    internal static SKColor GetColor(SvgColourServer svgColourServer, Sym<float> opacity, DrawAttributes ignoreAttributes, SymNode? expression = null)
     {
         var colour = svgColourServer.Colour;
         var ignoreOpacity = ignoreAttributes.Has(DrawAttributes.Opacity);
         var alpha = ignoreOpacity
             ? svgColourServer.Colour.A
-            : CombineWithOpacity(svgColourServer.Colour.A, opacity);
+            : CombineWithOpacity(svgColourServer.Colour.A, opacity.Value);
+
+        // An opacity expression scales a colour, so a literal colour has to become one the language
+        // can name before there is anything to scale. Eight digits, so the authored alpha survives
+        // the round trip and the fold below reproduces what CombineWithOpacity just computed.
+        if (expression is null && opacity.IsSymbolic && !ignoreOpacity)
+        {
+            expression = SymNode.Source(HexOf(colour));
+        }
 
         if (expression is null)
         {
@@ -721,11 +738,31 @@ internal static class SvgScenePaintingService
         // produces. The literal channels stay as the design-time value the author wrote.
         if (!ignoreOpacity)
         {
-            expression = SymNode.ScaleAlpha(expression, SymNode.Literal(opacity));
+            expression = SymNode.ScaleAlpha(expression, opacity.Expression ?? SymNode.Literal(opacity.Value));
         }
 
         return new SKColor(colour.R, colour.G, colour.B, alpha, expression);
     }
+
+    /// <summary>A literal colour as the expression language writes one.</summary>
+    private static string HexOf(System.Drawing.Color colour)
+        => string.Format(
+            System.Globalization.CultureInfo.InvariantCulture,
+            "#{0:x2}{1:x2}{2:x2}{3:x2}",
+            colour.R,
+            colour.G,
+            colour.B,
+            colour.A);
+
+    /// <summary>Two opacities as one, staying symbolic when either of them is.</summary>
+    private static Sym<float> Combine(Sym<float> left, Sym<float> right)
+        => new(
+            left.Value * right.Value,
+            left.IsSymbolic || right.IsSymbolic
+                ? SymNode.Multiply(
+                    left.Expression ?? SymNode.Literal(left.Value),
+                    right.Expression ?? SymNode.Literal(right.Value))
+                : null);
 
     private static byte CombineWithOpacity(byte alpha, float opacity)
     {
@@ -837,7 +874,7 @@ internal static class SvgScenePaintingService
     private static bool TryCreateGradientStops(
         SvgGradientServer rootGradientServer,
         GradientServerChain svgReferencedGradientServers,
-        float opacity,
+        Sym<float> opacity,
         DrawAttributes ignoreAttributes,
         bool isLinearRgb,
         GradientPaintCache? gradientPaintCache,
@@ -943,7 +980,7 @@ internal static class SvgScenePaintingService
 
     private static int FillGradientStops(
         List<SvgGradientStop> stops,
-        float opacity,
+        Sym<float> opacity,
         DrawAttributes ignoreAttributes,
         bool isLinearRgb,
         SKColorF[] colors,
@@ -968,7 +1005,7 @@ internal static class SvgScenePaintingService
 
     private static bool TryGetGradientStopColor(
         SvgGradientStop svgGradientStop,
-        float opacity,
+        Sym<float> opacity,
         DrawAttributes ignoreAttributes,
         bool isLinearRgb,
         out SKColor color)
@@ -1015,13 +1052,16 @@ internal static class SvgScenePaintingService
     private static SKColor CreateGradientStopColor(
         SvgGradientStop svgGradientStop,
         SvgColourServer stopColorSvgColourServer,
-        float opacity,
+        Sym<float> opacity,
         DrawAttributes ignoreAttributes,
         bool isLinearRgb)
     {
-        var stopOpacity = AdjustSvgOpacity(svgGradientStop.StopOpacity);
+        var stopOpacity = new Sym<float>(
+            AdjustSvgOpacity(svgGradientStop.StopOpacity),
+            SvgSceneExpressions.TryGet(svgGradientStop, SvgSceneExpressions.StopOpacity));
+
         var expression = SvgSceneExpressions.TryGet(svgGradientStop, SvgSceneExpressions.StopColor);
-        var stopColor = GetColor(stopColorSvgColourServer, opacity * stopOpacity, ignoreAttributes, expression);
+        var stopColor = GetColor(stopColorSvgColourServer, Combine(opacity, stopOpacity), ignoreAttributes, expression);
         return isLinearRgb ? ToLinear(stopColor) : stopColor;
     }
 
@@ -1063,7 +1103,7 @@ internal static class SvgScenePaintingService
         SvgLinearGradientServer svgLinearGradientServer,
         SKRect skBounds,
         SvgVisualElement svgVisualElement,
-        float opacity,
+        Sym<float> opacity,
         DrawAttributes ignoreAttributes,
         SKColorSpace skColorSpace,
         GradientPaintCache? gradientPaintCache)
@@ -1207,7 +1247,7 @@ internal static class SvgScenePaintingService
         SvgRadialGradientServer svgRadialGradientServer,
         SKRect skBounds,
         SvgVisualElement svgVisualElement,
-        float opacity,
+        Sym<float> opacity,
         DrawAttributes ignoreAttributes,
         SKColorSpace skColorSpace,
         GradientPaintCache? gradientPaintCache)

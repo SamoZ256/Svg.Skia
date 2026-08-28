@@ -4706,6 +4706,7 @@ public static class SvgSceneCompiler
             node.IsVisible = visualElement.Visible;
             node.VisibilityExpression = SvgSceneExpressions.TryGet(visualElement, SvgSceneExpressions.Visibility);
             node.IsDisplayNone = string.Equals(visualElement.Display?.Trim(), "none", StringComparison.OrdinalIgnoreCase);
+            node.DisplayExpression = SvgSceneExpressions.TryGet(visualElement, SvgSceneExpressions.Display);
         }
 
         if (mayContainEnableBackgroundDeclarations &&

@@ -34,6 +34,54 @@ public class SvgSceneExpressionTests
         }
     }
 
+    /// <summary>
+    /// Every image filter in the picture, nested ones included: a filtered element is drawn through
+    /// a layer, and the primitive that carries a colour usually sits inside a chain rather than at
+    /// the top of it — a lit primitive arrives wrapped in the colour-space conversion.
+    /// </summary>
+    /// <remarks>
+    /// Walked by reflection so a filter record gaining an input cannot quietly fall out of the
+    /// search; the alternative is a second copy of the evaluator's own switch, kept in step by hand.
+    /// </remarks>
+    private static IEnumerable<SKImageFilter> EnumerateFilters(SKPicture? picture)
+        => (picture?.Commands?
+                .OfType<SaveLayerCanvasCommand>()
+                .Select(c => c.Paint?.ImageFilter)
+                .OfType<SKImageFilter>()
+            ?? Enumerable.Empty<SKImageFilter>())
+           .SelectMany(Descend);
+
+    private static IEnumerable<SKImageFilter> Descend(SKImageFilter? filter)
+    {
+        if (filter is null)
+        {
+            yield break;
+        }
+
+        yield return filter;
+
+        foreach (var property in filter.GetType().GetProperties())
+        {
+            if (typeof(SKImageFilter).IsAssignableFrom(property.PropertyType))
+            {
+                foreach (var nested in Descend((SKImageFilter?)property.GetValue(filter)))
+                {
+                    yield return nested;
+                }
+            }
+            else if (property.PropertyType == typeof(SKImageFilter[]))
+            {
+                foreach (var one in (SKImageFilter[]?)property.GetValue(filter) ?? System.Array.Empty<SKImageFilter>())
+                {
+                    foreach (var nested in Descend(one))
+                    {
+                        yield return nested;
+                    }
+                }
+            }
+        }
+    }
+
     private static SKPaint SinglePaint(string svgMarkup)
         => Assert.Single(EnumeratePaints(Build(svgMarkup)));
 
@@ -124,6 +172,120 @@ public class SvgSceneExpressionTests
     }
 
     [Fact]
+    public void A_Fill_Opacity_Expression_Scales_The_Literal_Colour()
+    {
+        var paint = SinglePaint("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="0" y="0" width="10" height="10" fill="#3366cc" fill-opacity="{{ fade }}" />
+            </svg>
+            """);
+
+        var color = paint.Color!.Value;
+
+        // The placeholder is 1, so the design-time colour is the one the author wrote.
+        Assert.Equal(0xcc, color.Blue);
+        Assert.Equal(255, color.Alpha);
+
+        // Nothing symbolic to scale until the literal colour is written back out as one.
+        var binary = Assert.IsType<SymBinary>(color.Expression);
+        Assert.Equal(SymOp.ScaleAlpha, binary.Op);
+        Assert.Equal(SymNode.Source("#3366ccff"), binary.Left);
+        Assert.Equal(SymNode.Source("fade"), binary.Right);
+    }
+
+    [Fact]
+    public void A_Fill_And_Its_Opacity_Compose_When_Both_Are_Expressions()
+    {
+        var paint = SinglePaint("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="0" y="0" width="10" height="10" fill="{{ primary }}" fill-opacity="{{ fade }}" />
+            </svg>
+            """);
+
+        var binary = Assert.IsType<SymBinary>(paint.Color!.Value.Expression);
+
+        Assert.Equal(SymOp.ScaleAlpha, binary.Op);
+        Assert.Equal(SymNode.Source("primary"), binary.Left);
+        Assert.Equal(SymNode.Source("fade"), binary.Right);
+    }
+
+    [Fact]
+    public void A_Stroke_Opacity_Expression_Reaches_The_Stroke_Alone()
+    {
+        var paints = EnumeratePaints(Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="2" y="2" width="10" height="10" fill="#3366cc"
+                    stroke="#000000" stroke-width="2" stroke-opacity="{{ fade }}" />
+            </svg>
+            """)).ToList();
+
+        var fill = Assert.Single(paints, p => p.Style == SKPaintStyle.Fill);
+        var stroke = Assert.Single(paints, p => p.Style == SKPaintStyle.Stroke);
+
+        Assert.Null(fill.Color!.Value.Expression);
+
+        var binary = Assert.IsType<SymBinary>(stroke.Color!.Value.Expression);
+        Assert.Equal(SymOp.ScaleAlpha, binary.Op);
+        Assert.Equal(SymNode.Source("fade"), binary.Right);
+    }
+
+    [Fact]
+    public void A_Stop_Opacity_Expression_Scales_That_Stop_Only()
+    {
+        var picture = Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="0">
+                  <stop offset="0%" stop-color="#3366cc" stop-opacity="{{ fade }}" />
+                  <stop offset="100%" stop-color="#000000" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="100" height="100" fill="url(#g)" />
+            </svg>
+            """);
+
+        var shader = EnumeratePaints(picture)
+            .Select(p => p.Shader)
+            .OfType<LinearGradientShader>()
+            .Single();
+
+        // The element's own fill-opacity is 1, and Multiply folds that away rather than recording it.
+        var binary = Assert.IsType<SymBinary>(shader.Colors![0].Expression);
+        Assert.Equal(SymOp.ScaleAlpha, binary.Op);
+        Assert.Equal(SymNode.Source("#3366ccff"), binary.Left);
+        Assert.Equal(SymNode.Source("fade"), binary.Right);
+
+        Assert.Null(shader.Colors[1].Expression);
+    }
+
+    [Fact]
+    public void A_Fill_Opacity_Expression_Reaches_Every_Stop_Of_A_Gradient_Fill()
+    {
+        // The element's own alpha is applied to each stop rather than to the shader, so an
+        // expression driving it has to reach all of them or the drawing would fade unevenly.
+        var picture = Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="0">
+                  <stop offset="0%" stop-color="#3366cc" />
+                  <stop offset="100%" stop-color="#000000" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="100" height="100" fill="url(#g)" fill-opacity="{{ fade }}" />
+            </svg>
+            """);
+
+        var shader = EnumeratePaints(picture)
+            .Select(p => p.Shader)
+            .OfType<LinearGradientShader>()
+            .Single();
+
+        Assert.All(
+            shader.Colors!,
+            color => Assert.Equal(SymNode.Source("fade"), Assert.IsType<SymBinary>(color.Expression).Right));
+    }
+
+    [Fact]
     public void Full_Opacity_Leaves_The_Expression_Unwrapped()
     {
         var paint = SinglePaint("""
@@ -133,6 +295,81 @@ public class SvgSceneExpressionTests
             """);
 
         Assert.Equal(SymNode.Source("primary"), paint.Color!.Value.Expression);
+    }
+
+    [Fact]
+    public void A_Flood_Colour_Expression_Reaches_The_Nested_Picture()
+    {
+        // A flood is recorded as a picture of its own behind an image filter, so the expression
+        // ends up one level down rather than on the paint that carries the filter.
+        var picture = Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <filter id="f" x="0" y="0" width="100" height="100">
+                  <feFlood flood-color="{{ wash }}" />
+                </filter>
+              </defs>
+              <rect x="0" y="0" width="100" height="100" fill="#808080" filter="url(#f)" />
+            </svg>
+            """);
+
+        var flood = EnumerateFilters(picture).OfType<PictureImageFilter>().Single();
+
+        var painted = flood.Picture!.Commands!
+            .OfType<DrawPathCanvasCommand>()
+            .Select(c => c.Paint!.Color!.Value.Expression)
+            .Single();
+
+        Assert.Equal(SymNode.Source("wash"), painted);
+    }
+
+    [Fact]
+    public void A_Flood_Opacity_Folds_Into_The_Flood_Colour_Expression()
+    {
+        var picture = Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <filter id="f" x="0" y="0" width="100" height="100">
+                  <feFlood flood-color="{{ wash }}" flood-opacity="0.5" />
+                </filter>
+              </defs>
+              <rect x="0" y="0" width="100" height="100" fill="#808080" filter="url(#f)" />
+            </svg>
+            """);
+
+        var flood = EnumerateFilters(picture).OfType<PictureImageFilter>().Single();
+
+        var color = flood.Picture!.Commands!
+            .OfType<DrawPathCanvasCommand>()
+            .Select(c => c.Paint!.Color!.Value)
+            .Single();
+
+        Assert.Equal(128, color.Alpha);
+
+        var binary = Assert.IsType<SymBinary>(color.Expression);
+        Assert.Equal(SymOp.ScaleAlpha, binary.Op);
+        Assert.Equal(SymNode.Source("wash"), binary.Left);
+    }
+
+    [Fact]
+    public void A_Lighting_Colour_Expression_Rides_On_The_Primitive()
+    {
+        var picture = Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <filter id="f" x="0" y="0" width="100" height="100">
+                  <feDiffuseLighting lighting-color="{{ lamp }}" surfaceScale="2">
+                    <feDistantLight azimuth="45" elevation="60" />
+                  </feDiffuseLighting>
+                </filter>
+              </defs>
+              <rect x="0" y="0" width="100" height="100" fill="#808080" filter="url(#f)" />
+            </svg>
+            """);
+
+        var lit = EnumerateFilters(picture).OfType<DistantLitDiffuseImageFilter>().Single();
+
+        Assert.Equal(SymNode.Source("lamp"), lit.LightColor.Expression);
     }
 
     [Fact]

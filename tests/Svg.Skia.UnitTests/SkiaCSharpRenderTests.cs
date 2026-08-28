@@ -508,6 +508,51 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void A_False_Display_Expression_Draws_Nothing()
+        // Same mechanism as visibility, on the attribute that also decides whether the subtree is
+        // compiled at all — so this fails if the placeholder stops keeping it in.
+        => AssertExpressionsRenderTheSame(
+            "ExprDisplayNone",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="laid" type="boolean" default="true" /></e:code></defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <g display="{{ laid }}">
+                <circle cx="12" cy="12" r="8" fill="#111827" />
+              </g>
+            </svg>
+            """,
+            new object?[] { false },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+            </svg>
+            """);
+
+    [Fact]
+    public void Display_And_Visibility_Nest_On_One_Element()
+        => AssertExpressionsRenderTheSame(
+            "ExprDisplayAndVisibility",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code>
+                  <e:param name="laid" type="boolean" default="true" />
+                  <e:param name="shown" type="boolean" default="true" />
+                </e:code>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="8" fill="#111827" display="{{ laid }}" visibility="{{ shown }}" />
+            </svg>
+            """,
+            new object?[] { true, false },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+            </svg>
+            """);
+
+    [Fact]
     public void A_Gradient_Stop_Takes_An_Expression()
         // Stops reach the model as SKColorF, so this is the one path that emits SvgToColorF.
         => AssertExpressionsRenderTheSame(
@@ -532,6 +577,79 @@ public class SkiaCSharpRenderTests
                 </linearGradient>
               </defs>
               <rect x="0" y="0" width="24" height="24" fill="url(#g)" />
+            </svg>
+            """);
+
+    [Fact]
+    public void An_Opacity_Attribute_Takes_An_Expression()
+        // The emitted colour is the authored literal scaled at run time, where the literal document
+        // folds the same fade into a constant alpha — the two have to land on the same byte.
+        => AssertExpressionsRenderTheSame(
+            "ExprFillOpacity",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="10" fill="#3366cc" fill-opacity="{{ 0.5 }}" />
+            </svg>
+            """,
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="10" fill="#3366cc" fill-opacity="0.5" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Gradient_Stop_Opacity_Takes_An_Expression()
+        => AssertExpressionsRenderTheSame(
+            "ExprStopOpacity",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0">
+                  <stop offset="0%" stop-color="#3366cc" stop-opacity="{{ 0.5 }}" />
+                  <stop offset="100%" stop-color="#1e40af" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="url(#g)" />
+            </svg>
+            """,
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0">
+                  <stop offset="0%" stop-color="#3366cc" stop-opacity="0.5" />
+                  <stop offset="100%" stop-color="#1e40af" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="url(#g)" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Flood_Colour_Takes_An_Expression()
+        // The flood is a nested picture behind an image filter, which is the one place a colour
+        // reaches the drawing without the emitter walking a command list to get there.
+        => AssertExpressionsRenderTheSame(
+            "ExprFlood",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <filter id="f" x="0" y="0" width="24" height="24">
+                  <feFlood flood-color="{{ rgb(255, 0, 0) }}" flood-opacity="0.5" />
+                </filter>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" filter="url(#f)" />
+            </svg>
+            """,
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <filter id="f" x="0" y="0" width="24" height="24">
+                  <feFlood flood-color="#ff0000" flood-opacity="0.5" />
+                </filter>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" filter="url(#f)" />
             </svg>
             """);
 

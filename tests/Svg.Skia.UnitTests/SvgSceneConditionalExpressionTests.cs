@@ -9,7 +9,16 @@ using Xunit;
 
 namespace Svg.Skia.UnitTests;
 
-public class SvgSceneVisibilityExpressionTests
+/// <summary>
+/// The two attributes that gate whether an element draws at all: <c>visibility</c> and
+/// <c>display</c>.
+/// </summary>
+/// <remarks>
+/// One file because they are one mechanism — a conditional range around everything the node
+/// contributes — and the interesting cases are about that range: that it brackets the draws, that it
+/// balances, that the placeholder keeps the element compiled, and that two of them nest.
+/// </remarks>
+public class SvgSceneConditionalExpressionTests
 {
     private static SKPicture? Build(string svgMarkup)
     {
@@ -108,6 +117,79 @@ public class SvgSceneVisibilityExpressionTests
             """));
 
         Assert.Single(commands.OfType<DrawPathCanvasCommand>());
+    }
+
+    [Fact]
+    public void A_Display_Expression_Brackets_The_Elements_Commands()
+    {
+        var commands = Commands(Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="0" y="0" width="10" height="10" fill="#808080" display="{{ shown }}" />
+            </svg>
+            """));
+
+        var begin = commands.OfType<BeginConditionalCanvasCommand>().Single();
+        Assert.Equal(SymNode.Source("shown"), begin.Condition);
+
+        var beginAt = commands.ToList().FindIndex(c => c is BeginConditionalCanvasCommand);
+        var endAt = commands.ToList().FindIndex(c => c is EndConditionalCanvasCommand);
+        var drawAt = commands.ToList().FindIndex(c => c is DrawPathCanvasCommand);
+
+        Assert.True(beginAt >= 0 && endAt > beginAt);
+        Assert.InRange(drawAt, beginAt + 1, endAt - 1);
+    }
+
+    [Fact]
+    public void Display_And_Visibility_On_One_Element_Nest()
+    {
+        // Two ranges rather than one joined condition: the model has no operator for joining two
+        // authored expressions, and nesting is what both back ends already do.
+        var commands = Commands(Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="0" y="0" width="10" height="10" fill="#808080"
+                    display="{{ laid }}" visibility="{{ shown }}" />
+            </svg>
+            """));
+
+        var conditions = commands.OfType<BeginConditionalCanvasCommand>().Select(c => c.Condition).ToList();
+
+        Assert.Equal(new SymNode[] { SymNode.Source("laid"), SymNode.Source("shown") }, conditions);
+
+        var drawAt = commands.ToList().FindIndex(c => c is DrawPathCanvasCommand);
+        var lastBeginAt = commands.ToList().FindLastIndex(c => c is BeginConditionalCanvasCommand);
+        var firstEndAt = commands.ToList().FindIndex(c => c is EndConditionalCanvasCommand);
+
+        Assert.InRange(drawAt, lastBeginAt + 1, firstEndAt - 1);
+    }
+
+    [Fact]
+    public void The_Placeholder_Keeps_A_Displayed_Subtree_Compiled()
+    {
+        // display:none takes the whole subtree out of the compile, children included, so the
+        // placeholder has to be a displayed value or there would be nothing to make conditional.
+        var commands = Commands(Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <g display="{{ laid }}">
+                <rect x="0" y="0" width="10" height="10" fill="#808080" />
+              </g>
+            </svg>
+            """));
+
+        Assert.Single(commands.OfType<DrawPathCanvasCommand>());
+        Assert.Single(commands.OfType<BeginConditionalCanvasCommand>());
+    }
+
+    [Fact]
+    public void A_Display_Expression_Must_Be_A_Boolean()
+    {
+        var error = Assert.Throws<ExprException>(() => Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code><e:param name="t" type="number" default="0" /></e:code></defs>
+              <rect x="0" y="0" width="10" height="10" fill="#808080" display="{{ t }}" />
+            </svg>
+            """));
+
+        Assert.Contains("boolean", error.Message);
     }
 
     [Fact]

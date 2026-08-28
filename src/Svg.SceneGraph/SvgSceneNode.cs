@@ -63,6 +63,13 @@ public sealed class SvgSceneNode : IReadOnlyList<SvgSceneNode>
 
     public bool IsDisplayNone { get; internal set; }
 
+    /// <summary>
+    /// Authored expression controlling display, if any. Read the same way as
+    /// <see cref="VisibilityExpression"/>: IsDisplayNone reflects the placeholder, which is what
+    /// keeps this node and its subtree compiled at all, and this rides along to be a condition.
+    /// </summary>
+    public ShimSkiaSharp.SymNode? DisplayExpression { get; internal set; }
+
     public string? Cursor
     {
         get => _visualState?.Cursor;
@@ -606,6 +613,7 @@ public sealed class SvgSceneNode : IReadOnlyList<SvgSceneNode>
         IsVisible = replacement.IsVisible;
         VisibilityExpression = replacement.VisibilityExpression;
         IsDisplayNone = replacement.IsDisplayNone;
+        DisplayExpression = replacement.DisplayExpression;
         Cursor = replacement.Cursor;
         CreatesBackgroundLayer = replacement.CreatesBackgroundLayer;
         BackgroundClip = replacement.BackgroundClip;

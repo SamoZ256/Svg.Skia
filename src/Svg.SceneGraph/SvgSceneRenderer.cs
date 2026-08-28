@@ -132,7 +132,13 @@ public static class SvgSceneRenderer
             node.ElementTypeName);
 
         // Wraps everything this node contributes, including its own save/restore pairs, so the
-        // range stays balanced whichever way the method returns.
+        // range stays balanced whichever way the method returns. Two ranges rather than one
+        // combined condition: display and visibility are separate attributes, the model has no
+        // operator to join two authored expressions with, and both back ends already nest.
+        using var displayed = node.DisplayExpression is { } displayCondition
+            ? canvas.PushConditional(displayCondition)
+            : null;
+
         using var conditional = node.VisibilityExpression is { } visibilityCondition
             ? canvas.PushConditional(visibilityCondition)
             : null;

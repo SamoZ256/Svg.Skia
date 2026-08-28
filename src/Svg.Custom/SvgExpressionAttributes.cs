@@ -33,16 +33,24 @@ public static class SvgExpressionAttributes
     // "none" would drop the paint entirely and an opacity of 1 would skip creating a layer, and
     // in either case there would be nothing left for the expression to attach to.
     // The type is here rather than in a table of its own because both answers are about the same
-    // five attributes, and two tables would be two places to add the sixth.
+    // attributes, and two tables would be two places to add the next one.
     private static readonly Dictionary<string, (string Placeholder, ExprType Type)> s_placeholders = new(StringComparer.Ordinal)
     {
         ["fill"] = ("#808080", ExprType.Color),
         ["stroke"] = ("#808080", ExprType.Color),
         ["stop-color"] = ("#808080", ExprType.Color),
+        ["flood-color"] = ("#808080", ExprType.Color),
+        ["lighting-color"] = ("#808080", ExprType.Color),
         ["opacity"] = ("1", ExprType.Number),
+        // Fully opaque, so the colour the expression scales is the one the author wrote.
+        ["fill-opacity"] = ("1", ExprType.Number),
+        ["stroke-opacity"] = ("1", ExprType.Number),
+        ["stop-opacity"] = ("1", ExprType.Number),
         // A hidden element contributes no commands at all, so the placeholder has to be the
-        // visible state or there would be nothing left to make conditional.
-        ["visibility"] = ("visible", ExprType.Boolean)
+        // visible state or there would be nothing left to make conditional. For display that goes
+        // further: a display:none container is not compiled at all, subtree included.
+        ["visibility"] = ("visible", ExprType.Boolean),
+        ["display"] = ("inline", ExprType.Boolean)
     };
 
     /// <summary>Attributes an expression can currently drive.</summary>

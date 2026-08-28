@@ -314,10 +314,12 @@ public static class SvgSceneExpressionEvaluator
             var color = RewriteColor(paint.Color);
             var shader = RewriteShader(paint.Shader);
             var colorFilter = RewriteColorFilter(paint.ColorFilter);
+            var imageFilter = RewriteImageFilter(paint.ImageFilter);
 
             if (color.Equals(paint.Color)
                 && ReferenceEquals(shader, paint.Shader)
-                && ReferenceEquals(colorFilter, paint.ColorFilter))
+                && ReferenceEquals(colorFilter, paint.ColorFilter)
+                && ReferenceEquals(imageFilter, paint.ImageFilter))
             {
                 return paint;
             }
@@ -328,6 +330,7 @@ public static class SvgSceneExpressionEvaluator
             clone.Color = color;
             clone.Shader = shader;
             clone.ColorFilter = colorFilter;
+            clone.ImageFilter = imageFilter;
 
             _rewritten[paint] = clone;
 
@@ -335,7 +338,10 @@ public static class SvgSceneExpressionEvaluator
         }
 
         private SKColor? RewriteColor(SKColor? color)
-            => color is { Expression: { } expression }
+            => color is { } value ? RewriteColor(value) : color;
+
+        private SKColor RewriteColor(SKColor color)
+            => color.Expression is { } expression
                 ? ToColor(SvgSceneSymEvaluator.Evaluate(expression, ExprType.Color, _evaluator))
                 : color;
 
@@ -374,6 +380,170 @@ public static class SvgSceneExpressionEvaluator
                 default:
                     return shader;
             }
+        }
+
+        /// <summary>
+        /// Rewrites a filter tree, which is where <c>flood-color</c> and <c>lighting-color</c> land.
+        /// </summary>
+        /// <remarks>
+        /// A flood is recorded as a nested picture rather than as a colour on the filter, so the
+        /// walk has to go through <see cref="PictureImageFilter"/> as well as over the lit
+        /// primitives' own colours. Every input is followed, since a symbolic primitive is usually
+        /// somewhere inside a chain rather than at its end.
+        /// </remarks>
+        private SKImageFilter? RewriteImageFilter(SKImageFilter? filter)
+        {
+            switch (filter)
+            {
+                case null:
+                    return null;
+
+                case DistantLitDiffuseImageFilter lit:
+                    return Lit(lit, lit.LightColor, lit.Input, (c, i) => lit with { LightColor = c, Input = i });
+
+                case DistantLitSpecularImageFilter lit:
+                    return Lit(lit, lit.LightColor, lit.Input, (c, i) => lit with { LightColor = c, Input = i });
+
+                case PointLitDiffuseImageFilter lit:
+                    return Lit(lit, lit.LightColor, lit.Input, (c, i) => lit with { LightColor = c, Input = i });
+
+                case PointLitSpecularImageFilter lit:
+                    return Lit(lit, lit.LightColor, lit.Input, (c, i) => lit with { LightColor = c, Input = i });
+
+                case SpotLitDiffuseImageFilter lit:
+                    return Lit(lit, lit.LightColor, lit.Input, (c, i) => lit with { LightColor = c, Input = i });
+
+                case SpotLitSpecularImageFilter lit:
+                    return Lit(lit, lit.LightColor, lit.Input, (c, i) => lit with { LightColor = c, Input = i });
+
+                case PictureImageFilter picture when picture.Picture is { } nested:
+                    {
+                        var rewritten = Rewrite(nested);
+
+                        return ReferenceEquals(rewritten, nested) ? filter : picture with { Picture = rewritten };
+                    }
+
+                case PaintImageFilter paint:
+                    {
+                        var rewritten = RewritePaint(paint.Paint);
+
+                        return ReferenceEquals(rewritten, paint.Paint) ? filter : paint with { Paint = rewritten };
+                    }
+
+                case ShaderImageFilter shader:
+                    {
+                        var rewritten = RewriteShader(shader.Shader);
+
+                        return ReferenceEquals(rewritten, shader.Shader) ? filter : shader with { Shader = rewritten };
+                    }
+
+                case ColorFilterImageFilter colorFilter:
+                    {
+                        var rewrittenFilter = RewriteColorFilter(colorFilter.ColorFilter);
+                        var rewrittenInput = RewriteImageFilter(colorFilter.Input);
+
+                        return ReferenceEquals(rewrittenFilter, colorFilter.ColorFilter)
+                               && ReferenceEquals(rewrittenInput, colorFilter.Input)
+                            ? filter
+                            : colorFilter with { ColorFilter = rewrittenFilter, Input = rewrittenInput };
+                    }
+
+                case BlurImageFilter blur:
+                    return Chain(blur, blur.Input, i => blur with { Input = i });
+
+                case DilateImageFilter dilate:
+                    return Chain(dilate, dilate.Input, i => dilate with { Input = i });
+
+                case ErodeImageFilter erode:
+                    return Chain(erode, erode.Input, i => erode with { Input = i });
+
+                case OffsetImageFilter offset:
+                    return Chain(offset, offset.Input, i => offset with { Input = i });
+
+                case TileImageFilter tile:
+                    return Chain(tile, tile.Input, i => tile with { Input = i });
+
+                case MatrixConvolutionImageFilter convolution:
+                    return Chain(convolution, convolution.Input, i => convolution with { Input = i });
+
+                case DisplacementMapEffectImageFilter displacement:
+                    {
+                        var input = RewriteImageFilter(displacement.Input);
+                        var map = RewriteImageFilter(displacement.Displacement);
+
+                        return ReferenceEquals(input, displacement.Input) && ReferenceEquals(map, displacement.Displacement)
+                            ? filter
+                            : displacement with { Input = input, Displacement = map };
+                    }
+
+                case ArithmeticImageFilter arithmetic:
+                    {
+                        var background = RewriteImageFilter(arithmetic.Background);
+                        var foreground = RewriteImageFilter(arithmetic.Foreground);
+
+                        return ReferenceEquals(background, arithmetic.Background)
+                               && ReferenceEquals(foreground, arithmetic.Foreground)
+                            ? filter
+                            : arithmetic with { Background = background, Foreground = foreground };
+                    }
+
+                case BlendModeImageFilter blend:
+                    {
+                        var background = RewriteImageFilter(blend.Background);
+                        var foreground = RewriteImageFilter(blend.Foreground);
+
+                        return ReferenceEquals(background, blend.Background)
+                               && ReferenceEquals(foreground, blend.Foreground)
+                            ? filter
+                            : blend with { Background = background, Foreground = foreground };
+                    }
+
+                case MergeImageFilter merge when merge.Filters is { } filters:
+                    {
+                        SKImageFilter[]? rewritten = null;
+
+                        for (var index = 0; index < filters.Length; index++)
+                        {
+                            var one = RewriteImageFilter(filters[index]);
+
+                            if (ReferenceEquals(one, filters[index]))
+                            {
+                                continue;
+                            }
+
+                            rewritten ??= (SKImageFilter[])filters.Clone();
+                            rewritten[index] = one!;
+                        }
+
+                        return rewritten is null ? filter : merge with { Filters = rewritten };
+                    }
+
+                default:
+                    return filter;
+            }
+        }
+
+        /// <summary>A lit primitive with its colour resolved and its input rewritten.</summary>
+        /// <remarks>
+        /// Six primitives differ only in the fields around the two that matter here, and a record's
+        /// <c>with</c> needs the concrete type, so each one hands over how to rebuild itself.
+        /// </remarks>
+        private SKImageFilter Lit<T>(T filter, SKColor light, SKImageFilter? input, Func<SKColor, SKImageFilter?, T> rebuild)
+            where T : SKImageFilter
+        {
+            var color = RewriteColor(light);
+            var rewritten = RewriteImageFilter(input);
+
+            return color.Equals(light) && ReferenceEquals(rewritten, input) ? filter : rebuild(color, rewritten);
+        }
+
+        /// <summary>A primitive that only passes its input along.</summary>
+        private SKImageFilter Chain<T>(T filter, SKImageFilter? input, Func<SKImageFilter?, T> rebuild)
+            where T : SKImageFilter
+        {
+            var rewritten = RewriteImageFilter(input);
+
+            return ReferenceEquals(rewritten, input) ? filter : rebuild(rewritten);
         }
 
         private SKColorFilter? RewriteColorFilter(SKColorFilter? filter)
