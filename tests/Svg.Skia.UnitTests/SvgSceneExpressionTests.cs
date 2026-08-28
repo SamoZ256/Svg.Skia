@@ -171,6 +171,80 @@ public class SvgSceneExpressionTests
         Assert.Equal(SymNode.Literal(0.5), binary.Right);
     }
 
+    [Theory]
+    [InlineData("fill=\"{{ primary }}\"")]
+    [InlineData("style=\"fill: {{ primary }}\"")]
+    public void An_Expression_On_A_Group_Reaches_The_Children_That_Inherit_It(string attributes)
+    {
+        // The value of an inherited property is resolved by walking up from the element that
+        // paints, so the expression standing in for it has to be found the same way — a child of
+        // a group painted the grey placeholder until it was.
+        var paint = SinglePaint($"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <g {attributes}>
+                <rect x="0" y="0" width="10" height="10" />
+              </g>
+            </svg>
+            """);
+
+        Assert.Equal(SymNode.Source("primary"), paint.Color!.Value.Expression);
+    }
+
+    [Fact]
+    public void A_Childs_Own_Value_Wins_Over_The_Group_It_Is_In()
+    {
+        var paint = SinglePaint("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <g fill="{{ primary }}">
+                <rect x="0" y="0" width="10" height="10" fill="#00ff00" />
+              </g>
+            </svg>
+            """);
+
+        Assert.Null(paint.Color!.Value.Expression);
+        Assert.Equal(0xff, paint.Color!.Value.Green);
+    }
+
+    [Fact]
+    public void An_Inherited_Opacity_Expression_Scales_A_Childs_Colour()
+    {
+        // fill-opacity inherits where opacity does not: a group's opacity is one layer over the
+        // group, and its children must not each apply it again.
+        var paint = SinglePaint("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <g fill-opacity="{{ fade }}">
+                <rect x="0" y="0" width="10" height="10" fill="#3366cc" />
+              </g>
+            </svg>
+            """);
+
+        var binary = Assert.IsType<SymBinary>(paint.Color!.Value.Expression);
+
+        Assert.Equal(SymOp.ScaleAlpha, binary.Op);
+        Assert.Equal(SymNode.Source("fade"), binary.Right);
+    }
+
+    [Fact]
+    public void A_Group_Opacity_Expression_Stays_On_The_Group()
+    {
+        // Not inherited, so the child's own paint is untouched and the expression rides on the
+        // layer the group opens.
+        var picture = Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <g opacity="{{ fade }}">
+                <rect x="0" y="0" width="10" height="10" fill="#3366cc" />
+              </g>
+            </svg>
+            """);
+
+        Assert.Null(EnumeratePaints(picture).Single().Color!.Value.Expression);
+
+        var layer = picture.Commands!.OfType<SaveLayerCanvasCommand>().Single(c => c.Paint?.Color?.Expression is { });
+        var opacity = layer.Paint!.Color!.Value.Expression;
+
+        Assert.Equal(SymOp.ScaleAlpha, Assert.IsType<SymBinary>(opacity).Op);
+    }
+
     [Fact]
     public void An_Expression_In_A_Style_Declaration_Is_Lifted()
     {

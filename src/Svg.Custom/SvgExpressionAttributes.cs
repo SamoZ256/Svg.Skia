@@ -33,26 +33,39 @@ public static class SvgExpressionAttributes
     // The placeholder has to survive the model's own short circuits, which branch on the value:
     // "none" would drop the paint entirely and an opacity of 1 would skip creating a layer, and
     // in either case there would be nothing left for the expression to attach to.
-    // The type is here rather than in a table of its own because both answers are about the same
-    // attributes, and two tables would be two places to add the next one.
-    private static readonly Dictionary<string, (string Placeholder, ExprType Type)> s_placeholders = new(StringComparer.Ordinal)
+    // The type is here rather than in a table of its own because all three answers are about the
+    // same attributes, and another table would be another place to add the next one.
+    //
+    // Inherited is the property's own answer from SVG 1.1, not a choice: where the value travels
+    // down the tree the expression has to travel with it, or a child would paint the placeholder
+    // its parent's expression was standing in for.
+    private static readonly Dictionary<string, (string Placeholder, ExprType Type, bool Inherited)> s_placeholders = new(StringComparer.Ordinal)
     {
-        ["fill"] = ("#808080", ExprType.Color),
-        ["stroke"] = ("#808080", ExprType.Color),
-        ["stop-color"] = ("#808080", ExprType.Color),
-        ["flood-color"] = ("#808080", ExprType.Color),
-        ["lighting-color"] = ("#808080", ExprType.Color),
-        ["opacity"] = ("1", ExprType.Number),
+        ["fill"] = ("#808080", ExprType.Color, true),
+        ["stroke"] = ("#808080", ExprType.Color, true),
+        ["stop-color"] = ("#808080", ExprType.Color, false),
+        ["flood-color"] = ("#808080", ExprType.Color, false),
+        ["lighting-color"] = ("#808080", ExprType.Color, false),
+        // Not inherited: a group's opacity is applied to the group as a layer, and applying it
+        // again per child would compound it.
+        ["opacity"] = ("1", ExprType.Number, false),
         // Fully opaque, so the colour the expression scales is the one the author wrote.
-        ["fill-opacity"] = ("1", ExprType.Number),
-        ["stroke-opacity"] = ("1", ExprType.Number),
-        ["stop-opacity"] = ("1", ExprType.Number),
+        ["fill-opacity"] = ("1", ExprType.Number, true),
+        ["stroke-opacity"] = ("1", ExprType.Number, true),
+        ["stop-opacity"] = ("1", ExprType.Number, false),
         // A hidden element contributes no commands at all, so the placeholder has to be the
         // visible state or there would be nothing left to make conditional. For display that goes
         // further: a display:none container is not compiled at all, subtree included.
-        ["visibility"] = ("visible", ExprType.Boolean),
-        ["display"] = ("inline", ExprType.Boolean)
+        //
+        // Neither needs to inherit here: the conditional wraps everything the node contributes,
+        // its subtree included, so a group's answer already covers its children.
+        ["visibility"] = ("visible", ExprType.Boolean, false),
+        ["display"] = ("inline", ExprType.Boolean, false)
     };
+
+    /// <summary>Whether a value written in <paramref name="localName"/> is inherited by children.</summary>
+    public static bool IsInherited(string localName)
+        => s_placeholders.TryGetValue(localName, out var supported) && supported.Inherited;
 
     /// <summary>Attributes an expression can currently drive.</summary>
     public static bool IsSupported(string localName) => s_placeholders.ContainsKey(localName);
