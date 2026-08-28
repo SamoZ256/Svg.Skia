@@ -137,6 +137,35 @@ genuinely built at the new size rather than scaled by a matrix wrapped around th
 one group: naming any of them on the command line replaces the project file's sizing outright, since
 a flag width joining a project scale would be a contradiction rather than an override.
 
+### Leaving room around it
+
+```bash
+svgc -i ./Assets/icon.svg -o ./Generated/Icon.cs --width 512 --padding 10%
+```
+
+`--padding` leaves space around the drawing **inside** the size it was given: that command produces a
+512×512 picture whose art occupies the middle 410×410, so `--width` still describes the file you get.
+Values are fractions of the target — `10%` or `0.1` say the same thing — which means one setting fits
+every size a batch is generated at. A bare `10` is a fraction too, so it asks for ten times the
+canvas and is refused rather than quietly read as ten percent.
+
+Sides are written the way CSS writes them, one, two, three or four values:
+
+```bash
+svgc … --padding "10%"              # every side
+svgc … --padding "5% 10%"           # down, across
+svgc … --padding "5% 10% 0 10%"     # top, right, bottom, left
+```
+
+**It never crops.** The space is added outside the frame the document declares, so a drawing whose
+author already left it room keeps that room and gets more — padding is a floor, not a target. Where
+the drawing's shape and the size asked for disagree, what the aspect ratio leaves over centres, the
+same way an unpadded mismatch does, so a side may end up with more clear space than it asked for and
+never less.
+
+Unlike the three sizing values, `--padding` overlays on its own: it says how much room to leave
+rather than what size to be, so naming it does not replace a project file's width.
+
 ### Recipes: making a flat drawing parametric
 
 A recipe declares parameters and named expressions, then says which literal colours of a drawing
@@ -214,9 +243,10 @@ More than one drawing goes in an XML project file rather than a shell loop:
   <namespace>Demo.Icons</namespace>
   <singleFile>Icons.cs</singleFile>
   <cache>lastValue</cache>
+  <padding>10%</padding>
 
   <svg input="home.svg" class="Home" />
-  <svg input="badge.svg" class="Badge" />
+  <svg input="badge.svg" class="Badge" padding="0" />
 
   <group namespace="Demo.Icons.Large" scale="2">
     <svg input="badge.svg" class="BadgeLarge" />
@@ -229,7 +259,9 @@ svgc --projectFile ./icons.svgcproj
 ```
 
 - Every setting at the top is a default each `<svg>` may override, so a shared recipe or namespace is
-  named once and an item only says what differs.
+  named once and an item only says what differs. `padding` is one of them, and unlike `width`,
+  `height` and `scale` it overrides on its own: the drawing above keeps the project's sizing while
+  asking for no room around it.
 - A `<group>` is folded into its drawings as the project is read, so a drawing carries what its
   groups said as if it had said it itself.
 - `<singleFile>` folds every drawing into one C# file, which also lets them share one copy of the
@@ -246,6 +278,7 @@ svgc --projectFile ./icons.svgcproj
 | `-n`, `--namespace` / `-c`, `--class` | Names for the generated type; `Svg` and `Generated` by default |
 | `--emit` | `csharp` (default), or `svg` for the document the recipe produced |
 | `--width` / `--height` / `--scale` | Resize the document before it is compiled |
+| `--padding` | Room to leave around the drawing inside that size, in CSS order: `10%`, `"5% 10%"`, `"5% 10% 0 10%"` |
 | `--singleFile` | Emit a batch into one C# file |
 | `--helperScope` | Where shared helpers live in that file: `file` (default, C# 11 file-local), `internal`, or `perClass` |
 | `--cache` | `none` (default), `lastValue`, `lastValueLocked` |

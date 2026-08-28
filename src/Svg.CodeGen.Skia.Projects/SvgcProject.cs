@@ -22,7 +22,8 @@ public sealed class SvgcProjectItem
         string? recipe,
         float? width = null,
         float? height = null,
-        float? scale = null)
+        float? scale = null,
+        string? padding = null)
     {
         Input = input;
         Output = output;
@@ -32,6 +33,7 @@ public sealed class SvgcProjectItem
         Width = width;
         Height = height;
         Scale = scale;
+        Padding = padding;
     }
 
     public string Input { get; }
@@ -52,6 +54,15 @@ public sealed class SvgcProjectItem
 
     /// <summary>The factor to resize this drawing by, against the size it already has.</summary>
     public float? Scale { get; }
+
+    /// <summary>The room to leave around this drawing as it was written, or null to take the project's.</summary>
+    /// <remarks>
+    /// Not part of <see cref="HasSize"/>: padding says how much room to leave rather than what size
+    /// to be, so it overrides on its own and an item asking for it keeps the project's sizing. Left
+    /// as it was written for the reason a width is left a bare number — what it means is decided
+    /// where the whole group is seen, and that is not here.
+    /// </remarks>
+    public string? Padding { get; }
 
     /// <summary>Whether the item asks for a size of its own, rather than taking the project's.</summary>
     /// <remarks>
@@ -93,18 +104,18 @@ public sealed class SvgcProject
     private static readonly string[] s_settings =
     {
         "recipe", "namespace", "class", "emit", "cache", "helperScope", "singleFile", "skiaSharp",
-        "width", "height", "scale"
+        "width", "height", "scale", "padding"
     };
 
     private static readonly string[] s_itemAttributes =
     {
-        "input", "output", "namespace", "class", "recipe", "width", "height", "scale"
+        "input", "output", "namespace", "class", "recipe", "width", "height", "scale", "padding"
     };
 
     // Everything a drawing can name for itself, less the two that are about one file.
     private static readonly string[] s_groupAttributes =
     {
-        "namespace", "class", "recipe", "width", "height", "scale"
+        "namespace", "class", "recipe", "width", "height", "scale", "padding"
     };
 
     private SvgcProject(
@@ -119,6 +130,7 @@ public sealed class SvgcProject
         float? width,
         float? height,
         float? scale,
+        string? padding,
         IReadOnlyList<SvgcProjectItem> items)
     {
         Recipe = recipe;
@@ -132,6 +144,7 @@ public sealed class SvgcProject
         Width = width;
         Height = height;
         Scale = scale;
+        Padding = padding;
         Items = items;
     }
 
@@ -160,6 +173,9 @@ public sealed class SvgcProject
 
     /// <summary>The factor every drawing is resized by, against the size it already has.</summary>
     public float? Scale { get; }
+
+    /// <summary>The room left around every drawing, inside the size it is given, as it was written.</summary>
+    public string? Padding { get; }
 
     /// <summary>Whether the project asks for a size at all. <see cref="SvgcProjectItem.HasSize"/>.</summary>
     public bool HasSize => Width is { } || Height is { } || Scale is { };
@@ -243,6 +259,7 @@ public sealed class SvgcProject
             ParseLength(Setting(settings, "width"), "width"),
             ParseLength(Setting(settings, "height"), "height"),
             ParseScale(Setting(settings, "scale")),
+            Setting(settings, "padding"),
             items);
     }
 
@@ -356,7 +373,8 @@ public sealed class SvgcProject
             scoped.Recipe,
             scoped.Width,
             scoped.Height,
-            scoped.Scale);
+            scoped.Scale,
+            scoped.Padding);
     }
 
     private static void RequireKnownAttributes(XElement element, string[] allowed, string elementName)
@@ -378,7 +396,14 @@ public sealed class SvgcProject
     /// </summary>
     private readonly struct Scoped
     {
-        private Scoped(string? namespaceName, string? className, string? recipe, float? width, float? height, float? scale)
+        private Scoped(
+            string? namespaceName,
+            string? className,
+            string? recipe,
+            float? width,
+            float? height,
+            float? scale,
+            string? padding)
         {
             Namespace = namespaceName;
             Class = className;
@@ -386,6 +411,7 @@ public sealed class SvgcProject
             Width = width;
             Height = height;
             Scale = scale;
+            Padding = padding;
         }
 
         public static Scoped None => default;
@@ -399,6 +425,8 @@ public sealed class SvgcProject
         public float? Width { get; }
 
         public float? Height { get; }
+
+        public string? Padding { get; }
 
         public float? Scale { get; }
 
@@ -414,13 +442,19 @@ public sealed class SvgcProject
             // contradiction rather than a refinement.
             var resizes = width is { } || height is { } || scale is { };
 
+            // Padding is not one of the three and overlays on its own: it says how much room to
+            // leave rather than what size to be, so naming it is a refinement rather than a
+            // different answer to the same question.
+            var padding = Attribute(element, "padding") ?? Padding;
+
             return new Scoped(
                 Attribute(element, "namespace") ?? Namespace,
                 Attribute(element, "class") ?? Class,
                 Resolve(Attribute(element, "recipe"), baseDirectory) ?? Recipe,
                 resizes ? width : Width,
                 resizes ? height : Height,
-                resizes ? scale : Scale);
+                resizes ? scale : Scale,
+                padding);
         }
     }
 

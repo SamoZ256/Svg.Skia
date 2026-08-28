@@ -194,4 +194,76 @@ public class SvgSceneSizingTests : SvgUnitTest
     [InlineData(float.PositiveInfinity, null, null)]
     public void A_Request_That_Cannot_Mean_Anything_Is_Rejected(float? width, float? height, float? scale)
         => Assert.Throws<ArgumentException>(() => new SvgSizeRequest(width, height, scale));
+
+    // ---- padding ----
+    //
+    // The fractions are 25% and 12.5% rather than 10% so that every number below is exact in
+    // binary: a tenth is not, and the arithmetic would land a fraction of a pixel off what is
+    // written here for reasons that have nothing to do with the code being tested.
+
+    [Fact]
+    public void Padding_Insets_The_Drawing_Inside_The_Size_It_Was_Given()
+    {
+        var picture = Compile(Square, new SvgSizeRequest(240f, null, null, SvgPadding.Parse("25%")));
+
+        // 240 is what was asked for and 240 is what comes out: the padding eats into the target
+        // rather than growing past it.
+        Assert.Equal(SKRect.Create(0f, 0f, 240f, 240f), picture.CullRect);
+
+        // The document's frame lands in the middle 120, leaving 60 -- a quarter -- clear each side.
+        // The rect is 100 rather than 120, because the 2 units this document insets it by are still
+        // there in proportion: 100/120 is 20/24. Padding that measured the ink instead would have
+        // filled the box with it.
+        Assert.Equal(SKRect.Create(70f, 70f, 100f, 100f), FirstPathBounds(picture));
+    }
+
+    [Fact]
+    public void Padding_Can_Differ_By_Side()
+    {
+        var picture = Compile(Square, new SvgSizeRequest(240f, null, null, SvgPadding.Parse("25% 12.5% 0 12.5%")));
+
+        Assert.Equal(SKRect.Create(0f, 0f, 240f, 240f), picture.CullRect);
+
+        // Nothing is left over here, so each side is exactly what was asked: 60 above, none below,
+        // 30 either side. The rect sits inside that at the inset the document gives it.
+        Assert.Equal(SKRect.Create(45f, 75f, 150f, 150f), FirstPathBounds(picture));
+    }
+
+    [Fact]
+    public void Padding_On_Its_Own_Keeps_The_Size_The_Document_Has()
+    {
+        var picture = Compile(Square, new SvgSizeRequest(null, null, null, SvgPadding.Parse("25%")));
+
+        // No width, height or scale: the drawing insets within the size it already had.
+        Assert.Equal(SKRect.Create(0f, 0f, 24f, 24f), picture.CullRect);
+        Assert.Equal(SKRect.Create(7f, 7f, 10f, 10f), FirstPathBounds(picture));
+    }
+
+    [Fact]
+    public void Padding_Is_The_Least_Clear_Space_And_Letterboxing_Takes_The_Rest()
+    {
+        // A 1:2 drawing in a square box. One scale keeps its shape, so the padding cannot be exact
+        // on all four sides -- what it asks for is the minimum, and what is left over centres, the
+        // same way an unpadded mismatch does.
+        var picture = Compile(Tall, new SvgSizeRequest(120f, 120f, null, SvgPadding.Parse("25%")));
+
+        Assert.Equal(SKRect.Create(0f, 0f, 120f, 120f), picture.CullRect);
+
+        // Down: 30 clear top and bottom, the quarter asked for. Across: 45, which is the quarter
+        // plus half of what the aspect ratio left over.
+        Assert.Equal(SKRect.Create(47.5f, 32.5f, 25f, 55f), FirstPathBounds(picture));
+    }
+
+    [Fact]
+    public void No_Padding_Is_The_Path_It_Always_Was()
+    {
+        // The padded branch computes a different viewBox for the same picture, so this pins that an
+        // unpadded request never takes it -- generated output does not move for drawings nobody
+        // asked to pad.
+        var padded = Compile(Square, new SvgSizeRequest(96f, 96f, null, SvgPadding.None));
+        var plain = Compile(Square, new SvgSizeRequest(96f, 96f, null));
+
+        Assert.Equal(plain.CullRect, padded.CullRect);
+        Assert.Equal(FirstPathBounds(plain), FirstPathBounds(padded));
+    }
 }

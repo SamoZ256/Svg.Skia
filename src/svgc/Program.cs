@@ -157,9 +157,18 @@ class Program
     /// it, for the same reason a flag does.
     /// </summary>
     static SvgSizeRequest SizeFor(SvgcProjectItem item, SvgSizeRequest projectSize)
-        => item.HasSize ? new SvgSizeRequest(item.Width, item.Height, item.Scale) : projectSize;
+    {
+        // Overlaid on its own, unlike the three sizing values: an item asking for room to leave has
+        // not thereby said anything about what size to be, so it keeps the project's.
+        var padding = item.Padding is { } text ? SvgPadding.Parse(text) : projectSize.Padding;
 
-    static bool AnyItemResizes(SvgcProject? project)
+        return item.HasSize
+            ? new SvgSizeRequest(item.Width, item.Height, item.Scale, padding)
+            : new SvgSizeRequest(projectSize.Width, projectSize.Height, projectSize.Scale, padding);
+    }
+
+    /// <summary>Whether any item asks for a frame of its own, by size or by padding.</summary>
+    static bool AnyItemReframes(SvgcProject? project)
     {
         if (project is null)
         {
@@ -168,7 +177,7 @@ class Program
 
         foreach (var item in project.Items)
         {
-            if (item.HasSize)
+            if (item.HasSize || item.Padding is { })
             {
                 return true;
             }
@@ -262,6 +271,15 @@ class Program
         };
         rootCommand.AddOption(optionScale);
 
+        var optionPadding = new Option(
+            new[] { "--padding" },
+            "Space to leave around the drawing inside its size, as fractions of it: one, two, three or four values the CSS way, each 10% or 0.1")
+        {
+            IsRequired = false,
+            Argument = new Argument<string?>(getDefaultValue: () => null)
+        };
+        rootCommand.AddOption(optionPadding);
+
         var optionEmit = new Option(new[] { "--emit" }, "What the output file receives: csharp, or svg for the document the recipe produced")
         {
             IsRequired = false,
@@ -327,12 +345,17 @@ class Program
                 // line that names any of them replaces the project's sizing outright. Merging them
                 // would let a flag width join a project scale, which is a contradiction rather
                 // than an override.
+                // Padding is not one of that group: it says how much room to leave rather than what
+                // size to be, so a command line naming only it keeps the project's sizing.
+                var padding = SvgPadding.Parse(settings.Padding ?? project?.Padding);
+
                 var size = settings.Width is { } || settings.Height is { } || settings.Scale is { }
                     ? new SvgSizeRequest(
                         SvgcProject.ParseLength(settings.Width, "width"),
                         SvgcProject.ParseLength(settings.Height, "height"),
-                        SvgcProject.ParseScale(settings.Scale))
-                    : new SvgSizeRequest(project?.Width, project?.Height, project?.Scale);
+                        SvgcProject.ParseScale(settings.Scale),
+                        padding)
+                    : new SvgSizeRequest(project?.Width, project?.Height, project?.Scale, padding);
 
                 if (emit == SvgEmit.Svg)
                 {
@@ -351,9 +374,9 @@ class Program
 
                     // A conversion rewrites the document's text and never builds a drawing, so
                     // there is nothing for a size to apply to.
-                    if (!size.IsEmpty || AnyItemResizes(project))
+                    if (!size.IsEmpty || AnyItemReframes(project))
                     {
-                        throw new ArgumentException("Emitting svg cannot be combined with a resize: the conversion rewrites the document's text and never compiles it.");
+                        throw new ArgumentException("Emitting svg cannot be combined with a resize or a padding: the conversion rewrites the document's text and never compiles it.");
                     }
                 }
 

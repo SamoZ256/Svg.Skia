@@ -359,4 +359,73 @@ public class SvgcProjectTests
 
         Directory.Delete(directory, recursive: true);
     }
+
+    // ---- padding ----
+
+    [Fact]
+    public void Padding_Is_Read_As_It_Was_Written()
+    {
+        var project = Parse("""
+            <svgc>
+              <width>240</width>
+              <padding>25% 12.5%</padding>
+              <svg input="home.svg" class="Home" />
+            </svgc>
+            """);
+
+        // Kept as text: what a padding means is decided where the whole sizing group is seen, the
+        // same reason a width is kept a bare number here.
+        Assert.Equal("25% 12.5%", project.Padding);
+        Assert.Null(Assert.Single(project.Items).Padding);
+    }
+
+    [Fact]
+    public void An_Item_Padding_Does_Not_Give_Up_The_Project_Size()
+    {
+        var project = Parse("""
+            <svgc>
+              <width>240</width>
+              <svg input="home.svg" class="Home" padding="10%" />
+            </svgc>
+            """);
+
+        var item = Assert.Single(project.Items);
+
+        // Unlike width, height and scale, which replace each other as a group: padding says how
+        // much room to leave rather than what size to be, so it overlays on its own.
+        Assert.Equal("10%", item.Padding);
+        Assert.False(item.HasSize);
+        Assert.Equal(240f, project.Width);
+    }
+
+    [Fact]
+    public void An_Item_Padding_Wins_Over_The_Project_One()
+    {
+        var project = Parse("""
+            <svgc>
+              <padding>25%</padding>
+              <svg input="home.svg" class="Home" padding="0" />
+              <svg input="search.svg" class="Search" />
+            </svgc>
+            """);
+
+        Assert.Equal("0", project.Items[0].Padding);
+        Assert.Null(project.Items[1].Padding);
+    }
+
+    [Fact]
+    public void A_Group_Padding_Reaches_The_Drawings_In_It()
+    {
+        var project = Parse("""
+            <svgc>
+              <group padding="25%">
+                <svg input="home.svg" class="Home" />
+                <svg input="search.svg" class="Search" padding="10%" />
+              </group>
+            </svgc>
+            """);
+
+        Assert.Equal("25%", project.Items[0].Padding);
+        Assert.Equal("10%", project.Items[1].Padding);
+    }
 }

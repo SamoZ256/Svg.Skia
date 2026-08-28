@@ -16,6 +16,7 @@ internal class Settings
     public string? Width { get; set; }
     public string? Height { get; set; }
     public string? Scale { get; set; }
+    public string? Padding { get; set; }
     public string? Namespace { get; set; }
     public string? Class { get; set; }
 }

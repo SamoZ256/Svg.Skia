@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+* `svgc` can leave room around a drawing: `--padding`, and `<padding>` in a project file.
+
+  It pads **inside** the size asked for. `--width 512 --padding 10%` gives a 512×512 picture whose
+  art occupies the middle 410×410, so `--width` goes on describing the file you get rather than the
+  art inside it. Values are fractions of that target — `10%` and `0.1` are the same thing — which is
+  what lets one setting serve a batch generated at several sizes. A bare `10` is read as the fraction
+  and refused, rather than quietly taken for ten percent.
+
+  Sides are written the CSS way, one to four values, because that is the order anyone writing four
+  numbers for four sides already has in mind.
+
+  **It never crops.** The space goes outside the frame the document declares, so a drawing whose
+  author already left it room keeps that room and gets more. That falls out of what the resize
+  already did: it measures the document's own `width`/`height`, then its `viewBox`, and only looks at
+  what is actually drawn when the document declares neither — the one case where there is no authored
+  padding to lose.
+
+  Padding cannot be asked of `preserveAspectRatio`, which has nine alignments and no offsets, so it
+  is written as a viewBox whose aspect matches the viewport — which makes the fit exact and leaves
+  `preserveAspectRatio` nothing to do. With every side zero that reduces to what `xMidYMid meet`
+  already produces, but the shorter path is kept for the unpadded case regardless: there is no reason
+  to move generated output for drawings nobody asked to pad. Where a drawing's shape and the size
+  asked for disagree, the leftover centres as it always did, so a side can end up with more clear
+  space than it asked for and never less.
+
+  Unlike `--width`/`--height`/`--scale`, which replace one another as a group, padding overlays on
+  its own — it says how much room to leave rather than what size to be, so an item naming it keeps
+  the project's sizing. It is refused alongside `--emit svg` for the reason a resize is: that
+  conversion rewrites the document's text and never compiles it, so either would be silently lost.
+
 * Fixed a let edit being written to the drawing twice. Committing a row with `Enter` and then
   clicking away reported either **"This drawing declares no let called 'deep'."** or **"'deeper' is
   declared more than once."** — one message for a rename, the other for a new let, both from the same
