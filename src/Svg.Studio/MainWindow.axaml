@@ -143,18 +143,10 @@
         <NativeMenuItem.Menu>
           <NativeMenu>
             <!--
-              Two commands rather than one panel offering both: the picker's own type list only
-              filters what is shown in it, so a format chosen there and a name typed beside it can
-              disagree. Chosen here, each one arrives with the right name already in the box.
+              One command for both forms: the save panel asks which, and names the file after the
+              answer, so nothing here has to ask twice.
             -->
-            <NativeMenuItem Header="Export">
-              <NativeMenuItem.Menu>
-                <NativeMenu>
-                  <NativeMenuItem Header="SVG…" Click="OnExportSvg" />
-                  <NativeMenuItem Header="C#…" Click="OnExportCSharp" />
-                </NativeMenu>
-              </NativeMenuItem.Menu>
-            </NativeMenuItem>
+            <NativeMenuItem Header="Export…" Click="OnExport" />
           </NativeMenu>
         </NativeMenuItem.Menu>
       </NativeMenuItem>

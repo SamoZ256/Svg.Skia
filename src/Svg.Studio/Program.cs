@@ -1,7 +1,5 @@
 using System;
-using System.Runtime.InteropServices;
 using Avalonia;
-using Avalonia.Dialogs;
 
 namespace Svg.Studio;
 
@@ -11,22 +9,13 @@ internal static class Program
     public static void Main(string[] args)
         => BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
 
+    // The native pickers, deliberately: the macOS panel appends the extension belonging to the type
+    // chosen in its own popup, which is how File → Export… gets away with asking one question. The
+    // managed picker this used to force on macOS does neither — it was here for Avalonia 12.0.0's
+    // use-after-free on dismissal (AvaloniaUI/Avalonia#21313), fixed in 12.0.2.
     public static AppBuilder BuildAvaloniaApp()
-    {
-        var builder = AppBuilder.Configure<App>()
+        => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .UseSkia()
             .LogToTrace();
-
-        // Avalonia 12.0.0's native storage provider crashes as the panel is dismissed on macOS --
-        // inside StorageProvider::OpenFileDialog's completion block, under
-        // -[NSSavePanel didEndPanelWithReturnCode:], and samples/TestApp crashes there identically.
-        // The managed picker is drawn by Avalonia itself and never reaches that code.
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            builder = builder.UseManagedSystemDialogs();
-        }
-
-        return builder;
-    }
 }

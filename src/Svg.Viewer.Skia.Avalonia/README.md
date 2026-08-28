@@ -138,27 +138,15 @@ renders, because loading deliberately never reads declarations — the drawing s
 A rejected value leaves the last good rendering exactly where it was, and the control keeps what was
 typed so it can be corrected.
 
-## Known issue: the file picker crashes on macOS
+## The file picker on macOS: use 12.0.2 or newer
 
-With Avalonia 12.0.0 on macOS, dismissing the native open panel crashes the process inside
-`StorageProvider::OpenFileDialog`'s completion block, reached from
-`-[NSSavePanel didEndPanelWithReturnCode:]`, with no managed frames. `samples/TestApp` crashes
-there identically, so this is upstream and not specific to this package or to the options it
-passes.
+Avalonia 12.0.0 and 12.0.1 crash the process as a native panel is dismissed — a use-after-free in
+`StorageProvider::SaveFileDialog`'s completion block, reached from
+`-[NSSavePanel didEndPanelWithReturnCode:]`, with no managed frames, and it reproduces in a bare
+Avalonia app. `AppBuilder.UseManagedSystemDialogs()` was the workaround, at the cost of a picker
+that neither reports the file type chosen in it nor lets that type name the file.
 
-The workaround is Avalonia's own managed picker, which the framework draws itself:
+[AvaloniaUI/Avalonia#21313](https://github.com/AvaloniaUI/Avalonia/issues/21313) fixed it in
+**12.0.2**, so a host on that or newer should use the native pickers.
 
-```csharp
-var builder = AppBuilder.Configure<App>().UsePlatformDetect().UseSkia();
-
-if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-{
-    builder = builder.UseManagedSystemDialogs();   // needs Avalonia.Dialogs
-}
-```
-
-It is an application-wide switch, so it belongs to the host rather than to this library;
-`src/Svg.Studio` applies it on macOS. Measured against a bare Avalonia app, dismissing the native
-panel exits with SIGSEGV while the managed one returns normally.
-
-Dropping a file on the viewer and handing a path to `LoadAsync` also avoid the picker entirely.
+Dropping a file on the viewer and handing a path to `LoadAsync` avoid the picker entirely.

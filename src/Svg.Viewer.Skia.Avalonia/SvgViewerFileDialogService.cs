@@ -20,11 +20,7 @@ public class SvgViewerFileDialogService : ISvgViewerFileDialogService
     };
 
     // Not FilePickerFileTypes.All, which carries the `public.item` type identifier too, so this
-    // matches samples/TestApp. Consistency, not a fix: on macOS with Avalonia 12.0.0 the native
-    // provider crashes as the panel is dismissed, inside the completion block of
-    // StorageProvider::OpenFileDialog reached from -[NSSavePanel didEndPanelWithReturnCode:], with
-    // no managed frames — it reproduces in a bare Avalonia app. The workaround is
-    // AppBuilder.UseManagedSystemDialogs(), an application-wide switch src/Svg.Studio makes.
+    // matches samples/TestApp.
     private static readonly FilePickerFileType AllFileType = new("All")
     {
         Patterns = new[] { "*.*" },

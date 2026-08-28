@@ -137,6 +137,35 @@ public class MainWindowExportTests
         }
     }
 
+    /// <summary>
+    /// A path with no extension is a drawing, and is named like one.
+    /// </summary>
+    /// <remarks>
+    /// A backstop for a path that did not come from a picker: the save panel appends the extension
+    /// of the type chosen in it, which is what makes the name the answer to which form was meant.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Exporting_To_A_Name_Without_An_Extension_Writes_An_Svg()
+    {
+        var window = await Host();
+        var asked = Target(string.Empty);
+        var written = SvgExport.PathFor(asked);
+
+        try
+        {
+            Assert.True(await window.ExportAsync(asked));
+
+            Assert.Equal(asked + ".svg", written);
+            Assert.Equal(Drawing, File.ReadAllText(written));
+            Assert.False(File.Exists(asked));
+        }
+        finally
+        {
+            File.Delete(asked);
+            File.Delete(written);
+        }
+    }
+
     /// <summary>An edit that has not been saved is part of the drawing, and so part of the export.</summary>
     [AvaloniaFact]
     public async Task Exporting_Writes_What_The_Pane_Is_Holding()

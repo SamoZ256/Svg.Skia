@@ -330,28 +330,33 @@ public partial class MainWindow : Window
         MimeTypes = new[] { "text/plain" }
     };
 
-    private async void OnExportSvg(object? sender, EventArgs e) => await ExportAsync(csharp: false);
+    private async void OnExport(object? sender, EventArgs e) => await ExportAsync();
 
-    private async void OnExportCSharp(object? sender, EventArgs e) => await ExportAsync(csharp: true);
-
-    /// <summary>Asks where the selected drawing goes in the form asked for, and writes it there.</summary>
+    /// <summary>
+    /// Asks where the selected drawing goes and in which form, and writes it there.
+    /// </summary>
+    /// <remarks>
+    /// One question, because the panel's own type list answers both halves of it: the suggested
+    /// name is given without an extension, and the panel appends the one belonging to the type
+    /// chosen in it. <see cref="FilePickerSaveOptions.DefaultExtension"/> is left unset for the
+    /// same reason — measured on Avalonia 12.1.0, setting it to <c>svg</c> overrode the chosen
+    /// type, and a name saved under "C# Files" came back as <c>.svg</c>.
+    /// </remarks>
     /// <returns>Whether anything was written.</returns>
-    public async Task<bool> ExportAsync(bool csharp)
+    public async Task<bool> ExportAsync()
     {
         if (Selected() is not { Document: { } } viewer || !StorageProvider.CanSave)
         {
             return false;
         }
 
-        var extension = csharp ? "cs" : "svg";
-        var stem = viewer.DocumentPath is { } path ? Path.GetFileNameWithoutExtension(path) : "drawing";
-
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = csharp ? "Export as C#" : "Export as SVG",
-            SuggestedFileName = $"{stem}.{extension}",
-            DefaultExtension = extension,
-            FileTypeChoices = new List<FilePickerFileType> { csharp ? CSharpFileType : SvgFileType }
+            Title = "Export drawing",
+            SuggestedFileName = viewer.DocumentPath is { } path
+                ? Path.GetFileNameWithoutExtension(path)
+                : "drawing",
+            FileTypeChoices = new List<FilePickerFileType> { SvgFileType, CSharpFileType }
         });
 
         return file?.TryGetLocalPath() is { Length: > 0 } target && await ExportAsync(target);
@@ -362,8 +367,7 @@ public partial class MainWindow : Window
     /// as SVG otherwise.
     /// </summary>
     /// <remarks>
-    /// Taking the path rather than asking for it, so everything but the panel can be driven. The
-    /// name has the last word over the command that asked, so that a file is what it is called.
+    /// Taking the path rather than asking for it, so everything but the panel can be driven.
     /// </remarks>
     public async Task<bool> ExportAsync(string target)
     {

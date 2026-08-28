@@ -10,8 +10,9 @@ namespace Svg.Studio;
 /// Writes an open drawing somewhere else: as SVG, or as the C# that draws it.
 /// </summary>
 /// <remarks>
-/// The name decides which, because a picker hands back a path and not the filter that was chosen
-/// to arrive at it.
+/// The name says which. That is not a guess about what the author meant: the save panel appends
+/// the extension belonging to the type chosen in it, so by the time a path reaches here the choice
+/// is already in the name — and a file is then what it is called, whatever route it arrived by.
 /// </remarks>
 public static class SvgExport
 {
@@ -21,18 +22,31 @@ public static class SvgExport
     public static bool IsCSharp(string path)
         => string.Equals(Path.GetExtension(path), ".cs", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>The file a path names, given an extension when it has none.</summary>
+    /// <remarks>
+    /// A backstop rather than a rule: every picker that offers file types names the file after the
+    /// chosen one, so this only catches a path that arrived some other way.
+    /// </remarks>
+    public static string PathFor(string path) => Path.HasExtension(path) ? path : path + ".svg";
+
     /// <summary>Writes <paramref name="source"/> to <paramref name="path"/>, in the form it names.</summary>
+    /// <returns>The file it went to, which is <see cref="PathFor"/> of the path given.</returns>
     /// <exception cref="InvalidOperationException">The drawing could not be built to generate from.</exception>
-    public static void Write(SvgViewerDocument document, string source, string path)
+    public static string Write(SvgViewerDocument document, string source, string path)
     {
-        if (!IsCSharp(path))
+        var target = PathFor(path);
+
+        if (IsCSharp(target))
+        {
+            File.WriteAllText(target, Generate(document, source, ClassName(target)));
+        }
+        else
         {
             // Through the document, so a drawing that came in with a byte order mark keeps it.
-            document.Write(source, path);
-            return;
+            document.Write(source, target);
         }
 
-        File.WriteAllText(path, Generate(document, source, ClassName(path)));
+        return target;
     }
 
     /// <summary>The C# that draws <paramref name="source"/>.</summary>
