@@ -127,7 +127,6 @@ public partial class SvgViewer : UserControl
         _sourceHeight = _body.RowDefinitions[2].Height;
         _panelWidth = _drawing.ColumnDefinitions[2].Width;
 
-        this.FindControl<Button>("OpenButton")!.Click += async (_, _) => await OpenAsync();
         this.FindControl<Button>("FitButton")!.Click += (_, _) => _canvas.Fit();
         this.FindControl<Button>("ActualSizeButton")!.Click += (_, _) => _canvas.ActualSize();
         this.FindControl<Button>("ResetButton")!.Click += (_, _) => _canvas.ResetView();

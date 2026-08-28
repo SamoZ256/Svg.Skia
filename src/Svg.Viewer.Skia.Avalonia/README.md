@@ -16,8 +16,8 @@ of these controls.
 
 ## What it does
 
-- **Opens** a file through a picker or a drop, off the UI thread, keeping whatever is on screen if
-  the load fails.
+- **Opens** a file through a drop, or through `OpenAsync()` when the host asks — which is the
+  platform picker. Off the UI thread, keeping whatever is on screen if the load fails.
 - **Zooms and pans**, with a percentage readout. Resizing keeps the drawing fitted until the view is
   adjusted by hand, after which it is left where it was.
 - **Builds a control per parameter** — a slider and a value box for a `number`, honouring any
@@ -112,7 +112,9 @@ chrome, and `SvgViewerCanvas` and `SvgViewerDeclarationPanel` are usable on thei
 wants to supply its own. `SvgViewerDocument` and `SvgViewerParameterFactory` are plain classes with
 no UI, for a host that only wants the loading and seeding.
 
-Replace `FileDialogService` to open files some other way; the default is the platform picker.
+Opening is the host's to offer: the toolbar zooms and shows the source, and `OpenAsync()` is the
+picker — `src/Svg.Studio` calls it from File → Open…. Replace `FileDialogService` to open files some
+other way; the default is the platform picker.
 
 No extra theme setup is needed. `ColorPicker` keeps its control theme in its own assembly rather
 than in `FluentTheme`, so `SvgViewerDeclarationPanel` includes it itself — a host that forgets would

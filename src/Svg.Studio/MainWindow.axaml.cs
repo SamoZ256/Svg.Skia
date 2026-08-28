@@ -330,6 +330,22 @@ public partial class MainWindow : Window
         MimeTypes = new[] { "text/plain" }
     };
 
+    /// <summary>
+    /// Opens a drawing, in a tab of its own.
+    /// </summary>
+    /// <remarks>
+    /// Through the viewer rather than around it: asking is <see cref="SvgViewer.OpenAsync()"/>, and
+    /// what it raises is the request this window already turns into tabs, for a drop as much as for
+    /// this. The viewer's toolbar had this button until the menu could hold it.
+    /// </remarks>
+    private async void OnOpen(object? sender, EventArgs e)
+    {
+        if (Selected() is { } viewer)
+        {
+            await viewer.OpenAsync();
+        }
+    }
+
     private async void OnExport(object? sender, EventArgs e) => await ExportAsync();
 
     /// <summary>

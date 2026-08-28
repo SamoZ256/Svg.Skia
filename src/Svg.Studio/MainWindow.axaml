@@ -142,6 +142,7 @@
       <NativeMenuItem Header="File">
         <NativeMenuItem.Menu>
           <NativeMenu>
+            <NativeMenuItem Header="Open…" Click="OnOpen" />
             <!--
               One command for both forms: the save panel asks which, and names the file after the
               answer, so nothing here has to ask twice.
