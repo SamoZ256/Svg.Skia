@@ -72,6 +72,8 @@ public partial class MainWindow : Window
         _tabs.AddHandler(PointerReleasedEvent, OnTabPointerReleased, RoutingStrategies.Tunnel);
         _tabs.AddHandler(PointerCaptureLostEvent, (_, _) => EndDrag(null));
 
+        ShowMenuGestures();
+
         var viewer = AddTab();
 
         var startup = path is { } && File.Exists(path)
@@ -347,6 +349,101 @@ public partial class MainWindow : Window
     }
 
     private async void OnExport(object? sender, EventArgs e) => await ExportAsync();
+
+    private void OnUndo(object? sender, EventArgs e) => Undo();
+
+    private void OnRedo(object? sender, EventArgs e) => Redo();
+
+    /// <summary>Takes back the last edit, in whatever is being typed in.</summary>
+    /// <remarks>
+    /// A menu item's gesture is the window's on macOS, so it arrives here wherever the caret is —
+    /// including a box in the parameter panel, which keeps its own stack and would otherwise have
+    /// its keystroke taken by the drawing's.
+    /// </remarks>
+    /// <returns>Whether there was anything to take back.</returns>
+    public bool Undo()
+    {
+        // A TextBox says nothing about whether it had anything to take back, so being the one that
+        // was asked is the answer.
+        if (Focused() is TextBox box)
+        {
+            box.Undo();
+
+            return true;
+        }
+
+        return Selected()?.Undo() ?? false;
+    }
+
+    /// <inheritdoc cref="Undo"/>
+    public bool Redo()
+    {
+        if (Focused() is TextBox box)
+        {
+            box.Redo();
+
+            return true;
+        }
+
+        return Selected()?.Redo() ?? false;
+    }
+
+    private IInputElement? Focused() => FocusManager?.GetFocusedElement();
+
+    /// <summary>
+    /// Shows each command's gesture beside it, as the platform spells that gesture.
+    /// </summary>
+    /// <remarks>
+    /// Read from the keymap rather than written down, so the menu cannot come to disagree with what
+    /// the pane answers to — they are the same list. The first of the ones the platform names, since
+    /// a menu item shows one and Redo has two.
+    /// </remarks>
+    private void ShowMenuGestures()
+    {
+        if (this.GetPlatformSettings()?.HotkeyConfiguration is not { } hotkeys)
+        {
+            return;
+        }
+
+        Show("Undo", hotkeys.Undo);
+        Show("Redo", hotkeys.Redo);
+
+        void Show(string header, IReadOnlyList<KeyGesture> gestures)
+        {
+            if (gestures.Count > 0 && Item(NativeMenu.GetMenu(this), header) is { } item)
+            {
+                item.Gesture = gestures[0];
+            }
+        }
+    }
+
+    /// <summary>The menu item under <paramref name="menu"/> with this header.</summary>
+    /// <remarks>
+    /// By header, because a NativeMenuItem has no name to give it in the markup — it is not a
+    /// control, and x:Name has nothing to bind to on one.
+    /// </remarks>
+    private static NativeMenuItem? Item(NativeMenu? menu, string header)
+    {
+        foreach (var entry in menu?.Items ?? new List<NativeMenuItemBase>())
+        {
+            if (entry is not NativeMenuItem item)
+            {
+                continue;
+            }
+
+            if (string.Equals(item.Header, header, StringComparison.Ordinal))
+            {
+                return item;
+            }
+
+            if (Item(item.Menu, header) is { } nested)
+            {
+                return nested;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>Asks the viewer to resize the drawing, which is where the form and the edit live.</summary>
     private async void OnResize(object? sender, EventArgs e)

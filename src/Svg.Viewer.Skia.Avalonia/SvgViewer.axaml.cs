@@ -19,6 +19,8 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using AvaloniaEdit;
 using AvaloniaEdit.Document;
+using System.Windows.Input;
+using Avalonia.VisualTree;
 using Svg.Expressions;
 using Svg.Highlighting;
 using Svg.Skia;
@@ -1348,6 +1350,81 @@ public partial class SvgViewer : UserControl
         RaiseModified();
 
         return true;
+    }
+
+    /// <summary>Takes back the last edit to the drawing's text.</summary>
+    /// <remarks>
+    /// For a host with a menu: the pane binds the platform's gestures itself, and a menu item wants
+    /// the same thing without one. The stack is the pane's, so this takes back typing, a committed
+    /// declaration and a resize alike — and never a parameter value, which is bound rather than
+    /// written.
+    /// </remarks>
+    /// <returns>Whether there was anything to take back.</returns>
+    public bool Undo() => _sourceBuffered && _sourceEditor.Undo();
+
+    /// <inheritdoc cref="Undo"/>
+    public bool Redo() => _sourceBuffered && _sourceEditor.Redo();
+
+    /// <summary>
+    /// The platform is only there to ask once the control is in a window, so the pane's gestures
+    /// are bound on the way in rather than in the constructor.
+    /// </summary>
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+
+        BindSourceHotkeys();
+    }
+
+    /// <summary>
+    /// Gives the pane the undo and redo gestures the platform uses.
+    /// </summary>
+    /// <remarks>
+    /// AvaloniaEdit binds the two commands and no keys to them — it registers CommandBindings for
+    /// ApplicationCommands.Undo and Redo and never asks the keymap for a gesture, which every other
+    /// command of its own does — so a pane in a plain host has an undo stack nothing can reach.
+    /// Taken from the platform rather than written down, so this is Cmd+Z, Cmd+Shift+Z and Cmd+Y on
+    /// macOS and the Control forms elsewhere, whatever the platform says those are.
+    /// </remarks>
+    private void BindSourceHotkeys()
+    {
+        if (_sourceEditor.KeyBindings.Count > 0 || this.GetPlatformSettings()?.HotkeyConfiguration is not { } hotkeys)
+        {
+            return;
+        }
+
+        Bind(hotkeys.Undo, () => _sourceEditor.Undo());
+        Bind(hotkeys.Redo, () => _sourceEditor.Redo());
+
+        void Bind(IEnumerable<KeyGesture> gestures, Action run)
+        {
+            foreach (var gesture in gestures)
+            {
+                // On the editor rather than on the viewer, so a gesture reaches the pane only while
+                // somebody is in it: a parameter box keeps its own.
+                _sourceEditor.KeyBindings.Add(new KeyBinding { Gesture = gesture, Command = new Run(run) });
+            }
+        }
+    }
+
+    /// <summary>An ICommand around a delegate, since neither Avalonia nor this package has one.</summary>
+    private sealed class Run : ICommand
+    {
+        private readonly Action _run;
+
+        public Run(Action run) => _run = run;
+
+        // Nothing turns these off: an undo with nothing to undo is a no-op inside AvaloniaEdit, and
+        // a binding that came and went would be a second thing to keep in step with the stack.
+        public event EventHandler? CanExecuteChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public bool CanExecute(object? parameter) => true;
+
+        public void Execute(object? parameter) => _run();
     }
 
     /// <summary>Repaints the pane in the current theme, without disturbing what is on screen.</summary>

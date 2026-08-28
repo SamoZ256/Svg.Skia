@@ -41,6 +41,12 @@ of these controls.
 | Pan | Drag with the left or middle button |
 | Fit | `Ctrl`/`Cmd` `0`, or the toolbar |
 | Actual size | `Ctrl`/`Cmd` `1`, or the toolbar |
+| Undo, in the source pane | Whatever the platform calls it — `Ctrl`/`Cmd` `Z` |
+| Redo, in the source pane | `Ctrl`/`Cmd` `Shift` `Z`, or `Ctrl`/`Cmd` `Y` |
+
+AvaloniaEdit binds the undo and redo *commands* and no keys to them, so the pane binds the
+platform's own gestures to them as it is attached; a host embedding `SvgViewer` gets them with it.
+They reach the pane only while the caret is in it, so a parameter box keeps its own.
 
 A trackpad two finger scroll arrives as a wheel event with a fractional delta, so it zooms smoothly
 where a mouse notch steps by 1.2 — both land on the same curve. A trackpad **pinch** is a separate
