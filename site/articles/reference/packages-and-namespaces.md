@@ -46,7 +46,7 @@ title: "Packages and Namespaces"
 | Tool | Project path | Purpose |
 | --- | --- | --- |
 | `Svg.Skia.Converter` | `samples/Svg.Skia.Converter` | File and directory conversion CLI |
-| `svgc` | `samples/svgc` | Manual SVG-to-C# generator CLI |
+| `svgc` | `src/svgc` | Manual SVG-to-C# generator CLI |
 
 ## Generated API reference
 

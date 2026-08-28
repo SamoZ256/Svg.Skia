@@ -27,12 +27,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Svg.Custom\Svg.Custom.csproj" />
-    <ProjectReference Include="..\..\src\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" />
-    <ProjectReference Include="..\..\src\Svg.CodeGen.Skia.Projects\Svg.CodeGen.Skia.Projects.csproj" />
-    <ProjectReference Include="..\..\src\Svg.Expressions.Recipes\Svg.Expressions.Recipes.csproj" />
-    <ProjectReference Include="..\..\src\Svg.Model\Svg.Model.csproj" />
-    <ProjectReference Include="..\..\src\Svg.SceneGraph\Svg.SceneGraph.csproj" />
+    <ProjectReference Include="..\Svg.Custom\Svg.Custom.csproj" />
+    <ProjectReference Include="..\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" />
+    <ProjectReference Include="..\Svg.CodeGen.Skia.Projects\Svg.CodeGen.Skia.Projects.csproj" />
+    <ProjectReference Include="..\Svg.Expressions.Recipes\Svg.Expressions.Recipes.csproj" />
+    <ProjectReference Include="..\Svg.Model\Svg.Model.csproj" />
+    <ProjectReference Include="..\Svg.SceneGraph\Svg.SceneGraph.csproj" />
   </ItemGroup>
 
 

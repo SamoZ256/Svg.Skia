@@ -10,7 +10,7 @@ Svg.Skia has two ways of turning a drawing into C#. Both compile the document to
 generator they expose.
 
 - **`Svg.SourceGenerator.Skia`** runs inside the compiler, on `.svg` files the project already owns.
-- **`samples/svgc`** is a command-line tool run as its own step, and reaches the options the
+- **`src/svgc`** is a command-line tool run as its own step, and reaches the options the
   generator does not: recipes, resizing, batching, caching and the SkiaSharp target.
 
 ## Roslyn source generator
@@ -98,18 +98,18 @@ be read — the quickest way to see what any of this produces.
 
 ## Manual code generation with svgc
 
-`samples/svgc` is a command-line front end over the same generator. It is a sample project rather
-than a published tool, so it is run from the repository:
+`src/svgc` is a command-line front end over the same generator, packaged as a `dotnet` tool. From a
+clone it is run from the repository:
 
 ```bash
-dotnet run --project samples/svgc/svgc.csproj -c Release -- --help
+dotnet run --project src/svgc/svgc.csproj -c Release -- --help
 ```
 
 Build it once and invoke the assembly directly if you are running it repeatedly:
 
 ```bash
-dotnet build samples/svgc/svgc.csproj -c Release
-dotnet samples/svgc/bin/Release/net10.0/svgc.dll --help
+dotnet build src/svgc/svgc.csproj -c Release
+dotnet src/svgc/bin/Release/net10.0/svgc.dll --help
 ```
 
 `svgc` below stands for whichever of those two you are using.

@@ -80,7 +80,7 @@ ShimSkiaSharp.SKPicture   flat list of CanvasCommand — the renderer-independen
   `PaintingService`; everything real goes through `SvgScenePaintingService`, and the `Svg.Model`
   copy survives for filter flood-colour only. Changing the wrong one compiles, reviews well, and
   does nothing.
-- **Two front ends share one generator**: `samples/svgc` and `src/Svg.SourceGenerator.Skia` both
+- **Two front ends share one generator**: `src/svgc` and `src/Svg.SourceGenerator.Skia` both
   call `SkiaCSharpCodeGen.Generate`.
 - **The suites cover `SkiaModel`, not the generator.** Generated C# is checked for *drawing* only by
   `SkiaCSharpRenderTests`, which compiles it with Roslyn and diffs it against the runtime renderer at

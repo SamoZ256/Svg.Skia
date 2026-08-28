@@ -30,7 +30,7 @@ Svg.Skia is composed of several layers that can be used independently or togethe
 
 - `Svg.CodeGen.Skia` generates C# from the picture model.
 - `Svg.SourceGenerator.Skia` hosts the incremental Roslyn generator package.
-- `samples/svgc` demonstrates manual file-to-C# generation.
+- `src/svgc` demonstrates manual file-to-C# generation.
 
 ## Typical namespace map
 

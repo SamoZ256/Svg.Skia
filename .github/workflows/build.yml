@@ -252,7 +252,7 @@ jobs:
       # fails at runtime rather than at publish, which is the worst place to find out.
       - name: Publish svgc
         run: >
-          dotnet publish samples/svgc/svgc.csproj -c Release -r ${{ matrix.rid }}
+          dotnet publish src/svgc/svgc.csproj -c Release -r ${{ matrix.rid }}
           --self-contained true -p:VersionSuffix="${{ env.VERSION_SUFFIX }}"
           -o artifacts/publish/${{ matrix.rid }}/svgc
 
