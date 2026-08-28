@@ -151,6 +151,17 @@
           </NativeMenu>
         </NativeMenuItem.Menu>
       </NativeMenuItem>
+      <!--
+        Edit rather than File: a resize changes the drawing, and the tab goes modified until it is
+        saved like any other edit.
+      -->
+      <NativeMenuItem Header="Edit">
+        <NativeMenuItem.Menu>
+          <NativeMenu>
+            <NativeMenuItem Header="Resize…" Click="OnResize" />
+          </NativeMenu>
+        </NativeMenuItem.Menu>
+      </NativeMenuItem>
     </NativeMenu>
   </NativeMenu.Menu>
 

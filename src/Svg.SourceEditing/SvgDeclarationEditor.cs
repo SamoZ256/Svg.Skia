@@ -568,11 +568,17 @@ public static class SvgDeclarationEditor
     /// Both refusals are what a document looks like mid-typing. Neither is worth a mode: the action
     /// declines and works again as soon as the text does.
     /// </remarks>
-    private static bool Open(
+    /// <param name="declarationsMustBeValid">
+    /// Whether a fault in what the document declares should stop the edit. It should for an edit to
+    /// a declaration, which would be written into the middle of that fault; an edit elsewhere in the
+    /// document has nothing to do with it and is refused for no reason.
+    /// </param>
+    internal static bool Open(
         string svgText,
         out XDocument? document,
         out SvgExpressionDeclarations.Positions positions,
-        out string? refusal)
+        out string? refusal,
+        bool declarationsMustBeValid = true)
     {
         positions = new SvgExpressionDeclarations.Positions(svgText);
 
@@ -585,13 +591,16 @@ public static class SvgDeclarationEditor
             return false;
         }
 
-        SvgExpressionDeclarations.Parse(svgText, out var diagnostics);
-
-        if (diagnostics.Count > 0)
+        if (declarationsMustBeValid)
         {
-            refusal = $"Fix what the declarations already say first: {diagnostics[0].Message}";
+            SvgExpressionDeclarations.Parse(svgText, out var diagnostics);
 
-            return false;
+            if (diagnostics.Count > 0)
+            {
+                refusal = $"Fix what the declarations already say first: {diagnostics[0].Message}";
+
+                return false;
+            }
         }
 
         refusal = null;
@@ -932,7 +941,13 @@ public static class SvgDeclarationEditor
     }
 
     /// <summary>Writes one attribute of a declaration, or takes it away.</summary>
-    private static SvgTextEdit? Write(
+    /// <summary>Writes one attribute of an element, adding or removing it as needed.</summary>
+    /// <remarks>
+    /// Internal rather than private because a frame is written the same way a declaration is — the
+    /// spacing kept, the attribute joined to the ones already there, the value left alone when it
+    /// already says this.
+    /// </remarks>
+    internal static SvgTextEdit? Write(
         string svgText,
         XElement element,
         SvgExpressionDeclarations.Positions positions,

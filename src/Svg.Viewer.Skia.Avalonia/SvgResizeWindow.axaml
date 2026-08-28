@@ -1,0 +1,40 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Svg.Viewer.Skia.Avalonia.SvgResizeWindow"
+        Title="Resize drawing"
+        SizeToContent="WidthAndHeight"
+        CanResize="False"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+
+  <StackPanel Margin="20" Spacing="14" MinWidth="300">
+
+    <!--
+      One grid rather than a row each, so the three boxes line up under one another: they are three
+      readings of one size and reading down the column is how that shows.
+    -->
+    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">
+      <TextBlock Grid.Row="0" Grid.Column="0" Text="Width" VerticalAlignment="Center" />
+      <TextBox Grid.Row="0" Grid.Column="1" x:Name="WidthBox" />
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Text="Height" VerticalAlignment="Center" />
+      <TextBox Grid.Row="1" Grid.Column="1" x:Name="HeightBox" />
+
+      <TextBlock Grid.Row="2" Grid.Column="0" Text="Scale" VerticalAlignment="Center" />
+      <TextBox Grid.Row="2" Grid.Column="1" x:Name="ScaleBox" />
+    </Grid>
+
+    <CheckBox x:Name="LockBox" Content="Lock aspect ratio" IsChecked="True"
+              ToolTip.Tip="A scale is one factor for both axes, so it needs the ratio locked" />
+
+    <TextBlock x:Name="NoteText" IsVisible="False" TextWrapping="Wrap"
+               Foreground="{DynamicResource SvgViewerSourceErrorBrush}" />
+
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button x:Name="CancelButton" Content="Cancel" IsCancel="True" />
+      <Button x:Name="ResizeButton" Content="Resize" IsDefault="True" />
+    </StackPanel>
+
+  </StackPanel>
+
+</Window>

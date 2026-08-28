@@ -7,6 +7,7 @@ using System.IO;
 using System.Text;
 using Svg.Expressions;
 using Svg.Skia;
+using Svg.SourceEditing;
 
 namespace Svg.Viewer.Skia.Avalonia;
 
@@ -175,6 +176,70 @@ public sealed class SvgViewerDocument : IDisposable
 
         return Describe(svg, Path, svgText, ByteOrderMark);
     }
+
+    /// <summary>
+    /// The edits that resize <paramref name="svgText"/> as <paramref name="request"/> asks.
+    /// </summary>
+    /// <remarks>
+    /// The arithmetic is <see cref="SvgSceneSizing"/>'s, which is the same one svgc resizes by, and
+    /// all it writes is the root's width, height and viewBox. So the request is applied to a
+    /// throwaway document and those three values are read back off it and written into the text as
+    /// spans — the author's formatting, attribute order and comments are none of a resize's
+    /// business, and regenerating the markup from the parsed tree would lose all three.
+    /// </remarks>
+    /// <returns>What to edit, or why the drawing cannot be resized.</returns>
+    public SvgSourceEditResult Resize(string svgText, SvgSizeRequest request)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        if (request.IsEmpty)
+        {
+            return SvgSourceEditResult.Nothing;
+        }
+
+        // Qualified, because Svg is also the property holding this document's picture.
+        var resized = global::Svg.Model.Services.SvgService.FromSvg(svgText);
+
+        if (resized is null)
+        {
+            return SvgSourceEditResult.Refuse("This drawing cannot be read as SVG yet, so there is no size to change.");
+        }
+
+        var before = resized.ViewBox;
+
+        try
+        {
+            SvgSceneSizing.Apply(resized, Svg.AssetLoader, request);
+        }
+        catch (ArgumentException failure)
+        {
+            // Nothing to measure, or a request the sizing model refuses. Both are answers to give
+            // back rather than faults: the caller asked for something this drawing cannot do.
+            return SvgSourceEditResult.Refuse(failure.Message);
+        }
+
+        var after = resized.ViewBox;
+
+        return SvgFrameEditor.SetFrame(
+            svgText,
+            resized.Width.ToString(),
+            resized.Height.ToString(),
+            // Only where the resize decided one — it adds a viewBox to a document without one, and
+            // reframes for padding. An author's own, left alone by the resize, keeps the spacing it
+            // was written with rather than being reformatted to say the same thing.
+            after == before ? null : Frame(after));
+    }
+
+    private static string Frame(SvgViewBox viewBox)
+        => string.Join(
+            " ",
+            viewBox.MinX.ToSvgString(),
+            viewBox.MinY.ToSvgString(),
+            viewBox.Width.ToSvgString(),
+            viewBox.Height.ToSvgString());
 
     /// <summary>Writes text to a file, in the encoding this drawing was read in.</summary>
     /// <remarks>
