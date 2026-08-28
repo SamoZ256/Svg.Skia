@@ -388,6 +388,34 @@ public class SkiaCSharpCodeGenExpressionTests
     }
 
     [Fact]
+    public void Filter_Colours_Take_An_Expression()
+    {
+        // Both already emit through ToSKColor, so what this pins is that the expression survives
+        // the compile into a filter rather than being folded to a literal on the way.
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <e:code>
+                  <e:param name="wash" type="color" />
+                  <e:param name="lamp" type="color" />
+                </e:code>
+                <filter id="f" x="0" y="0" width="100" height="100">
+                  <feFlood flood-color="{{ wash }}" result="flooded" />
+                  <feDiffuseLighting lighting-color="{{ lamp }}" surfaceScale="2" in="flooded">
+                    <feDistantLight azimuth="45" elevation="60" />
+                  </feDiffuseLighting>
+                </filter>
+              </defs>
+              <rect x="0" y="0" width="100" height="100" fill="#808080" filter="url(#f)" />
+            </svg>
+            """);
+
+        Assert.Contains("Color = wash", code);
+        Assert.Contains("CreateDistantLitDiffuse", code);
+        Assert.Contains("    lamp,", code);
+    }
+
+    [Fact]
     public void A_Helper_Used_Only_By_A_Let_Is_Still_Emitted()
     {
         // The helper scan has to cover the lets, not just the recorded picture body.

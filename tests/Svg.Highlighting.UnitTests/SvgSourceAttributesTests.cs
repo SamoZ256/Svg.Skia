@@ -120,7 +120,7 @@ public class SvgSourceAttributesTests
         // of placeholders, and what that enumerates in is not worth pinning.
         foreach (var supported in new[]
                  {
-                     "fill", "stroke", "stop-color",
+                     "fill", "stroke", "stop-color", "flood-color", "lighting-color",
                      "opacity", "fill-opacity", "stroke-opacity", "stop-opacity",
                      "visibility", "display"
                  })

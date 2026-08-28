@@ -39,6 +39,8 @@ public static class SvgExpressionAttributes
         ["fill"] = ("#808080", ExprType.Color),
         ["stroke"] = ("#808080", ExprType.Color),
         ["stop-color"] = ("#808080", ExprType.Color),
+        ["flood-color"] = ("#808080", ExprType.Color),
+        ["lighting-color"] = ("#808080", ExprType.Color),
         ["opacity"] = ("1", ExprType.Number),
         // Fully opaque, so the colour the expression scales is the one the author wrote.
         ["fill-opacity"] = ("1", ExprType.Number),

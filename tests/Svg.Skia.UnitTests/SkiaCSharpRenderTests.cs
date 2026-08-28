@@ -627,6 +627,33 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void A_Flood_Colour_Takes_An_Expression()
+        // The flood is a nested picture behind an image filter, which is the one place a colour
+        // reaches the drawing without the emitter walking a command list to get there.
+        => AssertExpressionsRenderTheSame(
+            "ExprFlood",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <filter id="f" x="0" y="0" width="24" height="24">
+                  <feFlood flood-color="{{ rgb(255, 0, 0) }}" flood-opacity="0.5" />
+                </filter>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" filter="url(#f)" />
+            </svg>
+            """,
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <filter id="f" x="0" y="0" width="24" height="24">
+                  <feFlood flood-color="#ff0000" flood-opacity="0.5" />
+                </filter>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" filter="url(#f)" />
+            </svg>
+            """);
+
+    [Fact]
     public void An_Omitted_Colour_Argument_Falls_Back_To_Its_Declared_Default()
         // Passing null is what a caller omitting the argument gets, and the expected document
         // states the default as a literal — so this fails if the fallback is dropped or wrong.

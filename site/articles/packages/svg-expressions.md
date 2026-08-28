@@ -126,6 +126,8 @@ params and lets.
 | `fill` | color | Fill colour. An element filled with `url(#gradient)` is parameterised through its `stop-color`s instead. |
 | `stroke` | color | Stroke colour. |
 | `stop-color` | color | Gradient stop colour. |
+| `flood-color` | color | `<feFlood>`'s colour. `flood-opacity` scales it, as a literal or an expression of its own. |
+| `lighting-color` | color | `<feDiffuseLighting>`'s and `<feSpecularLighting>`'s light colour. |
 | `opacity` | number | Group opacity. |
 | `fill-opacity` | number | Scales the fill's alpha, whether the fill is a literal, an expression or a gradient. |
 | `stroke-opacity` | number | Scales the stroke's alpha. |
@@ -140,6 +142,10 @@ marks it.
 A **pattern** fill is the one exception among the opacities: it paints into a picture of its own,
 where the alpha is baked into every command rather than sitting on one colour, so `fill-opacity`
 still applies but only as the value it had when the drawing was compiled.
+
+`<feDropShadow>` is the exception among the colours. Its `flood-color` is folded into a colour
+matrix of floats rather than kept as a colour, so it has nowhere to carry an expression and stays a
+literal. `<feFlood>` behind the same drop shadow does take one.
 
 `visibility` and `display` are booleans rather than value substitutions because a hidden element
 contributes no drawing at all. SVG's third visibility value, `collapse`, means the same as `hidden`

@@ -61,6 +61,49 @@ public class SvgSceneExpressionEvaluatorTests
 
     private static SKPaint SinglePaint(SKPicture picture) => Assert.Single(Paints(picture));
 
+    /// <summary>
+    /// Every image filter in the picture, nested ones included — a lit primitive arrives wrapped in
+    /// the colour-space conversion, and a flood is a picture behind one.
+    /// </summary>
+    private static IEnumerable<SKImageFilter> Filters(SKPicture picture)
+        => (picture.Commands?
+                .OfType<SaveLayerCanvasCommand>()
+                .Select(c => c.Paint?.ImageFilter)
+                .OfType<SKImageFilter>()
+            ?? Enumerable.Empty<SKImageFilter>())
+           .SelectMany(Descend);
+
+    private static IEnumerable<SKImageFilter> Descend(SKImageFilter? filter)
+    {
+        if (filter is null)
+        {
+            yield break;
+        }
+
+        yield return filter;
+
+        foreach (var property in filter.GetType().GetProperties())
+        {
+            if (typeof(SKImageFilter).IsAssignableFrom(property.PropertyType))
+            {
+                foreach (var nested in Descend((SKImageFilter?)property.GetValue(filter)))
+                {
+                    yield return nested;
+                }
+            }
+            else if (property.PropertyType == typeof(SKImageFilter[]))
+            {
+                foreach (var one in (SKImageFilter[]?)property.GetValue(filter) ?? Array.Empty<SKImageFilter>())
+                {
+                    foreach (var nested in Descend(one))
+                    {
+                        yield return nested;
+                    }
+                }
+            }
+        }
+    }
+
     private static string Wrap(string code, string body)
         => $"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" viewBox="0 0 24 24" width="24" height="24">
@@ -440,6 +483,57 @@ public class SvgSceneExpressionEvaluatorTests
         // The markers go with it: a resolved conditional is not a conditional any more.
         Assert.Single(Paints(evaluated));
         Assert.DoesNotContain(evaluated.Commands!, c => c is BeginConditionalCanvasCommand);
+    }
+
+    [Fact]
+    public void A_Flood_Colour_Is_Resolved_Inside_The_Filters_Nested_Picture()
+    {
+        // Paints reachable from a command were already rewritten; this is the path that was not
+        // walked at all until flood colour needed it.
+        var markup = Wrap(
+            """<e:param name="wash" type="color" />""",
+            """
+            <defs>
+                <filter id="f" x="0" y="0" width="24" height="24">
+                  <feFlood flood-color="{{ wash }}" />
+                </filter>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="#808080" filter="url(#f)" />
+            """);
+
+        var evaluated = BuildAndEvaluate(markup, ("wash", ExprValue.Color(255, 0, 0, 255)));
+        var flood = Assert.Single(Filters(evaluated).OfType<PictureImageFilter>());
+
+        var color = flood.Picture!.Commands!
+            .OfType<DrawPathCanvasCommand>()
+            .Select(c => c.Paint!.Color!.Value)
+            .Single();
+
+        Assert.Equal(new SKColor(255, 0, 0, 255), color);
+        Assert.Null(color.Expression);
+    }
+
+    [Fact]
+    public void A_Lighting_Colour_Is_Resolved_On_The_Primitive_It_Rides_On()
+    {
+        var markup = Wrap(
+            """<e:param name="lamp" type="color" />""",
+            """
+            <defs>
+                <filter id="f" x="0" y="0" width="24" height="24">
+                  <feDiffuseLighting lighting-color="{{ lamp }}" surfaceScale="2">
+                    <feDistantLight azimuth="45" elevation="60" />
+                  </feDiffuseLighting>
+                </filter>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="#808080" filter="url(#f)" />
+            """);
+
+        var evaluated = BuildAndEvaluate(markup, ("lamp", ExprValue.Color(0, 255, 0, 255)));
+        var lit = Assert.Single(Filters(evaluated).OfType<DistantLitDiffuseImageFilter>());
+
+        Assert.Equal(new SKColor(0, 255, 0, 255), lit.LightColor);
+        Assert.Null(lit.LightColor.Expression);
     }
 
     [Fact]

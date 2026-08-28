@@ -77,9 +77,9 @@ ShimSkiaSharp.SKPicture   flat list of CanvasCommand — the renderer-independen
   must be handled by all three consumers above, and `CloneCoverageTests` fails a new public type
   until it clones.
 - **`Svg.SceneGraph` is the live path, not `Svg.Model`.** Both hold a near-identical
-  `PaintingService`; everything real goes through `SvgScenePaintingService`, and the `Svg.Model`
-  copy survives for filter flood-colour only. Changing the wrong one compiles, reviews well, and
-  does nothing.
+  `PaintingService`; everything that decides a colour goes through `SvgScenePaintingService`, and
+  the `Svg.Model` copy survives for small helpers beside it — `IsAntialias`, `CombineWithOpacity`,
+  font resolution. Changing the wrong one compiles, reviews well, and does nothing.
 - **Two front ends share one generator**: `src/svgc` and `src/Svg.SourceGenerator.Skia` both
   call `SkiaCSharpCodeGen.Generate`.
 - **The suites cover `SkiaModel`, not the generator.** Generated C# is checked for *drawing* only by

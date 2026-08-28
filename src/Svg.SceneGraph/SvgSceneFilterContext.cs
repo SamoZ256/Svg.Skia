@@ -4093,7 +4093,11 @@ internal sealed class SvgSceneFilterContext
 
     private SKImageFilter? CreateDiffuseLighting(SvgDiffuseLighting svgDiffuseLighting, SvgVisualElement svgVisualElement, SKImageFilter? input = default, SKRect? cropRect = default)
     {
-        var lightColor = GetFilterPrimitiveColor(svgDiffuseLighting, svgDiffuseLighting.LightingColor);
+        var lightColor = GetFilterPrimitiveColor(
+            svgDiffuseLighting,
+            svgDiffuseLighting.LightingColor,
+            1f,
+            SvgSceneExpressions.LightingColor);
         if (lightColor is null)
         {
             return default;
@@ -4194,7 +4198,17 @@ internal sealed class SvgSceneFilterContext
         }
     }
 
-    private static SKColor? GetFilterPrimitiveColor(SvgElement svgElement, SvgPaintServer server)
+    /// <summary>A filter primitive's own colour, with the expression driving it if there is one.</summary>
+    /// <param name="expressionAttribute">
+    /// The attribute the colour was written in, or null where an expression cannot reach it — a
+    /// drop shadow folds its flood colour into a colour matrix of floats, which has nowhere to
+    /// carry one.
+    /// </param>
+    private static SKColor? GetFilterPrimitiveColor(
+        SvgElement svgElement,
+        SvgPaintServer server,
+        Sym<float> opacity,
+        string? expressionAttribute = null)
     {
         if (server is SvgDeferredPaintServer svgDeferredPaintServer)
         {
@@ -4203,7 +4217,15 @@ internal sealed class SvgSceneFilterContext
 
         if (server is SvgColourServer svgColourServer)
         {
-            return PaintingService.GetColor(svgColourServer, 1f, DrawAttributes.None);
+            // The scene service, not the Svg.Model one beside it: this was the last call keeping
+            // that copy's GetColor alive, and only this one knows about expressions.
+            return SvgScenePaintingService.GetColor(
+                svgColourServer,
+                opacity,
+                DrawAttributes.None,
+                expressionAttribute is { } attribute
+                    ? SvgSceneExpressions.TryGet(svgElement, attribute)
+                    : null);
         }
 
         return new SKColor(0x00, 0x00, 0x00, 0xFF);
@@ -4224,7 +4246,7 @@ internal sealed class SvgSceneFilterContext
             return default;
         }
 
-        var floodColor = GetFilterPrimitiveColor(svgDropShadow, svgDropShadow.FloodColor);
+        var floodColor = GetFilterPrimitiveColor(svgDropShadow, svgDropShadow.FloodColor, 1f);
         if (floodColor is null)
         {
             return default;
@@ -4266,15 +4288,18 @@ internal sealed class SvgSceneFilterContext
 
     private SKImageFilter? CreateFlood(SvgFlood svgFlood, SKImageFilter? input = default, SKRect? cropRect = default)
     {
-        var floodColor = GetFilterPrimitiveColor(svgFlood, svgFlood.FloodColor);
+        // flood-opacity is handed to GetColor rather than folded in afterwards, which would rebuild
+        // the colour and drop the expression it is carrying.
+        var floodColor = GetFilterPrimitiveColor(
+            svgFlood,
+            svgFlood.FloodColor,
+            svgFlood.FloodOpacity,
+            SvgSceneExpressions.FloodColor);
+
         if (floodColor is null)
         {
             return default;
         }
-
-        var floodOpacity = svgFlood.FloodOpacity;
-        var floodAlpha = PaintingService.CombineWithOpacity(floodColor.Value.Alpha, floodOpacity);
-        floodColor = new SKColor(floodColor.Value.Red, floodColor.Value.Green, floodColor.Value.Blue, floodAlpha);
 
         if (cropRect is null)
         {
@@ -5189,7 +5214,11 @@ internal sealed class SvgSceneFilterContext
 
     private SKImageFilter? CreateSpecularLighting(SvgSpecularLighting svgSpecularLighting, SvgVisualElement svgVisualElement, SKImageFilter? input = default, SKRect? cropRect = default)
     {
-        var lightColor = GetFilterPrimitiveColor(svgSpecularLighting, svgSpecularLighting.LightingColor);
+        var lightColor = GetFilterPrimitiveColor(
+            svgSpecularLighting,
+            svgSpecularLighting.LightingColor,
+            1f,
+            SvgSceneExpressions.LightingColor);
         if (lightColor is null)
         {
             return default;

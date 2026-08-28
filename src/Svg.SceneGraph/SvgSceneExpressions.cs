@@ -21,6 +21,10 @@ internal static class SvgSceneExpressions
 
     internal const string StopColor = "stop-color";
 
+    internal const string FloodColor = "flood-color";
+
+    internal const string LightingColor = "lighting-color";
+
     internal const string Opacity = "opacity";
 
     internal const string FillOpacity = "fill-opacity";

@@ -713,7 +713,7 @@ internal static class SvgScenePaintingService
             contextPaintDepth + 1);
     }
 
-    private static SKColor GetColor(SvgColourServer svgColourServer, Sym<float> opacity, DrawAttributes ignoreAttributes, SymNode? expression = null)
+    internal static SKColor GetColor(SvgColourServer svgColourServer, Sym<float> opacity, DrawAttributes ignoreAttributes, SymNode? expression = null)
     {
         var colour = svgColourServer.Colour;
         var ignoreOpacity = ignoreAttributes.Has(DrawAttributes.Opacity);
