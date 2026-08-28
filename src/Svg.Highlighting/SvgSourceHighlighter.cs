@@ -192,6 +192,25 @@ public static class SvgSourceHighlighter
     /// </remarks>
     public static IReadOnlyList<SvgSourceToken> Tokenize(string? source) => Tokenize(source, null);
 
+    /// <summary>Splits one expression on its own, with no document around it.</summary>
+    /// <remarks>
+    /// What a box holding a single <c>&lt;e:let&gt;</c> body or a declaration's <c>default</c> needs:
+    /// the same kinds <see cref="Tokenize(string?)"/> gives that text inside a file, so one brush
+    /// table serves a source view and an editor beside it. A body the language cannot read is split
+    /// as far as it got, since colouring is not the place to report that.
+    /// </remarks>
+    public static IReadOnlyList<SvgSourceToken> Expression(string? text)
+    {
+        var tokens = new List<SvgSourceToken>();
+
+        if (!string.IsNullOrEmpty(text))
+        {
+            SvgSourceExpressions.Code(tokens, text!, 0, text!.Length);
+        }
+
+        return tokens;
+    }
+
     /// <summary>Splits, and records where the expression code was if asked.</summary>
     internal static IReadOnlyList<SvgSourceToken> Tokenize(string? source, List<SvgSourceSite>? sites)
     {

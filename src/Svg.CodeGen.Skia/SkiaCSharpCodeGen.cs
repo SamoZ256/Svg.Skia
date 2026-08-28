@@ -451,7 +451,9 @@ public static class SkiaCSharpCodeGen
             if (code is null)
             {
                 // C# requires the optional ones last, and reordering the list silently would
-                // change what every positional call site means.
+                // change what every positional call site means. A restriction of this back end and
+                // not of the language, so it is refused here and nowhere earlier: a document
+                // declaring them in any order reads and renders perfectly well.
                 if (optional is { })
                 {
                     throw new ExprException(

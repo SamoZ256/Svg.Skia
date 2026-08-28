@@ -118,12 +118,7 @@ public sealed class SvgViewerNumberParameter : SvgViewerParameter
 
     public override ExprValue ToExprValue() => ExprValue.Number((float)_value);
 
-    /// <remarks>
-    /// Round-trip formatting, so a value that came out of a slider goes back in as the same number.
-    /// Invariant, because a document is not read in the culture it was written in.
-    /// </remarks>
-    public override string ToExpression()
-        => ((float)_value).ToString("R", CultureInfo.InvariantCulture);
+    public override string ToExpression() => SvgViewerParameterFactory.Describe(ToExprValue());
 
     public override bool IsModified => !_value.Equals(_seed);
 
@@ -151,14 +146,7 @@ public sealed class SvgViewerColorParameter : SvgViewerParameter
 
     public override ExprValue ToExprValue() => ExprValue.Color(_color.R, _color.G, _color.B, _color.A);
 
-    /// <remarks>
-    /// Three bytes where the colour is opaque, because that is how a drawing writes one and the
-    /// fourth would be noise in every ordinary case.
-    /// </remarks>
-    public override string ToExpression()
-        => _color.A == byte.MaxValue
-            ? string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}", _color.R, _color.G, _color.B)
-            : string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}{3:x2}", _color.R, _color.G, _color.B, _color.A);
+    public override string ToExpression() => SvgViewerParameterFactory.Describe(ToExprValue());
 
     public override bool IsModified => _color != _seed;
 
@@ -186,7 +174,7 @@ public sealed class SvgViewerBooleanParameter : SvgViewerParameter
 
     public override ExprValue ToExprValue() => ExprValue.Boolean(_value);
 
-    public override string ToExpression() => _value ? "true" : "false";
+    public override string ToExpression() => SvgViewerParameterFactory.Describe(ToExprValue());
 
     public override bool IsModified => _value != _seed;
 

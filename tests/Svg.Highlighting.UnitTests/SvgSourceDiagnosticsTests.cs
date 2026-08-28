@@ -355,6 +355,55 @@ public class SvgSourceDiagnosticsTests
             """));
     }
 
+    // ---- an expression as the file holds it, which is not as the language reads it ----
+
+    [Theory]
+    [InlineData("hue &lt; 100")]
+    [InlineData("hue &gt; 100")]
+    [InlineData("hue &gt;= 100 &amp;&amp; hue &lt; 200")]
+    [InlineData("hue &gt; 100 ? 1 : 0")]
+    public void An_Escaped_Comparison_Is_The_Comparison_And_Not_An_Ampersand(string body)
+    {
+        // A bare < opens a tag, so a document holding `hue < 100` can only spell it this way, and
+        // a writer that escapes it has no choice either. Lexing the raw span stops at the ampersand
+        // and reports a broken `&&` -- against text nobody typed, on a line that is perfectly good.
+        Assert.Empty(Of($"<e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:let name=\"cold\">{body}</e:let></e:code>"));
+    }
+
+    [Fact]
+    public void An_Escaped_Placeholder_Is_Read_The_Same_Way()
+    {
+        // The other half: an attribute escapes > as well as <, so both reach the file encoded.
+        Assert.Empty(Of("<rect opacity=\"{{ hue &gt; 100 ? 1 : 0.5 }}\" />"));
+    }
+
+    [Fact]
+    public void An_Escaped_Declaration_Attribute_Is_Read_The_Same_Way()
+    {
+        // The third site, and the one this repository's own writer escapes > in: an attribute value
+        // takes all four of the set, so a bound written from a form arrives encoded.
+        Assert.Empty(SvgSourceDiagnostics.Analyse("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+              <defs>
+                <e:code>
+                  <e:param name="hue" type="number" default="204" min="0" max="1 &gt; 2 ? 100 : 360" />
+                </e:code>
+              </defs>
+            </svg>
+            """));
+    }
+
+    [Fact]
+    public void A_Mistake_Inside_An_Escaped_Expression_Is_Marked_Where_It_Was_Written()
+    {
+        // Decoding shifts every position after an entity, so a rule reporting where it stopped is
+        // talking about text that is shorter than the file's. Marking `nope` rather than something
+        // four characters to its left is the whole reason the offsets are carried.
+        Assert.Equal(
+            "nope",
+            Marked("<e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:let name=\"cold\">hue &lt; nope</e:let></e:code>"));
+    }
+
     private static string Slice(string source, SvgSourceDiagnostic diagnostic)
         => source.Substring(diagnostic.Start, diagnostic.Length);
 }

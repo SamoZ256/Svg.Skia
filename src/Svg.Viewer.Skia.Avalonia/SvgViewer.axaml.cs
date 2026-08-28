@@ -38,10 +38,10 @@ namespace Svg.Viewer.Skia.Avalonia;
 public partial class SvgViewer : UserControl
 {
     private readonly SvgViewerCanvas _canvas;
-    private readonly SvgViewerParameterPanel _parameters;
+    private readonly SvgViewerDeclarationPanel _panel;
     private readonly Border _toolBar;
     private readonly Border _statusPanel;
-    private readonly Border _parameterHost;
+    private readonly Border _panelHost;
     private readonly GridSplitter _splitter;
     private readonly TextBlock _statusText;
     private readonly TextBlock _zoomText;
@@ -55,9 +55,13 @@ public partial class SvgViewer : UserControl
     private readonly SvgViewerSourceMarkers _sourceMarkers;
     private readonly ToggleButton _sourceButton;
     private readonly Grid _body;
+    private readonly Grid _drawing;
 
     /// <summary>What the source pane's row was last set to, so hiding it can be undone.</summary>
     private GridLength _sourceHeight;
+
+    /// <summary>What the panel's column was last set to, for the same reason.</summary>
+    private GridLength _panelWidth;
 
     /// <summary>Whether the pane's text is stale — a document arrived, or the theme changed.</summary>
     private bool _sourceStale = true;
@@ -103,10 +107,10 @@ public partial class SvgViewer : UserControl
         AvaloniaXamlLoader.Load(this);
 
         _canvas = this.FindControl<SvgViewerCanvas>("PART_Canvas")!;
-        _parameters = this.FindControl<SvgViewerParameterPanel>("PART_Parameters")!;
+        _panel = this.FindControl<SvgViewerDeclarationPanel>("PART_Declarations")!;
         _toolBar = this.FindControl<Border>("ToolBarPanel")!;
         _statusPanel = this.FindControl<Border>("StatusPanel")!;
-        _parameterHost = this.FindControl<Border>("ParameterPanelHost")!;
+        _panelHost = this.FindControl<Border>("DeclarationPanelHost")!;
         _splitter = this.FindControl<GridSplitter>("Splitter")!;
         _statusText = this.FindControl<TextBlock>("StatusText")!;
         _zoomText = this.FindControl<TextBlock>("ZoomText")!;
@@ -118,8 +122,10 @@ public partial class SvgViewer : UserControl
         _sourceEditor = this.FindControl<TextEditor>("SourceEditor")!;
         _sourceButton = this.FindControl<ToggleButton>("SourceButton")!;
         _body = this.FindControl<Grid>("Body")!;
+        _drawing = this.FindControl<Grid>("Drawing")!;
 
         _sourceHeight = _body.RowDefinitions[2].Height;
+        _panelWidth = _drawing.ColumnDefinitions[2].Width;
 
         this.FindControl<Button>("OpenButton")!.Click += async (_, _) => await OpenAsync();
         this.FindControl<Button>("FitButton")!.Click += (_, _) => _canvas.Fit();
@@ -149,13 +155,18 @@ public partial class SvgViewer : UserControl
         };
 
         _canvas.ViewChanged += (_, _) => UpdateZoomText();
-        _parameters.ValueChanged += (_, _) => RequestApply();
+        _panel.ValueChanged += (_, _) => RequestApply();
 
         // Fired and forgotten: a click is not something to await, and the two report what they did
         // through the note and the drawing like every other edit.
-        _parameters.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
-        _parameters.CommitRequested += (_, _) => CommitParameterDefaults();
-        _parameters.EditRequested += async (_, row) => await EditParameterAsync(row).ConfigureAwait(true);
+        _panel.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
+        _panel.CommitRequested += (_, _) => CommitParameterDefaults();
+        _panel.EditRequested += async (_, row) => await EditParameterAsync(row).ConfigureAwait(true);
+        _panel.RemoveRequested += (_, row) => RemoveParameter(row);
+        _panel.LetCommitted += (_, let) => CommitLet(let);
+        _panel.LetMoveRequested = MoveLet;
+        _panel.ParameterMoveRequested = MoveParameter;
+        _panel.LetRemoveRequested += (_, let) => RemoveLet(let);
 
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
@@ -201,6 +212,9 @@ public partial class SvgViewer : UserControl
 
     public IReadOnlyList<SvgViewerParameter> Parameters => _rows;
 
+    /// <summary>The let rows, including any row still being filled in.</summary>
+    public IReadOnlyList<SvgViewerLet> Lets => _panel.Lets;
+
     public SvgViewerCanvas Canvas => _canvas;
 
     public bool ShowToolBar
@@ -215,15 +229,38 @@ public partial class SvgViewer : UserControl
         set => _statusPanel.IsVisible = value;
     }
 
-    public bool ShowParameterPanel
+    public bool ShowDeclarationPanel
     {
-        get => _parameterHost.IsVisible;
+        get => _panelHost.IsVisible;
         set
         {
-            _parameterHost.IsVisible = value;
+            if (_panelHost.IsVisible == value)
+            {
+                return;
+            }
+
+            // The column carries the width, so hiding the panel has to zero it — and its minimum
+            // with it — or the drawing keeps paying for a strip it cannot see. What the splitter was
+            // dragged to comes back.
+            if (value)
+            {
+                _drawing.ColumnDefinitions[2].MinWidth = PanelMinimum;
+                _drawing.ColumnDefinitions[2].Width = _panelWidth;
+            }
+            else
+            {
+                _panelWidth = _drawing.ColumnDefinitions[2].Width;
+                _drawing.ColumnDefinitions[2].MinWidth = 0d;
+                _drawing.ColumnDefinitions[2].Width = new GridLength(0d);
+            }
+
+            _panelHost.IsVisible = value;
             _splitter.IsVisible = value;
         }
     }
+
+    /// <summary>The narrowest the panel is worth being, matching what the markup declares.</summary>
+    private const double PanelMinimum = 260d;
 
     /// <summary>
     /// Whether the drawing's text is shown under it.
@@ -352,7 +389,8 @@ public partial class SvgViewer : UserControl
                 // Told there is no drawing rather than an empty one, so the panel does not claim
                 // the file declares no parameters when nothing has read it.
                 _statusText.Text = name is { } ? $"{name} couldn't be opened" : "The drawing couldn't be opened.";
-                _parameters.Parameters = null;
+                _panel.Parameters = null;
+                _panel.ShowLets(null);
             }
             else
             {
@@ -422,7 +460,8 @@ public partial class SvgViewer : UserControl
         _document = null;
 
         _rows = Array.Empty<SvgViewerParameter>();
-        _parameters.Parameters = null;
+        _panel.Parameters = null;
+        _panel.ShowLets(null);
 
         ShowNote(null);
         ShowFault(null);
@@ -435,7 +474,7 @@ public partial class SvgViewer : UserControl
 
     private void RebuildParameters(SvgViewerDocument document)
     {
-        var declarations = document.Declarations;
+        var declarations = document.Declarations.Parameters;
 
         // Values survive a reload whose parameters are unchanged. Opening the same file again, or
         // re-reading one that was edited elsewhere, must not silently discard what was set.
@@ -462,7 +501,8 @@ public partial class SvgViewer : UserControl
         // Told even where no row moved, because this is not only a list: it is the panel finding
         // out that a drawing was read at all, which is what separates `declares no parameters` from
         // having nothing to say. The panel leaves identical rows alone, so this costs a comparison.
-        _parameters.Parameters = _rows;
+        _panel.Parameters = _rows;
+        _panel.ShowLets(document.Declarations.Lets);
     }
 
     /// <summary>Whether a row already standing was built from this declaration.</summary>
@@ -480,7 +520,7 @@ public partial class SvgViewer : UserControl
 
     public void ResetParameters()
     {
-        _parameters.ResetToDefaults();
+        _panel.ResetToDefaults();
         RequestApply();
     }
 
@@ -550,7 +590,9 @@ public partial class SvgViewer : UserControl
             return;
         }
 
-        if (document.Declarations.Count == 0)
+        ShowLetValues(document);
+
+        if (document.Declarations.Parameters.Count == 0)
         {
             return;
         }
@@ -915,6 +957,39 @@ public partial class SvgViewer : UserControl
     }
 
     /// <summary>
+    /// Takes one parameter out of the drawing.
+    /// </summary>
+    /// <remarks>
+    /// Refused while anything still names it, since removing it would leave a drawing that parses
+    /// and draws nothing. The refusal says how many uses there are, which is what tells somebody
+    /// whether the button did nothing or whether they meant something else.
+    /// </remarks>
+    /// <returns>Whether the drawing changed.</returns>
+    public bool RemoveParameter(SvgViewerParameter parameter)
+    {
+        if (parameter is null)
+        {
+            throw new ArgumentNullException(nameof(parameter));
+        }
+
+        if (_document is null)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        return Splice(SvgDeclarationEditor.Remove(PaneSource(), parameter.Name));
+    }
+
+    /// <summary>
     /// Writes every value somebody chose into the drawing as the declared default.
     /// </summary>
     /// <remarks>
@@ -946,6 +1021,193 @@ public partial class SvgViewer : UserControl
         }
 
         return changed.Count > 0 && Splice(SvgDeclarationEditor.SetDefaults(PaneSource(), changed));
+    }
+
+    /// <summary>
+    /// Writes what a let row says into the drawing, declaring it if it is not there yet.
+    /// </summary>
+    /// <returns>Whether the drawing changed.</returns>
+    public bool CommitLet(SvgViewerLet let)
+    {
+        if (let is null)
+        {
+            throw new ArgumentNullException(nameof(let));
+        }
+
+        if (_document is null)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        var name = let.Name.Trim();
+        var expression = let.Expression.Trim();
+
+        return Splice(
+            let.Declaration is { } declared
+                ? SvgDeclarationEditor.UpdateLet(PaneSource(), declared.Name, name, expression)
+                : SvgDeclarationEditor.AddLet(PaneSource(), name, expression));
+    }
+
+    /// <summary>
+    /// Moves a let to <paramref name="to"/> among the drawing's lets.
+    /// </summary>
+    /// <remarks>
+    /// Where a let sits is what it can name, so this is refused rather than applied when it would
+    /// leave something unresolved. The panel keeps a drag inside the positions that check, so the
+    /// refusal is a backstop and not the usual answer.
+    /// </remarks>
+    /// <returns>Whether the drawing changed.</returns>
+    public bool MoveLet(SvgViewerLet let, int to)
+    {
+        if (let is null)
+        {
+            throw new ArgumentNullException(nameof(let));
+        }
+
+        if (_document is null || let.Declaration is not { } declared)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        return Splice(SvgDeclarationEditor.MoveLet(PaneSource(), declared.Name, to));
+    }
+
+    /// <summary>
+    /// Takes one let out of the drawing.
+    /// </summary>
+    /// <remarks>
+    /// Refused while anything still names it, as a parameter is. A row nobody has written yet never
+    /// reaches this: the panel throws that one away itself, since there is nothing in the document
+    /// to take out.
+    /// </remarks>
+    /// <returns>Whether the drawing changed.</returns>
+    public bool RemoveLet(SvgViewerLet let)
+    {
+        if (let is null)
+        {
+            throw new ArgumentNullException(nameof(let));
+        }
+
+        if (_document is null || let.Declaration is not { } declared)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        return Splice(SvgDeclarationEditor.RemoveLet(PaneSource(), declared.Name));
+    }
+
+    /// <summary>
+    /// Moves a parameter to <paramref name="to"/> among the drawing's parameters.
+    /// </summary>
+    /// <remarks>
+    /// Presentational to this drawing — nothing reads parameters in order — but not to the code
+    /// generated from it, whose signature is written in that order. So a move is refused when it
+    /// would put a parameter with no default after one that has a default, which is C#'s rule about
+    /// optional arguments and the generator's own refusal asked earlier.
+    /// </remarks>
+    /// <returns>Whether the drawing changed.</returns>
+    public bool MoveParameter(SvgViewerParameter parameter, int to)
+    {
+        if (parameter is null)
+        {
+            throw new ArgumentNullException(nameof(parameter));
+        }
+
+        if (_document is null)
+        {
+            return false;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        return Splice(SvgDeclarationEditor.MoveParameter(PaneSource(), parameter.Name, to));
+    }
+
+    /// <summary>Shows what each let currently evaluates to, beside it.</summary>
+    /// <remarks>
+    /// A second fold of the same declarations rather than a reading of the picture: what the render
+    /// evaluates is kept per drawing command, not per name. The expressions are tiny and an apply is
+    /// already coalesced per frame.
+    /// </remarks>
+    private void ShowLetValues(SvgViewerDocument document)
+    {
+        if (_panel.Lets.Count == 0)
+        {
+            return;
+        }
+
+        ExprEvaluator? evaluator = null;
+
+        try
+        {
+            evaluator = ExprEvaluator.Create(document.Declarations, BuildValues());
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            // Nothing resolves, which the rows and the pane already say between them. A stale
+            // readout would be a second, quieter account of the same trouble.
+        }
+
+        foreach (var row in _panel.Lets)
+        {
+            row.Readout = Readout(evaluator, row);
+        }
+    }
+
+    /// <summary>What one let evaluates to, or nothing where that cannot be said.</summary>
+    private static string Readout(ExprEvaluator? evaluator, SvgViewerLet row)
+    {
+        // Evaluating the name alone reads it out of the map Create has already filled, so the lets
+        // are folded once rather than once per row.
+        if (evaluator is null || row.Declaration is not { } declared)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var value = evaluator.Evaluate(declared.Name);
+
+            return $"{ExprFunctions.Describe(value.Type)}  {SvgViewerParameterFactory.Describe(value)}";
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            return string.Empty;
+        }
     }
 
     /// <summary>Puts an edit through the text buffer, as one thing that can be taken back.</summary>
@@ -1091,7 +1353,15 @@ public partial class SvgViewer : UserControl
     private IBrush? WarningBrush() => Resource("SvgViewerSourceWarningBrush");
 
     /// <summary>The brush for a kind of token.</summary>
-    private IBrush? SourceBrush(SvgSourceTokenKind kind) => Resource(kind switch
+    private IBrush? SourceBrush(SvgSourceTokenKind kind) => Resource(SourceResourceKey(kind));
+
+    /// <summary>What a piece of a document is painted with, by name.</summary>
+    /// <remarks>
+    /// Internal because <see cref="SvgExpressionPresenter"/> paints the same kinds in an editable box
+    /// beside the pane. One table, so a `tau` cannot be one colour in the source and another in the
+    /// row above it.
+    /// </remarks>
+    internal static string SourceResourceKey(SvgSourceTokenKind kind) => kind switch
     {
         SvgSourceTokenKind.Punctuation => "SvgViewerSourcePunctuationBrush",
         SvgSourceTokenKind.Element => "SvgViewerSourceElementBrush",
@@ -1108,7 +1378,7 @@ public partial class SvgViewer : UserControl
         SvgSourceTokenKind.ExpressionPunctuation => "SvgViewerSourceExpressionPunctuationBrush",
         SvgSourceTokenKind.ExpressionIdentifier => "SvgViewerSourceExpressionIdentifierBrush",
         _ => "SvgViewerSourceTextBrush",
-    });
+    };
 
     /// <summary>
     /// Every brush the pane paints with, by the one route.
@@ -1129,7 +1399,7 @@ public partial class SvgViewer : UserControl
         }
 
         var name = document.Path is { } path ? Path.GetFileName(path) : "drawing";
-        var count = document.Declarations.Count;
+        var count = document.Declarations.Parameters.Count;
 
         _statusText.Text = count == 0
             ? $"{name} — no parameters"

@@ -13,8 +13,8 @@ Add only what someone could not find by reading the code.
 
 ## Rules
 
-- **Ask before `git commit`, `git push`, or creating a branch, and wait for an answer.** Finishing a
-  change is not permission to record it, and a branch decides how work lands — raise it beforehand.
+- **Never `git push` or create a branch without asking** — a branch decides how work lands. Commit
+  unasked only to break a large change into several as you go; a change that is one commit asks first.
 - **Prefer removing code to adding it.** Before adding a helper, a type or an option, widen the one
   already doing that job; before adding a branch, see whether the case can be stopped from arising.
   A net addition is worth a sentence saying what was reused and what could not be.

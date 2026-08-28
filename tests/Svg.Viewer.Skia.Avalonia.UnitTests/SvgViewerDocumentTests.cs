@@ -20,7 +20,7 @@ public class SvgViewerDocumentTests
         using var document = SvgViewerDocument.LoadFromSvg(Parametric);
 
         Assert.Null(document.DeclarationError);
-        Assert.Equal("hue", Assert.Single(document.Declarations).Name);
+        Assert.Equal("hue", Assert.Single(document.Declarations.Parameters).Name);
         Assert.NotNull(document.Svg.Picture);
     }
 
@@ -38,7 +38,7 @@ public class SvgViewerDocumentTests
 
         Assert.NotNull(document.DeclarationError);
         Assert.Contains("cannot carry min, max or step", document.DeclarationError);
-        Assert.Empty(document.Declarations);
+        Assert.Empty(document.Declarations.Parameters);
         Assert.NotNull(document.Svg.Picture);
     }
 
@@ -53,7 +53,7 @@ public class SvgViewerDocumentTests
     {
         using var document = SvgViewerDocument.LoadFromSvg(Parametric);
 
-        var rows = SvgViewerParameterFactory.Create(document.Declarations);
+        var rows = SvgViewerParameterFactory.Create(document.Declarations.Parameters);
         var values = rows.ToDictionary(r => r.Name, r => r.ToExprValue(), StringComparer.Ordinal);
 
         Assert.NotNull(document.Svg.SetExpressionValues(values));

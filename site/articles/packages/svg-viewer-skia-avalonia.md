@@ -25,7 +25,9 @@ dotnet add package Svg.Viewer.Skia.Avalonia
 | --- | --- |
 | `SvgViewer` | The drop-in: toolbar, canvas, parameter panel and status strip |
 | `SvgViewerCanvas` | The drawing surface alone, owning scale and offset |
-| `SvgViewerParameterPanel` | One control per declared parameter |
+| `SvgViewerDeclarationPanel` | One control per declared parameter, and one row per declared let |
+| `SvgViewerLet` | A let row: the name and body being typed, what it evaluates to, and what is wrong with it |
+| `SvgExpressionPresenter` | Paints an expression box by token, in place of a `TextBox`'s own presenter |
 | `SvgViewerDocument` | A loaded drawing, its declarations, and any declaration error |
 | `SvgViewerParameterFactory` | Declarations to bindable rows, seeded from their defaults |
 
@@ -48,7 +50,7 @@ await Viewer.LoadAsync("badge.svg");
 | `Close` | Releasing the open document when the viewer itself is discarded |
 | `Parameters` / `ParameterValues` | Reading what is declared and what is bound |
 | `TrySetParameterValue` / `ResetParameters` | Driving values from host UI |
-| `ShowToolBar` / `ShowParameterPanel` / `ShowStatusBar` / `ShowSource` | Supplying your own chrome |
+| `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` / `ShowSource` | Supplying your own chrome |
 | `FileDialogService` | Custom storage or picker integration |
 | `Canvas` | Direct access to the surface for zoom and pan |
 | `DocumentOpened` / `ErrorRaised` / `ParameterValueChanged` | Syncing host titles and status |
@@ -90,19 +92,46 @@ The format itself — `<e:code>`, the operators, and the placeholder mechanism �
 
 ## Editing, not just showing
 
-Moving a control is a **preview**: it rebuilds the picture and leaves the file alone. Two things are
-edits, and both write the drawing's own text through [Svg.SourceEditing](svg-sourceediting):
+Moving a control is a **preview**: it rebuilds the picture and leaves the file alone. Everything
+below is an edit, and each writes the drawing's own text through
+[Svg.SourceEditing](svg-sourceediting):
 
 | | |
 |---|---|
 | `AddParameterAsync` | Asks for a parameter and splices it into the `<e:code>` block, creating the block and the namespace if the drawing has neither |
 | `CommitParameterDefaults` | Writes every value that differs from its declared default into the document as that default |
 | `EditParameterAsync` | Asks what one parameter should declare and writes the answer, carrying every use of its name when it is renamed |
+| `RemoveParameter` | Takes a parameter out, refusing while anything still names it |
+| `MoveParameter` | Puts a parameter at another position; any order is allowed |
+| `CommitLet` | Writes what a let row says, declaring it below the lets already there or rewriting the one it stands for |
+| `MoveLet` | Puts a let at another position among the lets, refusing a move that would leave one unresolved |
+| `RemoveLet` | Takes a let out, refusing while anything still names it |
 
-A row's `⋯` button, which appears while the pointer is over it, is how one is edited. Its type is
-not offered: every expression naming a parameter was checked against the type it has.
+A row's `⋯` button, which appears while the pointer is over it, is how a parameter is edited. Its
+type is not offered: every expression naming a parameter was checked against the type it has.
+Its grip drags it up and down, into any order. The `✕` removes it, refused while the drawing still
+uses it — the
+refusal says how many uses there are, since a button that did nothing would say less.
 
-All three go through the source pane's text buffer rather than around it, so the undo stack is the one
+Every box that holds an expression — a let's body, and a parameter's `default`, `min`, `max` and
+`step` — is coloured by what the language says each piece is, live as it is typed, from the same
+table the source pane paints with. `SvgExpressionPresenter` is what does it: a control theme puts it
+in place of a `TextBox`'s own presenter, so the caret, the selection, composition and undo stay the
+box's. Selected text keeps its colours, as it does in the source pane.
+
+A let has no form and no `⋯`: it is a name and an expression, so the row is the editor. `Add let…`
+leaves an empty row to type into, `Enter` or leaving the row writes it, `Escape` puts it back. What
+is typed is checked against the parameters and the lets above it as it is typed, and nothing is
+written until it checks. Beside each row is what the let evaluates to right now, which follows the
+sliders, and a `✕` that removes it on the same terms as a parameter — a row nothing has been
+typed into yet is simply dropped, since there is nothing in the document to take out.
+
+Its grip drags it up and down, because **where a let sits is what it can name**: one resolves against
+what is declared above it and nothing below. A drag is held inside the positions that still check, so
+there is nothing to refuse; `MoveLet` refuses anyway, since the document reads back perfectly well
+either way and only type checking can tell.
+
+All of them go through the source pane's text buffer rather than around it, so the undo stack is the one
 history of the document: a parameter added from the panel and a line typed into the pane come off it
 in the order they were done, and an addition that had to declare a namespace and open a block is
 three spans and one undo step.

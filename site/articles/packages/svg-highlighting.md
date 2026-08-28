@@ -26,7 +26,7 @@ dotnet add package Svg.Highlighting
 
 | Type | Role |
 | --- | --- |
-| `SvgSourceHighlighter` | `Tokenize` for a whole document, `Lines` for one row at a time |
+| `SvgSourceHighlighter` | `Tokenize` for a whole document, `Lines` for one row at a time, `Expression` for one expression with no document around it |
 | `SvgSourceToken` | A range into the source and what it is; `Text` cuts it only when asked |
 | `SvgSourceTokenKind` | Text, punctuation, element, attribute, value, comment, and the expression kinds below |
 | `SvgSourceLine` | One line's tokens, its number and range, and the rest of it past a limit |

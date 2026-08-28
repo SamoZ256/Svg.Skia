@@ -24,7 +24,7 @@ public sealed class SvgViewerDocument : IDisposable
         string? path,
         string? sourceText,
         bool byteOrderMark,
-        IReadOnlyList<SvgExpressionParameter> declarations,
+        SvgExpressionDeclarations declarations,
         string? declarationError)
     {
         Svg = svg;
@@ -55,7 +55,7 @@ public sealed class SvgViewerDocument : IDisposable
     public bool ByteOrderMark { get; }
 
     /// <summary>What the document declares, or empty when it declares nothing or the block is bad.</summary>
-    public IReadOnlyList<SvgExpressionParameter> Declarations { get; }
+    public SvgExpressionDeclarations Declarations { get; }
 
     /// <summary>
     /// Why the declarations could not be read, or null.
@@ -222,16 +222,16 @@ public sealed class SvgViewerDocument : IDisposable
 
     private static SvgViewerDocument Describe(SKSvg svg, string? path, string? sourceText, bool byteOrderMark = false)
     {
-        IReadOnlyList<SvgExpressionParameter> declarations;
+        SvgExpressionDeclarations declarations;
         string? error = null;
 
         try
         {
-            declarations = svg.ExpressionParameters;
+            declarations = svg.ExpressionDeclarations;
         }
         catch (ExprException failure)
         {
-            declarations = Array.Empty<SvgExpressionParameter>();
+            declarations = SvgExpressionDeclarations.Empty;
             error = failure.ToDiagnostic();
         }
 

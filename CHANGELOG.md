@@ -2,6 +2,170 @@
 
 ## Unreleased
 
+* Fixed a let edit being written to the drawing twice. Committing a row with `Enter` and then
+  clicking away reported either **"This drawing declares no let called 'deep'."** or **"'deeper' is
+  declared more than once."** — one message for a rename, the other for a new let, both from the same
+  mistake.
+
+  A row goes on calling itself modified until the rebuild its own edit caused replaces it, and the
+  box it was in leaving the tree *is* a focus loss. So the row settled a second time and asked the
+  document for an edit it had already taken: a rename of a name that had just been renamed away, or
+  a declaration of a name that had just been declared. The panel now remembers the last edit it
+  handed over and does not hand the same one over again.
+
+* Every box that holds an expression is syntax-coloured as it is typed — a let's body, and a
+  parameter's `default`, `min`, `max` and `step` — from the same table the source pane paints with,
+  so `tau` cannot be one colour in the pane and another in the row above it. Not the name boxes: a
+  name is an identifier, and colouring it would say it was an expression.
+
+  **It is still a `TextBox`.** A text box paints with one foreground and the only thing that can give
+  it more is whatever builds its layout, so `SvgExpressionPresenter` replaces that and nothing else;
+  the caret, the selection, composition, the clipboard and undo stay Avalonia's. A control theme puts
+  it in place per box, applied with `Theme=`, so nothing global changes and no upstream template is
+  copied — `TextBox` requires exactly one part, `PART_TextPresenter`, which is what makes a ~25-line
+  template of our own enough.
+
+  The presenter passes an **unbounded** width to the layout rather than shadowing the private
+  constraint two layout passes maintain upstream. That field was the one genuinely fragile part of
+  this approach, and for a one-line box that neither wraps nor aligns the width changes nothing — so
+  it is designed out rather than reproduced. What is reproduced is composition: an input method shows
+  what is being typed before the box has it, and laying out the committed text alone would drop it.
+
+  **Selected text keeps its colours.** Avalonia's own presenter repaints a selection in a single
+  brush; this one does not, because the source pane does not either — AvaloniaEdit's theme sets the
+  selection background and leaves its foreground commented out. Two panes showing one expression
+  should not disagree about what colour it is. There is a test for that, since it is the kind of
+  difference somebody later fixes by accident.
+
+  The palette moved out of `SvgViewer`'s own resources into a dictionary of its own, which the theme
+  carries. Declared inside the control, it was unreachable from anything shown in a window of its
+  own — so the parameter form's boxes resolved every brush to null and painted flat while the pane
+  beside them coloured the same text.
+
+  `Svg.Highlighting` gained `SvgSourceHighlighter.Expression`, which splits one expression with no
+  document around it. Everything it guarantees comes free from the existing splitter: a body that
+  will not lex is coloured as far as the language got, and entities decode before lexing, so
+  `a &lt; b` colours as the comparison it is.
+
+* Parameters reorder by drag too, with the same grip a let has, and into **any** order.
+
+  Unlike a let, whose position is what it can name, a parameter's position is presentation: a default
+  may not name another parameter, so every order renders the same picture. The C# generator does want
+  one — its signature is written in declaration order, so the parameters with defaults have to come
+  last — and it refuses a document that puts them otherwise, reported by `svgc` as an `error:` line
+  when somebody runs it. That stays a restriction of that back end. A drawing is not stopped from
+  saying what it means because one of the things that reads it would rather it said it differently.
+
+  The drag itself is now written once for both lists rather than twice, which was the point at which
+  it had to be: it carries four details that were each found the hard way — capture the list and not
+  the row, swap at a neighbour's midpoint, treat a release nobody saw as an end, and lay out before
+  placing the carried row. A second copy would have been a second place for those to be forgotten.
+
+  Dropping now asks rather than tells: the panel hands the move to the document and puts the row back
+  if it is declined. The window keeps a drag inside what is legal, so a refusal means the splice
+  declined for its own reasons — a list left showing an order the drawing does not have is worse than
+  a drag that does not land. That was a real hole in the let drag as well, where a refused move left
+  the rows reordered against a file that was not.
+
+* Added removing a let — `SvgDeclarationEditor.RemoveLet`, and a `✕` on its row — on the same terms
+  as a parameter: refused while anything still names it, with the uses counted. The rule is sharper
+  here, since being named is the whole of what a let is for, so one nothing names is the only kind
+  there is any sense in taking away.
+
+  `Remove` became the same method with the element name passed in, now that there is a second caller
+  to justify one. A row nobody has typed into yet never reaches the editor at all — the panel drops
+  it, because there is nothing in the document to take out.
+
+* Added removing a parameter — `SvgDeclarationEditor.Remove`, and a `✕` beside each row's `⋯` in the
+  viewer's panel.
+
+  It is **refused while anything still names it**, with a count of the uses. Removing a used
+  declaration leaves a document that parses perfectly and draws nothing, which is the one outcome
+  this splicing exists to prevent; and a count is what separates a button that did nothing from one
+  that did something unintended. Removing and then reporting the breakage was rejected for the same
+  reason `Open` refuses a document whose declarations are already wrong: the pane would fill with
+  errors about a drawing the application had just broken itself.
+
+  The uses are the ones renaming rewrites, so `SvgDeclarationReferences.Rename` was widened into
+  `Uses` and now consumes what it finds rather than owning the walk — one answer to "where is this
+  named", found by lexing every `{{ … }}` and every `<e:let>` body. A `default`, `min`, `max` or
+  `step` is not searched, because the language puts nothing the document declares in scope there, so
+  a name in one is a different name; a test pins that.
+
+  The declaration goes with the line it sat on, reusing what reordering already needed. The
+  `<e:code>` block stays even when it empties: taking it away is a second decision — about a `<defs>`
+  that may hold other things, and an `xmlns` nothing declares any more — and adding a parameter
+  writes into the block that is already there.
+
+* Fixed a source view reporting an error against text nobody typed. An expression reaches a file
+  XML-escaped — a let holding `a < b` can only be written `a &lt; b`, since a bare `<` opens a tag —
+  and the highlighter lexed that span raw, stopped at the ampersand, and reported **"Expected
+  `&&`"**. Every `&lt;`, `&gt;` and `&amp;` in a let body, a `{{ … }}` placeholder or a declaration's
+  `default`/`min`/`max`/`step` was marked as broken, and the underline sat on the entity rather than
+  on anything wrong.
+
+  Older than the GUI editing that surfaced it, but that is what made it routine: writing `<` from a
+  row *must* produce `&lt;`, so the pane reliably painted an error on text the application had just
+  written itself.
+
+  Each span is now decoded before it is lexed, keeping a map from every decoded character back to
+  where it was written — so a rule that reports where it stopped is still marked on the characters
+  somebody typed rather than four columns to their left. That decoding already existed as
+  `SvgDeclarationReferences.Decode`, which renaming needs for the same reason; it moved to
+  `Svg.Expressions.ExprText`, the one package both this and `Svg.SourceEditing` can see, rather than
+  being written twice.
+
+* Gave the viewer's panel the other half of an `<e:code>` block: a **Lets** section beside the
+  parameters, where a let is declared, renamed, rewritten and reordered without opening the source.
+  `Svg.SourceEditing` gained `AddLet`, `UpdateLet` and `MoveLet` for it, and
+  `SvgViewerParameterPanel` became `SvgViewerDeclarationPanel` — it no longer holds only parameters.
+
+  **A let has no form.** It is a name and an expression, so the row is the editor: `Add let…` leaves
+  an empty row to type into, `Enter` or leaving it writes it, `Escape` puts it back. A modal would
+  have held the same two boxes the row already has. What is typed is checked against the parameters
+  and the lets above it *as it is typed*, and nothing is spliced until it checks — a half-typed body
+  written into the drawing would stop it rendering, in the pane right beside the row. Beside each row
+  is what the let evaluates to now, which is the thing a source view cannot show and the reason to
+  have the section at all; it is read by evaluating the let's own name against the map
+  `ExprEvaluator.Create` has already filled, so the lets are folded once rather than once per row.
+
+  **Where a let sits is what it can name**, since one resolves against what is declared above it and
+  nothing below. That made reordering a change of meaning, and exposed a hole: `Verify` re-read the
+  document after every splice but only *parsed* it, and parsing records a let without checking its
+  body — so a let dragged above the one it names read back perfectly and rendered as nothing. Every
+  edit now folds the symbol table and type checks each body in order. Only a let the edit is
+  answerable for: the document as it was is checked too, and a body that named nothing before and
+  still names nothing is not the edit's fault — refusing on that would make a parameter uneditable in
+  a drawing somebody is part-way through fixing. The original is re-read only once something failed,
+  so an ordinary splice pays nothing for it.
+
+  A drag is then held inside the positions that still check, rather than refused on the drop: a
+  refused drop reads as the drag having failed. The window is contiguous — moving up is legal until
+  the let passes what it names, and down until it passes what names it — so it is found by trying
+  each candidate order in memory. `MoveLet` refuses anyway, as the backstop that does not depend on
+  the panel getting it right.
+
+  The reordering splice moves the let's **whole line as it was written** rather than re-rendering it,
+  and refuses a let sharing its line with something else instead of cutting it out of one. A body is
+  written with only `&` and `<` escaped, not the four an attribute needs: somebody who types
+  `t > 0.5` should see `t > 0.5` in the pane.
+
+  Reused rather than rebuilt: renaming carries the uses through `SvgDeclarationReferences.Rename`
+  unchanged — it already walked `<e:let>` bodies as well as placeholders, by lexing rather than
+  searching — and `AppendToBlock`, `CreateBlock`, `Render` and the `Builder` seeding were widened to
+  serve both kinds instead of gaining copies. The drag follows what the shell's tab strip already
+  solved (`MainWindow.axaml.cs`): capture the container and not the row, swap at a neighbour's
+  midpoint, treat a release nobody saw as an end. The three `ToExpression()` overrides collapsed into
+  one `SvgViewerParameterFactory.Describe`, so a readout and a committed default cannot disagree.
+  `SvgViewerDocument.Declarations` widened from the parameter list to the whole
+  `SvgExpressionDeclarations`, and `SKSvg` gained `ExpressionDeclarations` with `ExpressionParameters`
+  now a projection of it.
+
+  **Removing a let is not here yet**, and no `RemoveLet` was written for a caller that does not exist.
+  Neither is a node editor: what it would graph is a one-line arithmetic expression, where text is
+  already the better notation, and a node dropped but not wired has no text representation at all —
+  which a pane showing the drawing's own source makes visible immediately.
+
 * Added `Svg.SourceEditing`, which changes what an SVG document declares by replacing spans of the
   document's own text, and used it to give `Svg.Viewer.Skia.Avalonia` two edits: `AddParameterAsync`
   declares a parameter from a form in the panel, `EditParameterAsync` changes what one says, and

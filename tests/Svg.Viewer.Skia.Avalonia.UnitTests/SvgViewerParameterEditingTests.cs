@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -581,6 +582,50 @@ public class SvgViewerParameterEditingTests
     }
 
     /// <summary>Answers with whatever the test decided, because a modal cannot be driven headlessly.</summary>
+    // ---- reordering ----
+
+    private const string Required = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="size" type="number" />
+              <e:param name="fade" type="number" default="1" />
+            </e:code>
+          </defs>
+          <rect x="0" y="0" width="{{ size }}" height="24" opacity="{{ fade }}" />
+        </svg>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Parameter_Moved_From_The_Panel_Reaches_The_Drawing()
+    {
+        var (window, viewer) = await HostLoaded(Parametric);
+
+        Assert.Equal(new[] { "tint", "fade" }, viewer.Parameters.Select(row => row.Name).ToArray());
+
+        Assert.True(viewer.MoveParameter(viewer.Parameters[1], 0));
+        await Settle();
+
+        Assert.Equal(new[] { "fade", "tint" }, viewer.Parameters.Select(row => row.Name).ToArray());
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Parameter_With_No_Default_Can_Be_Moved_After_One_That_Has_One()
+    {
+        var (window, viewer) = await HostLoaded(Required);
+
+        // Every order renders the same, since a default may not name another parameter. What the
+        // C# generator wants of them is the generator's to say, when somebody runs it.
+        Assert.True(viewer.MoveParameter(viewer.Parameters.Single(row => row.Name == "size"), 1));
+        await Settle();
+
+        Assert.Equal(new[] { "fade", "size" }, viewer.Parameters.Select(row => row.Name).ToArray());
+
+        window.Close();
+    }
+
     private sealed class StubParameterDialogService : ISvgViewerParameterDialogService
     {
         private readonly SvgExpressionParameter? _answer;
@@ -609,5 +654,74 @@ public class SvgViewerParameterEditingTests
 
             return Task.FromResult(_answer);
         }
+    }
+
+    // ---- taking one away ----
+
+    [AvaloniaFact]
+    public async Task A_Parameter_Nothing_Names_Is_Removed_From_The_Drawing()
+    {
+        var (window, viewer) = await HostLoaded(Parametric, Radius());
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        // `fade` is on the rect's opacity, `tint` on its fill, so neither can go. One that nothing
+        // names has to be declared first.
+        Assert.True(await viewer.AddParameterAsync());
+        await Settle();
+
+        var spare = viewer.Parameters.Single(row => row.Name == "radius");
+
+        Assert.True(viewer.RemoveParameter(spare));
+        await Settle();
+
+        Assert.DoesNotContain(viewer.Parameters, row => row.Name == "radius");
+        Assert.DoesNotContain("radius", Pane(viewer).Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Parameter_The_Drawing_Still_Uses_Is_Refused_And_Said_So()
+    {
+        var (window, viewer) = await HostLoaded(Parametric);
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var used = viewer.Parameters.Single(row => row.Name == "tint");
+
+        Assert.False(viewer.RemoveParameter(used));
+        await Settle();
+
+        // Still there, and the pane still holds the placeholder that kept it.
+        Assert.Contains(viewer.Parameters, row => row.Name == "tint");
+        Assert.Contains("{{ tint }}", Pane(viewer).Text);
+        Assert.False(viewer.IsSourceModified);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_Row_Button_Is_What_Asks_For_It()
+    {
+        var (window, viewer) = await HostLoaded(Parametric, Radius());
+
+        Assert.True(await viewer.AddParameterAsync());
+        await Settle();
+
+        var spare = viewer.Parameters.Single(row => row.Name == "radius");
+
+        viewer.GetVisualDescendants()
+            .OfType<Button>()
+            .Single(button => ReferenceEquals(button.DataContext, spare) && button.Content as string == "✕")
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        await Settle();
+
+        Assert.DoesNotContain(viewer.Parameters, row => row.Name == "radius");
+
+        window.Close();
     }
 }

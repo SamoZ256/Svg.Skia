@@ -1,0 +1,257 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia"
+             x:Class="Svg.Viewer.Skia.Avalonia.SvgViewerDeclarationPanel">
+
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Svg.Viewer.Skia.Avalonia/SvgExpressionBox.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <!-- ColorPicker ships its control theme in its own assembly, not in FluentTheme. Without this
+         the picker is created and templated with nothing, so a colour parameter shows an empty gap
+         where its control should be. Included here rather than left to the host, so a consumer that
+         drops this panel in gets a working picker without knowing any of that. -->
+    <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml" />
+
+    <!-- Out of sight until the row is being pointed at, the way the shell's tab close button is: a
+         column of them beside every parameter is what would make the panel look busy. It keeps its
+         space, so no row changes width and nothing can be clicked unseen. -->
+    <Style Selector="Button.edit">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="2,0,0,0" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector=":is(Panel).row:pointerover Border.grip">
+      <Setter Property="Opacity" Value="0.65" />
+    </Style>
+
+    <Style Selector=":is(Panel).row:pointerover Button.edit">
+      <Setter Property="Opacity" Value="0.7" />
+    </Style>
+
+    <Style Selector="Button.edit:pointerover">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Opacity" Value="0.7" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Margin" Value="0,0,0,6" />
+    </Style>
+
+    <!-- Like the edit button: out of the way until the row is pointed at, and keeping its space so
+         no row changes width. -->
+    <Style Selector="Border.grip">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Cursor" Value="SizeNorthSouth" />
+    </Style>
+
+    <Style Selector=":is(Panel).letrow:pointerover Border.grip">
+      <Setter Property="Opacity" Value="0.65" />
+    </Style>
+
+    <Style Selector=":is(Panel).letrow:pointerover Button.edit">
+      <Setter Property="Opacity" Value="0.7" />
+    </Style>
+
+    <Style Selector="TextBox.field">
+      <Setter Property="FontFamily" Value="monospace" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Padding" Value="4,2" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+  </UserControl.Styles>
+
+  <UserControl.DataTemplates>
+
+    <!-- Resolved by the concrete row type, so there is no selector to keep in step. -->
+    <DataTemplate DataType="viewer:SvgViewerNumberParameter">
+      <StackPanel Spacing="2" Margin="0,0,0,10" Classes="row">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+          <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                  PointerPressed="OnGripPressed"
+                  ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+            <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <NumericUpDown Grid.Column="2"
+                         Width="110"
+                         Value="{Binding Value, Mode=TwoWay}"
+                         Minimum="{Binding Minimum}"
+                         Maximum="{Binding Maximum}"
+                         Increment="{Binding TickFrequency}"
+                         ShowButtonSpinner="False" />
+          <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
+                  ToolTip.Tip="Edit this parameter" />
+          <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
+                  ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
+        </Grid>
+        <Slider Margin="20,0,0,0"
+                Minimum="{Binding Minimum}"
+                Maximum="{Binding Maximum}"
+                TickFrequency="{Binding TickFrequency}"
+                IsSnapToTickEnabled="{Binding HasStep}"
+                Value="{Binding Value, Mode=TwoWay}" />
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="viewer:SvgViewerBooleanParameter">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
+        <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                PointerPressed="OnGripPressed"
+                ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+          <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+        <CheckBox Grid.Column="2" IsChecked="{Binding Value, Mode=TwoWay}" />
+        <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
+                ToolTip.Tip="Edit this parameter" />
+        <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
+                ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
+      </Grid>
+    </DataTemplate>
+
+    <DataTemplate DataType="viewer:SvgViewerColorParameter">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
+        <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                PointerPressed="OnGripPressed"
+                ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+          <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+        <ColorPicker Grid.Column="2" Color="{Binding Color, Mode=TwoWay}" />
+        <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
+                ToolTip.Tip="Edit this parameter" />
+        <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
+                ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
+      </Grid>
+    </DataTemplate>
+
+    <!--
+      Both fields in place, which is why adding a let is an empty row and not a form: there would be
+      nothing in the form the row does not already have. The value on the right is what the let
+      evaluates to right now, and is the whole reason to show a let here rather than in the source.
+    -->
+    <DataTemplate DataType="viewer:SvgViewerLet">
+      <StackPanel Spacing="3" Margin="0,0,0,12" Classes="letrow">
+
+        <!-- The name and what it is worth; the body gets its own line below. -->
+        <Grid ColumnDefinitions="Auto,130,*,Auto">
+          <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                  PointerPressed="OnGripPressed"
+                  ToolTip.Tip="Drag to reorder. A let can only name what is declared above it.">
+            <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBox Grid.Column="1" Classes="field"
+                   Text="{Binding Name, Mode=TwoWay}"
+                   PlaceholderText="name"
+                   KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
+          <TextBlock Grid.Column="2" Text="{Binding Readout}" Opacity="0.55" FontSize="11"
+                     FontFamily="monospace" TextTrimming="CharacterEllipsis"
+                     HorizontalAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0"
+                     IsVisible="{Binding !HasTrouble}" />
+          <Button Grid.Column="3" Classes="edit" Content="✕" Click="OnRemoveLetClick"
+                  ToolTip.Tip="Remove this let. Refused while the drawing still uses it." />
+        </Grid>
+
+        <!--
+          The whole width, indented under the name. Beside it the box was 116px at the pane's old
+          width — not enough for `hsl(shift + 45, 88%, 62%)`, which is an ordinary let. This is the
+          shape a number parameter already has: what it is called on one line, what it is on the next.
+        -->
+        <TextBox Classes="field" Margin="20,0,0,0"
+                 Theme="{StaticResource SvgExpressionBox}"
+                 Text="{Binding Expression, Mode=TwoWay}"
+                 PlaceholderText="expression"
+                 KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
+
+        <TextBlock Text="{Binding Trouble}" Foreground="#e05252" FontSize="11" TextWrapping="Wrap"
+                   Margin="20,0,0,0"
+                   IsVisible="{Binding HasTrouble}" />
+      </StackPanel>
+    </DataTemplate>
+
+  </UserControl.DataTemplates>
+
+  <DockPanel>
+
+    <!--
+      Docked so that a count of what is uncommitted is in sight however far the sections above it
+      have been scrolled, and so adding a declaration does not move the controls somebody is using.
+    -->
+    <StackPanel DockPanel.Dock="Bottom" x:Name="Actions" Margin="10,0,10,10" Spacing="6">
+
+      <Border Height="1" Background="#20808080" Margin="0,4,0,2" />
+
+      <!-- Only there when there is something to commit; a count is the whole of what it has to say. -->
+      <TextBlock x:Name="CommitLabel" IsVisible="False" Opacity="0.6" FontSize="11" TextWrapping="Wrap" />
+
+      <Button x:Name="CommitButton"
+              Content="Commit as defaults"
+              IsVisible="False"
+              HorizontalAlignment="Stretch"
+              HorizontalContentAlignment="Center"
+              ToolTip.Tip="Writes each value into the drawing as the parameter's default. A default written as an expression is replaced by the number it currently evaluates to." />
+
+    </StackPanel>
+
+    <!--
+      Two sections in one scroller rather than two tabs: a let almost always names a parameter, and
+      tabs would hide the half somebody needs while typing the other.
+    -->
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Margin="10" x:Name="Sections">
+
+        <TextBlock Classes="section" Text="Parameters" />
+
+        <!-- Hidden until a drawing is read: an empty pane before anything is open has nothing to
+             explain, and one behind a file that would not open has nothing to say about it. -->
+        <TextBlock x:Name="EmptyLabel"
+                   Text="This drawing declares no parameters."
+                   IsVisible="False"
+                   Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+        <ItemsControl x:Name="Rows" />
+
+        <Button x:Name="AddButton"
+                Content="Add parameter…"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center" />
+
+        <TextBlock Classes="section" Text="Lets" Margin="0,18,0,6" />
+
+        <TextBlock x:Name="EmptyLetLabel"
+                   Text="This drawing declares no lets."
+                   IsVisible="False"
+                   Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+        <ItemsControl x:Name="LetRows" />
+
+        <Button x:Name="AddLetButton"
+                Content="Add let…"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center"
+                ToolTip.Tip="Adds an empty row. A let takes a name and an expression; it is written into the drawing once both are filled in and the expression checks." />
+
+      </StackPanel>
+    </ScrollViewer>
+
+  </DockPanel>
+
+</UserControl>

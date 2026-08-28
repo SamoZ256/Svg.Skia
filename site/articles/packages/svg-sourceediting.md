@@ -29,7 +29,7 @@ dotnet add package Svg.SourceEditing
 
 | Type | Role |
 | --- | --- |
-| `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Set` one attribute of one, `SetDefaults` for many |
+| `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `MoveParameter` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
 | `SvgTextEdit` | One span to replace, and `ApplyAll` for a caller holding only a string |
 | `SvgSourceEditResult` | The spans, or why nothing can be done |
 
@@ -70,8 +70,8 @@ asked for is refused instead of applied.
 
 ## Renaming carries the uses with it
 
-`Update` rewrites a declaration, and where the name changes it also rewrites every place the drawing
-names it: the identifier in each `{{ … }}` and in each `<e:let>` body. Renaming only the declaration
+`Update` and `UpdateLet` rewrite a declaration, and where the name changes they also rewrite every
+place the drawing names it: the identifier in each `{{ … }}` and in each `<e:let>` body. Renaming only the declaration
 would leave a document that still parses and no longer draws, with nothing about its shape to say
 why.
 
@@ -83,6 +83,51 @@ the whole rename rather than being skipped — a use that cannot be read is stil
 
 Changing a **type** is refused. Every expression naming a parameter was checked against the type it
 had, so changing one is a change to all of them rather than to the declaration alone.
+
+## Removing needs to know what uses it
+
+`Remove` and `RemoveLet` refuse while anything still names the declaration, and say how many uses
+they found. Taking a
+used one away leaves a document that parses perfectly and draws nothing, which is the one outcome
+this package exists to prevent; the count is what separates a button that did nothing from one that
+did something unintended.
+
+The uses are the ones `Rename` rewrites — every `{{ … }}` and every `<e:let>` body, found by lexing —
+so the two ask the same question of the same walker. A `default`, `min`, `max` or `step` is not
+searched: the language puts nothing the document declares in scope there, so a name in one is a
+different name.
+
+The declaration goes with the line it sat on. The `<e:code>` block stays even when it empties, since
+taking it away is a second decision — about a `<defs>` that may hold other things, and an `xmlns`
+nothing declares any more — and adding a parameter writes into the block that is already there.
+
+## Parameters reorder freely; lets do not
+
+Nothing in this language reads parameters in order: a default may not name another parameter, so
+every order renders the same picture. `MoveParameter` therefore allows any of them, and is the one
+move here with no rule to check.
+
+A back end may want its own order. The C# generator writes its signature in declaration order, so
+the ones with defaults have to come last, and it refuses a document that puts them otherwise — as
+`svgc error: …`, when somebody runs it. That is a restriction of that back end and not of the
+language, so it is not enforced here: a drawing is not stopped from saying what it means because one
+of the things that reads it would rather it said it differently.
+
+## Where a let sits is what it means
+
+A let resolves against what is declared above it and nothing below, so `MoveLet` is a change of
+meaning and not of layout. The re-read cannot catch that on its own: a let dragged above the one it
+names reads back perfectly well and renders as nothing. So every edit also folds the symbol table and
+type checks each body in order, and is refused if it leaves a let unresolved.
+
+Only a let the edit is answerable for. Reading does not type check, so a document can hold a body
+that names nothing and still open; refusing on that one too would make an unrelated parameter
+uneditable in a document somebody is part-way through repairing. The check runs against the document
+as it was as well, and only a let that worked before and does not after stops the edit. The original
+is re-read only once something failed, so an ordinary splice pays nothing for this.
+
+`MoveLet` moves the let's whole line as it was written, and refuses a let sharing a line with
+something else rather than cutting it out of one.
 
 ## What it refuses
 
