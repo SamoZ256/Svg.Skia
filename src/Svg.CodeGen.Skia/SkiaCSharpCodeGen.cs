@@ -274,7 +274,8 @@ public static class SkiaCSharpCodeGen
 
         var parameters = declarations.Parameters;
         var isParameterized = parameters.Count > 0;
-        var parameterList = BuildParameterList(parameters);
+        var withDefaults = declarations.EmitsDefaultArguments();
+        var parameterList = BuildParameterList(parameters, withDefaults);
         var argumentList = string.Join(", ", parameters.Select(p => p.Name));
 
         // A document with no parameters already caches better than this: one picture built in
@@ -283,6 +284,15 @@ public static class SkiaCSharpCodeGen
         var locked = cached && cache == SvgPictureCache.LastValueLocked;
 
         var sb = new StringBuilder();
+
+        if (isParameterized && !withDefaults)
+        {
+            // Said where somebody reading the signature will wonder why a parameter the document
+            // gives a default is required of them.
+            sb.AppendLine($"    // Every argument is required, including the ones this drawing declares a default for:");
+            sb.AppendLine($"    // C# takes optional arguments last, and reordering them would change what a positional");
+            sb.AppendLine($"    // call means. The declared defaults are in the drawing.");
+        }
 
         sb.AppendLine($"    public static class {className}");
         sb.AppendLine($"    {{");
@@ -438,34 +448,27 @@ public static class SkiaCSharpCodeGen
 
     // Optional only where the author gave a default: inventing one would put a value in the
     // signature that appears nowhere in the document.
-    private static string BuildParameterList(IReadOnlyList<SvgExpressionParameter> parameters)
+    /// <summary>The parameters as a C# parameter list, in the order the document declares them.</summary>
+    /// <remarks>
+    /// The order is the document's, always. Where that leaves C# unable to take the defaults —
+    /// its optional arguments have to come last — every argument is emitted as required instead,
+    /// which <see cref="SvgCodeDeclarationsExtensions.EmitsDefaultArguments"/> decides once for
+    /// this and for the colour locals together.
+    /// </remarks>
+    private static string BuildParameterList(IReadOnlyList<SvgExpressionParameter> parameters, bool withDefaults)
     {
         var rendered = new List<string>(parameters.Count);
-        SvgExpressionParameter? optional = null;
 
         foreach (var parameter in parameters)
         {
             var type = ExprCompiler.CSharpTypeOf(parameter.Type);
-            var code = parameter.DefaultCode();
+            var code = withDefaults ? parameter.DefaultCode() : null;
 
             if (code is null)
             {
-                // C# requires the optional ones last, and reordering the list silently would
-                // change what every positional call site means. A restriction of this back end and
-                // not of the language, so it is refused here and nowhere earlier: a document
-                // declaring them in any order reads and renders perfectly well.
-                if (optional is { })
-                {
-                    throw new ExprException(
-                        $"'{parameter.Name}' has no default but follows '{optional.Name}', which has one. In C# the parameters with defaults have to come last, so declare '{parameter.Name}' before it.",
-                        0);
-                }
-
                 rendered.Add($"{type} {parameter.Name}");
                 continue;
             }
-
-            optional = parameter;
 
             // A colour default cannot be a C# argument default, so the parameter goes nullable and
             // coalesces into a local. One without a default stays a required SKColor.

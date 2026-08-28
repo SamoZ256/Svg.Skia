@@ -2,6 +2,7 @@
 using System;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.Linq;
 using System.Threading.Tasks;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
@@ -82,7 +83,35 @@ class Program
             return null;
         }
 
-        return new SkiaCSharpDrawing(picture, namespaceName, className, SvgExpressionDeclarations.Parse(svg));
+        var declarations = SvgExpressionDeclarations.Parse(svg);
+
+        Warn(inputPath, declarations);
+
+        return new SkiaCSharpDrawing(picture, namespaceName, className, declarations);
+    }
+
+    /// <summary>Says when a drawing's declared defaults will not reach the generated signature.</summary>
+    /// <remarks>
+    /// The one place every generating path goes through, so a batch says it once per drawing rather
+    /// than once per way of being asked. The generated file says the same thing where the signature
+    /// is, since that is where a caller reads it.
+    /// </remarks>
+    static void Warn(string inputPath, SvgExpressionDeclarations declarations)
+    {
+        if (declarations.EmitsDefaultArguments())
+        {
+            return;
+        }
+
+        var lost = declarations.Parameters
+            .Where(parameter => parameter.DefaultExpression is { })
+            .Select(parameter => $"'{parameter.Name}'")
+            .ToList();
+
+        Log(
+            $"warning: {System.IO.Path.GetFileName(inputPath)} declares a parameter with no default after one that has a default, "
+            + $"so every argument is generated as required and {string.Join(", ", lost)} {(lost.Count == 1 ? "loses its" : "lose their")} default. "
+            + "C# takes optional arguments last, and reordering them would change what a positional call means.");
     }
 
     /// <summary>

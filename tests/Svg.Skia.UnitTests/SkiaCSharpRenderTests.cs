@@ -367,6 +367,34 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void A_Colour_Default_Still_Paints_When_It_Is_Required()
+        // A colour with a default, declared before a parameter without one, so C# cannot take the
+        // defaults and every argument is generated as required. That drops the `?? default` local
+        // the colour normally reaches the body through, and this is what says the body still reads
+        // the value it was handed: a wrong local is CS0103 and a wrong operand is CS0019, but a body
+        // reading the right name and the wrong value would compile and draw the wrong picture.
+        => AssertExpressionsRenderTheSame(
+            "ExprRequiredColourDefault",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code>
+                  <e:param name="tint" type="color" default="#1e40af" />
+                  <e:param name="alpha" type="number" />
+                  <e:let name="solid">withAlpha(tint, alpha)</e:let>
+                </e:code>
+              </defs>
+              <circle cx="12" cy="12" r="9" fill="{{ solid }}" />
+            </svg>
+            """,
+            new object?[] { new SKColor(0x22, 0xc5, 0x5e, 0xff), 1f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="9" fill="#22c55e" />
+            </svg>
+            """);
+
+    [Fact]
     public void A_Colour_Parameter_Is_Passed_Through()
         // The placeholder value, handed in as an argument: the drawing must be identical.
         => AssertExpressionsRenderTheSame(

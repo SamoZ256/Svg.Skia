@@ -60,8 +60,9 @@ public static class Camera
 ```
 
 For a drawing using the [expression extension](../packages/svg-expressions), the parameters it
-declares become C# parameters with their declared defaults, and there is **no** `Picture` property —
-there is no single picture to have, since the drawing depends on its arguments:
+declares become C# parameters in the order the document declares them, with their declared defaults,
+and there is **no** `Picture` property — there is no single picture to have, since the drawing depends
+on its arguments:
 
 ```csharp
 public static class Expressions
@@ -165,6 +166,26 @@ never less.
 
 Unlike the three sizing values, `--padding` overlays on its own: it says how much room to leave
 rather than what size to be, so naming it does not replace a project file's width.
+
+### When the defaults cannot come along
+
+C# takes optional arguments last. A drawing that declares a parameter *without* a default after one
+*with* a default cannot have both its order and its defaults, so `svgc` keeps the order and gives up
+the defaults: every argument is generated as required, and it says so.
+
+```
+warning: badge.svg declares a parameter with no default after one that has a default, so every
+argument is generated as required and 'tint' loses its default.
+```
+
+The source generator reports the same thing as **SVG0002**, since it runs inside the compiler and has
+nowhere to print. The generated file carries a comment above the class for whoever reads the
+signature and wonders.
+
+The order is kept rather than the defaults because the order is what a positional call means, and
+what a reader matches against the `<e:param>` block. Losing a default is a compile error where the
+caller can see it; a silently reordered argument list is not. Declaring the parameters without
+defaults first avoids the whole question.
 
 ### Recipes: making a flat drawing parametric
 

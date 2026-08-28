@@ -28,6 +28,24 @@ public class SvgSourceGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    /// <summary>
+    /// Said when a drawing's declared defaults cannot reach the generated signature.
+    /// </summary>
+    /// <remarks>
+    /// A diagnostic rather than a line of output, because this runs inside the compiler and has
+    /// nowhere to print: without it the generated API would quietly start requiring arguments and
+    /// the author would meet it as an error in their own code, with nothing saying why.
+    /// </remarks>
+    private static readonly DiagnosticDescriptor s_requiredArgumentsDescriptor = new(
+#pragma warning disable RS2008 // Enable analyzer release tracking
+        "SVG0002",
+#pragma warning restore RS2008 // Enable analyzer release tracking
+        "Declared defaults are not generated as C# argument defaults",
+        "'{0}' declares a parameter with no default after one that has a default, so every argument of {1} is generated as required. C# takes optional arguments last, and reordering them would change what a positional call means.",
+        $"{nameof(SvgSourceGenerator)}",
+        DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // Register the additional files provider to get all .svg files
@@ -110,6 +128,16 @@ public class SvgSourceGenerator : IIncrementalGenerator
                 if (picture is { } && picture.Commands is { })
                 {
                     var declarations = SvgExpressionDeclarations.Parse(svg);
+
+                    if (!declarations.EmitsDefaultArguments())
+                    {
+                        context.ReportDiagnostic(Diagnostic.Create(
+                            s_requiredArgumentsDescriptor,
+                            Location.None,
+                            System.IO.Path.GetFileName(file.Path),
+                            className));
+                    }
+
                     var code = SkiaCSharpCodeGen.Generate(picture, namespaceName!, className!, declarations);
                     var sourceText = SourceText.From(code, Encoding.UTF8);
                     context.AddSource($"{className}.svg.cs", sourceText);

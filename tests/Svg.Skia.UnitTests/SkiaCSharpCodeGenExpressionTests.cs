@@ -174,11 +174,12 @@ public class SkiaCSharpCodeGenExpressionTests
     }
 
     [Fact]
-    public void A_Required_Parameter_Cannot_Follow_An_Optional_One()
+    public void A_Required_Parameter_After_An_Optional_One_Makes_Every_Argument_Required()
     {
-        // C# puts the parameters with defaults last, and reordering the list silently would
-        // change what every positional call site means.
-        var error = Assert.Throws<ExprException>(() => Generate("""
+        // C# puts the parameters with defaults last, and the document's order is the signature's --
+        // reordering would change what a positional call means. So the order is kept and the
+        // defaults are given up: `t` loses its 0 rather than `tint` moving in front of it.
+        var code = Generate("""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
               <defs>
                 <e:code>
@@ -189,9 +190,59 @@ public class SkiaCSharpCodeGenExpressionTests
               </defs>
               <rect x="0" y="0" width="10" height="10" fill="{{ c }}" />
             </svg>
-            """));
+            """);
 
-        Assert.Contains("'tint' has no default but follows 't'", error.Message);
+        Assert.Contains("public static SKPicture Record(float t, SKColor tint)", code);
+        Assert.DoesNotContain("float t = ", code);
+        Assert.Contains("Every argument is required", code);
+    }
+
+    [Fact]
+    public void A_Colour_Default_Loses_Its_Local_Along_With_Its_Default()
+    {
+        // The one that would break quietly. A colour default is normally emitted as `SKColor?` and
+        // coalesced into a local, because `new SKColor(...)` cannot be an argument default (CS1736).
+        // Once the colour is required that local has nothing to coalesce -- `tint ?? ...` on a
+        // non-nullable is CS0019 -- and the body has to name the parameter instead, or it names a
+        // local that was never declared (CS0103). Both faults would land in the generated file.
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <e:code>
+                  <e:param name="tint" type="color" default="#ff0000" />
+                  <e:param name="t" type="number" />
+                  <e:let name="c">withAlpha(tint, t)</e:let>
+                </e:code>
+              </defs>
+              <rect x="0" y="0" width="10" height="10" fill="{{ c }}" />
+            </svg>
+            """);
+
+        Assert.Contains("public static SKPicture Record(SKColor tint, float t)", code);
+        Assert.DoesNotContain("SKColor?", code);
+        Assert.DoesNotContain("__default", code);
+    }
+
+    [Fact]
+    public void A_Document_That_Fits_Keeps_Its_Defaults_And_Its_Colour_Local()
+    {
+        // The same parameters the other way round, which C# can take: nothing about this changes.
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <e:code>
+                  <e:param name="t" type="number" />
+                  <e:param name="tint" type="color" default="#ff0000" />
+                  <e:let name="c">withAlpha(tint, t)</e:let>
+                </e:code>
+              </defs>
+              <rect x="0" y="0" width="10" height="10" fill="{{ c }}" />
+            </svg>
+            """);
+
+        Assert.Contains("SKColor? tint = null", code);
+        Assert.Contains("__default", code);
+        Assert.DoesNotContain("Every argument is required", code);
     }
 
     [Fact]

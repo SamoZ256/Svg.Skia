@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+* A drawing that declares a parameter with no default after one that has a default now generates,
+  rather than being refused. C# takes optional arguments last, so such a document cannot keep both
+  its order and its defaults — it keeps the order and gives up the defaults: every argument is
+  generated as required.
+
+  The order is the half worth keeping. It is what a positional call means and what a reader matches
+  against the `<e:param>` block, and losing a default is a compile error at the call site, where
+  whoever has to act can see it. **Reordering** the parameters so the required ones come first was
+  the alternative and would also always compile, but a positional call pairing two same-typed
+  arguments the wrong way round fails silently — and `SkiaCSharpRenderTests` binds its arguments
+  positionally for the same reason a caller does. **Inventing** defaults for the required parameters
+  was rejected too: `ExprEvaluator` throws on a missing value, so the generated API would have
+  accepted an omission the interpreter refuses, and a parameter deliberately left required would have
+  quietly become grey.
+
+  It applies only where the conflict exists, so nothing that compiles today changes — the previous
+  rule permitted no other order.
+
+  The subtle part is a colour default, which is normally emitted as `SKColor?` and coalesced into a
+  local because `new SKColor(…)` cannot be an argument default (CS1736). Once the colour is required
+  that local has nothing to coalesce, and the body has to name the parameter instead. Getting one of
+  those two wrong is CS0019 or CS0103 **in the generated file**, so the decision is made once, by
+  `EmitsDefaultArguments`, and read by the signature and the colour locals together — `Resolve`
+  follows for free, since it already asks the same question. A case in `SkiaCSharpRenderTests` covers
+  it: that harness compiles the generated code and diffs it against the runtime renderer at a zero
+  threshold, which is the only thing that would catch a body reading the right name and the wrong
+  value.
+
+  Said in three places: a comment above the generated class, a `warning:` line from `svgc`, and
+  **SVG0002** at warning severity from `Svg.SourceGenerator.Skia` — which runs inside the compiler
+  and has nowhere to print, so without a diagnostic its generated API would have started requiring
+  arguments in silence.
+
 * `svgc` can leave room around a drawing: `--padding`, and `<padding>` in a project file.
 
   It pads **inside** the size asked for. `--width 512 --padding 10%` gives a 512×512 picture whose

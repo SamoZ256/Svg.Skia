@@ -53,6 +53,43 @@ public static class SvgCodeDeclarationsExtensions
     }
 
     /// <summary>
+    /// Whether the declared defaults can be written as C# argument defaults.
+    /// </summary>
+    /// <remarks>
+    /// C# puts optional arguments last and the declaration order is the signature's, so a document
+    /// declaring a parameter with no default after one that has a default cannot have both. It keeps
+    /// the order and gives up the defaults: the order is what a positional call site means and what
+    /// a reader matches against the <c>&lt;e:param&gt;</c> block, and a lost default is a compile
+    /// error where the caller can see it rather than a value nobody chose.
+    ///
+    /// Asked here rather than decided at each use, because three things read it and two of them
+    /// would fail in the generated file rather than in this one.
+    /// </remarks>
+    public static bool EmitsDefaultArguments(this SvgExpressionDeclarations declarations)
+    {
+        if (declarations is null)
+        {
+            throw new ArgumentNullException(nameof(declarations));
+        }
+
+        var optional = false;
+
+        foreach (var parameter in declarations.Parameters)
+        {
+            if (parameter.DefaultExpression is { })
+            {
+                optional = true;
+            }
+            else if (optional)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// One entry per colour parameter that declares a default: the parameter's own name, the local
     /// the body reads instead, and the C# for the default it falls back to.
     /// </summary>
@@ -68,6 +105,14 @@ public static class SvgCodeDeclarationsExtensions
         if (declarations is null)
         {
             throw new ArgumentNullException(nameof(declarations));
+        }
+
+        // No default reaches the signature, so every colour arrives as a value and there is nothing
+        // to fall back to. Answered here so that Resolve, which asks this to know what the body
+        // should name, cannot disagree with the signature about it.
+        if (!declarations.EmitsDefaultArguments())
+        {
+            return Array.Empty<(string, string, string)>();
         }
 
         var fallbacks = new List<(string, string, string)>();
