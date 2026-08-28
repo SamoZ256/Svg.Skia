@@ -11,6 +11,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Svg.Viewer.Skia.Avalonia;
@@ -313,6 +314,80 @@ public partial class MainWindow : Window
             RoutingStrategies.Tunnel);
     }
 
+    // ---- exporting -------------------------------------------------------------------------
+
+    private static readonly FilePickerFileType SvgFileType = new("Svg Files")
+    {
+        Patterns = new[] { "*.svg" },
+        AppleUniformTypeIdentifiers = new[] { "public.svg-image" },
+        MimeTypes = new[] { "image/svg+xml" }
+    };
+
+    private static readonly FilePickerFileType CSharpFileType = new("C# Files")
+    {
+        Patterns = new[] { "*.cs" },
+        AppleUniformTypeIdentifiers = new[] { "public.source-code" },
+        MimeTypes = new[] { "text/plain" }
+    };
+
+    private async void OnExportSvg(object? sender, EventArgs e) => await ExportAsync(csharp: false);
+
+    private async void OnExportCSharp(object? sender, EventArgs e) => await ExportAsync(csharp: true);
+
+    /// <summary>Asks where the selected drawing goes in the form asked for, and writes it there.</summary>
+    /// <returns>Whether anything was written.</returns>
+    public async Task<bool> ExportAsync(bool csharp)
+    {
+        if (Selected() is not { Document: { } } viewer || !StorageProvider.CanSave)
+        {
+            return false;
+        }
+
+        var extension = csharp ? "cs" : "svg";
+        var stem = viewer.DocumentPath is { } path ? Path.GetFileNameWithoutExtension(path) : "drawing";
+
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = csharp ? "Export as C#" : "Export as SVG",
+            SuggestedFileName = $"{stem}.{extension}",
+            DefaultExtension = extension,
+            FileTypeChoices = new List<FilePickerFileType> { csharp ? CSharpFileType : SvgFileType }
+        });
+
+        return file?.TryGetLocalPath() is { Length: > 0 } target && await ExportAsync(target);
+    }
+
+    /// <summary>
+    /// Writes the selected drawing to <paramref name="target"/>: as C# if it is named <c>.cs</c>,
+    /// as SVG otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Taking the path rather than asking for it, so everything but the panel can be driven. The
+    /// name has the last word over the command that asked, so that a file is what it is called.
+    /// </remarks>
+    public async Task<bool> ExportAsync(string target)
+    {
+        if (Selected() is not { Document: { } document } viewer)
+        {
+            return false;
+        }
+
+        try
+        {
+            SvgExport.Write(document, viewer.Source, target);
+        }
+        catch (Exception failure)
+            when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            // The drawing is still open and still fine; what failed is one command, so it is
+            // reported rather than thrown out of a handler nothing is waiting on.
+            await Ask("Export failed", failure.Message, null, "OK");
+            return false;
+        }
+
+        return true;
+    }
+
     // ---- lifetime ----------------------------------------------------------------------------
 
     /// <summary>
@@ -381,6 +456,9 @@ public partial class MainWindow : Window
         Close();
     }
 
+    /// <summary>The viewer in the selected tab, or null while there is none.</summary>
+    private SvgViewer? Selected() => (_tabs.SelectedItem as TabItem)?.Content as SvgViewer;
+
     /// <summary>Every open drawing with changes that are not on disk.</summary>
     private IReadOnlyList<string> Unsaved()
         => _tabs.Items.OfType<TabItem>()
@@ -398,14 +476,29 @@ public partial class MainWindow : Window
             : $"{unsaved.Count} drawings have changes that have not been saved.";
 
     /// <summary>Asks whether edits that are not on disk may be thrown away.</summary>
-    private async Task<bool> AskDiscard(string message)
+    private Task<bool> AskDiscard(string message)
+        => Ask("Unsaved changes", message, "Discard changes", "Keep editing");
+
+    /// <summary>
+    /// Puts a message up and waits for an answer.
+    /// </summary>
+    /// <remarks>
+    /// One button when <paramref name="accept"/> is null: an export that failed is to be read, not
+    /// answered, and a second button would offer a choice that is not there.
+    /// </remarks>
+    /// <returns>Whether <paramref name="accept"/> was the answer.</returns>
+    private async Task<bool> Ask(string title, string message, string? accept, string dismiss)
     {
-        var discard = new Button { Content = "Discard changes" };
-        var keep = new Button { Content = "Keep editing", IsDefault = true };
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8d,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
 
         var dialog = new Window
         {
-            Title = "Unsaved changes",
+            Title = title,
             SizeToContent = SizeToContent.WidthAndHeight,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             CanResize = false,
@@ -416,20 +509,24 @@ public partial class MainWindow : Window
                 Spacing = 16d,
                 Children =
                 {
-                    new TextBlock { Text = message },
-                    new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        Spacing = 8d,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Children = { discard, keep }
-                    }
+                    new TextBlock { Text = message, MaxWidth = 480d, TextWrapping = TextWrapping.Wrap },
+                    buttons
                 }
             }
         };
 
-        discard.Click += (_, _) => dialog.Close(true);
-        keep.Click += (_, _) => dialog.Close(false);
+        if (accept is { })
+        {
+            var confirm = new Button { Content = accept };
+
+            confirm.Click += (_, _) => dialog.Close(true);
+            buttons.Children.Add(confirm);
+        }
+
+        var close = new Button { Content = dismiss, IsDefault = true };
+
+        close.Click += (_, _) => dialog.Close(false);
+        buttons.Children.Add(close);
 
         return await dialog.ShowDialog<bool>(this);
     }
@@ -467,7 +564,7 @@ public partial class MainWindow : Window
 
         e.Handled = true;
 
-        if ((_tabs.SelectedItem as TabItem)?.Content is SvgViewer viewer)
+        if (Selected() is { } viewer)
         {
             await viewer.SaveSourceAsync();
         }
@@ -488,7 +585,7 @@ public partial class MainWindow : Window
 
     private void UpdateTitle()
     {
-        var open = (_tabs.SelectedItem as TabItem)?.Content as SvgViewer;
+        var open = Selected();
         var path = open?.DocumentPath;
         var mark = open is { IsSourceModified: true } ? " •" : string.Empty;
 

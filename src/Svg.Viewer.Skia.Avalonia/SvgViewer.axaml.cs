@@ -308,6 +308,14 @@ public partial class SvgViewer : UserControl
     /// </remarks>
     public IReadOnlyList<SvgSourceDiagnostic> SourceDiagnostics => Diagnostics();
 
+    /// <summary>The whole drawing as text, including the edits the pane is holding.</summary>
+    /// <remarks>
+    /// Not what the pane shows: a drawing past <see cref="SourceLimit"/> is shown cut and cannot be
+    /// edited, and handing out the cut would behead whatever it was written to.
+    /// </remarks>
+    public string Source
+        => _sourceBuffered && !_sourceTruncated ? _sourceEditor.Text : _document?.SourceText ?? string.Empty;
+
     /// <summary>The values currently bound, keyed by parameter name.</summary>
     public IReadOnlyDictionary<string, ExprValue> ParameterValues => BuildValues();
 

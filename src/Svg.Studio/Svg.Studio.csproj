@@ -22,6 +22,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Svg.Viewer.Skia.Avalonia\Svg.Viewer.Skia.Avalonia.csproj" />
+    <!-- Exporting a drawing as the C# that draws it goes through the generator svgc calls. -->
+    <ProjectReference Include="..\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" />
   </ItemGroup>
 
 </Project>
