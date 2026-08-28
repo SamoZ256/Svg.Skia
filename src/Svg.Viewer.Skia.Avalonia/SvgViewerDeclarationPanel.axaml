@@ -3,6 +3,14 @@
              xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia"
              x:Class="Svg.Viewer.Skia.Avalonia.SvgViewerDeclarationPanel">
 
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Svg.Viewer.Skia.Avalonia/SvgExpressionBox.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
   <UserControl.Styles>
     <!-- ColorPicker ships its control theme in its own assembly, not in FluentTheme. Without this
          the picker is created and templated with nothing, so a colour parameter shows an empty gap
@@ -168,6 +176,7 @@
           shape a number parameter already has: what it is called on one line, what it is on the next.
         -->
         <TextBox Classes="field" Margin="20,0,0,0"
+                 Theme="{StaticResource SvgExpressionBox}"
                  Text="{Binding Expression, Mode=TwoWay}"
                  PlaceholderText="expression"
                  KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />

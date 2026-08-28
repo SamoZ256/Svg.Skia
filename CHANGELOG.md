@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+* Every box that holds an expression is syntax-coloured as it is typed — a let's body, and a
+  parameter's `default`, `min`, `max` and `step` — from the same table the source pane paints with,
+  so `tau` cannot be one colour in the pane and another in the row above it. Not the name boxes: a
+  name is an identifier, and colouring it would say it was an expression.
+
+  **It is still a `TextBox`.** A text box paints with one foreground and the only thing that can give
+  it more is whatever builds its layout, so `SvgExpressionPresenter` replaces that and nothing else;
+  the caret, the selection, composition, the clipboard and undo stay Avalonia's. A control theme puts
+  it in place per box, applied with `Theme=`, so nothing global changes and no upstream template is
+  copied — `TextBox` requires exactly one part, `PART_TextPresenter`, which is what makes a ~25-line
+  template of our own enough.
+
+  The presenter passes an **unbounded** width to the layout rather than shadowing the private
+  constraint two layout passes maintain upstream. That field was the one genuinely fragile part of
+  this approach, and for a one-line box that neither wraps nor aligns the width changes nothing — so
+  it is designed out rather than reproduced. What is reproduced is composition: an input method shows
+  what is being typed before the box has it, and laying out the committed text alone would drop it.
+
+  **Selected text keeps its colours.** Avalonia's own presenter repaints a selection in a single
+  brush; this one does not, because the source pane does not either — AvaloniaEdit's theme sets the
+  selection background and leaves its foreground commented out. Two panes showing one expression
+  should not disagree about what colour it is. There is a test for that, since it is the kind of
+  difference somebody later fixes by accident.
+
+  The palette moved out of `SvgViewer`'s own resources into a dictionary of its own, which the theme
+  carries. Declared inside the control, it was unreachable from anything shown in a window of its
+  own — so the parameter form's boxes resolved every brush to null and painted flat while the pane
+  beside them coloured the same text.
+
+  `Svg.Highlighting` gained `SvgSourceHighlighter.Expression`, which splits one expression with no
+  document around it. Everything it guarantees comes free from the existing splitter: a body that
+  will not lex is coloured as far as the language got, and entities decode before lexing, so
+  `a &lt; b` colours as the comparison it is.
+
 * Parameters reorder by drag too, with the same grip a let has, and into **any** order.
 
   Unlike a let, whose position is what it can name, a parameter's position is presentation: a default

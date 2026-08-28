@@ -1353,7 +1353,15 @@ public partial class SvgViewer : UserControl
     private IBrush? WarningBrush() => Resource("SvgViewerSourceWarningBrush");
 
     /// <summary>The brush for a kind of token.</summary>
-    private IBrush? SourceBrush(SvgSourceTokenKind kind) => Resource(kind switch
+    private IBrush? SourceBrush(SvgSourceTokenKind kind) => Resource(SourceResourceKey(kind));
+
+    /// <summary>What a piece of a document is painted with, by name.</summary>
+    /// <remarks>
+    /// Internal because <see cref="SvgExpressionPresenter"/> paints the same kinds in an editable box
+    /// beside the pane. One table, so a `tau` cannot be one colour in the source and another in the
+    /// row above it.
+    /// </remarks>
+    internal static string SourceResourceKey(SvgSourceTokenKind kind) => kind switch
     {
         SvgSourceTokenKind.Punctuation => "SvgViewerSourcePunctuationBrush",
         SvgSourceTokenKind.Element => "SvgViewerSourceElementBrush",
@@ -1370,7 +1378,7 @@ public partial class SvgViewer : UserControl
         SvgSourceTokenKind.ExpressionPunctuation => "SvgViewerSourceExpressionPunctuationBrush",
         SvgSourceTokenKind.ExpressionIdentifier => "SvgViewerSourceExpressionIdentifierBrush",
         _ => "SvgViewerSourceTextBrush",
-    });
+    };
 
     /// <summary>
     /// Every brush the pane paints with, by the one route.

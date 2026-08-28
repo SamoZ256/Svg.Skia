@@ -69,6 +69,11 @@ Its grip drags it up and down, into any order. The `✕` removes it, refused whi
 uses it — the
 refusal says how many uses there are, since a button that did nothing would say less.
 
+Every box that holds an expression — a let's body, and a parameter's `default`, `min`, `max` and
+`step` — is coloured by what the language says each piece is, live as it is typed, from the same
+table the source pane paints with. It stays a real text box: only its presenter is replaced, so the
+caret, the selection, composition and undo are Avalonia's own.
+
 A let has no form and no `⋯`: it is a name and an expression, so the row is the editor. `Add let…`
 leaves an empty row to type into, `Enter` or leaving the row writes it, and `Escape` puts it back.
 What is typed is checked against the parameters and the lets above it as it is typed, and nothing is

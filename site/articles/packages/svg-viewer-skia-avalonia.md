@@ -27,6 +27,7 @@ dotnet add package Svg.Viewer.Skia.Avalonia
 | `SvgViewerCanvas` | The drawing surface alone, owning scale and offset |
 | `SvgViewerDeclarationPanel` | One control per declared parameter, and one row per declared let |
 | `SvgViewerLet` | A let row: the name and body being typed, what it evaluates to, and what is wrong with it |
+| `SvgExpressionPresenter` | Paints an expression box by token, in place of a `TextBox`'s own presenter |
 | `SvgViewerDocument` | A loaded drawing, its declarations, and any declaration error |
 | `SvgViewerParameterFactory` | Declarations to bindable rows, seeded from their defaults |
 
@@ -111,6 +112,12 @@ type is not offered: every expression naming a parameter was checked against the
 Its grip drags it up and down, into any order. The `✕` removes it, refused while the drawing still
 uses it — the
 refusal says how many uses there are, since a button that did nothing would say less.
+
+Every box that holds an expression — a let's body, and a parameter's `default`, `min`, `max` and
+`step` — is coloured by what the language says each piece is, live as it is typed, from the same
+table the source pane paints with. `SvgExpressionPresenter` is what does it: a control theme puts it
+in place of a `TextBox`'s own presenter, so the caret, the selection, composition and undo stay the
+box's. Selected text keeps its colours, as it does in the source pane.
 
 A let has no form and no `⋯`: it is a name and an expression, so the row is the editor. `Add let…`
 leaves an empty row to type into, `Enter` or leaving the row writes it, `Escape` puts it back. What

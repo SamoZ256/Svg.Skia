@@ -1,0 +1,108 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia">
+
+  <!--
+    The palette this paints with travels with it. A box shown in a window of its own — the parameter
+    form is — cannot see resources declared inside SvgViewer, and would resolve every brush to null
+    and paint flat.
+  -->
+  <ResourceDictionary.MergedDictionaries>
+    <ResourceInclude Source="avares://Svg.Viewer.Skia.Avalonia/SvgViewerSourceBrushes.axaml" />
+  </ResourceDictionary.MergedDictionaries>
+
+  <!--
+    A text box whose text is coloured by what the language says each piece is.
+
+    The only reason this template exists is its presenter: a TextBox paints with one foreground, and
+    the presenter is the one thing that can give it more. Everything else here is the plain shape of
+    a text box, written out rather than inherited, because a control theme replaces the template
+    whole and there is no way to override only the part inside it.
+
+    Written against Fluent's own resource keys rather than copied from its template, so it follows
+    the host's palette and stays a few lines instead of a few hundred. What it deliberately leaves
+    out: PasswordChar and RevealPassword, which an expression box has no use for, and
+    SelectionForegroundBrush, which the presenter ignores on purpose — selected text keeps its
+    colours, as it does in the source pane.
+  -->
+  <ControlTheme x:Key="SvgExpressionBox" TargetType="TextBox">
+
+    <Setter Property="Foreground" Value="{DynamicResource TextControlForeground}" />
+    <Setter Property="Background" Value="{DynamicResource TextControlBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TextControlBorderBrush}" />
+    <Setter Property="BorderThickness" Value="{DynamicResource TextControlBorderThemeThickness}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource ControlCornerRadius}" />
+    <Setter Property="SelectionBrush" Value="{DynamicResource TextControlSelectionHighlightColor}" />
+    <Setter Property="CaretBrush" Value="{DynamicResource TextControlForeground}" />
+    <Setter Property="Padding" Value="6,3" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Cursor" Value="IBeam" />
+
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="{TemplateBinding CornerRadius}"
+                Padding="{TemplateBinding Padding}">
+
+          <!-- An expression outruns the box long before it wants wrapping, and the caret has to
+               stay in sight while it does. -->
+          <ScrollViewer Name="PART_ScrollViewer"
+                        HorizontalScrollBarVisibility="Hidden"
+                        VerticalScrollBarVisibility="Disabled">
+            <Panel>
+
+              <TextBlock Name="PART_Watermark"
+                         Text="{TemplateBinding PlaceholderText}"
+                         Opacity="0.45"
+                         VerticalAlignment="Center"
+                         IsHitTestVisible="False">
+                <!-- Both, because text being empty is not the same as nothing being typed: an input
+                     method shows what is being composed before the box has it. -->
+                <TextBlock.IsVisible>
+                  <MultiBinding Converter="{x:Static BoolConverters.And}">
+                    <Binding ElementName="PART_TextPresenter" Path="PreeditText"
+                             Converter="{x:Static StringConverters.IsNullOrEmpty}" />
+                    <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Text"
+                             Converter="{x:Static StringConverters.IsNullOrEmpty}" />
+                  </MultiBinding>
+                </TextBlock.IsVisible>
+              </TextBlock>
+
+              <viewer:SvgExpressionPresenter Name="PART_TextPresenter"
+                                             Text="{TemplateBinding Text, Mode=TwoWay}"
+                                             CaretBlinkInterval="{TemplateBinding CaretBlinkInterval}"
+                                             CaretIndex="{TemplateBinding CaretIndex}"
+                                             SelectionStart="{TemplateBinding SelectionStart}"
+                                             SelectionEnd="{TemplateBinding SelectionEnd}"
+                                             TextAlignment="{TemplateBinding TextAlignment}"
+                                             TextWrapping="{TemplateBinding TextWrapping}"
+                                             LineHeight="{TemplateBinding LineHeight}"
+                                             LetterSpacing="{TemplateBinding LetterSpacing}"
+                                             SelectionBrush="{TemplateBinding SelectionBrush}"
+                                             CaretBrush="{TemplateBinding CaretBrush}"
+                                             VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+            </Panel>
+          </ScrollViewer>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+
+    <Style Selector="^:pointerover">
+      <Setter Property="BorderBrush" Value="{DynamicResource TextControlBorderBrushPointerOver}" />
+      <Setter Property="Background" Value="{DynamicResource TextControlBackgroundPointerOver}" />
+    </Style>
+
+    <Style Selector="^:focus">
+      <Setter Property="BorderBrush" Value="{DynamicResource TextControlBorderBrushFocused}" />
+      <Setter Property="Background" Value="{DynamicResource TextControlBackgroundFocused}" />
+    </Style>
+
+    <Style Selector="^:disabled">
+      <Setter Property="Opacity" Value="0.5" />
+    </Style>
+
+  </ControlTheme>
+
+</ResourceDictionary>
