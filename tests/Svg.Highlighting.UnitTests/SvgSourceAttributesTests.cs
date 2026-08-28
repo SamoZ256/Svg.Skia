@@ -118,7 +118,12 @@ public class SvgSourceAttributesTests
 
         // Which ones do, rather than in which order: the list is read off the extension's own table
         // of placeholders, and what that enumerates in is not worth pinning.
-        foreach (var supported in new[] { "fill", "stroke", "stop-color", "opacity", "visibility" })
+        foreach (var supported in new[]
+                 {
+                     "fill", "stroke", "stop-color",
+                     "opacity", "fill-opacity", "stroke-opacity", "stop-opacity",
+                     "visibility"
+                 })
         {
             Assert.Contains(supported, one.Message, StringComparison.Ordinal);
         }

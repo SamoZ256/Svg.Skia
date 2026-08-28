@@ -333,6 +333,41 @@ public class SkiaCSharpCodeGenExpressionTests
     }
 
     [Fact]
+    public void A_Fill_Opacity_Expression_Scales_The_Literal_Colour()
+    {
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code><e:param name="fade" type="number" default="1" /></e:code></defs>
+              <rect x="0" y="0" width="10" height="10" fill="#3366cc" fill-opacity="{{ fade }}" />
+            </svg>
+            """);
+
+        // The colour the author wrote is emitted as a literal and scaled by the argument, rather
+        // than the fade being folded into a constant alpha at generation time.
+        Assert.Contains("SvgScaleAlpha(new SKColor(51, 102, 204, 255), fade)", code);
+        Assert.Contains("private static SKColor SvgScaleAlpha", code);
+    }
+
+    [Fact]
+    public void A_Stop_Opacity_Expression_Reaches_The_Gradient_Stop()
+    {
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <e:code><e:param name="fade" type="number" default="1" /></e:code>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="0">
+                  <stop offset="0%" stop-color="#3366cc" stop-opacity="{{ fade }}" />
+                  <stop offset="100%" stop-color="#000000" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="100" height="100" fill="url(#g)" />
+            </svg>
+            """);
+
+        Assert.Contains("SvgToColorF(SvgScaleAlpha(new SKColor(51, 102, 204, 255), fade))", code);
+    }
+
+    [Fact]
     public void Gradient_Stop_Expression_Is_Converted_To_ColorF()
     {
         var code = Generate("""

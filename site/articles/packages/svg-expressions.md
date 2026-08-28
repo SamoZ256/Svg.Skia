@@ -127,18 +127,26 @@ params and lets.
 | `stroke` | color | Stroke colour. |
 | `stop-color` | color | Gradient stop colour. |
 | `opacity` | number | Group opacity. |
+| `fill-opacity` | number | Scales the fill's alpha, whether the fill is a literal, an expression or a gradient. |
+| `stroke-opacity` | number | Scales the stroke's alpha. |
+| `stop-opacity` | number | Scales one gradient stop's alpha. |
 | `visibility` | boolean | `true` meaning visible. Wraps the element's drawing in a condition. |
 
 Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d`, `transform`, `display`,
-`stroke-width`, `fill-opacity` — is a literal. Braces written in one of those are read as an ordinary
-value and do nothing; a source view marks it.
+`stroke-width` — is a literal. Braces written in one of those are read as an ordinary value and do
+nothing; a source view marks it.
+
+A **pattern** fill is the one exception among the opacities: it paints into a picture of its own,
+where the alpha is baked into every command rather than sitting on one colour, so `fill-opacity`
+still applies but only as the value it had when the drawing was compiled.
 
 `visibility` is a boolean rather than a value substitution because a hidden element contributes no
 drawing at all. SVG's third value, `collapse`, means the same as `hidden` outside CSS table layout,
 so nothing is lost.
 
-Ordinary attributes still apply alongside an expression: `fill-opacity`, `stroke-opacity` and
-`stop-opacity` scale its alpha, and `color-interpolation="linearRGB"` converts it, exactly as they
+The two compose in either direction: an opacity expression scales a literal colour, a colour
+expression is scaled by a literal opacity, and where both are expressions the alpha is scaled by
+whatever the number one yields. `color-interpolation="linearRGB"` converts the result, exactly as it
 would a literal.
 
 ## 3. Language reference

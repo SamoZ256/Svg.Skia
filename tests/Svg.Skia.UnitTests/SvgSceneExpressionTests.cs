@@ -124,6 +124,120 @@ public class SvgSceneExpressionTests
     }
 
     [Fact]
+    public void A_Fill_Opacity_Expression_Scales_The_Literal_Colour()
+    {
+        var paint = SinglePaint("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="0" y="0" width="10" height="10" fill="#3366cc" fill-opacity="{{ fade }}" />
+            </svg>
+            """);
+
+        var color = paint.Color!.Value;
+
+        // The placeholder is 1, so the design-time colour is the one the author wrote.
+        Assert.Equal(0xcc, color.Blue);
+        Assert.Equal(255, color.Alpha);
+
+        // Nothing symbolic to scale until the literal colour is written back out as one.
+        var binary = Assert.IsType<SymBinary>(color.Expression);
+        Assert.Equal(SymOp.ScaleAlpha, binary.Op);
+        Assert.Equal(SymNode.Source("#3366ccff"), binary.Left);
+        Assert.Equal(SymNode.Source("fade"), binary.Right);
+    }
+
+    [Fact]
+    public void A_Fill_And_Its_Opacity_Compose_When_Both_Are_Expressions()
+    {
+        var paint = SinglePaint("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="0" y="0" width="10" height="10" fill="{{ primary }}" fill-opacity="{{ fade }}" />
+            </svg>
+            """);
+
+        var binary = Assert.IsType<SymBinary>(paint.Color!.Value.Expression);
+
+        Assert.Equal(SymOp.ScaleAlpha, binary.Op);
+        Assert.Equal(SymNode.Source("primary"), binary.Left);
+        Assert.Equal(SymNode.Source("fade"), binary.Right);
+    }
+
+    [Fact]
+    public void A_Stroke_Opacity_Expression_Reaches_The_Stroke_Alone()
+    {
+        var paints = EnumeratePaints(Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="2" y="2" width="10" height="10" fill="#3366cc"
+                    stroke="#000000" stroke-width="2" stroke-opacity="{{ fade }}" />
+            </svg>
+            """)).ToList();
+
+        var fill = Assert.Single(paints, p => p.Style == SKPaintStyle.Fill);
+        var stroke = Assert.Single(paints, p => p.Style == SKPaintStyle.Stroke);
+
+        Assert.Null(fill.Color!.Value.Expression);
+
+        var binary = Assert.IsType<SymBinary>(stroke.Color!.Value.Expression);
+        Assert.Equal(SymOp.ScaleAlpha, binary.Op);
+        Assert.Equal(SymNode.Source("fade"), binary.Right);
+    }
+
+    [Fact]
+    public void A_Stop_Opacity_Expression_Scales_That_Stop_Only()
+    {
+        var picture = Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="0">
+                  <stop offset="0%" stop-color="#3366cc" stop-opacity="{{ fade }}" />
+                  <stop offset="100%" stop-color="#000000" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="100" height="100" fill="url(#g)" />
+            </svg>
+            """);
+
+        var shader = EnumeratePaints(picture)
+            .Select(p => p.Shader)
+            .OfType<LinearGradientShader>()
+            .Single();
+
+        // The element's own fill-opacity is 1, and Multiply folds that away rather than recording it.
+        var binary = Assert.IsType<SymBinary>(shader.Colors![0].Expression);
+        Assert.Equal(SymOp.ScaleAlpha, binary.Op);
+        Assert.Equal(SymNode.Source("#3366ccff"), binary.Left);
+        Assert.Equal(SymNode.Source("fade"), binary.Right);
+
+        Assert.Null(shader.Colors[1].Expression);
+    }
+
+    [Fact]
+    public void A_Fill_Opacity_Expression_Reaches_Every_Stop_Of_A_Gradient_Fill()
+    {
+        // The element's own alpha is applied to each stop rather than to the shader, so an
+        // expression driving it has to reach all of them or the drawing would fade unevenly.
+        var picture = Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="0">
+                  <stop offset="0%" stop-color="#3366cc" />
+                  <stop offset="100%" stop-color="#000000" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="100" height="100" fill="url(#g)" fill-opacity="{{ fade }}" />
+            </svg>
+            """);
+
+        var shader = EnumeratePaints(picture)
+            .Select(p => p.Shader)
+            .OfType<LinearGradientShader>()
+            .Single();
+
+        Assert.All(
+            shader.Colors!,
+            color => Assert.Equal(SymNode.Source("fade"), Assert.IsType<SymBinary>(color.Expression).Right));
+    }
+
+    [Fact]
     public void Full_Opacity_Leaves_The_Expression_Unwrapped()
     {
         var paint = SinglePaint("""

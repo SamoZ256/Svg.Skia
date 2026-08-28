@@ -169,6 +169,48 @@ public class SvgSceneExpressionEvaluatorTests
     }
 
     [Fact]
+    public void A_Fill_Opacity_Expression_Scales_The_Colour_It_Was_Written_Beside()
+    {
+        var markup = Wrap(
+            """<e:param name="fade" type="number" />""",
+            """<rect x="0" y="0" width="24" height="24" fill="#3366cc" fill-opacity="{{ fade }}" />""");
+
+        var evaluated = BuildAndEvaluate(markup, ("fade", ExprValue.Number(0.5f)));
+        var color = SinglePaint(evaluated).Color;
+
+        // The channels are the ones the author wrote; only the alpha moved.
+        Assert.Equal(new SKColor(0x33, 0x66, 0xcc, 128), color);
+        Assert.Null(color!.Value.Expression);
+    }
+
+    [Fact]
+    public void A_Stop_Opacity_Expression_Scales_That_Stop_Only()
+    {
+        const string markup = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code><e:param name="fade" type="number" /></e:code>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0">
+                  <stop offset="0%" stop-color="#3366cc" stop-opacity="{{ fade }}" />
+                  <stop offset="100%" stop-color="#1e40af" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="url(#g)" />
+            </svg>
+            """;
+
+        var evaluated = BuildAndEvaluate(markup, ("fade", ExprValue.Number(0.5f)));
+        var gradient = Assert.IsType<LinearGradientShader>(SinglePaint(evaluated).Shader);
+
+        Assert.Equal(128f / 255f, gradient.Colors![0].Alpha, 3);
+        Assert.Equal(0x33 / 255f, gradient.Colors[0].Red, 3);
+        Assert.Null(gradient.Colors[0].Expression);
+
+        Assert.Equal(1f, gradient.Colors[1].Alpha);
+        Assert.Null(gradient.Colors[1].Expression);
+    }
+
+    [Fact]
     public void An_Opacity_Expression_Scales_The_Layer_Paint()
     {
         // Recorded as ScaleAlpha(Source("#ffffff"), <authored>), which is a colour literal written in

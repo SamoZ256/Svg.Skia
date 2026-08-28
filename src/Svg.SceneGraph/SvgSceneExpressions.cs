@@ -23,6 +23,12 @@ internal static class SvgSceneExpressions
 
     internal const string Opacity = "opacity";
 
+    internal const string FillOpacity = "fill-opacity";
+
+    internal const string StrokeOpacity = "stroke-opacity";
+
+    internal const string StopOpacity = "stop-opacity";
+
     internal const string Visibility = "visibility";
 
     internal static SymNode? TryGet(SvgElement? element, string localName)
@@ -50,4 +56,7 @@ internal static class SvgSceneExpressions
 
     internal static SymNode? TryGetPaint(SvgElement? element, bool forStroke)
         => TryGet(element, forStroke ? Stroke : Fill);
+
+    internal static SymNode? TryGetPaintOpacity(SvgElement? element, bool forStroke)
+        => TryGet(element, forStroke ? StrokeOpacity : FillOpacity);
 }

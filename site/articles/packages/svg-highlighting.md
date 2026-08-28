@@ -101,7 +101,8 @@ An expression is checked against its **use** as well as on its own terms:
 <!--             ^ An opacity expression must be a number expression, but this one is a colour. -->
 ```
 
-`fill`, `stroke` and `stop-color` want a colour, `opacity` a number, `visibility` a boolean. Both
+`fill`, `stroke` and `stop-color` want a colour, `opacity` and the three that scale an alpha —
+`fill-opacity`, `stroke-opacity`, `stop-opacity` — a number, `visibility` a boolean. Both
 back ends already refuse the wrong one as they read the document — the emitter and the renderer — so
 this asks the same question earlier and reports it in the same words, rather than letting a drawing
 open and fail when it is generated or drawn.

@@ -536,6 +536,52 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void An_Opacity_Attribute_Takes_An_Expression()
+        // The emitted colour is the authored literal scaled at run time, where the literal document
+        // folds the same fade into a constant alpha — the two have to land on the same byte.
+        => AssertExpressionsRenderTheSame(
+            "ExprFillOpacity",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="10" fill="#3366cc" fill-opacity="{{ 0.5 }}" />
+            </svg>
+            """,
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="10" fill="#3366cc" fill-opacity="0.5" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Gradient_Stop_Opacity_Takes_An_Expression()
+        => AssertExpressionsRenderTheSame(
+            "ExprStopOpacity",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0">
+                  <stop offset="0%" stop-color="#3366cc" stop-opacity="{{ 0.5 }}" />
+                  <stop offset="100%" stop-color="#1e40af" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="url(#g)" />
+            </svg>
+            """,
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0">
+                  <stop offset="0%" stop-color="#3366cc" stop-opacity="0.5" />
+                  <stop offset="100%" stop-color="#1e40af" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="url(#g)" />
+            </svg>
+            """);
+
+    [Fact]
     public void An_Omitted_Colour_Argument_Falls_Back_To_Its_Declared_Default()
         // Passing null is what a caller omitting the argument gets, and the expected document
         // states the default as a literal — so this fails if the fallback is dropped or wrong.
