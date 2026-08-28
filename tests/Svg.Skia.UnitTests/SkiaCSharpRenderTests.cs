@@ -508,6 +508,51 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void A_False_Display_Expression_Draws_Nothing()
+        // Same mechanism as visibility, on the attribute that also decides whether the subtree is
+        // compiled at all — so this fails if the placeholder stops keeping it in.
+        => AssertExpressionsRenderTheSame(
+            "ExprDisplayNone",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="laid" type="boolean" default="true" /></e:code></defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <g display="{{ laid }}">
+                <circle cx="12" cy="12" r="8" fill="#111827" />
+              </g>
+            </svg>
+            """,
+            new object?[] { false },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+            </svg>
+            """);
+
+    [Fact]
+    public void Display_And_Visibility_Nest_On_One_Element()
+        => AssertExpressionsRenderTheSame(
+            "ExprDisplayAndVisibility",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code>
+                  <e:param name="laid" type="boolean" default="true" />
+                  <e:param name="shown" type="boolean" default="true" />
+                </e:code>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="8" fill="#111827" display="{{ laid }}" visibility="{{ shown }}" />
+            </svg>
+            """,
+            new object?[] { true, false },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+            </svg>
+            """);
+
+    [Fact]
     public void A_Gradient_Stop_Takes_An_Expression()
         // Stops reach the model as SKColorF, so this is the one path that emits SvgToColorF.
         => AssertExpressionsRenderTheSame(

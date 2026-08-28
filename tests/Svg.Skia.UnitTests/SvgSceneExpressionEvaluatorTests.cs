@@ -426,6 +426,23 @@ public class SvgSceneExpressionEvaluatorTests
     }
 
     [Fact]
+    public void A_False_Display_Expression_Takes_The_Elements_Commands_With_It()
+    {
+        var markup = Wrap(
+            """<e:param name="laid" type="boolean" />""",
+            """
+            <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="8" fill="#111827" display="{{ laid }}" />
+            """);
+
+        var evaluated = BuildAndEvaluate(markup, ("laid", ExprValue.Boolean(false)));
+
+        // The markers go with it: a resolved conditional is not a conditional any more.
+        Assert.Single(Paints(evaluated));
+        Assert.DoesNotContain(evaluated.Commands!, c => c is BeginConditionalCanvasCommand);
+    }
+
+    [Fact]
     public void A_Visibility_Expression_Of_The_Wrong_Type_Is_Not_Called_An_Opacity()
     {
         // It was. The label was a ternary on whether the type wanted was a colour, so everything

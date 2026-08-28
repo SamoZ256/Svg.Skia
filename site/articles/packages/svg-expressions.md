@@ -131,18 +131,24 @@ params and lets.
 | `stroke-opacity` | number | Scales the stroke's alpha. |
 | `stop-opacity` | number | Scales one gradient stop's alpha. |
 | `visibility` | boolean | `true` meaning visible. Wraps the element's drawing in a condition. |
+| `display` | boolean | `true` meaning displayed. Wraps the element and its subtree in a condition. |
 
-Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d`, `transform`, `display`,
-`stroke-width` — is a literal. Braces written in one of those are read as an ordinary value and do
-nothing; a source view marks it.
+Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d`, `transform`, `stroke-width` — is a
+literal. Braces written in one of those are read as an ordinary value and do nothing; a source view
+marks it.
 
 A **pattern** fill is the one exception among the opacities: it paints into a picture of its own,
 where the alpha is baked into every command rather than sitting on one colour, so `fill-opacity`
 still applies but only as the value it had when the drawing was compiled.
 
-`visibility` is a boolean rather than a value substitution because a hidden element contributes no
-drawing at all. SVG's third value, `collapse`, means the same as `hidden` outside CSS table layout,
-so nothing is lost.
+`visibility` and `display` are booleans rather than value substitutions because a hidden element
+contributes no drawing at all. SVG's third visibility value, `collapse`, means the same as `hidden`
+outside CSS table layout, so nothing is lost; `display` has many values, but only `none` is the
+difference between drawing and not.
+
+Written on one element they nest, in either order, and the element draws only where both hold. What
+neither reaches is hit testing, which reads the placeholder: an element hidden by an expression
+alone still answers a hit.
 
 The two compose in either direction: an opacity expression scales a literal colour, a colour
 expression is scaled by a literal opacity, and where both are expressions the alpha is scaled by

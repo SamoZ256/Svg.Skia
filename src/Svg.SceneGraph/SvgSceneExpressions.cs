@@ -31,6 +31,8 @@ internal static class SvgSceneExpressions
 
     internal const string Visibility = "visibility";
 
+    internal const string Display = "display";
+
     internal static SymNode? TryGet(SvgElement? element, string localName)
     {
         if (element is null)

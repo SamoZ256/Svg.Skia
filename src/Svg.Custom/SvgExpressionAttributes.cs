@@ -45,8 +45,10 @@ public static class SvgExpressionAttributes
         ["stroke-opacity"] = ("1", ExprType.Number),
         ["stop-opacity"] = ("1", ExprType.Number),
         // A hidden element contributes no commands at all, so the placeholder has to be the
-        // visible state or there would be nothing left to make conditional.
-        ["visibility"] = ("visible", ExprType.Boolean)
+        // visible state or there would be nothing left to make conditional. For display that goes
+        // further: a display:none container is not compiled at all, subtree included.
+        ["visibility"] = ("visible", ExprType.Boolean),
+        ["display"] = ("inline", ExprType.Boolean)
     };
 
     /// <summary>Attributes an expression can currently drive.</summary>

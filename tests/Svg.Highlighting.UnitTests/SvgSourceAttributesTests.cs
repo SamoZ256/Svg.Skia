@@ -122,7 +122,7 @@ public class SvgSourceAttributesTests
                  {
                      "fill", "stroke", "stop-color",
                      "opacity", "fill-opacity", "stroke-opacity", "stop-opacity",
-                     "visibility"
+                     "visibility", "display"
                  })
         {
             Assert.Contains(supported, one.Message, StringComparison.Ordinal);
