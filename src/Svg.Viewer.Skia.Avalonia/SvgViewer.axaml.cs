@@ -1352,6 +1352,19 @@ public partial class SvgViewer : UserControl
         return true;
     }
 
+    /// <summary>Takes back the last edit to the drawing's text.</summary>
+    /// <remarks>
+    /// For a host with a menu: the pane binds the platform's gestures itself, and a menu item wants
+    /// the same thing without one. The stack is the pane's, so this takes back typing, a committed
+    /// declaration and a resize alike — and never a parameter value, which is bound rather than
+    /// written.
+    /// </remarks>
+    /// <returns>Whether there was anything to take back.</returns>
+    public bool Undo() => _sourceBuffered && _sourceEditor.Undo();
+
+    /// <inheritdoc cref="Undo"/>
+    public bool Redo() => _sourceBuffered && _sourceEditor.Redo();
+
     /// <summary>
     /// The platform is only there to ask once the control is in a window, so the pane's gestures
     /// are bound on the way in rather than in the constructor.

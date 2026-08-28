@@ -158,6 +158,13 @@
       <NativeMenuItem Header="Edit">
         <NativeMenuItem.Menu>
           <NativeMenu>
+            <!--
+              The gestures are set in code from the platform's own keymap rather than written here,
+              so what the menu shows is what the pane answers to on this machine.
+            -->
+            <NativeMenuItem Header="Undo" Click="OnUndo" />
+            <NativeMenuItem Header="Redo" Click="OnRedo" />
+            <NativeMenuItemSeparator />
             <NativeMenuItem Header="Resize…" Click="OnResize" />
           </NativeMenu>
         </NativeMenuItem.Menu>
