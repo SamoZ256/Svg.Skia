@@ -81,11 +81,11 @@ public static class SvgRecipeRewriter
             {
                 if (TryMatch(styleValue, recipe, counts, out var styleExpression))
                 {
-                    // '{{ }}' is lifted out of attributes and never out of a style declaration, so
-                    // the property is promoted and removed from 'style' to stay the winning value.
-                    style.Remove(name);
-                    element.SetAttributeValue(name, styleExpression);
-                    styleChanged = true;
+                    // Written where it was found. A style declaration used to be promoted to a
+                    // presentation attribute because only an attribute was lifted; a declaration
+                    // is lifted too now, and moving one changes a document more than a recipe
+                    // needs to.
+                    styleChanged = style.TrySetValue(name, styleExpression);
                 }
 
                 continue;

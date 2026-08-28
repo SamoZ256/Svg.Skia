@@ -56,6 +56,20 @@ alone — `fill="url(#g) {%{{{ x }}}%}"` is an ordinary (invalid) value, not an 
 
 Whitespace inside the braces is trimmed, so {%{`{{primary}}` and `{{ primary }}`}%} are equivalent.
 
+A declaration in a `style` attribute works the same way, and the same rule applies to its value:
+
+{%{
+```xml
+<rect style="stroke: #000; fill: {{ primary }}" />
+```
+}%}
+
+Where both are written, the `style` declaration drives the drawing and the presentation attribute
+does not — the cascade decides, in whichever order they appear — so a literal in `style` leaves an
+expression in the attribute beneath it doing nothing, exactly as it leaves a literal there doing
+nothing. A rule in a `<style>` element is **not** lifted: its declarations apply to every element a
+selector matches, and an expression is a property of one element.
+
 A drawing written this way has no design-time value: the expression replaces the attribute rather
 than sitting beside it, so a tool that does not know the extension shows a stand-in colour rather
 than the intended one. In exchange there is one source of truth per attribute and no second value to

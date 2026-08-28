@@ -130,6 +130,20 @@ public class SvgSceneExpressionEvaluatorTests
     }
 
     [Fact]
+    public void An_Expression_Lifted_From_A_Style_Declaration_Is_Resolved_Like_Any_Other()
+    {
+        // Nothing downstream knows where a lifted expression was written, which is the point of
+        // lifting it; this is the case that says so.
+        var markup = Wrap(
+            """<e:param name="tint" type="color" />""",
+            """<rect x="0" y="0" width="24" height="24" style="fill: {{ tint }}" />""");
+
+        var evaluated = BuildAndEvaluate(markup, ("tint", ExprValue.Color(255, 0, 0, 255)));
+
+        Assert.Equal(new SKColor(255, 0, 0, 255), SinglePaint(evaluated).Color);
+    }
+
+    [Fact]
     public void A_Stroke_Expression_Is_Resolved_Independently_Of_The_Fill()
     {
         var markup = Wrap(

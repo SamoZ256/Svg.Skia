@@ -15,6 +15,10 @@ internal sealed class SvgInlineStyleAttributeParser
 
     public void ApplyStyles(SvgElement element, string styleText)
     {
+        // The attribute is applied whole, so what it lifted last time goes first: a property it no
+        // longer mentions has to lose its expression, and nothing downstream would ever clear it.
+        SvgExpressionAttributes.Forget(element.CustomAttributes, SvgElement.StyleSpecificity_InlineStyle);
+
         if (TryApplyInlineDeclarations(element, styleText))
         {
             return;
@@ -156,6 +160,28 @@ internal sealed class SvgInlineStyleAttributeParser
         }
 
         var effectiveSpecificity = SvgCssDeclarationPriority.NormalizePriority(ref value, specificity, important);
+
+        // The one place every inline declaration arrives at, whichever of the two readers below
+        // found it, and so the only place an expression written in a style attribute can be lifted
+        // out. A supported property is recorded either way -- a literal here is what tells a weaker
+        // expression written in the presentation attribute that it has been overruled.
+        if (SvgExpressionAttributes.IsSupported(name))
+        {
+            var lifted = SvgExpressionAttributes.TryUnwrap(value, out var expression);
+
+            SvgExpressionAttributes.Lift(
+                element.CustomAttributes,
+                name,
+                lifted ? expression : null,
+                effectiveSpecificity);
+
+            if (lifted)
+            {
+                // The placeholder keeps the element painting, exactly as it does for an attribute:
+                // the style system is about to convert this value and would refuse the braces.
+                value = SvgExpressionAttributes.PlaceholderFor(name);
+            }
+        }
 
         if (SvgCssPaintDeclarationValidator.ShouldIgnoreInvalidPaintDeclaration(element, name, value))
         {

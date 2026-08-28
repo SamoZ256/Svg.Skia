@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Svg.Expressions;
 
 namespace Svg;
@@ -79,6 +80,87 @@ public static class SvgExpressionAttributes
             : $"'{localName}' does not take an expression. The parser lifts {string.Join(", ", Supported)}, and reads a {Open} … {Close} written anywhere else as an ordinary value.";
 
     public static string KeyFor(string localName) => Namespace + ":" + localName;
+
+    /// <summary>Where a lifted expression came from, so a weaker declaration cannot overwrite it.</summary>
+    /// <remarks>
+    /// Beside the expression rather than encoded into it, and in the same collection, so it travels
+    /// wherever the lifted value does — a clone, a style snapshot, the JavaScript DOM state.
+    /// </remarks>
+    public static string SourceKeyFor(string localName) => KeyFor(localName) + ":from";
+
+    /// <summary>
+    /// Records what a declaration of <paramref name="localName"/> carries — an expression, or a
+    /// literal that leaves nothing to evaluate — for a declaration of <paramref name="specificity"/>.
+    /// </summary>
+    /// <remarks>
+    /// The cascade decides, not the order attributes happen to be read in: a <c>style</c>
+    /// declaration beats a presentation attribute whichever comes first in the file, and a literal
+    /// that wins has to take a weaker expression down with it or the drawing would paint an
+    /// expression CSS says is not in play. Equal strength lets the later one through, as CSS does.
+    /// </remarks>
+    public static void Lift(
+        IDictionary<string, string> customAttributes,
+        string localName,
+        string? expression,
+        int specificity)
+    {
+        if (customAttributes is null)
+        {
+            throw new ArgumentNullException(nameof(customAttributes));
+        }
+
+        var sourceKey = SourceKeyFor(localName);
+
+        if (customAttributes.TryGetValue(sourceKey, out var applied)
+            && int.TryParse(applied, NumberStyles.Integer, CultureInfo.InvariantCulture, out var strength)
+            && strength > specificity)
+        {
+            return;
+        }
+
+        var key = KeyFor(localName);
+
+        if (expression is null)
+        {
+            customAttributes.Remove(key);
+        }
+        else
+        {
+            customAttributes[key] = expression;
+        }
+
+        customAttributes[sourceKey] = specificity.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Drops what declarations of <paramref name="specificity"/> lifted, before they are applied
+    /// again.
+    /// </summary>
+    /// <remarks>
+    /// A style attribute is re-applied whole when script or the dynamic-style pass rewrites it, and
+    /// a property it no longer mentions has to lose the expression it used to carry — nothing else
+    /// would ever clear it.
+    /// </remarks>
+    public static void Forget(IDictionary<string, string> customAttributes, int specificity)
+    {
+        if (customAttributes is null)
+        {
+            throw new ArgumentNullException(nameof(customAttributes));
+        }
+
+        var strength = specificity.ToString(CultureInfo.InvariantCulture);
+
+        foreach (var localName in Supported)
+        {
+            var sourceKey = SourceKeyFor(localName);
+
+            if (customAttributes.TryGetValue(sourceKey, out var applied) && applied == strength)
+            {
+                customAttributes.Remove(KeyFor(localName));
+                customAttributes.Remove(sourceKey);
+            }
+        }
+    }
 
     public static string PlaceholderFor(string localName)
         => s_placeholders.TryGetValue(localName, out var supported) ? supported.Placeholder : "#808080";

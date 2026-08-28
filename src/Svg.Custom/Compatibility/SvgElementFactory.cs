@@ -175,7 +175,12 @@ namespace Svg
                         if (SvgExpressionAttributes.IsSupported(localName) &&
                             SvgExpressionAttributes.TryUnwrap(reader.Value, out var inlineExpression))
                         {
-                            element.CustomAttributes[SvgExpressionAttributes.KeyFor(localName)] = inlineExpression;
+                            SvgExpressionAttributes.Lift(
+                                element.CustomAttributes,
+                                localName,
+                                inlineExpression,
+                                SvgElement.StyleSpecificity_PresAttribute);
+
                             element.AddStyle(
                                 localName,
                                 SvgExpressionAttributes.PlaceholderFor(localName),
