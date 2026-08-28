@@ -26,6 +26,11 @@ public partial class SvgResizeWindow : Window
     private readonly CheckBox _lock;
     private readonly TextBlock _note;
 
+    private readonly TextBox _top;
+    private readonly TextBox _right;
+    private readonly TextBox _bottom;
+    private readonly TextBox _left;
+
     /// <summary>Whether a box is being filled in from the model rather than by a person.</summary>
     /// <remarks>
     /// Writing a box raises its own TextChanged, which would read the half-formatted value back into
@@ -50,6 +55,11 @@ public partial class SvgResizeWindow : Window
         _lock = this.FindControl<CheckBox>("LockBox")!;
         _note = this.FindControl<TextBlock>("NoteText")!;
 
+        _top = this.FindControl<TextBox>("TopBox")!;
+        _right = this.FindControl<TextBox>("RightBox")!;
+        _bottom = this.FindControl<TextBox>("BottomBox")!;
+        _left = this.FindControl<TextBox>("LeftBox")!;
+
         _lock.IsChecked = resize.IsAspectRatioLocked;
 
         Show(_resize);
@@ -64,8 +74,22 @@ public partial class SvgResizeWindow : Window
             Show(_resize);
         };
 
+        foreach (var box in new[] { _top, _right, _bottom, _left })
+        {
+            box.TextChanged += (_, _) => ReadPadding();
+        }
+
         this.FindControl<Button>("CancelButton")!.Click += (_, _) => Close(null);
-        this.FindControl<Button>("ResizeButton")!.Click += (_, _) => Close(_resize.ToRequest());
+
+        // Only where the padding reads: a form that closed on a refusal would apply the last
+        // padding that did read, which is not what the boxes say.
+        this.FindControl<Button>("ResizeButton")!.Click += (_, _) =>
+        {
+            if (ReadPadding())
+            {
+                Close(_resize.ToRequest());
+            }
+        };
     }
 
     /// <summary>Takes one box's text into the model, and the model back into the others.</summary>
@@ -97,6 +121,43 @@ public partial class SvgResizeWindow : Window
 
         Show(_resize, except: box);
     }
+
+    /// <summary>
+    /// Takes the four boxes into the model as one padding.
+    /// </summary>
+    /// <remarks>
+    /// Assembled into the text CSS writes a padding in and handed to <see cref="SvgPadding.Parse"/>,
+    /// rather than read four times here: that is where a percentage, a fraction, and a bare number
+    /// asking for ten times the canvas are already told apart, in words worth showing.
+    /// </remarks>
+    /// <returns>Whether the boxes said something a padding could be made of.</returns>
+    private bool ReadPadding()
+    {
+        if (_writing)
+        {
+            return true;
+        }
+
+        try
+        {
+            _resize.Padding = SvgPadding.Parse(
+                string.Join(" ", Side(_top), Side(_right), Side(_bottom), Side(_left)));
+
+            Note(null);
+
+            return true;
+        }
+        catch (ArgumentException failure)
+        {
+            Note(failure.Message);
+
+            return false;
+        }
+    }
+
+    /// <summary>One side, with an empty box meaning no padding on it.</summary>
+    private static string Side(TextBox box)
+        => string.IsNullOrWhiteSpace(box.Text) ? "0" : box.Text!.Trim();
 
     /// <summary>Writes the model into the boxes, leaving the one being typed in alone.</summary>
     private void Show(SvgViewerResize resize, TextBox? except = null)

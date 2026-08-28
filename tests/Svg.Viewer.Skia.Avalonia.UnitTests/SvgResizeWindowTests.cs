@@ -94,6 +94,50 @@ public class SvgResizeWindowTests
     }
 
     [AvaloniaFact]
+    public void The_Four_Padding_Boxes_Are_One_Padding()
+    {
+        var (window, resize) = Host();
+
+        Box(window, "TopBox").Text = "10%";
+        Box(window, "RightBox").Text = "0.05";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0.1f, resize.Padding.Top);
+        Assert.Equal(0.05f, resize.Padding.Right);
+
+        // An empty box is no padding on that side rather than a refusal.
+        Assert.Equal(0f, resize.Padding.Bottom);
+    }
+
+    [AvaloniaFact]
+    public void A_Padding_That_Leaves_No_Room_Says_So_In_The_Models_Own_Words()
+    {
+        var (window, _) = Host();
+
+        Box(window, "LeftBox").Text = "60%";
+        Box(window, "RightBox").Text = "60%";
+        Dispatcher.UIThread.RunJobs();
+
+        var note = window.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "NoteText");
+
+        Assert.True(note.IsVisible);
+        Assert.Contains("no room", note.Text);
+    }
+
+    [AvaloniaFact]
+    public void A_Bare_Number_Is_A_Fraction_And_Ten_Of_Them_Is_Refused()
+    {
+        var (window, _) = Host();
+
+        Box(window, "TopBox").Text = "10";
+        Dispatcher.UIThread.RunJobs();
+
+        var note = window.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "NoteText");
+
+        Assert.True(note.IsVisible);
+    }
+
+    [AvaloniaFact]
     public void A_Half_Typed_Box_Is_Not_A_Refusal()
     {
         var (window, resize) = Host();

@@ -134,6 +134,35 @@ public class SvgViewerResizeTests
     }
 
     [Fact]
+    public void A_Padding_With_No_Resize_Is_Still_Something_To_Ask_For()
+    {
+        var resize = Drawing();
+
+        resize.Padding = SvgPadding.Parse("10%");
+
+        var request = resize.ToRequest();
+
+        Assert.False(request.IsEmpty);
+        Assert.Null(request.Width);
+        Assert.Equal(0.1f, request.Padding.Top);
+    }
+
+    [Fact]
+    public void A_Padding_Rides_Along_With_A_Resize()
+    {
+        var resize = Drawing();
+
+        resize.SetWidth(400f);
+        resize.Padding = SvgPadding.Parse("5% 10%");
+
+        var request = resize.ToRequest();
+
+        Assert.Equal(400f, request.Width);
+        Assert.Equal(0.05f, request.Padding.Top);
+        Assert.Equal(0.1f, request.Padding.Right);
+    }
+
+    [Fact]
     public void A_Size_Has_To_Be_A_Positive_Number()
     {
         var resize = Drawing();

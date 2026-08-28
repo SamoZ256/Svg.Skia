@@ -1,5 +1,6 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -91,6 +92,31 @@ public class SvgViewerResizeCommandTests
         var viewer = await Host(Drawing);
 
         Assert.False(viewer.Resize(SvgSizeRequest.None));
+        Assert.False(viewer.IsSourceModified);
+    }
+
+    [AvaloniaFact]
+    public async Task Padding_Reframes_The_Drawing_Inside_The_Size_It_Has()
+    {
+        var viewer = await Host(Drawing);
+
+        Assert.True(viewer.Resize(new SvgSizeRequest(null, null, null, SvgPadding.Parse("10%"))));
+
+        // The canvas is the size it was; the drawing shrinks inside it, which is a viewBox wider
+        // than the drawing's own coordinates by the room left on each side.
+        Assert.Contains("width=\"24\"", viewer.Source);
+        Assert.Contains("viewBox=\"-3 -3 30 30\"", viewer.Source);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Padding_That_Leaves_No_Room_Is_Refused_Rather_Than_Written()
+    {
+        var viewer = await Host(Drawing);
+
+        // The model's own rule, and its own words: four sides that add up to the whole canvas.
+        var refusal = Assert.Throws<ArgumentException>(() => SvgPadding.Parse("60%"));
+
+        Assert.Contains("no room", refusal.Message);
         Assert.False(viewer.IsSourceModified);
     }
 

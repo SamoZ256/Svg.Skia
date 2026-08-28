@@ -27,6 +27,28 @@
     <CheckBox x:Name="LockBox" Content="Lock aspect ratio" IsChecked="True"
               ToolTip.Tip="A scale is one factor for both axes, so it needs the ratio locked" />
 
+    <Separator />
+
+    <!--
+      In the same window as the size, because a padding is a fraction of the size being resized to:
+      seeing both at once is how the result is predicted rather than discovered.
+    -->
+    <TextBlock Text="Padding" Opacity="0.7" />
+
+    <Grid ColumnDefinitions="Auto,*,Auto,*" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="10">
+      <TextBlock Grid.Row="0" Grid.Column="0" Text="Top" VerticalAlignment="Center" />
+      <TextBox Grid.Row="0" Grid.Column="1" x:Name="TopBox" Watermark="0%" />
+
+      <TextBlock Grid.Row="0" Grid.Column="2" Text="Right" VerticalAlignment="Center" />
+      <TextBox Grid.Row="0" Grid.Column="3" x:Name="RightBox" Watermark="0%" />
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Text="Bottom" VerticalAlignment="Center" />
+      <TextBox Grid.Row="1" Grid.Column="1" x:Name="BottomBox" Watermark="0%" />
+
+      <TextBlock Grid.Row="1" Grid.Column="2" Text="Left" VerticalAlignment="Center" />
+      <TextBox Grid.Row="1" Grid.Column="3" x:Name="LeftBox" Watermark="0%" />
+    </Grid>
+
     <TextBlock x:Name="NoteText" IsVisible="False" TextWrapping="Wrap"
                Foreground="{DynamicResource SvgViewerSourceErrorBrush}" />
 

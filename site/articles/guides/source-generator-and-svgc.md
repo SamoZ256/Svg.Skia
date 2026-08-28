@@ -140,9 +140,9 @@ a flag width joining a project scale would be a contradiction rather than an ove
 one factor for both axes and cannot be given beside a width or a height, which say the same thing a
 second way.
 
-`src/Svg.Studio` does the same arithmetic from **Edit → Resize…**, and writes the answer into the
-drawing's own `width`, `height` and `viewBox` rather than into generated code — so a document
-resized there arrives at svgc already the size it should be.
+`src/Svg.Studio` does the same arithmetic from **Edit → Resize…**, padding included, and writes the
+answer into the drawing's own `width`, `height` and `viewBox` rather than into generated code — so a
+document resized there arrives at svgc already the size it should be.
 
 ### Leaving room around it
 

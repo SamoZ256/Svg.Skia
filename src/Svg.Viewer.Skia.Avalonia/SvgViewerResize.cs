@@ -57,6 +57,16 @@ public sealed class SvgViewerResize
     /// </remarks>
     public float Scale => _width / NaturalWidth;
 
+    /// <summary>
+    /// Space to leave around the drawing inside the size it is given.
+    /// </summary>
+    /// <remarks>
+    /// Held as the model's own type rather than as four numbers, so what the form has to do with a
+    /// padding is read four boxes and hand them over — <see cref="SvgPadding"/> is what decides
+    /// whether they leave the drawing any room, and says so in words the form can show.
+    /// </remarks>
+    public SvgPadding Padding { get; set; }
+
     /// <summary>Whether the height follows the width, and a scale means anything at all.</summary>
     public bool IsAspectRatioLocked
     {
@@ -120,14 +130,16 @@ public sealed class SvgViewerResize
     {
         if (_locked)
         {
+            // A padding with no resize is still something to ask for: it reframes the drawing inside
+            // the size it already has.
             return _width == NaturalWidth
-                ? SvgSizeRequest.None
-                : new SvgSizeRequest(_width, null, null);
+                ? new SvgSizeRequest(null, null, null, Padding)
+                : new SvgSizeRequest(_width, null, null, Padding);
         }
 
         return _width == NaturalWidth && _height == NaturalHeight
-            ? SvgSizeRequest.None
-            : new SvgSizeRequest(_width, _height, null);
+            ? new SvgSizeRequest(null, null, null, Padding)
+            : new SvgSizeRequest(_width, _height, null, Padding);
     }
 
     private static float Positive(float value, string name)
