@@ -33,6 +33,9 @@ public class SvgResizeWindowTests
     private static TextBox Box(SvgResizeWindow window, string name)
         => window.GetVisualDescendants().OfType<TextBox>().First(box => box.Name == name);
 
+    private static TextBlock Note(SvgResizeWindow window)
+        => window.GetVisualDescendants().OfType<TextBlock>().First(text => text.Name == "NoteText");
+
     private static CheckBox Lock(SvgResizeWindow window)
         => window.GetVisualDescendants().OfType<CheckBox>().First(box => box.Name == "LockBox");
 
@@ -94,6 +97,36 @@ public class SvgResizeWindowTests
     }
 
     [AvaloniaFact]
+    public void The_Window_Does_Not_Move_While_Somebody_Types()
+    {
+        // A TextBox measured against unbounded width answers with the width of its own text, so a
+        // dialog that sizes to its content grows under the caret; a note that appears and goes takes
+        // the buttons up and down with it. Both were real, and neither is visible to a test that
+        // only reads values back.
+        var (window, _) = Host();
+
+        var before = window.Bounds.Size;
+
+        Box(window, "WidthBox").Text = "1024";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(before, window.Bounds.Size);
+
+        // The longest refusal there is, arriving mid-word as a percentage is typed.
+        Box(window, "TopBox").Text = "10";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotEmpty(Note(window).Text!);
+        Assert.Equal(before, window.Bounds.Size);
+
+        Box(window, "TopBox").Text = "10%";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(Note(window).Text!);
+        Assert.Equal(before, window.Bounds.Size);
+    }
+
+    [AvaloniaFact]
     public void The_Four_Padding_Boxes_Are_One_Padding()
     {
         var (window, resize) = Host();
@@ -118,10 +151,7 @@ public class SvgResizeWindowTests
         Box(window, "RightBox").Text = "60%";
         Dispatcher.UIThread.RunJobs();
 
-        var note = window.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "NoteText");
-
-        Assert.True(note.IsVisible);
-        Assert.Contains("no room", note.Text);
+        Assert.Contains("no room", Note(window).Text);
     }
 
     [AvaloniaFact]
@@ -132,9 +162,7 @@ public class SvgResizeWindowTests
         Box(window, "TopBox").Text = "10";
         Dispatcher.UIThread.RunJobs();
 
-        var note = window.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "NoteText");
-
-        Assert.True(note.IsVisible);
+        Assert.NotEmpty(Note(window).Text!);
     }
 
     [AvaloniaFact]
@@ -147,6 +175,6 @@ public class SvgResizeWindowTests
 
         // Nothing has been said yet, so nothing is complained about and nothing has changed.
         Assert.Equal(200f, resize.Width);
-        Assert.False(window.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "NoteText").IsVisible);
+        Assert.Empty(Note(window).Text!);
     }
 }

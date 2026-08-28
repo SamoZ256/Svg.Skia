@@ -191,11 +191,8 @@ public partial class SvgResizeWindow : Window
         }
     }
 
-    private void Note(string? message)
-    {
-        _note.Text = message;
-        _note.IsVisible = message is { };
-    }
+    /// <summary>Says what is wrong, or nothing. The space it takes is reserved either way.</summary>
+    private void Note(string? message) => _note.Text = message ?? string.Empty;
 
     private static string Text(float value)
         => value.ToString("0.####", CultureInfo.InvariantCulture);
