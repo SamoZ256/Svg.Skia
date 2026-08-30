@@ -315,11 +315,23 @@ public partial class MainWindow : Window
             IsSelected = ReferenceEquals(node, selected)
         };
 
-        // Opened deliberately rather than on selection, so arrowing through the tree to find
-        // something does not leave a tab behind for every row passed on the way.
-        item.DoubleTapped += async (_, e) =>
+        // Tapped, not DoubleTapped: TreeViewItem takes a double tap on its header to fold the node
+        // away, and wires that to the header — which is below this in the bubble route, so its
+        // handler runs first and marking the event handled here is too late. Opening on a double
+        // tap opened the tab and collapsed the group on the way. Tapped is not raised by the arrow
+        // keys either, so walking the tree still costs nothing.
+        item.Tapped += async (_, e) =>
         {
+            // Handled whatever happens, so a tap inside a nested row does not reach the group above
+            // and open that as well.
             e.Handled = true;
+
+            // The chevron folds; it does not open.
+            if (e.Source is Visual source && source.FindAncestorOfType<ToggleButton>(true) is { })
+            {
+                return;
+            }
+
             await ShowAsync(node);
         };
 

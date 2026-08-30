@@ -2,7 +2,10 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Svg.CodeGen.Skia.Projects;
@@ -128,6 +131,56 @@ public class MainWindowProjectTests : IDisposable
         // Chosen twice is the same tab, not a second one.
         await window.ShowAsync(group);
         Assert.Equal(2, Tabs(window).Items.Count);
+    }
+
+    [AvaloniaFact]
+    public async Task Clicking_A_Second_Group_Opens_It_Without_Folding_Either()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        // Two groups, because the fold only showed up on the second one: with one group open in a
+        // tab, choosing another folded it instead of opening it.
+        var window = await Host(Write("icons.svgcproj", """
+            <svgc>
+              <group namespace="Large" scale="2">
+                <svg input="badge.svg" class="BadgeLarge" />
+              </group>
+              <group namespace="Small" scale="0.5">
+                <svg input="home.svg" class="HomeSmall" />
+              </group>
+            </svgc>
+            """));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var large = (TreeViewItem)root.Items[0]!;
+        var small = (TreeViewItem)root.Items[1]!;
+
+        Dispatcher.UIThread.RunJobs();
+
+        Click(window, large);
+        Assert.Same(large.Tag, Assert.IsType<GroupPanel>(((TabItem)Tabs(window).SelectedItem!).Content).Node);
+
+        Click(window, small);
+
+        // Driven through the pointer rather than by calling the handler, because the bug this
+        // guards was entirely in the routing: TreeViewItem folds a node on a double tap of its
+        // header, and the header is below the row in the route, so it went first.
+        Assert.True(small.IsExpanded, "clicking the second group folded it away");
+        Assert.True(large.IsExpanded, "the first group folded away");
+
+        Assert.Same(small.Tag, Assert.IsType<GroupPanel>(((TabItem)Tabs(window).SelectedItem!).Content).Node);
+    }
+
+    /// <summary>A press and a release on <paramref name="target"/>, which is one tap.</summary>
+    private static void Click(MainWindow window, Visual target)
+    {
+        var at = target.TranslatePoint(new Point(target.Bounds.Width / 2d, 8d), window)
+                 ?? throw new InvalidOperationException("The row is not in the window's visual tree.");
+
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
     }
 
     [AvaloniaFact]
