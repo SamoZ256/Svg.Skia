@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A whole build in one document, for trying svgc out and for opening in Svg.Studio. -->
+<svgc>
+  <namespace>Demo.Icons</namespace>
+  <singleFile>Icons.cs</singleFile>
+
+  <svg input="badge.svg" class="Badge" />
+
+  <!-- Twice the size, and with room left around it, for a header. -->
+  <group namespace="Demo.Icons.Large" scale="2" padding="10%">
+    <svg input="badge.svg" class="BadgeLarge" />
+
+    <group class="BadgeHuge">
+      <svg input="badge.svg" scale="4" />
+    </group>
+  </group>
+</svgc>
