@@ -1206,6 +1206,29 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
+    public async Task Becoming_Unsaved_Is_Announced_And_Not_Only_Observable()
+    {
+        // The property flipped while the event never fired, so a host that marks its chrome from
+        // SourceModifiedChanged — which is the only thing it is for — never heard about the first
+        // edit. AvaloniaEdit raises TextChanged before its undo stack takes the edit, so reading
+        // IsOriginalFile from inside that handler still says "saved".
+        var (window, viewer) = await HostLoaded();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var announced = new List<bool>();
+        viewer.SourceModifiedChanged += (_, modified) => announced.Add(modified);
+
+        await Type(viewer, Parametric.Replace("24", "48", StringComparison.Ordinal));
+
+        Assert.True(viewer.IsSourceModified);
+        Assert.Equal(new[] { true }, announced);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task A_Bound_Value_Survives_An_Edit_That_Adds_A_Parameter()
     {
         // Every value used to go when the declarations changed shape, which was rare when a reload

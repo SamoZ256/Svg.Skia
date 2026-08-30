@@ -829,7 +829,11 @@ public partial class SvgViewer : UserControl
 
         _sourceAnalysed = false;
 
-        RaiseModified();
+        // Posted rather than called: AvaloniaEdit raises TextChanged before its undo stack has
+        // taken the edit, so IsOriginalFile is still true at this point and the drawing reads as
+        // saved. Measured — the flag is true inside the handler and false by the time a posted
+        // call runs, so calling it here raised nothing and a host could never mark its tab.
+        Dispatcher.UIThread.Post(RaiseModified);
 
         _rebuild.Stop();
         _rebuild.Start();
