@@ -113,6 +113,7 @@ public partial class MainWindow : Window
         // Both are dressed by the window's styles, which is also where the trimming that keeps one
         // long file name from filling the strip lives.
         var title = new TextBlock { Text = "Untitled", Classes = { "title" } };
+        var marker = new TextBlock { Classes = { "marker" } };
 
         var close = new Button
         {
@@ -127,7 +128,7 @@ public partial class MainWindow : Window
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 6,
-                Children = { title, close }
+                Children = { marker, title, close }
             },
             Content = viewer
         };
@@ -141,14 +142,17 @@ public partial class MainWindow : Window
             name = document.Path is { } path ? Path.GetFileName(path) : "drawing";
             title.Text = name;
             item[ToolTip.TipProperty] = document.Path;
+
+            // A reload keeps whatever the pane still holds — reopening a drawing at a new size does
+            // not save it, so the mark has no business being cleared by one.
+            marker.Classes.Set("unsaved", viewer.IsSourceModified);
+
             UpdateTitle();
         };
 
-        // A dot rather than an asterisk: the tab already ends in a close button, and two marks
-        // competing for the same corner read as one smudge.
         viewer.SourceModifiedChanged += (_, modified) =>
         {
-            title.Text = modified ? name + " •" : name;
+            marker.Classes.Set("unsaved", modified);
             UpdateTitle();
         };
 
@@ -229,9 +233,7 @@ public partial class MainWindow : Window
 
         _workspace = workspace;
 
-        workspace.ModifiedChanged += (_, _) => UpdateTitle();
-
-        // One setting decides what everything under it inherits, so the tree's names and the
+        // A saved setting decides what everything under it inherits, so the tree's names and the
         // drawings already open both have to follow it.
         workspace.Edited += (_, _) =>
         {
@@ -253,20 +255,27 @@ public partial class MainWindow : Window
             return true;
         }
 
-        if (workspace.IsModified && !await ConfirmDiscard(Describe(new[] { workspace.Name })).ConfigureAwait(true))
+        // Asked once for all of them rather than tab by tab, since closing the project is one act
+        // and being stopped halfway through it would leave half a workspace open.
+        var owned = _tabs.Items.OfType<TabItem>().Where(item => item.Tag is SvgcProjectNode).ToList();
+        var unsaved = owned.Select(item => item.Content switch
+            {
+                SvgViewer { IsSourceModified: true } editing => Named(editing),
+                GroupPanel { IsModified: true } group => ProjectWorkspace.Label(group.Node),
+                _ => null
+            })
+            .Where(name => name is { })
+            .Select(name => name!)
+            .ToList();
+
+        if (unsaved.Count > 0 && !await ConfirmDiscard(Describe(unsaved)).ConfigureAwait(true))
         {
             return false;
         }
 
         // The tabs are the project's, so they go with it rather than being left pointing at nothing.
-        foreach (var item in _tabs.Items.OfType<TabItem>().Where(item => item.Tag is SvgcProjectNode).ToList())
+        foreach (var item in owned)
         {
-            if (item.Content is SvgViewer { IsSourceModified: true } editing
-                && !await ConfirmDiscard(Describe(new[] { Named(editing) })).ConfigureAwait(true))
-            {
-                return false;
-            }
-
             CloseTab(item);
         }
 
@@ -409,6 +418,7 @@ public partial class MainWindow : Window
     private void AddNodeTab(Control content, SvgcProjectNode node, string name)
     {
         var title = new TextBlock { Classes = { "title" }, Text = name };
+        var marker = new TextBlock { Classes = { "marker" } };
         var close = new Button { Classes = { "close" }, Content = "✕" };
 
         var item = new TabItem
@@ -416,14 +426,23 @@ public partial class MainWindow : Window
             Header = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = 4,
-                Children = { title, close }
+                Spacing = 6,
+                Children = { marker, title, close }
             },
             Content = content,
             Tag = node
         };
 
         close.Click += async (_, _) => await CloseTabAsync(item);
+
+        if (content is GroupPanel panel)
+        {
+            panel.ModifiedChanged += (_, modified) =>
+            {
+                marker.Classes.Set("unsaved", modified);
+                UpdateTitle();
+            };
+        }
 
         _tabs.Items.Add(item);
         _tabs.SelectedItem = item;
@@ -820,8 +839,14 @@ public partial class MainWindow : Window
     private async Task CloseTabAsync(TabItem item)
     {
         // A close button is one click away from losing an edit, and nothing else would have said so.
-        if (item.Content is SvgViewer { IsSourceModified: true } editing
-            && !await ConfirmDiscard(Describe(new[] { Named(editing) })))
+        var unsaved = item.Content switch
+        {
+            SvgViewer { IsSourceModified: true } editing => Named(editing),
+            GroupPanel { IsModified: true } group => ProjectWorkspace.Label(group.Node),
+            _ => null
+        };
+
+        if (unsaved is { } name && !await ConfirmDiscard(Describe(new[] { name })))
         {
             return;
         }
@@ -848,7 +873,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var unsaved = UnsavedAll();
+        var unsaved = Unsaved();
 
         if (unsaved.Count == 0)
         {
@@ -883,6 +908,7 @@ public partial class MainWindow : Window
             .Select(item => item.Content switch
             {
                 SvgViewer { IsSourceModified: true } viewer => Named(viewer),
+                GroupPanel { IsModified: true } group => ProjectWorkspace.Label(group.Node),
                 _ => null
             })
             .Where(name => name is { })
@@ -892,23 +918,14 @@ public partial class MainWindow : Window
     private static string Named(SvgViewer viewer)
         => viewer.DocumentPath is { } path ? Path.GetFileName(path) : "A drawing";
 
-    /// <summary>Every open drawing with changes that are not on disk, and the project if it has any.</summary>
-    private IReadOnlyList<string> UnsavedAll()
-    {
-        var unsaved = Unsaved().ToList();
 
-        if (_workspace is { IsModified: true } workspace)
-        {
-            unsaved.Add(workspace.Name);
-        }
-
-        return unsaved;
-    }
 
     private static string Describe(IReadOnlyList<string> unsaved)
         => unsaved.Count == 1
             ? $"{unsaved[0]} has changes that have not been saved."
-            : $"{unsaved.Count} drawings have changes that have not been saved.";
+            // Not "drawings": a group's settings are unsaved work too, and the window closes over
+            // both.
+            : $"{unsaved.Count} tabs have changes that have not been saved.";
 
     /// <summary>Asks whether edits that are not on disk may be thrown away.</summary>
     private Task<bool> AskDiscard(string message)
@@ -1052,11 +1069,11 @@ public partial class MainWindow : Window
 
         e.Handled = true;
 
-        if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel { Workspace: { } project })
+        if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel panel)
         {
             try
             {
-                project.Save();
+                panel.Save();
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
@@ -1074,18 +1091,20 @@ public partial class MainWindow : Window
 
     private void UpdateTitle()
     {
-        if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel { Workspace: { } project } group)
+        // Before the name, as on the tab: the two say the same thing about the same file and
+        // should be read the same way round.
+        if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel group)
         {
-            var edited = project.IsModified ? " •" : string.Empty;
+            var edited = group.IsModified ? "• " : string.Empty;
 
-            Title = $"{ProjectWorkspace.Label(group.Node)} — {project.Name}{edited}";
+            Title = $"{edited}{ProjectWorkspace.Label(group.Node)} — {group.Workspace.Name}";
             return;
         }
 
         var open = Selected();
         var path = open?.DocumentPath;
-        var mark = open is { IsSourceModified: true } ? " •" : string.Empty;
+        var mark = open is { IsSourceModified: true } ? "• " : string.Empty;
 
-        Title = path is { } ? $"{Path.GetFileName(path)}{mark} — SVG viewer" : "SVG viewer";
+        Title = path is { } ? $"{mark}{Path.GetFileName(path)} — SVG viewer" : "SVG viewer";
     }
 }

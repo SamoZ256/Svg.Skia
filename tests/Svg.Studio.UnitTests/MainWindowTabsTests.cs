@@ -202,7 +202,7 @@ public class MainWindowTabsTests
         Assert.True(strip.IsVisible);
 
         var second = (TabItem)tabs.Items[1]!;
-        var close = (Button)((StackPanel)second.Header!).Children[1];
+        var close = ((StackPanel)second.Header!).Children.OfType<Button>().Single();
 
         close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
@@ -250,7 +250,7 @@ public class MainWindowTabsTests
         var (window, tabs) = await Host(0);
 
         var only = (TabItem)tabs.Items[0]!;
-        var close = (Button)((StackPanel)only.Header!).Children[1];
+        var close = ((StackPanel)only.Header!).Children.OfType<Button>().Single();
 
         close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
@@ -441,7 +441,7 @@ public class MainWindowTabsTests
 
         var before = Order(tabs);
         var item = (TabItem)tabs.Items[1]!;
-        var close = (Button)((StackPanel)item.Header!).Children[1];
+        var close = ((StackPanel)item.Header!).Children.OfType<Button>().Single();
         var point = Centre(window, close);
 
         window.MouseDown(point, MouseButton.Left);

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -6,6 +7,10 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.VisualTree;
+using AvaloniaEdit;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Svg.CodeGen.Skia.Projects;
@@ -279,11 +284,215 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("scale=\"4\"", saved);
         Assert.Contains("<!-- kept, so an edit is proven not to reformat the file -->", saved);
         Assert.Equal(Project.Replace("scale=\"2\"", "scale=\"4\""), saved);
-        Assert.False(workspace.IsModified);
 
         // And the project still describes the same build to the generator.
         Assert.Equal(4f, SvgcProject.Load(path).Items[1].Scale);
     }
+
+    [AvaloniaFact]
+    public async Task A_Tab_Saves_What_Was_Typed_In_It_And_Nothing_Else()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", """
+            <svgc>
+              <group namespace="Large" scale="2">
+                <svg input="badge.svg" class="BadgeLarge" />
+              </group>
+              <group namespace="Small" scale="0.5">
+                <svg input="home.svg" class="HomeSmall" />
+              </group>
+            </svgc>
+            """);
+
+        var window = await Host(path);
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var large = Panel(window, "Large");
+        var small = Panel(window, "Small");
+
+        Assert.False(large.IsModified);
+        Assert.False(small.IsModified);
+
+        // Typed in one tab each, so each carries its own.
+        large.Edit("scale", "4");
+        small.Edit("scale", "8");
+
+        Assert.True(large.IsModified);
+        Assert.True(small.IsModified);
+
+        large.Save();
+
+        // Only the tab that saved is clean, and only its edit reached the file.
+        Assert.False(large.IsModified);
+        Assert.True(small.IsModified);
+
+        var saved = File.ReadAllText(path);
+        Assert.Contains("scale=\"4\"", saved);
+        Assert.Contains("scale=\"0.5\"", saved);
+        Assert.DoesNotContain("scale=\"8\"", saved);
+
+        small.Save();
+        Assert.Contains("scale=\"8\"", File.ReadAllText(path));
+    }
+
+    [AvaloniaFact]
+    public async Task An_Unsaved_Tab_Is_Marked_In_Its_Header()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var header = (StackPanel)((TabItem)Tabs(window).SelectedItem!).Header!;
+        var marker = (TextBlock)header.Children[0];
+        var title = (TextBlock)header.Children[1];
+
+        Assert.Equal("Demo.Icons.Large", title.Text);
+
+        // The rendered mark, not the class it was handed: a class nothing styles would pass the
+        // one and show nothing for the other.
+        Assert.Equal("●", marker.Text);
+        Assert.Equal(0d, marker.Opacity);
+
+        Panel(window, "Demo.Icons.Large").Edit("scale", "4");
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1d, marker.Opacity);
+
+        Panel(window, "Demo.Icons.Large").Save();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0d, marker.Opacity);
+
+        // The mark is its own element, so the name never changed and the tab never resized.
+        Assert.Equal("Demo.Icons.Large", title.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Unsaved_Drawing_Is_Marked_Too()
+    {
+        var window = await Host(Write("home.svg", Drawing));
+
+        var item = (TabItem)Tabs(window).SelectedItem!;
+        var header = (StackPanel)item.Header!;
+        var marker = (TextBlock)header.Children[0];
+        var title = (TextBlock)header.Children[1];
+
+        Assert.Equal("home.svg", title.Text);
+        Assert.DoesNotContain("unsaved", marker.Classes);
+
+        var viewer = (SvgViewer)item.Content!;
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        window.GetVisualDescendants().OfType<TextEditor>().First().Document.Text = Drawing + "<!-- edited -->";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.IsSourceModified, "the drawing was not made unsaved");
+        Assert.Contains("unsaved", marker.Classes);
+
+        // The name is untouched, so the mark cannot widen the tab or be trimmed away with it.
+        Assert.Equal("home.svg", title.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Tab_Without_A_Mark_Does_Not_Ask_On_The_Way_Out()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", """
+            <svgc>
+              <namespace>Demo.Icons</namespace>
+              <singleFile>Icons.cs</singleFile>
+              <svg input="home.svg" class="Home" />
+            </svgc>
+            """));
+
+        // The project's own settings, which are elements rather than attributes and were the ones
+        // the panel could not read back — so an edit to one stayed pending after it was saved,
+        // leaving the tab unmarked and the close button still asking about it.
+        await window.ShowAsync(window.Workspace!.Document.Root);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = Panel(window, "Demo.Icons");
+
+        Assert.Equal("Icons.cs", panel.Shown("singleFile"));
+
+        panel.Edit("singleFile", "Other.cs");
+        Assert.True(panel.IsModified);
+
+        panel.Save();
+
+        // Saved, said to be saved, and nothing left behind to be asked about.
+        Assert.False(panel.IsModified);
+        Assert.Equal("Other.cs", panel.Shown("singleFile"));
+        Assert.Contains("<singleFile>Other.cs</singleFile>", File.ReadAllText(Path.Combine(_directory, "icons.svgcproj")));
+
+        var asked = new List<string>();
+        window.ConfirmDiscard = message => { asked.Add(message); return Task.FromResult(true); };
+
+        var item = Tabs(window).Items.OfType<TabItem>().Single(tab => ReferenceEquals(tab.Content, panel));
+        ((Button)((StackPanel)item.Header!).Children.OfType<Button>().Single()).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(asked);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Save_That_Leaves_Something_Pending_Keeps_The_Mark()
+    {
+        Write("home.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", """
+            <svgc>
+              <namespace>Demo.Icons</namespace>
+              <singleFile>Icons.cs</singleFile>
+              <svg input="home.svg" class="Home" />
+            </svgc>
+            """));
+
+        await window.ShowAsync(window.Workspace!.Document.Root);
+        Dispatcher.UIThread.RunJobs();
+
+        var item = Tabs(window).Items.OfType<TabItem>().Single(tab => tab.Content is GroupPanel);
+        var panel = (GroupPanel)item.Content!;
+        var marker = (TextBlock)((StackPanel)item.Header!).Children[0];
+
+        panel.Edit("singleFile", "Other.cs");
+        Dispatcher.UIThread.RunJobs();
+
+        // A box left focused holding something else, which is what saving rebuilds out from under:
+        // clearing the rows makes it lose focus, and losing focus records what is in it. So the
+        // save ends with something pending again, and used to report itself saved anyway — leaving
+        // a tab with no mark that still asked about unsaved work at the close button.
+        var box = panel.GetVisualDescendants().OfType<TextBox>().First();
+        box.Focus();
+        Dispatcher.UIThread.RunJobs();
+        box.Text = "Typed.cs";
+        Dispatcher.UIThread.RunJobs();
+
+        panel.Save();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(panel.IsModified);
+        Assert.Equal(1d, marker.Opacity);
+    }
+
+    /// <summary>The open group tab whose node is labelled <paramref name="label"/>.</summary>
+    private static GroupPanel Panel(MainWindow window, string label)
+        => Tabs(window).Items.OfType<TabItem>()
+            .Select(item => item.Content)
+            .OfType<GroupPanel>()
+            .Single(panel => ProjectWorkspace.Label(panel.Node) == label);
 
     /// <summary>Waits for the tab holding <paramref name="name"/> to have finished loading.</summary>
     private static async Task<SvgViewer> Settle(MainWindow window, string name)

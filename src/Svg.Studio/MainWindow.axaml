@@ -60,6 +60,27 @@
     </Style>
 
     <!--
+      The unsaved mark, before the name because that is the edge the eye runs down when scanning a
+      strip for the tab that still needs saving.
+    -->
+    <Style Selector="TabItem TextBlock.marker">
+      <Setter Property="Text" Value="●" />
+      <Setter Property="FontSize" Value="9" />
+      <!--
+        Sized and always present rather than shown and hidden: a mark that appears would widen the
+        tab and shove every name along the strip, which is a worse tell than the mark is a good one.
+      -->
+      <Setter Property="Width" Value="9" />
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Foreground" Value="#4C9BE8" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="TabItem TextBlock.marker.unsaved">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!--
       The close button has no business looking like a button until it is being used: Fluent's own
       chrome next to a file name reads as a second control competing with the tab.
     -->

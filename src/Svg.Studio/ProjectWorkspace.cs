@@ -23,12 +23,11 @@ public sealed class ProjectWorkspace
 
     public SvgcProjectDocument Document { get; }
 
-    public bool IsModified { get; private set; }
-
-    /// <summary>Raised when <see cref="IsModified"/> changes, for a host that marks its chrome.</summary>
-    public event EventHandler<bool>? ModifiedChanged;
-
-    /// <summary>Raised on every setting written, since one can change what everything under it inherits.</summary>
+    /// <summary>Raised when the document has changed on disk, so every view of it can follow.</summary>
+    /// <remarks>
+    /// Unsaved work belongs to the tab it was typed in, not here — a project is one file, but each
+    /// tab saves only what was typed in it, so there is no single dirty state to keep.
+    /// </remarks>
     public event EventHandler? Edited;
 
     public string Name => Document.Path is { } path ? Path.GetFileName(path) : "A project";
@@ -36,13 +35,6 @@ public sealed class ProjectWorkspace
     public void Save()
     {
         Document.Save();
-        SetModified(false);
-    }
-
-    /// <summary>Says a setting was written, so the tree, the open tabs and the chrome can follow it.</summary>
-    public void Touch()
-    {
-        SetModified(true);
         Edited?.Invoke(this, EventArgs.Empty);
     }
 
@@ -57,15 +49,4 @@ public sealed class ProjectWorkspace
         SvgcProjectRoot root => root.Namespace ?? "Project",
         _ => node.Namespace ?? node.Class ?? "group"
     };
-
-    private void SetModified(bool modified)
-    {
-        if (IsModified == modified)
-        {
-            return;
-        }
-
-        IsModified = modified;
-        ModifiedChanged?.Invoke(this, modified);
-    }
 }

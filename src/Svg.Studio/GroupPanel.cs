@@ -10,6 +10,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Skia;
 
@@ -27,6 +28,14 @@ public sealed class GroupPanel : UserControl
     private readonly StackPanel _properties = new() { Spacing = 8, Margin = new Thickness(10) };
     private readonly StackPanel _summary = new() { Spacing = 2, Margin = new Thickness(10) };
     private readonly TextBlock _heading = new() { FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 10, 10, 0) };
+
+    /// <summary>Edits typed here and not yet written to the project, by setting name.</summary>
+    /// <remarks>
+    /// Held rather than applied, so a tab saves what was typed in it and nothing else. The cost is
+    /// that the tree, the values other tabs inherit and the drawings already open all go on showing
+    /// what is in the file until this is saved — the document is the one thing they all read.
+    /// </remarks>
+    private readonly Dictionary<string, string?> _pending = new(StringComparer.Ordinal);
 
     public GroupPanel(ProjectWorkspace workspace, SvgcProjectGroup node)
     {
@@ -61,8 +70,9 @@ public sealed class GroupPanel : UserControl
 
         Content = grid;
 
-        // A group edited in another tab changes what this one inherits, so every tab follows the
-        // one document rather than the copy it was opened with.
+        // A group saved in another tab changes what this one inherits, so every tab follows the
+        // one document rather than the copy it was opened with. Anything typed here and not saved
+        // survives it.
         workspace.Edited += (_, _) => Refresh();
 
         Refresh();
@@ -72,6 +82,49 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>The group this tab is about. A drawing opens in a viewer instead.</summary>
     public SvgcProjectGroup Node { get; }
+
+    /// <summary>Whether anything typed here has not been written to the project.</summary>
+    public bool IsModified => _pending.Count > 0;
+
+    /// <summary>Raised when <see cref="IsModified"/> changes, for a host that marks its tab.</summary>
+    public event EventHandler<bool>? ModifiedChanged;
+
+    /// <summary>Writes what was typed here into the project, and the project to its file.</summary>
+    public void Save()
+    {
+        if (_pending.Count == 0)
+        {
+            return;
+        }
+
+        var was = IsModified;
+
+        foreach (var edit in _pending)
+        {
+            Write(Node, edit.Key, edit.Value);
+        }
+
+        _pending.Clear();
+
+        // The file first: a tab that reports itself saved when the write threw would be lying, and
+        // the edits are already in the document either way.
+        Workspace.Save();
+
+        // What is true, not the false this used to announce. Saving rebuilds the rows, which
+        // detaches whichever box had focus, and a box losing focus records what is in it — so a
+        // save can end with something pending again, and saying "saved" there left the tab with
+        // no mark and an unsaved warning waiting at the close button.
+        Announce(was);
+    }
+
+    /// <summary>Says so if the tab's unsaved state has changed since <paramref name="was"/>.</summary>
+    private void Announce(bool was)
+    {
+        if (IsModified != was)
+        {
+            ModifiedChanged?.Invoke(this, IsModified);
+        }
+    }
 
     /// <summary>Puts the group's settings on the right, and the drawings under it in the centre.</summary>
     public void Refresh()
@@ -141,35 +194,53 @@ public sealed class GroupPanel : UserControl
     {
         _properties.Children.Clear();
 
-        Add("namespace", () => node.Namespace, value => node.Namespace = value);
-        Add("class", () => node.Class, value => node.Class = value);
-        Add("recipe", () => node.Recipe, value => node.Recipe = value);
+        Add("namespace");
+        Add("class");
+        Add("recipe");
 
-        if (node is SvgcProjectRoot root)
+        if (node is SvgcProjectRoot)
         {
-            Add("singleFile", () => root.SingleFile, value => root.SingleFile = value);
-            Add("emit", () => Text(root.Emit), value => root.Emit = SvgcProject.ParseEmit(value));
-            Add("cache", () => Text(root.Cache), value => root.Cache = SvgcProject.ParseCache(value));
-            Add("helperScope", () => Text(root.HelperScope), value => root.HelperScope = SvgcProject.ParseHelperScope(value));
-            Add("skiaSharp", () => Text(root.SkiaSharp), value => root.SkiaSharp = SvgcProject.ParseSkiaSharpTarget(value));
+            Add("singleFile");
+            Add("emit");
+            Add("cache");
+            Add("helperScope");
+            Add("skiaSharp");
         }
 
         _properties.Children.Add(new Separator { Margin = new Thickness(0, 6) });
 
-        AddNumber("width", () => node.Width, value => node.Width = value);
-        AddNumber("height", () => node.Height, value => node.Height = value);
-        AddNumber("scale", () => node.Scale, value => node.Scale = value);
-        Add("padding", () => node.Padding, value => node.Padding = value);
+        Add("width");
+        Add("height");
+        Add("scale");
+        Add("padding");
 
-        void Add(string name, Func<string?> read, Action<string?> write)
-            => _properties.Children.Add(Row(node, name, read(), write));
+        void Add(string name) => _properties.Children.Add(Row(node, name));
+    }
 
-        void AddNumber(string name, Func<float?> read, Action<float?> write)
-            => _properties.Children.Add(Row(
-                node,
-                name,
-                read() is { } value ? Number(value) : null,
-                text => write(SvgcProject.ParseLength(text, name))));
+    /// <summary>What the box shows: what was typed here if anything, and what the file says if not.</summary>
+    public string? Shown(string name) => Shown(Node, name);
+
+    private string? Shown(SvgcProjectNode node, string name)
+        => _pending.TryGetValue(name, out var pending) ? pending : Value(node, name);
+
+    /// <summary>Writes one setting onto <paramref name="node"/>, or throws if the value is not one.</summary>
+    private static void Write(SvgcProjectGroup node, string name, string? value)
+    {
+        switch (name)
+        {
+            case "namespace": node.Namespace = value; break;
+            case "class": node.Class = value; break;
+            case "recipe": node.Recipe = value; break;
+            case "padding": node.Padding = value; break;
+            case "width": node.Width = SvgcProject.ParseLength(value, "width"); break;
+            case "height": node.Height = SvgcProject.ParseLength(value, "height"); break;
+            case "scale": node.Scale = SvgcProject.ParseScale(value); break;
+            case "singleFile": ((SvgcProjectRoot)node).SingleFile = value; break;
+            case "emit": ((SvgcProjectRoot)node).Emit = SvgcProject.ParseEmit(value); break;
+            case "cache": ((SvgcProjectRoot)node).Cache = SvgcProject.ParseCache(value); break;
+            case "helperScope": ((SvgcProjectRoot)node).HelperScope = SvgcProject.ParseHelperScope(value); break;
+            case "skiaSharp": ((SvgcProjectRoot)node).SkiaSharp = SvgcProject.ParseSkiaSharpTarget(value); break;
+        }
     }
 
     /// <summary>
@@ -179,8 +250,10 @@ public sealed class GroupPanel : UserControl
     /// An empty box means "inherited", so clearing one is how an override is taken back — which is
     /// why the watermark carries the inherited value rather than a hint.
     /// </remarks>
-    private Control Row(SvgcProjectNode node, string name, string? value, Action<string?> write)
+    private Control Row(SvgcProjectNode node, string name)
     {
+        var value = Shown(node, name);
+
         var box = new TextBox
         {
             Text = value,
@@ -197,23 +270,14 @@ public sealed class GroupPanel : UserControl
                 return;
             }
 
-            try
-            {
-                write(text);
-            }
-            catch (SvgcProjectException failure)
+            if (!Edit(name, text))
             {
                 // Put back, and said, rather than left looking accepted.
                 box.Text = value;
-                Fault = failure.Message;
                 return;
             }
 
-            Fault = null;
-
-            // The whole window, because one setting changes what everything under it inherits —
-            // this panel included, through the workspace it raises the change on.
-            Workspace.Touch();
+            value = text;
         };
 
         return new StackPanel
@@ -225,6 +289,67 @@ public sealed class GroupPanel : UserControl
                 box
             }
         };
+    }
+
+    /// <summary>
+    /// Records a setting as typed here, without writing it to the project.
+    /// </summary>
+    /// <remarks>
+    /// The edit is kept until <see cref="Save"/>, so a value typed back to what the file already
+    /// says leaves nothing to save rather than a tab marked for no change.
+    /// </remarks>
+    /// <returns>Whether the value was one the setting can hold.</returns>
+    public bool Edit(string name, string? value)
+    {
+        var text = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+        // Checked as it is typed rather than at save, so a value the project cannot hold is
+        // rejected while the box that holds it is still on screen.
+        try
+        {
+            Validate(name, text);
+        }
+        catch (SvgcProjectException failure)
+        {
+            Fault = failure.Message;
+            return false;
+        }
+
+        Fault = null;
+
+        var was = IsModified;
+
+        if (text == Value(Node, name))
+        {
+            _pending.Remove(name);
+        }
+        else
+        {
+            _pending[name] = text;
+        }
+
+        Announce(was);
+
+        return true;
+    }
+
+    /// <summary>Throws unless <paramref name="value"/> is one this setting can hold.</summary>
+    /// <remarks>
+    /// The same parsers the setters use, called without them: a setting checked here is not written
+    /// anywhere yet, and the setters write to the document an unsaved edit must not touch.
+    /// </remarks>
+    private static void Validate(string name, string? value)
+    {
+        switch (name)
+        {
+            case "width": SvgcProject.ParseLength(value, "width"); break;
+            case "height": SvgcProject.ParseLength(value, "height"); break;
+            case "scale": SvgcProject.ParseScale(value); break;
+            case "emit": SvgcProject.ParseEmit(value); break;
+            case "cache": SvgcProject.ParseCache(value); break;
+            case "helperScope": SvgcProject.ParseHelperScope(value); break;
+            case "skiaSharp": SvgcProject.ParseSkiaSharpTarget(value); break;
+        }
     }
 
     /// <summary>What the node would take for <paramref name="name"/> if it said nothing itself.</summary>
@@ -249,6 +374,16 @@ public sealed class GroupPanel : UserControl
         "width" => node.Width is { } width ? Number(width) : null,
         "height" => node.Height is { } height ? Number(height) : null,
         "scale" => node.Scale is { } scale ? Number(scale) : null,
+        // The project's own five. Left out, they showed empty however the file was written, and an
+        // edit to one could never be recognised as typed back to what the file says — so it stayed
+        // pending for ever.
+        "singleFile" => (node as SvgcProjectRoot)?.SingleFile,
+        "emit" => Text((node as SvgcProjectRoot)?.Emit),
+        "cache" => Text((node as SvgcProjectRoot)?.Cache),
+        "helperScope" => Text((node as SvgcProjectRoot)?.HelperScope),
+        "skiaSharp" => (node as SvgcProjectRoot)?.SkiaSharp is { } target
+            ? (target == SkiaSharpTarget.V3 ? "3" : "4")
+            : null,
         _ => null
     };
 
