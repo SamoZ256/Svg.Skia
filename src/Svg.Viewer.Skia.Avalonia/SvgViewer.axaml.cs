@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -17,10 +18,9 @@ using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using AvaloniaEdit;
 using AvaloniaEdit.Document;
-using System.Windows.Input;
-using Avalonia.VisualTree;
 using Svg.Expressions;
 using Svg.Highlighting;
 using Svg.Skia;
@@ -202,6 +202,17 @@ public partial class SvgViewer : UserControl
     /// <summary>How the viewer asks for a file. Replaceable, and faked in tests.</summary>
     public ISvgViewerFileDialogService FileDialogService { get; set; } = new SvgViewerFileDialogService();
 
+    /// <summary>
+    /// The size to build the drawing at, or none to take the size it was written with.
+    /// </summary>
+    /// <remarks>
+    /// For a host that decides a drawing's size elsewhere — an svgc project, whose group says what
+    /// its drawings are built at. Applied to the parsed document on every build, so it survives an
+    /// edit in the source pane; the file itself is never resized, which is what separates this from
+    /// <c>Edit → Resize…</c>.
+    /// </remarks>
+    public SvgSizeRequest SizeRequest { get; set; } = SvgSizeRequest.None;
+
     /// <summary>How the viewer asks what parameter to declare. Replaceable, and faked in tests.</summary>
     public ISvgViewerParameterDialogService ParameterDialogService { get; set; } = new SvgViewerParameterDialogService();
 
@@ -370,7 +381,7 @@ public partial class SvgViewer : UserControl
     }
 
     public Task<bool> LoadAsync(string path)
-        => LoadCoreAsync(() => SvgViewerDocument.Load(path), Path.GetFileName(path));
+        => LoadCoreAsync(() => SvgViewerDocument.Load(path, SizeRequest), Path.GetFileName(path));
 
     public Task<bool> LoadTextAsync(string svgText)
         => LoadCoreAsync(() => SvgViewerDocument.LoadFromSvg(svgText), null);
@@ -844,7 +855,7 @@ public partial class SvgViewer : UserControl
 
         try
         {
-            rebuilt = open.Reload(_sourceEditor.Text);
+            rebuilt = open.Reload(_sourceEditor.Text, SizeRequest);
         }
         catch (Exception)
         {

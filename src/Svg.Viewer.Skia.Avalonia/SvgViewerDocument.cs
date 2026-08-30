@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Xml;
 using Svg.Expressions;
 using Svg.Skia;
 using Svg.SourceEditing;
@@ -67,7 +68,18 @@ public sealed class SvgViewerDocument : IDisposable
     /// </remarks>
     public string? DeclarationError { get; }
 
-    public static SvgViewerDocument Load(string path)
+    public static SvgViewerDocument Load(string path) => Load(path, SvgSizeRequest.None);
+
+    /// <summary>
+    /// The drawing at <paramref name="path"/>, built at the size <paramref name="request"/> asks for.
+    /// </summary>
+    /// <remarks>
+    /// The size is applied to the parsed document rather than to its text, so the file keeps the size
+    /// it was written with. That is the difference from <see cref="Resize"/>: a project's
+    /// <c>scale="2"</c> says how to build a drawing, not what the drawing is, and writing it into the
+    /// file would make the next build square it.
+    /// </remarks>
+    public static SvgViewerDocument Load(string path, SvgSizeRequest request)
     {
         if (path is null)
         {
@@ -78,7 +90,7 @@ public sealed class SvgViewerDocument : IDisposable
 
         // Loaded from the path rather than from the text below, because a document's relative
         // references — an <image href="…"> beside it — resolve against the file's own directory.
-        if (svg.Load(path) is null)
+        if (Build(svg, request, () => global::Svg.Model.Services.SvgService.Open(path), () => svg.Load(path)) is null)
         {
             svg.Dispose();
             throw new InvalidOperationException($"'{System.IO.Path.GetFileName(path)}' could not be read as SVG.");
@@ -157,7 +169,10 @@ public sealed class SvgViewerDocument : IDisposable
     /// rebuilt from text — measured at the centre pixel, image colour to placeholder grey and back.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The text is not readable as SVG.</exception>
-    public SvgViewerDocument Reload(string svgText)
+    public SvgViewerDocument Reload(string svgText) => Reload(svgText, SvgSizeRequest.None);
+
+    /// <summary>The same drawing, rebuilt from edited text at the size <paramref name="request"/> asks for.</summary>
+    public SvgViewerDocument Reload(string svgText, SvgSizeRequest request)
     {
         if (svgText is null)
         {
@@ -168,13 +183,63 @@ public sealed class SvgViewerDocument : IDisposable
 
         using var buffer = new MemoryStream(Encoding.UTF8.GetBytes(svgText));
 
-        if (svg.Load(buffer, null, BaseUri()) is null)
+        var baseUri = BaseUri();
+
+        if (Build(
+                svg,
+                request,
+                () => global::Svg.Model.Services.SvgService.Open(Reader(buffer, baseUri)),
+                () => svg.Load(buffer, null, baseUri)) is null)
         {
             svg.Dispose();
             throw new InvalidOperationException("The text could not be read as SVG.");
         }
 
         return Describe(svg, Path, svgText, ByteOrderMark);
+    }
+
+    /// <summary>
+    /// Builds <paramref name="svg"/>, resizing it first when there is a size to apply.
+    /// </summary>
+    /// <remarks>
+    /// Two paths because the plain one is the loader's own and knows about formats, streams and base
+    /// URIs; only a request worth honouring is worth parsing separately for, and a request the sizing
+    /// model refuses leaves the drawing at its natural size rather than failing the load — being
+    /// unable to resize is not being unable to read.
+    /// </remarks>
+    private static object? Build(SKSvg svg, SvgSizeRequest request, Func<SvgDocument?> parse, Func<object?> plain)
+    {
+        if (request.IsEmpty)
+        {
+            return plain();
+        }
+
+        if (parse() is not { } document)
+        {
+            return null;
+        }
+
+        try
+        {
+            SvgSceneSizing.Apply(document, svg.AssetLoader, request);
+        }
+        catch (ArgumentException)
+        {
+            // Nothing to measure, or a size this drawing cannot take.
+        }
+
+        return svg.FromSvgDocument(document);
+    }
+
+    /// <summary>A reader over <paramref name="buffer"/> that resolves relative references against <paramref name="baseUri"/>.</summary>
+    private static XmlReader Reader(MemoryStream buffer, Uri? baseUri)
+    {
+        buffer.Position = 0;
+
+        return XmlReader.Create(
+            buffer,
+            new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, XmlResolver = null },
+            baseUri?.ToString() ?? string.Empty);
     }
 
     /// <summary>
