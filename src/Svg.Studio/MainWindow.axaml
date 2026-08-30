@@ -143,6 +143,7 @@
         <NativeMenuItem.Menu>
           <NativeMenu>
             <NativeMenuItem Header="Open…" Click="OnOpen" />
+            <NativeMenuItem Header="Close Project" Click="OnCloseProject" />
             <!--
               One command for both forms: the save panel asks which, and names the file after the
               answer, so nothing here has to ask twice.
@@ -174,7 +175,33 @@
 
   <DockPanel LastChildFill="True">
     <NativeMenuBar DockPanel.Dock="Top" />
-    <TabControl x:Name="Tabs" Padding="0" />
+
+    <!--
+      The tree belongs to the window rather than to a tab: it names the drawings the tabs hold, so
+      it has to stay up while one of them is being looked at. Collapsed to nothing until a project
+      is opened, so a session that only opens drawings looks exactly as it did.
+    -->
+    <Grid x:Name="Shell">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="0" />
+        <ColumnDefinition Width="0" />
+        <ColumnDefinition Width="*" MinWidth="320" />
+      </Grid.ColumnDefinitions>
+
+      <Border x:Name="ProjectPaneHost" Grid.Column="0" IsVisible="False"
+              BorderThickness="0,0,1,0" BorderBrush="#20808080">
+        <DockPanel>
+          <TextBlock x:Name="ProjectName" DockPanel.Dock="Top" Margin="10,10,10,6"
+                     FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" />
+          <TreeView x:Name="ProjectTree" Background="Transparent" BorderThickness="0" />
+        </DockPanel>
+      </Border>
+
+      <GridSplitter x:Name="ProjectSplitter" Grid.Column="1" IsVisible="False"
+                    ResizeDirection="Columns" Background="Transparent" />
+
+      <TabControl x:Name="Tabs" Grid.Column="2" Padding="0" />
+    </Grid>
   </DockPanel>
 
 </Window>

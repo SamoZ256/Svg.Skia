@@ -14,6 +14,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Svg.CodeGen.Skia.Projects;
 using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
@@ -36,6 +37,15 @@ public partial class MainWindow : Window
     private const double WheelStep = 50d;
 
     private readonly TabControl _tabs;
+
+    private readonly TreeView _projectTree;
+    private readonly ColumnDefinition _projectColumn;
+    private readonly Border _projectPaneHost;
+    private readonly GridSplitter _projectSplitter;
+    private readonly TextBlock _projectName;
+
+    /// <summary>The open project, or null. The window works on one at a time, as a workspace is.</summary>
+    private ProjectWorkspace? _workspace;
 
     private Border? _strip;
 
@@ -61,6 +71,13 @@ public partial class MainWindow : Window
 
         _tabs = this.FindControl<TabControl>("Tabs")!;
         _tabs.SelectionChanged += (_, _) => UpdateTitle();
+
+        _projectTree = this.FindControl<TreeView>("ProjectTree")!;
+        _projectColumn = this.FindControl<Grid>("Shell")!.ColumnDefinitions[0];
+        _projectPaneHost = this.FindControl<Border>("ProjectPaneHost")!;
+        _projectSplitter = this.FindControl<GridSplitter>("ProjectSplitter")!;
+        _projectName = this.FindControl<TextBlock>("ProjectName")!;
+        _projectTree.KeyDown += OnProjectTreeKeyDown;
         _tabs.TemplateApplied += OnTabsTemplateApplied;
 
         // On the strip, and tunnelling, because TabItem handles a press itself to become selected
@@ -80,7 +97,11 @@ public partial class MainWindow : Window
             ? path
             : Path.Combine(AppContext.BaseDirectory, "Assets", "parametric.svg");
 
-        if (File.Exists(startup))
+        if (IsProject(startup))
+        {
+            _ = OpenProjectAsync(startup);
+        }
+        else if (File.Exists(startup))
         {
             _ = viewer.LoadAsync(startup);
         }
@@ -89,7 +110,7 @@ public partial class MainWindow : Window
     /// <summary>Adds an empty tab, selects it, and returns the viewer that fills it.</summary>
     private SvgViewer AddTab()
     {
-        var viewer = new SvgViewer();
+        var viewer = new SvgViewer { FileDialogService = new StudioFileDialogService() };
 
         // Both are dressed by the window's styles, which is also where the trimming that keeps one
         // long file name from filling the strip lives.
@@ -159,9 +180,275 @@ public partial class MainWindow : Window
     {
         foreach (var path in paths)
         {
+            if (IsProject(path))
+            {
+                await OpenProjectAsync(path).ConfigureAwait(true);
+                continue;
+            }
+
             var viewer = source.Document is null ? source : AddTab();
 
             await viewer.LoadAsync(path).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>Whether a path names an svgc project rather than a drawing.</summary>
+    private static bool IsProject(string path)
+        => Path.GetExtension(path).Equals(".svgcproj", StringComparison.OrdinalIgnoreCase);
+
+    // ---- the project pane ---------------------------------------------------------------------
+
+    /// <summary>The open project, for a test to read. Null while none is open.</summary>
+    public ProjectWorkspace? Workspace => _workspace;
+
+    /// <summary>
+    /// Opens a project into the pane.
+    /// </summary>
+    /// <remarks>
+    /// No tab of its own: a project is what the window is working on rather than one of the things
+    /// it is showing, so it lives beside the tabs and only the nodes chosen out of it become tabs.
+    /// One at a time, which is what makes it a workspace — a second replaces the first.
+    /// </remarks>
+    private async Task OpenProjectAsync(string path)
+    {
+        if (!await CloseProjectAsync().ConfigureAwait(true))
+        {
+            return;
+        }
+
+        SvgcProjectDocument document;
+
+        try
+        {
+            document = SvgcProjectDocument.Load(path);
+        }
+        catch (Exception failure) when (failure is SvgcProjectException or IOException or UnauthorizedAccessException)
+        {
+            await Ask("The project couldn't be opened", failure.Message, null, "Close").ConfigureAwait(true);
+            return;
+        }
+
+        var workspace = new ProjectWorkspace(document);
+
+        _workspace = workspace;
+
+        workspace.ModifiedChanged += (_, _) => UpdateTitle();
+
+        // One setting decides what everything under it inherits, so the tree's names and the
+        // drawings already open both have to follow it.
+        workspace.Edited += (_, _) =>
+        {
+            BuildTree();
+            Resize();
+        };
+
+        ShowProjectPane(true);
+        BuildTree();
+    }
+
+    /// <summary>Closes the open project and everything it opened.</summary>
+    /// <remarks>Public for the reason <see cref="ExportAsync"/> is: it is the way in without a menu.</remarks>
+    /// <returns>Whether it closed, or false when unsaved work was kept.</returns>
+    public async Task<bool> CloseProjectAsync()
+    {
+        if (_workspace is not { } workspace)
+        {
+            return true;
+        }
+
+        if (workspace.IsModified && !await ConfirmDiscard(Describe(new[] { workspace.Name })).ConfigureAwait(true))
+        {
+            return false;
+        }
+
+        // The tabs are the project's, so they go with it rather than being left pointing at nothing.
+        foreach (var item in _tabs.Items.OfType<TabItem>().Where(item => item.Tag is SvgcProjectNode).ToList())
+        {
+            if (item.Content is SvgViewer { IsSourceModified: true } editing
+                && !await ConfirmDiscard(Describe(new[] { Named(editing) })).ConfigureAwait(true))
+            {
+                return false;
+            }
+
+            CloseTab(item);
+        }
+
+        _workspace = null;
+
+        _projectTree.Items.Clear();
+        ShowProjectPane(false);
+        UpdateTitle();
+
+        return true;
+    }
+
+    private async void OnCloseProject(object? sender, EventArgs e) => await CloseProjectAsync();
+
+    private void ShowProjectPane(bool show)
+    {
+        _projectPaneHost.IsVisible = show;
+        _projectSplitter.IsVisible = show;
+        _projectColumn.Width = show ? new GridLength(260) : new GridLength(0);
+        _projectColumn.MinWidth = show ? 180 : 0;
+    }
+
+    private void BuildTree()
+    {
+        if (_workspace is not { } workspace)
+        {
+            return;
+        }
+
+        _projectName.Text = workspace.Name;
+
+        var selected = (_projectTree.SelectedItem as TreeViewItem)?.Tag;
+
+        _projectTree.Items.Clear();
+        _projectTree.Items.Add(Branch(workspace.Document.Root, selected));
+    }
+
+    /// <summary>One node and everything under it, expanded, since a project is a handful of rows.</summary>
+    private TreeViewItem Branch(SvgcProjectNode node, object? selected)
+    {
+        var item = new TreeViewItem
+        {
+            Header = ProjectWorkspace.Label(node),
+            Tag = node,
+            IsExpanded = true,
+            IsSelected = ReferenceEquals(node, selected)
+        };
+
+        // Opened deliberately rather than on selection, so arrowing through the tree to find
+        // something does not leave a tab behind for every row passed on the way.
+        item.DoubleTapped += async (_, e) =>
+        {
+            e.Handled = true;
+            await ShowAsync(node);
+        };
+
+        if (node is SvgcProjectGroup group)
+        {
+            foreach (var child in group.Children)
+            {
+                item.Items.Add(Branch(child, selected));
+            }
+        }
+
+        return item;
+    }
+
+    private async void OnProjectTreeKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Enter or Key.Return)
+            || (_projectTree.SelectedItem as TreeViewItem)?.Tag is not SvgcProjectNode node)
+        {
+            return;
+        }
+
+        e.Handled = true;
+
+        await ShowAsync(node);
+    }
+
+    /// <summary>
+    /// Brings a node of the project forward, in a tab of its own.
+    /// </summary>
+    /// <remarks>
+    /// A drawing opens in a viewer at the size the project builds it at; anything else is a group,
+    /// and opens as its settings and what they come to. Public because a modal-free way in is what
+    /// a test drives, the same as <see cref="ExportAsync"/>.
+    /// </remarks>
+    public async Task ShowAsync(SvgcProjectNode node)
+    {
+        if (node is null)
+        {
+            throw new ArgumentNullException(nameof(node));
+        }
+
+        if (_workspace is not { } workspace)
+        {
+            return;
+        }
+
+        if (Tab(node) is { } open)
+        {
+            _tabs.SelectedItem = open;
+            return;
+        }
+
+        if (node is not SvgcProjectDrawing drawing)
+        {
+            AddNodeTab(new GroupPanel(workspace, node), node, ProjectWorkspace.Label(node));
+            return;
+        }
+
+        var viewer = AddTab();
+
+        if (_tabs.SelectedItem is TabItem item)
+        {
+            item.Tag = node;
+        }
+
+        viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
+
+        await viewer.LoadAsync(drawing.ResolvedInput).ConfigureAwait(true);
+    }
+
+    /// <summary>A tab for something that is not a drawing, which the viewer's own tab does not fit.</summary>
+    private void AddNodeTab(Control content, SvgcProjectNode node, string name)
+    {
+        var title = new TextBlock { Classes = { "title" }, Text = name };
+        var close = new Button { Classes = { "close" }, Content = "✕" };
+
+        var item = new TabItem
+        {
+            Header = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 4,
+                Children = { title, close }
+            },
+            Content = content,
+            Tag = node
+        };
+
+        close.Click += async (_, _) => await CloseTabAsync(item);
+
+        _tabs.Items.Add(item);
+        _tabs.SelectedItem = item;
+
+        UpdateStrip();
+    }
+
+    private TabItem? Tab(SvgcProjectNode node)
+        => _tabs.Items.OfType<TabItem>().FirstOrDefault(item => ReferenceEquals(item.Tag, node));
+
+    /// <summary>
+    /// Rebuilds the open drawings at the size the project's settings now ask for.
+    /// </summary>
+    /// <remarks>
+    /// A drawing with edits of its own in the source pane is left alone: reloading it would throw
+    /// them away, and a resize is not worth that.
+    /// </remarks>
+    private void Resize()
+    {
+        foreach (var item in _tabs.Items.OfType<TabItem>())
+        {
+            if (item.Tag is not SvgcProjectDrawing drawing || item.Content is not SvgViewer viewer)
+            {
+                continue;
+            }
+
+            var request = ProjectWorkspace.SizeOf(drawing);
+
+            if (request.Equals(viewer.SizeRequest) || viewer.IsSourceModified)
+            {
+                continue;
+            }
+
+            viewer.SizeRequest = request;
+
+            _ = viewer.LoadAsync(drawing.ResolvedInput);
         }
     }
 
@@ -529,7 +816,7 @@ public partial class MainWindow : Window
     {
         // A close button is one click away from losing an edit, and nothing else would have said so.
         if (item.Content is SvgViewer { IsSourceModified: true } editing
-            && !await ConfirmDiscard(Describe(new[] { Name(editing) })))
+            && !await ConfirmDiscard(Describe(new[] { Named(editing) })))
         {
             return;
         }
@@ -556,7 +843,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var unsaved = Unsaved();
+        var unsaved = UnsavedAll();
 
         if (unsaved.Count == 0)
         {
@@ -588,13 +875,30 @@ public partial class MainWindow : Window
     /// <summary>Every open drawing with changes that are not on disk.</summary>
     private IReadOnlyList<string> Unsaved()
         => _tabs.Items.OfType<TabItem>()
-            .Select(item => item.Content as SvgViewer)
-            .Where(viewer => viewer is { IsSourceModified: true })
-            .Select(viewer => Name(viewer!))
+            .Select(item => item.Content switch
+            {
+                SvgViewer { IsSourceModified: true } viewer => Named(viewer),
+                _ => null
+            })
+            .Where(name => name is { })
+            .Select(name => name!)
             .ToList();
 
-    private static string Name(SvgViewer viewer)
+    private static string Named(SvgViewer viewer)
         => viewer.DocumentPath is { } path ? Path.GetFileName(path) : "A drawing";
+
+    /// <summary>Every open drawing with changes that are not on disk, and the project if it has any.</summary>
+    private IReadOnlyList<string> UnsavedAll()
+    {
+        var unsaved = Unsaved().ToList();
+
+        if (_workspace is { IsModified: true } workspace)
+        {
+            unsaved.Add(workspace.Name);
+        }
+
+        return unsaved;
+    }
 
     private static string Describe(IReadOnlyList<string> unsaved)
         => unsaved.Count == 1
@@ -657,6 +961,60 @@ public partial class MainWindow : Window
         return await dialog.ShowDialog<bool>(this);
     }
 
+    /// <summary>The picker, widened to the projects this window can also open.</summary>
+    /// <remarks>
+    /// The viewer's own offers drawings, which is all it can open. Given to every viewer so File →
+    /// Open, a drop and the toolbar all reach the same set of files through the request the window
+    /// already handles.
+    /// </remarks>
+    private sealed class StudioFileDialogService : ISvgViewerFileDialogService
+    {
+        private static readonly FilePickerFileType ProjectFileType = new("Svgc Projects")
+        {
+            Patterns = new[] { "*.svgcproj" },
+            AppleUniformTypeIdentifiers = new[] { "public.xml" },
+            MimeTypes = new[] { "application/xml" }
+        };
+
+        private static readonly FilePickerFileType DrawingFileType = new("Svg Files")
+        {
+            Patterns = new[] { "*.svg", "*.svgz" },
+            AppleUniformTypeIdentifiers = new[] { "public.svg-image" },
+            MimeTypes = new[] { "image/svg+xml", "application/gzip" }
+        };
+
+        private static readonly FilePickerFileType AllFileType = new("All")
+        {
+            Patterns = new[] { "*.*" },
+            MimeTypes = new[] { "*/*" }
+        };
+
+        private readonly SvgViewerFileDialogService _drawings = new();
+
+        public async Task<string?> OpenSvgAsync(TopLevel? owner)
+        {
+            var storage = owner?.StorageProvider;
+
+            if (storage is null || !storage.CanOpen)
+            {
+                return null;
+            }
+
+            var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Open drawing or project",
+                AllowMultiple = false,
+                FileTypeFilter = new List<FilePickerFileType> { DrawingFileType, ProjectFileType, AllFileType }
+            }).ConfigureAwait(true);
+
+            return files?.Select(file => file.TryGetLocalPath())
+                .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
+        }
+
+        public Task<string?> SaveSvgAsync(TopLevel? owner, string? suggested)
+            => _drawings.SaveSvgAsync(owner, suggested);
+    }
+
     private void CloseTab(TabItem item)
     {
         _tabs.Items.Remove(item);
@@ -690,6 +1048,20 @@ public partial class MainWindow : Window
 
         e.Handled = true;
 
+        if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel { Workspace: { } project })
+        {
+            try
+            {
+                project.Save();
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            {
+                await Ask("The project couldn't be saved", failure.Message, null, "Close");
+            }
+
+            return;
+        }
+
         if (Selected() is { } viewer)
         {
             await viewer.SaveSourceAsync();
@@ -711,6 +1083,14 @@ public partial class MainWindow : Window
 
     private void UpdateTitle()
     {
+        if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel { Workspace: { } project } group)
+        {
+            var edited = project.IsModified ? " •" : string.Empty;
+
+            Title = $"{ProjectWorkspace.Label(group.Node)} — {project.Name}{edited}";
+            return;
+        }
+
         var open = Selected();
         var path = open?.DocumentPath;
         var mark = open is { IsSourceModified: true } ? " •" : string.Empty;
