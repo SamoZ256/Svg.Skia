@@ -234,6 +234,52 @@ public class SvgcProjectDocumentTests
     }
 
     [Fact]
+    public void A_Setting_Added_Gets_A_Line_Of_Its_Own()
+    {
+        var document = Parse("""
+            <svgc>
+              <namespace>Icons</namespace>
+
+              <svg input="a.svg" />
+            </svgc>
+            """);
+
+        document.Root.SkiaSharp = SkiaSharpTarget.V3;
+
+        // Whitespace is a node once it is preserved, and inserting before an element lands after
+        // the indentation in front of it — so this used to come out as
+        // "<skiaSharp>3</skiaSharp><svg input=... />" on one line.
+        Assert.Equal("""
+            <svgc>
+              <namespace>Icons</namespace>
+
+              <skiaSharp>3</skiaSharp>
+
+              <svg input="a.svg" />
+            </svgc>
+            """, document.ToXml());
+    }
+
+    [Fact]
+    public void A_Setting_Added_To_A_Project_With_No_Drawings_Keeps_The_Closing_Tag_Its_Line()
+    {
+        var document = Parse("""
+            <svgc>
+              <namespace>Icons</namespace>
+            </svgc>
+            """);
+
+        document.Root.SingleFile = "Icons.cs";
+
+        Assert.Equal("""
+            <svgc>
+              <namespace>Icons</namespace>
+              <singleFile>Icons.cs</singleFile>
+            </svgc>
+            """, document.ToXml());
+    }
+
+    [Fact]
     public void Crlf_Survives_A_Save()
     {
         // XmlReader normalises CRLF to LF as the spec requires, so a Windows file read and written

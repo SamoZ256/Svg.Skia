@@ -315,12 +315,33 @@ public sealed class SvgcProjectRoot : SvgcProjectGroup
         if (firstItem is { })
         {
             firstItem.AddBeforeSelf(added);
+
+            // The break and indentation the displaced element was sitting on, given back to it.
+            // Whitespace is a node of its own once it is preserved, and inserting before an element
+            // lands after the whitespace in front of it — so without this the new setting and the
+            // element it displaced share a line.
+            if (added.PreviousNode is XText indent)
+            {
+                added.AddAfterSelf(new XText(indent.Value));
+            }
+
+            return;
         }
-        else
+
+        // Nothing to sit in front of, so in front of whatever closes the document instead, on the
+        // indentation the settings already there are using.
+        if (Element.LastNode is XText closing)
         {
-            Element.Add(added);
+            closing.AddBeforeSelf(new XText(Indent()), added);
+            return;
         }
+
+        Element.Add(added);
     }
+
+    /// <summary>The break and indentation this project writes its settings on.</summary>
+    private string Indent()
+        => Element.Nodes().OfType<XText>().FirstOrDefault(text => text.Value.Contains("\n"))?.Value ?? "\n  ";
 }
 
 /// <summary>
