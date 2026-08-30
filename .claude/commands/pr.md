@@ -32,7 +32,7 @@ request — nothing is merged here.
 4. **Open the pull request** against `$1`, pinned to my repository:
 
    ```sh
-   gh pr create --repo SamoZ256/Svg.Skia --base $1 --fill
+   gh pr create --repo SamoZ256/Svg.Skia --base $1 --fill --title "<what the branch does>"
    ```
 
    `--repo` is not optional here, and it has to be that **literal** — not a shell variable. This
@@ -42,8 +42,15 @@ request — nothing is merged here.
    rejects a variable because it cannot see what one holds. Pass the same `--repo` to every later
    `gh pr` call.
 
-   `--fill` takes the title and body from the commits rather than inventing a second description of
-   work `/push` has already described.
+   `--fill` takes the body from the commits rather than inventing a second description of work
+   `/push` has already described.
+
+   **Always pass `--title`.** `--fill` only takes a title from a commit when the branch has exactly
+   one; with several it falls back to the branch name, and "feature/svgcproj in studio" describes
+   nothing to anyone reading a list of pull requests. Write the same shape as a commit summary —
+   imperative, under 72 characters, saying what the branch does rather than naming the area it
+   touches. It is also what the status line shows next to the number, so it is read far more often
+   than it is written.
 
    If one is already open for this branch, use it instead of opening a second.
 
