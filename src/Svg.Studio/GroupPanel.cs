@@ -28,7 +28,7 @@ public sealed class GroupPanel : UserControl
     private readonly StackPanel _summary = new() { Spacing = 2, Margin = new Thickness(10) };
     private readonly TextBlock _heading = new() { FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 10, 10, 0) };
 
-    public GroupPanel(ProjectWorkspace workspace, SvgcProjectNode node)
+    public GroupPanel(ProjectWorkspace workspace, SvgcProjectGroup node)
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         Node = node ?? throw new ArgumentNullException(nameof(node));
@@ -70,27 +70,23 @@ public sealed class GroupPanel : UserControl
 
     public ProjectWorkspace Workspace { get; }
 
-    /// <summary>The node this tab is about.</summary>
-    public SvgcProjectNode Node { get; }
+    /// <summary>The group this tab is about. A drawing opens in a viewer instead.</summary>
+    public SvgcProjectGroup Node { get; }
 
-    /// <summary>Puts the node's settings on the right, and what it builds in the centre.</summary>
+    /// <summary>Puts the group's settings on the right, and the drawings under it in the centre.</summary>
     public void Refresh()
     {
-        _heading.Text = Node is SvgcProjectDrawing
-            ? ProjectWorkspace.Label(Node)
-            : $"{ProjectWorkspace.Label(Node)} — what it builds";
+        _heading.Text = ProjectWorkspace.Label(Node);
 
-        ShowSummary(Node);
+        ShowSummary();
         ShowProperties(Node);
     }
 
-    private void ShowSummary(SvgcProjectNode node)
+    private void ShowSummary()
     {
         _summary.Children.Clear();
 
-        var drawings = node is SvgcProjectGroup group
-            ? group.Drawings.ToList()
-            : new List<SvgcProjectDrawing> { (SvgcProjectDrawing)node };
+        var drawings = Node.Drawings.ToList();
 
         if (drawings.Count == 0)
         {
@@ -144,12 +140,6 @@ public sealed class GroupPanel : UserControl
     private void ShowProperties(SvgcProjectNode node)
     {
         _properties.Children.Clear();
-
-        if (node is SvgcProjectDrawing drawing)
-        {
-            Add("input", () => drawing.Input, value => drawing.Input = value ?? string.Empty);
-            Add("output", () => drawing.Output, value => drawing.Output = value);
-        }
 
         Add("namespace", () => node.Namespace, value => node.Namespace = value);
         Add("class", () => node.Class, value => node.Class = value);

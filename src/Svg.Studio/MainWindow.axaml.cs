@@ -385,11 +385,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (node is not SvgcProjectDrawing drawing)
+        if (node is SvgcProjectGroup group)
         {
-            AddNodeTab(new GroupPanel(workspace, node), node, ProjectWorkspace.Label(node));
+            AddNodeTab(new GroupPanel(workspace, group), node, ProjectWorkspace.Label(node));
             return;
         }
+
+        var drawing = (SvgcProjectDrawing)node;
 
         var viewer = AddTab();
 
