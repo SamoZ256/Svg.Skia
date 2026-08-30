@@ -243,7 +243,12 @@ Hand back what you started. The event is synchronous, so without `Completion` a 
 say it has not finished, and `OpenAsync` completes while the files are still being read.
 
 `src/Svg.Studio` is that host: one viewer per tab, a new tab per file opened, and `Close` on the
-viewer whose tab goes away.
+viewer whose tab goes away. A path it recognises as an svgc project opens a pane beside the tabs
+instead of a tab, which is why the request carries paths rather than drawings.
+
+`SizeRequest` is the seam that host opens a project's drawings through: a size applied to the parsed
+document on every build, the file left as it was written. `Edit → Resize…` is the other half of the
+pair and the opposite choice — it rewrites the drawing's own text.
 
 ## Two things worth knowing
 
