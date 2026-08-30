@@ -47,8 +47,6 @@ public partial class MainWindow : Window
     /// <summary>The open project, or null. The window works on one at a time, as a workspace is.</summary>
     private ProjectWorkspace? _workspace;
 
-    private Border? _strip;
-
     private TabItem? _pressed;
     private Point _pressedAt;
     private double _grabbedAt;
@@ -166,7 +164,6 @@ public partial class MainWindow : Window
         _tabs.Items.Add(item);
         _tabs.SelectedItem = item;
 
-        UpdateStrip();
 
         return viewer;
     }
@@ -417,7 +414,6 @@ public partial class MainWindow : Window
         _tabs.Items.Add(item);
         _tabs.SelectedItem = item;
 
-        UpdateStrip();
     }
 
     private TabItem? Tab(SvgcProjectNode node)
@@ -581,11 +577,6 @@ public partial class MainWindow : Window
 
     private void OnTabsTemplateApplied(object? sender, TemplateAppliedEventArgs e)
     {
-        // The first tab is added before the control has a template, so the strip settles its own
-        // visibility as it arrives rather than waiting for the second one.
-        _strip = e.NameScope.Find<Border>("PART_TabStripBand");
-        UpdateStrip();
-
         if (e.NameScope.Find<ScrollViewer>("PART_TabStrip") is not { } strip)
         {
             return;
@@ -1028,7 +1019,6 @@ public partial class MainWindow : Window
             AddTab();
         }
 
-        UpdateStrip();
         UpdateTitle();
     }
 
@@ -1065,19 +1055,6 @@ public partial class MainWindow : Window
         if (Selected() is { } viewer)
         {
             await viewer.SaveSourceAsync();
-        }
-    }
-
-    /// <summary>Shows the strip only once there is a choice to make.</summary>
-    /// <remarks>
-    /// One drawing is not one tab: the strip would name what the title bar says, and take 34px from
-    /// the drawing to do it.
-    /// </remarks>
-    private void UpdateStrip()
-    {
-        if (_strip is { } strip)
-        {
-            strip.IsVisible = _tabs.Items.Count > 1;
         }
     }
 

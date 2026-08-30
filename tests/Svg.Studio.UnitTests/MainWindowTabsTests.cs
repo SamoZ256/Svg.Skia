@@ -192,14 +192,14 @@ public class MainWindowTabsTests
     }
 
     [AvaloniaFact]
-    public async Task The_Strip_Appears_With_The_Second_Drawing_And_Goes_Again_With_It()
+    public async Task The_Strip_Stays_When_A_Drawing_Closes_Back_Down_To_One()
     {
         var (window, tabs) = await Host(1);
 
         var strip = tabs.GetVisualDescendants().OfType<Border>().First(b => b.Name == "PART_TabStripBand");
 
         Assert.Equal(2, tabs.Items.Count);
-        Assert.True(strip.IsVisible, "the strip is hidden while two drawings are open");
+        Assert.True(strip.IsVisible);
 
         var second = (TabItem)tabs.Items[1]!;
         var close = (Button)((StackPanel)second.Header!).Children[1];
@@ -207,15 +207,15 @@ public class MainWindowTabsTests
         close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
-        // One drawing is not a window with one tab in it.
+        // The strip is where the drawings are, so it does not come and go with the second one.
         Assert.Single(tabs.Items);
-        Assert.False(strip.IsVisible, "the strip is still shown for a single drawing");
+        Assert.True(strip.IsVisible, "the strip went away with the second drawing");
 
         window.Close();
     }
 
     [AvaloniaFact]
-    public void A_Window_On_Its_Own_Drawing_Shows_No_Strip()
+    public void A_Window_On_Its_Own_Drawing_Still_Shows_The_Strip()
     {
         var window = new MainWindow();
         window.Show();
@@ -224,10 +224,10 @@ public class MainWindowTabsTests
         var tabs = window.FindControl<TabControl>("Tabs")!;
         var strip = tabs.GetVisualDescendants().OfType<Border>().First(b => b.Name == "PART_TabStripBand");
 
-        // The first tab is added before the control is templated, so this is also the check that the
-        // strip settles itself as the template arrives.
+        // The first tab is added before the control is templated, so this is also the check that
+        // the strip is there at all once it arrives.
         Assert.Single(tabs.Items);
-        Assert.False(strip.IsVisible);
+        Assert.True(strip.IsVisible);
 
         window.Close();
     }
