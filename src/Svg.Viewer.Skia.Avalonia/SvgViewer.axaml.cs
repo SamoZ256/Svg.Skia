@@ -439,8 +439,21 @@ public partial class SvgViewer : UserControl
     {
         var previous = _document;
 
+        // The same drawing built again — a project resizing it, or a reopen — keeps the view it was
+        // being looked at through. Assigning Svg starts over as if a file had been opened, which
+        // threw away a zoom someone had set to look at the thing they were changing. Replace leaves
+        // a view that was adjusted by hand alone and refits one that was not, which is the same
+        // rule the source pane rebuilds under.
         _document = document;
-        _canvas.Svg = document.Svg;
+
+        if (previous is { Path: { } was } && was == document.Path)
+        {
+            _canvas.Replace(document.Svg);
+        }
+        else
+        {
+            _canvas.Svg = document.Svg;
+        }
 
         // Before Apply below, which asks what is wrong with the drawing: leaving the previous
         // analysis in place would answer for the file that was open a moment ago.
