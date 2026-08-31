@@ -103,6 +103,8 @@ public partial class SvgViewer : UserControl
     private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
     private int _loadVersion;
     private bool _applyQueued;
+    private Control? _sidePanel;
+    private string _sidePanelHeader = "More";
 
     public SvgViewer()
     {
@@ -241,6 +243,76 @@ public partial class SvgViewer : UserControl
     {
         get => _statusPanel.IsVisible;
         set => _statusPanel.IsVisible = value;
+    }
+
+    /// <summary>
+    /// A panel of the host's own, shown in the right pane beside the parameters.
+    /// </summary>
+    /// <remarks>
+    /// The pane becomes a pair of tabs while one is set and holds the parameters alone again when
+    /// it is cleared, so a host that sets nothing sees what it always saw. The host's panel is the
+    /// first of the two, and so the one the pane opens on. What belongs here is
+    /// something about the drawing the viewer has no business knowing: <c>Svg.Studio</c> puts a
+    /// project's say over the file there, beside what the file says about itself.
+    /// </remarks>
+    public Control? SidePanel
+    {
+        get => _sidePanel;
+        set
+        {
+            if (ReferenceEquals(_sidePanel, value))
+            {
+                return;
+            }
+
+            _sidePanel = value;
+
+            FillPanelHost();
+        }
+    }
+
+    /// <summary>What the side panel's tab is called.</summary>
+    public string SidePanelHeader
+    {
+        get => _sidePanelHeader;
+        set
+        {
+            _sidePanelHeader = value;
+
+            FillPanelHost();
+        }
+    }
+
+    private void FillPanelHost()
+    {
+        // Emptied first, and the tabs with it: a control cannot be added to a second parent, and
+        // the parameters panel is moving between the host and a tab inside it.
+        if (_panelHost.Child is TabControl open)
+        {
+            foreach (var item in open.Items.OfType<TabItem>())
+            {
+                item.Content = null;
+            }
+        }
+
+        _panelHost.Child = null;
+
+        if (_sidePanel is null)
+        {
+            _panelHost.Child = _panel;
+
+            return;
+        }
+
+        var tabs = new TabControl { Classes = { "panes" }, Padding = new Thickness(0) };
+
+        // The host's first, and so the one the pane opens on: it sets a panel because it has
+        // something to say about the drawing, and one filed behind a tab nobody clicks may as well
+        // not be there.
+        tabs.Items.Add(new TabItem { Header = _sidePanelHeader, Content = _sidePanel });
+        tabs.Items.Add(new TabItem { Header = "Parameters", Content = _panel });
+
+        _panelHost.Child = tabs;
     }
 
     public bool ShowDeclarationPanel

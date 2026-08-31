@@ -47,7 +47,6 @@ public partial class MainWindow : Window
     private readonly GridSplitter _projectSplitter;
     private readonly TextBlock _projectName;
     private readonly Border _dropLine;
-    private readonly Border _projectSettings;
     private readonly Grid _dropHost;
 
     /// <summary>The open project, or null. The window works on one at a time, as a workspace is.</summary>
@@ -98,8 +97,6 @@ public partial class MainWindow : Window
         _projectSplitter = this.FindControl<GridSplitter>("ProjectSplitter")!;
         _projectName = this.FindControl<TextBlock>("ProjectName")!;
         _projectTree.KeyDown += OnProjectTreeKeyDown;
-        _projectSettings = this.FindControl<Border>("ProjectSettings")!;
-        _projectTree.SelectionChanged += (_, _) => ShowSettings();
         _dropLine = this.FindControl<Border>("DropLine")!;
         _dropHost = (Grid)_dropLine.Parent!;
 
@@ -179,7 +176,7 @@ public partial class MainWindow : Window
 
             // A reload keeps whatever the pane still holds — reopening a drawing at a new size does
             // not save it, so the mark has no business being cleared by one.
-            marker.Classes.Set("unsaved", viewer.IsSourceModified);
+            Mark(item);
 
             UpdateTitle();
 
@@ -187,11 +184,7 @@ public partial class MainWindow : Window
             UpdateMenu();
         };
 
-        viewer.SourceModifiedChanged += (_, modified) =>
-        {
-            marker.Classes.Set("unsaved", modified);
-            UpdateTitle();
-        };
+        viewer.SourceModifiedChanged += (_, _) => Mark(item);
 
         viewer.OpenRequested += (_, request) =>
         {
@@ -296,15 +289,7 @@ public partial class MainWindow : Window
         // Asked once for all of them rather than tab by tab, since closing the project is one act
         // and being stopped halfway through it would leave half a workspace open.
         var owned = _tabs.Items.OfType<TabItem>().Where(item => item.Tag is SvgcProjectNode).ToList();
-        var unsaved = owned.Select(item => item.Content switch
-            {
-                SvgViewer { IsSourceModified: true } editing => Named(editing),
-                GroupPanel { IsModified: true } group => ProjectWorkspace.Label(group.Node),
-                _ => null
-            })
-            .Where(name => name is { })
-            .Select(name => name!)
-            .ToList();
+        var unsaved = owned.Select(Unsaved).Where(name => name is { }).Select(name => name!).ToList();
 
         if (unsaved.Count > 0 && !await ConfirmDiscard(Describe(unsaved)).ConfigureAwait(true))
         {
@@ -320,7 +305,6 @@ public partial class MainWindow : Window
         _workspace = null;
 
         _projectTree.Items.Clear();
-        ShowSettings();
         ShowProjectPane(false);
         UpdateTitle();
         UpdateMenu();
@@ -434,26 +418,9 @@ public partial class MainWindow : Window
 
         var selected = select ?? (_projectTree.SelectedItem as TreeViewItem)?.Tag;
 
-        // Clearing the items drops the selection before the rebuilt row takes it back, and the
-        // pane reads that as the row having been deselected — which threw away the panel it is
-        // showing, mid-edit, on every save.
-        _rebuilding = true;
-
-        try
-        {
-            _projectTree.Items.Clear();
-            _projectTree.Items.Add(Branch(workspace.Document.Root, selected));
-        }
-        finally
-        {
-            _rebuilding = false;
-        }
-
-        ShowSettings();
+        _projectTree.Items.Clear();
+        _projectTree.Items.Add(Branch(workspace.Document.Root, selected));
     }
-
-    /// <summary>Whether the tree is between being emptied and being filled again.</summary>
-    private bool _rebuilding;
 
     /// <summary>One node and everything under it, expanded, since a project is a handful of rows.</summary>
     private TreeViewItem Branch(SvgcProjectNode node, object? selected)
@@ -908,43 +875,6 @@ public partial class MainWindow : Window
                + "which will be removed with it. This cannot be undone.";
     }
 
-    /// <summary>
-    /// Puts the selected drawing's own settings under the tree.
-    /// </summary>
-    /// <remarks>
-    /// A group has a tab for these; a drawing has not, and inherits its class from whatever group
-    /// holds it — so a project that builds one file several times had no way at all to say which
-    /// class each row becomes.
-    ///
-    /// Left standing when the selection has not really changed. Saving rebuilds the tree, which
-    /// re-selects the same row, and a panel replaced there would take the box being typed in with it.
-    /// </remarks>
-    private void ShowSettings()
-    {
-        if (_rebuilding)
-        {
-            return;
-        }
-
-        var node = (_projectTree.SelectedItem as TreeViewItem)?.Tag as SvgcProjectNode;
-
-        if (node is not SvgcProjectDrawing drawing || _workspace is not { } workspace)
-        {
-            _projectSettings.Child = null;
-            _projectSettings.IsVisible = false;
-
-            return;
-        }
-
-        if (_projectSettings.Child is GroupPanel open && ReferenceEquals(open.Node, drawing))
-        {
-            return;
-        }
-
-        _projectSettings.Child = new GroupPanel(workspace, drawing) { SavesEachEdit = true };
-        _projectSettings.IsVisible = true;
-    }
-
     private async void OnProjectTreeKeyDown(object? sender, KeyEventArgs e)
     {
         if ((_projectTree.SelectedItem as TreeViewItem)?.Tag is not SvgcProjectNode node)
@@ -1011,6 +941,16 @@ public partial class MainWindow : Window
         if (_tabs.SelectedItem is TabItem item)
         {
             item.Tag = node;
+
+            // Beside the drawing's own parameters, in the pane a group keeps its settings in. The
+            // class is the whole of it: a project usually builds one file several times, and what
+            // tells those rows apart is settable nowhere else.
+            var settings = new GroupPanel(workspace, drawing);
+
+            settings.ModifiedChanged += (_, _) => Mark(item);
+
+            viewer.SidePanelHeader = "Project";
+            viewer.SidePanel = settings;
         }
 
         viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
@@ -1041,11 +981,7 @@ public partial class MainWindow : Window
 
         if (content is GroupPanel panel)
         {
-            panel.ModifiedChanged += (_, modified) =>
-            {
-                marker.Classes.Set("unsaved", modified);
-                UpdateTitle();
-            };
+            panel.ModifiedChanged += (_, _) => Mark(item);
         }
 
         _tabs.Items.Add(item);
@@ -1512,14 +1448,7 @@ public partial class MainWindow : Window
     private async Task<bool> CloseTabAsync(TabItem item)
     {
         // A close button is one click away from losing an edit, and nothing else would have said so.
-        var unsaved = item.Content switch
-        {
-            SvgViewer { IsSourceModified: true } editing => Named(editing),
-            GroupPanel { IsModified: true } group => ProjectWorkspace.Label(group.Node),
-            _ => null
-        };
-
-        if (unsaved is { } name && !await ConfirmDiscard(Describe(new[] { name })))
+        if (Unsaved(item) is { } name && !await ConfirmDiscard(Describe(new[] { name })))
         {
             return false;
         }
@@ -1580,15 +1509,38 @@ public partial class MainWindow : Window
     /// <summary>Every open drawing with changes that are not on disk.</summary>
     private IReadOnlyList<string> Unsaved()
         => _tabs.Items.OfType<TabItem>()
-            .Select(item => item.Content switch
-            {
-                SvgViewer { IsSourceModified: true } viewer => Named(viewer),
-                GroupPanel { IsModified: true } group => ProjectWorkspace.Label(group.Node),
-                _ => null
-            })
+            .Select(Unsaved)
             .Where(name => name is { })
             .Select(name => name!)
             .ToList();
+
+    /// <summary>
+    /// What a tab is holding that is not on disk, named, or null when it is holding nothing.
+    /// </summary>
+    /// <remarks>
+    /// A drawing's tab answers for two things now: the drawing's own text, and the project settings
+    /// riding in its right pane. Either one unsaved is the tab unsaved.
+    /// </remarks>
+    private static string? Unsaved(TabItem item) => item.Content switch
+    {
+        SvgViewer viewer when viewer.IsSourceModified || Settings(viewer) is { IsModified: true }
+            => Named(viewer),
+        GroupPanel panel when panel.IsModified => ProjectWorkspace.Label(panel.Node),
+        _ => null
+    };
+
+    /// <summary>The project's say over the drawing a viewer is showing, when it came from a project.</summary>
+    private static GroupPanel? Settings(SvgViewer viewer) => viewer.SidePanel as GroupPanel;
+
+    private static TextBlock Marker(TabItem item) => (TextBlock)((StackPanel)item.Header!).Children[0];
+
+    /// <summary>Puts the dot on the tab, or takes it off, according to what the tab is holding.</summary>
+    private void Mark(TabItem item)
+    {
+        Marker(item).Classes.Set("unsaved", Unsaved(item) is { });
+
+        UpdateTitle();
+    }
 
     private static string Named(SvgViewer viewer)
         => viewer.DocumentPath is { } path ? Path.GetFileName(path) : "A drawing";
@@ -1768,7 +1720,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Selected() is { } viewer && await viewer.SaveSourceAsync().ConfigureAwait(true))
+        if (Selected() is not { } viewer)
+        {
+            return;
+        }
+
+        // Both halves, since both are the tab's: the drawing's text and the project's say over it.
+        if (Settings(viewer) is { IsModified: true } settings)
+        {
+            try
+            {
+                settings.Save();
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            {
+                await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
+            }
+        }
+
+        if (await viewer.SaveSourceAsync().ConfigureAwait(true))
         {
             Reread(viewer);
         }
@@ -1820,7 +1790,7 @@ public partial class MainWindow : Window
 
         var open = Selected();
         var path = open?.DocumentPath;
-        var mark = open is { IsSourceModified: true } ? "• " : string.Empty;
+        var mark = _tabs.SelectedItem is TabItem tab && Unsaved(tab) is { } ? "• " : string.Empty;
 
         Title = path is { } ? $"{mark}{Path.GetFileName(path)} — SVG viewer" : "SVG viewer";
     }

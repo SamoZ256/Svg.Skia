@@ -107,16 +107,6 @@ public sealed class GroupPanel : UserControl
     /// <summary>The node this is about.</summary>
     public SvgcProjectNode Node { get; }
 
-    /// <summary>
-    /// Whether an edit is written to the project as the caret leaves the box, rather than held.
-    /// </summary>
-    /// <remarks>
-    /// What the pane does, because it has no tab to hold anything: the panel is replaced the moment
-    /// another row is chosen, and an edit held in one that is being thrown away is an edit lost. A
-    /// tab keeps its own, which is what makes a save there mean "this tab and nothing else".
-    /// </remarks>
-    public bool SavesEachEdit { get; set; }
-
     /// <summary>Whether anything typed here has not been written to the project.</summary>
     public bool IsModified => _pending.Count > 0;
 
@@ -382,11 +372,6 @@ public sealed class GroupPanel : UserControl
             }
 
             value = text;
-
-            if (SavesEachEdit)
-            {
-                Save();
-            }
         };
 
         return new StackPanel

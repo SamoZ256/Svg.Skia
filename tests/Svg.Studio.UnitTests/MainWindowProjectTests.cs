@@ -1054,7 +1054,7 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task One_File_Built_Twice_Is_Given_A_Class_Each_In_The_Pane()
+    public async Task One_File_Built_Twice_Is_Given_A_Class_Each_In_Its_Tab()
     {
         Write("home.svg", Drawing);
 
@@ -1071,20 +1071,22 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(path);
 
         var group = (TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!;
-        var settings = window.FindControl<Border>("ProjectSettings")!;
 
-        // A group has a tab for its settings, so the pane stays out of its way.
-        Tree(window).SelectedItem = group;
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)group.Items[1]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.False(settings.IsVisible);
+        var tab = Tabs(window).Items.OfType<TabItem>().Single(item => item.Tag is SvgcProjectDrawing);
+        var viewer = (SvgViewer)tab.Content!;
 
-        Tree(window).SelectedItem = group.Items[1];
-        Dispatcher.UIThread.RunJobs();
+        // Beside the drawing's own parameters, in the pane a group keeps its settings in.
+        var panel = Assert.IsType<GroupPanel>(viewer.SidePanel);
+        var panes = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
 
-        Assert.True(settings.IsVisible);
+        // First of the two, and so the one shown: a drawing opened from the tree is being looked at
+        // as part of a project, so what the project says about it is what to open on.
+        Assert.Equal(new[] { "Project", "Parameters" }, panes.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        Assert.Equal(0, panes.SelectedIndex);
 
-        var panel = Assert.IsType<GroupPanel>(settings.Child);
         var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "class"));
 
         // Empty, with what the group hands down behind it — which is the whole trouble: both rows
@@ -1092,21 +1094,57 @@ public class MainWindowProjectTests : IDisposable
         Assert.Null(box.Text);
         Assert.Equal("Shared — from Shared", box.PlaceholderText);
 
-        box.Focus();
-        Dispatcher.UIThread.RunJobs();
-        box.Text = "Second";
+        panel.Edit("class", "Second");
         Dispatcher.UIThread.RunJobs();
 
-        // The caret leaving is the save: the pane has no tab to hold an edit, and the panel goes
-        // the moment another row is picked.
-        panel.GetVisualDescendants().OfType<TextBox>().First(candidate => Equals(candidate.Tag, "output")).Focus();
+        // Held until the tab is saved, as a group's are, and the tab says so meanwhile.
+        Assert.Equal(1d, Marker(tab).Opacity);
+        Assert.DoesNotContain("Second", File.ReadAllText(path));
+
+        await window.SaveAsync();
         Dispatcher.UIThread.RunJobs();
 
+        Assert.Equal(0d, Marker(tab).Opacity);
         Assert.Contains("<svg input=\"home.svg\" class=\"Second\" />", File.ReadAllText(path));
 
         Assert.Equal(
             new[] { "Demo.Icons", "Shared", "home.svg - Shared", "home.svg - Second" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Tab_Answers_For_Its_Settings_As_Well_As_Its_Text()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        var asked = new List<string>();
+
+        window.ConfirmDiscard = message => { asked.Add(message); return Task.FromResult(false); };
+
+        var home = (SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!;
+
+        await window.ShowAsync(home);
+        Dispatcher.UIThread.RunJobs();
+
+        var tab = Tabs(window).Items.OfType<TabItem>().Single(item => item.Tag is SvgcProjectDrawing);
+
+        ((GroupPanel)((SvgViewer)tab.Content!).SidePanel!).Edit("output", "Home.cs");
+        Dispatcher.UIThread.RunJobs();
+
+        // The drawing's text is untouched; what is unsaved is the project's say over it, and the
+        // close has to ask about that just the same.
+        Assert.False(((SvgViewer)tab.Content!).IsSourceModified);
+
+        var close = (Button)((StackPanel)tab.Header!).Children[2];
+
+        close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("home.svg has changes that have not been saved.", asked);
+        Assert.Contains(tab, Tabs(window).Items);
     }
 
     [AvaloniaFact]
@@ -1131,6 +1169,8 @@ public class MainWindowProjectTests : IDisposable
         // Left alone, the tab goes on showing a file its row no longer names.
         Assert.Equal("badge.svg", Path.GetFileName((await Settle(window, "badge.svg")).DocumentPath));
     }
+
+    private static TextBlock Marker(TabItem item) => (TextBlock)((StackPanel)item.Header!).Children[0];
 
     private static GroupPanel Panel(MainWindow window, string label)
         => Tabs(window).Items.OfType<TabItem>()

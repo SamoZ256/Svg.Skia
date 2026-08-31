@@ -308,13 +308,14 @@ edit recipes: a `recipe` is shown and edited as a path.
 The tree is editable. Each row carries **Add group**, **Add SVG…** and **Remove**; `Delete` removes
 the selected row, and a row is dragged to move it — dropped on the top or bottom quarter of a group
 it lands beside it, and in the middle it goes inside. A drawing's own settings — its `output`, its
-`class`, anything it overrides — are edited in the pane beneath the tree, which is the only place
-they can be: a drawing's tab is the viewer, and a project usually builds one file several times with
-nothing but the class to tell the rows apart.
+`class`, anything it overrides — are a **Project** tab in the right pane of the drawing's own tab,
+in front of the parameters the drawing declares for itself: the same pane a group keeps its settings
+in, saved the same way, and the tab a drawing opened from the tree lands on. A project usually builds one file several times with nothing but the class to
+tell the rows apart, so this is the only place those rows can be told apart at all.
 
-These edits write the file as they are made, unlike the settings in a tab, which are held until the
-tab is saved. A group is confirmed before it is removed, and there is no undo — the project is a
-text file, and reverting one is what a version control system is for.
+Adding, removing and moving write the file as they are made; settings are held until the tab is
+saved, like everything else in a tab. A group is confirmed before it is removed, and there is no
+undo — the project is a text file, and reverting one is what a version control system is for.
 
 `Project → Build` writes the project's outputs, exactly as `svgc --projectFile` would — through the
 same build, so the two cannot come to disagree. Recipes are applied, since the output would not be

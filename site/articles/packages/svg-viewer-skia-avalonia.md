@@ -51,6 +51,7 @@ await Viewer.LoadAsync("badge.svg");
 | `Parameters` / `ParameterValues` | Reading what is declared and what is bound |
 | `TrySetParameterValue` / `ResetParameters` | Driving values from host UI |
 | `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` / `ShowSource` | Supplying your own chrome |
+| `SidePanel` / `SidePanelHeader` | A panel of your own beside the parameters: the right pane becomes a pair of tabs while one is set, yours first and so the one it opens on, and holds the parameters alone again when it is cleared |
 | `FileDialogService` | Custom storage or picker integration |
 | `Canvas` | Direct access to the surface for zoom and pan |
 | `DocumentOpened` / `ErrorRaised` / `ParameterValueChanged` | Syncing host titles and status |
