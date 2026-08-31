@@ -47,6 +47,15 @@ public partial class MainWindow : Window
     /// <summary>The open project, or null. The window works on one at a time, as a workspace is.</summary>
     private ProjectWorkspace? _workspace;
 
+    /// <summary>Tabs holding a drawing the project has resized since it was last on screen.</summary>
+    /// <remarks>
+    /// Rebuilt when the tab is next looked at rather than the moment the project changes. A tab
+    /// that is not selected holds no content in the tree — <see cref="TabControl"/> presents one at
+    /// a time — and a drawing rebuilt into a detached viewer came back blank until the tab was
+    /// closed and opened again. Waiting is also less work: a project rarely resizes one drawing.
+    /// </remarks>
+    private readonly HashSet<TabItem> _stale = new();
+
     private TabItem? _pressed;
     private Point _pressedAt;
     private double _grabbedAt;
@@ -68,7 +77,11 @@ public partial class MainWindow : Window
         ConfirmDiscard = AskDiscard;
 
         _tabs = this.FindControl<TabControl>("Tabs")!;
-        _tabs.SelectionChanged += (_, _) => UpdateTitle();
+        _tabs.SelectionChanged += (_, _) =>
+        {
+            UpdateTitle();
+            Refill();
+        };
 
         _projectTree = this.FindControl<TreeView>("ProjectTree")!;
         _projectColumn = this.FindControl<Grid>("Shell")!.ColumnDefinitions[0];
@@ -477,8 +490,29 @@ public partial class MainWindow : Window
 
             viewer.SizeRequest = request;
 
-            _ = viewer.LoadAsync(drawing.ResolvedInput);
+            if (ReferenceEquals(_tabs.SelectedItem, item))
+            {
+                _ = viewer.LoadAsync(drawing.ResolvedInput);
+            }
+            else
+            {
+                _stale.Add(item);
+            }
         }
+    }
+
+    /// <summary>Builds the selected tab's drawing again, if the project resized it out of sight.</summary>
+    private void Refill()
+    {
+        if (_tabs.SelectedItem is not TabItem item
+            || !_stale.Remove(item)
+            || item.Tag is not SvgcProjectDrawing drawing
+            || item.Content is not SvgViewer viewer)
+        {
+            return;
+        }
+
+        _ = viewer.LoadAsync(drawing.ResolvedInput);
     }
 
     // ---- reordering -------------------------------------------------------------------------
@@ -1040,6 +1074,7 @@ public partial class MainWindow : Window
     private void CloseTab(TabItem item)
     {
         _tabs.Items.Remove(item);
+        _stale.Remove(item);
 
         // Nothing else disposes the document a discarded viewer is holding.
         (item.Content as SvgViewer)?.Close();

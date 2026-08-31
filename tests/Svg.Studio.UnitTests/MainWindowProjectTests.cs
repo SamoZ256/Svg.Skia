@@ -487,6 +487,48 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(1d, marker.Opacity);
     }
 
+    [AvaloniaFact]
+    public async Task A_Drawing_Resized_Out_Of_Sight_Is_Rebuilt_When_It_Is_Looked_At()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var group = (SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)root.Items[1]!).Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = await Settle(window, "badge.svg");
+        var drawn = Tabs(window).Items.OfType<TabItem>().Single(tab => ReferenceEquals(tab.Content, viewer));
+
+        Assert.Equal(48f, viewer.Document!.Svg.Picture!.CullRect.Width);
+
+        // The group's tab takes the screen, so the drawing's viewer is no longer presented.
+        await window.ShowAsync(group);
+        Dispatcher.UIThread.RunJobs();
+
+        Panel(window, "Demo.Icons.Large").Edit("scale", "4");
+        Panel(window, "Demo.Icons.Large").Save();
+        Dispatcher.UIThread.RunJobs();
+
+        // Left alone while it cannot be seen: rebuilding into a detached viewer left it blank until
+        // the tab was closed and opened again.
+        Assert.Equal(48f, viewer.Document!.Svg.Picture!.CullRect.Width);
+
+        Tabs(window).SelectedItem = drawn;
+
+        for (var attempt = 0; attempt < 200 && viewer.Document!.Svg.Picture!.CullRect.Width < 96f; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(5);
+        }
+
+        Assert.Equal(96f, viewer.Document!.Svg.Picture!.CullRect.Width);
+    }
+
     /// <summary>The open group tab whose node is labelled <paramref name="label"/>.</summary>
     private static GroupPanel Panel(MainWindow window, string label)
         => Tabs(window).Items.OfType<TabItem>()
