@@ -426,6 +426,89 @@ public class SvgcProjectDocumentTests
     }
 
     [Fact]
+    public void A_Group_Carried_To_A_New_Depth_Takes_Its_Contents_Indentation_With_It()
+    {
+        var document = Parse("""
+            <svgc>
+              <svg input="a.svg" />
+
+              <group namespace="Large" scale="2">
+                <svg input="b.svg" />
+
+                <group class="Huge">
+                  <svg input="c.svg" />
+                </group>
+              </group>
+            </svgc>
+            """);
+
+        var large = document.Root.Children.OfType<SvgcProjectGroup>().Single();
+        var huge = large.Children.OfType<SvgcProjectGroup>().Single();
+
+        // Out to the top level. The whitespace between a group's children lives inside it, so
+        // without shifting it the branch arrives still written for the depth it came from.
+        document.Root.Move(huge, 2);
+
+        Assert.Equal("""
+            <svgc>
+              <svg input="a.svg" />
+
+              <group namespace="Large" scale="2">
+                <svg input="b.svg" />
+              </group>
+              <group class="Huge">
+                <svg input="c.svg" />
+              </group>
+            </svgc>
+            """, document.ToXml());
+
+        // And back in again, a level deeper than it has just been written for.
+        large.Move(huge, 1);
+
+        Assert.Equal("""
+            <svgc>
+              <svg input="a.svg" />
+
+              <group namespace="Large" scale="2">
+                <svg input="b.svg" />
+                <group class="Huge">
+                  <svg input="c.svg" />
+                </group>
+              </group>
+            </svgc>
+            """, document.ToXml());
+    }
+
+    [Fact]
+    public void Removing_The_First_Of_Several_Does_Not_Open_The_Group_With_A_Blank_Line()
+    {
+        var document = Parse("""
+            <svgc>
+              <group>
+                <svg input="a.svg" />
+
+                <svg input="b.svg" />
+              </group>
+            </svgc>
+            """);
+
+        var group = document.Root.Children.OfType<SvgcProjectGroup>().Single();
+
+        group.Remove(group.Children[0]);
+
+        // What goes is the separator behind it, not the indentation in front: that one opens the
+        // group, and taking it promoted the break behind the element — blank line and all — to
+        // opening the group in its place.
+        Assert.Equal("""
+            <svgc>
+              <group>
+                <svg input="b.svg" />
+              </group>
+            </svgc>
+            """, document.ToXml());
+    }
+
+    [Fact]
     public void A_Group_Cannot_Be_Moved_Into_Itself()
     {
         var document = Parse("""

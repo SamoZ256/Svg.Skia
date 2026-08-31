@@ -274,8 +274,46 @@ public class SvgcProjectGroup : SvgcProjectNode
             index--;
         }
 
+        // Read before the move, since detaching takes the whitespace that says it away.
+        var was = SvgcProjectDocument.Depth(child.Element);
+
         parent.Detach(child);
         Attach(index, child);
+
+        Reindent(child.Element, was, SvgcProjectDocument.Depth(child.Element));
+    }
+
+    /// <summary>
+    /// Moves everything written inside <paramref name="element"/> from one depth to another.
+    /// </summary>
+    /// <remarks>
+    /// The whitespace between a group's children lives inside it, so a group carried to a new depth
+    /// arrives with its contents still indented for the old one — and a group emptied on the way
+    /// keeps a closing tag two levels out from its opening one. Only the lines that sat at the old
+    /// depth are shifted; what was deeper keeps the extra, which is what makes a whole branch move
+    /// as one.
+    /// </remarks>
+    private static void Reindent(XElement element, string was, string now)
+    {
+        if (was == now)
+        {
+            return;
+        }
+
+        foreach (var text in element.DescendantNodes().OfType<XText>())
+        {
+            var lines = text.Value.Split('\n');
+
+            for (var line = 1; line < lines.Length; line++)
+            {
+                if (lines[line].StartsWith(was, StringComparison.Ordinal))
+                {
+                    lines[line] = now + lines[line].Substring(was.Length);
+                }
+            }
+
+            text.Value = string.Join("\n", lines);
+        }
     }
 
     /// <summary>Puts a node into the children and into the XML, on a line of its own.</summary>
@@ -335,11 +373,20 @@ public class SvgcProjectGroup : SvgcProjectNode
     {
         var element = child.Element;
 
-        // The break and indentation in front of it goes too. Left behind, it meets the whitespace
-        // that followed the element and the pair reads as a blank line at the old depth.
-        if (element.PreviousNode is XText before && before.Value.Trim().Length == 0)
+        // What goes with it is the separator, not simply the whitespace in front. In front of the
+        // first of several children is the group's own opening indentation, which has to stay — take
+        // that and the break behind the element is promoted to opening the group, blank line and
+        // all. In front of an only child it is the opening indentation again, but there the break
+        // behind is what closes the group, so this time the one in front is the one to go.
+        var separator = ReferenceEquals(element, Element.Elements().FirstOrDefault())
+                        && Element.Elements().Skip(1).Any()
+            ? element.NextNode as XText
+            : element.PreviousNode as XText;
+
+        // Left behind, it meets the whitespace on the other side and the pair reads as a blank line.
+        if (separator is { } text && text.Value.Trim().Length == 0)
         {
-            before.Remove();
+            text.Remove();
         }
 
         element.Remove();
@@ -815,6 +862,14 @@ public sealed class SvgcProjectDocument
         }
 
         return Leading(element) + Step(element);
+    }
+
+    /// <summary>How far in <paramref name="element"/> itself is written, without the break.</summary>
+    internal static string Depth(XElement element)
+    {
+        var leading = Leading(element);
+
+        return leading.Substring(leading.LastIndexOf('\n') + 1);
     }
 
     /// <summary>The break and indentation <paramref name="element"/> itself sits on.</summary>
