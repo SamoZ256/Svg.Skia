@@ -666,8 +666,16 @@ public partial class MainWindow : Window
         return true;
     }
 
-    /// <summary>The one drag this tree carries, so a file dropped on it is left to the viewer.</summary>
-    private const string RowFormat = "svgc/project-node";
+    /// <summary>
+    /// The one drag this tree carries, so a file dropped on it is left to the viewer.
+    /// </summary>
+    /// <remarks>
+    /// A bare name: Avalonia refuses an identifier with a separator in it, and built here rather
+    /// than at the drag, where the refusal was an unhandled exception out of an async void handler
+    /// and took the application with it. As a field it is a type initialiser instead, which is a
+    /// failure every test that opens a window sees.
+    /// </remarks>
+    private static readonly DataFormat<string> RowFormat = DataFormat.CreateStringApplicationFormat("SvgcProjectNode");
 
     private SvgcProjectNode? _row;
     private PointerPressedEventArgs? _rowPressed;
@@ -725,7 +733,7 @@ public partial class MainWindow : Window
 
         var data = new DataTransfer();
 
-        data.Add(DataTransferItem.Create(DataFormat.CreateBytesApplicationFormat(RowFormat), Array.Empty<byte>()));
+        data.Add(DataTransferItem.Create(RowFormat, string.Empty));
 
         _rowPressed = null;
         _rowDragged = true;
