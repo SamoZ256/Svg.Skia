@@ -111,8 +111,74 @@ public class MainWindowProjectTests : IDisposable
 
         var root = Assert.IsType<TreeViewItem>(Assert.Single(Tree(window).Items));
 
+        // A drawing carries what it becomes, since a project usually builds one file more than once.
         Assert.Equal(
-            new[] { "Demo.Icons", "home.svg", "Demo.Icons.Large", "badge.svg" },
+            new[] { "Demo.Icons", "home.svg - Home", "Demo.Icons.Large", "badge.svg - BadgeLarge" },
+            Rows(root));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Group_Is_Named_By_Whichever_Of_Namespace_And_Class_It_Sets()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", """
+            <svgc>
+              <group namespace="Nav" class="Both"><svg input="home.svg" /></group>
+              <group namespace="OnlySpace"><svg input="home.svg" /></group>
+              <group class="OnlyClass"><svg input="home.svg" /></group>
+              <group scale="2"><svg input="badge.svg" /></group>
+            </svgc>
+            """));
+
+        var root = Assert.IsType<TreeViewItem>(Assert.Single(Tree(window).Items));
+
+        // Neither is a name, but they are all the format has to tell one group from another. A row
+        // reading "group" for every one of them told them apart no better than nothing.
+        Assert.Equal(
+            new[]
+            {
+                "Project",
+                "Nav - Both", "home.svg - Both",
+                "OnlySpace", "home.svg",
+                "OnlyClass", "home.svg - OnlyClass",
+                "group", "badge.svg"
+            },
+            Rows(root));
+    }
+
+    [AvaloniaFact]
+    public async Task One_File_Built_Several_Times_Gives_A_Row_Each()
+    {
+        Write("badge.svg", Drawing);
+
+        // The shape a project is for: one drawing, built at several sizes under several names.
+        var window = await Host(Write("icons.svgcproj", """
+            <svgc>
+              <svg input="badge.svg" class="Badge" />
+              <group class="BadgeLarge" scale="2">
+                <svg input="badge.svg" />
+                <group><svg input="badge.svg" scale="4" /></group>
+              </group>
+              <svg input="badge.svg" />
+            </svgc>
+            """));
+
+        var root = Assert.IsType<TreeViewItem>(Assert.Single(Tree(window).Items));
+
+        // The class each entry ends up with, inherited or its own. Named by the file alone every
+        // one of these read "badge.svg"; the last has no class anywhere and still does.
+        Assert.Equal(
+            new[]
+            {
+                "Project",
+                "badge.svg - Badge",
+                "BadgeLarge",
+                "badge.svg - BadgeLarge",
+                "group", "badge.svg - BadgeLarge",
+                "badge.svg"
+            },
             Rows(root));
     }
 

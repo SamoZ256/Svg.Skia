@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.IO;
+using System.Linq;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Skia;
 
@@ -45,8 +46,42 @@ public sealed class ProjectWorkspace
     /// <summary>How a node is named, in the tree and on its tab.</summary>
     public static string Label(SvgcProjectNode node) => node switch
     {
-        SvgcProjectDrawing drawing => Path.GetFileName(drawing.Input),
-        SvgcProjectRoot root => root.Namespace ?? "Project",
-        _ => node.Namespace ?? node.Class ?? "group"
+        SvgcProjectDrawing drawing => Drawn(drawing),
+        SvgcProjectRoot root => Named(root) ?? "Project",
+        _ => Named(node) ?? "group"
     };
+
+    /// <summary>
+    /// What a drawing is called: its file, and what that file becomes.
+    /// </summary>
+    /// <remarks>
+    /// The class it ends up with rather than the one it sets, because a project usually builds the
+    /// same file more than once and the entry that differs may name nothing itself — the third
+    /// drawing of the sample project takes its class from the group holding it. By the file alone
+    /// all three were rows reading "badge.svg".
+    /// </remarks>
+    private static string Drawn(SvgcProjectDrawing drawing)
+    {
+        var file = Path.GetFileName(drawing.Input);
+
+        return drawing.EffectiveClass is { } becomes ? $"{file} - {becomes}" : file;
+    }
+
+    /// <summary>What a group calls itself: its namespace, its class, or both.</summary>
+    /// <remarks>
+    /// <para>
+    /// Neither is a name — they are settings a group hands down to its drawings — but the format
+    /// has nothing else to tell one group from another, and rows all reading "group" tell them
+    /// apart no better than nothing would. Taking only the first meant two groups beside each other
+    /// could be named off different attributes.
+    /// </para>
+    /// <para>
+    /// Joined with a hyphen rather than the dash used elsewhere, because the window title puts this
+    /// beside the project's name with a dash of its own.
+    /// </para>
+    /// </remarks>
+    private static string? Named(SvgcProjectNode node)
+        => string.Join(" - ", new[] { node.Namespace, node.Class }.Where(part => part is { })) is { Length: > 0 } name
+            ? name
+            : null;
 }
