@@ -734,7 +734,7 @@ public class MainWindowProjectTests : IDisposable
 
         var window = await Host(Write("icons.svgcproj", Project));
 
-        var export = Export(window);
+        var export = Menu(window, "Export…");
         var root = (TreeViewItem)Tree(window).Items[0]!;
 
         // The sample the window starts on is a drawing, so it is there to export.
@@ -752,12 +752,78 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(export.IsEnabled);
     }
 
-    /// <summary>The File menu's Export item.</summary>
-    private static NativeMenuItem Export(MainWindow window)
+    /// <summary>The menu item headed <paramref name="header"/>, wherever it lives.</summary>
+    private static NativeMenuItem Menu(MainWindow window, string header)
         => NativeMenu.GetMenu(window)!.Items
             .OfType<NativeMenuItem>()
             .SelectMany(item => item.Menu?.Items.OfType<NativeMenuItem>() ?? Enumerable.Empty<NativeMenuItem>())
-            .Single(item => item.Header == "Export…");
+            .Single(item => item.Header == header);
+
+    [AvaloniaFact]
+    public async Task Building_Is_Offered_Only_While_A_Project_Is_Open()
+    {
+        Write("home.svg", Drawing);
+
+        var window = await Host(Write("home.svg", Drawing));
+
+        // A drawing on its own is not a project, and Build did nothing at all when picked.
+        Assert.False(Menu(window, "Build").IsEnabled);
+        Assert.False(Menu(window, "Close").IsEnabled);
+
+        Write("badge.svg", Drawing);
+
+        var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        Assert.True(await viewer.OpenAsync(new[] { Write("icons.svgcproj", Project) }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(Menu(window, "Build").IsEnabled);
+        Assert.True(Menu(window, "Close").IsEnabled);
+
+        Assert.True(await window.CloseProjectAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(Menu(window, "Build").IsEnabled);
+    }
+
+    [AvaloniaFact]
+    public async Task Building_Writes_What_Svgc_Would_Write()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", """
+            <svgc>
+              <namespace>Demo.Icons</namespace>
+              <singleFile>Icons.cs</singleFile>
+              <svg input="home.svg" class="Home" />
+              <group namespace="Demo.Icons.Large" scale="2">
+                <svg input="badge.svg" class="BadgeLarge" />
+              </group>
+            </svgc>
+            """);
+
+        var window = await Host(path);
+
+        var said = new List<string>();
+        window.Announce = (_, message) => { said.Add(message); return Task.CompletedTask; };
+
+        Assert.True(await window.BuildAsync());
+        Assert.Contains("Wrote Icons.cs.", said);
+
+        var generated = File.ReadAllText(Path.Combine(_directory, "Icons.cs"));
+
+        // The same build svgc runs, so the groups decide the namespaces and the sizes exactly as
+        // they do on the command line.
+        Assert.Contains("namespace Demo.Icons", generated);
+        Assert.Contains("class Home", generated);
+        Assert.Contains("namespace Demo.Icons.Large", generated);
+        Assert.Contains("class BadgeLarge", generated);
+
+        // 24 as written, and 48 under a group asking for twice the size.
+        Assert.Contains("24f, 24f", generated);
+        Assert.Contains("48f, 48f", generated);
+    }
 
     /// <summary>The open group tab whose node is labelled <paramref name="label"/>.</summary>
     private static GroupPanel Panel(MainWindow window, string label)

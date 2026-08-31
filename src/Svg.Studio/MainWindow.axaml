@@ -164,7 +164,6 @@
         <NativeMenuItem.Menu>
           <NativeMenu>
             <NativeMenuItem Header="Open…" Click="OnOpen" />
-            <NativeMenuItem Header="Close Project" Click="OnCloseProject" />
             <!--
               One command for both forms: the save panel asks which, and names the file after the
               answer, so nothing here has to ask twice.
@@ -188,6 +187,19 @@
             <NativeMenuItem Header="Redo" Click="OnRedo" />
             <NativeMenuItemSeparator />
             <NativeMenuItem Header="Resize…" Click="OnResize" />
+          </NativeMenu>
+        </NativeMenuItem.Menu>
+      </NativeMenuItem>
+      <!--
+        Its own menu rather than an item in File: what it acts on is the whole project, not the
+        drawing being looked at, which is what everything in File and Edit is about.
+      -->
+      <NativeMenuItem Header="Project">
+        <NativeMenuItem.Menu>
+          <NativeMenu>
+            <NativeMenuItem Header="Build" Click="OnBuild" />
+            <NativeMenuItemSeparator />
+            <NativeMenuItem Header="Close" Click="OnCloseProject" />
           </NativeMenu>
         </NativeMenuItem.Menu>
       </NativeMenuItem>

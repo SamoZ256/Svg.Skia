@@ -14,7 +14,10 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
+using Svg.Expressions.Recipes;
+using Svg.Skia;
 using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
@@ -75,6 +78,7 @@ public partial class MainWindow : Window
         AvaloniaXamlLoader.Load(this);
 
         ConfirmDiscard = AskDiscard;
+        Announce = (title, message) => Ask(title, message, null, "Close");
 
         _tabs = this.FindControl<TabControl>("Tabs")!;
         _tabs.SelectionChanged += (_, _) =>
@@ -243,7 +247,7 @@ public partial class MainWindow : Window
         }
         catch (Exception failure) when (failure is SvgcProjectException or IOException or UnauthorizedAccessException)
         {
-            await Ask("The project couldn't be opened", failure.Message, null, "Close").ConfigureAwait(true);
+            await Announce("The project couldn't be opened", failure.Message).ConfigureAwait(true);
             return;
         }
 
@@ -261,6 +265,7 @@ public partial class MainWindow : Window
 
         ShowProjectPane(true);
         BuildTree();
+        UpdateMenu();
     }
 
     /// <summary>Closes the open project and everything it opened.</summary>
@@ -302,11 +307,71 @@ public partial class MainWindow : Window
         _projectTree.Items.Clear();
         ShowProjectPane(false);
         UpdateTitle();
+        UpdateMenu();
 
         return true;
     }
 
     private async void OnCloseProject(object? sender, EventArgs e) => await CloseProjectAsync();
+
+    private async void OnBuild(object? sender, EventArgs e) => await BuildAsync();
+
+    /// <summary>
+    /// Writes the open project's outputs, as svgc would.
+    /// </summary>
+    /// <remarks>
+    /// Through the same build svgc runs rather than one of its own, so what this writes and what
+    /// the tool writes cannot come to differ — they would differ silently, since both outputs
+    /// compile.
+    /// </remarks>
+    /// <returns>Whether anything was written.</returns>
+    public async Task<bool> BuildAsync()
+    {
+        if (_workspace is not { } workspace)
+        {
+            return false;
+        }
+
+        var project = workspace.Document.Flatten();
+        var log = new List<string>();
+
+        IReadOnlyList<string> written;
+
+        try
+        {
+            // Off the UI thread: a project of any size compiles every drawing it names.
+            written = await Task.Run(
+                () => SvgcProjectBuild.Run(
+                    project,
+                    SvgcBuildSettings.For(project),
+                    new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())),
+                    line => log.Add(line))).ConfigureAwait(true);
+        }
+        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or IOException or UnauthorizedAccessException)
+        {
+            await Announce("The project couldn't be built", failure.Message).ConfigureAwait(true);
+
+            return false;
+        }
+
+        // The warnings are the half worth reading — a recipe that matched nothing, a default that
+        // will not reach a signature — and there is nowhere else they would be seen.
+        var said = log.Where(line => line.StartsWith("warning:", StringComparison.Ordinal)).ToList();
+
+        await Announce(
+            "Built",
+            said.Count > 0
+                ? string.Join(Environment.NewLine + Environment.NewLine, said.Prepend(Wrote(written)))
+                : Wrote(written)).ConfigureAwait(true);
+
+        return true;
+    }
+
+    /// <summary>What a build came to, for the sentence that reports it.</summary>
+    private static string Wrote(IReadOnlyList<string> written)
+        => written.Count == 1
+            ? $"Wrote {Path.GetFileName(written[0])}."
+            : $"Wrote {written.Count} files.";
 
     private void ShowProjectPane(bool show)
     {
@@ -755,9 +820,20 @@ public partial class MainWindow : Window
     /// </remarks>
     private void UpdateMenu()
     {
-        if (Item(NativeMenu.GetMenu(this), "Export…") is { } export)
+        var menu = NativeMenu.GetMenu(this);
+
+        if (Item(menu, "Export…") is { } export)
         {
             export.IsEnabled = Selected() is { Document: { } };
+        }
+
+        // Both act on the project, and both did nothing at all when picked without one.
+        foreach (var header in new[] { "Build", "Close" })
+        {
+            if (Item(menu, header) is { } item)
+            {
+                item.IsEnabled = _workspace is { };
+            }
         }
     }
 
@@ -887,6 +963,16 @@ public partial class MainWindow : Window
     /// Given the whole sentence rather than a name, since closing can be about several drawings.
     /// </remarks>
     public Func<string, Task<bool>> ConfirmDiscard { get; set; }
+
+    /// <summary>
+    /// How the window says something there is nothing to answer.
+    /// </summary>
+    /// <remarks>
+    /// Replaceable for the reason <see cref="ConfirmDiscard"/> is: a modal is the one thing a test
+    /// cannot drive, and a build that reports itself would otherwise wait for a button nobody is
+    /// there to press.
+    /// </remarks>
+    public Func<string, string, Task> Announce { get; set; }
 
     private async Task CloseTabAsync(TabItem item)
     {
@@ -1139,7 +1225,7 @@ public partial class MainWindow : Window
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
-                await Ask("The project couldn't be saved", failure.Message, null, "Close").ConfigureAwait(true);
+                await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
             }
 
             return;
