@@ -760,6 +760,36 @@ public class MainWindowProjectTests : IDisposable
             .Single(item => item.Header == header);
 
     [AvaloniaFact]
+    public async Task Building_Several_Files_Names_Every_One_Of_Them()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", """
+            <svgc>
+              <namespace>Demo.Icons</namespace>
+              <svg input="home.svg" class="Home" output="Home.cs" />
+              <svg input="badge.svg" class="Badge" output="Badge.cs" />
+            </svgc>
+            """));
+
+        var said = new List<string>();
+        window.Announce = (_, message) => { said.Add(message); return Task.CompletedTask; };
+
+        Assert.True(await window.BuildAsync());
+
+        var message = Assert.Single(said);
+
+        // A per-item output is shown nowhere else in the window, so this is the only place it is
+        // ever said where one of these went.
+        Assert.Contains("Wrote 2 files:", message);
+        Assert.Contains(Path.Combine(_directory, "Home.cs"), message);
+        Assert.Contains(Path.Combine(_directory, "Badge.cs"), message);
+
+        Assert.True(Path.IsPathRooted(message.Split(Environment.NewLine)[1]));
+    }
+
+    [AvaloniaFact]
     public async Task Building_Is_Offered_Only_While_A_Project_Is_Open()
     {
         Write("home.svg", Drawing);
@@ -809,7 +839,10 @@ public class MainWindowProjectTests : IDisposable
         window.Announce = (_, message) => { said.Add(message); return Task.CompletedTask; };
 
         Assert.True(await window.BuildAsync());
-        Assert.Contains("Wrote Icons.cs.", said);
+
+        // In full: a project decides where its own output goes, and the name alone said nothing
+        // about where that was.
+        Assert.Contains($"Wrote {Path.Combine(_directory, "Icons.cs")}", said);
 
         var generated = File.ReadAllText(Path.Combine(_directory, "Icons.cs"));
 

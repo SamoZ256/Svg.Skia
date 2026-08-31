@@ -367,11 +367,36 @@ public partial class MainWindow : Window
         return true;
     }
 
+    /// <summary>How many paths a build names before it starts counting instead.</summary>
+    /// <remarks>
+    /// The dialog sizes itself to what it holds and has nothing to scroll, so a project with an
+    /// output on every drawing — an ordinary icon set — would make a window taller than the screen.
+    /// </remarks>
+    private const int Listed = 10;
+
     /// <summary>What a build came to, for the sentence that reports it.</summary>
+    /// <remarks>
+    /// In full. A project decides where its own output goes, and the name alone said nothing about
+    /// where that was — which is the one thing a build cannot be read back off the screen.
+    /// </remarks>
     private static string Wrote(IReadOnlyList<string> written)
-        => written.Count == 1
-            ? $"Wrote {Path.GetFileName(written[0])}."
-            : $"Wrote {written.Count} files.";
+    {
+        if (written.Count == 1)
+        {
+            return $"Wrote {written[0]}";
+        }
+
+        var lines = new List<string> { $"Wrote {written.Count} files:" };
+
+        lines.AddRange(written.Take(Listed));
+
+        if (written.Count > Listed)
+        {
+            lines.Add($"…and {written.Count - Listed} more.");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
 
     private void ShowProjectPane(bool show)
     {
