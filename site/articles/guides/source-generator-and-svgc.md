@@ -297,14 +297,18 @@ svgc --projectFile ./icons.svgcproj
 
 `src/Svg.Studio` opens a project as well as a drawing — `File → Open`, a drop, or as a command line
 argument. It opens as a workspace rather than as a document: the group tree goes in a pane beside the
-tabs and the project itself takes no tab, one project at a time, closed with `File → Close Project`.
+tabs and the project itself takes no tab, one project at a time, closed with `Project → Close`.
 Clicking a node opens it — a drawing in a viewer **at the size its groups build it at** rather than
 the one it was written with, a group as its settings and what they come to. A double click is left
 to the tree, which folds a node with it. Settings are edited
 there and saved back with the file's comments and layout intact. The resize is applied to the picture
-and never to the file, so what a group says about a drawing stays the group's. It does not read
-recipes: a `recipe` is shown and edited as a path, and a drawing a recipe would rewrite is previewed
-as written.
+and never to the file, so what a group says about a drawing stays the group's. It does not offer to
+edit recipes: a `recipe` is shown and edited as a path.
+
+`Project → Build` writes the project's outputs, exactly as `svgc --projectFile` would — through the
+same build, so the two cannot come to disagree. Recipes are applied, since the output would not be
+what `svgc` produces otherwise, and what a recipe matched or failed to match is reported along with
+the files written.
 
 ### Options
 
