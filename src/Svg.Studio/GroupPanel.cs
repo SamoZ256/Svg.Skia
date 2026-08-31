@@ -10,6 +10,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Skia;
@@ -92,10 +93,30 @@ public sealed class GroupPanel : UserControl
     /// <summary>Writes what was typed here into the project, and the project to its file.</summary>
     public void Save()
     {
+        // What is in the box being typed in, before deciding there is nothing to save. Recording
+        // an edit when the box loses focus is what lets a half-typed value be rejected while it is
+        // still on screen, but it also meant Ctrl+S did nothing at all until the caret left.
+        var typing = Typing();
+
+        if (typing is { } box)
+        {
+            var typed = (string)box.Tag!;
+
+            // Checked now, since typing records without checking. Put back rather than written,
+            // the same as the caret leaving would.
+            if (!Edit(typed, box.Text))
+            {
+                box.Text = Value(Node, typed);
+            }
+        }
+
         if (_pending.Count == 0)
         {
             return;
         }
+
+        var caret = typing?.CaretIndex ?? 0;
+        var setting = typing?.Tag as string;
 
         var was = IsModified;
 
@@ -115,6 +136,39 @@ public sealed class GroupPanel : UserControl
         // save can end with something pending again, and saying "saved" there left the tab with
         // no mark and an unsaved warning waiting at the close button.
         Announce(was);
+
+        // The rows were rebuilt under whoever was typing, so put them back where they were rather
+        // than making a save cost the caret.
+        Resume(setting, caret);
+    }
+
+    /// <summary>The box being typed in, if the caret is in one of this panel's.</summary>
+    private TextBox? Typing()
+        => TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox box
+           && box.Tag is string
+           && ReferenceEquals(box.FindAncestorOfType<GroupPanel>(), this)
+            ? box
+            : null;
+
+    /// <summary>Puts the caret back in the box for <paramref name="setting"/>, where it was.</summary>
+    private void Resume(string? setting, int caret)
+    {
+        if (setting is null)
+        {
+            return;
+        }
+
+        var box = _properties.GetVisualDescendants()
+            .OfType<TextBox>()
+            .FirstOrDefault(candidate => Equals(candidate.Tag, setting));
+
+        if (box is null)
+        {
+            return;
+        }
+
+        box.Focus();
+        box.CaretIndex = Math.Min(caret, box.Text?.Length ?? 0);
     }
 
     /// <summary>Says so if the tab's unsaved state has changed since <paramref name="was"/>.</summary>
@@ -258,8 +312,11 @@ public sealed class GroupPanel : UserControl
         {
             Text = value,
             PlaceholderText = Inherited(node, name),
-            FontSize = 12
+            FontSize = 12,
+            Tag = name
         };
+
+        box.TextChanged += (_, _) => Track(name, box.Text);
 
         box.LostFocus += (_, _) =>
         {
@@ -317,6 +374,23 @@ public sealed class GroupPanel : UserControl
 
         Fault = null;
 
+        Track(name, text);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Records what a box holds as it is typed, without asking whether the project can hold it.
+    /// </summary>
+    /// <remarks>
+    /// Unchecked on purpose: a number is typed through "1." and "-", and snatching those back
+    /// between keystrokes is worse than letting the box keep them until the caret leaves or a save
+    /// asks. What it buys is the mark appearing at the first keystroke rather than when the caret
+    /// leaves, which is the only thing saying there is anything to save.
+    /// </remarks>
+    private void Track(string name, string? value)
+    {
+        var text = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         var was = IsModified;
 
         if (text == Value(Node, name))
@@ -329,8 +403,6 @@ public sealed class GroupPanel : UserControl
         }
 
         Announce(was);
-
-        return true;
     }
 
     /// <summary>Throws unless <paramref name="value"/> is one this setting can hold.</summary>

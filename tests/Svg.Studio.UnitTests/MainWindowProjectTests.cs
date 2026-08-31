@@ -448,7 +448,7 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task A_Save_That_Leaves_Something_Pending_Keeps_The_Mark()
+    public async Task A_Save_Takes_The_Box_Being_Typed_In_And_The_Mark_Agrees()
     {
         Write("home.svg", Drawing);
 
@@ -470,25 +470,30 @@ public class MainWindowProjectTests : IDisposable
         panel.Edit("singleFile", "Other.cs");
         Dispatcher.UIThread.RunJobs();
 
-        // A box left focused holding something else, which is what saving rebuilds out from under:
-        // clearing the rows makes it lose focus, and losing focus records what is in it. So the
-        // save ends with something pending again, and used to report itself saved anyway — leaving
-        // a tab with no mark that still asked about unsaved work at the close button.
-        var box = panel.GetVisualDescendants().OfType<TextBox>().First();
+        // A second setting left in a box with the caret still in it. Saving takes that too, so
+        // nothing is left pending behind a tab that has just reported itself saved — which is what
+        // used to leave a tab with no mark and an unsaved warning waiting at the close button.
+        var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "namespace"));
+
         box.Focus();
         Dispatcher.UIThread.RunJobs();
-        box.Text = "Typed.cs";
+        box.Text = "Typed.Icons";
         Dispatcher.UIThread.RunJobs();
 
         panel.Save();
         Dispatcher.UIThread.RunJobs();
 
-        Assert.True(panel.IsModified);
-        Assert.Equal(1d, marker.Opacity);
+        Assert.False(panel.IsModified);
+        Assert.Equal(0d, marker.Opacity);
+
+        var saved = File.ReadAllText(Path.Combine(_directory, "icons.svgcproj"));
+
+        Assert.Contains("<singleFile>Other.cs</singleFile>", saved);
+        Assert.Contains("<namespace>Typed.Icons</namespace>", saved);
     }
 
     [AvaloniaFact]
-    public async Task A_Drawing_Resized_Out_Of_Sight_Is_Rebuilt_When_It_Is_Looked_At()
+    public async Task The_Mark_Appears_At_The_First_Keystroke()
     {
         Write("home.svg", Drawing);
         Write("badge.svg", Drawing);
@@ -496,37 +501,74 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(Write("icons.svgcproj", Project));
 
         var root = (TreeViewItem)Tree(window).Items[0]!;
-        var group = (SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!;
 
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)root.Items[1]!).Items[0]!).Tag!);
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
-        var viewer = await Settle(window, "badge.svg");
-        var drawn = Tabs(window).Items.OfType<TabItem>().Single(tab => ReferenceEquals(tab.Content, viewer));
+        var item = Tabs(window).Items.OfType<TabItem>().Single(tab => tab.Content is GroupPanel);
+        var panel = (GroupPanel)item.Content!;
+        var marker = (TextBlock)((StackPanel)item.Header!).Children[0];
 
-        Assert.Equal(48f, viewer.Document!.Svg.Picture!.CullRect.Width);
+        var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
 
-        // The group's tab takes the screen, so the drawing's viewer is no longer presented.
-        await window.ShowAsync(group);
+        box.Focus();
         Dispatcher.UIThread.RunJobs();
 
-        Panel(window, "Demo.Icons.Large").Edit("scale", "4");
-        Panel(window, "Demo.Icons.Large").Save();
+        Assert.Equal(0d, marker.Opacity);
+
+        // Typed into and the caret left where it is. The mark is the only thing saying there is
+        // anything to save, and it used to wait for the caret to leave before saying so.
+        box.Text = "6";
         Dispatcher.UIThread.RunJobs();
 
-        // Left alone while it cannot be seen: rebuilding into a detached viewer left it blank until
-        // the tab was closed and opened again.
-        Assert.Equal(48f, viewer.Document!.Svg.Picture!.CullRect.Width);
+        Assert.True(panel.IsModified);
+        Assert.Equal(1d, marker.Opacity);
 
-        Tabs(window).SelectedItem = drawn;
+        // And typed back to what the file says, still without leaving, is nothing to save again.
+        box.Text = "2";
+        Dispatcher.UIThread.RunJobs();
 
-        for (var attempt = 0; attempt < 200 && viewer.Document!.Svg.Picture!.CullRect.Width < 96f; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(5);
-        }
+        Assert.False(panel.IsModified);
+        Assert.Equal(0d, marker.Opacity);
+    }
 
-        Assert.Equal(96f, viewer.Document!.Svg.Picture!.CullRect.Width);
+    [AvaloniaFact]
+    public async Task Saving_While_Still_Typing_Saves_What_Is_Being_Typed()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = Panel(window, "Demo.Icons.Large");
+
+        // Typed into, and the caret left where it is. An edit is recorded when the box loses focus,
+        // so a save used to find nothing pending and write nothing at all.
+        var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
+
+        box.Focus();
+        Dispatcher.UIThread.RunJobs();
+        box.Text = "6";
+        box.CaretIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+
+        panel.Save();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("scale=\"6\"", File.ReadAllText(path));
+        Assert.False(panel.IsModified);
+
+        // And the caret is still in the box it was in, not thrown out by the rows being rebuilt.
+        var resumed = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
+
+        Assert.True(resumed.IsFocused);
+        Assert.Equal(1, resumed.CaretIndex);
     }
 
     /// <summary>The open group tab whose node is labelled <paramref name="label"/>.</summary>
