@@ -46,6 +46,9 @@ public partial class MainWindow : Window
     private readonly Border _projectPaneHost;
     private readonly GridSplitter _projectSplitter;
     private readonly TextBlock _projectName;
+    private readonly Border _dropLine;
+    private readonly Border _projectSettings;
+    private readonly Grid _dropHost;
 
     /// <summary>The open project, or null. The window works on one at a time, as a workspace is.</summary>
     private ProjectWorkspace? _workspace;
@@ -95,6 +98,17 @@ public partial class MainWindow : Window
         _projectSplitter = this.FindControl<GridSplitter>("ProjectSplitter")!;
         _projectName = this.FindControl<TextBlock>("ProjectName")!;
         _projectTree.KeyDown += OnProjectTreeKeyDown;
+        _projectSettings = this.FindControl<Border>("ProjectSettings")!;
+        _projectTree.SelectionChanged += (_, _) => ShowSettings();
+        _dropLine = this.FindControl<Border>("DropLine")!;
+        _dropHost = (Grid)_dropLine.Parent!;
+
+        // Tunnelling, because TreeViewItem takes a press itself to become selected.
+        _projectTree.AddHandler(PointerPressedEvent, OnRowPressed, RoutingStrategies.Tunnel);
+        _projectTree.PointerMoved += OnRowMoved;
+        _projectTree.AddHandler(DragDrop.DragOverEvent, OnRowDragOver);
+        _projectTree.AddHandler(DragDrop.DropEvent, OnRowDrop);
+        _projectTree.AddHandler(DragDrop.DragLeaveEvent, (_, _) => HideDrop());
         _tabs.TemplateApplied += OnTabsTemplateApplied;
 
         // On the strip, and tunnelling, because TabItem handles a press itself to become selected
@@ -306,6 +320,7 @@ public partial class MainWindow : Window
         _workspace = null;
 
         _projectTree.Items.Clear();
+        ShowSettings();
         ShowProjectPane(false);
         UpdateTitle();
         UpdateMenu();
@@ -419,9 +434,26 @@ public partial class MainWindow : Window
 
         var selected = select ?? (_projectTree.SelectedItem as TreeViewItem)?.Tag;
 
-        _projectTree.Items.Clear();
-        _projectTree.Items.Add(Branch(workspace.Document.Root, selected));
+        // Clearing the items drops the selection before the rebuilt row takes it back, and the
+        // pane reads that as the row having been deselected — which threw away the panel it is
+        // showing, mid-edit, on every save.
+        _rebuilding = true;
+
+        try
+        {
+            _projectTree.Items.Clear();
+            _projectTree.Items.Add(Branch(workspace.Document.Root, selected));
+        }
+        finally
+        {
+            _rebuilding = false;
+        }
+
+        ShowSettings();
     }
+
+    /// <summary>Whether the tree is between being emptied and being filled again.</summary>
+    private bool _rebuilding;
 
     /// <summary>One node and everything under it, expanded, since a project is a handful of rows.</summary>
     private TreeViewItem Branch(SvgcProjectNode node, object? selected)
@@ -444,6 +476,13 @@ public partial class MainWindow : Window
             // Handled whatever happens, so a tap inside a nested row does not reach the group above
             // and open that as well.
             e.Handled = true;
+
+            // The release that finishes a drag raises this too, which opened whatever had just been
+            // dropped. Cleared by the next press, so a drag that ends without one swallows nothing.
+            if (_rowDragged)
+            {
+                return;
+            }
 
             // The chevron folds; it does not open.
             if (e.Source is Visual source && source.FindAncestorOfType<ToggleButton>(true) is { })
@@ -627,12 +666,275 @@ public partial class MainWindow : Window
         return true;
     }
 
+    /// <summary>The one drag this tree carries, so a file dropped on it is left to the viewer.</summary>
+    private const string RowFormat = "svgc/project-node";
+
+    private SvgcProjectNode? _row;
+    private PointerPressedEventArgs? _rowPressed;
+    private Point _rowPressedAt;
+
+    /// <summary>Whether the press that is finishing was a drag, so the tap it raises opens nothing.</summary>
+    private bool _rowDragged;
+
+    private SvgcProjectNode? _dropOn;
+    private ProjectDrop _dropWhere;
+
+    private void OnRowPressed(object? sender, PointerPressedEventArgs e)
+    {
+        _row = null;
+        _rowPressed = null;
+        _rowDragged = false;
+
+        if (e.Source is not Visual source
+            // The chevron folds the row; it does not pick it up.
+            || source.FindAncestorOfType<ToggleButton>(true) is { }
+            || source.FindAncestorOfType<TreeViewItem>(true)?.Tag is not SvgcProjectNode node
+            // The project is the file. There is nowhere to put it.
+            || node is SvgcProjectRoot
+            || !e.GetCurrentPoint(_projectTree).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        _row = node;
+        _rowPressed = e;
+        _rowPressedAt = e.GetPosition(_projectTree);
+    }
+
+    private async void OnRowMoved(object? sender, PointerEventArgs e)
+    {
+        if (_row is null || _rowPressed is not { } pressed)
+        {
+            return;
+        }
+
+        if (!e.GetCurrentPoint(_projectTree).Properties.IsLeftButtonPressed)
+        {
+            _row = null;
+            _rowPressed = null;
+
+            return;
+        }
+
+        var travelled = e.GetPosition(_projectTree) - _rowPressedAt;
+
+        if (Math.Abs(travelled.X) < DragThreshold && Math.Abs(travelled.Y) < DragThreshold)
+        {
+            return;
+        }
+
+        var data = new DataTransfer();
+
+        data.Add(DataTransferItem.Create(DataFormat.CreateBytesApplicationFormat(RowFormat), Array.Empty<byte>()));
+
+        _rowPressed = null;
+        _rowDragged = true;
+
+        try
+        {
+            await DragDrop.DoDragDropAsync(pressed, data, DragDropEffects.Move);
+        }
+        finally
+        {
+            _row = null;
+
+            HideDrop();
+        }
+    }
+
+    private void OnRowDragOver(object? sender, DragEventArgs e)
+    {
+        if (_row is not { } dragged
+            || e.Source is not Visual source
+            || source.FindAncestorOfType<TreeViewItem>(true) is not { Tag: SvgcProjectNode node } item)
+        {
+            HideDrop();
+
+            return;
+        }
+
+        e.DragEffects = DragDropEffects.Move;
+
+        _dropOn = node;
+        _dropWhere = Bands(e.GetPosition(item).Y, RowHeight(item), node);
+
+        if (Landing(_dropOn, _dropWhere) is not { } landing || landing.Parent.DescendsFrom(dragged))
+        {
+            HideDrop();
+
+            return;
+        }
+
+        ShowDrop(item);
+    }
+
+    private void OnRowDrop(object? sender, DragEventArgs e)
+    {
+        if (_row is { } dragged && _dropOn is { } target)
+        {
+            Move(dragged, target, _dropWhere);
+        }
+
+        HideDrop();
+    }
+
+    /// <summary>
+    /// Moves a node to where a drop on <paramref name="target"/> puts it.
+    /// </summary>
+    /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the pointer.</remarks>
+    /// <returns>Whether it moved. A drop that would take a group into itself does not.</returns>
+    public bool Move(SvgcProjectNode node, SvgcProjectNode target, ProjectDrop where)
+    {
+        if (_workspace is not { } workspace || Landing(target, where) is not { } landing)
+        {
+            return false;
+        }
+
+        try
+        {
+            landing.Parent.Move(node, landing.Index);
+        }
+        catch (SvgcProjectException)
+        {
+            return false;
+        }
+
+        workspace.Save();
+        BuildTree(node);
+
+        return true;
+    }
+
+    /// <summary>Which group a drop lands in, and where among its children. Null when it lands nowhere.</summary>
+    private static (SvgcProjectGroup Parent, int Index)? Landing(SvgcProjectNode target, ProjectDrop where)
+    {
+        if (where == ProjectDrop.Inside)
+        {
+            return target is SvgcProjectGroup group ? (group, group.Children.Count) : null;
+        }
+
+        if (target.Parent is not { } parent)
+        {
+            return null;
+        }
+
+        var index = parent.Children.ToList().IndexOf(target);
+
+        return (parent, where == ProjectDrop.After ? index + 1 : index);
+    }
+
+    /// <summary>Which of the three a drop at <paramref name="y"/> down a row means.</summary>
+    /// <remarks>
+    /// Quarters for a group, which can be dropped into as well as beside. A drawing holds nothing,
+    /// so its middle is not a place, and halves put every drop somewhere it can go. The project has
+    /// no siblings to sit beside, so the whole of its row means inside it.
+    /// </remarks>
+    private static ProjectDrop Bands(double y, double height, SvgcProjectNode target)
+    {
+        if (target is not SvgcProjectGroup)
+        {
+            return y < height / 2 ? ProjectDrop.Before : ProjectDrop.After;
+        }
+
+        if (target.Parent is null)
+        {
+            return ProjectDrop.Inside;
+        }
+
+        return y < height * 0.25 ? ProjectDrop.Before
+            : y > height * 0.75 ? ProjectDrop.After
+            : ProjectDrop.Inside;
+    }
+
+    /// <summary>
+    /// How tall the row itself is, rather than the row and everything under it.
+    /// </summary>
+    /// <remarks>
+    /// Measured to the first child rather than read off the template, which would tie this to a
+    /// part name: a TreeViewItem's bounds cover its whole branch, and taking those for the row put
+    /// the quarter marks a subtree apart.
+    /// </remarks>
+    private static double RowHeight(TreeViewItem item)
+    {
+        if (item.IsExpanded
+            && item.Items.Count > 0
+            && item.Items[0] is Visual first
+            && first.TranslatePoint(new Point(0, 0), item) is { Y: > 0 } at)
+        {
+            return at.Y;
+        }
+
+        return item.Bounds.Height;
+    }
+
+    /// <summary>Draws the landing: a line between two rows, or the outline of the group it goes in.</summary>
+    private void ShowDrop(TreeViewItem item)
+    {
+        if (item.TranslatePoint(new Point(0, 0), _dropHost) is not { } at)
+        {
+            return;
+        }
+
+        var height = RowHeight(item);
+        var inside = _dropWhere == ProjectDrop.Inside;
+
+        _dropLine.Width = Math.Max(item.Bounds.Width, 1);
+        _dropLine.Height = inside ? height : 2d;
+        _dropLine.Background = inside ? new SolidColorBrush(Color.Parse("#334C9BE8")) : new SolidColorBrush(Color.Parse("#4C9BE8"));
+        _dropLine.BorderThickness = new Thickness(inside ? 1d : 0d);
+        _dropLine.Margin = new Thickness(at.X, at.Y + (_dropWhere == ProjectDrop.After ? height - 2d : 0d), 0, 0);
+        _dropLine.IsVisible = true;
+    }
+
+    private void HideDrop()
+    {
+        _dropLine.IsVisible = false;
+        _dropOn = null;
+    }
+
     private static string Removing(SvgcProjectGroup group)
     {
         var rows = group.Children.Count;
 
         return $"{ProjectWorkspace.Label(group)} holds {rows} {(rows == 1 ? "row" : "rows")}, "
                + "which will be removed with it. This cannot be undone.";
+    }
+
+    /// <summary>
+    /// Puts the selected drawing's own settings under the tree.
+    /// </summary>
+    /// <remarks>
+    /// A group has a tab for these; a drawing has not, and inherits its class from whatever group
+    /// holds it — so a project that builds one file several times had no way at all to say which
+    /// class each row becomes.
+    ///
+    /// Left standing when the selection has not really changed. Saving rebuilds the tree, which
+    /// re-selects the same row, and a panel replaced there would take the box being typed in with it.
+    /// </remarks>
+    private void ShowSettings()
+    {
+        if (_rebuilding)
+        {
+            return;
+        }
+
+        var node = (_projectTree.SelectedItem as TreeViewItem)?.Tag as SvgcProjectNode;
+
+        if (node is not SvgcProjectDrawing drawing || _workspace is not { } workspace)
+        {
+            _projectSettings.Child = null;
+            _projectSettings.IsVisible = false;
+
+            return;
+        }
+
+        if (_projectSettings.Child is GroupPanel open && ReferenceEquals(open.Node, drawing))
+        {
+            return;
+        }
+
+        _projectSettings.Child = new GroupPanel(workspace, drawing) { SavesEachEdit = true };
+        _projectSettings.IsVisible = true;
     }
 
     private async void OnProjectTreeKeyDown(object? sender, KeyEventArgs e)
@@ -764,7 +1066,10 @@ public partial class MainWindow : Window
 
             var request = ProjectWorkspace.SizeOf(drawing);
 
-            if (request.Equals(viewer.SizeRequest) || viewer.IsSourceModified)
+            // The input is editable too, so a tab can be left showing a file the row no longer names.
+            var elsewhere = !string.Equals(viewer.DocumentPath, drawing.ResolvedInput, StringComparison.Ordinal);
+
+            if ((request.Equals(viewer.SizeRequest) && !elsewhere) || viewer.IsSourceModified)
             {
                 continue;
             }

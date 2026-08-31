@@ -226,7 +226,25 @@
         <DockPanel>
           <TextBlock x:Name="ProjectName" DockPanel.Dock="Top" Margin="10,10,10,6"
                      FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" />
-          <TreeView x:Name="ProjectTree" Background="Transparent" BorderThickness="0" />
+          <!--
+            The settings of the row picked out in the tree. Under it rather than in a tab, because
+            a drawing's tab is the viewer: what is edited here is the project's say over the file,
+            not the file.
+          -->
+          <Border x:Name="ProjectSettings" DockPanel.Dock="Bottom" IsVisible="False"
+                  MaxHeight="340" BorderThickness="0,1,0,0" BorderBrush="#20808080" />
+
+          <Grid DragDrop.AllowDrop="True">
+            <TreeView x:Name="ProjectTree" Background="Transparent" BorderThickness="0" />
+            <!--
+              Where a dragged row would land. Over the tree rather than in it, so it takes no room
+              in the layout and cannot take the pointer: a line between two rows on the way past,
+              and the outline of a group when the drop would go inside one.
+            -->
+            <Border x:Name="DropLine" IsVisible="False" IsHitTestVisible="False"
+                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                    BorderBrush="#4C9BE8" Background="#4C9BE8" />
+          </Grid>
         </DockPanel>
       </Border>
 

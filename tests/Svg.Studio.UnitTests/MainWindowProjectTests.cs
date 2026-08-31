@@ -991,6 +991,147 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(Project, File.ReadAllText(path));
     }
 
+    [AvaloniaFact]
+    public async Task A_Row_Dropped_On_A_Group_Goes_Into_It()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var home = (SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!;
+        var group = (SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!;
+
+        Assert.True(window.Move(home, group, ProjectDrop.Inside));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "Demo.Icons.Large", "badge.svg - BadgeLarge", "home.svg - Home" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        // Reparented rather than copied, so it now builds at the group's size.
+        Assert.Equal(2f, home.EffectiveScale);
+        Assert.Contains("<svg input=\"badge.svg\" class=\"BadgeLarge\" />\n    <svg input=\"home.svg\" class=\"Home\" />", File.ReadAllText(path));
+
+        // And back out again, above the group it came from.
+        Assert.True(window.Move(home, group, ProjectDrop.Before));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "Demo.Icons.Large", "badge.svg - BadgeLarge" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        Assert.Null(home.EffectiveScale);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drop_That_Has_Nowhere_To_Land_Changes_Nothing()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var home = (SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!;
+        var group = (TreeViewItem)root.Items[1]!;
+        var badge = (SvgcProjectNode)((TreeViewItem)group.Items[0]!).Tag!;
+
+        // Into a drawing, which holds nothing.
+        Assert.False(window.Move(home, badge, ProjectDrop.Inside));
+
+        // Into its own child, which would take the branch out of the document and leave it holding
+        // itself.
+        Assert.False(window.Move((SvgcProjectNode)group.Tag!, badge, ProjectDrop.After));
+
+        // Beside the project, which has nothing to sit beside.
+        Assert.False(window.Move(home, (SvgcProjectNode)root.Tag!, ProjectDrop.After));
+
+        Assert.Equal(Project, File.ReadAllText(path));
+    }
+
+    [AvaloniaFact]
+    public async Task One_File_Built_Twice_Is_Given_A_Class_Each_In_The_Pane()
+    {
+        Write("home.svg", Drawing);
+
+        var path = Write("icons.svgcproj", """
+            <svgc>
+              <namespace>Demo.Icons</namespace>
+              <group class="Shared">
+                <svg input="home.svg" />
+                <svg input="home.svg" />
+              </group>
+            </svgc>
+            """);
+
+        var window = await Host(path);
+
+        var group = (TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!;
+        var settings = window.FindControl<Border>("ProjectSettings")!;
+
+        // A group has a tab for its settings, so the pane stays out of its way.
+        Tree(window).SelectedItem = group;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(settings.IsVisible);
+
+        Tree(window).SelectedItem = group.Items[1];
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(settings.IsVisible);
+
+        var panel = Assert.IsType<GroupPanel>(settings.Child);
+        var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "class"));
+
+        // Empty, with what the group hands down behind it — which is the whole trouble: both rows
+        // are the same file and both become Shared until one of them says otherwise.
+        Assert.Null(box.Text);
+        Assert.Equal("Shared — from Shared", box.PlaceholderText);
+
+        box.Focus();
+        Dispatcher.UIThread.RunJobs();
+        box.Text = "Second";
+        Dispatcher.UIThread.RunJobs();
+
+        // The caret leaving is the save: the pane has no tab to hold an edit, and the panel goes
+        // the moment another row is picked.
+        panel.GetVisualDescendants().OfType<TextBox>().First(candidate => Equals(candidate.Tag, "output")).Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("<svg input=\"home.svg\" class=\"Second\" />", File.ReadAllText(path));
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "Shared", "home.svg - Shared", "home.svg - Second" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Pointed_At_Another_File_Takes_Its_Tab_With_It()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        var home = (SvgcProjectDrawing)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!;
+
+        await window.ShowAsync(home);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("home.svg", Path.GetFileName((await Settle(window, "home.svg")).DocumentPath));
+
+        home.Input = "badge.svg";
+        window.Workspace!.Save();
+
+        // Left alone, the tab goes on showing a file its row no longer names.
+        Assert.Equal("badge.svg", Path.GetFileName((await Settle(window, "badge.svg")).DocumentPath));
+    }
+
     private static GroupPanel Panel(MainWindow window, string label)
         => Tabs(window).Items.OfType<TabItem>()
             .Select(item => item.Content)
