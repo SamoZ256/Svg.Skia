@@ -501,18 +501,18 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Builds the selected tab's drawing again, if the project resized it out of sight.</summary>
+    /// <summary>Reads the selected tab's drawing again, if it went out of date while out of sight.</summary>
     private void Refill()
     {
         if (_tabs.SelectedItem is not TabItem item
             || !_stale.Remove(item)
-            || item.Tag is not SvgcProjectDrawing drawing
-            || item.Content is not SvgViewer viewer)
+            || item.Content is not SvgViewer viewer
+            || viewer.DocumentPath is not { } path)
         {
             return;
         }
 
-        _ = viewer.LoadAsync(drawing.ResolvedInput);
+        _ = viewer.LoadAsync(path);
     }
 
     // ---- reordering -------------------------------------------------------------------------
@@ -1104,6 +1104,15 @@ public partial class MainWindow : Window
 
         e.Handled = true;
 
+        await SaveAsync();
+    }
+
+    /// <summary>
+    /// Saves whatever the selected tab is holding.
+    /// </summary>
+    /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the keyboard.</remarks>
+    public async Task SaveAsync()
+    {
         if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel panel)
         {
             try
@@ -1112,15 +1121,47 @@ public partial class MainWindow : Window
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
-                await Ask("The project couldn't be saved", failure.Message, null, "Close");
+                await Ask("The project couldn't be saved", failure.Message, null, "Close").ConfigureAwait(true);
             }
 
             return;
         }
 
-        if (Selected() is { } viewer)
+        if (Selected() is { } viewer && await viewer.SaveSourceAsync().ConfigureAwait(true))
         {
-            await viewer.SaveSourceAsync();
+            Reread(viewer);
+        }
+    }
+
+    /// <summary>
+    /// Marks every other tab showing the same file as needing to be read again.
+    /// </summary>
+    /// <remarks>
+    /// A project builds one drawing more than once, so the same file is often open in several tabs
+    /// at once, each holding its own copy of it. A save in one left the others showing what the
+    /// file used to say until they were closed and opened again. They are marked rather than read
+    /// now because none of them is the tab on screen — only one can be — and reading a drawing into
+    /// a viewer that is not presented is what left it blank.
+    ///
+    /// A tab holding edits of its own is left alone: reading the file again would throw them away,
+    /// and two tabs disagreeing is the smaller harm.
+    /// </remarks>
+    private void Reread(SvgViewer saved)
+    {
+        if (saved.DocumentPath is not { } path)
+        {
+            return;
+        }
+
+        foreach (var item in _tabs.Items.OfType<TabItem>())
+        {
+            if (item.Content is SvgViewer viewer
+                && !ReferenceEquals(viewer, saved)
+                && !viewer.IsSourceModified
+                && string.Equals(viewer.DocumentPath, path, StringComparison.Ordinal))
+            {
+                _stale.Add(item);
+            }
         }
     }
 

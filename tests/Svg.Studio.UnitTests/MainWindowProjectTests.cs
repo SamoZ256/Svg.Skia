@@ -637,6 +637,63 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(1, resumed.CaretIndex);
     }
 
+    [AvaloniaFact]
+    public async Task Saving_One_Tab_Reaches_The_Other_Tabs_On_The_Same_File()
+    {
+        Write("badge.svg", Drawing);
+
+        // One file, built twice, which is what a project is for — and so two tabs on one file.
+        var window = await Host(Write("icons.svgcproj", """
+            <svgc>
+              <svg input="badge.svg" class="Badge" />
+              <group class="BadgeLarge" scale="2"><svg input="badge.svg" /></group>
+            </svgc>
+            """));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var first = Tabs(window).Items.OfType<TabItem>()
+            .Single(tab => tab.Content is SvgViewer { DocumentPath: { } } viewer
+                           && Path.GetFileName(viewer.DocumentPath!) == "badge.svg");
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)root.Items[1]!).Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var second = (TabItem)Tabs(window).SelectedItem!;
+        var edited = (SvgViewer)second.Content!;
+
+        Assert.NotSame(first, second);
+
+        // Typed into and saved, in the tab that is on screen.
+        edited.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        window.GetVisualDescendants().OfType<TextEditor>().First().Document.Text =
+            Drawing.Replace("#00ff00", "#0000ff", StringComparison.Ordinal);
+        Dispatcher.UIThread.RunJobs();
+
+        await window.SaveAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("#0000ff", File.ReadAllText(Path.Combine(_directory, "badge.svg")));
+
+        // The other tab held its own copy and went on showing what the file used to say.
+        Tabs(window).SelectedItem = first;
+
+        var stale = (SvgViewer)first.Content!;
+
+        for (var attempt = 0; attempt < 200 && stale.Source.Contains("#00ff00"); attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(5);
+        }
+
+        Assert.Contains("#0000ff", stale.Source);
+    }
+
     /// <summary>The open group tab whose node is labelled <paramref name="label"/>.</summary>
     private static GroupPanel Panel(MainWindow window, string label)
         => Tabs(window).Items.OfType<TabItem>()
