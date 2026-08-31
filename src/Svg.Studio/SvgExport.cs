@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using System.Text;
 using Svg.CodeGen.Skia;
+using Svg.Skia;
+using Svg.SourceEditing;
 using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
@@ -30,23 +32,51 @@ public static class SvgExport
     public static string PathFor(string path) => Path.HasExtension(path) ? path : path + ".svg";
 
     /// <summary>Writes <paramref name="source"/> to <paramref name="path"/>, in the form it names.</summary>
+    /// <param name="size">
+    /// The size a project builds this drawing at, or none for the size it was written with.
+    /// </param>
     /// <returns>The file it went to, which is <see cref="PathFor"/> of the path given.</returns>
     /// <exception cref="InvalidOperationException">The drawing could not be built to generate from.</exception>
-    public static string Write(SvgViewerDocument document, string source, string path)
+    public static string Write(SvgViewerDocument document, string source, string path, SvgSizeRequest size)
     {
         var target = PathFor(path);
+        var sized = Sized(document, source, size);
 
         if (IsCSharp(target))
         {
-            File.WriteAllText(target, Generate(document, source, ClassName(target)));
+            File.WriteAllText(target, Generate(document, sized, ClassName(target)));
         }
         else
         {
             // Through the document, so a drawing that came in with a byte order mark keeps it.
-            document.Write(source, target);
+            document.Write(sized, target);
         }
 
         return target;
+    }
+
+    /// <summary>
+    /// The drawing's text at <paramref name="size"/>, or as written when nothing asks for one.
+    /// </summary>
+    /// <remarks>
+    /// Resized once, here, so both forms carry it: the C# is generated from this rather than
+    /// resized again, and the two cannot come out disagreeing about how big the drawing is. What
+    /// the screen shows is what a project builds, so an export that ignored the project handed back
+    /// something the viewer never showed.
+    ///
+    /// A size the drawing cannot take is not a reason to refuse the export — it is the same answer
+    /// the viewer gives, which is to draw it at the size it has.
+    /// </remarks>
+    private static string Sized(SvgViewerDocument document, string source, SvgSizeRequest size)
+    {
+        if (size.IsEmpty)
+        {
+            return source;
+        }
+
+        var resized = document.Resize(source, size);
+
+        return resized.Succeeded ? SvgTextEdit.ApplyAll(source, resized.Edits) : source;
     }
 
     /// <summary>The C# that draws <paramref name="source"/>.</summary>

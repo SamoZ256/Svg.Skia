@@ -80,6 +80,7 @@ public partial class MainWindow : Window
         _tabs.SelectionChanged += (_, _) =>
         {
             UpdateTitle();
+            UpdateMenu();
             Refill();
         };
 
@@ -101,6 +102,7 @@ public partial class MainWindow : Window
         _tabs.AddHandler(PointerCaptureLostEvent, (_, _) => EndDrag(null));
 
         ShowMenuGestures();
+        UpdateMenu();
 
         var viewer = AddTab();
 
@@ -161,6 +163,9 @@ public partial class MainWindow : Window
             marker.Classes.Set("unsaved", viewer.IsSourceModified);
 
             UpdateTitle();
+
+            // The document arrives after the tab does, and exporting needs one.
+            UpdateMenu();
         };
 
         viewer.SourceModifiedChanged += (_, modified) =>
@@ -743,6 +748,19 @@ public partial class MainWindow : Window
     /// the pane answers to — they are the same list. The first of the ones the platform names, since
     /// a menu item shows one and Redo has two.
     /// </remarks>
+    /// <summary>Offers only what the selected tab can do.</summary>
+    /// <remarks>
+    /// Exporting is a drawing's, and a group tab holds none — the item stayed live over it and did
+    /// nothing at all when it was picked, which reads as the export having failed silently.
+    /// </remarks>
+    private void UpdateMenu()
+    {
+        if (Item(NativeMenu.GetMenu(this), "Export…") is { } export)
+        {
+            export.IsEnabled = Selected() is { Document: { } };
+        }
+    }
+
     private void ShowMenuGestures()
     {
         if (this.GetPlatformSettings()?.HotkeyConfiguration is not { } hotkeys)
@@ -845,7 +863,7 @@ public partial class MainWindow : Window
 
         try
         {
-            SvgExport.Write(document, viewer.Source, target);
+            SvgExport.Write(document, viewer.Source, target, viewer.SizeRequest);
         }
         catch (Exception failure)
             when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)

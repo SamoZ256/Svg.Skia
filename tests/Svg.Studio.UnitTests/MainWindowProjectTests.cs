@@ -694,6 +694,71 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("#0000ff", stale.Source);
     }
 
+    [AvaloniaFact]
+    public async Task Exporting_A_Drawing_Gives_It_The_Size_The_Project_Builds_It_At()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)root.Items[1]!).Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = await Settle(window, "badge.svg");
+
+        Assert.Equal(48f, viewer.Document!.Svg.Picture!.CullRect.Width);
+
+        // What the screen shows is what the project builds, so an export that handed back the file
+        // as written gave something the viewer never showed.
+        var target = Path.Combine(_directory, "exported.svg");
+
+        Assert.True(await window.ExportAsync(target));
+
+        var exported = File.ReadAllText(target);
+
+        Assert.Contains("width=\"48\"", exported);
+        Assert.Contains("height=\"48\"", exported);
+
+        // And the file it came from is untouched, since a project's size is not the drawing's.
+        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "badge.svg")));
+    }
+
+    [AvaloniaFact]
+    public async Task Export_Is_Offered_Only_While_A_Drawing_Is_Open()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        var export = Export(window);
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        // The sample the window starts on is a drawing, so it is there to export.
+        Assert.True(export.IsEnabled);
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        // A group holds no drawing. The item used to stay live and do nothing at all when picked.
+        Assert.False(export.IsEnabled);
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)root.Items[1]!).Items[0]!).Tag!);
+        await Settle(window, "badge.svg");
+
+        Assert.True(export.IsEnabled);
+    }
+
+    /// <summary>The File menu's Export item.</summary>
+    private static NativeMenuItem Export(MainWindow window)
+        => NativeMenu.GetMenu(window)!.Items
+            .OfType<NativeMenuItem>()
+            .SelectMany(item => item.Menu?.Items.OfType<NativeMenuItem>() ?? Enumerable.Empty<NativeMenuItem>())
+            .Single(item => item.Header == "Export…");
+
     /// <summary>The open group tab whose node is labelled <paramref name="label"/>.</summary>
     private static GroupPanel Panel(MainWindow window, string label)
         => Tabs(window).Items.OfType<TabItem>()
