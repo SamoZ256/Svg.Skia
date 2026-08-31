@@ -859,6 +859,138 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>The open group tab whose node is labelled <paramref name="label"/>.</summary>
+    [AvaloniaFact]
+    public async Task A_Drawing_Added_Reaches_The_Tree_And_The_File()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.AddDrawingAsync((SvgcProjectNode)root.Tag!, Write("extra.svg", Drawing));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "Demo.Icons.Large", "badge.svg - BadgeLarge", "extra.svg" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        // Relative, so the project still builds on a machine that is not this one, and on its own
+        // line rather than sharing the closing tag's.
+        Assert.Equal(
+            Project.Replace("</group>\n</svgc>", "</group>\n  <svg input=\"extra.svg\" />\n</svgc>"),
+            File.ReadAllText(path));
+
+        // And it opens, at the size the project it just joined builds it at.
+        Assert.Equal("extra.svg", Path.GetFileName((await Settle(window, "extra.svg")).DocumentPath));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Group_Added_Opens_So_It_Can_Be_Named()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        var group = (TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!;
+
+        await window.AddGroupAsync((SvgcProjectNode)group.Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        // Inside the group it was asked from, indented a level in from it.
+        Assert.Contains("    <svg input=\"badge.svg\" class=\"BadgeLarge\" />\n    <group />", File.ReadAllText(path));
+
+        // Named by neither of its settings until one is typed, which is what the tab is for.
+        Assert.Equal("group", ProjectWorkspace.Label(Panel(window, "group").Node));
+    }
+
+    [AvaloniaFact]
+    public async Task Removing_A_Group_Takes_Its_Tabs_With_It()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        window.ConfirmRemove = _ => Task.FromResult(true);
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var group = (TreeViewItem)root.Items[1]!;
+
+        await window.ShowAsync((SvgcProjectNode)group.Tag!);
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)group.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(3, Tabs(window).Items.Count);
+
+        Assert.True(await window.RemoveAsync((SvgcProjectNode)group.Tag!));
+        Dispatcher.UIThread.RunJobs();
+
+        // The group's tab and the drawing's under it both go: left open, either would go on editing
+        // an element the document no longer holds and report itself saved.
+        Assert.Single(Tabs(window).Items);
+        Assert.Equal(new[] { "Demo.Icons", "home.svg - Home" }, Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        // The comment stays. It is a sibling of the group, not part of it.
+        Assert.Equal(
+            Project.Replace("\n  <group namespace=\"Demo.Icons.Large\" scale=\"2\">\n    <svg input=\"badge.svg\" class=\"BadgeLarge\" />\n  </group>", ""),
+            File.ReadAllText(path));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Branch_Refused_At_The_Question_Stays()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        var asked = new List<string>();
+
+        window.ConfirmRemove = message => { asked.Add(message); return Task.FromResult(false); };
+
+        var group = (SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!;
+
+        Assert.False(await window.RemoveAsync(group));
+
+        // Asked because it takes a row with it, and the file is untouched.
+        Assert.Contains("holds 1 row", Assert.Single(asked));
+        Assert.Equal(Project, File.ReadAllText(path));
+    }
+
+    [AvaloniaFact]
+    public async Task Unsaved_Work_Under_A_Removed_Group_Is_Asked_About_And_Can_Keep_It()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        window.ConfirmRemove = _ => Task.FromResult(true);
+        window.ConfirmDiscard = _ => Task.FromResult(false);
+
+        var group = (SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!;
+
+        await window.ShowAsync(group);
+        Dispatcher.UIThread.RunJobs();
+
+        Panel(window, "Demo.Icons.Large").Edit("class", "Renamed");
+
+        // The tabs are closed first, so work typed into one still gets its question — and refusing
+        // it stops the removal rather than losing the edit to it.
+        Assert.False(await window.RemoveAsync(group));
+
+        Assert.Equal(2, Tabs(window).Items.Count);
+        Assert.Equal(Project, File.ReadAllText(path));
+    }
+
     private static GroupPanel Panel(MainWindow window, string label)
         => Tabs(window).Items.OfType<TabItem>()
             .Select(item => item.Content)

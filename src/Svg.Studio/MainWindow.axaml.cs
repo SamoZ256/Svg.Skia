@@ -78,6 +78,7 @@ public partial class MainWindow : Window
         AvaloniaXamlLoader.Load(this);
 
         ConfirmDiscard = AskDiscard;
+        ConfirmRemove = message => Ask("Remove from the project", message, "Remove", "Cancel");
         Announce = (title, message) => Ask(title, message, null, "Close");
 
         _tabs = this.FindControl<TabControl>("Tabs")!;
@@ -406,7 +407,8 @@ public partial class MainWindow : Window
         _projectColumn.MinWidth = show ? 180 : 0;
     }
 
-    private void BuildTree()
+    /// <param name="select">The node to leave selected, or null to keep whatever was.</param>
+    private void BuildTree(SvgcProjectNode? select = null)
     {
         if (_workspace is not { } workspace)
         {
@@ -415,7 +417,7 @@ public partial class MainWindow : Window
 
         _projectName.Text = workspace.Name;
 
-        var selected = (_projectTree.SelectedItem as TreeViewItem)?.Tag;
+        var selected = select ?? (_projectTree.SelectedItem as TreeViewItem)?.Tag;
 
         _projectTree.Items.Clear();
         _projectTree.Items.Add(Branch(workspace.Document.Root, selected));
@@ -452,6 +454,8 @@ public partial class MainWindow : Window
             await ShowAsync(node);
         };
 
+        item.ContextMenu = Commands(node);
+
         if (node is SvgcProjectGroup group)
         {
             foreach (var child in group.Children)
@@ -463,10 +467,192 @@ public partial class MainWindow : Window
         return item;
     }
 
+    /// <summary>What can be done to a row, on the row rather than in the menu bar.</summary>
+    /// <remarks>
+    /// Per row, so what is acted on is what was clicked — a right click does not select, and a menu
+    /// reading the selection would act on whatever was opened last.
+    /// </remarks>
+    private ContextMenu Commands(SvgcProjectNode node)
+    {
+        var menu = new ContextMenu();
+
+        Add("Add group", async () => await AddGroupAsync(node));
+        Add("Add SVG…", async () => await AddDrawingAsync(node));
+
+        // The project is the file; there is no tree left without it.
+        if (node.Parent is { })
+        {
+            menu.Items.Add(new Separator());
+            Add("Remove", async () => await RemoveAsync(node));
+        }
+
+        return menu;
+
+        void Add(string header, Func<Task> command)
+        {
+            var item = new MenuItem { Header = header };
+
+            item.Click += async (_, _) => await command();
+
+            menu.Items.Add(item);
+        }
+    }
+
+    /// <summary>Where something added beside <paramref name="node"/> goes: in a group, after a drawing.</summary>
+    private static (SvgcProjectGroup Parent, int Index) Beside(SvgcProjectNode node)
+        => node is SvgcProjectGroup group
+            ? (group, group.Children.Count)
+            : (node.Parent!, node.Parent!.Children.ToList().IndexOf(node) + 1);
+
+    /// <summary>Adds an empty group, and opens it so it can be given a name.</summary>
+    /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the menu.</remarks>
+    public async Task AddGroupAsync(SvgcProjectNode beside)
+    {
+        if (_workspace is not { } workspace)
+        {
+            return;
+        }
+
+        var (parent, index) = Beside(beside);
+        var group = parent.AddGroup(index);
+
+        workspace.Save();
+        BuildTree(group);
+
+        // A group with nothing on it is named by neither of its settings, so it opens as "group"
+        // until one is typed — which is what the tab is for.
+        await ShowAsync(group).ConfigureAwait(true);
+    }
+
+    /// <summary>Asks which drawing to add, and adds it.</summary>
+    private async Task AddDrawingAsync(SvgcProjectNode beside)
+    {
+        if (_workspace is null || !StorageProvider.CanOpen)
+        {
+            return;
+        }
+
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Add a drawing to the project",
+            AllowMultiple = true,
+            FileTypeFilter = new List<FilePickerFileType> { StudioFileDialogService.Drawings }
+        }).ConfigureAwait(true);
+
+        foreach (var path in files.Select(file => file.TryGetLocalPath()).Where(path => path is { Length: > 0 }))
+        {
+            await AddDrawingAsync(beside, path!).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>Adds <paramref name="path"/> to the project, and opens it.</summary>
+    /// <remarks>Taking the path rather than asking for it, so everything but the panel can be driven.</remarks>
+    public async Task AddDrawingAsync(SvgcProjectNode beside, string path)
+    {
+        if (_workspace is not { } workspace)
+        {
+            return;
+        }
+
+        var (parent, index) = Beside(beside);
+        var drawing = parent.AddDrawing(Carried(path, workspace.Document.BaseDirectory), index);
+
+        workspace.Save();
+        BuildTree(drawing);
+
+        await ShowAsync(drawing).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// The path as the project should carry it: relative to the project's own directory.
+    /// </summary>
+    /// <remarks>
+    /// A project that named an absolute path would build on the machine it was written on and
+    /// nowhere else, so a walk out of the directory is kept in preference — it survives the whole
+    /// tree being moved or cloned. Only a path with no relative form at all, which on Windows means
+    /// another drive, stays as it came. Separators are written the way the format's own examples
+    /// write them; Path.Combine reads those on Windows, where the reverse is not true.
+    /// </remarks>
+    private static string Carried(string path, string baseDirectory)
+    {
+        if (baseDirectory.Length == 0)
+        {
+            return path;
+        }
+
+        var relative = Path.GetRelativePath(baseDirectory, path);
+
+        return Path.IsPathRooted(relative) ? path : relative.Replace('\\', '/');
+    }
+
+    /// <summary>
+    /// Takes a node out of the project, with everything under it.
+    /// </summary>
+    /// <remarks>
+    /// The tabs go first, so work typed into one still gets its question, and so that nothing is
+    /// left editing an element the document no longer holds — a <see cref="GroupPanel"/> over a
+    /// removed node goes on writing settings into a detached element and reporting itself saved.
+    /// </remarks>
+    /// <returns>Whether it was removed, or false when the question was answered against it.</returns>
+    public async Task<bool> RemoveAsync(SvgcProjectNode node)
+    {
+        if (_workspace is not { } workspace || node.Parent is not { } parent)
+        {
+            return false;
+        }
+
+        // Only when it takes something with it. A row removed by mistake is one add away; a branch
+        // is not, and there is no undo.
+        if (node is SvgcProjectGroup { Children.Count: > 0 } group
+            && !await ConfirmRemove(Removing(group)).ConfigureAwait(true))
+        {
+            return false;
+        }
+
+        foreach (var item in _tabs.Items.OfType<TabItem>()
+                     .Where(item => item.Tag is SvgcProjectNode held && held.DescendsFrom(node))
+                     .ToList())
+        {
+            if (!await CloseTabAsync(item).ConfigureAwait(true))
+            {
+                return false;
+            }
+        }
+
+        parent.Remove(node);
+
+        workspace.Save();
+        BuildTree();
+
+        return true;
+    }
+
+    private static string Removing(SvgcProjectGroup group)
+    {
+        var rows = group.Children.Count;
+
+        return $"{ProjectWorkspace.Label(group)} holds {rows} {(rows == 1 ? "row" : "rows")}, "
+               + "which will be removed with it. This cannot be undone.";
+    }
+
     private async void OnProjectTreeKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key is not (Key.Enter or Key.Return)
-            || (_projectTree.SelectedItem as TreeViewItem)?.Tag is not SvgcProjectNode node)
+        if ((_projectTree.SelectedItem as TreeViewItem)?.Tag is not SvgcProjectNode node)
+        {
+            return;
+        }
+
+        // Back as well as Delete: the two are one key on a Mac keyboard.
+        if (e.Key is Key.Delete or Key.Back)
+        {
+            e.Handled = true;
+
+            await RemoveAsync(node);
+
+            return;
+        }
+
+        if (e.Key is not (Key.Enter or Key.Return))
         {
             return;
         }
@@ -999,7 +1185,18 @@ public partial class MainWindow : Window
     /// </remarks>
     public Func<string, string, Task> Announce { get; set; }
 
-    private async Task CloseTabAsync(TabItem item)
+    /// <summary>
+    /// How the window asks whether a branch of the project may go.
+    /// </summary>
+    /// <remarks>
+    /// Its own rather than <see cref="ConfirmDiscard"/> widened: the two differ in their title and
+    /// in both button labels, so one seam carrying the wording would take four arguments and every
+    /// caller that only reads the message would have to pass values it ignores.
+    /// </remarks>
+    public Func<string, Task<bool>> ConfirmRemove { get; set; }
+
+    /// <returns>Whether the tab closed, or false when its unsaved work was kept.</returns>
+    private async Task<bool> CloseTabAsync(TabItem item)
     {
         // A close button is one click away from losing an edit, and nothing else would have said so.
         var unsaved = item.Content switch
@@ -1011,10 +1208,12 @@ public partial class MainWindow : Window
 
         if (unsaved is { } name && !await ConfirmDiscard(Describe(new[] { name })))
         {
-            return;
+            return false;
         }
 
         CloseTab(item);
+
+        return true;
     }
 
     /// <summary>Whether the close has already been answered for, so the second one goes through.</summary>
@@ -1161,7 +1360,7 @@ public partial class MainWindow : Window
             MimeTypes = new[] { "application/xml" }
         };
 
-        private static readonly FilePickerFileType DrawingFileType = new("Svg Files")
+        internal static readonly FilePickerFileType Drawings = new("Svg Files")
         {
             Patterns = new[] { "*.svg", "*.svgz" },
             AppleUniformTypeIdentifiers = new[] { "public.svg-image" },
@@ -1189,7 +1388,7 @@ public partial class MainWindow : Window
             {
                 Title = "Open drawing or project",
                 AllowMultiple = false,
-                FileTypeFilter = new List<FilePickerFileType> { DrawingFileType, ProjectFileType, AllFileType }
+                FileTypeFilter = new List<FilePickerFileType> { Drawings, ProjectFileType, AllFileType }
             }).ConfigureAwait(true);
 
             return files?.Select(file => file.TryGetLocalPath())
