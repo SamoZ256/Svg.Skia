@@ -93,6 +93,7 @@ public partial class MainWindow : Window
             UpdateTitle();
             UpdateMenu();
             Refill();
+            Reveal();
         };
 
         _projectTree = this.FindControl<TreeView>("ProjectTree")!;
@@ -1207,6 +1208,62 @@ public partial class MainWindow : Window
 
             Read(viewer, drawing.ResolvedInput, elsewhere);
         }
+    }
+
+    /// <summary>
+    /// Opens the tree down to whatever the selected tab is showing, and marks its row.
+    /// </summary>
+    /// <remarks>
+    /// The tree says where in the project you are, and a group folded away made it say nothing at
+    /// all about a tab from inside it. Picking a tab is the answer to "where is this?", so the row
+    /// comes back into sight rather than being left for the reader to go and find.
+    ///
+    /// Only what the tabs and the tree both hold: a recipe's tab is a file rather than a node of
+    /// the project, and has no row to open down to.
+    /// </remarks>
+    private void Reveal()
+    {
+        if ((_tabs.SelectedItem as TabItem)?.Tag is not SvgcProjectNode node
+            || _projectTree.Items.OfType<TreeViewItem>().FirstOrDefault() is not { } root
+            || Route(root, node) is not { } path)
+        {
+            return;
+        }
+
+        // Every group above it. The row itself is left as it is — folding a group open to see a
+        // drawing inside it is not a reason to unfold the drawing's own children.
+        for (var above = 0; above < path.Count - 1; above++)
+        {
+            path[above].IsExpanded = true;
+        }
+
+        var row = path[path.Count - 1];
+
+        _projectTree.SelectedItem = row;
+
+        // Opened is not the same as in sight: a long project scrolls.
+        row.BringIntoView();
+    }
+
+    /// <summary>The rows from the root down to <paramref name="node"/>, or null when it has none.</summary>
+    private static List<TreeViewItem>? Route(TreeViewItem item, SvgcProjectNode node)
+    {
+        if (ReferenceEquals(item.Tag, node))
+        {
+            return new List<TreeViewItem> { item };
+        }
+
+        foreach (var child in item.Items.OfType<TreeViewItem>())
+        {
+            if (Route(child, node) is { } found)
+            {
+                found.Insert(0, item);
+
+                return found;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Builds the selected tab's drawing again, if it went out of date while out of sight.</summary>

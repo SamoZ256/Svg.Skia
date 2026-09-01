@@ -1987,6 +1987,61 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task Picking_A_Tab_Opens_The_Tree_Down_To_What_It_Shows()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var group = (TreeViewItem)root.Items[1]!;
+        var badge = (TreeViewItem)group.Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)badge.Tag!);
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        // Folded away with a tab from inside it still open, which is what makes the tree stop
+        // saying anything about where that tab is.
+        group.IsExpanded = false;
+        Dispatcher.UIThread.RunJobs();
+
+        Tabs(window).SelectedItem = Tabs(window).Items
+            .OfType<TabItem>()
+            .Single(item => ReferenceEquals(item.Tag, badge.Tag));
+
+        Dispatcher.UIThread.RunJobs();
+
+        // Picking the tab is the answer to "where is this?", so the row comes back into sight.
+        Assert.True(group.IsExpanded);
+        Assert.Same(badge, Tree(window).SelectedItem);
+    }
+
+    [AvaloniaFact]
+    public async Task Picking_A_Tab_With_No_Row_Leaves_The_Tree_Alone()
+    {
+        var (window, viewer) = await Painting();
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var group = (TreeViewItem)root.Items[1]!;
+
+        // A recipe's tab is a file, not a node of the project, so there is nothing to open down to.
+        window.ShowRecipe(Path.Combine(_directory, "icons.recipe"));
+        Dispatcher.UIThread.RunJobs();
+
+        group.IsExpanded = false;
+
+        Tabs(window).SelectedItem = Tabs(window).Items
+            .OfType<TabItem>()
+            .Single(item => item.Content is RecipePanel);
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(group.IsExpanded);
+    }
+
+    [AvaloniaFact]
     public async Task A_Rule_That_This_Drawing_Has_No_Colour_For_Is_Still_Shown()
     {
         var (_, viewer) = await Painting(Drawing.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
