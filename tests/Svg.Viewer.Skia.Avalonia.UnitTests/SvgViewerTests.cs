@@ -62,6 +62,110 @@ public class SvgViewerTests
         return (window, viewer);
     }
 
+    private const string Plain = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+          <rect x="0" y="0" width="24" height="24" fill="#00ff00" />
+        </svg>
+        """;
+
+    /// <summary>What a recipe makes of <see cref="Plain"/>: a parameter, and a colour driven by it.</summary>
+    private const string Rewritten = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="hue" type="number" default="0" min="0" max="360" /></e:code></defs>
+          <rect x="0" y="0" width="24" height="24" fill="{{ hsl(hue, 100%, 50%) }}" />
+        </svg>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Rewrite_Decides_What_Is_Painted()
+    {
+        var (window, viewer) = Host();
+
+        viewer.ShowDeclarationPanel = false;
+        viewer.ShowToolBar = false;
+        viewer.ShowStatusBar = false;
+
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".svg");
+
+        File.WriteAllText(path, Plain);
+
+        try
+        {
+            Assert.True(await viewer.LoadAsync(path));
+            Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+            var plain = CentrePixel(window);
+            Assert.True(plain.Green > 200 && plain.Red < 60, $"Expected the file's green, found {plain}.");
+
+            // The same file, drawn through a rewrite that recolours it — what a recipe does.
+            viewer.Rewrite = _ => Rewritten;
+
+            Assert.True(await viewer.LoadAsync(path));
+            Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+            var rewritten = CentrePixel(window);
+            Assert.True(rewritten.Red > 200 && rewritten.Green < 60, $"Expected the rewrite's red, found {rewritten}.");
+
+            // And the parameter it declared drives the colour, which is the whole point of showing it.
+            Assert.True(viewer.TrySetParameterValue("hue", ExprValue.Number(240f)));
+            Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+            var bound = CentrePixel(window);
+            Assert.True(bound.Blue > 200 && bound.Red < 60, $"Expected blue, found {bound}.");
+        }
+        finally
+        {
+            File.Delete(path);
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task A_Rewritten_Drawing_Shows_Its_Parameters_And_Offers_No_Editing()
+    {
+        var (window, viewer) = Host();
+
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".svg");
+
+        File.WriteAllText(path, Plain);
+
+        try
+        {
+            viewer.Rewrite = _ => Rewritten;
+
+            Assert.True(await viewer.LoadAsync(path));
+            Dispatcher.UIThread.RunJobs();
+
+            // The drawing is the rewrite's; the text is the file's.
+            Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
+            Assert.Equal(Plain, viewer.Source);
+
+            var add = window.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AddButton");
+            var edits = window.GetVisualDescendants().OfType<Button>().Where(button => button.Classes.Contains("edit")).ToList();
+
+            // Nothing that would write a declaration into the file, which is where the panel writes
+            // and where a recipe then refuses to apply.
+            Assert.False(add.IsVisible);
+            Assert.NotEmpty(edits);
+            Assert.All(edits, button => Assert.False(button.IsVisible));
+
+            // And it all comes back for a drawing that declares for itself.
+            viewer.Rewrite = null;
+
+            Assert.True(await viewer.LoadTextAsync(Rewritten));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(add.IsVisible);
+            Assert.All(
+                window.GetVisualDescendants().OfType<Button>().Where(button => button.Classes.Contains("edit")),
+                button => Assert.True(button.IsVisible));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [AvaloniaFact]
     public async Task A_Side_Panel_Shares_The_Right_Pane_With_The_Parameters()
     {

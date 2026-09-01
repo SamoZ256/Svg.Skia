@@ -268,7 +268,7 @@ public partial class MainWindow : Window
         workspace.Edited += (_, _) =>
         {
             BuildTree();
-            Resize();
+            Rebuild();
         };
 
         ShowProjectPane(true);
@@ -954,8 +954,64 @@ public partial class MainWindow : Window
         }
 
         viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
+        Recipe(viewer, drawing);
 
         await viewer.LoadAsync(drawing.ResolvedInput).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Puts the drawing's recipe on the viewer, so the preview is the document the project builds.
+    /// </summary>
+    /// <remarks>
+    /// A recipe rewrites colours into expressions and declares the parameters that drive them, so a
+    /// drawing under one looks nothing like its file — and the parameters the panel then offers are
+    /// the recipe's, which is what makes them worth dragging. Without this the preview was the plain
+    /// file while the build produced something else, and nothing said so.
+    /// </remarks>
+    private static void Recipe(SvgViewer viewer, SvgcProjectDrawing drawing)
+    {
+        viewer.Rewrite = null;
+        viewer.Notice = null;
+
+        if (drawing.EffectiveResolvedRecipe is not { } path)
+        {
+            return;
+        }
+
+        try
+        {
+            var recipe = SvgRecipe.Load(path);
+
+            // Applied once here rather than taken on trust, because a recipe this drawing refuses —
+            // one that already declares for itself, say — would otherwise fail inside the load, and
+            // the tab would open empty instead of showing the drawing and the reason. It costs a
+            // second read of a file the load is about to read anyway.
+            SvgRecipeRewriter.Apply(File.ReadAllText(drawing.ResolvedInput), recipe);
+
+            viewer.Rewrite = text => Rewritten(text, recipe);
+        }
+        catch (Exception failure)
+            when (failure is SvgRecipeException or IOException or UnauthorizedAccessException)
+        {
+            viewer.Notice = $"{Path.GetFileName(path)} was not applied: {failure.Message}";
+        }
+    }
+
+    /// <summary>The drawing as its recipe makes it, or as it is when the recipe will not have it.</summary>
+    /// <remarks>
+    /// Never throws: this runs on every keystroke in the source pane, and text edited into something
+    /// the recipe refuses is shown as it is rather than freezing the picture where it was.
+    /// </remarks>
+    private static string Rewritten(string svgText, SvgRecipe recipe)
+    {
+        try
+        {
+            return SvgRecipeRewriter.Apply(svgText, recipe).Svg;
+        }
+        catch (SvgRecipeException)
+        {
+            return svgText;
+        }
     }
 
     /// <summary>A tab for something that is not a drawing, which the viewer's own tab does not fit.</summary>
@@ -993,13 +1049,13 @@ public partial class MainWindow : Window
         => _tabs.Items.OfType<TabItem>().FirstOrDefault(item => ReferenceEquals(item.Tag, node));
 
     /// <summary>
-    /// Rebuilds the open drawings at the size the project's settings now ask for.
+    /// Reads the open drawings again as the project's settings now say to build them.
     /// </summary>
     /// <remarks>
     /// A drawing with edits of its own in the source pane is left alone: reloading it would throw
-    /// them away, and a resize is not worth that.
+    /// them away, and following a setting is not worth that.
     /// </remarks>
-    private void Resize()
+    private void Rebuild()
     {
         foreach (var item in _tabs.Items.OfType<TabItem>())
         {
@@ -1013,12 +1069,18 @@ public partial class MainWindow : Window
             // The input is editable too, so a tab can be left showing a file the row no longer names.
             var elsewhere = !string.Equals(viewer.DocumentPath, drawing.ResolvedInput, StringComparison.Ordinal);
 
-            if ((request.Equals(viewer.SizeRequest) && !elsewhere) || viewer.IsSourceModified)
+            // A drawing under a recipe is read again whatever the settings say, rather than compared:
+            // the recipe it names could have been changed, and so could the recipe file itself, and
+            // no comparison here would see either.
+            var derived = drawing.EffectiveResolvedRecipe is { } || viewer.Rewrite is { };
+
+            if ((request.Equals(viewer.SizeRequest) && !elsewhere && !derived) || viewer.IsSourceModified)
             {
                 continue;
             }
 
             viewer.SizeRequest = request;
+            Recipe(viewer, drawing);
 
             if (ReferenceEquals(_tabs.SelectedItem, item))
             {

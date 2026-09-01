@@ -103,6 +103,8 @@ public partial class SvgViewer : UserControl
     private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
     private int _loadVersion;
     private bool _applyQueued;
+    private Func<string, string>? _rewrite;
+    private string? _notice;
     private Control? _sidePanel;
     private string _sidePanelHeader = "More";
 
@@ -214,6 +216,28 @@ public partial class SvgViewer : UserControl
     /// <c>Edit → Resize…</c>.
     /// </remarks>
     public SvgSizeRequest SizeRequest { get; set; } = SvgSizeRequest.None;
+
+    /// <summary>
+    /// What a drawing's text goes through before it is drawn, or null to draw it as written.
+    /// </summary>
+    /// <remarks>
+    /// For a host whose drawing is derived from its file — an svgc project applying a recipe, where
+    /// what is built is not what the file says. The pane still shows and saves the file itself, so
+    /// a document set up this way declares things its own text does not: the declaration panel stops
+    /// offering to edit them, since every one of those commands writes into the file.
+    ///
+    /// Applies to a drawing loaded from a path, and to every rebuild of it. It takes effect on the
+    /// next load, which is the caller's to make.
+    /// </remarks>
+    public Func<string, string>? Rewrite
+    {
+        get => _rewrite;
+        set
+        {
+            _rewrite = value;
+            _panel.CanDeclare = value is null;
+        }
+    }
 
     /// <summary>How the viewer asks what parameter to declare. Replaceable, and faked in tests.</summary>
     public ISvgViewerParameterDialogService ParameterDialogService { get; set; } = new SvgViewerParameterDialogService();
@@ -392,6 +416,24 @@ public partial class SvgViewer : UserControl
     /// Analysed on first ask, not only when the pane opens: the error panel needs to know whether a
     /// failed binding is the drawing's fault before anyone asks to read it.
     /// </remarks>
+    /// <summary>
+    /// A standing sentence from the host about the open drawing, said with the viewer's own.
+    /// </summary>
+    /// <remarks>
+    /// For trouble only the host can see — an svgc project whose recipe will not apply to this
+    /// drawing, so what is on screen is not what the project builds. The status line under the
+    /// drawing is the only place already saying that kind of thing about it.
+    /// </remarks>
+    public string? Notice
+    {
+        get => _notice;
+        set
+        {
+            _notice = string.IsNullOrEmpty(value) ? null : value;
+            ShowTrouble();
+        }
+    }
+
     public IReadOnlyList<SvgSourceDiagnostic> SourceDiagnostics => Diagnostics();
 
     /// <summary>The whole drawing as text, including the edits the pane is holding.</summary>
@@ -453,7 +495,7 @@ public partial class SvgViewer : UserControl
     }
 
     public Task<bool> LoadAsync(string path)
-        => LoadCoreAsync(() => SvgViewerDocument.Load(path, SizeRequest), Path.GetFileName(path));
+        => LoadCoreAsync(() => SvgViewerDocument.Load(path, SizeRequest, Rewrite), Path.GetFileName(path));
 
     public Task<bool> LoadTextAsync(string svgText)
         => LoadCoreAsync(() => SvgViewerDocument.LoadFromSvg(svgText), null);
@@ -1655,7 +1697,7 @@ public partial class SvgViewer : UserControl
     {
         if (_document is null)
         {
-            return null;
+            return _notice;
         }
 
         var found = Diagnostics();
@@ -1680,7 +1722,7 @@ public partial class SvgViewer : UserControl
         // those six errors would be the status bar saying a working file is broken.
         if (errors == 0 && warnings == 0)
         {
-            return null;
+            return _notice;
         }
 
         var said = errors == 0
@@ -1689,7 +1731,11 @@ public partial class SvgViewer : UserControl
                 ? Count(errors, "error")
                 : $"{Count(errors, "error")} and {Count(warnings, "warning")}";
 
-        return $"{said}, marked in the Source pane";
+        var counted = $"{said}, marked in the Source pane";
+
+        // Both, on the one line there is. The host's comes first: it is about the drawing as a
+        // whole, and the count points at marks the reader can find without being told twice.
+        return _notice is { } notice ? $"{notice} · {counted}" : counted;
     }
 
     private static string Count(int many, string what) => many == 1 ? $"1 {what}" : $"{many} {what}s";

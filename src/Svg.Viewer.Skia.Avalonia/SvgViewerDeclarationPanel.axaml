@@ -47,6 +47,21 @@
       <Setter Property="Opacity" Value="1" />
     </Style>
 
+    <!-- What the drawing declares is not always in the drawing: an svgc project applying a recipe
+         declares its parameters in the recipe file, and every command here writes into the drawing.
+         The rows stay and their values stay settable; only the editing goes. -->
+    <Style Selector="viewer|SvgViewerDeclarationPanel.locked Button.edit">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+
+    <Style Selector="viewer|SvgViewerDeclarationPanel.locked Border.grip">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+
+    <Style Selector="viewer|SvgViewerDeclarationPanel.locked TextBox.field">
+      <Setter Property="IsReadOnly" Value="True" />
+    </Style>
+
     <Style Selector="TextBlock.section">
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Opacity" Value="0.7" />

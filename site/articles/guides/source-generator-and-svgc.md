@@ -302,8 +302,17 @@ Clicking a node opens it — a drawing in a viewer **at the size its groups buil
 the one it was written with, a group as its settings and what they come to. A double click is left
 to the tree, which folds a node with it. Settings are edited
 there and saved back with the file's comments and layout intact. The resize is applied to the picture
-and never to the file, so what a group says about a drawing stays the group's. It does not offer to
-edit recipes: a `recipe` is shown and edited as a path.
+and never to the file, so what a group says about a drawing stays the group's.
+
+A drawing under a `recipe` is shown **as the recipe makes it** — the colours the recipe names already
+turned into expressions, and its parameters on the panel with sliders on them, which is the whole
+loop a recipe is written for. The file is untouched: the source pane shows, edits and saves the
+drawing itself, and `File → Export…` writes what the project builds, which is the document
+`--emit svg` produces. What the panel will not do there is *declare*: the parameters belong to the
+recipe, and everything the panel writes goes into the drawing, where a recipe then refuses to apply.
+A recipe that cannot be read, or that this drawing refuses, is said on the status line under the
+drawing, which still opens. Studio does not offer to edit recipes: a `recipe` is shown and edited as
+a path.
 
 The tree is editable. Each row carries **Add group**, **Add SVG…** and **Remove**; `Delete` removes
 the selected row, and a row is dragged to move it — dropped on the top or bottom quarter of a group

@@ -52,6 +52,7 @@ await Viewer.LoadAsync("badge.svg");
 | `TrySetParameterValue` / `ResetParameters` | Driving values from host UI |
 | `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` / `ShowSource` | Supplying your own chrome |
 | `SidePanel` / `SidePanelHeader` | A panel of your own beside the parameters: the right pane becomes a pair of tabs while one is set, yours first and so the one it opens on, and holds the parameters alone again when it is cleared |
+| `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
 | `FileDialogService` | Custom storage or picker integration |
 | `Canvas` | Direct access to the surface for zoom and pan |
 | `DocumentOpened` / `ErrorRaised` / `ParameterValueChanged` | Syncing host titles and status |
@@ -250,6 +251,15 @@ instead of a tab, which is why the request carries paths rather than drawings.
 `SizeRequest` is the seam that host opens a project's drawings through: a size applied to the parsed
 document on every build, the file left as it was written. `Edit → Resize…` is the other half of the
 pair and the opposite choice — it rewrites the drawing's own text.
+
+`Rewrite` is the second such seam, and goes further: the drawing built is not the file at all. Studio
+sets it to a project's recipe, so what is on screen is the document `svgc` compiles — colours turned
+into expressions, and the recipe's parameters declared. Everything else still works from the file:
+the source pane shows it, edits it and saves it, and every rebuild while somebody types goes back
+through the rewrite. Because the declarations then belong to the recipe rather than to the drawing,
+the parameter panel drops its editing — its commands all write into the drawing's own text, which is
+exactly what a recipe refuses to be applied to. `Notice` is where a host says a rewrite could not be
+set up at all; it appears on the status line beside the viewer's own count of what is wrong.
 
 ## Two things worth knowing
 

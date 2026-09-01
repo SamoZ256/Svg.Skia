@@ -1179,6 +1179,155 @@ public class MainWindowProjectTests : IDisposable
             .Single(panel => ProjectWorkspace.Label(panel.Node) == label);
 
     /// <summary>Waits for the tab holding <paramref name="name"/> to have finished loading.</summary>
+    private const string Recipe = """
+        <recipe xmlns="https://svg.skia/expr/1.0">
+          <code>
+            <param name="hue" type="number" default="120" />
+            <let name="tint">hsl(hue, 100%, 50%)</let>
+          </code>
+          <replace color="#00ff00">tint</replace>
+        </recipe>
+        """;
+
+    /// <summary>The sample project with a recipe on the group, which only badge.svg is under.</summary>
+    private const string RecipeProject = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+
+          <svg input="home.svg" class="Home" />
+
+          <group namespace="Demo.Icons.Large" scale="2" recipe="icons.recipe">
+            <svg input="badge.svg" class="BadgeLarge" />
+          </group>
+        </svgc>
+        """;
+
+    private static SvgViewerDeclarationPanel Declarations(SvgViewer viewer)
+        => viewer.FindControl<SvgViewerDeclarationPanel>("PART_Declarations")!;
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Under_A_Recipe_Is_Shown_As_The_Project_Builds_It()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", RecipeProject));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var group = (TreeViewItem)root.Items[1]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)group.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = await Settle(window, "badge.svg");
+
+        // The recipe declares the parameter, so the drawing on screen has one to drive even though
+        // its own file declares nothing.
+        Assert.Equal(new[] { "hue" }, viewer.Parameters.Select(row => row.Name).ToArray());
+        Assert.Equal(new[] { "tint" }, viewer.Document!.Declarations.Lets.Select(let => let.Name).ToArray());
+
+        // What is edited and saved is still the file: the rewrite is only what gets drawn.
+        Assert.Equal(Drawing, viewer.Source);
+        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "badge.svg")));
+        Assert.False(viewer.IsSourceModified);
+
+        // home.svg is outside the group, so nothing rewrites it.
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty((await Settle(window, "home.svg")).Parameters);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Panel_Does_Not_Offer_To_Declare_What_A_Recipe_Declares()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", RecipeProject));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var group = (TreeViewItem)root.Items[1]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)group.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        // Every command on the panel writes into the drawing's own text, which would give it a
+        // declaration block of its own — and the recipe refuses a document that already has one.
+        Assert.False(Declarations(await Settle(window, "badge.svg")).CanDeclare);
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(Declarations(await Settle(window, "home.svg")).CanDeclare);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Recipe_That_Will_Not_Apply_Is_Said_Over_The_Drawing_It_Was_For()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        // A rule with no expression: the kind of thing a recipe is left in halfway through writing.
+        Write("icons.recipe", """
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace color="#00ff00"></replace>
+            </recipe>
+            """);
+
+        var window = await Host(Write("icons.svgcproj", RecipeProject));
+
+        var group = (TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)group.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = await Settle(window, "badge.svg");
+
+        // The drawing still opens. Refusing to show it would leave nothing to read the reason on.
+        Assert.NotNull(viewer.Document);
+        Assert.Empty(viewer.Parameters);
+
+        Assert.Contains("icons.recipe was not applied", viewer.Notice);
+        Assert.Contains("no expression", viewer.Notice);
+    }
+
+    [AvaloniaFact]
+    public async Task Taking_The_Recipe_Off_A_Group_Reads_Its_Drawings_Again()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", RecipeProject));
+
+        var group = (TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)group.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = await Settle(window, "badge.svg");
+        Assert.Single(viewer.Parameters);
+
+        var workspace = window.Workspace!;
+
+        ((SvgcProjectGroup)workspace.Document.Root.Children[1]).Recipe = null;
+        workspace.Save();
+
+        for (var attempt = 0; attempt < 200 && viewer.Parameters.Count > 0; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        // The size did not change, so only the recipe could have asked for this reload.
+        Assert.Empty(viewer.Parameters);
+        Assert.Null(viewer.Rewrite);
+        Assert.True(Declarations(viewer).CanDeclare);
+    }
+
     private static async Task<SvgViewer> Settle(MainWindow window, string name)
     {
         for (var attempt = 0; attempt < 200; attempt++)
