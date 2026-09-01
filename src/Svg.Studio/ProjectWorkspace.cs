@@ -39,6 +39,30 @@ public sealed class ProjectWorkspace
         Edited?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// A path as the project should carry it: relative to the project's own directory.
+    /// </summary>
+    /// <remarks>
+    /// A project that named an absolute path would build on the machine it was written on and
+    /// nowhere else, so a walk out of the directory is kept in preference — it survives the whole
+    /// tree being moved or cloned. Only a path with no relative form at all, which on Windows means
+    /// another drive, stays as it came. Separators are written the way the format's own examples
+    /// write them; Path.Combine reads those on Windows, where the reverse is not true.
+    /// </remarks>
+    public string Carry(string path)
+    {
+        var baseDirectory = Document.BaseDirectory;
+
+        if (baseDirectory.Length == 0)
+        {
+            return path;
+        }
+
+        var relative = Path.GetRelativePath(baseDirectory, path);
+
+        return Path.IsPathRooted(relative) ? path : relative.Replace('\\', '/');
+    }
+
     /// <summary>The size a drawing is built at once every group above it has had its say.</summary>
     public static SvgSizeRequest SizeOf(SvgcProjectNode node)
         => new(node.EffectiveWidth, node.EffectiveHeight, node.EffectiveScale, SvgPadding.Parse(node.EffectivePadding));

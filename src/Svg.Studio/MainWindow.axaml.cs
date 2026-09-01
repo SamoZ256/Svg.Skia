@@ -561,34 +561,12 @@ public partial class MainWindow : Window
         }
 
         var (parent, index) = Beside(beside);
-        var drawing = parent.AddDrawing(Carried(path, workspace.Document.BaseDirectory), index);
+        var drawing = parent.AddDrawing(workspace.Carry(path), index);
 
         workspace.Save();
         BuildTree(drawing);
 
         await ShowAsync(drawing).ConfigureAwait(true);
-    }
-
-    /// <summary>
-    /// The path as the project should carry it: relative to the project's own directory.
-    /// </summary>
-    /// <remarks>
-    /// A project that named an absolute path would build on the machine it was written on and
-    /// nowhere else, so a walk out of the directory is kept in preference — it survives the whole
-    /// tree being moved or cloned. Only a path with no relative form at all, which on Windows means
-    /// another drive, stays as it came. Separators are written the way the format's own examples
-    /// write them; Path.Combine reads those on Windows, where the reverse is not true.
-    /// </remarks>
-    private static string Carried(string path, string baseDirectory)
-    {
-        if (baseDirectory.Length == 0)
-        {
-            return path;
-        }
-
-        var relative = Path.GetRelativePath(baseDirectory, path);
-
-        return Path.IsPathRooted(relative) ? path : relative.Replace('\\', '/');
     }
 
     /// <summary>

@@ -6,10 +6,12 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
@@ -285,7 +287,8 @@ public sealed class GroupPanel : UserControl
 
         Add("namespace");
         Add("class");
-        Add("recipe");
+
+        _properties.Children.Add(RecipeRow(node));
 
         if (node is SvgcProjectRoot)
         {
@@ -332,6 +335,224 @@ public sealed class GroupPanel : UserControl
             case "helperScope": ((SvgcProjectRoot)node).HelperScope = SvgcProject.ParseHelperScope(value); break;
             case "skiaSharp": ((SvgcProjectRoot)node).SkiaSharp = SvgcProject.ParseSkiaSharpTarget(value); break;
         }
+    }
+
+    private static readonly FilePickerFileType Recipes = new("Svg Recipes")
+    {
+        Patterns = new[] { "*.recipe" },
+        AppleUniformTypeIdentifiers = new[] { "public.xml" },
+        MimeTypes = new[] { "application/xml" }
+    };
+
+    /// <summary>What a new recipe is written with.</summary>
+    /// <remarks>
+    /// A parameter and a let, and the rule commented out. It applies cleanly as it stands — the
+    /// declarations reach the drawing and nothing is recoloured — so the slider is there to drag
+    /// the moment the file is made, and what to write next is on the line below it. An empty
+    /// recipe would have been the safer thing to write and would have shown nothing at all.
+    /// </remarks>
+    private const string Skeleton = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <recipe xmlns="https://svg.skia/expr/1.0">
+
+          <!-- What the drawing is given, and what is worked out from it. -->
+          <code>
+            <param name="hue" type="number" default="200" min="0" max="360" />
+            <let name="accent">hsl(hue, 74%, 55%)</let>
+          </code>
+
+          <!-- One line per colour in the drawing an expression above should paint. -->
+          <!-- <replace color="#3b82f6">accent</replace> -->
+        </recipe>
+
+        """;
+
+    /// <summary>
+    /// The recipe: a file, chosen with buttons rather than typed as a path.
+    /// </summary>
+    /// <remarks>
+    /// Not a box like the rest of the settings. A recipe is a second file the project has to find,
+    /// and a path typed wrong is only discovered when a drawing under it is opened or a build runs.
+    /// <b>New…</b> is there because a recipe that does not exist yet cannot be picked, and having to
+    /// leave for a text editor to make an empty one was the whole of what made recipes awkward to
+    /// start using.
+    /// </remarks>
+    private Control RecipeRow(SvgcProjectNode node)
+    {
+        var shown = Shown(node, "recipe");
+
+        var content = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+
+        if (shown is { })
+        {
+            var name = new TextBlock
+            {
+                // The file, not the path: the path is what the project carries and rarely what
+                // anybody wants to read, and the tip has it in full for when they do.
+                Text = Path.GetFileName(shown),
+                FontFamily = new FontFamily("Menlo, Consolas, monospace"),
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+
+            ToolTip.SetTip(name, shown);
+
+            content.Children.Add(name);
+            content.Children.Add(Buttons(Command("✕", "Stop using this recipe. The file is left where it is.", RemoveRecipe)));
+        }
+        else
+        {
+            content.Children.Add(new TextBlock
+            {
+                // What it would inherit, or that it has none — the same thing the watermark of an
+                // empty box says for every other setting.
+                Text = Inherited(node, "recipe") ?? "none",
+                Opacity = 0.55,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+
+            content.Children.Add(Buttons(
+                Command("Add…", "Use a recipe that already exists.", async () => await ChooseRecipeAsync()),
+                Command("New…", "Write an empty recipe and use it.", async () => await CreateRecipeAsync())));
+        }
+
+        return new StackPanel
+        {
+            Spacing = 2,
+            Children =
+            {
+                new TextBlock { Text = "recipe", Opacity = 0.65, FontSize = 11 },
+                content
+            }
+        };
+    }
+
+    private static Button Command(string content, string tip, Action run)
+    {
+        var button = new Button
+        {
+            Content = content,
+            FontSize = 11,
+            Padding = new Thickness(8, 2),
+            MinHeight = 0,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        ToolTip.SetTip(button, tip);
+
+        button.Click += (_, _) => run();
+
+        return button;
+    }
+
+    private static Control Buttons(params Button[] buttons)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+
+        foreach (var button in buttons)
+        {
+            panel.Children.Add(button);
+        }
+
+        Grid.SetColumn(panel, 1);
+
+        return panel;
+    }
+
+    /// <summary>Asks which recipe to use, and uses it.</summary>
+    private async Task ChooseRecipeAsync()
+    {
+        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { CanOpen: true } storage)
+        {
+            return;
+        }
+
+        var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Choose a recipe",
+            AllowMultiple = false,
+            FileTypeFilter = new List<FilePickerFileType> { Recipes }
+        }).ConfigureAwait(true);
+
+        if (files.Select(file => file.TryGetLocalPath()).FirstOrDefault(path => path is { Length: > 0 }) is { } chosen)
+        {
+            SetRecipe(chosen);
+        }
+    }
+
+    /// <summary>Asks where to write a recipe, writes it, and uses it.</summary>
+    private async Task CreateRecipeAsync()
+    {
+        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { CanSave: true } storage)
+        {
+            return;
+        }
+
+        var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "New recipe",
+            SuggestedFileName = Suggested(),
+            DefaultExtension = "recipe",
+            FileTypeChoices = new List<FilePickerFileType> { Recipes }
+        }).ConfigureAwait(true);
+
+        if (file?.TryGetLocalPath() is { Length: > 0 } path)
+        {
+            CreateRecipe(path);
+        }
+    }
+
+    /// <summary>What a new recipe is offered as being called: after what it would be a recipe for.</summary>
+    private string Suggested()
+    {
+        var name = Node is SvgcProjectDrawing drawing
+            ? Path.GetFileNameWithoutExtension(drawing.Input)
+            : Node.Class ?? Node.Namespace ?? Path.GetFileNameWithoutExtension(Workspace.Name);
+
+        return (string.IsNullOrWhiteSpace(name) ? "recipe" : name) + ".recipe";
+    }
+
+    /// <summary>Names <paramref name="path"/> as this node's recipe.</summary>
+    /// <remarks>
+    /// Taking the path rather than asking for it, so everything but the picker can be driven. Held
+    /// until the tab is saved, like every other setting typed here — which is also when the drawings
+    /// under it are read again through it.
+    /// </remarks>
+    public void SetRecipe(string path)
+    {
+        Edit("recipe", Workspace.Carry(path ?? throw new ArgumentNullException(nameof(path))));
+        Refresh();
+    }
+
+    /// <summary>Writes an empty recipe at <paramref name="path"/>, and names it here.</summary>
+    /// <remarks>
+    /// A file that is already there is named rather than written over. The save panel has asked
+    /// about replacing it, but replacing a recipe somebody wrote with an empty one is never what
+    /// picking its name meant.
+    /// </remarks>
+    public void CreateRecipe(string path)
+    {
+        if (path is null)
+        {
+            throw new ArgumentNullException(nameof(path));
+        }
+
+        if (!File.Exists(path))
+        {
+            File.WriteAllText(path, Skeleton);
+        }
+
+        SetRecipe(path);
+    }
+
+    /// <summary>Stops this node naming a recipe. The file itself is left alone.</summary>
+    public void RemoveRecipe()
+    {
+        Edit("recipe", null);
+        Refresh();
     }
 
     /// <summary>

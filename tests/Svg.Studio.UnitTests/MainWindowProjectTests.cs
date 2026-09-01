@@ -1178,7 +1178,6 @@ public class MainWindowProjectTests : IDisposable
             .OfType<GroupPanel>()
             .Single(panel => ProjectWorkspace.Label(panel.Node) == label);
 
-    /// <summary>Waits for the tab holding <paramref name="name"/> to have finished loading.</summary>
     private const string Recipe = """
         <recipe xmlns="https://svg.skia/expr/1.0">
           <code>
@@ -1328,6 +1327,118 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(Declarations(viewer).CanDeclare);
     }
 
+    /// <summary>The buttons on a panel's recipe row, by what they are labelled.</summary>
+    private static string[] RecipeButtons(GroupPanel panel)
+        => panel.GetVisualDescendants()
+            .OfType<Button>()
+            .Select(button => button.Content as string)
+            .Where(content => content is { })
+            .ToArray()!;
+
+    [AvaloniaFact]
+    public async Task A_Recipe_Is_Named_And_Dropped_With_Buttons()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var recipe = Write("icons.recipe", Recipe);
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = Panel(window, "Demo.Icons.Large");
+
+        // Nothing named, so there is nothing to type into — only the two ways to name one.
+        Assert.DoesNotContain(
+            panel.GetVisualDescendants().OfType<TextBox>(),
+            box => Equals(box.Tag, "recipe"));
+        Assert.Equal(new[] { "Add…", "New…" }, RecipeButtons(panel));
+
+        panel.SetRecipe(recipe);
+        Dispatcher.UIThread.RunJobs();
+
+        // Carried relative, so the project still builds anywhere it is cloned to.
+        Assert.Equal("icons.recipe", panel.Shown("recipe"));
+        Assert.True(panel.IsModified);
+        Assert.Equal(new[] { "✕" }, RecipeButtons(panel));
+
+        panel.Save();
+
+        Assert.Contains("recipe=\"icons.recipe\"", File.ReadAllText(path));
+
+        // And the drawing under it is read again through it, without anything else asking.
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("hue", Assert.Single((await Settle(window, "badge.svg")).Parameters).Name);
+
+        panel.RemoveRecipe();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(panel.Shown("recipe"));
+        Assert.Equal(new[] { "Add…", "New…" }, RecipeButtons(panel));
+
+        panel.Save();
+
+        Assert.DoesNotContain("recipe=", File.ReadAllText(path));
+
+        // The file is the project's to name, not the project's to own.
+        Assert.True(File.Exists(recipe));
+    }
+
+    [AvaloniaFact]
+    public async Task A_New_Recipe_Is_Written_Where_It_Is_Asked_For_And_Applies_As_It_Stands()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = Panel(window, "Demo.Icons.Large");
+        var written = Path.Combine(_directory, "large.recipe");
+
+        panel.CreateRecipe(written);
+        panel.Save();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("large.recipe", panel.Shown("recipe"));
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = await Settle(window, "badge.svg");
+
+        // What it is written with applies as it stands: the drawing has a slider to drag before a
+        // single line of the file has been edited, which is the point of writing one at all.
+        Assert.Null(viewer.Notice);
+        Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Recipe_That_Is_Already_There_Is_Named_Rather_Than_Written_Over()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var recipe = Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        Panel(window, "Demo.Icons.Large").CreateRecipe(recipe);
+
+        Assert.Equal(Recipe, File.ReadAllText(recipe));
+    }
+
+    /// <summary>Waits for the tab holding <paramref name="name"/> to have finished loading.</summary>
     private static async Task<SvgViewer> Settle(MainWindow window, string name)
     {
         for (var attempt = 0; attempt < 200; attempt++)

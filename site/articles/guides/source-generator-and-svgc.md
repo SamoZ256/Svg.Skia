@@ -311,8 +311,16 @@ drawing itself, and `File → Export…` writes what the project builds, which i
 `--emit svg` produces. What the panel will not do there is *declare*: the parameters belong to the
 recipe, and everything the panel writes goes into the drawing, where a recipe then refuses to apply.
 A recipe that cannot be read, or that this drawing refuses, is said on the status line under the
-drawing, which still opens. Studio does not offer to edit recipes: a `recipe` is shown and edited as
-a path.
+drawing, which still opens.
+
+A `recipe` is named with buttons rather than typed as a path. With none, the row offers **Add…** for
+one that exists and **New…** to write one — a recipe that does not exist yet cannot be picked, and
+leaving for a text editor to make an empty one was most of what made recipes awkward to start using.
+What **New…** writes applies as it stands: it declares a `hue` and an `accent` computed from it and
+recolours nothing, so there is a slider to drag before a line of it has been edited, and the rule to
+copy is commented out underneath. A file already at that name is named rather than written over.
+With one named, the row is the file and a **✕** that stops using it — the file itself is left where
+it is. Studio does not yet edit what is inside a recipe.
 
 The tree is editable. Each row carries **Add group**, **Add SVG…** and **Remove**; `Delete` removes
 the selected row, and a row is dragged to move it — dropped on the top or bottom quarter of a group
