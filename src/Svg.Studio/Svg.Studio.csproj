@@ -21,6 +21,11 @@
   <Import Project="..\..\build\SkiaSharp.Avalonia.props" />
 
   <ItemGroup>
+    <!-- The recipe editor is a TextEditor of its own, beside the one the viewer holds for a drawing. -->
+    <PackageReference Include="Avalonia.AvaloniaEdit" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Svg.Viewer.Skia.Avalonia\Svg.Viewer.Skia.Avalonia.csproj" />
     <!-- Exporting a drawing as the C# that draws it goes through the generator svgc calls. -->
     <ProjectReference Include="..\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" />

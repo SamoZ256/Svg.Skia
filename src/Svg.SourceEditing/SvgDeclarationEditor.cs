@@ -424,12 +424,12 @@ public static class SvgDeclarationEditor
         => Declared(document, "let").FirstOrDefault(
             candidate => string.Equals((string?)candidate.Attribute("name"), name, StringComparison.Ordinal));
 
-    /// <summary>What sits between a let's tags.</summary>
+    /// <summary>What sits between an element's tags — a let's body, a rule's expression.</summary>
     /// <remarks>
     /// The closing tag is found by scanning back rather than by its length, since <c>&lt;/e:let &gt;</c>
-    /// is legal. A let with no content at all is refused rather than guessed at.
+    /// is legal. An element with no content at all is refused rather than guessed at.
     /// </remarks>
-    private static (int Start, int Length)? Body(
+    internal static (int Start, int Length)? Body(
         string svgText,
         XElement element,
         SvgExpressionDeclarations.Positions positions)
@@ -451,7 +451,7 @@ public static class SvgDeclarationEditor
     /// <remarks>
     /// Null where it shares its line with something else, which taking the line would delete.
     /// </remarks>
-    private static (int Start, int Length, (int Start, int Length) Element)? Line(
+    internal static (int Start, int Length, (int Start, int Length) Element)? Line(
         string svgText,
         XElement element,
         SvgExpressionDeclarations.Positions positions)
@@ -829,7 +829,7 @@ public static class SvgDeclarationEditor
             return new SvgTextEdit(
                 start,
                 length,
-                $"<{prefix}:code>{newline}{own}{indent}{element}{newline}{own}</{prefix}:code>");
+                $"<{Named(prefix, "code")}>{newline}{own}{indent}{element}{newline}{own}</{Named(prefix, "code")}>");
         }
 
         // Each joins its own group rather than the end of the block: a parameter written below the
@@ -873,7 +873,9 @@ public static class SvgDeclarationEditor
     /// <summary>Writes the block, and the &lt;defs&gt; to hold it if the drawing has none.</summary>
     /// <remarks>
     /// Where SvgRecipeRewriter.InjectDeclarations puts it, so a drawing that has been through a
-    /// recipe and one that has been through this keep it in the same place.
+    /// recipe and one that has been through this keep it in the same place. A recipe holds its own
+    /// declarations directly instead — &lt;defs&gt; belongs to SVG, and writing one into a recipe
+    /// would make a file the recipe parser refuses to read.
     /// </remarks>
     private static SvgTextEdit? CreateBlock(
         string svgText,
@@ -884,6 +886,25 @@ public static class SvgDeclarationEditor
         string newline,
         string indent)
     {
+        if (root.Name == Ns + "recipe")
+        {
+            var content = positions.ContentStart(root);
+
+            if (content < 0)
+            {
+                return null;
+            }
+
+            var depth = LeadingWhitespace(svgText, positions.Span(root).Start);
+
+            return new SvgTextEdit(
+                content,
+                0,
+                $"{newline}{depth}{indent}<{Named(prefix, "code")}>" +
+                $"{newline}{depth}{indent}{indent}{element}" +
+                $"{newline}{depth}{indent}</{Named(prefix, "code")}>");
+        }
+
         XNamespace svg = root.Name.Namespace.NamespaceName.Length > 0 ? root.Name.Namespace : SvgNamespace;
 
         var defs = root.Elements(svg + "defs").FirstOrDefault();
@@ -895,9 +916,9 @@ public static class SvgDeclarationEditor
             return new SvgTextEdit(
                 contentStart,
                 0,
-                $"{newline}{own}{indent}<{prefix}:code>" +
+                $"{newline}{own}{indent}<{Named(prefix, "code")}>" +
                 $"{newline}{own}{indent}{indent}{element}" +
-                $"{newline}{own}{indent}</{prefix}:code>");
+                $"{newline}{own}{indent}</{Named(prefix, "code")}>");
         }
 
         var at = positions.ContentStart(root);
@@ -920,9 +941,9 @@ public static class SvgDeclarationEditor
             at,
             0,
             $"{newline}{rootIndent}{indent}<{defsName}>" +
-            $"{newline}{rootIndent}{indent}{indent}<{prefix}:code>" +
+            $"{newline}{rootIndent}{indent}{indent}<{Named(prefix, "code")}>" +
             $"{newline}{rootIndent}{indent}{indent}{indent}{element}" +
-            $"{newline}{rootIndent}{indent}{indent}</{prefix}:code>" +
+            $"{newline}{rootIndent}{indent}{indent}</{Named(prefix, "code")}>" +
             $"{newline}{rootIndent}{indent}</{defsName}>");
     }
 
@@ -1012,11 +1033,14 @@ public static class SvgDeclarationEditor
         return new SvgTextEdit(at + 1, 0, $" {attributeName}=\"{Escape(expression)}\"");
     }
 
+    /// <summary>An element's name under <paramref name="prefix"/>, which is empty for a default one.</summary>
+    private static string Named(string prefix, string local) => prefix.Length == 0 ? local : prefix + ":" + local;
+
     private static string Render(string prefix, SvgExpressionParameter parameter)
     {
         var builder = new StringBuilder();
 
-        builder.Append('<').Append(prefix).Append(":param name=\"").Append(Escape(parameter.Name)).Append('"');
+        builder.Append('<').Append(Named(prefix, "param")).Append(" name=\"").Append(Escape(parameter.Name)).Append('"');
         builder.Append(" type=\"").Append(ExprFunctions.NameOf(parameter.Type)).Append('"');
 
         Attribute(builder, "default", parameter.DefaultExpression);
@@ -1028,7 +1052,7 @@ public static class SvgDeclarationEditor
     }
 
     private static string Render(string prefix, string name, string expression)
-        => $"<{prefix}:let name=\"{Escape(name)}\">{EscapeText(expression)}</{prefix}:let>";
+        => $"<{Named(prefix, "let")} name=\"{Escape(name)}\">{EscapeText(expression)}</{Named(prefix, "let")}>";
 
     private static void Attribute(StringBuilder builder, string name, string? value)
     {
@@ -1069,7 +1093,7 @@ public static class SvgDeclarationEditor
     /// Not <see cref="Escape"/>, whose extra two are legal here but would show somebody
     /// <c>t &amp;gt; 0.5</c> in the source pane for the <c>t &gt; 0.5</c> they typed.
     /// </remarks>
-    private static string EscapeText(string value)
+    internal static string EscapeText(string value)
         => value
             .Replace("&", "&amp;")
             .Replace("<", "&lt;");
@@ -1079,7 +1103,7 @@ public static class SvgDeclarationEditor
     /// Off the document, not the platform: editing a file written elsewhere must not leave it with
     /// two kinds of line ending.
     /// </remarks>
-    private static string Newline(string svgText)
+    internal static string Newline(string svgText)
     {
         var at = svgText.IndexOf('\n');
 
@@ -1090,7 +1114,7 @@ public static class SvgDeclarationEditor
     /// <remarks>
     /// From the first indented line, so tabs or four spaces keep being written that way.
     /// </remarks>
-    private static string IndentUnit(string svgText)
+    internal static string IndentUnit(string svgText)
     {
         var lines = svgText.Split('\n');
 
@@ -1113,7 +1137,7 @@ public static class SvgDeclarationEditor
     }
 
     /// <summary>The whitespace in front of whatever begins at <paramref name="at"/>.</summary>
-    private static string LeadingWhitespace(string svgText, int at)
+    internal static string LeadingWhitespace(string svgText, int at)
     {
         if (at < 0)
         {

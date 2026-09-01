@@ -103,8 +103,8 @@ public partial class SvgViewer : UserControl
     private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
     private int _loadVersion;
     private bool _applyQueued;
-    private Control? _sidePanel;
-    private string _sidePanelHeader = "More";
+    private string? _notice;
+    private IReadOnlyList<SvgViewerPane> _sidePanels = Array.Empty<SvgViewerPane>();
 
     public SvgViewer()
     {
@@ -215,6 +215,20 @@ public partial class SvgViewer : UserControl
     /// </remarks>
     public SvgSizeRequest SizeRequest { get; set; } = SvgSizeRequest.None;
 
+    /// <summary>
+    /// What a drawing's text goes through before it is drawn, or null to draw it as written.
+    /// </summary>
+    /// <remarks>
+    /// For a host whose drawing is derived from its file — an svgc project applying a recipe, where
+    /// what is built is not what the file says. The pane still shows and saves the file itself, so
+    /// a document set up this way declares things its own text does not; where the panel's commands
+    /// should write those is <see cref="DeclarationTarget"/>.
+    ///
+    /// Applies to a drawing loaded from a path, and to every rebuild of it. It takes effect on the
+    /// next load, which is the caller's to make.
+    /// </remarks>
+    public Func<string, string>? Rewrite { get; set; }
+
     /// <summary>How the viewer asks what parameter to declare. Replaceable, and faked in tests.</summary>
     public ISvgViewerParameterDialogService ParameterDialogService { get; set; } = new SvgViewerParameterDialogService();
 
@@ -246,45 +260,50 @@ public partial class SvgViewer : UserControl
     }
 
     /// <summary>
-    /// A panel of the host's own, shown in the right pane beside the parameters.
+    /// Panels of the host's own, shown in the right pane beside the parameters.
     /// </summary>
     /// <remarks>
-    /// The pane becomes a pair of tabs while one is set and holds the parameters alone again when
-    /// it is cleared, so a host that sets nothing sees what it always saw. The host's panel is the
-    /// first of the two, and so the one the pane opens on. What belongs here is
-    /// something about the drawing the viewer has no business knowing: <c>Svg.Studio</c> puts a
-    /// project's say over the file there, beside what the file says about itself.
+    /// The pane becomes a strip of tabs while there are any and holds the parameters alone again
+    /// when there are none, so a host that sets nothing sees what it always saw. The host's come
+    /// first, in the order given, and so the pane opens on the first of them: a host sets a panel
+    /// because it has something to say about the drawing, and one filed behind a tab nobody clicks
+    /// may as well not be there. See <see cref="SvgViewerPane"/> for what belongs in one.
     /// </remarks>
-    public Control? SidePanel
+    public IReadOnlyList<SvgViewerPane> SidePanels
     {
-        get => _sidePanel;
+        get => _sidePanels;
         set
         {
-            if (ReferenceEquals(_sidePanel, value))
+            var panes = value ?? Array.Empty<SvgViewerPane>();
+
+            // The same panes said again change nothing, and rebuilding the strip over somebody
+            // working in it is not nothing: a host that recomposes this whenever its own settings
+            // are saved took the reader back to the first tab every time.
+            if (Same(_sidePanels, panes))
             {
                 return;
             }
 
-            _sidePanel = value;
+            _sidePanels = panes;
 
             FillPanelHost();
         }
     }
 
-    /// <summary>What the side panel's tab is called.</summary>
-    public string SidePanelHeader
-    {
-        get => _sidePanelHeader;
-        set
-        {
-            _sidePanelHeader = value;
-
-            FillPanelHost();
-        }
-    }
+    private static bool Same(IReadOnlyList<SvgViewerPane> panes, IReadOnlyList<SvgViewerPane> others)
+        => panes.Count == others.Count
+           && panes.Zip(others).All(
+               pair => ReferenceEquals(pair.First.Content, pair.Second.Content)
+                       && string.Equals(pair.First.Header, pair.Second.Header, StringComparison.Ordinal));
 
     private void FillPanelHost()
     {
+        // What was being looked at, so a strip that gains or loses a pane does not also change the
+        // subject. Only by name: the pane it was is not always one of the panes it now is.
+        var looking = _panelHost.Child is TabControl showing && showing.SelectedItem is TabItem selected
+            ? selected.Header as string
+            : null;
+
         // Emptied first, and the tabs with it: a control cannot be added to a second parent, and
         // the parameters panel is moving between the host and a tab inside it.
         if (_panelHost.Child is TabControl open)
@@ -297,7 +316,7 @@ public partial class SvgViewer : UserControl
 
         _panelHost.Child = null;
 
-        if (_sidePanel is null)
+        if (_sidePanels.Count == 0)
         {
             _panelHost.Child = _panel;
 
@@ -306,11 +325,18 @@ public partial class SvgViewer : UserControl
 
         var tabs = new TabControl { Classes = { "panes" }, Padding = new Thickness(0) };
 
-        // The host's first, and so the one the pane opens on: it sets a panel because it has
-        // something to say about the drawing, and one filed behind a tab nobody clicks may as well
-        // not be there.
-        tabs.Items.Add(new TabItem { Header = _sidePanelHeader, Content = _sidePanel });
+        foreach (var pane in _sidePanels)
+        {
+            tabs.Items.Add(new TabItem { Header = pane.Header, Content = pane.Content });
+        }
+
         tabs.Items.Add(new TabItem { Header = "Parameters", Content = _panel });
+
+        if (looking is { }
+            && tabs.Items.OfType<TabItem>().FirstOrDefault(item => Equals(item.Header, looking)) is { } again)
+        {
+            tabs.SelectedItem = again;
+        }
 
         _panelHost.Child = tabs;
     }
@@ -392,6 +418,24 @@ public partial class SvgViewer : UserControl
     /// Analysed on first ask, not only when the pane opens: the error panel needs to know whether a
     /// failed binding is the drawing's fault before anyone asks to read it.
     /// </remarks>
+    /// <summary>
+    /// A standing sentence from the host about the open drawing, said with the viewer's own.
+    /// </summary>
+    /// <remarks>
+    /// For trouble only the host can see — an svgc project whose recipe will not apply to this
+    /// drawing, so what is on screen is not what the project builds. The status line under the
+    /// drawing is the only place already saying that kind of thing about it.
+    /// </remarks>
+    public string? Notice
+    {
+        get => _notice;
+        set
+        {
+            _notice = string.IsNullOrEmpty(value) ? null : value;
+            ShowTrouble();
+        }
+    }
+
     public IReadOnlyList<SvgSourceDiagnostic> SourceDiagnostics => Diagnostics();
 
     /// <summary>The whole drawing as text, including the edits the pane is holding.</summary>
@@ -453,7 +497,7 @@ public partial class SvgViewer : UserControl
     }
 
     public Task<bool> LoadAsync(string path)
-        => LoadCoreAsync(() => SvgViewerDocument.Load(path, SizeRequest), Path.GetFileName(path));
+        => LoadCoreAsync(() => SvgViewerDocument.Load(path, SizeRequest, Rewrite), Path.GetFileName(path));
 
     public Task<bool> LoadTextAsync(string svgText)
         => LoadCoreAsync(() => SvgViewerDocument.LoadFromSvg(svgText), null);
@@ -935,6 +979,36 @@ public partial class SvgViewer : UserControl
     {
         RefreshSource();
 
+        RebuildFrom(_sourceEditor.Text);
+    }
+
+    /// <summary>
+    /// Builds the drawing again from the text it is already holding.
+    /// </summary>
+    /// <remarks>
+    /// For a host that has changed what the same text comes to rather than the text: a
+    /// <see cref="Rewrite"/> whose recipe has been edited, or a new <see cref="SizeRequest"/>.
+    /// Quieter than opening the file again, which is what it replaced — the source pane keeps its
+    /// buffer, its caret and anything typed into it, the status line does not flash a load, and
+    /// nothing is read off the disk.
+    /// </remarks>
+    /// <returns>Whether there was a drawing to build.</returns>
+    public bool Rebuild()
+    {
+        if (_document is null)
+        {
+            return false;
+        }
+
+        // Source and not the editor's own text, which is the truncated stand-in for a drawing too
+        // large to hold — building from that would behead the picture.
+        RebuildFrom(Source);
+
+        return true;
+    }
+
+    private void RebuildFrom(string svgText)
+    {
         if (_document is not { } open)
         {
             return;
@@ -944,7 +1018,9 @@ public partial class SvgViewer : UserControl
 
         try
         {
-            rebuilt = open.Reload(_sourceEditor.Text, SizeRequest);
+            // This viewer's rewrite and not the document's, which is the one it was loaded with: a
+            // host that has edited its recipe since is asking for exactly that difference.
+            rebuilt = open.Reload(svgText, SizeRequest, Rewrite);
         }
         catch (Exception)
         {
@@ -991,7 +1067,65 @@ public partial class SvgViewer : UserControl
     }
 
     /// <summary>
-    /// Asks for a parameter and writes it into the drawing's own text.
+    /// Where the declaration commands write, when that is not the drawing itself.
+    /// </summary>
+    /// <remarks>
+    /// For a host whose drawing declares things its own text does not: an svgc project applying a
+    /// recipe puts the parameters in the recipe file, and every command below would otherwise write
+    /// them into the drawing — which would also give it a declaration block of its own, and a recipe
+    /// refuses a document that already has one.
+    ///
+    /// Set alongside <see cref="Rewrite"/>, which is what put the declarations there to begin with.
+    /// </remarks>
+    public ISvgViewerDeclarationTarget? DeclarationTarget { get; set; }
+
+    /// <summary>The text the declaration commands read.</summary>
+    private string Declarations() => DeclarationTarget?.Text ?? PaneSource();
+
+    /// <summary>Whether there is anywhere to write a declaration, saying so when there is not.</summary>
+    private bool Editable()
+    {
+        if (DeclarationTarget is { })
+        {
+            return true;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Puts a declaration edit wherever the declarations live.</summary>
+    /// <remarks>
+    /// The refusal is reported here either way, so a host supplying a target has one thing to do
+    /// with the edits and nothing to say about them.
+    /// </remarks>
+    private bool Write(SvgSourceEditResult result)
+    {
+        if (DeclarationTarget is not { } target)
+        {
+            return Splice(result);
+        }
+
+        if (!result.Succeeded)
+        {
+            ShowNote(result.Refusal);
+
+            return false;
+        }
+
+        return result.Edits.Count > 0 && target.Apply(result.Edits);
+    }
+
+    /// <summary>
+    /// Asks for a parameter and writes it where the declarations live.
     /// </summary>
     /// <remarks>
     /// A splice, not a rewrite: the rest of the file is left as it was, comments included, and the
@@ -1006,12 +1140,8 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
@@ -1021,7 +1151,7 @@ public partial class SvgViewer : UserControl
             .AskAsync(TopLevel.GetTopLevel(this), taken)
             .ConfigureAwait(true);
 
-        return parameter is { } declared && Splice(SvgDeclarationEditor.Add(PaneSource(), declared));
+        return parameter is { } declared && Write(SvgDeclarationEditor.Add(Declarations(), declared));
     }
 
     /// <summary>
@@ -1044,12 +1174,8 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
@@ -1064,7 +1190,7 @@ public partial class SvgViewer : UserControl
             .ConfigureAwait(true);
 
         return replacement is { } wanted
-            && Splice(SvgDeclarationEditor.Update(PaneSource(), parameter.Name, wanted));
+            && Write(SvgDeclarationEditor.Update(Declarations(), parameter.Name, wanted));
     }
 
     /// <summary>
@@ -1088,16 +1214,12 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
-        return Splice(SvgDeclarationEditor.Remove(PaneSource(), parameter.Name));
+        return Write(SvgDeclarationEditor.Remove(Declarations(), parameter.Name));
     }
 
     /// <summary>
@@ -1115,12 +1237,8 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
@@ -1131,7 +1249,7 @@ public partial class SvgViewer : UserControl
             changed[row.Name] = row.ToExpression();
         }
 
-        return changed.Count > 0 && Splice(SvgDeclarationEditor.SetDefaults(PaneSource(), changed));
+        return changed.Count > 0 && Write(SvgDeclarationEditor.SetDefaults(Declarations(), changed));
     }
 
     /// <summary>
@@ -1150,22 +1268,18 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
         var name = let.Name.Trim();
         var expression = let.Expression.Trim();
 
-        return Splice(
+        return Write(
             let.Declaration is { } declared
-                ? SvgDeclarationEditor.UpdateLet(PaneSource(), declared.Name, name, expression)
-                : SvgDeclarationEditor.AddLet(PaneSource(), name, expression));
+                ? SvgDeclarationEditor.UpdateLet(Declarations(), declared.Name, name, expression)
+                : SvgDeclarationEditor.AddLet(Declarations(), name, expression));
     }
 
     /// <summary>
@@ -1189,16 +1303,12 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
-        return Splice(SvgDeclarationEditor.MoveLet(PaneSource(), declared.Name, to));
+        return Write(SvgDeclarationEditor.MoveLet(Declarations(), declared.Name, to));
     }
 
     /// <summary>
@@ -1222,16 +1332,12 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
-        return Splice(SvgDeclarationEditor.RemoveLet(PaneSource(), declared.Name));
+        return Write(SvgDeclarationEditor.RemoveLet(Declarations(), declared.Name));
     }
 
     /// <summary>
@@ -1256,16 +1362,12 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
-        return Splice(SvgDeclarationEditor.MoveParameter(PaneSource(), parameter.Name, to));
+        return Write(SvgDeclarationEditor.MoveParameter(Declarations(), parameter.Name, to));
     }
 
     /// <summary>Shows what each let currently evaluates to, beside it.</summary>
@@ -1599,7 +1701,13 @@ public partial class SvgViewer : UserControl
     /// beside the pane. One table, so a `tau` cannot be one colour in the source and another in the
     /// row above it.
     /// </remarks>
-    internal static string SourceResourceKey(SvgSourceTokenKind kind) => kind switch
+    /// <summary>The brush key a token kind is painted from.</summary>
+    /// <remarks>
+    /// Public alongside <see cref="SvgViewerSourceColorizer"/>, and for the same reason: a host
+    /// colouring its own source view has to reach the same brush for the same kind, or two panes in
+    /// one window paint the same text differently.
+    /// </remarks>
+    public static string SourceResourceKey(SvgSourceTokenKind kind) => kind switch
     {
         SvgSourceTokenKind.Punctuation => "SvgViewerSourcePunctuationBrush",
         SvgSourceTokenKind.Element => "SvgViewerSourceElementBrush",
@@ -1655,7 +1763,7 @@ public partial class SvgViewer : UserControl
     {
         if (_document is null)
         {
-            return null;
+            return _notice;
         }
 
         var found = Diagnostics();
@@ -1680,7 +1788,7 @@ public partial class SvgViewer : UserControl
         // those six errors would be the status bar saying a working file is broken.
         if (errors == 0 && warnings == 0)
         {
-            return null;
+            return _notice;
         }
 
         var said = errors == 0
@@ -1689,7 +1797,11 @@ public partial class SvgViewer : UserControl
                 ? Count(errors, "error")
                 : $"{Count(errors, "error")} and {Count(warnings, "warning")}";
 
-        return $"{said}, marked in the Source pane";
+        var counted = $"{said}, marked in the Source pane";
+
+        // Both, on the one line there is. The host's comes first: it is about the drawing as a
+        // whole, and the count points at marks the reader can find without being told twice.
+        return _notice is { } notice ? $"{notice} · {counted}" : counted;
     }
 
     private static string Count(int many, string what) => many == 1 ? $"1 {what}" : $"{many} {what}s";

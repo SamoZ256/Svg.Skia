@@ -26,6 +26,44 @@ public sealed class ExprChecker
         _symbols = symbols;
     }
 
+    /// <summary>
+    /// A checker over what <paramref name="declarations"/> puts in scope, lets included.
+    /// </summary>
+    /// <remarks>
+    /// The parameters are a symbol table already; the lets are not, because each one's type is only
+    /// known once it has been checked against everything before it. Folding them in is what anything
+    /// asking "would this expression work here" has to do first, and it was being written out
+    /// wherever that was asked.
+    ///
+    /// A let that does not check is left out rather than thrown over: what it strands is a fault of
+    /// its own, and reporting it in answer to a question about some other expression names the wrong
+    /// one.
+    /// </remarks>
+    public static ExprChecker For(SvgExpressionDeclarations declarations)
+    {
+        if (declarations is null)
+        {
+            throw new ArgumentNullException(nameof(declarations));
+        }
+
+        var symbols = declarations.CreateSymbolTable();
+        var checker = new ExprChecker(symbols);
+
+        foreach (var let in declarations.Lets)
+        {
+            try
+            {
+                // Into the table the checker is holding, so each let is in scope for the next.
+                symbols[let.Name] = checker.Check(let.Expression).Type;
+            }
+            catch (ExprException)
+            {
+            }
+        }
+
+        return checker;
+    }
+
     /// <summary>Checks <paramref name="text"/> and requires it to produce <paramref name="expected"/>.</summary>
     /// <remarks>
     /// The type mismatch carries no expression text, so <see cref="ExprException.ToDiagnostic"/>

@@ -42,12 +42,22 @@ internal static class SvgDeclarationReferences
         return null;
     }
 
+    /// <summary>Whether what is between this element's tags is expression code rather than text.</summary>
+    /// <remarks>
+    /// A let in a drawing, and a rule in an svgc recipe: <c>&lt;replace color="red"&gt;alert&lt;/replace&gt;</c>
+    /// names <c>alert</c> just as a let's body does. Left out, removing a parameter a rule still
+    /// needed was allowed and renaming one left the rule pointing at a name that no longer existed —
+    /// and neither said anything, because a rule is not a placeholder and was searched by nothing.
+    /// </remarks>
+    private static bool IsCode(XName name) => name == Ns + "let" || name == Ns + "replace";
+
     /// <summary>Finds where <paramref name="name"/> is used, or explains why it cannot.</summary>
     /// <remarks>
-    /// Only placeholders and let bodies are searched. A <c>default</c>, <c>min</c>, <c>max</c> or
-    /// <c>step</c> is an expression too, but the language puts nothing a document declares in scope
-    /// there, so no name in one can be a use of this. Renaming rewrites what this finds and removing
-    /// refuses over it, which is the same question asked twice.
+    /// Only placeholders and element bodies the language reads as code are searched. A
+    /// <c>default</c>, <c>min</c>, <c>max</c> or <c>step</c> is an expression too, but the language
+    /// puts nothing a document declares in scope there, so no name in one can be a use of this.
+    /// Renaming rewrites what this finds and removing refuses over it, which is the same question
+    /// asked twice.
     /// </remarks>
     public static string? Uses(
         string svgText,
@@ -74,7 +84,7 @@ internal static class SvgDeclarationReferences
                 }
             }
 
-            if (element.Name != Ns + "let")
+            if (!IsCode(element.Name))
             {
                 continue;
             }
