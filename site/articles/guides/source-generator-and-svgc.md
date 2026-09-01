@@ -334,7 +334,11 @@ than when it is saved — a tab you are not looking at is read again when you co
 
 A drawing under a recipe also gets a **Colours** tab beside its Project and Parameters: every colour
 the drawing paints with, how much of the drawing each one is, and the expression the recipe gives it.
-Typing one writes the `<replace>` rule; emptying the box takes it away. A rule for a colour this
+Typing one writes the `<replace>` rule; emptying the box takes it away. What the expression comes to
+is read out beside it and follows the sliders, and what is wrong with one is said under the box it was
+typed in — checked as a colour, since a rule's body lands in `fill`, `stroke` and `stop-color`, so an
+expression that is well formed and the wrong type is caught here rather than by the drawing. Nothing
+is written while a row has trouble. A rule for a colour this
 drawing does not have is listed underneath as "not in this drawing" rather than hidden, since one
 recipe covers a family and a rule is for whichever of them has the colour. The list is what the
 build would act on: it comes from the same walk that does the rewriting, so a colour under a `style`

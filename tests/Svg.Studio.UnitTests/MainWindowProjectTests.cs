@@ -9,6 +9,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
@@ -16,6 +17,7 @@ using Avalonia.VisualTree;
 using AvaloniaEdit;
 using AvaloniaEdit.Editing;
 using Svg.CodeGen.Skia.Projects;
+using Svg.Expressions;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
@@ -1852,6 +1854,94 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(window.Undo());
 
         Assert.DoesNotContain("hsl(hue, 50%, 50%)", colours.Recipe.Text);
+    }
+
+    /// <summary>The box, the readout beside it and the trouble under it, for one colour.</summary>
+    private static (TextBox Box, TextBlock Readout, TextBlock Trouble) Painted(ColourPanel colours, string colour)
+    {
+        var box = colours.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, colour));
+        var row = (StackPanel)box.FindAncestorOfType<Grid>()!.Parent!;
+        var blocks = row.GetLogicalDescendants().OfType<TextBlock>().ToList();
+
+        return (box, blocks[blocks.Count - 2], blocks[blocks.Count - 1]);
+    }
+
+    private static ColourPanel Showing(SvgViewer viewer)
+    {
+        viewer.GetVisualDescendants()
+            .OfType<TabControl>()
+            .Single(control => control.Classes.Contains("panes"))
+            .SelectedIndex = 1;
+
+        Dispatcher.UIThread.RunJobs();
+
+        return Colours(viewer);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Colour_Expression_Is_Checked_Where_It_Is_Typed()
+    {
+        var (_, viewer) = await Painting();
+        var colours = Showing(viewer);
+        var was = colours.Recipe.Text;
+
+        var (box, _, trouble) = Painted(colours, "#00ff00");
+
+        box.Text = "hsl(hu, 100%, 50%)";
+        Dispatcher.UIThread.RunJobs();
+
+        // Said under the box it was typed in. It used to reach the drawing and be reported on the
+        // drawing's status line, a long way from here.
+        Assert.True(trouble.IsVisible);
+        Assert.Contains("hu", trouble.Text);
+
+        // And nothing is written while it will not check.
+        box.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was, colours.Recipe.Text);
+        Assert.Equal("hsl(hu, 100%, 50%)", box.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Colour_Expression_Of_The_Wrong_Type_Is_Refused()
+    {
+        var (_, viewer) = await Painting();
+        var colours = Showing(viewer);
+
+        var (box, _, trouble) = Painted(colours, "#00ff00");
+
+        // Well formed and wrong: a rule's body lands in fill, stroke and stop-color, which are all
+        // colour slots. Nothing caught this before it reached the drawing.
+        box.Text = "hue + 1";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(trouble.IsVisible);
+        Assert.Contains("colour", trouble.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Colour_Reads_Out_What_It_Comes_To_And_Follows_The_Parameters()
+    {
+        var (_, viewer) = await Painting();
+        var colours = Showing(viewer);
+
+        var (box, readout, trouble) = Painted(colours, "#00ff00");
+
+        Assert.False(trouble.IsVisible);
+        Assert.True(readout.IsVisible);
+
+        // The recipe paints it hsl(hue, 100%, 50%) with hue at 120.
+        Assert.Contains("colour", readout.Text);
+
+        var before = readout.Text;
+
+        Assert.True(viewer.TrySetParameterValue("hue", ExprValue.Number(240f)));
+        Dispatcher.UIThread.RunJobs();
+
+        // A readout is what the rule paints now, so it moves with the slider.
+        Assert.NotEqual(before, readout.Text);
+        Assert.Equal("tint", box.Text);
     }
 
     [AvaloniaFact]

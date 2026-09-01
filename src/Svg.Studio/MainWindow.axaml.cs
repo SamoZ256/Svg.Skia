@@ -16,6 +16,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
+using Svg.Expressions;
 using Svg.Expressions.Recipes;
 using Svg.Skia;
 using Svg.Viewer.Skia.Avalonia;
@@ -945,6 +946,9 @@ public partial class MainWindow : Window
             // brings its colours again.
             viewer.DocumentOpened += (_, _) => Colours(viewer)?.Refresh();
 
+            // A readout is what a rule paints now, so it follows the slider being dragged.
+            viewer.ParameterValueChanged += (_, _) => Colours(viewer)?.Readouts();
+
             viewer.SidePanels = new[] { new SvgViewerPane("Project", settings) };
         }
 
@@ -998,7 +1002,7 @@ public partial class MainWindow : Window
         // Kept where it is the same recipe, since it holds what somebody is halfway through typing.
         var colours = Colours(viewer) is { } open && ReferenceEquals(open.Recipe, workspace)
             ? open
-            : new ColourPanel(workspace, () => viewer.Source);
+            : new ColourPanel(workspace, () => viewer.Source, () => Values(viewer));
 
         panes.Add(new SvgViewerPane("Colours", colours));
 
@@ -1757,6 +1761,29 @@ public partial class MainWindow : Window
     /// <summary>The project's say over the drawing a viewer is showing, when it came from a project.</summary>
     private static GroupPanel? Settings(SvgViewer viewer)
         => viewer.SidePanels.Select(pane => pane.Content).OfType<GroupPanel>().FirstOrDefault();
+
+    /// <summary>What the drawing's expressions come to, with the values the panel has bound.</summary>
+    /// <remarks>
+    /// The drawing's declarations rather than the recipe's text, because these are the recipe's
+    /// declarations as the drawing received them — and the values beside them are the ones somebody
+    /// is dragging. Null while nothing can be worked out, which a parameter with no value does.
+    /// </remarks>
+    private static ExprEvaluator? Values(SvgViewer viewer)
+    {
+        if (viewer.Document is not { } document)
+        {
+            return null;
+        }
+
+        try
+        {
+            return ExprEvaluator.Create(document.Declarations, viewer.ParameterValues);
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>The colours the drawing's recipe can paint, when one covers it.</summary>
     private static ColourPanel? Colours(SvgViewer viewer)

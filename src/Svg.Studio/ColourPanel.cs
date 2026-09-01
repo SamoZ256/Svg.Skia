@@ -12,8 +12,10 @@ using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.VisualTree;
+using Svg.Expressions;
 using Svg.Expressions.Recipes;
 using Svg.SourceEditing;
+using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
 
@@ -50,15 +52,30 @@ public sealed class ColourPanel : UserControl
     /// <summary>The drawing as it stands, which is the pane's text once it has been typed in.</summary>
     private readonly Func<string> _drawing;
 
+    /// <summary>
+    /// What the drawing's expressions currently come to, or null while nothing can be worked out.
+    /// </summary>
+    /// <remarks>
+    /// The drawing's, not the recipe's: a readout is what a rule paints <em>now</em>, which takes the
+    /// values on the parameter panel as well as the declarations. Checking is a separate question and
+    /// deliberately does not go through this — an evaluator needs a value for every parameter, so a
+    /// recipe whose parameters have no defaults would report that instead of the typo asked about.
+    /// </remarks>
+    private readonly Func<ExprEvaluator?> _values;
+
+    /// <summary>The rows on screen, so a readout can be moved without rebuilding them.</summary>
+    private readonly List<(string Colour, TextBox Box, TextBlock Readout, TextBlock Trouble)> _shown = new();
+
     /// <summary>Whether a rebuild was put off because somebody was typing in a row.</summary>
     private bool _waiting;
 
     private IReadOnlyList<SvgRecipeSurveyColor> _colours = Array.Empty<SvgRecipeSurveyColor>();
 
-    public ColourPanel(RecipeWorkspace recipe, Func<string> drawing)
+    public ColourPanel(RecipeWorkspace recipe, Func<string> drawing, Func<ExprEvaluator?> values)
     {
         Recipe = recipe ?? throw new ArgumentNullException(nameof(recipe));
         _drawing = drawing ?? throw new ArgumentNullException(nameof(drawing));
+        _values = values ?? throw new ArgumentNullException(nameof(values));
 
         // The expression box and the palette it paints by, carried here rather than left to the
         // host: the same reason the viewer's own panels carry theirs, and the reason this file
@@ -161,8 +178,98 @@ public sealed class ColourPanel : UserControl
         Refresh();
     }
 
+    /// <summary>Says again what each row's expression comes to, without disturbing the rows.</summary>
+    /// <remarks>
+    /// A readout follows the values on the parameter panel, so it moves as a slider is dragged —
+    /// and rebuilding the rows for that would take the box being typed in out of the tree.
+    /// </remarks>
+    public void Readouts()
+    {
+        foreach (var row in _shown)
+        {
+            Says(row);
+        }
+    }
+
+    /// <summary>Fills one row's trouble and readout from what its box currently says.</summary>
+    private void Says((string Colour, TextBox Box, TextBlock Readout, TextBlock Trouble) row)
+    {
+        var written = row.Box.Text?.Trim() ?? string.Empty;
+        var trouble = Trouble(written);
+
+        row.Trouble.Text = trouble;
+        row.Trouble.IsVisible = trouble is { };
+
+        // One or the other. A readout of an expression that will not check is a second, quieter
+        // account of the same trouble.
+        var readout = trouble is null ? Readout(written) : string.Empty;
+
+        row.Readout.Text = readout;
+        row.Readout.IsVisible = readout.Length > 0;
+    }
+
+    /// <summary>
+    /// What is wrong with <paramref name="expression"/> here, or null.
+    /// </summary>
+    /// <remarks>
+    /// Checked rather than evaluated, and checked against the recipe's own declarations: this has to
+    /// answer while the parameters are still being typed and before any value has been bound.
+    ///
+    /// As a colour, because a rule's body lands in <c>fill</c>, <c>stroke</c> and
+    /// <c>stop-color</c> — every one a colour slot. That catches the second kind of mistake nothing
+    /// caught before: an expression that is well formed and the wrong type.
+    /// </remarks>
+    private string? Trouble(string expression)
+    {
+        if (expression.Length == 0)
+        {
+            return null;
+        }
+
+        var declarations = SvgExpressionDeclarations.Parse(Recipe.Text, out var diagnostics);
+
+        if (diagnostics.Count > 0)
+        {
+            // The block itself does not read, which is not this row's fault but is why it cannot
+            // be answered for.
+            return diagnostics[0].Message;
+        }
+
+        try
+        {
+            ExprChecker.For(declarations).CheckAs(expression, ExprType.Color, ExprFunctions.DescribeUse(ExprType.Color));
+
+            return null;
+        }
+        catch (ExprException failure)
+        {
+            return failure.Message;
+        }
+    }
+
+    /// <summary>What <paramref name="expression"/> comes to right now, or nothing where it cannot be said.</summary>
+    private string Readout(string expression)
+    {
+        if (expression.Length == 0 || _values() is not { } evaluator)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var value = evaluator.Evaluate(expression);
+
+            return $"{ExprFunctions.Describe(value.Type)}  {SvgViewerParameterFactory.Describe(value)}";
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            return string.Empty;
+        }
+    }
+
     private void Show()
     {
+        _shown.Clear();
         _rows.Children.Clear();
 
         if (_colours.Count == 0)
@@ -262,7 +369,6 @@ public sealed class ColourPanel : UserControl
             Text = Expression(colour),
             Watermark = "not painted by the recipe",
             FontSize = 12,
-            Margin = new Thickness(22, 0, 0, 0),
             Tag = colour
         };
 
@@ -270,6 +376,43 @@ public sealed class ColourPanel : UserControl
         {
             box.Theme = box_;
         }
+
+        // Beside the box, as a let's is: what it comes to is worth reading next to what it says.
+        var readout = new TextBlock
+        {
+            Opacity = 0.55,
+            FontSize = 11,
+            FontFamily = new FontFamily("Menlo, Consolas, monospace"),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
+            IsVisible = false
+        };
+
+        // Under it, where the box it is about is still in sight. It used to be said on the drawing's
+        // status line, which is a long way from what was typed.
+        var trouble = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.Parse("#e05252")),
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(22, 0, 0, 0),
+            IsVisible = false
+        };
+
+        var line = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(22, 0, 0, 0) };
+
+        Grid.SetColumn(box, 0);
+        line.Children.Add(box);
+
+        Grid.SetColumn(readout, 1);
+        line.Children.Add(readout);
+
+        var row = (colour, box, readout, trouble);
+
+        _shown.Add(row);
+
+        box.TextChanged += (_, _) => Says(row);
 
         box.LostFocus += (_, _) => Commit(box, colour);
 
@@ -284,7 +427,9 @@ public sealed class ColourPanel : UserControl
             Commit(box, colour);
         };
 
-        return new StackPanel { Spacing = 3, Children = { heading, box } };
+        Says(row);
+
+        return new StackPanel { Spacing = 3, Children = { heading, line, trouble } };
     }
 
     /// <summary>Writes what a box says into the recipe, if it says something else than the rule does.</summary>
@@ -296,6 +441,13 @@ public sealed class ColourPanel : UserControl
         {
             Settle();
 
+            return;
+        }
+
+        // Said on the row already, and writing it would put the drawing's own trouble somewhere
+        // else again. The box keeps what was typed, so it can be finished.
+        if (Trouble(written) is { })
+        {
             return;
         }
 
