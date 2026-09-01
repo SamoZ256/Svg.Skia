@@ -937,8 +937,22 @@ public partial class MainWindow : Window
             settings.ModifiedChanged += (_, _) => Mark(item);
             settings.RecipeOpened += (_, recipe) => ShowRecipe(recipe);
 
-            viewer.SidePanelHeader = "Project";
-            viewer.SidePanel = settings;
+            var panes = new List<SvgViewerPane> { new("Project", settings) };
+
+            // The colours only where a recipe covers the drawing: without one there is nothing to
+            // bind them to and nowhere to write it.
+            if (drawing.EffectiveResolvedRecipe is { } recipe)
+            {
+                var colours = new ColourPanel(Opened(recipe), () => viewer.Source);
+
+                // The panel is built before the drawing is read, so it has nothing to survey until
+                // one arrives — and a drawing reopened at another size brings its colours again.
+                viewer.DocumentOpened += (_, _) => colours.Refresh();
+
+                panes.Add(new SvgViewerPane("Colours", colours));
+            }
+
+            viewer.SidePanels = panes;
         }
 
         viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
@@ -1670,7 +1684,8 @@ public partial class MainWindow : Window
     };
 
     /// <summary>The project's say over the drawing a viewer is showing, when it came from a project.</summary>
-    private static GroupPanel? Settings(SvgViewer viewer) => viewer.SidePanel as GroupPanel;
+    private static GroupPanel? Settings(SvgViewer viewer)
+        => viewer.SidePanels.Select(pane => pane.Content).OfType<GroupPanel>().FirstOrDefault();
 
     private static TextBlock Marker(TabItem item) => (TextBlock)((StackPanel)item.Header!).Children[0];
 

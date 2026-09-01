@@ -18,6 +18,94 @@ public class SvgRecipeRewriterTests
     private static SvgRecipeResult Apply(string svg, string? recipeXml = null)
         => SvgRecipeRewriter.Apply(svg, SvgRecipe.Parse(recipeXml ?? PrimaryRecipe));
 
+    // ---- what a drawing offers a rule for -------------------------------------------------
+
+    [Fact]
+    public void Survey_ListsEachColourOnceWithHowMuchItPaints()
+    {
+        var colours = SvgRecipeRewriter.Survey("""
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <rect fill="#3b82f6" stroke="red" />
+              <rect fill="rgb(59, 130, 246)" />
+              <circle fill="#3B82F6" />
+            </svg>
+            """);
+
+        // By value, not by spelling — the same rule matching would claim all three.
+        Assert.Equal(new[] { "#3b82f6", "#ff0000" }, colours.Select(colour => colour.Text).ToArray());
+        Assert.Equal(new[] { 3, 1 }, colours.Select(colour => colour.Count).ToArray());
+    }
+
+    [Fact]
+    public void Survey_TakesTheStyleDeclarationAndNotTheDeadAttributeUnderIt()
+    {
+        // The one rule that must not be re-implemented beside the rewrite: offering the attribute
+        // here would offer a colour the rewrite then refuses to replace, because it never paints.
+        var colours = SvgRecipeRewriter.Survey(
+            """<svg xmlns="http://www.w3.org/2000/svg"><rect fill="#3b82f6" style="fill:#ff0000" /></svg>""");
+
+        Assert.Equal("#ff0000", Assert.Single(colours).Text);
+    }
+
+    [Fact]
+    public void Survey_LeavesOutWhatNoRuleCouldClaim()
+    {
+        var colours = SvgRecipeRewriter.Survey("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <rect fill="{{ primary }}" stroke="none" />
+              <rect fill="url(#gradient)" stroke="currentColor" />
+              <rect fill="#3b82f6" />
+            </svg>
+            """);
+
+        Assert.Equal("#3b82f6", Assert.Single(colours).Text);
+    }
+
+    [Fact]
+    public void Survey_ReadsADocumentThatIsAlreadyInTheExpressionFormat()
+    {
+        // Apply refuses one of these, and rightly. A survey is asked precisely to find what is
+        // still literal in a drawing somebody has begun converting.
+        var colours = SvgRecipeRewriter.Survey("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="hue" type="number" default="217" /></e:code></defs>
+              <rect fill="{{ hsl(hue, 91%, 60%) }}" stroke="#3b82f6" />
+            </svg>
+            """);
+
+        Assert.Equal("#3b82f6", Assert.Single(colours).Text);
+    }
+
+    [Fact]
+    public void Survey_ListsExactlyWhatARuleWouldClaim()
+    {
+        // The two halves of one walk, held against each other: for every colour listed, a rule
+        // naming it replaces that many attributes and no others. A survey that counted the dead
+        // attribute under a style declaration would say two here and the rewrite would say one.
+        const string Drawing = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <rect fill="#3b82f6" style="fill:#ff0000" />
+              <rect stroke="rgb(59,130,246)" />
+              <rect fill="none" stroke="{{ kept }}" />
+            </svg>
+            """;
+
+        var colours = SvgRecipeRewriter.Survey(Drawing);
+
+        Assert.NotEmpty(colours);
+
+        foreach (var colour in colours)
+        {
+            var rule = $"""
+                <recipe xmlns="https://svg.skia/expr/1.0">
+                  <replace color="{colour.Text}">painted</replace>
+                </recipe>
+                """;
+
+            Assert.Equal(colour.Count, Apply(Drawing, rule).TotalReplacements);
+        }
+    }
+
     [Theory]
     [InlineData("fill")]
     [InlineData("stroke")]

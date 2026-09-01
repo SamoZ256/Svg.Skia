@@ -424,12 +424,12 @@ public static class SvgDeclarationEditor
         => Declared(document, "let").FirstOrDefault(
             candidate => string.Equals((string?)candidate.Attribute("name"), name, StringComparison.Ordinal));
 
-    /// <summary>What sits between a let's tags.</summary>
+    /// <summary>What sits between an element's tags — a let's body, a rule's expression.</summary>
     /// <remarks>
     /// The closing tag is found by scanning back rather than by its length, since <c>&lt;/e:let &gt;</c>
-    /// is legal. A let with no content at all is refused rather than guessed at.
+    /// is legal. An element with no content at all is refused rather than guessed at.
     /// </remarks>
-    private static (int Start, int Length)? Body(
+    internal static (int Start, int Length)? Body(
         string svgText,
         XElement element,
         SvgExpressionDeclarations.Positions positions)
@@ -451,7 +451,7 @@ public static class SvgDeclarationEditor
     /// <remarks>
     /// Null where it shares its line with something else, which taking the line would delete.
     /// </remarks>
-    private static (int Start, int Length, (int Start, int Length) Element)? Line(
+    internal static (int Start, int Length, (int Start, int Length) Element)? Line(
         string svgText,
         XElement element,
         SvgExpressionDeclarations.Positions positions)
@@ -1069,7 +1069,7 @@ public static class SvgDeclarationEditor
     /// Not <see cref="Escape"/>, whose extra two are legal here but would show somebody
     /// <c>t &amp;gt; 0.5</c> in the source pane for the <c>t &gt; 0.5</c> they typed.
     /// </remarks>
-    private static string EscapeText(string value)
+    internal static string EscapeText(string value)
         => value
             .Replace("&", "&amp;")
             .Replace("<", "&lt;");
@@ -1079,7 +1079,7 @@ public static class SvgDeclarationEditor
     /// Off the document, not the platform: editing a file written elsewhere must not leave it with
     /// two kinds of line ending.
     /// </remarks>
-    private static string Newline(string svgText)
+    internal static string Newline(string svgText)
     {
         var at = svgText.IndexOf('\n');
 
@@ -1090,7 +1090,7 @@ public static class SvgDeclarationEditor
     /// <remarks>
     /// From the first indented line, so tabs or four spaces keep being written that way.
     /// </remarks>
-    private static string IndentUnit(string svgText)
+    internal static string IndentUnit(string svgText)
     {
         var lines = svgText.Split('\n');
 
@@ -1113,7 +1113,7 @@ public static class SvgDeclarationEditor
     }
 
     /// <summary>The whitespace in front of whatever begins at <paramref name="at"/>.</summary>
-    private static string LeadingWhitespace(string svgText, int at)
+    internal static string LeadingWhitespace(string svgText, int at)
     {
         if (at < 0)
         {

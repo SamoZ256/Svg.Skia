@@ -178,8 +178,7 @@ public class SvgViewerTests
 
         var mine = new TextBlock { Text = "the host's own" };
 
-        viewer.SidePanelHeader = "Project";
-        viewer.SidePanel = mine;
+        viewer.SidePanels = new[] { new SvgViewerPane("Project", mine) };
         Dispatcher.UIThread.RunJobs();
 
         var tabs = Assert.IsType<TabControl>(host.Child);
@@ -190,7 +189,20 @@ public class SvgViewerTests
         Assert.Equal(0, tabs.SelectedIndex);
         Assert.Same(mine, ((TabItem)tabs.Items[0]!).Content);
 
-        viewer.SidePanel = null;
+        // Several of them, in the order they were given, and the parameters still last.
+        var second = new TextBlock { Text = "and another" };
+
+        viewer.SidePanels = new[] { new SvgViewerPane("Project", mine), new SvgViewerPane("Colours", second) };
+        Dispatcher.UIThread.RunJobs();
+
+        tabs = Assert.IsType<TabControl>(host.Child);
+
+        Assert.Equal(
+            new[] { "Project", "Colours", "Parameters" },
+            tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        Assert.Same(second, ((TabItem)tabs.Items[1]!).Content);
+
+        viewer.SidePanels = System.Array.Empty<SvgViewerPane>();
         Dispatcher.UIThread.RunJobs();
 
         // And back, with the declarations panel itself rather than a new one — it is the viewer's,

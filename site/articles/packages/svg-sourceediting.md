@@ -30,6 +30,7 @@ dotnet add package Svg.SourceEditing
 | Type | Role |
 | --- | --- |
 | `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `MoveParameter` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
+| `SvgRecipeRuleEditor` | `SetRule` and `RemoveRule` for an svgc recipe's colour rules — the half of a recipe that is not declarations |
 | `SvgTextEdit` | One span to replace, and `ApplyAll` for a caller holding only a string |
 | `SvgSourceEditResult` | The spans, or why nothing can be done |
 
@@ -158,6 +159,21 @@ whose order is the one thing about them that does matter.
 
 Line endings and indentation are read off the document, never assumed: a file written with tabs stays
 written with tabs, and a file with CRLF does not come back with a mixture.
+
+## A recipe is edited the same way
+
+`SvgDeclarationEditor` finds declarations by namespace — `Descendants(Ns + "code")` — and not by
+document shape, so a recipe's own unprefixed `<code>`, `<param>` and `<let>` are the same block to it
+as a drawing's `<e:code>`. That is not a coincidence: a recipe is written in the extension's own
+namespace precisely so one reader serves both.
+
+`SvgRecipeRuleEditor` writes the other half, the `<replace>` rules. It knows nothing about colours,
+deliberately. A colour has many spellings and only `Svg.Expressions.Recipes` can say which of them
+are one colour; answering that here would be a second answer to it, and referencing that package to
+borrow the first would pull a whole SVG parser into a text editor. So the caller decides which rule
+it means — by value, against a parsed recipe — and passes the colour as that rule already writes it.
+Passing a second spelling of a colour a rule already names adds a second rule, which the recipe then
+refuses to read.
 
 ## Related docs
 

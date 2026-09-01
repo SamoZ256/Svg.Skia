@@ -105,8 +105,7 @@ public partial class SvgViewer : UserControl
     private bool _applyQueued;
     private Func<string, string>? _rewrite;
     private string? _notice;
-    private Control? _sidePanel;
-    private string _sidePanelHeader = "More";
+    private IReadOnlyList<SvgViewerPane> _sidePanels = Array.Empty<SvgViewerPane>();
 
     public SvgViewer()
     {
@@ -270,38 +269,21 @@ public partial class SvgViewer : UserControl
     }
 
     /// <summary>
-    /// A panel of the host's own, shown in the right pane beside the parameters.
+    /// Panels of the host's own, shown in the right pane beside the parameters.
     /// </summary>
     /// <remarks>
-    /// The pane becomes a pair of tabs while one is set and holds the parameters alone again when
-    /// it is cleared, so a host that sets nothing sees what it always saw. The host's panel is the
-    /// first of the two, and so the one the pane opens on. What belongs here is
-    /// something about the drawing the viewer has no business knowing: <c>Svg.Studio</c> puts a
-    /// project's say over the file there, beside what the file says about itself.
+    /// The pane becomes a strip of tabs while there are any and holds the parameters alone again
+    /// when there are none, so a host that sets nothing sees what it always saw. The host's come
+    /// first, in the order given, and so the pane opens on the first of them: a host sets a panel
+    /// because it has something to say about the drawing, and one filed behind a tab nobody clicks
+    /// may as well not be there. See <see cref="SvgViewerPane"/> for what belongs in one.
     /// </remarks>
-    public Control? SidePanel
+    public IReadOnlyList<SvgViewerPane> SidePanels
     {
-        get => _sidePanel;
+        get => _sidePanels;
         set
         {
-            if (ReferenceEquals(_sidePanel, value))
-            {
-                return;
-            }
-
-            _sidePanel = value;
-
-            FillPanelHost();
-        }
-    }
-
-    /// <summary>What the side panel's tab is called.</summary>
-    public string SidePanelHeader
-    {
-        get => _sidePanelHeader;
-        set
-        {
-            _sidePanelHeader = value;
+            _sidePanels = value ?? Array.Empty<SvgViewerPane>();
 
             FillPanelHost();
         }
@@ -321,7 +303,7 @@ public partial class SvgViewer : UserControl
 
         _panelHost.Child = null;
 
-        if (_sidePanel is null)
+        if (_sidePanels.Count == 0)
         {
             _panelHost.Child = _panel;
 
@@ -330,10 +312,11 @@ public partial class SvgViewer : UserControl
 
         var tabs = new TabControl { Classes = { "panes" }, Padding = new Thickness(0) };
 
-        // The host's first, and so the one the pane opens on: it sets a panel because it has
-        // something to say about the drawing, and one filed behind a tab nobody clicks may as well
-        // not be there.
-        tabs.Items.Add(new TabItem { Header = _sidePanelHeader, Content = _sidePanel });
+        foreach (var pane in _sidePanels)
+        {
+            tabs.Items.Add(new TabItem { Header = pane.Header, Content = pane.Content });
+        }
+
         tabs.Items.Add(new TabItem { Header = "Parameters", Content = _panel });
 
         _panelHost.Child = tabs;

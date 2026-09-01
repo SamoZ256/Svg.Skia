@@ -1081,7 +1081,7 @@ public class MainWindowProjectTests : IDisposable
         var viewer = (SvgViewer)tab.Content!;
 
         // Beside the drawing's own parameters, in the pane a group keeps its settings in.
-        var panel = Assert.IsType<GroupPanel>(viewer.SidePanel);
+        var panel = Assert.IsType<GroupPanel>(Assert.Single(viewer.SidePanels).Content);
         var panes = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
 
         // First of the two, and so the one shown: a drawing opened from the tree is being looked at
@@ -1133,7 +1133,7 @@ public class MainWindowProjectTests : IDisposable
 
         var tab = Tabs(window).Items.OfType<TabItem>().Single(item => item.Tag is SvgcProjectDrawing);
 
-        ((GroupPanel)((SvgViewer)tab.Content!).SidePanel!).Edit("output", "Home.cs");
+        ((GroupPanel)Assert.Single(((SvgViewer)tab.Content!).SidePanels).Content).Edit("output", "Home.cs");
         Dispatcher.UIThread.RunJobs();
 
         // The drawing's text is untouched; what is unsaved is the project's say over it, and the
@@ -1444,11 +1444,11 @@ public class MainWindowProjectTests : IDisposable
         => Tabs(window).Items.OfType<TabItem>().Select(item => item.Content).OfType<RecipePanel>().SingleOrDefault();
 
     /// <summary>A window on the sample project with the recipe named by its group.</summary>
-    private async Task<MainWindow> Recipes()
+    private async Task<MainWindow> Recipes(string? drawing = null, string? recipe = null)
     {
         Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
+        Write("badge.svg", drawing ?? Drawing);
+        Write("icons.recipe", recipe ?? Recipe);
 
         var window = await Host(Write("icons.svgcproj", RecipeProject));
 
@@ -1577,6 +1577,124 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         Assert.Null(Editor(window));
+    }
+
+    private static ColourPanel Colours(SvgViewer viewer)
+        => viewer.SidePanels.Select(pane => pane.Content).OfType<ColourPanel>().Single();
+
+    /// <summary>A window with badge.svg open under the recipe, which is what the colours are for.</summary>
+    private async Task<(MainWindow Window, SvgViewer Viewer)> Painting(string? drawing = null, string? recipe = null)
+    {
+        var window = await Recipes(drawing, recipe);
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        return (window, await Settle(window, "badge.svg"));
+    }
+
+    [AvaloniaFact]
+    public async Task The_Colours_Of_A_Drawing_Are_A_Pane_Of_Their_Own()
+    {
+        var (window, viewer) = await Painting();
+
+        Assert.Equal(
+            new[] { "Project", "Colours", "Parameters" },
+            viewer.GetVisualDescendants()
+                .OfType<TabControl>()
+                .Single(control => control.Classes.Contains("panes"))
+                .Items.OfType<TabItem>()
+                .Select(item => (string)item.Header!));
+
+        var colours = Colours(viewer);
+
+        // The drawing's own colour, and what the recipe already says paints it.
+        Assert.Equal(new[] { "#00ff00" }, colours.Colours);
+        Assert.Equal("tint", colours.Expression("#00ff00"));
+
+        // A drawing with no recipe over it has nothing to bind, so it has no pane either.
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty((await Settle(window, "home.svg")).SidePanels.Select(pane => pane.Content).OfType<ColourPanel>());
+    }
+
+    [AvaloniaFact]
+    public async Task Binding_A_Colour_Changes_What_The_Drawing_Paints_Before_Any_Save()
+    {
+        // A drawing with a colour the recipe says nothing about yet.
+        var (window, viewer) = await Painting(Drawing.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
+        var colours = Colours(viewer);
+        var recipe = Path.Combine(_directory, "icons.recipe");
+
+        Assert.Equal(new[] { "#ff0000" }, colours.Colours);
+        Assert.Null(colours.Expression("#ff0000"));
+
+        Assert.True(colours.Bind("#ff0000", "hsl(hue, 100%, 50%)"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(colours.Fault);
+        Assert.Equal("hsl(hue, 100%, 50%)", colours.Expression("#ff0000"));
+
+        // Written into the recipe's buffer and nowhere near the drawing.
+        Assert.Contains("""<replace color="#ff0000">hsl(hue, 100%, 50%)</replace>""", colours.Recipe.Text);
+        Assert.DoesNotContain("{{", File.ReadAllText(Path.Combine(_directory, "badge.svg")));
+        Assert.DoesNotContain("#ff0000", File.ReadAllText(recipe));
+        Assert.True(colours.Recipe.IsModified);
+
+        // And the drawing follows it, unsaved, because the parameter it names is now bound to a
+        // colour the drawing has.
+        for (var attempt = 0; attempt < 200 && viewer.Parameters.Count == 0; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
+
+        Assert.True(colours.Unbind("#ff0000"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(colours.Expression("#ff0000"));
+        Assert.DoesNotContain("#ff0000", colours.Recipe.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Rule_That_This_Drawing_Has_No_Colour_For_Is_Still_Shown()
+    {
+        var (_, viewer) = await Painting(Drawing.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
+        var colours = Colours(viewer);
+
+        // The recipe's rule is for #00ff00, which this drawing does not paint. One recipe covers a
+        // family, so that is ordinary — but a rule that appeared to have vanished would not be.
+        Assert.Equal(new[] { "#ff0000" }, colours.Colours);
+        Assert.Equal("tint", colours.Expression("#00ff00"));
+
+        // On screen, not just in the model: the pane's content is out of the tree until its tab is
+        // the one being looked at.
+        var panes = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
+
+        panes.SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains(
+            "Not in this drawing",
+            colours.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Colour_Is_Bound_Through_The_Rule_The_Recipe_Already_Writes_For_It()
+    {
+        // The recipe names the colour one way and the drawing another. Two spellings of one colour
+        // must not become two rules, which the recipe then refuses to read at all.
+        var (_, viewer) = await Painting(recipe: Recipe.Replace("#00ff00", "rgb(0, 255, 0)", StringComparison.Ordinal));
+        var colours = Colours(viewer);
+
+        Assert.Equal(new[] { "#00ff00" }, colours.Colours);
+        Assert.True(colours.Bind("#00ff00", "deep"));
+
+        Assert.Contains("""color="rgb(0, 255, 0)">deep<""", colours.Recipe.Text);
+        Assert.Null(colours.Recipe.Fault);
     }
 
     [AvaloniaFact]

@@ -322,9 +322,18 @@ copy is commented out underneath. A file already at that name is named rather th
 With one named, the row is the file and a **✕** that stops using it — the file itself is left where
 it is. **Double-clicking the file opens it**, in a tab of its own: the recipe as text, coloured the
 way the source pane colours a drawing, with what the parser makes of it said underneath as it is
-typed. Saving writes the file and reads the drawings under it again, which is the loop a recipe is
-edited in — change a colour, save, watch the icons follow. One recipe is usually named by several
-groups, so it opens once however many of them ask for it.
+typed. One recipe is usually named by several groups, so it opens once however many of them ask for it.
+
+There is one buffer per open recipe, so the drawings under it follow it **as it is typed** rather
+than when it is saved — a tab you are not looking at is read again when you come back to it.
+
+A drawing under a recipe also gets a **Colours** tab beside its Project and Parameters: every colour
+the drawing paints with, how much of the drawing each one is, and the expression the recipe gives it.
+Typing one writes the `<replace>` rule; emptying the box takes it away. A rule for a colour this
+drawing does not have is listed underneath as "not in this drawing" rather than hidden, since one
+recipe covers a family and a rule is for whichever of them has the colour. The list is what the
+build would act on: it comes from the same walk that does the rewriting, so a colour under a `style`
+declaration is offered and the dead attribute beneath it is not.
 
 The tree is editable. Each row carries **Add group**, **Add SVG…** and **Remove**; `Delete` removes
 the selected row, and a row is dragged to move it — dropped on the top or bottom quarter of a group
