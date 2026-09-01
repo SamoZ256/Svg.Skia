@@ -61,6 +61,9 @@ public partial class MainWindow : Window
     /// </remarks>
     private readonly HashSet<TabItem> _stale = new();
 
+    /// <summary>The recipes this project has opened, by file. One buffer each, however many ask.</summary>
+    private readonly Dictionary<string, RecipeWorkspace> _recipes = new(StringComparer.Ordinal);
+
     private TabItem? _pressed;
     private Point _pressedAt;
     private double _grabbedAt;
@@ -303,6 +306,9 @@ public partial class MainWindow : Window
         }
 
         _workspace = null;
+
+        // The recipes were the project's too, and their buffers go with the tabs that showed them.
+        _recipes.Clear();
 
         _projectTree.Items.Clear();
         ShowProjectPane(false);
@@ -950,7 +956,7 @@ public partial class MainWindow : Window
     /// the recipe's, which is what makes them worth dragging. Without this the preview was the plain
     /// file while the build produced something else, and nothing said so.
     /// </remarks>
-    private static void Recipe(SvgViewer viewer, SvgcProjectDrawing drawing)
+    private void Recipe(SvgViewer viewer, SvgcProjectDrawing drawing)
     {
         viewer.Rewrite = null;
         viewer.Notice = null;
@@ -960,17 +966,24 @@ public partial class MainWindow : Window
             return;
         }
 
+        // The open buffer, not the file: a recipe being typed in decides what the drawings under it
+        // look like from the keystroke, which is the whole of editing one here.
+        var workspace = Opened(path);
+
         try
         {
-            var recipe = SvgRecipe.Load(path);
+            if (workspace.Fault is { } fault)
+            {
+                throw new SvgRecipeException(fault);
+            }
 
             // Applied once here rather than taken on trust, because a recipe this drawing refuses —
             // one that already declares for itself, say — would otherwise fail inside the load, and
             // the tab would open empty instead of showing the drawing and the reason. It costs a
             // second read of a file the load is about to read anyway.
-            SvgRecipeRewriter.Apply(File.ReadAllText(drawing.ResolvedInput), recipe);
+            SvgRecipeRewriter.Apply(File.ReadAllText(drawing.ResolvedInput), workspace.Recipe!);
 
-            viewer.Rewrite = text => Rewritten(text, recipe);
+            viewer.Rewrite = text => Rewritten(text, workspace);
         }
         catch (Exception failure)
             when (failure is SvgRecipeException or IOException or UnauthorizedAccessException)
@@ -979,13 +992,40 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>The open recipe at <paramref name="path"/>, opened if this is the first to ask.</summary>
+    /// <remarks>
+    /// One buffer per file however many drawings name it, so a rule typed once is seen by all of
+    /// them and there is one answer to whether the recipe has unsaved work.
+    /// </remarks>
+    private RecipeWorkspace Opened(string path)
+    {
+        if (_recipes.TryGetValue(path, out var open))
+        {
+            return open;
+        }
+
+        var workspace = new RecipeWorkspace(path);
+
+        workspace.Edited += (_, _) => Rebuild();
+
+        _recipes.Add(path, workspace);
+
+        return workspace;
+    }
+
     /// <summary>The drawing as its recipe makes it, or as it is when the recipe will not have it.</summary>
     /// <remarks>
-    /// Never throws: this runs on every keystroke in the source pane, and text edited into something
-    /// the recipe refuses is shown as it is rather than freezing the picture where it was.
+    /// Never throws: this runs on every keystroke in the source pane and on every keystroke in the
+    /// recipe, and text either of them is halfway through is shown as it is rather than freezing the
+    /// picture where it was.
     /// </remarks>
-    private static string Rewritten(string svgText, SvgRecipe recipe)
+    private static string Rewritten(string svgText, RecipeWorkspace workspace)
     {
+        if (workspace.Recipe is not { } recipe)
+        {
+            return svgText;
+        }
+
         try
         {
             return SvgRecipeRewriter.Apply(svgText, recipe).Svg;
@@ -1018,7 +1058,7 @@ public partial class MainWindow : Window
             return (RecipePanel)open.Content!;
         }
 
-        var panel = new RecipePanel(path);
+        var panel = new RecipePanel(Opened(path));
 
         AddNodeTab(panel, path, Path.GetFileName(path));
 

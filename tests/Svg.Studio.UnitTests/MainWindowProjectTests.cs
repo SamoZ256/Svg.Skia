@@ -1580,6 +1580,42 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task A_Drawing_Follows_Its_Recipe_Before_The_Recipe_Is_Saved()
+    {
+        var window = await Recipes();
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = await Settle(window, "badge.svg");
+        Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
+
+        var recipe = Path.Combine(_directory, "icons.recipe");
+        var editor = window.ShowRecipe(recipe);
+
+        editor.Text = Recipe.Replace("hue", "tone", StringComparison.Ordinal);
+        Dispatcher.UIThread.RunJobs();
+
+        // Nothing is written. What the drawing is built through is the buffer, not the file.
+        Assert.Contains("hue", File.ReadAllText(recipe));
+        Assert.True(editor.IsModified);
+
+        var tab = Tabs(window).Items.OfType<TabItem>().Single(item => ReferenceEquals(item.Content, viewer));
+
+        for (var attempt = 0; attempt < 200 && viewer.Parameters.FirstOrDefault()?.Name != "tone"; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+
+            // Selected on every pass, since the tab is only read again once it is looked at.
+            Tabs(window).SelectedItem = tab;
+        }
+
+        Assert.Equal("tone", Assert.Single(viewer.Parameters).Name);
+        Assert.Contains("hue", File.ReadAllText(recipe));
+    }
+
+    [AvaloniaFact]
     public async Task A_Recipe_Is_Undone_And_Redone_Through_The_Window()
     {
         var window = await Recipes();
