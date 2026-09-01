@@ -63,6 +63,39 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
+    public async Task A_Side_Panel_Shares_The_Right_Pane_With_The_Parameters()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        var host = window.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "DeclarationPanelHost");
+
+        // Nothing set, so the pane is what it always was: the declarations, with no strip over them.
+        Assert.IsType<SvgViewerDeclarationPanel>(host.Child);
+
+        var mine = new TextBlock { Text = "the host's own" };
+
+        viewer.SidePanelHeader = "Project";
+        viewer.SidePanel = mine;
+        Dispatcher.UIThread.RunJobs();
+
+        var tabs = Assert.IsType<TabControl>(host.Child);
+
+        // First, and so the one shown, rather than filed behind the parameters: a host sets one
+        // because it has something to say.
+        Assert.Equal(new[] { "Project", "Parameters" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        Assert.Equal(0, tabs.SelectedIndex);
+        Assert.Same(mine, ((TabItem)tabs.Items[0]!).Content);
+
+        viewer.SidePanel = null;
+        Dispatcher.UIThread.RunJobs();
+
+        // And back, with the declarations panel itself rather than a new one — it is the viewer's,
+        // and everything wired to it is still wired.
+        Assert.IsType<SvgViewerDeclarationPanel>(host.Child);
+        Assert.NotEmpty(viewer.Parameters!);
+    }
+
+    [AvaloniaFact]
     public async Task Loading_Builds_A_Row_Per_Declared_Parameter()
     {
         var (window, viewer) = await HostLoaded();

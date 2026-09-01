@@ -280,6 +280,255 @@ public class SvgcProjectDocumentTests
     }
 
     [Fact]
+    public void A_Drawing_Added_Takes_A_Line_Of_Its_Own()
+    {
+        var document = Parse("""
+            <svgc>
+              <svg input="a.svg" />
+              <group>
+                <svg input="b.svg" />
+              </group>
+            </svgc>
+            """);
+
+        document.Root.AddDrawing("c.svg", 1);
+        document.Root.AddDrawing("d.svg", 3);
+
+        // The same trap the settings hit: inserting before an element lands after the indentation
+        // in front of it, so without handing that back the two share a line.
+        Assert.Equal("""
+            <svgc>
+              <svg input="a.svg" />
+              <svg input="c.svg" />
+              <group>
+                <svg input="b.svg" />
+              </group>
+              <svg input="d.svg" />
+            </svgc>
+            """, document.ToXml());
+
+        // And in the order the build will read them.
+        Assert.Equal(
+            new[] { "a.svg", "c.svg", "b.svg", "d.svg" },
+            document.Root.Drawings.Select(drawing => drawing.Input));
+    }
+
+    [Fact]
+    public void The_First_Thing_In_A_Group_Is_Indented_One_Level_In()
+    {
+        var document = Parse("""
+            <svgc>
+              <group />
+            </svgc>
+            """);
+
+        var group = document.Root.Children.OfType<SvgcProjectGroup>().Single();
+
+        group.AddDrawing("a.svg", 0);
+
+        // A group holding nothing has no child to copy a line from, and the whitespace in front of
+        // its closing tag is its own depth — a child written on that comes out level with it.
+        Assert.Equal("""
+            <svgc>
+              <group>
+                <svg input="a.svg" />
+              </group>
+            </svgc>
+            """, document.ToXml());
+    }
+
+    [Fact]
+    public void Removing_A_Node_Takes_Its_Line_With_It()
+    {
+        var document = Parse("""
+            <svgc>
+              <svg input="a.svg" />
+
+              <!-- kept -->
+              <group>
+                <svg input="b.svg" />
+              </group>
+            </svgc>
+            """);
+
+        document.Root.Remove(document.Root.Children.OfType<SvgcProjectGroup>().Single());
+
+        // The comment stays: it is a sibling, not part of the group, and guessing which of the two
+        // it was written about is not worth deleting somebody's note over.
+        Assert.Equal("""
+            <svgc>
+              <svg input="a.svg" />
+
+              <!-- kept -->
+            </svgc>
+            """, document.ToXml());
+
+        Assert.Equal("a.svg", document.Root.Drawings.Single().Input);
+    }
+
+    [Fact]
+    public void A_Move_Reparents_What_It_Moves()
+    {
+        var document = Parse("""
+            <svgc>
+              <group namespace="A">
+                <svg input="a.svg" />
+              </group>
+              <group namespace="B">
+                <svg input="b.svg" />
+              </group>
+            </svgc>
+            """);
+
+        var groups = document.Root.Children.OfType<SvgcProjectGroup>().ToArray();
+        var moved = groups[0].Children.OfType<SvgcProjectDrawing>().Single();
+
+        groups[1].Move(moved, 1);
+
+        Assert.Equal("""
+            <svgc>
+              <group namespace="A">
+              </group>
+              <group namespace="B">
+                <svg input="b.svg" />
+                <svg input="a.svg" />
+              </group>
+            </svgc>
+            """, document.ToXml());
+
+        // Reparented rather than rebuilt, so what it inherits follows it and the caller's reference
+        // is still the node in the document.
+        Assert.Same(groups[1], moved.Parent);
+        Assert.Equal("B", moved.EffectiveNamespace);
+        Assert.Equal(new[] { "b.svg", "a.svg" }, document.Flatten().Items.Select(item => Path.GetFileName(item.Input)));
+    }
+
+    [Fact]
+    public void A_Move_Within_One_Group_Lands_Where_The_Caller_Pointed()
+    {
+        var document = Parse("""
+            <svgc>
+              <svg input="a.svg" />
+              <svg input="b.svg" />
+              <svg input="c.svg" />
+            </svgc>
+            """);
+
+        var drawings = document.Root.Children.OfType<SvgcProjectDrawing>().ToArray();
+
+        // "After b", read against the children as they are now — which is one past where it lands
+        // once a.svg has left.
+        document.Root.Move(drawings[0], 2);
+
+        Assert.Equal(
+            new[] { "b.svg", "a.svg", "c.svg" },
+            document.Root.Drawings.Select(drawing => drawing.Input));
+    }
+
+    [Fact]
+    public void A_Group_Carried_To_A_New_Depth_Takes_Its_Contents_Indentation_With_It()
+    {
+        var document = Parse("""
+            <svgc>
+              <svg input="a.svg" />
+
+              <group namespace="Large" scale="2">
+                <svg input="b.svg" />
+
+                <group class="Huge">
+                  <svg input="c.svg" />
+                </group>
+              </group>
+            </svgc>
+            """);
+
+        var large = document.Root.Children.OfType<SvgcProjectGroup>().Single();
+        var huge = large.Children.OfType<SvgcProjectGroup>().Single();
+
+        // Out to the top level. The whitespace between a group's children lives inside it, so
+        // without shifting it the branch arrives still written for the depth it came from.
+        document.Root.Move(huge, 2);
+
+        Assert.Equal("""
+            <svgc>
+              <svg input="a.svg" />
+
+              <group namespace="Large" scale="2">
+                <svg input="b.svg" />
+              </group>
+              <group class="Huge">
+                <svg input="c.svg" />
+              </group>
+            </svgc>
+            """, document.ToXml());
+
+        // And back in again, a level deeper than it has just been written for.
+        large.Move(huge, 1);
+
+        Assert.Equal("""
+            <svgc>
+              <svg input="a.svg" />
+
+              <group namespace="Large" scale="2">
+                <svg input="b.svg" />
+                <group class="Huge">
+                  <svg input="c.svg" />
+                </group>
+              </group>
+            </svgc>
+            """, document.ToXml());
+    }
+
+    [Fact]
+    public void Removing_The_First_Of_Several_Does_Not_Open_The_Group_With_A_Blank_Line()
+    {
+        var document = Parse("""
+            <svgc>
+              <group>
+                <svg input="a.svg" />
+
+                <svg input="b.svg" />
+              </group>
+            </svgc>
+            """);
+
+        var group = document.Root.Children.OfType<SvgcProjectGroup>().Single();
+
+        group.Remove(group.Children[0]);
+
+        // What goes is the separator behind it, not the indentation in front: that one opens the
+        // group, and taking it promoted the break behind the element — blank line and all — to
+        // opening the group in its place.
+        Assert.Equal("""
+            <svgc>
+              <group>
+                <svg input="b.svg" />
+              </group>
+            </svgc>
+            """, document.ToXml());
+    }
+
+    [Fact]
+    public void A_Group_Cannot_Be_Moved_Into_Itself()
+    {
+        var document = Parse("""
+            <svgc>
+              <group namespace="Outer">
+                <group namespace="Inner"><svg input="a.svg" /></group>
+              </group>
+            </svgc>
+            """);
+
+        var outer = document.Root.Children.OfType<SvgcProjectGroup>().Single();
+        var inner = outer.Children.OfType<SvgcProjectGroup>().Single();
+
+        // Both refused: it would take the branch out of the document and leave it holding itself.
+        Assert.Throws<SvgcProjectException>(() => inner.Move(outer, 0));
+        Assert.Throws<SvgcProjectException>(() => outer.Move(outer, 0));
+        Assert.Throws<SvgcProjectException>(() => outer.Move(document.Root, 0));
+    }
+
+    [Fact]
     public void Crlf_Survives_A_Save()
     {
         // XmlReader normalises CRLF to LF as the spec requires, so a Windows file read and written

@@ -18,11 +18,14 @@ using Svg.Skia;
 namespace Svg.Studio;
 
 /// <summary>
-/// One node of a project in a tab: its settings, and what it builds.
+/// One node of a project: its settings, and — for a group — what it builds.
 /// </summary>
 /// <remarks>
 /// Built in code rather than declared, for the reason the tabs are: the rows depend on what kind of
-/// node this is, so a template would have to be chosen at runtime anyway.
+/// node this is, so a template would have to be chosen at runtime anyway. A group fills a tab, since
+/// the list of what it builds wants the room; a drawing is its settings alone, and fits the pane
+/// beside the tree — its own tab is the viewer, which belongs to another package and has a right
+/// pane of its own about the drawing rather than about the project.
 /// </remarks>
 public sealed class GroupPanel : UserControl
 {
@@ -38,17 +41,31 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private readonly Dictionary<string, string?> _pending = new(StringComparer.Ordinal);
 
-    public GroupPanel(ProjectWorkspace workspace, SvgcProjectGroup node)
+    public GroupPanel(ProjectWorkspace workspace, SvgcProjectNode node)
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         Node = node ?? throw new ArgumentNullException(nameof(node));
 
+        Content = node is SvgcProjectGroup ? Built() : Alone();
+
+        // A group saved in another tab changes what this one inherits, so every tab follows the
+        // one document rather than the copy it was opened with. Anything typed here and not saved
+        // survives it.
+        workspace.Edited += (_, _) => Refresh();
+
+        Refresh();
+    }
+
+    /// <summary>A group's tab: what it builds beside the settings that decide it.</summary>
+    private Control Built()
+    {
         var grid = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,6,340")
         };
 
         var centre = new DockPanel();
+
         centre.Children.Add(_heading);
         DockPanel.SetDock(_heading, Dock.Top);
         centre.Children.Add(new ScrollViewer { Content = _summary });
@@ -56,6 +73,7 @@ public sealed class GroupPanel : UserControl
         grid.Children.Add(centre);
 
         var splitter = new GridSplitter { Background = Brushes.Transparent };
+
         Grid.SetColumn(splitter, 1);
         grid.Children.Add(splitter);
 
@@ -69,20 +87,25 @@ public sealed class GroupPanel : UserControl
         Grid.SetColumn(right, 2);
         grid.Children.Add(right);
 
-        Content = grid;
+        return grid;
+    }
 
-        // A group saved in another tab changes what this one inherits, so every tab follows the
-        // one document rather than the copy it was opened with. Anything typed here and not saved
-        // survives it.
-        workspace.Edited += (_, _) => Refresh();
+    /// <summary>A drawing's settings, with nothing beside them, for the pane.</summary>
+    private Control Alone()
+    {
+        var panel = new DockPanel();
 
-        Refresh();
+        panel.Children.Add(_heading);
+        DockPanel.SetDock(_heading, Dock.Top);
+        panel.Children.Add(new ScrollViewer { Content = _properties });
+
+        return panel;
     }
 
     public ProjectWorkspace Workspace { get; }
 
-    /// <summary>The group this tab is about. A drawing opens in a viewer instead.</summary>
-    public SvgcProjectGroup Node { get; }
+    /// <summary>The node this is about.</summary>
+    public SvgcProjectNode Node { get; }
 
     /// <summary>Whether anything typed here has not been written to the project.</summary>
     public bool IsModified => _pending.Count > 0;
@@ -185,7 +208,11 @@ public sealed class GroupPanel : UserControl
     {
         _heading.Text = ProjectWorkspace.Label(Node);
 
-        ShowSummary();
+        if (Node is SvgcProjectGroup)
+        {
+            ShowSummary();
+        }
+
         ShowProperties(Node);
     }
 
@@ -193,7 +220,7 @@ public sealed class GroupPanel : UserControl
     {
         _summary.Children.Clear();
 
-        var drawings = Node.Drawings.ToList();
+        var drawings = ((SvgcProjectGroup)Node).Drawings.ToList();
 
         if (drawings.Count == 0)
         {
@@ -248,6 +275,14 @@ public sealed class GroupPanel : UserControl
     {
         _properties.Children.Clear();
 
+        if (node is SvgcProjectDrawing)
+        {
+            Add("input");
+            Add("output");
+
+            _properties.Children.Add(new Separator { Margin = new Thickness(0, 6) });
+        }
+
         Add("namespace");
         Add("class");
         Add("recipe");
@@ -278,10 +313,12 @@ public sealed class GroupPanel : UserControl
         => _pending.TryGetValue(name, out var pending) ? pending : Value(node, name);
 
     /// <summary>Writes one setting onto <paramref name="node"/>, or throws if the value is not one.</summary>
-    private static void Write(SvgcProjectGroup node, string name, string? value)
+    private static void Write(SvgcProjectNode node, string name, string? value)
     {
         switch (name)
         {
+            case "input": ((SvgcProjectDrawing)node).Input = value!; break;
+            case "output": ((SvgcProjectDrawing)node).Output = value; break;
             case "namespace": node.Namespace = value; break;
             case "class": node.Class = value; break;
             case "recipe": node.Recipe = value; break;
@@ -414,6 +451,10 @@ public sealed class GroupPanel : UserControl
     {
         switch (name)
         {
+            // The one setting with no empty form: a drawing is a file, and a row naming none is
+            // not a row the build can read.
+            case "input" when string.IsNullOrWhiteSpace(value):
+                throw new SvgcProjectException("A drawing needs an input file.");
             case "width": SvgcProject.ParseLength(value, "width"); break;
             case "height": SvgcProject.ParseLength(value, "height"); break;
             case "scale": SvgcProject.ParseScale(value); break;
@@ -439,6 +480,8 @@ public sealed class GroupPanel : UserControl
 
     private static string? Value(SvgcProjectNode node, string name) => name switch
     {
+        "input" => (node as SvgcProjectDrawing)?.Input,
+        "output" => (node as SvgcProjectDrawing)?.Output,
         "namespace" => node.Namespace,
         "class" => node.Class,
         "recipe" => node.Recipe,

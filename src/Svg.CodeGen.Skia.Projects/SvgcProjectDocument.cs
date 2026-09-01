@@ -36,7 +36,13 @@ public abstract class SvgcProjectNode
     /// <summary>The XML this node reads and writes. Editing it edits the project.</summary>
     public XElement Element { get; }
 
-    public SvgcProjectGroup? Parent { get; }
+    /// <summary>The group holding this node, or null for the project itself.</summary>
+    /// <remarks>
+    /// Settable because a move reparents the node it is given rather than building a new one: every
+    /// open tab holds its node by reference, and a replacement would leave them editing something
+    /// the document no longer contains.
+    /// </remarks>
+    public SvgcProjectGroup? Parent { get; internal set; }
 
     /// <summary>The directory the project was read from, which every relative path resolves against.</summary>
     public string BaseDirectory { get; }
@@ -105,6 +111,20 @@ public abstract class SvgcProjectNode
     public float? EffectiveHeight => SizeOwner(true)?.Height;
 
     public float? EffectiveScale => SizeOwner(true)?.Scale;
+
+    /// <summary>Whether this is <paramref name="node"/>, or sits anywhere under it.</summary>
+    public bool DescendsFrom(SvgcProjectNode node)
+    {
+        for (SvgcProjectNode? at = this; at is { }; at = at.Parent)
+        {
+            if (ReferenceEquals(at, node))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>Where an effective setting comes from, for a UI that wants to say so. Null when nothing sets it.</summary>
     public SvgcProjectNode? OwnerOf(string setting) => setting switch
@@ -187,6 +207,193 @@ public class SvgcProjectGroup : SvgcProjectNode
     public IReadOnlyList<SvgcProjectNode> Children => _children;
 
     internal void Add(SvgcProjectNode child) => _children.Add(child);
+
+    /// <summary>Adds an empty group, and hands it back to be filled in.</summary>
+    public SvgcProjectGroup AddGroup(int index)
+    {
+        var group = Group(new XElement("group"), this, BaseDirectory);
+
+        Attach(index, group);
+
+        return group;
+    }
+
+    /// <summary>Adds a drawing of <paramref name="input"/>, which inherits everything else.</summary>
+    public SvgcProjectDrawing AddDrawing(string input, int index)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            throw new SvgcProjectException("A drawing needs an input file.");
+        }
+
+        var drawing = new SvgcProjectDrawing(
+            new XElement("svg", new XAttribute("input", input.Trim())),
+            this,
+            BaseDirectory);
+
+        Attach(index, drawing);
+
+        return drawing;
+    }
+
+    /// <summary>Takes a node out of this group, with everything under it.</summary>
+    public void Remove(SvgcProjectNode child)
+    {
+        if (!_children.Contains(child))
+        {
+            throw new SvgcProjectException("That node is not in this group.");
+        }
+
+        Detach(child);
+    }
+
+    /// <summary>
+    /// Moves a node into this group, at <paramref name="index"/>.
+    /// </summary>
+    /// <remarks>
+    /// The index is read against the children as they are now, before the node has left wherever it
+    /// is — so a drop after the second row is index 2 whether or not the node being dropped is
+    /// already in this group.
+    /// </remarks>
+    public void Move(SvgcProjectNode child, int index)
+    {
+        if (child is SvgcProjectRoot || child.Parent is not { } parent)
+        {
+            throw new SvgcProjectException("The project itself cannot be moved.");
+        }
+
+        // Both at once: a group dropped on itself, and one dropped inside its own descendant, which
+        // would take the whole branch out of the document and leave it holding itself.
+        if (DescendsFrom(child))
+        {
+            throw new SvgcProjectException("A group cannot be moved into itself.");
+        }
+
+        if (ReferenceEquals(parent, this) && index > parent._children.IndexOf(child))
+        {
+            index--;
+        }
+
+        // Read before the move, since detaching takes the whitespace that says it away.
+        var was = SvgcProjectDocument.Depth(child.Element);
+
+        parent.Detach(child);
+        Attach(index, child);
+
+        Reindent(child.Element, was, SvgcProjectDocument.Depth(child.Element));
+    }
+
+    /// <summary>
+    /// Moves everything written inside <paramref name="element"/> from one depth to another.
+    /// </summary>
+    /// <remarks>
+    /// The whitespace between a group's children lives inside it, so a group carried to a new depth
+    /// arrives with its contents still indented for the old one — and a group emptied on the way
+    /// keeps a closing tag two levels out from its opening one. Only the lines that sat at the old
+    /// depth are shifted; what was deeper keeps the extra, which is what makes a whole branch move
+    /// as one.
+    /// </remarks>
+    private static void Reindent(XElement element, string was, string now)
+    {
+        if (was == now)
+        {
+            return;
+        }
+
+        foreach (var text in element.DescendantNodes().OfType<XText>())
+        {
+            var lines = text.Value.Split('\n');
+
+            for (var line = 1; line < lines.Length; line++)
+            {
+                if (lines[line].StartsWith(was, StringComparison.Ordinal))
+                {
+                    lines[line] = now + lines[line].Substring(was.Length);
+                }
+            }
+
+            text.Value = string.Join("\n", lines);
+        }
+    }
+
+    /// <summary>Puts a node into the children and into the XML, on a line of its own.</summary>
+    private void Attach(int index, SvgcProjectNode child)
+    {
+        index = Math.Max(0, Math.Min(index, _children.Count));
+
+        var element = child.Element;
+
+        if (_children.Count == 0)
+        {
+            AddFirst(element);
+        }
+        else if (index == _children.Count)
+        {
+            var last = _children[index - 1].Element;
+
+            last.AddAfterSelf(new XText(SvgcProjectDocument.Indentation(Element)), element);
+        }
+        else
+        {
+            var next = _children[index].Element;
+
+            next.AddBeforeSelf(element);
+
+            // The break and indentation the displaced element was sitting on, given back to it.
+            // Whitespace is a node of its own once it is preserved, and inserting before an element
+            // lands after the whitespace in front of it — so without this the two share a line.
+            if (element.PreviousNode is XText indent)
+            {
+                element.AddAfterSelf(new XText(indent.Value));
+            }
+        }
+
+        _children.Insert(index, child);
+        child.Parent = this;
+    }
+
+    /// <summary>The first thing this group has held, so there is no sibling to take a line from.</summary>
+    private void AddFirst(XElement element)
+    {
+        var inner = new XText(SvgcProjectDocument.Indentation(Element));
+
+        // Whatever closes the group already sits on the right line; the new element goes in front
+        // of it rather than after, which is where Add would put it.
+        if (Element.LastNode is XText closing && closing.Value.Trim().Length == 0)
+        {
+            closing.AddBeforeSelf(inner, element);
+            return;
+        }
+
+        Element.Add(inner, element, new XText(SvgcProjectDocument.Leading(Element)));
+    }
+
+    /// <summary>Takes a node out of the children and out of the XML, and the line with it.</summary>
+    private void Detach(SvgcProjectNode child)
+    {
+        var element = child.Element;
+
+        // What goes with it is the separator, not simply the whitespace in front. In front of the
+        // first of several children is the group's own opening indentation, which has to stay — take
+        // that and the break behind the element is promoted to opening the group, blank line and
+        // all. In front of an only child it is the opening indentation again, but there the break
+        // behind is what closes the group, so this time the one in front is the one to go.
+        var separator = ReferenceEquals(element, Element.Elements().FirstOrDefault())
+                        && Element.Elements().Skip(1).Any()
+            ? element.NextNode as XText
+            : element.PreviousNode as XText;
+
+        // Left behind, it meets the whitespace on the other side and the pair reads as a blank line.
+        if (separator is { } text && text.Value.Trim().Length == 0)
+        {
+            text.Remove();
+        }
+
+        element.Remove();
+
+        _children.Remove(child);
+        child.Parent = null;
+    }
 
     /// <summary>Every drawing under this node, in document order.</summary>
     public IEnumerable<SvgcProjectDrawing> Drawings
@@ -332,16 +539,12 @@ public sealed class SvgcProjectRoot : SvgcProjectGroup
         // indentation the settings already there are using.
         if (Element.LastNode is XText closing)
         {
-            closing.AddBeforeSelf(new XText(Indent()), added);
+            closing.AddBeforeSelf(new XText(SvgcProjectDocument.Indentation(Element)), added);
             return;
         }
 
         Element.Add(added);
     }
-
-    /// <summary>The break and indentation this project writes its settings on.</summary>
-    private string Indent()
-        => Element.Nodes().OfType<XText>().FirstOrDefault(text => text.Value.Contains("\n"))?.Value ?? "\n  ";
 }
 
 /// <summary>
@@ -642,6 +845,47 @@ public sealed class SvgcProjectDocument
         var value = ((string?)element.Attribute(name))?.Trim();
 
         return value is null || value.Length == 0 ? null : value;
+    }
+
+    /// <summary>The break and indentation the children of <paramref name="element"/> sit on.</summary>
+    /// <remarks>
+    /// The whitespace before a closing tag is no guide when an element holds nothing: it is the
+    /// element's own depth, and a child written on it would come out level with its parent.
+    /// </remarks>
+    internal static string Indentation(XElement element)
+    {
+        var first = element.Elements().FirstOrDefault();
+
+        if (first is { } && first.PreviousNode is XText inner && inner.Value.Contains("\n"))
+        {
+            return inner.Value;
+        }
+
+        return Leading(element) + Step(element);
+    }
+
+    /// <summary>How far in <paramref name="element"/> itself is written, without the break.</summary>
+    internal static string Depth(XElement element)
+    {
+        var leading = Leading(element);
+
+        return leading.Substring(leading.LastIndexOf('\n') + 1);
+    }
+
+    /// <summary>The break and indentation <paramref name="element"/> itself sits on.</summary>
+    internal static string Leading(XElement element)
+        => element.PreviousNode is XText text && text.Value.Contains("\n") ? text.Value : "\n";
+
+    /// <summary>One level of indentation, as this document happens to write it.</summary>
+    private static string Step(XElement element)
+    {
+        var first = element.Document?.Root?.Elements().FirstOrDefault();
+        var value = first?.PreviousNode is XText text ? text.Value : null;
+        var indent = value is { } && value.Contains("\n")
+            ? value.Substring(value.LastIndexOf('\n') + 1)
+            : string.Empty;
+
+        return indent.Length == 0 ? "  " : indent;
     }
 
     internal static string? Resolve(string? path, string baseDirectory)

@@ -13,6 +13,44 @@
       than a host on another theme finding an unstyled control.
     -->
     <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
+
+    <!--
+      The right pane's tabs, which appear only once a host has put a panel of its own beside the
+      parameters. Fluent styles a TabItem as a pivot header — 24pt type over a sliding pipe — which
+      is half the width of the pane it would be sitting in, and the pipe is laid out for that type
+      rather than this: at pane size it crosses the word it is meant to underline. Hence a template
+      rather than a few setters over Fluent's, so the line is the border of the header itself and
+      cannot land on top of it.
+    -->
+    <Style Selector="TabControl.panes > TabItem">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="10,6" />
+      <Setter Property="Opacity" Value="0.6" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="Transparent"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="0,0,0,2">
+            <ContentPresenter Content="{TemplateBinding Header}"
+                              ContentTemplate="{TemplateBinding HeaderTemplate}"
+                              Margin="{TemplateBinding Padding}"
+                              VerticalAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+
+    <Style Selector="TabControl.panes > TabItem:selected">
+      <Setter Property="Opacity" Value="1" />
+      <!-- The brush Fluent paints its own pipe with, so only the line's position has changed. -->
+      <Setter Property="BorderBrush" Value="{DynamicResource TabItemHeaderSelectedPipeFill}" />
+    </Style>
+
+    <Style Selector="TabControl.panes > TabItem:pointerover">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
   </UserControl.Styles>
 
   <UserControl.Resources>

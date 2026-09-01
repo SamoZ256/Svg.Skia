@@ -46,6 +46,8 @@ public partial class MainWindow : Window
     private readonly Border _projectPaneHost;
     private readonly GridSplitter _projectSplitter;
     private readonly TextBlock _projectName;
+    private readonly Border _dropLine;
+    private readonly Grid _dropHost;
 
     /// <summary>The open project, or null. The window works on one at a time, as a workspace is.</summary>
     private ProjectWorkspace? _workspace;
@@ -78,6 +80,7 @@ public partial class MainWindow : Window
         AvaloniaXamlLoader.Load(this);
 
         ConfirmDiscard = AskDiscard;
+        ConfirmRemove = message => Ask("Remove from the project", message, "Remove", "Cancel");
         Announce = (title, message) => Ask(title, message, null, "Close");
 
         _tabs = this.FindControl<TabControl>("Tabs")!;
@@ -94,6 +97,15 @@ public partial class MainWindow : Window
         _projectSplitter = this.FindControl<GridSplitter>("ProjectSplitter")!;
         _projectName = this.FindControl<TextBlock>("ProjectName")!;
         _projectTree.KeyDown += OnProjectTreeKeyDown;
+        _dropLine = this.FindControl<Border>("DropLine")!;
+        _dropHost = (Grid)_dropLine.Parent!;
+
+        // Tunnelling, because TreeViewItem takes a press itself to become selected.
+        _projectTree.AddHandler(PointerPressedEvent, OnRowPressed, RoutingStrategies.Tunnel);
+        _projectTree.PointerMoved += OnRowMoved;
+        _projectTree.AddHandler(DragDrop.DragOverEvent, OnRowDragOver);
+        _projectTree.AddHandler(DragDrop.DropEvent, OnRowDrop);
+        _projectTree.AddHandler(DragDrop.DragLeaveEvent, (_, _) => HideDrop());
         _tabs.TemplateApplied += OnTabsTemplateApplied;
 
         // On the strip, and tunnelling, because TabItem handles a press itself to become selected
@@ -164,7 +176,7 @@ public partial class MainWindow : Window
 
             // A reload keeps whatever the pane still holds — reopening a drawing at a new size does
             // not save it, so the mark has no business being cleared by one.
-            marker.Classes.Set("unsaved", viewer.IsSourceModified);
+            Mark(item);
 
             UpdateTitle();
 
@@ -172,11 +184,7 @@ public partial class MainWindow : Window
             UpdateMenu();
         };
 
-        viewer.SourceModifiedChanged += (_, modified) =>
-        {
-            marker.Classes.Set("unsaved", modified);
-            UpdateTitle();
-        };
+        viewer.SourceModifiedChanged += (_, _) => Mark(item);
 
         viewer.OpenRequested += (_, request) =>
         {
@@ -281,15 +289,7 @@ public partial class MainWindow : Window
         // Asked once for all of them rather than tab by tab, since closing the project is one act
         // and being stopped halfway through it would leave half a workspace open.
         var owned = _tabs.Items.OfType<TabItem>().Where(item => item.Tag is SvgcProjectNode).ToList();
-        var unsaved = owned.Select(item => item.Content switch
-            {
-                SvgViewer { IsSourceModified: true } editing => Named(editing),
-                GroupPanel { IsModified: true } group => ProjectWorkspace.Label(group.Node),
-                _ => null
-            })
-            .Where(name => name is { })
-            .Select(name => name!)
-            .ToList();
+        var unsaved = owned.Select(Unsaved).Where(name => name is { }).Select(name => name!).ToList();
 
         if (unsaved.Count > 0 && !await ConfirmDiscard(Describe(unsaved)).ConfigureAwait(true))
         {
@@ -406,7 +406,8 @@ public partial class MainWindow : Window
         _projectColumn.MinWidth = show ? 180 : 0;
     }
 
-    private void BuildTree()
+    /// <param name="select">The node to leave selected, or null to keep whatever was.</param>
+    private void BuildTree(SvgcProjectNode? select = null)
     {
         if (_workspace is not { } workspace)
         {
@@ -415,7 +416,7 @@ public partial class MainWindow : Window
 
         _projectName.Text = workspace.Name;
 
-        var selected = (_projectTree.SelectedItem as TreeViewItem)?.Tag;
+        var selected = select ?? (_projectTree.SelectedItem as TreeViewItem)?.Tag;
 
         _projectTree.Items.Clear();
         _projectTree.Items.Add(Branch(workspace.Document.Root, selected));
@@ -443,6 +444,13 @@ public partial class MainWindow : Window
             // and open that as well.
             e.Handled = true;
 
+            // The release that finishes a drag raises this too, which opened whatever had just been
+            // dropped. Cleared by the next press, so a drag that ends without one swallows nothing.
+            if (_rowDragged)
+            {
+                return;
+            }
+
             // The chevron folds; it does not open.
             if (e.Source is Visual source && source.FindAncestorOfType<ToggleButton>(true) is { })
             {
@@ -451,6 +459,8 @@ public partial class MainWindow : Window
 
             await ShowAsync(node);
         };
+
+        item.ContextMenu = Commands(node);
 
         if (node is SvgcProjectGroup group)
         {
@@ -463,10 +473,426 @@ public partial class MainWindow : Window
         return item;
     }
 
+    /// <summary>What can be done to a row, on the row rather than in the menu bar.</summary>
+    /// <remarks>
+    /// Per row, so what is acted on is what was clicked — a right click does not select, and a menu
+    /// reading the selection would act on whatever was opened last.
+    /// </remarks>
+    private ContextMenu Commands(SvgcProjectNode node)
+    {
+        var menu = new ContextMenu();
+
+        Add("Add group", async () => await AddGroupAsync(node));
+        Add("Add SVG…", async () => await AddDrawingAsync(node));
+
+        // The project is the file; there is no tree left without it.
+        if (node.Parent is { })
+        {
+            menu.Items.Add(new Separator());
+            Add("Remove", async () => await RemoveAsync(node));
+        }
+
+        return menu;
+
+        void Add(string header, Func<Task> command)
+        {
+            var item = new MenuItem { Header = header };
+
+            item.Click += async (_, _) => await command();
+
+            menu.Items.Add(item);
+        }
+    }
+
+    /// <summary>Where something added beside <paramref name="node"/> goes: in a group, after a drawing.</summary>
+    private static (SvgcProjectGroup Parent, int Index) Beside(SvgcProjectNode node)
+        => node is SvgcProjectGroup group
+            ? (group, group.Children.Count)
+            : (node.Parent!, node.Parent!.Children.ToList().IndexOf(node) + 1);
+
+    /// <summary>Adds an empty group, and opens it so it can be given a name.</summary>
+    /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the menu.</remarks>
+    public async Task AddGroupAsync(SvgcProjectNode beside)
+    {
+        if (_workspace is not { } workspace)
+        {
+            return;
+        }
+
+        var (parent, index) = Beside(beside);
+        var group = parent.AddGroup(index);
+
+        workspace.Save();
+        BuildTree(group);
+
+        // A group with nothing on it is named by neither of its settings, so it opens as "group"
+        // until one is typed — which is what the tab is for.
+        await ShowAsync(group).ConfigureAwait(true);
+    }
+
+    /// <summary>Asks which drawing to add, and adds it.</summary>
+    private async Task AddDrawingAsync(SvgcProjectNode beside)
+    {
+        if (_workspace is null || !StorageProvider.CanOpen)
+        {
+            return;
+        }
+
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Add a drawing to the project",
+            AllowMultiple = true,
+            FileTypeFilter = new List<FilePickerFileType> { StudioFileDialogService.Drawings }
+        }).ConfigureAwait(true);
+
+        foreach (var path in files.Select(file => file.TryGetLocalPath()).Where(path => path is { Length: > 0 }))
+        {
+            await AddDrawingAsync(beside, path!).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>Adds <paramref name="path"/> to the project, and opens it.</summary>
+    /// <remarks>Taking the path rather than asking for it, so everything but the panel can be driven.</remarks>
+    public async Task AddDrawingAsync(SvgcProjectNode beside, string path)
+    {
+        if (_workspace is not { } workspace)
+        {
+            return;
+        }
+
+        var (parent, index) = Beside(beside);
+        var drawing = parent.AddDrawing(Carried(path, workspace.Document.BaseDirectory), index);
+
+        workspace.Save();
+        BuildTree(drawing);
+
+        await ShowAsync(drawing).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// The path as the project should carry it: relative to the project's own directory.
+    /// </summary>
+    /// <remarks>
+    /// A project that named an absolute path would build on the machine it was written on and
+    /// nowhere else, so a walk out of the directory is kept in preference — it survives the whole
+    /// tree being moved or cloned. Only a path with no relative form at all, which on Windows means
+    /// another drive, stays as it came. Separators are written the way the format's own examples
+    /// write them; Path.Combine reads those on Windows, where the reverse is not true.
+    /// </remarks>
+    private static string Carried(string path, string baseDirectory)
+    {
+        if (baseDirectory.Length == 0)
+        {
+            return path;
+        }
+
+        var relative = Path.GetRelativePath(baseDirectory, path);
+
+        return Path.IsPathRooted(relative) ? path : relative.Replace('\\', '/');
+    }
+
+    /// <summary>
+    /// Takes a node out of the project, with everything under it.
+    /// </summary>
+    /// <remarks>
+    /// The tabs go first, so work typed into one still gets its question, and so that nothing is
+    /// left editing an element the document no longer holds — a <see cref="GroupPanel"/> over a
+    /// removed node goes on writing settings into a detached element and reporting itself saved.
+    /// </remarks>
+    /// <returns>Whether it was removed, or false when the question was answered against it.</returns>
+    public async Task<bool> RemoveAsync(SvgcProjectNode node)
+    {
+        if (_workspace is not { } workspace || node.Parent is not { } parent)
+        {
+            return false;
+        }
+
+        // Only when it takes something with it. A row removed by mistake is one add away; a branch
+        // is not, and there is no undo.
+        if (node is SvgcProjectGroup { Children.Count: > 0 } group
+            && !await ConfirmRemove(Removing(group)).ConfigureAwait(true))
+        {
+            return false;
+        }
+
+        foreach (var item in _tabs.Items.OfType<TabItem>()
+                     .Where(item => item.Tag is SvgcProjectNode held && held.DescendsFrom(node))
+                     .ToList())
+        {
+            if (!await CloseTabAsync(item).ConfigureAwait(true))
+            {
+                return false;
+            }
+        }
+
+        parent.Remove(node);
+
+        workspace.Save();
+        BuildTree();
+
+        return true;
+    }
+
+    /// <summary>
+    /// The one drag this tree carries, so a file dropped on it is left to the viewer.
+    /// </summary>
+    /// <remarks>
+    /// A bare name: Avalonia refuses an identifier with a separator in it, and built here rather
+    /// than at the drag, where the refusal was an unhandled exception out of an async void handler
+    /// and took the application with it. As a field it is a type initialiser instead, which is a
+    /// failure every test that opens a window sees.
+    /// </remarks>
+    private static readonly DataFormat<string> RowFormat = DataFormat.CreateStringApplicationFormat("SvgcProjectNode");
+
+    private SvgcProjectNode? _row;
+    private PointerPressedEventArgs? _rowPressed;
+    private Point _rowPressedAt;
+
+    /// <summary>Whether the press that is finishing was a drag, so the tap it raises opens nothing.</summary>
+    private bool _rowDragged;
+
+    private SvgcProjectNode? _dropOn;
+    private ProjectDrop _dropWhere;
+
+    private void OnRowPressed(object? sender, PointerPressedEventArgs e)
+    {
+        _row = null;
+        _rowPressed = null;
+        _rowDragged = false;
+
+        if (e.Source is not Visual source
+            // The chevron folds the row; it does not pick it up.
+            || source.FindAncestorOfType<ToggleButton>(true) is { }
+            || source.FindAncestorOfType<TreeViewItem>(true)?.Tag is not SvgcProjectNode node
+            // The project is the file. There is nowhere to put it.
+            || node is SvgcProjectRoot
+            || !e.GetCurrentPoint(_projectTree).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        _row = node;
+        _rowPressed = e;
+        _rowPressedAt = e.GetPosition(_projectTree);
+    }
+
+    private async void OnRowMoved(object? sender, PointerEventArgs e)
+    {
+        if (_row is null || _rowPressed is not { } pressed)
+        {
+            return;
+        }
+
+        if (!e.GetCurrentPoint(_projectTree).Properties.IsLeftButtonPressed)
+        {
+            _row = null;
+            _rowPressed = null;
+
+            return;
+        }
+
+        var travelled = e.GetPosition(_projectTree) - _rowPressedAt;
+
+        if (Math.Abs(travelled.X) < DragThreshold && Math.Abs(travelled.Y) < DragThreshold)
+        {
+            return;
+        }
+
+        var data = new DataTransfer();
+
+        data.Add(DataTransferItem.Create(RowFormat, string.Empty));
+
+        _rowPressed = null;
+        _rowDragged = true;
+
+        try
+        {
+            await DragDrop.DoDragDropAsync(pressed, data, DragDropEffects.Move);
+        }
+        finally
+        {
+            _row = null;
+
+            HideDrop();
+        }
+    }
+
+    private void OnRowDragOver(object? sender, DragEventArgs e)
+    {
+        if (_row is not { } dragged
+            || e.Source is not Visual source
+            || source.FindAncestorOfType<TreeViewItem>(true) is not { Tag: SvgcProjectNode node } item)
+        {
+            HideDrop();
+
+            return;
+        }
+
+        e.DragEffects = DragDropEffects.Move;
+
+        _dropOn = node;
+        _dropWhere = Bands(e.GetPosition(item).Y, RowHeight(item), node);
+
+        if (Landing(_dropOn, _dropWhere) is not { } landing || landing.Parent.DescendsFrom(dragged))
+        {
+            HideDrop();
+
+            return;
+        }
+
+        ShowDrop(item);
+    }
+
+    private void OnRowDrop(object? sender, DragEventArgs e)
+    {
+        if (_row is { } dragged && _dropOn is { } target)
+        {
+            Move(dragged, target, _dropWhere);
+        }
+
+        HideDrop();
+    }
+
+    /// <summary>
+    /// Moves a node to where a drop on <paramref name="target"/> puts it.
+    /// </summary>
+    /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the pointer.</remarks>
+    /// <returns>Whether it moved. A drop that would take a group into itself does not.</returns>
+    public bool Move(SvgcProjectNode node, SvgcProjectNode target, ProjectDrop where)
+    {
+        if (_workspace is not { } workspace || Landing(target, where) is not { } landing)
+        {
+            return false;
+        }
+
+        try
+        {
+            landing.Parent.Move(node, landing.Index);
+        }
+        catch (SvgcProjectException)
+        {
+            return false;
+        }
+
+        workspace.Save();
+        BuildTree(node);
+
+        return true;
+    }
+
+    /// <summary>Which group a drop lands in, and where among its children. Null when it lands nowhere.</summary>
+    private static (SvgcProjectGroup Parent, int Index)? Landing(SvgcProjectNode target, ProjectDrop where)
+    {
+        if (where == ProjectDrop.Inside)
+        {
+            return target is SvgcProjectGroup group ? (group, group.Children.Count) : null;
+        }
+
+        if (target.Parent is not { } parent)
+        {
+            return null;
+        }
+
+        var index = parent.Children.ToList().IndexOf(target);
+
+        return (parent, where == ProjectDrop.After ? index + 1 : index);
+    }
+
+    /// <summary>Which of the three a drop at <paramref name="y"/> down a row means.</summary>
+    /// <remarks>
+    /// Quarters for a group, which can be dropped into as well as beside. A drawing holds nothing,
+    /// so its middle is not a place, and halves put every drop somewhere it can go. The project has
+    /// no siblings to sit beside, so the whole of its row means inside it.
+    /// </remarks>
+    private static ProjectDrop Bands(double y, double height, SvgcProjectNode target)
+    {
+        if (target is not SvgcProjectGroup)
+        {
+            return y < height / 2 ? ProjectDrop.Before : ProjectDrop.After;
+        }
+
+        if (target.Parent is null)
+        {
+            return ProjectDrop.Inside;
+        }
+
+        return y < height * 0.25 ? ProjectDrop.Before
+            : y > height * 0.75 ? ProjectDrop.After
+            : ProjectDrop.Inside;
+    }
+
+    /// <summary>
+    /// How tall the row itself is, rather than the row and everything under it.
+    /// </summary>
+    /// <remarks>
+    /// Measured to the first child rather than read off the template, which would tie this to a
+    /// part name: a TreeViewItem's bounds cover its whole branch, and taking those for the row put
+    /// the quarter marks a subtree apart.
+    /// </remarks>
+    private static double RowHeight(TreeViewItem item)
+    {
+        if (item.IsExpanded
+            && item.Items.Count > 0
+            && item.Items[0] is Visual first
+            && first.TranslatePoint(new Point(0, 0), item) is { Y: > 0 } at)
+        {
+            return at.Y;
+        }
+
+        return item.Bounds.Height;
+    }
+
+    /// <summary>Draws the landing: a line between two rows, or the outline of the group it goes in.</summary>
+    private void ShowDrop(TreeViewItem item)
+    {
+        if (item.TranslatePoint(new Point(0, 0), _dropHost) is not { } at)
+        {
+            return;
+        }
+
+        var height = RowHeight(item);
+        var inside = _dropWhere == ProjectDrop.Inside;
+
+        _dropLine.Width = Math.Max(item.Bounds.Width, 1);
+        _dropLine.Height = inside ? height : 2d;
+        _dropLine.Background = inside ? new SolidColorBrush(Color.Parse("#334C9BE8")) : new SolidColorBrush(Color.Parse("#4C9BE8"));
+        _dropLine.BorderThickness = new Thickness(inside ? 1d : 0d);
+        _dropLine.Margin = new Thickness(at.X, at.Y + (_dropWhere == ProjectDrop.After ? height - 2d : 0d), 0, 0);
+        _dropLine.IsVisible = true;
+    }
+
+    private void HideDrop()
+    {
+        _dropLine.IsVisible = false;
+        _dropOn = null;
+    }
+
+    private static string Removing(SvgcProjectGroup group)
+    {
+        var rows = group.Children.Count;
+
+        return $"{ProjectWorkspace.Label(group)} holds {rows} {(rows == 1 ? "row" : "rows")}, "
+               + "which will be removed with it. This cannot be undone.";
+    }
+
     private async void OnProjectTreeKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key is not (Key.Enter or Key.Return)
-            || (_projectTree.SelectedItem as TreeViewItem)?.Tag is not SvgcProjectNode node)
+        if ((_projectTree.SelectedItem as TreeViewItem)?.Tag is not SvgcProjectNode node)
+        {
+            return;
+        }
+
+        // Back as well as Delete: the two are one key on a Mac keyboard.
+        if (e.Key is Key.Delete or Key.Back)
+        {
+            e.Handled = true;
+
+            await RemoveAsync(node);
+
+            return;
+        }
+
+        if (e.Key is not (Key.Enter or Key.Return))
         {
             return;
         }
@@ -515,6 +941,16 @@ public partial class MainWindow : Window
         if (_tabs.SelectedItem is TabItem item)
         {
             item.Tag = node;
+
+            // Beside the drawing's own parameters, in the pane a group keeps its settings in. The
+            // class is the whole of it: a project usually builds one file several times, and what
+            // tells those rows apart is settable nowhere else.
+            var settings = new GroupPanel(workspace, drawing);
+
+            settings.ModifiedChanged += (_, _) => Mark(item);
+
+            viewer.SidePanelHeader = "Project";
+            viewer.SidePanel = settings;
         }
 
         viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
@@ -545,11 +981,7 @@ public partial class MainWindow : Window
 
         if (content is GroupPanel panel)
         {
-            panel.ModifiedChanged += (_, modified) =>
-            {
-                marker.Classes.Set("unsaved", modified);
-                UpdateTitle();
-            };
+            panel.ModifiedChanged += (_, _) => Mark(item);
         }
 
         _tabs.Items.Add(item);
@@ -578,7 +1010,10 @@ public partial class MainWindow : Window
 
             var request = ProjectWorkspace.SizeOf(drawing);
 
-            if (request.Equals(viewer.SizeRequest) || viewer.IsSourceModified)
+            // The input is editable too, so a tab can be left showing a file the row no longer names.
+            var elsewhere = !string.Equals(viewer.DocumentPath, drawing.ResolvedInput, StringComparison.Ordinal);
+
+            if ((request.Equals(viewer.SizeRequest) && !elsewhere) || viewer.IsSourceModified)
             {
                 continue;
             }
@@ -999,22 +1434,28 @@ public partial class MainWindow : Window
     /// </remarks>
     public Func<string, string, Task> Announce { get; set; }
 
-    private async Task CloseTabAsync(TabItem item)
+    /// <summary>
+    /// How the window asks whether a branch of the project may go.
+    /// </summary>
+    /// <remarks>
+    /// Its own rather than <see cref="ConfirmDiscard"/> widened: the two differ in their title and
+    /// in both button labels, so one seam carrying the wording would take four arguments and every
+    /// caller that only reads the message would have to pass values it ignores.
+    /// </remarks>
+    public Func<string, Task<bool>> ConfirmRemove { get; set; }
+
+    /// <returns>Whether the tab closed, or false when its unsaved work was kept.</returns>
+    private async Task<bool> CloseTabAsync(TabItem item)
     {
         // A close button is one click away from losing an edit, and nothing else would have said so.
-        var unsaved = item.Content switch
+        if (Unsaved(item) is { } name && !await ConfirmDiscard(Describe(new[] { name })))
         {
-            SvgViewer { IsSourceModified: true } editing => Named(editing),
-            GroupPanel { IsModified: true } group => ProjectWorkspace.Label(group.Node),
-            _ => null
-        };
-
-        if (unsaved is { } name && !await ConfirmDiscard(Describe(new[] { name })))
-        {
-            return;
+            return false;
         }
 
         CloseTab(item);
+
+        return true;
     }
 
     /// <summary>Whether the close has already been answered for, so the second one goes through.</summary>
@@ -1068,15 +1509,38 @@ public partial class MainWindow : Window
     /// <summary>Every open drawing with changes that are not on disk.</summary>
     private IReadOnlyList<string> Unsaved()
         => _tabs.Items.OfType<TabItem>()
-            .Select(item => item.Content switch
-            {
-                SvgViewer { IsSourceModified: true } viewer => Named(viewer),
-                GroupPanel { IsModified: true } group => ProjectWorkspace.Label(group.Node),
-                _ => null
-            })
+            .Select(Unsaved)
             .Where(name => name is { })
             .Select(name => name!)
             .ToList();
+
+    /// <summary>
+    /// What a tab is holding that is not on disk, named, or null when it is holding nothing.
+    /// </summary>
+    /// <remarks>
+    /// A drawing's tab answers for two things now: the drawing's own text, and the project settings
+    /// riding in its right pane. Either one unsaved is the tab unsaved.
+    /// </remarks>
+    private static string? Unsaved(TabItem item) => item.Content switch
+    {
+        SvgViewer viewer when viewer.IsSourceModified || Settings(viewer) is { IsModified: true }
+            => Named(viewer),
+        GroupPanel panel when panel.IsModified => ProjectWorkspace.Label(panel.Node),
+        _ => null
+    };
+
+    /// <summary>The project's say over the drawing a viewer is showing, when it came from a project.</summary>
+    private static GroupPanel? Settings(SvgViewer viewer) => viewer.SidePanel as GroupPanel;
+
+    private static TextBlock Marker(TabItem item) => (TextBlock)((StackPanel)item.Header!).Children[0];
+
+    /// <summary>Puts the dot on the tab, or takes it off, according to what the tab is holding.</summary>
+    private void Mark(TabItem item)
+    {
+        Marker(item).Classes.Set("unsaved", Unsaved(item) is { });
+
+        UpdateTitle();
+    }
 
     private static string Named(SvgViewer viewer)
         => viewer.DocumentPath is { } path ? Path.GetFileName(path) : "A drawing";
@@ -1161,7 +1625,7 @@ public partial class MainWindow : Window
             MimeTypes = new[] { "application/xml" }
         };
 
-        private static readonly FilePickerFileType DrawingFileType = new("Svg Files")
+        internal static readonly FilePickerFileType Drawings = new("Svg Files")
         {
             Patterns = new[] { "*.svg", "*.svgz" },
             AppleUniformTypeIdentifiers = new[] { "public.svg-image" },
@@ -1189,7 +1653,7 @@ public partial class MainWindow : Window
             {
                 Title = "Open drawing or project",
                 AllowMultiple = false,
-                FileTypeFilter = new List<FilePickerFileType> { DrawingFileType, ProjectFileType, AllFileType }
+                FileTypeFilter = new List<FilePickerFileType> { Drawings, ProjectFileType, AllFileType }
             }).ConfigureAwait(true);
 
             return files?.Select(file => file.TryGetLocalPath())
@@ -1256,7 +1720,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Selected() is { } viewer && await viewer.SaveSourceAsync().ConfigureAwait(true))
+        if (Selected() is not { } viewer)
+        {
+            return;
+        }
+
+        // Both halves, since both are the tab's: the drawing's text and the project's say over it.
+        if (Settings(viewer) is { IsModified: true } settings)
+        {
+            try
+            {
+                settings.Save();
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            {
+                await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
+            }
+        }
+
+        if (await viewer.SaveSourceAsync().ConfigureAwait(true))
         {
             Reread(viewer);
         }
@@ -1308,7 +1790,7 @@ public partial class MainWindow : Window
 
         var open = Selected();
         var path = open?.DocumentPath;
-        var mark = open is { IsSourceModified: true } ? "• " : string.Empty;
+        var mark = _tabs.SelectedItem is TabItem tab && Unsaved(tab) is { } ? "• " : string.Empty;
 
         Title = path is { } ? $"{mark}{Path.GetFileName(path)} — SVG viewer" : "SVG viewer";
     }
