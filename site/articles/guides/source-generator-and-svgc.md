@@ -308,8 +308,10 @@ A drawing under a `recipe` is shown **as the recipe makes it** — the colours t
 turned into expressions, and its parameters on the panel with sliders on them, which is the whole
 loop a recipe is written for. The file is untouched: the source pane shows, edits and saves the
 drawing itself, and `File → Export…` writes what the project builds, which is the document
-`--emit svg` produces. What the panel will not do there is *declare*: the parameters belong to the
-recipe, and everything the panel writes goes into the drawing, where a recipe then refuses to apply.
+`--emit svg` produces. The parameter panel writes into the **recipe** there rather than into the
+drawing — the parameters are the recipe's, so adding one, editing one, reordering them or committing
+the values as defaults all go back to the file that declared them. Written into the drawing they
+would be a declaration block of its own, and a recipe refuses a document that already has one.
 A recipe that cannot be read, or that this drawing refuses, is said on the status line under the
 drawing, which still opens.
 

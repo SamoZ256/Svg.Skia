@@ -1203,9 +1203,6 @@ public class MainWindowProjectTests : IDisposable
         </svgc>
         """;
 
-    private static SvgViewerDeclarationPanel Declarations(SvgViewer viewer)
-        => viewer.FindControl<SvgViewerDeclarationPanel>("PART_Declarations")!;
-
     [AvaloniaFact]
     public async Task A_Drawing_Under_A_Recipe_Is_Shown_As_The_Project_Builds_It()
     {
@@ -1241,28 +1238,47 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task The_Panel_Does_Not_Offer_To_Declare_What_A_Recipe_Declares()
+    public async Task The_Panel_Declares_Into_The_Recipe_And_Never_Into_The_Drawing()
     {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
+        var (window, viewer) = await Painting();
+        var recipe = Path.Combine(_directory, "icons.recipe");
+        var badge = Path.Combine(_directory, "badge.svg");
 
-        var window = await Host(Write("icons.svgcproj", RecipeProject));
-
-        var root = (TreeViewItem)Tree(window).Items[0]!;
-        var group = (TreeViewItem)root.Items[1]!;
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)group.Items[0]!).Tag!);
+        // The panel is offered, not locked: the parameters it shows are the recipe's, so this is
+        // where they are edited. Written into the drawing they would be a declaration block, and a
+        // recipe refuses a document that already has one.
+        Assert.True(viewer.CommitLet(new SvgViewerLet(null) { Name = "deep", Expression = "hsl(hue + 5, 71%, 40%)" }));
         Dispatcher.UIThread.RunJobs();
 
-        // Every command on the panel writes into the drawing's own text, which would give it a
-        // declaration block of its own — and the recipe refuses a document that already has one.
-        Assert.False(Declarations(await Settle(window, "badge.svg")).CanDeclare);
+        var buffer = Colours(viewer).Recipe;
 
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Assert.Contains("""<let name="deep">hsl(hue + 5, 71%, 40%)</let>""", buffer.Text);
+        Assert.True(buffer.IsModified);
+
+        // Neither file has been written, and the drawing has not been touched at all.
+        Assert.Equal(Drawing, viewer.Source);
+        Assert.Equal(Drawing, File.ReadAllText(badge));
+        Assert.DoesNotContain("deep", File.ReadAllText(recipe));
+        Assert.False(viewer.IsSourceModified);
+
+        // And the drawing shows what it now declares, once the recipe settles.
+        for (var attempt = 0; attempt < 200 && viewer.Lets.Count < 2; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Assert.Contains("deep", viewer.Lets.Select(let => let.Name));
+
+        // A drawing with no recipe over it writes into itself, as it always did.
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.True(Declarations(await Settle(window, "home.svg")).CanDeclare);
+        var plain = await Settle(window, "home.svg");
+
+        Assert.Null(plain.DeclarationTarget);
+        Assert.True(plain.CommitLet(new SvgViewerLet(null) { Name = "deep", Expression = "1" }));
+        Assert.Contains("deep", plain.Source);
     }
 
     [AvaloniaFact]
@@ -1326,7 +1342,12 @@ public class MainWindowProjectTests : IDisposable
         // The size did not change, so only the recipe could have asked for this reload.
         Assert.Empty(viewer.Parameters);
         Assert.Null(viewer.Rewrite);
-        Assert.True(Declarations(viewer).CanDeclare);
+
+        // And what the panel writes goes back to the drawing, since nothing else declares for it.
+        Assert.Null(viewer.DeclarationTarget);
+
+        // The colours went with the recipe: there is nothing left to bind them to.
+        Assert.Empty(viewer.SidePanels.Select(pane => pane.Content).OfType<ColourPanel>());
     }
 
     /// <summary>The buttons on a panel's recipe row, by what they are labelled.</summary>

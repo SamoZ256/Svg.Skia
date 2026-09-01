@@ -103,7 +103,6 @@ public partial class SvgViewer : UserControl
     private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
     private int _loadVersion;
     private bool _applyQueued;
-    private Func<string, string>? _rewrite;
     private string? _notice;
     private IReadOnlyList<SvgViewerPane> _sidePanels = Array.Empty<SvgViewerPane>();
 
@@ -222,21 +221,13 @@ public partial class SvgViewer : UserControl
     /// <remarks>
     /// For a host whose drawing is derived from its file — an svgc project applying a recipe, where
     /// what is built is not what the file says. The pane still shows and saves the file itself, so
-    /// a document set up this way declares things its own text does not: the declaration panel stops
-    /// offering to edit them, since every one of those commands writes into the file.
+    /// a document set up this way declares things its own text does not; where the panel's commands
+    /// should write those is <see cref="DeclarationTarget"/>.
     ///
     /// Applies to a drawing loaded from a path, and to every rebuild of it. It takes effect on the
     /// next load, which is the caller's to make.
     /// </remarks>
-    public Func<string, string>? Rewrite
-    {
-        get => _rewrite;
-        set
-        {
-            _rewrite = value;
-            _panel.CanDeclare = value is null;
-        }
-    }
+    public Func<string, string>? Rewrite { get; set; }
 
     /// <summary>How the viewer asks what parameter to declare. Replaceable, and faked in tests.</summary>
     public ISvgViewerParameterDialogService ParameterDialogService { get; set; } = new SvgViewerParameterDialogService();
@@ -1016,7 +1007,65 @@ public partial class SvgViewer : UserControl
     }
 
     /// <summary>
-    /// Asks for a parameter and writes it into the drawing's own text.
+    /// Where the declaration commands write, when that is not the drawing itself.
+    /// </summary>
+    /// <remarks>
+    /// For a host whose drawing declares things its own text does not: an svgc project applying a
+    /// recipe puts the parameters in the recipe file, and every command below would otherwise write
+    /// them into the drawing — which would also give it a declaration block of its own, and a recipe
+    /// refuses a document that already has one.
+    ///
+    /// Set alongside <see cref="Rewrite"/>, which is what put the declarations there to begin with.
+    /// </remarks>
+    public ISvgViewerDeclarationTarget? DeclarationTarget { get; set; }
+
+    /// <summary>The text the declaration commands read.</summary>
+    private string Declarations() => DeclarationTarget?.Text ?? PaneSource();
+
+    /// <summary>Whether there is anywhere to write a declaration, saying so when there is not.</summary>
+    private bool Editable()
+    {
+        if (DeclarationTarget is { })
+        {
+            return true;
+        }
+
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Puts a declaration edit wherever the declarations live.</summary>
+    /// <remarks>
+    /// The refusal is reported here either way, so a host supplying a target has one thing to do
+    /// with the edits and nothing to say about them.
+    /// </remarks>
+    private bool Write(SvgSourceEditResult result)
+    {
+        if (DeclarationTarget is not { } target)
+        {
+            return Splice(result);
+        }
+
+        if (!result.Succeeded)
+        {
+            ShowNote(result.Refusal);
+
+            return false;
+        }
+
+        return result.Edits.Count > 0 && target.Apply(result.Edits);
+    }
+
+    /// <summary>
+    /// Asks for a parameter and writes it where the declarations live.
     /// </summary>
     /// <remarks>
     /// A splice, not a rewrite: the rest of the file is left as it was, comments included, and the
@@ -1031,12 +1080,8 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
@@ -1046,7 +1091,7 @@ public partial class SvgViewer : UserControl
             .AskAsync(TopLevel.GetTopLevel(this), taken)
             .ConfigureAwait(true);
 
-        return parameter is { } declared && Splice(SvgDeclarationEditor.Add(PaneSource(), declared));
+        return parameter is { } declared && Write(SvgDeclarationEditor.Add(Declarations(), declared));
     }
 
     /// <summary>
@@ -1069,12 +1114,8 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
@@ -1089,7 +1130,7 @@ public partial class SvgViewer : UserControl
             .ConfigureAwait(true);
 
         return replacement is { } wanted
-            && Splice(SvgDeclarationEditor.Update(PaneSource(), parameter.Name, wanted));
+            && Write(SvgDeclarationEditor.Update(Declarations(), parameter.Name, wanted));
     }
 
     /// <summary>
@@ -1113,16 +1154,12 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
-        return Splice(SvgDeclarationEditor.Remove(PaneSource(), parameter.Name));
+        return Write(SvgDeclarationEditor.Remove(Declarations(), parameter.Name));
     }
 
     /// <summary>
@@ -1140,12 +1177,8 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
@@ -1156,7 +1189,7 @@ public partial class SvgViewer : UserControl
             changed[row.Name] = row.ToExpression();
         }
 
-        return changed.Count > 0 && Splice(SvgDeclarationEditor.SetDefaults(PaneSource(), changed));
+        return changed.Count > 0 && Write(SvgDeclarationEditor.SetDefaults(Declarations(), changed));
     }
 
     /// <summary>
@@ -1175,22 +1208,18 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
         var name = let.Name.Trim();
         var expression = let.Expression.Trim();
 
-        return Splice(
+        return Write(
             let.Declaration is { } declared
-                ? SvgDeclarationEditor.UpdateLet(PaneSource(), declared.Name, name, expression)
-                : SvgDeclarationEditor.AddLet(PaneSource(), name, expression));
+                ? SvgDeclarationEditor.UpdateLet(Declarations(), declared.Name, name, expression)
+                : SvgDeclarationEditor.AddLet(Declarations(), name, expression));
     }
 
     /// <summary>
@@ -1214,16 +1243,12 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
-        return Splice(SvgDeclarationEditor.MoveLet(PaneSource(), declared.Name, to));
+        return Write(SvgDeclarationEditor.MoveLet(Declarations(), declared.Name, to));
     }
 
     /// <summary>
@@ -1247,16 +1272,12 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
-        return Splice(SvgDeclarationEditor.RemoveLet(PaneSource(), declared.Name));
+        return Write(SvgDeclarationEditor.RemoveLet(Declarations(), declared.Name));
     }
 
     /// <summary>
@@ -1281,16 +1302,12 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Editable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
-        return Splice(SvgDeclarationEditor.MoveParameter(PaneSource(), parameter.Name, to));
+        return Write(SvgDeclarationEditor.MoveParameter(Declarations(), parameter.Name, to));
     }
 
     /// <summary>Shows what each let currently evaluates to, beside it.</summary>

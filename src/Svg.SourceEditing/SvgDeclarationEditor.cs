@@ -829,7 +829,7 @@ public static class SvgDeclarationEditor
             return new SvgTextEdit(
                 start,
                 length,
-                $"<{prefix}:code>{newline}{own}{indent}{element}{newline}{own}</{prefix}:code>");
+                $"<{Named(prefix, "code")}>{newline}{own}{indent}{element}{newline}{own}</{Named(prefix, "code")}>");
         }
 
         // Each joins its own group rather than the end of the block: a parameter written below the
@@ -873,7 +873,9 @@ public static class SvgDeclarationEditor
     /// <summary>Writes the block, and the &lt;defs&gt; to hold it if the drawing has none.</summary>
     /// <remarks>
     /// Where SvgRecipeRewriter.InjectDeclarations puts it, so a drawing that has been through a
-    /// recipe and one that has been through this keep it in the same place.
+    /// recipe and one that has been through this keep it in the same place. A recipe holds its own
+    /// declarations directly instead — &lt;defs&gt; belongs to SVG, and writing one into a recipe
+    /// would make a file the recipe parser refuses to read.
     /// </remarks>
     private static SvgTextEdit? CreateBlock(
         string svgText,
@@ -884,6 +886,25 @@ public static class SvgDeclarationEditor
         string newline,
         string indent)
     {
+        if (root.Name == Ns + "recipe")
+        {
+            var content = positions.ContentStart(root);
+
+            if (content < 0)
+            {
+                return null;
+            }
+
+            var depth = LeadingWhitespace(svgText, positions.Span(root).Start);
+
+            return new SvgTextEdit(
+                content,
+                0,
+                $"{newline}{depth}{indent}<{Named(prefix, "code")}>" +
+                $"{newline}{depth}{indent}{indent}{element}" +
+                $"{newline}{depth}{indent}</{Named(prefix, "code")}>");
+        }
+
         XNamespace svg = root.Name.Namespace.NamespaceName.Length > 0 ? root.Name.Namespace : SvgNamespace;
 
         var defs = root.Elements(svg + "defs").FirstOrDefault();
@@ -895,9 +916,9 @@ public static class SvgDeclarationEditor
             return new SvgTextEdit(
                 contentStart,
                 0,
-                $"{newline}{own}{indent}<{prefix}:code>" +
+                $"{newline}{own}{indent}<{Named(prefix, "code")}>" +
                 $"{newline}{own}{indent}{indent}{element}" +
-                $"{newline}{own}{indent}</{prefix}:code>");
+                $"{newline}{own}{indent}</{Named(prefix, "code")}>");
         }
 
         var at = positions.ContentStart(root);
@@ -920,9 +941,9 @@ public static class SvgDeclarationEditor
             at,
             0,
             $"{newline}{rootIndent}{indent}<{defsName}>" +
-            $"{newline}{rootIndent}{indent}{indent}<{prefix}:code>" +
+            $"{newline}{rootIndent}{indent}{indent}<{Named(prefix, "code")}>" +
             $"{newline}{rootIndent}{indent}{indent}{indent}{element}" +
-            $"{newline}{rootIndent}{indent}{indent}</{prefix}:code>" +
+            $"{newline}{rootIndent}{indent}{indent}</{Named(prefix, "code")}>" +
             $"{newline}{rootIndent}{indent}</{defsName}>");
     }
 
@@ -1012,11 +1033,14 @@ public static class SvgDeclarationEditor
         return new SvgTextEdit(at + 1, 0, $" {attributeName}=\"{Escape(expression)}\"");
     }
 
+    /// <summary>An element's name under <paramref name="prefix"/>, which is empty for a default one.</summary>
+    private static string Named(string prefix, string local) => prefix.Length == 0 ? local : prefix + ":" + local;
+
     private static string Render(string prefix, SvgExpressionParameter parameter)
     {
         var builder = new StringBuilder();
 
-        builder.Append('<').Append(prefix).Append(":param name=\"").Append(Escape(parameter.Name)).Append('"');
+        builder.Append('<').Append(Named(prefix, "param")).Append(" name=\"").Append(Escape(parameter.Name)).Append('"');
         builder.Append(" type=\"").Append(ExprFunctions.NameOf(parameter.Type)).Append('"');
 
         Attribute(builder, "default", parameter.DefaultExpression);
@@ -1028,7 +1052,7 @@ public static class SvgDeclarationEditor
     }
 
     private static string Render(string prefix, string name, string expression)
-        => $"<{prefix}:let name=\"{Escape(name)}\">{EscapeText(expression)}</{prefix}:let>";
+        => $"<{Named(prefix, "let")} name=\"{Escape(name)}\">{EscapeText(expression)}</{Named(prefix, "let")}>";
 
     private static void Attribute(StringBuilder builder, string name, string? value)
     {

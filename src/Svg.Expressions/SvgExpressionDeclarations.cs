@@ -186,9 +186,11 @@ public sealed class SvgExpressionDeclarations
         {
             declared = true;
 
-            // Only a prefixed declaration can qualify an element, so a document holding the
-            // extension as its default namespace cannot be added to under that name.
-            return existing.Name.NamespaceName.Length == 0 ? PreferredPrefix : existing.Name.LocalName;
+            // A default declaration qualifies unprefixed names, so a document holding the extension
+            // that way — an svgc recipe does — is written into with no prefix at all. Answering
+            // with the preferred one instead emitted <e:param> into a file where nothing bound `e`,
+            // and the write was then refused by a check that could not say why.
+            return existing.Name.NamespaceName.Length == 0 ? string.Empty : existing.Name.LocalName;
         }
 
         declared = false;

@@ -2,10 +2,13 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Avalonia.Threading;
 using AvaloniaEdit.Document;
 using Svg.Expressions.Recipes;
+using Svg.SourceEditing;
+using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
 
@@ -22,7 +25,7 @@ namespace Svg.Studio;
 /// The buffer is AvaloniaEdit's own, so an edit made anywhere lands on the undo stack the editor
 /// shows and can be taken back there.
 /// </remarks>
-public sealed class RecipeWorkspace
+public sealed class RecipeWorkspace : ISvgViewerDeclarationTarget
 {
     /// <summary>Waits for typing to stop before saying the recipe has changed.</summary>
     /// <remarks>
@@ -129,6 +132,46 @@ public sealed class RecipeWorkspace
 
     /// <summary>Raised when <see cref="IsModified"/> changes, for a host that marks its tabs.</summary>
     public event EventHandler<bool>? ModifiedChanged;
+
+    /// <summary>
+    /// Puts an edit into the buffer, wherever it was worked out.
+    /// </summary>
+    /// <remarks>
+    /// The one way in for everything structured: the colours pane writes a rule this way and the
+    /// viewer's parameter panel writes a declaration, and both land as one step on the stack the
+    /// text tab shows. Nothing here decides what an edit means — it is spans by the time it arrives.
+    /// </remarks>
+    public bool Apply(IReadOnlyList<SvgTextEdit> edits)
+    {
+        if (edits is null)
+        {
+            throw new ArgumentNullException(nameof(edits));
+        }
+
+        if (edits.Count == 0)
+        {
+            return false;
+        }
+
+        Document.BeginUpdate();
+
+        try
+        {
+            // Back to front, so an earlier edit does not move the ones after it.
+            for (var index = edits.Count - 1; index >= 0; index--)
+            {
+                var edit = edits[index];
+
+                Document.Replace(edit.Position, edit.Length, edit.Text);
+            }
+        }
+        finally
+        {
+            Document.EndUpdate();
+        }
+
+        return true;
+    }
 
     /// <summary>Writes the text to the file.</summary>
     public void Save()

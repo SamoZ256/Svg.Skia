@@ -18,6 +18,7 @@ using AvaloniaEdit;
 using SkiaSharp;
 using Svg.Expressions;
 using Svg.Highlighting;
+using Svg.SourceEditing;
 using Xunit;
 
 namespace Svg.Viewer.Skia.Avalonia.UnitTests;
@@ -120,8 +121,23 @@ public class SvgViewerTests
         }
     }
 
+    /// <summary>A document of the host's own for the panel to write into, standing in for a recipe.</summary>
+    private sealed class Elsewhere : ISvgViewerDeclarationTarget
+    {
+        public Elsewhere(string text) => Text = text;
+
+        public string Text { get; private set; }
+
+        public bool Apply(IReadOnlyList<SvgTextEdit> edits)
+        {
+            Text = SvgTextEdit.ApplyAll(Text, edits);
+
+            return true;
+        }
+    }
+
     [AvaloniaFact]
-    public async Task A_Rewritten_Drawing_Shows_Its_Parameters_And_Offers_No_Editing()
+    public async Task A_Rewritten_Drawing_Declares_Where_Its_Declarations_Are()
     {
         var (window, viewer) = Host();
 
@@ -133,32 +149,47 @@ public class SvgViewerTests
         {
             viewer.Rewrite = _ => Rewritten;
 
+            // A drawing built through a rewrite declares things its own text has never heard of, so
+            // the panel's commands have to write where they came from.
+            var elsewhere = new Elsewhere("""
+                <recipe xmlns="https://svg.skia/expr/1.0">
+                  <code>
+                    <param name="hue" type="number" default="0" min="0" max="360" />
+                  </code>
+                </recipe>
+                """);
+
+            viewer.DeclarationTarget = elsewhere;
+
             Assert.True(await viewer.LoadAsync(path));
             Dispatcher.UIThread.RunJobs();
 
-            // The drawing is the rewrite's; the text is the file's.
             Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
-            Assert.Equal(Plain, viewer.Source);
 
+            // The panel is offered, not taken away: the rows are what a recipe is dragged by.
             var add = window.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AddButton");
-            var edits = window.GetVisualDescendants().OfType<Button>().Where(button => button.Classes.Contains("edit")).ToList();
-
-            // Nothing that would write a declaration into the file, which is where the panel writes
-            // and where a recipe then refuses to apply.
-            Assert.False(add.IsVisible);
-            Assert.NotEmpty(edits);
-            Assert.All(edits, button => Assert.False(button.IsVisible));
-
-            // And it all comes back for a drawing that declares for itself.
-            viewer.Rewrite = null;
-
-            Assert.True(await viewer.LoadTextAsync(Rewritten));
-            Dispatcher.UIThread.RunJobs();
 
             Assert.True(add.IsVisible);
             Assert.All(
                 window.GetVisualDescendants().OfType<Button>().Where(button => button.Classes.Contains("edit")),
                 button => Assert.True(button.IsVisible));
+
+            Assert.True(viewer.CommitLet(new SvgViewerLet(null) { Name = "accent", Expression = "hsl(hue, 74%, 55%)" }));
+
+            // Into the host's document, and nowhere near the drawing — which is the whole reason a
+            // host sets one: a recipe refuses a document that already declares for itself.
+            Assert.Contains("""<let name="accent">hsl(hue, 74%, 55%)</let>""", elsewhere.Text);
+            Assert.Equal(Plain, viewer.Source);
+            Assert.False(viewer.IsSourceModified);
+
+            // Cleared, and the drawing is where the panel writes again.
+            viewer.DeclarationTarget = null;
+
+            Assert.True(await viewer.LoadTextAsync(Rewritten));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(viewer.CommitLet(new SvgViewerLet(null) { Name = "accent", Expression = "1" }));
+            Assert.Contains("accent", viewer.Source);
         }
         finally
         {

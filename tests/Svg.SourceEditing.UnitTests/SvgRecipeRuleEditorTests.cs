@@ -1,5 +1,6 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using Svg.Expressions;
 using Xunit;
 
 namespace Svg.SourceEditing.UnitTests;
@@ -183,5 +184,104 @@ public class SvgRecipeRuleEditorTests
         var half = Recipe.Replace("""<param name="hue" type="number" default="217" />""", """<param name="" />""");
 
         Assert.Contains(">deep</replace>", Set(half, "#3b82f6", "deep"));
+    }
+}
+
+/// <summary>
+/// Declaring into a recipe, which the declarations editor reaches by namespace and not by shape.
+/// </summary>
+/// <remarks>
+/// A recipe holds the extension as its default namespace, so its <c>&lt;code&gt;</c>,
+/// <c>&lt;param&gt;</c> and <c>&lt;let&gt;</c> are the same elements a drawing writes as
+/// <c>&lt;e:code&gt;</c>. Everything asserted here is the same question asked of the other kind of
+/// document that can hold them.
+/// </remarks>
+public class SvgDeclarationEditorRecipeTests
+{
+    private const string Recipe = """
+        <recipe xmlns="https://svg.skia/expr/1.0">
+          <code>
+            <param name="hue" type="number" default="217" />
+            <let name="primary">hsl(hue, 91%, 60%)</let>
+          </code>
+          <replace color="#3b82f6">primary</replace>
+        </recipe>
+        """;
+
+    private static string Applied(string recipe, SvgSourceEditResult result)
+    {
+        Assert.True(result.Succeeded, result.Refusal);
+
+        return SvgTextEdit.ApplyAll(recipe, result.Edits);
+    }
+
+    [Fact]
+    public void Add_WritesTheDeclarationWithNoPrefixAndDeclaresNothing()
+    {
+        var written = Applied(
+            Recipe,
+            SvgDeclarationEditor.Add(Recipe, new SvgExpressionParameter("bold", ExprType.Boolean, "false")));
+
+        // Unprefixed, because the recipe's own default namespace already qualifies it. Written
+        // under a prefix instead, it named one nothing bound and the write was refused.
+        Assert.Contains("""<param name="bold" type="boolean" default="false" />""", written);
+        Assert.DoesNotContain("e:param", written);
+        Assert.DoesNotContain("xmlns:e", written);
+    }
+
+    [Fact]
+    public void AddLet_JoinsTheBlockThatIsAlreadyThere()
+    {
+        var written = Applied(Recipe, SvgDeclarationEditor.AddLet(Recipe, "deep", "hsl(hue + 5, 71%, 40%)"));
+
+        Assert.Contains("""
+                <let name="primary">hsl(hue, 91%, 60%)</let>
+                <let name="deep">hsl(hue + 5, 71%, 40%)</let>
+              </code>
+            """, written);
+    }
+
+    [Fact]
+    public void Add_WritesTheBlockWhereARecipeKeepsItRatherThanInADefs()
+    {
+        // <defs> is SVG's. Written into a recipe it would make a file the recipe parser refuses.
+        const string bare = """
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace color="#3b82f6">primary</replace>
+            </recipe>
+            """;
+
+        var written = Applied(
+            bare,
+            SvgDeclarationEditor.Add(bare, new SvgExpressionParameter("hue", ExprType.Number, "217")));
+
+        Assert.DoesNotContain("defs", written);
+        Assert.Contains("""
+              <code>
+                <param name="hue" type="number" default="217" />
+              </code>
+            """, written);
+    }
+
+    [Fact]
+    public void Remove_IsRefusedWhileARuleStillNamesIt()
+    {
+        // The one that would have corrupted quietly: a rule's body is a use, and nothing searched
+        // it — so the parameter went and the rule was left naming something that had gone.
+        var result = SvgDeclarationEditor.RemoveLet(Recipe, "primary");
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("still used", result.Refusal);
+    }
+
+    [Fact]
+    public void Update_CarriesTheRuleThatNamesItAlong()
+    {
+        var written = Applied(
+            Recipe,
+            SvgDeclarationEditor.UpdateLet(Recipe, "primary", "accent", "hsl(hue, 91%, 60%)"));
+
+        Assert.Contains("""<let name="accent">""", written);
+        Assert.Contains("""<replace color="#3b82f6">accent</replace>""", written);
     }
 }

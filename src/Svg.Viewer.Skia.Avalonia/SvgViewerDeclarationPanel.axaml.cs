@@ -43,8 +43,6 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// <summary>Whether there is a drawing behind the rows, which null and empty tell apart.</summary>
     private bool _hasDocument;
 
-    private bool _canDeclare = true;
-
     /// <summary>The last edit handed to the document, so the same one is not handed over twice.</summary>
     /// <remarks>
     /// A row goes on calling itself modified until the rebuild its own edit caused replaces it, and
@@ -81,36 +79,6 @@ public partial class SvgViewerDeclarationPanel : UserControl
             _rows, _parameters, ParameterWindow, (row, to) => ParameterMoveRequested?.Invoke(row, to) == true);
 
         ShowActions();
-    }
-
-    /// <summary>
-    /// Whether what the drawing declares may be changed here. Values are settable either way.
-    /// </summary>
-    /// <remarks>
-    /// Off when the declarations are not in the drawing: an svgc project applying a recipe puts the
-    /// parameters in the recipe file, and every command here writes into the drawing's own text —
-    /// which would also give it a declaration block of its own, and a recipe refuses a document
-    /// that already has one. The rows stay, because binding values to them is the point of showing
-    /// a recipe's parameters at all.
-    /// </remarks>
-    public bool CanDeclare
-    {
-        get => _canDeclare;
-        set
-        {
-            if (_canDeclare == value)
-            {
-                return;
-            }
-
-            _canDeclare = value;
-
-            // A class, because the per-row buttons and grips are made by templates as rows appear
-            // and there is nothing here to reach them through.
-            Classes.Set("locked", !value);
-
-            ShowActions();
-        }
     }
 
     /// <summary>Raised when any row's value changes.</summary>
@@ -783,7 +751,7 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// </remarks>
     private void ShowActions()
     {
-        var open = _hasDocument && _canDeclare;
+        var open = _hasDocument;
 
         _actions.IsVisible = open;
         _addButton.IsVisible = open;

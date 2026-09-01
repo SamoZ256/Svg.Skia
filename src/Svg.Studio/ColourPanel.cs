@@ -330,29 +330,9 @@ public sealed class ColourPanel : UserControl
 
         Say(null);
 
-        if (result.Edits.Count == 0)
-        {
-            return true;
-        }
-
-        var document = Recipe.Document;
-
-        document.BeginUpdate();
-
-        try
-        {
-            // Back to front, so an earlier edit does not move the ones after it.
-            for (var index = result.Edits.Count - 1; index >= 0; index--)
-            {
-                var edit = result.Edits[index];
-
-                document.Replace(edit.Position, edit.Length, edit.Text);
-            }
-        }
-        finally
-        {
-            document.EndUpdate();
-        }
+        // Through the workspace, which is also where the parameter panel's edits land: one way into
+        // the buffer means one answer to what the recipe says and one stack to take it back on.
+        Recipe.Apply(result.Edits);
 
         return true;
     }

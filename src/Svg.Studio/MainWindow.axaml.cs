@@ -937,22 +937,12 @@ public partial class MainWindow : Window
             settings.ModifiedChanged += (_, _) => Mark(item);
             settings.RecipeOpened += (_, recipe) => ShowRecipe(recipe);
 
-            var panes = new List<SvgViewerPane> { new("Project", settings) };
+            // Whichever colours panel the tab has by then: it is built before the drawing is read,
+            // so it has nothing to survey until one arrives, and a drawing reopened at another size
+            // brings its colours again.
+            viewer.DocumentOpened += (_, _) => Colours(viewer)?.Refresh();
 
-            // The colours only where a recipe covers the drawing: without one there is nothing to
-            // bind them to and nowhere to write it.
-            if (drawing.EffectiveResolvedRecipe is { } recipe)
-            {
-                var colours = new ColourPanel(Opened(recipe), () => viewer.Source);
-
-                // The panel is built before the drawing is read, so it has nothing to survey until
-                // one arrives — and a drawing reopened at another size brings its colours again.
-                viewer.DocumentOpened += (_, _) => colours.Refresh();
-
-                panes.Add(new SvgViewerPane("Colours", colours));
-            }
-
-            viewer.SidePanels = panes;
+            viewer.SidePanels = new[] { new SvgViewerPane("Project", settings) };
         }
 
         viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
@@ -974,15 +964,42 @@ public partial class MainWindow : Window
     {
         viewer.Rewrite = null;
         viewer.Notice = null;
+        viewer.DeclarationTarget = null;
+
+        // Recomposed from what the project says now rather than from what it said when the tab
+        // opened: a recipe taken off a group leaves a drawing that declares nothing of its own, and
+        // one added to a group gives an open drawing colours to bind.
+        var panes = new List<SvgViewerPane>();
+
+        if (Settings(viewer) is { } settings)
+        {
+            panes.Add(new SvgViewerPane("Project", settings));
+        }
 
         if (drawing.EffectiveResolvedRecipe is not { } path)
         {
+            viewer.SidePanels = panes;
+
             return;
         }
 
         // The open buffer, not the file: a recipe being typed in decides what the drawings under it
         // look like from the keystroke, which is the whole of editing one here.
         var workspace = Opened(path);
+
+        // What the drawing declares comes from the recipe, so what the parameter panel writes goes
+        // back there. Into the drawing it would be a declaration block, and a recipe refuses a
+        // document that already has one.
+        viewer.DeclarationTarget = workspace;
+
+        // Kept where it is the same recipe, since it holds what somebody is halfway through typing.
+        var colours = Colours(viewer) is { } open && ReferenceEquals(open.Recipe, workspace)
+            ? open
+            : new ColourPanel(workspace, () => viewer.Source);
+
+        panes.Add(new SvgViewerPane("Colours", colours));
+
+        viewer.SidePanels = panes;
 
         try
         {
@@ -1686,6 +1703,10 @@ public partial class MainWindow : Window
     /// <summary>The project's say over the drawing a viewer is showing, when it came from a project.</summary>
     private static GroupPanel? Settings(SvgViewer viewer)
         => viewer.SidePanels.Select(pane => pane.Content).OfType<GroupPanel>().FirstOrDefault();
+
+    /// <summary>The colours the drawing's recipe can paint, when one covers it.</summary>
+    private static ColourPanel? Colours(SvgViewer viewer)
+        => viewer.SidePanels.Select(pane => pane.Content).OfType<ColourPanel>().FirstOrDefault();
 
     private static TextBlock Marker(TabItem item) => (TextBlock)((StackPanel)item.Header!).Children[0];
 
