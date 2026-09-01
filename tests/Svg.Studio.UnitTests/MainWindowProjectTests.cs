@@ -1805,6 +1805,56 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task Undo_On_A_Drawing_Tab_Reaches_The_Recipe_Behind_It()
+    {
+        var (window, viewer) = await Painting();
+        var colours = Colours(viewer);
+        var was = colours.Recipe.Text;
+
+        Assert.True(colours.Bind("#00ff00", "hsl(hue, 50%, 50%)"));
+        Dispatcher.UIThread.RunJobs();
+
+        // A menu item's gesture belongs to the window, so this is the only route to any stack — and
+        // a drawing tab under a recipe used to match none of the ones it tried.
+        Assert.True(window.Undo());
+
+        Assert.Equal(was, colours.Recipe.Text);
+        Assert.False(colours.Recipe.IsModified);
+
+        Assert.True(window.Redo());
+        Assert.Contains("hsl(hue, 50%, 50%)", colours.Recipe.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task Undo_Takes_The_Drawings_Own_Text_Back_First()
+    {
+        var (window, viewer) = await Painting();
+        var colours = Colours(viewer);
+
+        Assert.True(colours.Bind("#00ff00", "hsl(hue, 50%, 50%)"));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var editor = viewer.GetVisualDescendants().OfType<TextEditor>().Single(control => control.Name == "SourceEditor");
+
+        editor.Document.Insert(0, "<!-- typed -->");
+        Dispatcher.UIThread.RunJobs();
+
+        // The tab is named after the drawing, so the drawing goes first.
+        Assert.True(window.Undo());
+
+        Assert.DoesNotContain("typed", viewer.Source);
+        Assert.Contains("hsl(hue, 50%, 50%)", colours.Recipe.Text);
+
+        // And the recipe once the drawing has run out.
+        Assert.True(window.Undo());
+
+        Assert.DoesNotContain("hsl(hue, 50%, 50%)", colours.Recipe.Text);
+    }
+
+    [AvaloniaFact]
     public async Task A_Rule_That_This_Drawing_Has_No_Colour_For_Is_Still_Shown()
     {
         var (_, viewer) = await Painting(Drawing.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));

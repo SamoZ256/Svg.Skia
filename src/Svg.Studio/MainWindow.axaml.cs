@@ -1448,7 +1448,10 @@ public partial class MainWindow : Window
             return recipe.Undo();
         }
 
-        return Selected()?.Undo() ?? false;
+        // The tab's own document first, and the recipe behind it second. A viewer with nothing to
+        // take back answers false, so the recipe is only reached when the drawing is untouched —
+        // which is the ordinary case, since a colour bound in the pane never touches the drawing.
+        return Selected()?.Undo() == true || Recipe(Selected())?.Undo() == true;
     }
 
     /// <inheritdoc cref="Undo"/>
@@ -1466,7 +1469,7 @@ public partial class MainWindow : Window
             return recipe.Redo();
         }
 
-        return Selected()?.Redo() ?? false;
+        return Selected()?.Redo() == true || Recipe(Selected())?.Redo() == true;
     }
 
     private IInputElement? Focused() => FocusManager?.GetFocusedElement();

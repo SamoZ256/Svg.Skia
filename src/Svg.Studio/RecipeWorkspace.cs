@@ -173,6 +173,36 @@ public sealed class RecipeWorkspace : ISvgViewerDeclarationTarget
         return true;
     }
 
+    /// <summary>Takes back the last edit, or puts it back.</summary>
+    /// <remarks>
+    /// The stack the text tab shows, so an edit made from a drawing's panes and one typed into the
+    /// recipe are taken back the same way and in the order they were made.
+    /// </remarks>
+    public bool Undo()
+    {
+        if (!Document.UndoStack.CanUndo)
+        {
+            return false;
+        }
+
+        Document.UndoStack.Undo();
+
+        return true;
+    }
+
+    /// <inheritdoc cref="Undo"/>
+    public bool Redo()
+    {
+        if (!Document.UndoStack.CanRedo)
+        {
+            return false;
+        }
+
+        Document.UndoStack.Redo();
+
+        return true;
+    }
+
     /// <summary>Writes the text to the file.</summary>
     public void Save()
     {

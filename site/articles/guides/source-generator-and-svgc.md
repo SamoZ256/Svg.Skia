@@ -326,7 +326,8 @@ it is. **Double-clicking the file opens it**, in a tab of its own: the recipe as
 way the source pane colours a drawing, with what the parser makes of it said underneath as it is
 typed. One recipe is usually named by several groups, so it opens once however many of them ask for it. A
 drawing's tab answers for the recipe behind it as well as for itself: it takes the unsaved mark, ⌘S
-saves it, and closing the project asks about it — including when the tab it was edited from has gone.
+saves it, ⌘Z takes back the last edit made to it once the drawing's own text has nothing left to take
+back, and closing the project asks about it — including when the tab it was edited from has gone.
 
 There is one buffer per open recipe, so the drawings under it follow it **as it is typed** rather
 than when it is saved — a tab you are not looking at is read again when you come back to it.
