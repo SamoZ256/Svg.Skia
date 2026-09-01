@@ -9,8 +9,10 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.VisualTree;
 using AvaloniaEdit;
+using AvaloniaEdit.Editing;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Svg.CodeGen.Skia.Projects;
@@ -1436,6 +1438,199 @@ public class MainWindowProjectTests : IDisposable
         Panel(window, "Demo.Icons.Large").CreateRecipe(recipe);
 
         Assert.Equal(Recipe, File.ReadAllText(recipe));
+    }
+
+    private static RecipePanel? Editor(MainWindow window)
+        => Tabs(window).Items.OfType<TabItem>().Select(item => item.Content).OfType<RecipePanel>().SingleOrDefault();
+
+    /// <summary>A window on the sample project with the recipe named by its group.</summary>
+    private async Task<MainWindow> Recipes()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", RecipeProject));
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        return window;
+    }
+
+    [AvaloniaFact]
+    public async Task Double_Clicking_A_Recipe_Opens_It_In_A_Tab()
+    {
+        var window = await Recipes();
+
+        Assert.Null(Editor(window));
+
+        var name = Panel(window, "Demo.Icons.Large")
+            .GetVisualDescendants()
+            .OfType<TextBlock>()
+            .Single(block => block.Text == "icons.recipe");
+
+        Click(window, name);
+        Click(window, name);
+
+        var editor = Editor(window);
+
+        Assert.NotNull(editor);
+        Assert.Equal(Recipe, editor!.Text);
+        Assert.Null(editor.Fault);
+
+        // The tab it opened is the one being looked at, and it is the recipe's own.
+        Assert.Same(editor, ((TabItem)Tabs(window).SelectedItem!).Content);
+
+        // And there is something to look at. AvaloniaEdit's control theme is included by the viewer
+        // in its own styles, which do not reach a tab beside it — without it at the application the
+        // editor templated to nothing and the tab opened empty.
+        Assert.NotEmpty(editor.GetVisualDescendants().OfType<TextArea>());
+    }
+
+    [AvaloniaFact]
+    public async Task Editing_A_Recipe_Marks_Its_Tab_And_Saving_Reads_The_Drawings_Again()
+    {
+        var window = await Recipes();
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = await Settle(window, "badge.svg");
+        Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
+
+        var editor = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"));
+        Dispatcher.UIThread.RunJobs();
+
+        var item = (TabItem)Tabs(window).SelectedItem!;
+
+        Assert.False(editor.IsModified);
+        Assert.DoesNotContain("unsaved", Marker(item).Classes);
+
+        editor.Text = Recipe.Replace("hue", "tone", StringComparison.Ordinal);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(editor.IsModified);
+        Assert.Contains("unsaved", Marker(item).Classes);
+
+        await window.SaveAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(editor.IsModified);
+        Assert.Contains("tone", File.ReadAllText(Path.Combine(_directory, "icons.recipe")));
+
+        // Still what it was: the drawing is behind the recipe being typed in, and a tab out of
+        // sight is marked to be read again rather than read where nobody is looking.
+        Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
+
+        Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>().Single(tab => ReferenceEquals(tab.Content, viewer));
+        Dispatcher.UIThread.RunJobs();
+
+        // The point of editing it here: what the drawing under it declares follows the save.
+        for (var attempt = 0; attempt < 200 && viewer.Parameters.FirstOrDefault()?.Name != "tone"; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Assert.Equal("tone", Assert.Single(viewer.Parameters).Name);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Recipe_That_Will_Not_Read_Is_Said_Under_It_And_Still_Typed_In()
+    {
+        var window = await Recipes();
+
+        var editor = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"));
+
+        // Half a recipe is what one looks like while it is being written; taking the text back
+        // between keystrokes would make it unwritable.
+        editor.Text = """
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace color="#00ff00"></replace>
+            </recipe>
+            """;
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("no expression", editor.Fault);
+        Assert.Contains("<replace", editor.Text);
+
+        editor.Text = Recipe;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(editor.Fault);
+    }
+
+    [AvaloniaFact]
+    public async Task One_Recipe_Opens_Once_And_Closes_With_The_Project()
+    {
+        var window = await Recipes();
+
+        var path = Path.Combine(_directory, "icons.recipe");
+
+        // Several groups name one recipe, and a tab per namer would be two editors over one file.
+        Assert.Same(window.ShowRecipe(path), window.ShowRecipe(path));
+        Assert.NotNull(Editor(window));
+
+        Assert.True(await window.CloseProjectAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(Editor(window));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Recipe_Is_Undone_And_Redone_Through_The_Window()
+    {
+        var window = await Recipes();
+
+        var editor = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"));
+        Dispatcher.UIThread.RunJobs();
+
+        editor.Text = "<recipe xmlns=\"https://svg.skia/expr/1.0\" />";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(editor.IsModified);
+
+        // Through the window, because a menu item's gesture is the window's: the keystroke is taken
+        // before AvaloniaEdit can see it, and used to reach a viewer the tab has none of.
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(Recipe, editor.Text);
+        Assert.False(editor.IsModified);
+
+        Assert.True(window.Redo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain("<code>", editor.Text);
+        Assert.True(editor.IsModified);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Recipe_Is_Painted_For_The_Theme_Of_The_Window_It_Is_In()
+    {
+        var window = await Recipes();
+
+        var panel = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"));
+        Dispatcher.UIThread.RunJobs();
+
+        // Built before it is in any tree, so what it painted itself in the constructor was the
+        // light palette whatever window it went into.
+        window.RequestedThemeVariant = ThemeVariant.Dark;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(panel.TryFindResource("SvgViewerSourceTextBrush", ThemeVariant.Dark, out var resource));
+
+        var expected = ((ISolidColorBrush)resource!).Color;
+        var editor = panel.GetVisualDescendants().OfType<TextEditor>().Single();
+        var area = panel.GetVisualDescendants().OfType<TextArea>().Single();
+
+        Assert.Equal(expected, ((ISolidColorBrush)editor.Foreground!).Color);
+
+        // With none of its own the caret is drawn by inverting what is behind it, which came out as
+        // a caret nobody could see.
+        Assert.Equal(expected, ((ISolidColorBrush)area.CaretBrush!).Color);
     }
 
     /// <summary>Waits for the tab holding <paramref name="name"/> to have finished loading.</summary>

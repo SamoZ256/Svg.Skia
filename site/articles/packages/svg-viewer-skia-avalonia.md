@@ -56,6 +56,7 @@ await Viewer.LoadAsync("badge.svg");
 | `FileDialogService` | Custom storage or picker integration |
 | `Canvas` | Direct access to the surface for zoom and pan |
 | `DocumentOpened` / `ErrorRaised` / `ParameterValueChanged` | Syncing host titles and status |
+| `SvgViewerSourceColorizer` / `SourceResourceKey` | Colouring a source view of your own the way this one is coloured — Svg.Studio paints an svgc recipe with them |
 
 ## Ranges come from the document
 

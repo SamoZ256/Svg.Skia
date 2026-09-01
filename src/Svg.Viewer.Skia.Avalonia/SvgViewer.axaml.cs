@@ -1641,7 +1641,13 @@ public partial class SvgViewer : UserControl
     /// beside the pane. One table, so a `tau` cannot be one colour in the source and another in the
     /// row above it.
     /// </remarks>
-    internal static string SourceResourceKey(SvgSourceTokenKind kind) => kind switch
+    /// <summary>The brush key a token kind is painted from.</summary>
+    /// <remarks>
+    /// Public alongside <see cref="SvgViewerSourceColorizer"/>, and for the same reason: a host
+    /// colouring its own source view has to reach the same brush for the same kind, or two panes in
+    /// one window paint the same text differently.
+    /// </remarks>
+    public static string SourceResourceKey(SvgSourceTokenKind kind) => kind switch
     {
         SvgSourceTokenKind.Punctuation => "SvgViewerSourcePunctuationBrush",
         SvgSourceTokenKind.Element => "SvgViewerSourceElementBrush",

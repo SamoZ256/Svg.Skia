@@ -288,7 +288,7 @@ public partial class MainWindow : Window
 
         // Asked once for all of them rather than tab by tab, since closing the project is one act
         // and being stopped halfway through it would leave half a workspace open.
-        var owned = _tabs.Items.OfType<TabItem>().Where(item => item.Tag is SvgcProjectNode).ToList();
+        var owned = _tabs.Items.OfType<TabItem>().Where(Owned).ToList();
         var unsaved = owned.Select(Unsaved).Where(name => name is { }).Select(name => name!).ToList();
 
         if (unsaved.Count > 0 && !await ConfirmDiscard(Describe(unsaved)).ConfigureAwait(true))
@@ -311,6 +311,9 @@ public partial class MainWindow : Window
 
         return true;
     }
+
+    /// <summary>Whether a tab belongs to the open project, and goes when the project does.</summary>
+    private static bool Owned(TabItem item) => item.Tag is SvgcProjectNode || item.Content is RecipePanel;
 
     private async void OnCloseProject(object? sender, EventArgs e) => await CloseProjectAsync();
 
@@ -926,6 +929,7 @@ public partial class MainWindow : Window
             var settings = new GroupPanel(workspace, drawing);
 
             settings.ModifiedChanged += (_, _) => Mark(item);
+            settings.RecipeOpened += (_, recipe) => ShowRecipe(recipe);
 
             viewer.SidePanelHeader = "Project";
             viewer.SidePanel = settings;
@@ -992,8 +996,37 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Brings a recipe forward, in a tab of its own.
+    /// </summary>
+    /// <remarks>
+    /// A file rather than a node: one recipe is usually named by several groups, and a tab per
+    /// namer would be several editors over one file disagreeing about what is in it. Public for the
+    /// reason <see cref="ShowAsync"/> is — it is the way in without a pointer.
+    /// </remarks>
+    public RecipePanel ShowRecipe(string path)
+    {
+        if (path is null)
+        {
+            throw new ArgumentNullException(nameof(path));
+        }
+
+        if (Tab(path) is { } open)
+        {
+            _tabs.SelectedItem = open;
+
+            return (RecipePanel)open.Content!;
+        }
+
+        var panel = new RecipePanel(path);
+
+        AddNodeTab(panel, path, Path.GetFileName(path));
+
+        return panel;
+    }
+
     /// <summary>A tab for something that is not a drawing, which the viewer's own tab does not fit.</summary>
-    private void AddNodeTab(Control content, SvgcProjectNode node, string name)
+    private void AddNodeTab(Control content, object tag, string name)
     {
         var title = new TextBlock { Classes = { "title" }, Text = name };
         var marker = new TextBlock { Classes = { "marker" } };
@@ -1008,14 +1041,21 @@ public partial class MainWindow : Window
                 Children = { marker, title, close }
             },
             Content = content,
-            Tag = node
+            Tag = tag
         };
 
         close.Click += async (_, _) => await CloseTabAsync(item);
 
-        if (content is GroupPanel panel)
+        switch (content)
         {
-            panel.ModifiedChanged += (_, _) => Mark(item);
+            case GroupPanel panel:
+                panel.ModifiedChanged += (_, _) => Mark(item);
+                panel.RecipeOpened += (_, recipe) => ShowRecipe(recipe);
+                break;
+
+            case RecipePanel recipe:
+                recipe.ModifiedChanged += (_, _) => Mark(item);
+                break;
         }
 
         _tabs.Items.Add(item);
@@ -1025,6 +1065,10 @@ public partial class MainWindow : Window
 
     private TabItem? Tab(SvgcProjectNode node)
         => _tabs.Items.OfType<TabItem>().FirstOrDefault(item => ReferenceEquals(item.Tag, node));
+
+    private TabItem? Tab(string path)
+        => _tabs.Items.OfType<TabItem>().FirstOrDefault(
+            item => item.Content is RecipePanel panel && string.Equals(panel.Path, path, StringComparison.Ordinal));
 
     /// <summary>
     /// Reads the open drawings again as the project's settings now say to build them.
@@ -1287,6 +1331,13 @@ public partial class MainWindow : Window
             return true;
         }
 
+        // Before the viewer, which a recipe tab has none of. The gesture is the window's, so the
+        // editor in the tab never sees the keystroke and this is the only route back to its stack.
+        if (Editing() is { } recipe)
+        {
+            return recipe.Undo();
+        }
+
         return Selected()?.Undo() ?? false;
     }
 
@@ -1300,10 +1351,18 @@ public partial class MainWindow : Window
             return true;
         }
 
+        if (Editing() is { } recipe)
+        {
+            return recipe.Redo();
+        }
+
         return Selected()?.Redo() ?? false;
     }
 
     private IInputElement? Focused() => FocusManager?.GetFocusedElement();
+
+    /// <summary>The recipe being edited, when that is what the selected tab holds.</summary>
+    private RecipePanel? Editing() => (_tabs.SelectedItem as TabItem)?.Content as RecipePanel;
 
     /// <summary>
     /// Shows each command's gesture beside it, as the platform spells that gesture.
@@ -1566,6 +1625,7 @@ public partial class MainWindow : Window
         SvgViewer viewer when viewer.IsSourceModified || Settings(viewer) is { IsModified: true }
             => Named(viewer),
         GroupPanel panel when panel.IsModified => ProjectWorkspace.Label(panel.Node),
+        RecipePanel recipe when recipe.IsModified => Path.GetFileName(recipe.Path),
         _ => null
     };
 
@@ -1746,6 +1806,25 @@ public partial class MainWindow : Window
     /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the keyboard.</remarks>
     public async Task SaveAsync()
     {
+        if ((_tabs.SelectedItem as TabItem)?.Content is RecipePanel recipe)
+        {
+            try
+            {
+                recipe.Save();
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            {
+                await Announce("The recipe couldn't be saved", failure.Message).ConfigureAwait(true);
+                return;
+            }
+
+            // What a recipe says is what the drawings under it are, so they are read again — the
+            // same thing a saved project setting does, and the reason to edit one here at all.
+            Rebuild();
+
+            return;
+        }
+
         if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel panel)
         {
             try

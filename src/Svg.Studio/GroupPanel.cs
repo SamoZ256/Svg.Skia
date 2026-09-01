@@ -9,6 +9,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -114,6 +115,13 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>Raised when <see cref="IsModified"/> changes, for a host that marks its tab.</summary>
     public event EventHandler<bool>? ModifiedChanged;
+
+    /// <summary>Raised with the file when somebody asks to edit the recipe this node names.</summary>
+    /// <remarks>
+    /// The panel says so rather than opening it: a recipe is a file of the project's, and where the
+    /// project's files are shown is the window's business, not a settings pane's.
+    /// </remarks>
+    public event EventHandler<string>? RecipeOpened;
 
     /// <summary>Writes what was typed here into the project, and the project to its file.</summary>
     public void Save()
@@ -396,9 +404,25 @@ public sealed class GroupPanel : UserControl
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
 
-            ToolTip.SetTip(name, shown);
+            // A file is opened by being double-clicked, the same as a row of the tree is. On a
+            // border filling the cell rather than on the text: a file name is a small target, and
+            // a TextBlock with nothing painted behind it is not one at all.
+            var target = new Border
+            {
+                Background = Brushes.Transparent,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Child = name
+            };
 
-            content.Children.Add(name);
+            ToolTip.SetTip(target, $"{shown}\n\nDouble-click to edit it.");
+
+            target.DoubleTapped += (_, e) =>
+            {
+                e.Handled = true;
+                RecipeOpened?.Invoke(this, Resolved(shown));
+            };
+
+            content.Children.Add(target);
             content.Children.Add(Buttons(Command("✕", "Stop using this recipe. The file is left where it is.", RemoveRecipe)));
         }
         else
@@ -428,6 +452,14 @@ public sealed class GroupPanel : UserControl
                 content
             }
         };
+    }
+
+    /// <summary>Where a recipe named by the project actually is.</summary>
+    private string Resolved(string recipe)
+    {
+        var directory = Workspace.Document.BaseDirectory;
+
+        return Path.GetFullPath(directory.Length == 0 ? recipe : Path.Combine(directory, recipe));
     }
 
     private static Button Command(string content, string tip, Action run)

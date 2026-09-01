@@ -17,8 +17,13 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// The editor is told what colour a range is rather than handed a grammar: no stock XML grammar
 /// knows <c>{{ hsl(…) }}</c> is code. Only the lines on screen reach here — 340 lines of a 132KB
 /// drawing colour in 18ms because 30 are asked about.
+///
+/// Public because nothing about it is the viewer's: it colours whatever
+/// <see cref="SvgSourceHighlighter"/> can split, which is any file written in the extension's own
+/// namespace. Svg.Studio paints an svgc recipe with it, and a second copy of this would be a second
+/// place for the token kinds to fall out of step.
 /// </remarks>
-internal sealed class SvgViewerSourceColorizer : DocumentColorizingTransformer
+public sealed class SvgViewerSourceColorizer : DocumentColorizingTransformer
 {
     private readonly Func<SvgSourceTokenKind, IBrush?> _brush;
 
