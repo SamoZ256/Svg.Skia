@@ -319,8 +319,11 @@ A `recipe` is named with buttons rather than typed as a path. With none, the row
 one that exists and **New…** to write one — a recipe that does not exist yet cannot be picked, and
 leaving for a text editor to make an empty one was most of what made recipes awkward to start using.
 What **New…** writes applies as it stands: it declares a `hue` and an `accent` computed from it and
-recolours nothing, so there is a slider to drag before a line of it has been edited, and the rule to
-copy is commented out underneath. A file already at that name is named rather than written over.
+recolours nothing, so there is a slider to drag before a line of it has been edited. Underneath it
+names **the colours the drawings under that node actually paint**, one commented `<replace>` each, so
+starting a recipe no longer means reading them out of the files yourself. Commented because the file
+has to apply as it stands — binding them all to the one let above would repaint the whole set the
+moment it was made. A file already at that name is named rather than written over.
 With one named, the row is the file and a **✕** that stops using it — the file itself is left where
 it is. **Double-clicking the file opens it**, in a tab of its own: the recipe as text, coloured the
 way the source pane colours a drawing, with what the parser makes of it said underneath as it is

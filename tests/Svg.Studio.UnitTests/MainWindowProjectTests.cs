@@ -18,6 +18,7 @@ using AvaloniaEdit;
 using AvaloniaEdit.Editing;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
+using Svg.Expressions.Recipes;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
@@ -1411,6 +1412,47 @@ public class MainWindowProjectTests : IDisposable
 
         // The file is the project's to name, not the project's to own.
         Assert.True(File.Exists(recipe));
+    }
+
+    [AvaloniaFact]
+    public async Task A_New_Recipe_Names_The_Colours_Its_Drawings_Paint()
+    {
+        // Two drawings under the group, painting a colour each.
+        Write("badge.svg", Drawing);
+        Write("mark.svg", Drawing.Replace("#00ff00", "#ff8800", StringComparison.Ordinal));
+
+        var window = await Host(Write("icons.svgcproj", """
+            <svgc>
+              <namespace>Demo.Icons</namespace>
+
+              <group namespace="Demo.Icons.Large" scale="2">
+                <svg input="badge.svg" class="BadgeLarge" />
+                <svg input="mark.svg" class="MarkLarge" />
+              </group>
+            </svgc>
+            """));
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var written = Path.Combine(_directory, "large.recipe");
+
+        Panel(window, "Demo.Icons.Large").CreateRecipe(written);
+
+        var text = File.ReadAllText(written);
+
+        // The colours a recipe is for are the ones its drawings actually paint. Reading them out of
+        // the files yourself was most of the work of starting one.
+        Assert.Contains("""<!-- <replace color="#00ff00">accent</replace> -->""", text);
+        Assert.Contains("""<!-- <replace color="#ff8800">accent</replace> -->""", text);
+        Assert.Contains("The 2 colours these drawings paint", text);
+
+        // Commented, every one: the file it writes has to apply as it stands, and binding them all
+        // to the one let above would repaint the whole set the moment it was made.
+        var recipe = SvgRecipe.Parse(text);
+
+        Assert.Empty(recipe.ColorRules);
+        Assert.Equal(0, SvgRecipeRewriter.Apply(Drawing, recipe).TotalReplacements);
     }
 
     [AvaloniaFact]
