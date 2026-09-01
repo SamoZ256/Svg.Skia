@@ -292,7 +292,10 @@ public partial class MainWindow : Window
         // Asked once for all of them rather than tab by tab, since closing the project is one act
         // and being stopped halfway through it would leave half a workspace open.
         var owned = _tabs.Items.OfType<TabItem>().Where(Owned).ToList();
-        var unsaved = owned.Select(Unsaved).Where(name => name is { }).Select(name => name!).ToList();
+
+        // Unsaved() rather than the tabs alone: the recipes are the project's too, and one can be
+        // holding work with no tab left open on it.
+        var unsaved = Unsaved();
 
         if (unsaved.Count > 0 && !await ConfirmDiscard(Describe(unsaved)).ConfigureAwait(true))
         {
@@ -1039,6 +1042,22 @@ public partial class MainWindow : Window
 
         workspace.Edited += (_, _) => Rebuild();
 
+        // Every tab that writes into it, since a recipe is unsaved from all of them at once.
+        workspace.ModifiedChanged += (_, _) =>
+        {
+            foreach (var item in _tabs.Items.OfType<TabItem>())
+            {
+                if (item.Content is RecipePanel panel && ReferenceEquals(panel.Workspace, workspace))
+                {
+                    Mark(item);
+                }
+                else if (item.Content is SvgViewer viewer && ReferenceEquals(Recipe(viewer), workspace))
+                {
+                    Mark(item);
+                }
+            }
+        };
+
         _recipes.Add(path, workspace);
 
         return workspace;
@@ -1696,29 +1715,41 @@ public partial class MainWindow : Window
     /// <summary>The viewer in the selected tab, or null while there is none.</summary>
     private SvgViewer? Selected() => (_tabs.SelectedItem as TabItem)?.Content as SvgViewer;
 
-    /// <summary>Every open drawing with changes that are not on disk.</summary>
+    /// <summary>Everything open with changes that are not on disk.</summary>
+    /// <remarks>
+    /// The recipes as well as the tabs. A recipe is edited from the panes of the drawings under it,
+    /// so its buffer can be the only thing holding unsaved work — and closing the tab it was edited
+    /// from leaves it with nothing at all to speak for it.
+    /// </remarks>
     private IReadOnlyList<string> Unsaved()
         => _tabs.Items.OfType<TabItem>()
             .Select(Unsaved)
+            .Concat(_recipes.Values.Where(recipe => recipe.IsModified).Select(recipe => Path.GetFileName(recipe.Path)))
             .Where(name => name is { })
             .Select(name => name!)
+            .Distinct(StringComparer.Ordinal)
             .ToList();
 
     /// <summary>
     /// What a tab is holding that is not on disk, named, or null when it is holding nothing.
     /// </summary>
     /// <remarks>
-    /// A drawing's tab answers for two things now: the drawing's own text, and the project settings
-    /// riding in its right pane. Either one unsaved is the tab unsaved.
+    /// A drawing's tab answers for three things: the drawing's own text, the project settings riding
+    /// in its right pane, and the recipe those panes write into. Any one of them unsaved is the tab
+    /// unsaved — the recipe last, since it is the one the tab is not named after.
     /// </remarks>
     private static string? Unsaved(TabItem item) => item.Content switch
     {
         SvgViewer viewer when viewer.IsSourceModified || Settings(viewer) is { IsModified: true }
             => Named(viewer),
+        SvgViewer viewer when Recipe(viewer) is { IsModified: true } recipe => Path.GetFileName(recipe.Path),
         GroupPanel panel when panel.IsModified => ProjectWorkspace.Label(panel.Node),
         RecipePanel recipe when recipe.IsModified => Path.GetFileName(recipe.Path),
         _ => null
     };
+
+    /// <summary>The recipe a viewer's panes write into, when one covers the drawing.</summary>
+    private static RecipeWorkspace? Recipe(SvgViewer? viewer) => viewer?.DeclarationTarget as RecipeWorkspace;
 
     /// <summary>The project's say over the drawing a viewer is showing, when it came from a project.</summary>
     private static GroupPanel? Settings(SvgViewer viewer)
@@ -1940,7 +1971,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Both halves, since both are the tab's: the drawing's text and the project's say over it.
+        // Every half, since all of them are the tab's: the drawing's text, the project's say over
+        // it, and the recipe its panes write into.
         if (Settings(viewer) is { IsModified: true } settings)
         {
             try
@@ -1950,6 +1982,18 @@ public partial class MainWindow : Window
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
                 await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
+            }
+        }
+
+        if (Recipe(viewer) is { IsModified: true } behind)
+        {
+            try
+            {
+                behind.Save();
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            {
+                await Announce("The recipe couldn't be saved", failure.Message).ConfigureAwait(true);
             }
         }
 

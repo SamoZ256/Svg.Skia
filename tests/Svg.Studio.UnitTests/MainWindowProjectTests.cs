@@ -6,15 +6,15 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using AvaloniaEdit;
 using AvaloniaEdit.Editing;
-using Avalonia.Headless.XUnit;
-using Avalonia.Threading;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
@@ -1735,6 +1735,73 @@ public class MainWindowProjectTests : IDisposable
         // and with it the caret, the scroll and anything typed into the pane, on every keystroke
         // somebody made in the recipe.
         Assert.Same(buffer, editor.Document);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Recipe_Edited_From_A_Drawing_Is_Marked_And_Saved_On_That_Tab()
+    {
+        var (window, viewer) = await Painting();
+        var recipe = Path.Combine(_directory, "icons.recipe");
+
+        var tab = Tabs(window).Items.OfType<TabItem>().Single(item => ReferenceEquals(item.Content, viewer));
+
+        Assert.DoesNotContain("unsaved", Marker(tab).Classes);
+
+        // No recipe tab is open, and nothing makes you open one: this is the only thing holding the
+        // work, so it is the thing that has to say so.
+        Assert.True(Colours(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("unsaved", Marker(tab).Classes);
+        Assert.DoesNotContain("hsl(hue, 50%, 50%)", File.ReadAllText(recipe));
+
+        await window.SaveAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("hsl(hue, 50%, 50%)", File.ReadAllText(recipe));
+        Assert.DoesNotContain("unsaved", Marker(tab).Classes);
+
+        // The drawing itself was never the thing being edited, and is not written either way.
+        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "badge.svg")));
+    }
+
+    [AvaloniaFact]
+    public async Task Closing_A_Project_Asks_About_A_Recipe_No_Tab_Is_Left_On()
+    {
+        var (window, viewer) = await Painting();
+
+        Assert.True(Colours(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
+        Dispatcher.UIThread.RunJobs();
+
+        // The tabs it was edited from go, and the buffer is left with nothing to speak for it.
+        window.ConfirmDiscard = _ => Task.FromResult(true);
+
+        foreach (var item in Tabs(window).Items.OfType<TabItem>().Where(item => item.Tag is SvgcProjectNode).ToList())
+        {
+            ((StackPanel)item.Header!).Children.OfType<Button>().Single()
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            for (var attempt = 0; attempt < 50 && Tabs(window).Items.Contains(item); attempt++)
+            {
+                Dispatcher.UIThread.RunJobs();
+                await Task.Delay(10);
+            }
+        }
+
+        var asked = new List<string>();
+
+        window.ConfirmDiscard = message =>
+        {
+            asked.Add(message);
+
+            return Task.FromResult(false);
+        };
+
+        Assert.False(await window.CloseProjectAsync());
+
+        // Refused, so the project is still open and the work is still there.
+        Assert.Contains("icons.recipe", Assert.Single(asked));
+        Assert.NotNull(window.Workspace);
     }
 
     [AvaloniaFact]
