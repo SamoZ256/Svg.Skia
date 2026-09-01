@@ -1681,6 +1681,63 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task Editing_A_Recipe_Leaves_The_Pane_Being_Looked_At_Where_It_Was()
+    {
+        var (_, viewer) = await Painting();
+
+        var panes = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
+
+        panes.SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Colours", (string)((TabItem)panes.SelectedItem!).Header!);
+
+        Assert.True(Colours(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
+
+        // The drawings under a recipe are read again when it settles, and rebuilding the strip over
+        // somebody typing in it took them back to the first tab on every keystroke.
+        for (var attempt = 0; attempt < 60; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        var strip = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
+
+        Assert.Equal("Colours", (string)((TabItem)strip.SelectedItem!).Header!);
+    }
+
+    [AvaloniaFact]
+    public async Task Editing_A_Recipe_Does_Not_Read_The_Drawing_Off_The_Disk_Again()
+    {
+        var (_, viewer) = await Painting();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var editor = viewer.GetVisualDescendants().OfType<TextEditor>().Single(control => control.Name == "SourceEditor");
+
+        var buffer = editor.Document;
+        var built = viewer.Document;
+
+        Assert.True(Colours(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
+
+        for (var attempt = 0; attempt < 200 && ReferenceEquals(viewer.Document, built); attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        // The drawing was built again — a recipe decides what its colours come to.
+        Assert.NotSame(built, viewer.Document);
+
+        // From the text the pane was already holding. Reading the file for it dropped this buffer,
+        // and with it the caret, the scroll and anything typed into the pane, on every keystroke
+        // somebody made in the recipe.
+        Assert.Same(buffer, editor.Document);
+    }
+
+    [AvaloniaFact]
     public async Task A_Rule_That_This_Drawing_Has_No_Colour_For_Is_Still_Shown()
     {
         var (_, viewer) = await Painting(Drawing.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));

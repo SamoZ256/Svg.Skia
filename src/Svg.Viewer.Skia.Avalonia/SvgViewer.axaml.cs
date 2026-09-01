@@ -274,14 +274,36 @@ public partial class SvgViewer : UserControl
         get => _sidePanels;
         set
         {
-            _sidePanels = value ?? Array.Empty<SvgViewerPane>();
+            var panes = value ?? Array.Empty<SvgViewerPane>();
+
+            // The same panes said again change nothing, and rebuilding the strip over somebody
+            // working in it is not nothing: a host that recomposes this whenever its own settings
+            // are saved took the reader back to the first tab every time.
+            if (Same(_sidePanels, panes))
+            {
+                return;
+            }
+
+            _sidePanels = panes;
 
             FillPanelHost();
         }
     }
 
+    private static bool Same(IReadOnlyList<SvgViewerPane> panes, IReadOnlyList<SvgViewerPane> others)
+        => panes.Count == others.Count
+           && panes.Zip(others).All(
+               pair => ReferenceEquals(pair.First.Content, pair.Second.Content)
+                       && string.Equals(pair.First.Header, pair.Second.Header, StringComparison.Ordinal));
+
     private void FillPanelHost()
     {
+        // What was being looked at, so a strip that gains or loses a pane does not also change the
+        // subject. Only by name: the pane it was is not always one of the panes it now is.
+        var looking = _panelHost.Child is TabControl showing && showing.SelectedItem is TabItem selected
+            ? selected.Header as string
+            : null;
+
         // Emptied first, and the tabs with it: a control cannot be added to a second parent, and
         // the parameters panel is moving between the host and a tab inside it.
         if (_panelHost.Child is TabControl open)
@@ -309,6 +331,12 @@ public partial class SvgViewer : UserControl
         }
 
         tabs.Items.Add(new TabItem { Header = "Parameters", Content = _panel });
+
+        if (looking is { }
+            && tabs.Items.OfType<TabItem>().FirstOrDefault(item => Equals(item.Header, looking)) is { } again)
+        {
+            tabs.SelectedItem = again;
+        }
 
         _panelHost.Child = tabs;
     }
@@ -951,6 +979,36 @@ public partial class SvgViewer : UserControl
     {
         RefreshSource();
 
+        RebuildFrom(_sourceEditor.Text);
+    }
+
+    /// <summary>
+    /// Builds the drawing again from the text it is already holding.
+    /// </summary>
+    /// <remarks>
+    /// For a host that has changed what the same text comes to rather than the text: a
+    /// <see cref="Rewrite"/> whose recipe has been edited, or a new <see cref="SizeRequest"/>.
+    /// Quieter than opening the file again, which is what it replaced — the source pane keeps its
+    /// buffer, its caret and anything typed into it, the status line does not flash a load, and
+    /// nothing is read off the disk.
+    /// </remarks>
+    /// <returns>Whether there was a drawing to build.</returns>
+    public bool Rebuild()
+    {
+        if (_document is null)
+        {
+            return false;
+        }
+
+        // Source and not the editor's own text, which is the truncated stand-in for a drawing too
+        // large to hold — building from that would behead the picture.
+        RebuildFrom(Source);
+
+        return true;
+    }
+
+    private void RebuildFrom(string svgText)
+    {
         if (_document is not { } open)
         {
             return;
@@ -960,7 +1018,9 @@ public partial class SvgViewer : UserControl
 
         try
         {
-            rebuilt = open.Reload(_sourceEditor.Text, SizeRequest);
+            // This viewer's rewrite and not the document's, which is the one it was loaded with: a
+            // host that has edited its recipe since is asking for exactly that difference.
+            rebuilt = open.Reload(svgText, SizeRequest, Rewrite);
         }
         catch (Exception)
         {

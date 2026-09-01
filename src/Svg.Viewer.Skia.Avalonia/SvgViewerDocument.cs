@@ -202,14 +202,22 @@ public sealed class SvgViewerDocument : IDisposable
     public SvgViewerDocument Reload(string svgText) => Reload(svgText, SvgSizeRequest.None);
 
     /// <summary>The same drawing, rebuilt from edited text at the size <paramref name="request"/> asks for.</summary>
-    public SvgViewerDocument Reload(string svgText, SvgSizeRequest request)
+    public SvgViewerDocument Reload(string svgText, SvgSizeRequest request) => Reload(svgText, request, Rewrite);
+
+    /// <summary>The same drawing, rebuilt through <paramref name="rewrite"/> rather than its own.</summary>
+    /// <remarks>
+    /// For a host whose rewrite has changed under a drawing it has already loaded — an svgc project
+    /// whose recipe was edited, or taken off. The document's own is the one it was built with, so a
+    /// rebuild that used it would go on applying a recipe that no longer covers the drawing.
+    /// </remarks>
+    public SvgViewerDocument Reload(string svgText, SvgSizeRequest request, Func<string, string>? rewrite)
     {
         if (svgText is null)
         {
             throw new ArgumentNullException(nameof(svgText));
         }
 
-        var built = Built(svgText);
+        var built = rewrite is { } ? rewrite(svgText) : svgText;
 
         var svg = new SKSvg();
 
@@ -220,7 +228,7 @@ public sealed class SvgViewerDocument : IDisposable
         }
 
         // The text, not what was built from it: this document's source is still the file's own.
-        return Describe(svg, Path, svgText, ByteOrderMark, Rewrite);
+        return Describe(svg, Path, svgText, ByteOrderMark, rewrite);
     }
 
     /// <summary>Builds <paramref name="svg"/> from text, resolving what it references against <paramref name="baseUri"/>.</summary>

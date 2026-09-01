@@ -1175,18 +1175,18 @@ public partial class MainWindow : Window
             viewer.SizeRequest = request;
             Recipe(viewer, drawing);
 
-            if (ReferenceEquals(_tabs.SelectedItem, item))
-            {
-                _ = viewer.LoadAsync(drawing.ResolvedInput);
-            }
-            else
+            if (!ReferenceEquals(_tabs.SelectedItem, item))
             {
                 _stale.Add(item);
+
+                continue;
             }
+
+            Read(viewer, drawing.ResolvedInput, elsewhere);
         }
     }
 
-    /// <summary>Reads the selected tab's drawing again, if it went out of date while out of sight.</summary>
+    /// <summary>Builds the selected tab's drawing again, if it went out of date while out of sight.</summary>
     private void Refill()
     {
         if (_tabs.SelectedItem is not TabItem item
@@ -1197,7 +1197,27 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Off the disk, always: this is also how a save in one tab reaches the others showing the
+        // same file, and what those are out of date about is the file itself.
         _ = viewer.LoadAsync(path);
+    }
+
+    /// <summary>
+    /// Brings the drawing being looked at up to date, off the disk only where it has to be.
+    /// </summary>
+    /// <remarks>
+    /// A recipe or a size changes what the same text comes to, not the text, so the drawing is
+    /// built again from what the pane is already holding. Reading the file for that dropped the
+    /// pane's buffer and its caret on every keystroke somebody made in the recipe, and flashed a
+    /// load in the status line while they typed. Only a tab now naming another file has to be
+    /// opened.
+    /// </remarks>
+    private static void Read(SvgViewer viewer, string path, bool elsewhere)
+    {
+        if (elsewhere || !viewer.Rebuild())
+        {
+            _ = viewer.LoadAsync(path);
+        }
     }
 
     // ---- reordering -------------------------------------------------------------------------
