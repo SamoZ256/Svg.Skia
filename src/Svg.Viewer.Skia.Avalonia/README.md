@@ -117,8 +117,9 @@ is why the button says so and why one undo puts it back.
 ## Embedding it
 
 `SvgViewer` is the drop-in. `ShowToolBar`, `ShowDeclarationPanel` and `ShowStatusBar` turn off the
-chrome, and `SvgViewerCanvas` and `SvgViewerDeclarationPanel` are usable on their own for a host that
-wants to supply its own. `SvgViewerDocument` and `SvgViewerParameterFactory` are plain classes with
+chrome, `ShowBounds` turns off the outline around the drawing's own edges — on by default, since an
+icon with transparent margins otherwise ends nowhere the eye can see — and `SvgViewerCanvas` and
+`SvgViewerDeclarationPanel` are usable on their own for a host that wants to supply its own. `SvgViewerDocument` and `SvgViewerParameterFactory` are plain classes with
 no UI, for a host that only wants the loading and seeding.
 
 Opening is the host's to offer: the toolbar zooms and shows the source, and `OpenAsync()` is the

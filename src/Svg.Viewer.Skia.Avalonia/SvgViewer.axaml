@@ -76,6 +76,8 @@
         <Button x:Name="ZoomInButton" Content="+" Width="30" ToolTip.Tip="Zoom in (Ctrl++, or scroll up)" />
         <Rectangle Width="1" Fill="#30808080" Margin="4,2" />
         <Button x:Name="ResetParametersButton" Content="Reset parameters" />
+        <ToggleButton x:Name="BoundsButton" Content="Bounds"
+                      ToolTip.Tip="Outline the drawing's own edges" />
         <ToggleButton x:Name="SourceButton" Content="Source"
                       ToolTip.Tip="Show the drawing's text" />
       </StackPanel>

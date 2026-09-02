@@ -56,6 +56,7 @@ public partial class SvgViewer : UserControl
     private readonly SvgViewerSourceColorizer _sourceColorizer;
     private readonly SvgViewerSourceMarkers _sourceMarkers;
     private readonly ToggleButton _sourceButton;
+    private readonly ToggleButton _boundsButton;
     private readonly Grid _body;
     private readonly Grid _drawing;
 
@@ -125,6 +126,7 @@ public partial class SvgViewer : UserControl
         _sourceSplitter = this.FindControl<GridSplitter>("SourceSplitter")!;
         _sourceEditor = this.FindControl<TextEditor>("SourceEditor")!;
         _sourceButton = this.FindControl<ToggleButton>("SourceButton")!;
+        _boundsButton = this.FindControl<ToggleButton>("BoundsButton")!;
         _body = this.FindControl<Grid>("Body")!;
         _drawing = this.FindControl<Grid>("Drawing")!;
 
@@ -139,6 +141,9 @@ public partial class SvgViewer : UserControl
         this.FindControl<Button>("ResetParametersButton")!.Click += (_, _) => ResetParameters();
 
         _sourceButton.IsCheckedChanged += (_, _) => ShowSource = _sourceButton.IsChecked == true;
+
+        _boundsButton.IsChecked = ShowBounds;
+        _boundsButton.IsCheckedChanged += (_, _) => ShowBounds = _boundsButton.IsChecked == true;
 
         // The splitter colours, the marker draws, and both ask for a brush when they need one rather
         // than being handed a palette, so a theme change is a repaint and not a rebuild.
@@ -251,6 +256,17 @@ public partial class SvgViewer : UserControl
     {
         get => _toolBar.IsVisible;
         set => _toolBar.IsVisible = value;
+    }
+
+    /// <inheritdoc cref="SvgViewerCanvas.ShowBounds"/>
+    public bool ShowBounds
+    {
+        get => _canvas.ShowBounds;
+        set
+        {
+            _canvas.ShowBounds = value;
+            _boundsButton.IsChecked = value;
+        }
     }
 
     public bool ShowStatusBar

@@ -43,12 +43,13 @@ public class SvgViewerCanvas : SKCanvasControl
     private double _dragOffsetY;
     private bool _dragging;
     private Cursor? _restoreCursor;
+    private bool _showBounds = true;
 
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
-    private volatile Snapshot _snapshot = new(null, 1d, 0d, 0d);
+    private volatile Snapshot _snapshot = new(null, 1d, 0d, 0d, true);
 
-    private sealed record Snapshot(SKSvg? Svg, double Scale, double OffsetX, double OffsetY);
+    private sealed record Snapshot(SKSvg? Svg, double Scale, double OffsetX, double OffsetY, bool Bounds);
 
     public SvgViewerCanvas()
     {
@@ -75,6 +76,32 @@ public class SvgViewerCanvas : SKCanvasControl
     public bool IsZoomEnabled { get; set; } = true;
 
     public bool IsPanEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Whether the drawing's own edges are outlined.
+    /// </summary>
+    /// <remarks>
+    /// An icon with transparent margins ends somewhere the eye cannot see, and where it ends is what
+    /// an export writes and what a project's sizing moves. On by default for that reason; a host
+    /// wanting the drawing on its own turns it off.
+    /// </remarks>
+    public bool ShowBounds
+    {
+        get => _showBounds;
+        set
+        {
+            if (_showBounds == value)
+            {
+                return;
+            }
+
+            _showBounds = value;
+
+            // Through the snapshot like everything else the frame is drawn from: the render thread
+            // may read nothing else, so a flag it could see change mid-frame is not an option.
+            Publish();
+        }
+    }
 
     /// <summary>The drawing on show. Assigning a different one starts it fitted.</summary>
     public SKSvg? Svg
@@ -264,7 +291,7 @@ public class SvgViewerCanvas : SKCanvasControl
     /// <summary>Hands the render thread a new frame's worth of state.</summary>
     internal void Publish()
     {
-        _snapshot = new Snapshot(_svg, _scale, _offsetX, _offsetY);
+        _snapshot = new Snapshot(_svg, _scale, _offsetX, _offsetY, _showBounds);
         InvalidateVisual();
     }
 
@@ -406,6 +433,41 @@ public class SvgViewerCanvas : SKCanvasControl
         // underneath it by a value being bound on the UI thread.
         svg.Draw(canvas);
 
+        if (state.Bounds && svg.Picture is { CullRect: { Width: > 0f, Height: > 0f } frame })
+        {
+            Outline(canvas, frame, state.Scale);
+        }
+
         canvas.Restore();
+    }
+
+    /// <summary>
+    /// Draws the drawing's own edges, inside the space the drawing was just drawn in.
+    /// </summary>
+    /// <remarks>
+    /// Dashed, and not because it is prettier: a solid rectangle hugging an icon reads as part of
+    /// the icon, and the one thing this must never be mistaken for is something the file draws.
+    /// Grey rather than a theme brush, since it has to read on both the dark ground this paints by
+    /// default and on whatever a host sets <see cref="Background"/> to.
+    ///
+    /// Every length is divided by the scale because the canvas is scaled around it, which is what
+    /// keeps the line one pixel wide and the dashes one length at every zoom.
+    /// </remarks>
+    private static void Outline(SKCanvas canvas, SKRect frame, double scale)
+    {
+        var hairline = (float)(1d / scale);
+
+        using var paint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            Color = SKColors.Gray,
+            StrokeWidth = hairline,
+            PathEffect = SKPathEffect.CreateDash(new[] { 4f * hairline, 4f * hairline }, 0f)
+        };
+
+        // A stroke straddles what it is drawn on, so half of it would fall outside the drawing.
+        // Half a pixel in puts the whole line within the edges it is about.
+        canvas.DrawRect(SKRect.Inflate(frame, -hairline / 2f, -hairline / 2f), paint);
     }
 }

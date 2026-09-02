@@ -483,6 +483,151 @@ public class SvgViewerTests
         window.Close();
     }
 
+    /// <summary>What the canvas paints behind a drawing, which the outline is measured against.</summary>
+    private static readonly SKColor Ground = new(0x1A, 0x1A, 0x1E);
+
+    /// <summary>A drawing with a wide transparent margin, so its edges are nowhere its ink is.</summary>
+    private const string Margined = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <rect x="40" y="40" width="20" height="20" fill="#ff0000" />
+        </svg>
+        """;
+
+    /// <summary>A viewer showing <see cref="Margined"/> with nothing but the canvas painting.</summary>
+    private static async Task<(Window Window, SvgViewer Viewer)> Bounded()
+    {
+        var (window, viewer) = Host();
+
+        // Only the canvas contributes pixels, so what is counted is what was drawn on the drawing.
+        viewer.ShowToolBar = false;
+        viewer.ShowDeclarationPanel = false;
+        viewer.ShowStatusBar = false;
+
+        Assert.True(await viewer.LoadTextAsync(Margined));
+        Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+        return (window, viewer);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Is_Outlined_At_Its_Own_Edges()
+    {
+        var (window, viewer) = await Bounded();
+
+        // On by default: an icon with transparent margins ends somewhere the eye cannot otherwise
+        // see, and where it ends is what an export writes.
+        Assert.True(viewer.ShowBounds);
+        Assert.True(Painted(window, SKColors.Gray) > 0, "the drawing's edges were not outlined");
+
+        viewer.ShowBounds = false;
+        Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+        // And nothing of it left behind, so a host embedding the viewer gets the drawing alone.
+        Assert.Equal(0, Painted(window, SKColors.Gray));
+
+        // The drawing itself is untouched either way.
+        Assert.True(Painted(window, SKColors.Red) > 0);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_Outline_Stays_A_Hairline_However_Far_It_Is_Zoomed()
+    {
+        var (window, viewer) = await Bounded();
+
+        // Fitted, a 100 unit drawing fills a 300 pixel pane, so it is drawn at three pixels to the
+        // unit — and a line given its width in the drawing's units is three pixels wide before
+        // anything has been zoomed at all.
+        Assert.InRange(Thickest(window, Ground), 1, 2);
+
+        // Actual size and then in again, which lands at about two and a half times: far enough for
+        // a line measured in drawing units to be visibly thick, and near enough that the edges are
+        // all still on screen to be measured.
+        viewer.Canvas.ActualSize();
+
+        for (var step = 0; step < 5; step++)
+        {
+            viewer.Canvas.ZoomIn();
+        }
+
+        Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+        // Two rather than one where the edge falls between two rows and is antialiased across both.
+        Assert.InRange(Thickest(window, Ground), 1, 2);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// How thick the drawn outline is, in pixels, measured across it.
+    /// </summary>
+    /// <remarks>
+    /// The longest unbroken run down a column, over a band through the middle of the frame, of
+    /// pixels that are neither the ground nor the drawing's own colour. Down rather than across,
+    /// because a run along an edge measures a dash rather than the line.
+    ///
+    /// By what a pixel is <em>not</em>, rather than by matching grey: an edge only lands square on a
+    /// row of pixels at some zooms, and at the rest it falls between two and antialiases to a blend
+    /// of the line and the ground. That is still the line, and still one pixel of it, but it is no
+    /// longer the line's colour.
+    ///
+    /// Counting how much of the frame the outline paints would not answer this at all — zoomed far
+    /// enough in, most of an outline is off screen, so a thicker line paints fewer pixels.
+    /// </remarks>
+    private static int Thickest(Window window, SKColor ground)
+    {
+        var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("No rendered frame was captured.");
+
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-edge-{Guid.NewGuid():N}.png");
+        frame.Save(path);
+
+        try
+        {
+            using var bitmap = SKBitmap.Decode(path);
+
+            var thickest = 0;
+
+            // Off centre, so the band falls in the drawing's empty margin: down the middle it would
+            // cross the ink as well and measure that instead.
+            for (var x = bitmap!.Width / 2 + 54; x <= bitmap.Width / 2 + 86; x++)
+            {
+                var run = 0;
+
+                for (var y = 0; y < bitmap.Height; y++)
+                {
+                    var pixel = bitmap.GetPixel(x, y);
+
+                    var laid = Math.Abs(pixel.Red - ground.Red) > 8
+                               || Math.Abs(pixel.Green - ground.Green) > 8
+                               || Math.Abs(pixel.Blue - ground.Blue) > 8;
+
+                    // Grey, whatever it is blended with, which the drawing's red is not — and no
+                    // brighter than the line itself, which the white the splitters let through is.
+                    var grey = Math.Max(pixel.Red, Math.Max(pixel.Green, pixel.Blue))
+                               - Math.Min(pixel.Red, Math.Min(pixel.Green, pixel.Blue)) < 16
+                               && pixel.Red < 180;
+
+                    if (laid && grey)
+                    {
+                        thickest = Math.Max(thickest, ++run);
+                    }
+                    else
+                    {
+                        run = 0;
+                    }
+                }
+            }
+
+            return thickest;
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [AvaloniaFact]
     public void The_Chrome_Can_Be_Turned_Off_For_Embedding()
     {
