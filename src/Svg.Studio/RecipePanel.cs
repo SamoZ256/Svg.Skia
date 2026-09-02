@@ -139,6 +139,17 @@ public sealed class RecipePanel : UserControl
     /// <inheritdoc cref="Undo"/>
     public bool Redo() => _editor.CanRedo && _editor.Redo();
 
+    /// <inheritdoc cref="Svg.Viewer.Skia.Avalonia.SvgViewer.FindInSource"/>
+    /// <remarks>No pane to open first: here the editor is the tab.</remarks>
+    public void Find()
+    {
+        if (_editor.SearchPanel is { } panel)
+        {
+            panel.Open();
+            panel.Reactivate();
+        }
+    }
+
     /// <inheritdoc cref="RecipeWorkspace.Save"/>
     public void Save() => Workspace.Save();
 

@@ -206,6 +206,9 @@
             <NativeMenuItem Header="Undo" Click="OnUndo" />
             <NativeMenuItem Header="Redo" Click="OnRedo" />
             <NativeMenuItemSeparator />
+            <!-- The editor's own find box, which nothing on screen said was there. -->
+            <NativeMenuItem Header="Find…" Click="OnFind" />
+            <NativeMenuItemSeparator />
             <NativeMenuItem Header="Resize…" Click="OnResize" />
           </NativeMenu>
         </NativeMenuItem.Menu>
@@ -246,6 +249,18 @@
         <DockPanel>
           <TextBlock x:Name="ProjectName" DockPanel.Dock="Top" Margin="10,10,10,6"
                      FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" />
+          <!--
+            In the pane rather than behind a gesture: it is on screen exactly while a project is,
+            and a box that can be seen is one nobody has to be told about. The tally sits inside it
+            so the rows below start where they always did.
+          -->
+          <TextBox x:Name="ProjectSearch" DockPanel.Dock="Top" Margin="10,0,10,6"
+                   FontSize="12" PlaceholderText="Search">
+            <TextBox.InnerRightContent>
+              <TextBlock x:Name="ProjectSearchCount" Margin="6,0" VerticalAlignment="Center"
+                         FontSize="11" Opacity="0.6" />
+            </TextBox.InnerRightContent>
+          </TextBox>
           <Grid DragDrop.AllowDrop="True">
             <TreeView x:Name="ProjectTree" Background="Transparent" BorderThickness="0" />
             <!--

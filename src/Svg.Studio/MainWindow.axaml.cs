@@ -47,6 +47,8 @@ public partial class MainWindow : Window
     private readonly Border _projectPaneHost;
     private readonly GridSplitter _projectSplitter;
     private readonly TextBlock _projectName;
+    private readonly TextBox _projectSearch;
+    private readonly TextBlock _projectSearchCount;
     private readonly Border _dropLine;
     private readonly Grid _dropHost;
 
@@ -101,6 +103,10 @@ public partial class MainWindow : Window
         _projectPaneHost = this.FindControl<Border>("ProjectPaneHost")!;
         _projectSplitter = this.FindControl<GridSplitter>("ProjectSplitter")!;
         _projectName = this.FindControl<TextBlock>("ProjectName")!;
+        _projectSearch = this.FindControl<TextBox>("ProjectSearch")!;
+        _projectSearchCount = this.FindControl<TextBlock>("ProjectSearchCount")!;
+        _projectSearch.TextChanged += (_, _) => JumpToMatch(0);
+        _projectSearch.KeyDown += OnProjectSearchKeyDown;
         _projectTree.KeyDown += OnProjectTreeKeyDown;
         _dropLine = this.FindControl<Border>("DropLine")!;
         _dropHost = (Grid)_dropLine.Parent!;
@@ -470,6 +476,13 @@ public partial class MainWindow : Window
         _projectSplitter.IsVisible = show;
         _projectColumn.Width = show ? new GridLength(260) : new GridLength(0);
         _projectColumn.MinWidth = show ? 180 : 0;
+
+        if (!show)
+        {
+            // The next project opens on its own rows rather than under what was being looked for in
+            // the last one. Clearing it empties the tally through the box's own handler.
+            _projectSearch.Text = null;
+        }
     }
 
     /// <param name="select">The node to leave selected, or null to keep whatever was.</param>
@@ -1275,8 +1288,17 @@ public partial class MainWindow : Window
     /// </remarks>
     private void Reveal()
     {
-        if ((_tabs.SelectedItem as TabItem)?.Tag is not SvgcProjectNode node
-            || _projectTree.Items.OfType<TreeViewItem>().FirstOrDefault() is not { } root
+        if ((_tabs.SelectedItem as TabItem)?.Tag is SvgcProjectNode node)
+        {
+            Reveal(node);
+        }
+    }
+
+    /// <summary>Opens the tree down to one node and puts its row in sight.</summary>
+    /// <remarks>The jump a search makes, and the one picking a tab makes: the same one.</remarks>
+    private void Reveal(SvgcProjectNode node)
+    {
+        if (_projectTree.Items.OfType<TreeViewItem>().FirstOrDefault() is not { } root
             || Route(root, node) is not { } path)
         {
             return;
@@ -1295,6 +1317,90 @@ public partial class MainWindow : Window
 
         // Opened is not the same as in sight: a long project scrolls.
         row.BringIntoView();
+    }
+
+    /// <summary>
+    /// Walks to the match after the row the tree is on, or the one before it.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is hidden: the tree stays whole and the match is opened down to and selected, so a
+    /// drawing is still found where it lives rather than in a list of what is left. A query that
+    /// matches nothing leaves the selection where it was — a search that closed what was being
+    /// looked at would cost more than it found.
+    ///
+    /// Rebuilt from the rows on every keystroke rather than kept: the tree is built again after any
+    /// edit to the project, and a remembered list of rows would be a list of rows that are gone.
+    /// </remarks>
+    /// <param name="step">1 for the next match, -1 for the one before, 0 to stay on one that still matches.</param>
+    private void JumpToMatch(int step)
+    {
+        var query = _projectSearch.Text;
+
+        if (string.IsNullOrEmpty(query)
+            || _projectTree.Items.OfType<TreeViewItem>().FirstOrDefault() is not { } root)
+        {
+            _projectSearchCount.Text = null;
+
+            return;
+        }
+
+        // What the row says, read back off it: a search can only find what the tree is showing.
+        var matches = Rows(root)
+            .Where(row => row.Header is string label
+                && label.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            _projectSearchCount.Text = "none";
+
+            return;
+        }
+
+        var at = matches.IndexOf((_projectTree.SelectedItem as TreeViewItem)!);
+        var index = at < 0 ? 0 : (at + step + matches.Count) % matches.Count;
+
+        if (matches[index].Tag is SvgcProjectNode node)
+        {
+            Reveal(node);
+        }
+
+        _projectSearchCount.Text = $"{index + 1}/{matches.Count}";
+    }
+
+    /// <summary>Enter for the next match, Shift+Enter for the one before, Escape to be done.</summary>
+    private void OnProjectSearchKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.Enter or Key.Return)
+        {
+            e.Handled = true;
+
+            JumpToMatch(e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? -1 : 1);
+        }
+        else if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+
+            _projectSearch.Text = null;
+
+            // Back to the rows, where Delete and Enter mean what they mean in a tree: leaving the
+            // focus in an empty box makes the next keystroke type rather than act.
+            _projectTree.Focus();
+        }
+    }
+
+    /// <summary>Every row under this one, itself first, in the order the tree draws them.</summary>
+    private static IEnumerable<TreeViewItem> Rows(TreeViewItem item)
+    {
+        yield return item;
+
+        foreach (var child in item.Items.OfType<TreeViewItem>())
+        {
+            foreach (var row in Rows(child))
+            {
+                yield return row;
+            }
+        }
     }
 
     /// <summary>The rows from the root down to <paramref name="node"/>, or null when it has none.</summary>
@@ -1587,6 +1693,25 @@ public partial class MainWindow : Window
 
     private async void OnExport(object? sender, EventArgs e) => await ExportAsync();
 
+    private void OnFind(object? sender, EventArgs e) => Find();
+
+    /// <summary>Opens the find box of whichever editor the selected tab holds.</summary>
+    /// <remarks>
+    /// The recipe first, as <see cref="Undo"/> takes it: a recipe tab has no viewer, and a drawing's
+    /// tab has no editor but the source pane's.
+    /// </remarks>
+    public void Find()
+    {
+        if (Editing() is { } recipe)
+        {
+            recipe.Find();
+
+            return;
+        }
+
+        Selected()?.FindInSource();
+    }
+
     private void OnUndo(object? sender, EventArgs e) => Undo();
 
     private void OnRedo(object? sender, EventArgs e) => Redo();
@@ -1679,6 +1804,11 @@ public partial class MainWindow : Window
             saveAs.IsEnabled = Selected() is { Document: { } };
         }
 
+        if (Item(menu, "Find…") is { } find)
+        {
+            find.IsEnabled = Selected() is { Document: { } } || Editing() is { };
+        }
+
         // Both act on the project, and both did nothing at all when picked without one.
         foreach (var header in new[] { "Build", "Close" })
         {
@@ -1712,6 +1842,12 @@ public partial class MainWindow : Window
         if (Item(NativeMenu.GetMenu(this), "Save As…") is { } saveAs)
         {
             saveAs.Gesture = new KeyGesture(Key.S, command | KeyModifiers.Shift);
+        }
+
+        // Find is the platform's keymap's own gap too, and is written the same way.
+        if (Item(NativeMenu.GetMenu(this), "Find…") is { } find)
+        {
+            find.Gesture = new KeyGesture(Key.F, command);
         }
 
         void Show(string header, IReadOnlyList<KeyGesture> gestures)
@@ -2149,7 +2285,7 @@ public partial class MainWindow : Window
         UpdateMenu();
     }
 
-    /// <summary>Saves the drawing in the selected tab.</summary>
+    /// <summary>Saves the drawing in the selected tab, or opens the find box over its text.</summary>
     /// <remarks>
     /// The modifier follows the platform rather than being spelled Control, so this is Cmd+S on
     /// macOS and Ctrl+S everywhere else, which is what each of them means by "save".
@@ -2157,6 +2293,17 @@ public partial class MainWindow : Window
     private async void OnKeyDown(object? sender, KeyEventArgs e)
     {
         var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+
+        // Taken here rather than left to the editor, which never sees the keystroke while the
+        // drawing has focus — and would have nothing to search until the source pane was opened.
+        if (e.Key == Key.F && e.KeyModifiers == command)
+        {
+            e.Handled = true;
+
+            Find();
+
+            return;
+        }
 
         if (e.Key != Key.S)
         {

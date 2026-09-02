@@ -428,6 +428,33 @@ public partial class SvgViewer : UserControl
     }
 
     /// <summary>
+    /// Opens the source pane's own find box, over the text it is showing.
+    /// </summary>
+    /// <remarks>
+    /// AvaloniaEdit installs the box with the editor's template and styles it out of the theme the
+    /// pane already includes, so all there is to do is show it. The pane comes up first because the
+    /// buffer is only filled while it is visible — searching a closed pane would search nothing.
+    /// </remarks>
+    public void FindInSource()
+    {
+        ShowSource = true;
+
+        // The box comes with the editor's template, and a control in a pane that has never been
+        // open has never been measured and so has no template yet: without this the first search
+        // after opening the pane found nothing to open, and only a second one worked.
+        _sourceEditor.ApplyTemplate();
+
+        if (_sourceEditor.SearchPanel is { } panel)
+        {
+            panel.Open();
+
+            // The keystroke goes to the box rather than to the text under it, which is the whole
+            // point of asking for it.
+            panel.Reactivate();
+        }
+    }
+
+    /// <summary>
     /// What is wrong with the open drawing, as ranges into <see cref="SvgViewerDocument.SourceText"/>.
     /// </summary>
     /// <remarks>
