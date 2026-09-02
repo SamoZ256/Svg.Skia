@@ -346,10 +346,14 @@ public sealed class GroupPanel : UserControl
         }
     }
 
+    /// <remarks>
+    /// No Apple type identifier, for the reason the project's has none: nothing registers
+    /// <c>.recipe</c> with macOS, so it is given a type conforming to nothing and naming
+    /// <c>public.xml</c> greys every recipe out rather than letting one be picked.
+    /// </remarks>
     private static readonly FilePickerFileType Recipes = new("Svg Recipes")
     {
         Patterns = new[] { "*.recipe" },
-        AppleUniformTypeIdentifiers = new[] { "public.xml" },
         MimeTypes = new[] { "application/xml" }
     };
 

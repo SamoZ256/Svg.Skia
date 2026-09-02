@@ -2030,10 +2030,31 @@ public partial class MainWindow : Window
     /// </remarks>
     private sealed class StudioFileDialogService : ISvgViewerFileDialogService
     {
+        /// <summary>
+        /// Everything Open can do something with, which is what it offers first.
+        /// </summary>
+        /// <remarks>
+        /// A picker shows one filter at a time and opens on the first — on macOS as a popup in the
+        /// panel's accessory view, allowing only the types the chosen one names. Offering drawings
+        /// first meant a project was greyed out until somebody thought to change a popup they had no
+        /// reason to look at. Open takes either kind, so the filter it opens on says so.
+        /// </remarks>
+        private static readonly FilePickerFileType OpenableFileType = new("Drawings and projects")
+        {
+            Patterns = new[] { "*.svg", "*.svgz", "*.svgcproj" },
+            MimeTypes = new[] { "image/svg+xml", "application/gzip", "application/xml" }
+        };
+
+        /// <remarks>
+        /// No Apple type identifier, unlike the drawings below. macOS decides a file's type from
+        /// its extension, and <c>.svgcproj</c> is whatever the machine happens to have claimed it —
+        /// on this one, the editor it was last opened with. Either way it conforms to nothing, and
+        /// <c>public.xml</c> was a claim about it that no machine agrees with, narrowing the filter
+        /// to files macOS reads as XML rather than widening it. The extension is what matches.
+        /// </remarks>
         private static readonly FilePickerFileType ProjectFileType = new("Svgc Projects")
         {
             Patterns = new[] { "*.svgcproj" },
-            AppleUniformTypeIdentifiers = new[] { "public.xml" },
             MimeTypes = new[] { "application/xml" }
         };
 
@@ -2044,9 +2065,10 @@ public partial class MainWindow : Window
             MimeTypes = new[] { "image/svg+xml", "application/gzip" }
         };
 
+        /// <remarks>The pattern Avalonia's own "all files" uses; <c>*.*</c> asks for a dot.</remarks>
         private static readonly FilePickerFileType AllFileType = new("All")
         {
-            Patterns = new[] { "*.*" },
+            Patterns = new[] { "*" },
             MimeTypes = new[] { "*/*" }
         };
 
@@ -2065,7 +2087,7 @@ public partial class MainWindow : Window
             {
                 Title = "Open drawing or project",
                 AllowMultiple = false,
-                FileTypeFilter = new List<FilePickerFileType> { Drawings, ProjectFileType, AllFileType }
+                FileTypeFilter = new List<FilePickerFileType> { OpenableFileType, Drawings, ProjectFileType, AllFileType }
             }).ConfigureAwait(true);
 
             return files?.Select(file => file.TryGetLocalPath())
