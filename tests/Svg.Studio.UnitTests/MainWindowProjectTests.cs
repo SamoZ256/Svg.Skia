@@ -62,25 +62,15 @@ public class MainWindowProjectTests : IDisposable
 
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
-    /// <summary>A window with <paramref name="path"/> opened through the request a drop also raises.</summary>
+    /// <summary>A window with <paramref name="path"/> opened through the route a drop also ends in.</summary>
     private static async Task<MainWindow> Host(string path)
     {
         var window = new MainWindow();
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        var tabs = window.FindControl<TabControl>("Tabs")!;
-        var first = (SvgViewer)((TabItem)tabs.Items[0]!).Content!;
-
-        // The window starts loading its bundled sample with nothing to await it by, so a project
-        // opened before it lands would reuse the tab the sample is about to fill.
-        for (var attempt = 0; attempt < 200 && first.Document is null; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        Assert.True(await first.OpenAsync(new[] { path }));
+        // Nothing is open until this: a window starts empty, with no tab standing in for a file.
+        await window.OpenAsync(new[] { path });
 
         Dispatcher.UIThread.RunJobs();
 
@@ -108,9 +98,8 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal("icons.svgcproj", window.Workspace!.Name);
 
         // The project is what the window works on, not one of the things it shows: opening it adds
-        // no tab, and the sample the window started on is still the only one.
-        Assert.Single(Tabs(window).Items);
-        Assert.IsType<SvgViewer>(((TabItem)Tabs(window).Items[0]!).Content);
+        // no tab at all, and the window had none to begin with.
+        Assert.Empty(Tabs(window).Items);
 
         Assert.True(window.FindControl<Border>("ProjectPaneHost")!.IsVisible);
 
@@ -206,7 +195,7 @@ public class MainWindowProjectTests : IDisposable
 
         // Chosen twice is the same tab, not a second one.
         await window.ShowAsync(group);
-        Assert.Equal(2, Tabs(window).Items.Count);
+        Assert.Single(Tabs(window).Items);
     }
 
     [AvaloniaFact]
@@ -273,7 +262,7 @@ public class MainWindowProjectTests : IDisposable
         await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(3, Tabs(window).Items.Count);
+        Assert.Equal(2, Tabs(window).Items.Count);
 
         Assert.True(await window.CloseProjectAsync());
         Dispatcher.UIThread.RunJobs();
@@ -282,8 +271,8 @@ public class MainWindowProjectTests : IDisposable
         Assert.Empty(Tree(window).Items);
         Assert.False(window.FindControl<Border>("ProjectPaneHost")!.IsVisible);
 
-        // The sample the window started on is not the project's, so it stays.
-        Assert.Single(Tabs(window).Items);
+        // Every tab it had was the project's, so the window is back to empty.
+        Assert.Empty(Tabs(window).Items);
     }
 
     [AvaloniaFact]
@@ -742,8 +731,8 @@ public class MainWindowProjectTests : IDisposable
         var export = Menu(window, "Export…");
         var root = (TreeViewItem)Tree(window).Items[0]!;
 
-        // The sample the window starts on is a drawing, so it is there to export.
-        Assert.True(export.IsEnabled);
+        // Nothing is open, so there is nothing to export.
+        Assert.False(export.IsEnabled);
 
         await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
         Dispatcher.UIThread.RunJobs();
@@ -931,14 +920,14 @@ public class MainWindowProjectTests : IDisposable
         await window.ShowAsync((SvgcProjectNode)((TreeViewItem)group.Items[0]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(3, Tabs(window).Items.Count);
+        Assert.Equal(2, Tabs(window).Items.Count);
 
         Assert.True(await window.RemoveAsync((SvgcProjectNode)group.Tag!));
         Dispatcher.UIThread.RunJobs();
 
         // The group's tab and the drawing's under it both go: left open, either would go on editing
         // an element the document no longer holds and report itself saved.
-        Assert.Single(Tabs(window).Items);
+        Assert.Empty(Tabs(window).Items);
         Assert.Equal(new[] { "Demo.Icons", "home.svg - Home" }, Rows((TreeViewItem)Tree(window).Items[0]!));
 
         // The comment stays. It is a sibling of the group, not part of it.
@@ -992,7 +981,7 @@ public class MainWindowProjectTests : IDisposable
         // it stops the removal rather than losing the edit to it.
         Assert.False(await window.RemoveAsync(group));
 
-        Assert.Equal(2, Tabs(window).Items.Count);
+        Assert.Single(Tabs(window).Items);
         Assert.Equal(Project, File.ReadAllText(path));
     }
 

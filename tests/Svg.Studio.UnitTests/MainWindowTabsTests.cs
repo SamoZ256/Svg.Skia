@@ -38,7 +38,7 @@ public class MainWindowTabsTests
         </svg>
         """;
 
-    /// <summary>Opens a window holding <paramref name="count"/> drawings beyond the one it starts on.</summary>
+    /// <summary>Opens a window holding <paramref name="count"/> drawings.</summary>
     private static async Task<(MainWindow Window, TabControl Tabs)> Host(int count)
     {
         var window = new MainWindow();
@@ -46,8 +46,6 @@ public class MainWindowTabsTests
         Dispatcher.UIThread.RunJobs();
 
         var tabs = window.FindControl<TabControl>("Tabs")!;
-
-        await Settle(tabs);
 
         var paths = new string[count];
 
@@ -59,11 +57,9 @@ public class MainWindowTabsTests
 
         try
         {
-            var first = (SvgViewer)((TabItem)tabs.Items[0]!).Content!;
-
-            // The same request the toolbar's Open and a drop both raise, which is what the window
+            // The same route the toolbar's Open and a drop both end in, which is what the window
             // turns into a tab each.
-            Assert.True(await first.OpenAsync(paths));
+            await window.OpenAsync(paths);
 
             // Laid out, for the tests that measure tabs. The drawings are already in: the window
             // hands back what it started and OpenAsync waits on it.
@@ -78,26 +74,6 @@ public class MainWindowTabsTests
         }
 
         return (window, tabs);
-    }
-
-    /// <summary>Waits for the drawing the window opens with.</summary>
-    /// <remarks>
-    /// The window starts loading its bundled sample as it is constructed, and that load leaves the
-    /// UI thread with nothing to await it by. A tab holding nothing is reused rather than added to,
-    /// so a test that opens files before the sample lands gets one tab fewer than it asked for — on
-    /// a busy machine only, which is how it first showed up in a full solution run.
-    /// </remarks>
-    private static async Task Settle(TabControl tabs)
-    {
-        var viewer = (SvgViewer)((TabItem)tabs.Items[0]!).Content!;
-
-        for (var attempt = 0; attempt < 200 && viewer.Document is null; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        Assert.NotNull(viewer.Document);
     }
 
     /// <summary>The drawing in each tab, in strip order, by file name.</summary>
@@ -140,13 +116,15 @@ public class MainWindowTabsTests
     }
 
     [AvaloniaFact]
-    public void The_Window_Starts_On_One_Tab()
+    public void The_Window_Starts_With_Nothing_Open()
     {
         var window = new MainWindow();
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Single(window.FindControl<TabControl>("Tabs")!.Items);
+        // No tab, and no bundled sample loaded into one. A window used to come up on a drawing
+        // nobody asked for, in a tab called Untitled when the drawing was not there to load.
+        Assert.Empty(window.FindControl<TabControl>("Tabs")!.Items);
 
         window.Close();
     }
@@ -160,7 +138,7 @@ public class MainWindowTabsTests
         // The drawing is deliberately big. The small ones elsewhere load inside whatever slack the
         // dispatcher has, which is why this same assertion passed here while failing on all three CI
         // runners. Nothing below is pumped or polled, on purpose.
-        var (window, tabs) = await Host(0);
+        var (window, tabs) = await Host(1);
 
         var shapes = new StringBuilder();
 
@@ -194,7 +172,7 @@ public class MainWindowTabsTests
     [AvaloniaFact]
     public async Task The_Strip_Stays_When_A_Drawing_Closes_Back_Down_To_One()
     {
-        var (window, tabs) = await Host(1);
+        var (window, tabs) = await Host(2);
 
         var strip = tabs.GetVisualDescendants().OfType<Border>().First(b => b.Name == "PART_TabStripBand");
 
@@ -215,17 +193,14 @@ public class MainWindowTabsTests
     }
 
     [AvaloniaFact]
-    public void A_Window_On_Its_Own_Drawing_Still_Shows_The_Strip()
+    public async Task A_Window_On_Its_First_Drawing_Shows_The_Strip()
     {
-        var window = new MainWindow();
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
+        var (window, tabs) = await Host(1);
 
-        var tabs = window.FindControl<TabControl>("Tabs")!;
         var strip = tabs.GetVisualDescendants().OfType<Border>().First(b => b.Name == "PART_TabStripBand");
 
-        // The first tab is added before the control is templated, so this is also the check that
-        // the strip is there at all once it arrives.
+        // The window is templated before it holds anything now, so this is the check that the strip
+        // is there for a tab that arrives afterwards.
         Assert.Single(tabs.Items);
         Assert.True(strip.IsVisible);
 
@@ -235,7 +210,7 @@ public class MainWindowTabsTests
     [AvaloniaFact]
     public async Task Every_File_Opened_Gets_A_Tab_Of_Its_Own()
     {
-        var (window, tabs) = await Host(3);
+        var (window, tabs) = await Host(4);
 
         Assert.Equal(4, tabs.Items.Count);
         Assert.Equal(4, Order(tabs).Distinct().Count());
@@ -245,9 +220,9 @@ public class MainWindowTabsTests
     }
 
     [AvaloniaFact]
-    public async Task Closing_The_Last_Tab_Leaves_An_Empty_One_For_The_Next_Drawing()
+    public async Task Closing_The_Last_Tab_Leaves_The_Window_Empty()
     {
-        var (window, tabs) = await Host(0);
+        var (window, tabs) = await Host(1);
 
         var only = (TabItem)tabs.Items[0]!;
         var close = ((StackPanel)only.Header!).Children.OfType<Button>().Single();
@@ -255,18 +230,17 @@ public class MainWindowTabsTests
         close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
-        // Not the window closing, and not nothing: somewhere to open the next file.
-        Assert.Single(tabs.Items);
-        Assert.NotSame(only, tabs.Items[0]);
-        Assert.Equal(new[] { "<empty>" }, Order(tabs));
+        // Not the window closing, and not a tab kept standing in its place: an empty window says it
+        // is empty, where a tab called Untitled said a file was open.
+        Assert.Empty(tabs.Items);
 
         var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-tab-{Guid.NewGuid():N}.svg");
         File.WriteAllText(path, Drawing);
 
         try
         {
-            // An empty tab is filled rather than left standing in front of the drawing.
-            Assert.True(await ((SvgViewer)((TabItem)tabs.Items[0]!).Content!).OpenAsync(new[] { path }));
+            // And opening still reaches a file with nothing to ask through.
+            await window.OpenAsync(new[] { path });
 
             Assert.Single(tabs.Items);
             Assert.Equal(new[] { Path.GetFileName(path) }, Order(tabs));
@@ -281,7 +255,7 @@ public class MainWindowTabsTests
     [AvaloniaFact]
     public async Task Dragging_The_Last_Tab_To_The_Front_Reorders_It()
     {
-        var (window, tabs) = await Host(3);
+        var (window, tabs) = await Host(4);
 
         var before = Order(tabs);
         var dragged = (TabItem)tabs.Items[^1]!;
@@ -301,7 +275,7 @@ public class MainWindowTabsTests
     [AvaloniaFact]
     public async Task Dragging_A_Tab_One_Place_To_The_Right_Swaps_It_With_Its_Neighbour()
     {
-        var (window, tabs) = await Host(3);
+        var (window, tabs) = await Host(4);
 
         var before = Order(tabs);
         var dragged = (TabItem)tabs.Items[0]!;
@@ -320,7 +294,7 @@ public class MainWindowTabsTests
     [AvaloniaFact]
     public async Task A_Dragged_Tab_Follows_The_Pointer_And_Is_Put_Down_On_Release()
     {
-        var (window, tabs) = await Host(3);
+        var (window, tabs) = await Host(4);
 
         var dragged = (TabItem)tabs.Items[0]!;
         var from = Centre(window, dragged);
@@ -350,7 +324,7 @@ public class MainWindowTabsTests
     [AvaloniaFact]
     public async Task One_Drag_Can_Pass_Several_Tabs_Without_Being_Let_Go_Of()
     {
-        var (window, tabs) = await Host(3);
+        var (window, tabs) = await Host(4);
 
         var before = Order(tabs);
         var dragged = (TabItem)tabs.Items[0]!;
@@ -384,7 +358,7 @@ public class MainWindowTabsTests
     [AvaloniaFact]
     public async Task A_Button_Released_Outside_The_Window_Does_Not_Leave_The_Tab_Dragging()
     {
-        var (window, tabs) = await Host(3);
+        var (window, tabs) = await Host(4);
 
         var before = Order(tabs);
         var dragged = (TabItem)tabs.Items[0]!;
@@ -418,7 +392,7 @@ public class MainWindowTabsTests
     [AvaloniaFact]
     public async Task A_Press_That_Barely_Moves_Is_A_Click_And_Not_A_Drag()
     {
-        var (window, tabs) = await Host(3);
+        var (window, tabs) = await Host(4);
 
         var before = Order(tabs);
         var point = Centre(window, (TabItem)tabs.Items[0]!);
@@ -437,7 +411,7 @@ public class MainWindowTabsTests
     [AvaloniaFact]
     public async Task Pressing_The_Close_Button_Closes_That_Tab_Rather_Than_Dragging_It()
     {
-        var (window, tabs) = await Host(3);
+        var (window, tabs) = await Host(4);
 
         var before = Order(tabs);
         var item = (TabItem)tabs.Items[1]!;
@@ -456,7 +430,7 @@ public class MainWindowTabsTests
     [AvaloniaFact]
     public async Task More_Tabs_Than_Fit_Scroll_Sideways_Instead_Of_Wrapping()
     {
-        var (window, tabs) = await Host(24);
+        var (window, tabs) = await Host(25);
 
         var strip = tabs.GetVisualDescendants().OfType<ScrollViewer>().First(v => v.Name == "PART_TabStrip");
 

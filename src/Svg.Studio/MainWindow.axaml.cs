@@ -125,19 +125,19 @@ public partial class MainWindow : Window
         ShowMenuGestures();
         UpdateMenu();
 
-        var viewer = AddTab();
-
-        var startup = path is { } && File.Exists(path)
-            ? path
-            : Path.Combine(AppContext.BaseDirectory, "Assets", "parametric.svg");
-
-        if (IsProject(startup))
+        // Nothing open, and no tab standing in for nothing. A window used to start on a bundled
+        // sample in a tab called Untitled, which meant a project opened from the command line came
+        // up beside a tab holding neither the project nor anything else.
+        if (path is { } startup && File.Exists(startup))
         {
-            _ = OpenProjectAsync(startup);
-        }
-        else if (File.Exists(startup))
-        {
-            _ = viewer.LoadAsync(startup);
+            if (IsProject(startup))
+            {
+                _ = OpenProjectAsync(startup);
+            }
+            else
+            {
+                _ = AddTab().LoadAsync(startup);
+            }
         }
     }
 
@@ -212,7 +212,15 @@ public partial class MainWindow : Window
     /// The tab that asked is reused while it holds nothing, so opening from a freshly closed window —
     /// or dropping several files at once — does not leave an empty tab in front of the drawings.
     /// </remarks>
-    private async Task OpenAsync(SvgViewer source, IReadOnlyList<string> paths)
+    /// <summary>Opens each path in a tab of its own, whether or not anything is open already.</summary>
+    /// <remarks>
+    /// Public for the reason <see cref="ShowAsync"/> is: the way in without a menu or a pointer.
+    /// A window with nothing open has no viewer to ask through, so this is also how the window's own
+    /// Open reaches a file now that it does not keep an empty tab standing.
+    /// </remarks>
+    public Task OpenAsync(IReadOnlyList<string> paths) => OpenAsync(null, paths);
+
+    private async Task OpenAsync(SvgViewer? source, IReadOnlyList<string> paths)
     {
         foreach (var path in paths)
         {
@@ -222,7 +230,7 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            var viewer = source.Document is null ? source : AddTab();
+            var viewer = source is { Document: null } ? source : AddTab();
 
             await viewer.LoadAsync(path).ConfigureAwait(true);
         }
@@ -1475,6 +1483,16 @@ public partial class MainWindow : Window
         if (Selected() is { } viewer)
         {
             await viewer.OpenAsync();
+
+            return;
+        }
+
+        // Nothing is open, so there is no viewer to ask through. The same picker one would have
+        // shown, and the answer makes the tab — rather than a tab being kept standing empty in case
+        // a file is ever opened into it.
+        if (await new StudioFileDialogService().OpenSvgAsync(this).ConfigureAwait(true) is { } picked)
+        {
+            await OpenAsync(new[] { picked }).ConfigureAwait(true);
         }
     }
 
@@ -1986,13 +2004,8 @@ public partial class MainWindow : Window
         // Nothing else disposes the document a discarded viewer is holding.
         (item.Content as SvgViewer)?.Close();
 
-        // The window keeps somewhere to open the next drawing rather than closing itself.
-        if (_tabs.Items.Count == 0)
-        {
-            AddTab();
-        }
-
         UpdateTitle();
+        UpdateMenu();
     }
 
     /// <summary>Saves the drawing in the selected tab.</summary>
