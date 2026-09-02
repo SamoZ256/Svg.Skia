@@ -438,6 +438,42 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal("Demo.Icons.Large", title.Text);
     }
 
+    /// <summary>
+    /// A group renamed is renamed on its tab as well. The header was written when the tab was, so
+    /// the row in the tree read the new name while the tab open on that very row read the old one.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Renamed_Group_Is_Renamed_On_Its_Tab()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var item = (TabItem)Tabs(window).SelectedItem!;
+        var title = (TextBlock)((StackPanel)item.Header!).Children[1];
+
+        Assert.Equal("Demo.Icons.Large", title.Text);
+
+        var panel = Panel(window, "Demo.Icons.Large");
+
+        Assert.True(panel.Edit("namespace", "Demo.Icons.Huge"));
+
+        panel.Save();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Demo.Icons.Huge", title.Text);
+
+        // The tree said the new name all along; the window title is the same label again and read
+        // from the same tab, so it cannot be left saying the old one either.
+        Assert.Contains("Demo.Icons.Huge", Rows((TreeViewItem)Tree(window).Items[0]!));
+        Assert.StartsWith("Demo.Icons.Huge — ", window.Title);
+    }
+
     [AvaloniaFact]
     public async Task An_Unsaved_Drawing_Is_Marked_Too()
     {

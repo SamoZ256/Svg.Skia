@@ -406,6 +406,7 @@ public partial class MainWindow : Window
         workspace.Edited += (_, _) =>
         {
             BuildTree();
+            Retitle();
             Rebuild();
         };
 
@@ -2451,6 +2452,28 @@ public partial class MainWindow : Window
         => viewer.SidePanels.Select(pane => pane.Content).OfType<ColourPanel>().FirstOrDefault();
 
     private static TextBlock Marker(TabItem item) => (TextBlock)((StackPanel)item.Header!).Children[0];
+
+    private static TextBlock Titled(TabItem item) => (TextBlock)((StackPanel)item.Header!).Children[1];
+
+    /// <summary>Puts the name a node now reads under on the tab that is open on it.</summary>
+    /// <remarks>
+    /// The header was written once, when the tab was, so a namespace typed into a group renamed its
+    /// row and left the tab open on that very row saying what the group used to be called. Only the
+    /// settings tabs: a drawing's tab is its file name, which no setting renames.
+    /// </remarks>
+    private void Retitle()
+    {
+        foreach (var item in _tabs.Items.OfType<TabItem>())
+        {
+            if (item.Content is GroupPanel panel)
+            {
+                Titled(item).Text = ProjectWorkspace.Label(panel.Node);
+            }
+        }
+
+        // The window title is that same label read off the selected tab, so it goes stale with it.
+        UpdateTitle();
+    }
 
     /// <summary>Puts the dot on the tab, or takes it off, according to what the tab is holding.</summary>
     private void Mark(TabItem item)
