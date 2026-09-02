@@ -104,10 +104,15 @@ public class SvgViewerCanvas : SKCanvasControl
 
         _svg = svg;
 
+        // Published because the drawing changed, whatever the view does about it. The fit below
+        // publishes only when it moves the view, so a drawing swapped for one that fits exactly as
+        // the last did — a padding change inside the same frame — left the render thread holding
+        // the picture that had just been replaced, and the old one stayed up until something else
+        // moved the view.
+        Publish();
+
         if (_userAdjusted)
         {
-            Publish();
-
             return;
         }
 
@@ -115,7 +120,6 @@ public class SvgViewerCanvas : SKCanvasControl
         // what makes that arrive — a repaint alone would leave the drawing unscaled in the corner.
         if (!TryFit())
         {
-            Publish();
             InvalidateArrange();
         }
     }

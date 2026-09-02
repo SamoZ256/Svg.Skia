@@ -18,6 +18,7 @@ using AvaloniaEdit;
 using SkiaSharp;
 using Svg.Expressions;
 using Svg.Highlighting;
+using Svg.SourceEditing;
 using Xunit;
 
 namespace Svg.Viewer.Skia.Avalonia.UnitTests;
@@ -60,6 +61,185 @@ public class SvgViewerTests
         Dispatcher.UIThread.RunJobs();
 
         return (window, viewer);
+    }
+
+    private const string Plain = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+          <rect x="0" y="0" width="24" height="24" fill="#00ff00" />
+        </svg>
+        """;
+
+    /// <summary>What a recipe makes of <see cref="Plain"/>: a parameter, and a colour driven by it.</summary>
+    private const string Rewritten = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="hue" type="number" default="0" min="0" max="360" /></e:code></defs>
+          <rect x="0" y="0" width="24" height="24" fill="{{ hsl(hue, 100%, 50%) }}" />
+        </svg>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Rewrite_Decides_What_Is_Painted()
+    {
+        var (window, viewer) = Host();
+
+        viewer.ShowDeclarationPanel = false;
+        viewer.ShowToolBar = false;
+        viewer.ShowStatusBar = false;
+
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".svg");
+
+        File.WriteAllText(path, Plain);
+
+        try
+        {
+            Assert.True(await viewer.LoadAsync(path));
+            Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+            var plain = CentrePixel(window);
+            Assert.True(plain.Green > 200 && plain.Red < 60, $"Expected the file's green, found {plain}.");
+
+            // The same file, drawn through a rewrite that recolours it — what a recipe does.
+            viewer.Rewrite = _ => Rewritten;
+
+            Assert.True(await viewer.LoadAsync(path));
+            Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+            var rewritten = CentrePixel(window);
+            Assert.True(rewritten.Red > 200 && rewritten.Green < 60, $"Expected the rewrite's red, found {rewritten}.");
+
+            // And the parameter it declared drives the colour, which is the whole point of showing it.
+            Assert.True(viewer.TrySetParameterValue("hue", ExprValue.Number(240f)));
+            Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+            var bound = CentrePixel(window);
+            Assert.True(bound.Blue > 200 && bound.Red < 60, $"Expected blue, found {bound}.");
+        }
+        finally
+        {
+            File.Delete(path);
+            window.Close();
+        }
+    }
+
+    /// <summary>A document of the host's own for the panel to write into, standing in for a recipe.</summary>
+    private sealed class Elsewhere : ISvgViewerDeclarationTarget
+    {
+        public Elsewhere(string text) => Text = text;
+
+        public string Text { get; private set; }
+
+        public bool Apply(IReadOnlyList<SvgTextEdit> edits)
+        {
+            Text = SvgTextEdit.ApplyAll(Text, edits);
+
+            return true;
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task A_Rewritten_Drawing_Declares_Where_Its_Declarations_Are()
+    {
+        var (window, viewer) = Host();
+
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".svg");
+
+        File.WriteAllText(path, Plain);
+
+        try
+        {
+            viewer.Rewrite = _ => Rewritten;
+
+            // A drawing built through a rewrite declares things its own text has never heard of, so
+            // the panel's commands have to write where they came from.
+            var elsewhere = new Elsewhere("""
+                <recipe xmlns="https://svg.skia/expr/1.0">
+                  <code>
+                    <param name="hue" type="number" default="0" min="0" max="360" />
+                  </code>
+                </recipe>
+                """);
+
+            viewer.DeclarationTarget = elsewhere;
+
+            Assert.True(await viewer.LoadAsync(path));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
+
+            // The panel is offered, not taken away: the rows are what a recipe is dragged by.
+            var add = window.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "AddButton");
+
+            Assert.True(add.IsVisible);
+            Assert.All(
+                window.GetVisualDescendants().OfType<Button>().Where(button => button.Classes.Contains("edit")),
+                button => Assert.True(button.IsVisible));
+
+            Assert.True(viewer.CommitLet(new SvgViewerLet(null) { Name = "accent", Expression = "hsl(hue, 74%, 55%)" }));
+
+            // Into the host's document, and nowhere near the drawing — which is the whole reason a
+            // host sets one: a recipe refuses a document that already declares for itself.
+            Assert.Contains("""<let name="accent">hsl(hue, 74%, 55%)</let>""", elsewhere.Text);
+            Assert.Equal(Plain, viewer.Source);
+            Assert.False(viewer.IsSourceModified);
+
+            // Cleared, and the drawing is where the panel writes again.
+            viewer.DeclarationTarget = null;
+
+            Assert.True(await viewer.LoadTextAsync(Rewritten));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(viewer.CommitLet(new SvgViewerLet(null) { Name = "accent", Expression = "1" }));
+            Assert.Contains("accent", viewer.Source);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task A_Side_Panel_Shares_The_Right_Pane_With_The_Parameters()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        var host = window.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "DeclarationPanelHost");
+
+        // Nothing set, so the pane is what it always was: the declarations, with no strip over them.
+        Assert.IsType<SvgViewerDeclarationPanel>(host.Child);
+
+        var mine = new TextBlock { Text = "the host's own" };
+
+        viewer.SidePanels = new[] { new SvgViewerPane("Project", mine) };
+        Dispatcher.UIThread.RunJobs();
+
+        var tabs = Assert.IsType<TabControl>(host.Child);
+
+        // First, and so the one shown, rather than filed behind the parameters: a host sets one
+        // because it has something to say.
+        Assert.Equal(new[] { "Project", "Parameters" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        Assert.Equal(0, tabs.SelectedIndex);
+        Assert.Same(mine, ((TabItem)tabs.Items[0]!).Content);
+
+        // Several of them, in the order they were given, and the parameters still last.
+        var second = new TextBlock { Text = "and another" };
+
+        viewer.SidePanels = new[] { new SvgViewerPane("Project", mine), new SvgViewerPane("Colours", second) };
+        Dispatcher.UIThread.RunJobs();
+
+        tabs = Assert.IsType<TabControl>(host.Child);
+
+        Assert.Equal(
+            new[] { "Project", "Colours", "Parameters" },
+            tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        Assert.Same(second, ((TabItem)tabs.Items[1]!).Content);
+
+        viewer.SidePanels = System.Array.Empty<SvgViewerPane>();
+        Dispatcher.UIThread.RunJobs();
+
+        // And back, with the declarations panel itself rather than a new one — it is the viewer's,
+        // and everything wired to it is still wired.
+        Assert.IsType<SvgViewerDeclarationPanel>(host.Child);
+        Assert.NotEmpty(viewer.Parameters!);
     }
 
     [AvaloniaFact]
@@ -1203,6 +1383,131 @@ public class SvgViewerTests
         {
             File.Delete(path);
         }
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Replaced_By_One_That_Fits_The_Same_Still_Reaches_The_Screen()
+    {
+        // The picture is handed to the renderer by publishing a snapshot, and the fit published one
+        // only when it moved the view. So a drawing swapped for one the same size — recoloured, or
+        // reframed inside the same box — left the old picture on screen until something else moved
+        // the view. Asserted against the frame, because "the model is right" was true throughout.
+        var (window, viewer) = await HostLoaded();
+
+        var canvas = viewer.GetVisualDescendants().OfType<SvgViewerCanvas>().Single();
+
+        Assert.True(await viewer.LoadTextAsync(Square("#ff0000")));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(Painted(window, SKColors.Red) > 0);
+
+        // The same size and the same view, so nothing about the fit changes.
+        Assert.True(await viewer.LoadTextAsync(Square("#0000ff")));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(Painted(window, SKColors.Blue) > 0, "the replaced drawing never reached the screen");
+        Assert.Equal(0, Painted(window, SKColors.Red));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Rebuilding_The_Same_Drawing_Keeps_The_View_It_Was_Being_Looked_At_Through()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-view-{Guid.NewGuid():N}.svg");
+        File.WriteAllText(path, Square("#ff0000"));
+
+        try
+        {
+            var (window, viewer) = Host();
+
+            Assert.True(await viewer.LoadAsync(path));
+            Dispatcher.UIThread.RunJobs();
+
+            var canvas = viewer.GetVisualDescendants().OfType<SvgViewerCanvas>().Single();
+
+            canvas.ZoomIn();
+            Dispatcher.UIThread.RunJobs();
+
+            var chosen = canvas.Scale;
+
+            // The same file again, which is what a project resizing a drawing asks for. Starting
+            // over as if a file had been opened threw away a zoom set to look at the very thing
+            // being changed.
+            Assert.True(await viewer.LoadAsync(path));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(chosen, canvas.Scale);
+
+            window.Close();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static string Square(string fill)
+        => $"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" fill="{fill}" /></svg>""";
+
+    /// <summary>How much of the frame is painted in <paramref name="wanted"/>.</summary>
+    private static int Painted(Window window, SKColor wanted)
+    {
+        var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("No rendered frame was captured.");
+
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-swap-{Guid.NewGuid():N}.png");
+        frame.Save(path);
+
+        try
+        {
+            using var bitmap = SKBitmap.Decode(path);
+            var found = 0;
+
+            for (var y = 0; y < bitmap!.Height; y++)
+            {
+                for (var x = 0; x < bitmap.Width; x++)
+                {
+                    var pixel = bitmap.GetPixel(x, y);
+
+                    if (Math.Abs(pixel.Red - wanted.Red) < 24
+                        && Math.Abs(pixel.Green - wanted.Green) < 24
+                        && Math.Abs(pixel.Blue - wanted.Blue) < 24)
+                    {
+                        found++;
+                    }
+                }
+            }
+
+            return found;
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Becoming_Unsaved_Is_Announced_And_Not_Only_Observable()
+    {
+        // The property flipped while the event never fired, so a host that marks its chrome from
+        // SourceModifiedChanged — which is the only thing it is for — never heard about the first
+        // edit. AvaloniaEdit raises TextChanged before its undo stack takes the edit, so reading
+        // IsOriginalFile from inside that handler still says "saved".
+        var (window, viewer) = await HostLoaded();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var announced = new List<bool>();
+        viewer.SourceModifiedChanged += (_, modified) => announced.Add(modified);
+
+        await Type(viewer, Parametric.Replace("24", "48", StringComparison.Ordinal));
+
+        Assert.True(viewer.IsSourceModified);
+        Assert.Equal(new[] { true }, announced);
+
+        window.Close();
     }
 
     [AvaloniaFact]

@@ -1,8 +1,12 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
-# Custom for Visual Studio
-*.cs     diff=csharp
+# Custom for Visual Studio, and checked out with the endings it is stored with on every platform.
+# `text=auto` above only normalises what goes into the repository; on Windows it hands back CRLF,
+# which puts \r\n inside every raw string literal in the test suite while the assertions beside them
+# are written with \n. Six tests failed that way on windows-latest alone, and the code they cover
+# was right every time.
+*.cs     text eol=lf diff=csharp
 
 # Standard to msysgit
 *.doc	 diff=astextplain

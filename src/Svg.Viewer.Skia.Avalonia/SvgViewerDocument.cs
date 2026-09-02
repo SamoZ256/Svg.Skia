@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Xml;
 using Svg.Expressions;
 using Svg.Skia;
 using Svg.SourceEditing;
@@ -26,7 +27,8 @@ public sealed class SvgViewerDocument : IDisposable
         string? sourceText,
         bool byteOrderMark,
         SvgExpressionDeclarations declarations,
-        string? declarationError)
+        string? declarationError,
+        Func<string, string>? rewrite)
     {
         Svg = svg;
         Path = path;
@@ -34,6 +36,7 @@ public sealed class SvgViewerDocument : IDisposable
         ByteOrderMark = byteOrderMark;
         Declarations = declarations;
         DeclarationError = declarationError;
+        Rewrite = rewrite;
     }
 
     public SKSvg Svg { get; }
@@ -67,26 +70,45 @@ public sealed class SvgViewerDocument : IDisposable
     /// </remarks>
     public string? DeclarationError { get; }
 
-    public static SvgViewerDocument Load(string path)
+    /// <summary>What the text goes through on its way to being drawn, or null when it is drawn as written.</summary>
+    /// <remarks>
+    /// For a host whose drawing is derived from the file rather than being it — an svgc project
+    /// applying a recipe. Held here rather than by the caller so that every rebuild goes through it,
+    /// and <see cref="SourceText"/> stays the file's own: the pane shows, edits and saves the file,
+    /// not what was made of it.
+    /// </remarks>
+    public Func<string, string>? Rewrite { get; }
+
+    /// <summary>The text as this drawing is built from it, which is the text itself without a rewrite.</summary>
+    public string Built(string svgText) => Rewrite is { } rewrite ? rewrite(svgText) : svgText;
+
+    public static SvgViewerDocument Load(string path) => Load(path, SvgSizeRequest.None);
+
+    /// <summary>
+    /// The drawing at <paramref name="path"/>, built at the size <paramref name="request"/> asks for.
+    /// </summary>
+    /// <remarks>
+    /// The size is applied to the parsed document rather than to its text, so the file keeps the size
+    /// it was written with. That is the difference from <see cref="Resize"/>: a project's
+    /// <c>scale="2"</c> says how to build a drawing, not what the drawing is, and writing it into the
+    /// file would make the next build square it.
+    /// </remarks>
+    public static SvgViewerDocument Load(string path, SvgSizeRequest request)
+        => Load(path, request, null);
+
+    /// <summary>The drawing at <paramref name="path"/>, built from what <paramref name="rewrite"/> makes of it.</summary>
+    /// <remarks><see cref="Rewrite"/> says what that is for.</remarks>
+    public static SvgViewerDocument Load(string path, SvgSizeRequest request, Func<string, string>? rewrite)
     {
         if (path is null)
         {
             throw new ArgumentNullException(nameof(path));
         }
 
-        var svg = new SKSvg();
-
-        // Loaded from the path rather than from the text below, because a document's relative
-        // references — an <image href="…"> beside it — resolve against the file's own directory.
-        if (svg.Load(path) is null)
-        {
-            svg.Dispose();
-            throw new InvalidOperationException($"'{System.IO.Path.GetFileName(path)}' could not be read as SVG.");
-        }
-
         string? source = null;
         var mark = false;
 
+        // Read before the drawing is built rather than after, because a rewrite builds from this.
         try
         {
             var bytes = File.ReadAllBytes(path);
@@ -103,7 +125,27 @@ public sealed class SvgViewerDocument : IDisposable
         {
         }
 
-        return Describe(svg, path, source, mark);
+        // Before the SKSvg exists, so a rewrite that refuses the drawing does not leak one.
+        var rewritten = rewrite is { } && source is { } ? rewrite(source) : null;
+
+        var svg = new SKSvg();
+
+        var built = rewritten is { }
+            // Through a stream and the file's directory, the way Reload does: what is drawn is not
+            // the file, so it cannot be loaded from the path, and its relative references still
+            // have to resolve against where the file is.
+            ? Text(svg, request, rewritten, BaseUri(path))
+            // Loaded from the path rather than from the text above, because a document's relative
+            // references — an <image href="…"> beside it — resolve against the file's own directory.
+            : Build(svg, request, () => global::Svg.Model.Services.SvgService.Open(path), () => svg.Load(path));
+
+        if (built is null)
+        {
+            svg.Dispose();
+            throw new InvalidOperationException($"'{System.IO.Path.GetFileName(path)}' could not be read as SVG.");
+        }
+
+        return Describe(svg, path, source, mark, rewrite);
     }
 
     public static SvgViewerDocument LoadFromSvg(string svgText, string? path = null)
@@ -157,24 +199,92 @@ public sealed class SvgViewerDocument : IDisposable
     /// rebuilt from text — measured at the centre pixel, image colour to placeholder grey and back.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The text is not readable as SVG.</exception>
-    public SvgViewerDocument Reload(string svgText)
+    public SvgViewerDocument Reload(string svgText) => Reload(svgText, SvgSizeRequest.None);
+
+    /// <summary>The same drawing, rebuilt from edited text at the size <paramref name="request"/> asks for.</summary>
+    public SvgViewerDocument Reload(string svgText, SvgSizeRequest request) => Reload(svgText, request, Rewrite);
+
+    /// <summary>The same drawing, rebuilt through <paramref name="rewrite"/> rather than its own.</summary>
+    /// <remarks>
+    /// For a host whose rewrite has changed under a drawing it has already loaded — an svgc project
+    /// whose recipe was edited, or taken off. The document's own is the one it was built with, so a
+    /// rebuild that used it would go on applying a recipe that no longer covers the drawing.
+    /// </remarks>
+    public SvgViewerDocument Reload(string svgText, SvgSizeRequest request, Func<string, string>? rewrite)
     {
         if (svgText is null)
         {
             throw new ArgumentNullException(nameof(svgText));
         }
 
+        var built = rewrite is { } ? rewrite(svgText) : svgText;
+
         var svg = new SKSvg();
 
-        using var buffer = new MemoryStream(Encoding.UTF8.GetBytes(svgText));
-
-        if (svg.Load(buffer, null, BaseUri()) is null)
+        if (Text(svg, request, built, BaseUri()) is null)
         {
             svg.Dispose();
             throw new InvalidOperationException("The text could not be read as SVG.");
         }
 
-        return Describe(svg, Path, svgText, ByteOrderMark);
+        // The text, not what was built from it: this document's source is still the file's own.
+        return Describe(svg, Path, svgText, ByteOrderMark, rewrite);
+    }
+
+    /// <summary>Builds <paramref name="svg"/> from text, resolving what it references against <paramref name="baseUri"/>.</summary>
+    private static object? Text(SKSvg svg, SvgSizeRequest request, string svgText, Uri? baseUri)
+    {
+        using var buffer = new MemoryStream(Encoding.UTF8.GetBytes(svgText));
+
+        return Build(
+            svg,
+            request,
+            () => global::Svg.Model.Services.SvgService.Open(Reader(buffer, baseUri)),
+            () => svg.Load(buffer, null, baseUri));
+    }
+
+    /// <summary>
+    /// Builds <paramref name="svg"/>, resizing it first when there is a size to apply.
+    /// </summary>
+    /// <remarks>
+    /// Two paths because the plain one is the loader's own and knows about formats, streams and base
+    /// URIs; only a request worth honouring is worth parsing separately for, and a request the sizing
+    /// model refuses leaves the drawing at its natural size rather than failing the load — being
+    /// unable to resize is not being unable to read.
+    /// </remarks>
+    private static object? Build(SKSvg svg, SvgSizeRequest request, Func<SvgDocument?> parse, Func<object?> plain)
+    {
+        if (request.IsEmpty)
+        {
+            return plain();
+        }
+
+        if (parse() is not { } document)
+        {
+            return null;
+        }
+
+        try
+        {
+            SvgSceneSizing.Apply(document, svg.AssetLoader, request);
+        }
+        catch (ArgumentException)
+        {
+            // Nothing to measure, or a size this drawing cannot take.
+        }
+
+        return svg.FromSvgDocument(document);
+    }
+
+    /// <summary>A reader over <paramref name="buffer"/> that resolves relative references against <paramref name="baseUri"/>.</summary>
+    private static XmlReader Reader(MemoryStream buffer, Uri? baseUri)
+    {
+        buffer.Position = 0;
+
+        return XmlReader.Create(
+            buffer,
+            new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, XmlResolver = null },
+            baseUri?.ToString() ?? string.Empty);
     }
 
     /// <summary>
@@ -262,14 +372,16 @@ public sealed class SvgViewerDocument : IDisposable
     }
 
     /// <summary>What a relative reference resolves against, or null when there is no file.</summary>
-    private Uri? BaseUri()
+    private Uri? BaseUri() => BaseUri(Path);
+
+    private static Uri? BaseUri(string? path)
     {
-        if (Path is null)
+        if (path is null)
         {
             return null;
         }
 
-        var directory = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(Path));
+        var directory = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path));
 
         return directory is null ? null : new Uri(directory + System.IO.Path.DirectorySeparatorChar);
     }
@@ -285,7 +397,12 @@ public sealed class SvgViewerDocument : IDisposable
         return reader.ReadToEnd();
     }
 
-    private static SvgViewerDocument Describe(SKSvg svg, string? path, string? sourceText, bool byteOrderMark = false)
+    private static SvgViewerDocument Describe(
+        SKSvg svg,
+        string? path,
+        string? sourceText,
+        bool byteOrderMark = false,
+        Func<string, string>? rewrite = null)
     {
         SvgExpressionDeclarations declarations;
         string? error = null;
@@ -300,7 +417,7 @@ public sealed class SvgViewerDocument : IDisposable
             error = failure.ToDiagnostic();
         }
 
-        return new SvgViewerDocument(svg, path, sourceText, byteOrderMark, declarations, error);
+        return new SvgViewerDocument(svg, path, sourceText, byteOrderMark, declarations, error, rewrite);
     }
 
     public void Dispose() => Svg.Dispose();

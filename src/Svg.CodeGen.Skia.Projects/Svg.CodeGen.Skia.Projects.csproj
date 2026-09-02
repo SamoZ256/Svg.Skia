@@ -22,6 +22,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" />
+    <!-- Building a project, not only reading one: the recipe it names, the sizing it asks for. -->
+    <ProjectReference Include="..\Svg.Expressions.Recipes\Svg.Expressions.Recipes.csproj" />
+    <ProjectReference Include="..\Svg.SceneGraph\Svg.SceneGraph.csproj" />
   </ItemGroup>
 
 </Project>

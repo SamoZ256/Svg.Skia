@@ -22,6 +22,13 @@ namespace Svg.Studio.UnitTests;
 /// </remarks>
 public class MainWindowUndoTests
 {
+    private const string Drawing = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="hue" type="number" default="217" /></e:code></defs>
+          <rect width="24" height="24" fill="{{ hsl(hue, 74%, 55%) }}" />
+        </svg>
+        """;
+
     private static async Task<(MainWindow Window, TextEditor Pane)> Host()
     {
         var window = new MainWindow();
@@ -29,13 +36,23 @@ public class MainWindowUndoTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+        // A window starts with nothing open, so the drawing these are about is opened here.
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"svg-studio-undo-{Guid.NewGuid():N}.svg");
 
-        for (var attempt = 0; attempt < 200 && viewer.Document is null; attempt++)
+        System.IO.File.WriteAllText(path, Drawing);
+
+        try
         {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
+            await window.OpenAsync(new[] { path });
         }
+        finally
+        {
+            System.IO.File.Delete(path);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
 
         Assert.NotNull(viewer.Document);
 

@@ -51,9 +51,13 @@ await Viewer.LoadAsync("badge.svg");
 | `Parameters` / `ParameterValues` | Reading what is declared and what is bound |
 | `TrySetParameterValue` / `ResetParameters` | Driving values from host UI |
 | `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` / `ShowSource` | Supplying your own chrome |
+| `SidePanels` | Panels of your own beside the parameters: the right pane becomes a strip of tabs while there are any, yours first and so the first one it opens on, and holds the parameters alone again when there are none |
+| `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
+| `DeclarationTarget` | Where the parameter panel writes, when the drawing's declarations are not in the drawing |
 | `FileDialogService` | Custom storage or picker integration |
 | `Canvas` | Direct access to the surface for zoom and pan |
 | `DocumentOpened` / `ErrorRaised` / `ParameterValueChanged` | Syncing host titles and status |
+| `SvgViewerSourceColorizer` / `SourceResourceKey` | Colouring a source view of your own the way this one is coloured — Svg.Studio paints an svgc recipe with them |
 
 ## Ranges come from the document
 
@@ -243,7 +247,23 @@ Hand back what you started. The event is synchronous, so without `Completion` a 
 say it has not finished, and `OpenAsync` completes while the files are still being read.
 
 `src/Svg.Studio` is that host: one viewer per tab, a new tab per file opened, and `Close` on the
-viewer whose tab goes away.
+viewer whose tab goes away. A path it recognises as an svgc project opens a pane beside the tabs
+instead of a tab, which is why the request carries paths rather than drawings.
+
+`SizeRequest` is the seam that host opens a project's drawings through: a size applied to the parsed
+document on every build, the file left as it was written. `Edit → Resize…` is the other half of the
+pair and the opposite choice — it rewrites the drawing's own text.
+
+`Rewrite` is the second such seam, and goes further: the drawing built is not the file at all. Studio
+sets it to a project's recipe, so what is on screen is the document `svgc` compiles — colours turned
+into expressions, and the recipe's parameters declared. Everything else still works from the file:
+the source pane shows it, edits it and saves it, and every rebuild while somebody types goes back
+through the rewrite. Because the declarations then belong to the recipe rather than to the drawing,
+a host sets `DeclarationTarget` to say where the parameter panel should write: its commands all
+splice into a document's text, and the one they mean is the recipe's. Left unset they go into the
+drawing, which is what a drawing declaring for itself wants — and what a recipe refuses to be
+applied to. `Notice` is where a host says a rewrite could not be
+set up at all; it appears on the status line beside the viewer's own count of what is wrong.
 
 ## Two things worth knowing
 

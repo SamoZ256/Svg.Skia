@@ -13,12 +13,14 @@
     -->
     <!--
       Fluent styles a TabItem as a pivot header — 24pt type, a sliding pipe under the selected one —
-      which suits three or four sections, not a strip of open documents. These are document tabs:
+      which suits three or four sections, not a strip of open documents. Scoped to the strip rather
+      than to every TabItem, since a drawing's tab now holds a pair of its own. These are document
+      tabs:
       one row of uniform height, the selected one lifted out of the band as a rounded card, the rest
       quiet until the pointer is over them. Every colour is a neutral grey at low alpha, so the strip
       sits on whatever the theme paints behind it.
     -->
-    <Style Selector="TabItem">
+    <Style Selector="TabControl#Tabs > TabItem">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="Padding" Value="10,0" />
@@ -38,24 +40,45 @@
       </Setter>
     </Style>
 
-    <Style Selector="TabItem:pointerover">
+    <Style Selector="TabControl#Tabs > TabItem:pointerover">
       <Setter Property="Background" Value="#14808080" />
     </Style>
 
-    <Style Selector="TabItem:selected">
+    <Style Selector="TabControl#Tabs > TabItem:selected">
       <Setter Property="Background" Value="#2E808080" />
       <Setter Property="CornerRadius" Value="5,5,0,0" />
     </Style>
 
     <!-- The name of the drawing: quiet on a tab that is not the one being looked at. -->
-    <Style Selector="TabItem TextBlock.title">
+    <Style Selector="TabControl#Tabs > TabItem TextBlock.title">
       <Setter Property="MaxWidth" Value="180" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Opacity" Value="0.6" />
     </Style>
 
-    <Style Selector="TabItem:selected TextBlock.title">
+    <Style Selector="TabControl#Tabs > TabItem:selected TextBlock.title">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!--
+      The unsaved mark, before the name because that is the edge the eye runs down when scanning a
+      strip for the tab that still needs saving.
+    -->
+    <Style Selector="TabControl#Tabs > TabItem TextBlock.marker">
+      <Setter Property="Text" Value="●" />
+      <Setter Property="FontSize" Value="9" />
+      <!--
+        Sized and always present rather than shown and hidden: a mark that appears would widen the
+        tab and shove every name along the strip, which is a worse tell than the mark is a good one.
+      -->
+      <Setter Property="Width" Value="9" />
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Foreground" Value="#4C9BE8" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="TabControl#Tabs > TabItem TextBlock.marker.unsaved">
       <Setter Property="Opacity" Value="1" />
     </Style>
 
@@ -85,11 +108,11 @@
       <Setter Property="CornerRadius" Value="3" />
     </Style>
 
-    <Style Selector="TabItem:selected Button.close">
+    <Style Selector="TabControl#Tabs > TabItem:selected Button.close">
       <Setter Property="Opacity" Value="0.5" />
     </Style>
 
-    <Style Selector="TabItem:pointerover Button.close">
+    <Style Selector="TabControl#Tabs > TabItem:pointerover Button.close">
       <Setter Property="Opacity" Value="0.5" />
     </Style>
 
@@ -169,12 +192,61 @@
           </NativeMenu>
         </NativeMenuItem.Menu>
       </NativeMenuItem>
+      <!--
+        Its own menu rather than an item in File: what it acts on is the whole project, not the
+        drawing being looked at, which is what everything in File and Edit is about.
+      -->
+      <NativeMenuItem Header="Project">
+        <NativeMenuItem.Menu>
+          <NativeMenu>
+            <NativeMenuItem Header="Build" Click="OnBuild" />
+            <NativeMenuItemSeparator />
+            <NativeMenuItem Header="Close" Click="OnCloseProject" />
+          </NativeMenu>
+        </NativeMenuItem.Menu>
+      </NativeMenuItem>
     </NativeMenu>
   </NativeMenu.Menu>
 
   <DockPanel LastChildFill="True">
     <NativeMenuBar DockPanel.Dock="Top" />
-    <TabControl x:Name="Tabs" Padding="0" />
+
+    <!--
+      The tree belongs to the window rather than to a tab: it names the drawings the tabs hold, so
+      it has to stay up while one of them is being looked at. Collapsed to nothing until a project
+      is opened, so a session that only opens drawings looks exactly as it did.
+    -->
+    <Grid x:Name="Shell">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="0" />
+        <ColumnDefinition Width="0" />
+        <ColumnDefinition Width="*" MinWidth="320" />
+      </Grid.ColumnDefinitions>
+
+      <Border x:Name="ProjectPaneHost" Grid.Column="0" IsVisible="False"
+              BorderThickness="0,0,1,0" BorderBrush="#20808080">
+        <DockPanel>
+          <TextBlock x:Name="ProjectName" DockPanel.Dock="Top" Margin="10,10,10,6"
+                     FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" />
+          <Grid DragDrop.AllowDrop="True">
+            <TreeView x:Name="ProjectTree" Background="Transparent" BorderThickness="0" />
+            <!--
+              Where a dragged row would land. Over the tree rather than in it, so it takes no room
+              in the layout and cannot take the pointer: a line between two rows on the way past,
+              and the outline of a group when the drop would go inside one.
+            -->
+            <Border x:Name="DropLine" IsVisible="False" IsHitTestVisible="False"
+                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                    BorderBrush="#4C9BE8" Background="#4C9BE8" />
+          </Grid>
+        </DockPanel>
+      </Border>
+
+      <GridSplitter x:Name="ProjectSplitter" Grid.Column="1" IsVisible="False"
+                    ResizeDirection="Columns" Background="Transparent" />
+
+      <TabControl x:Name="Tabs" Grid.Column="2" Padding="0" />
+    </Grid>
   </DockPanel>
 
 </Window>

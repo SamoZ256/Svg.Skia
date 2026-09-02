@@ -295,6 +295,76 @@ svgc --projectFile ./icons.svgcproj
   emitted expression helpers. Without it, each `<svg>` needs its own `output`.
 - A command line flag beats the project file, which beats the built-in default.
 
+`src/Svg.Studio` opens a project as well as a drawing — `File → Open`, a drop, or as a command line
+argument. It opens as a workspace rather than as a document: the group tree goes in a pane beside the
+tabs and the project itself takes no tab, one project at a time, closed with `Project → Close`.
+Clicking a node opens it — a drawing in a viewer **at the size its groups build it at** rather than
+the one it was written with, a group as its settings and what they come to. A double click is left
+to the tree, which folds a node with it. Picking a tab opens the tree back down to the row it came
+from and marks it, so a group folded away still says where the tab you are looking at lives. Settings are edited
+there and saved back with the file's comments and layout intact. The resize is applied to the picture
+and never to the file, so what a group says about a drawing stays the group's.
+
+A drawing under a `recipe` is shown **as the recipe makes it** — the colours the recipe names already
+turned into expressions, and its parameters on the panel with sliders on them, which is the whole
+loop a recipe is written for. The file is untouched: the source pane shows, edits and saves the
+drawing itself, and `File → Export…` writes what the project builds, which is the document
+`--emit svg` produces. The parameter panel writes into the **recipe** there rather than into the
+drawing — the parameters are the recipe's, so adding one, editing one, reordering them or committing
+the values as defaults all go back to the file that declared them. Written into the drawing they
+would be a declaration block of its own, and a recipe refuses a document that already has one.
+A recipe that cannot be read, or that this drawing refuses, is said on the status line under the
+drawing, which still opens.
+
+A `recipe` is named with buttons rather than typed as a path. With none, the row offers **Add…** for
+one that exists and **New…** to write one — a recipe that does not exist yet cannot be picked, and
+leaving for a text editor to make an empty one was most of what made recipes awkward to start using.
+What **New…** writes applies as it stands: it declares a `hue` and an `accent` computed from it and
+recolours nothing, so there is a slider to drag before a line of it has been edited. Underneath it
+names **the colours the drawings under that node actually paint**, one commented `<replace>` each, so
+starting a recipe no longer means reading them out of the files yourself. Commented because the file
+has to apply as it stands — binding them all to the one let above would repaint the whole set the
+moment it was made. A file already at that name is named rather than written over.
+With one named, the row is the file and a **✕** that stops using it — the file itself is left where
+it is. **Double-clicking the file opens it**, in a tab of its own: the recipe as text, coloured the
+way the source pane colours a drawing, with what the parser makes of it said underneath as it is
+typed. One recipe is usually named by several groups, so it opens once however many of them ask for it. A
+drawing's tab answers for the recipe behind it as well as for itself: it takes the unsaved mark, ⌘S
+saves it, ⌘Z takes back the last edit made to it once the drawing's own text has nothing left to take
+back, and closing the project asks about it — including when the tab it was edited from has gone.
+
+There is one buffer per open recipe, so the drawings under it follow it **as it is typed** rather
+than when it is saved — a tab you are not looking at is read again when you come back to it.
+
+A drawing under a recipe also gets a **Colours** tab beside its Project and Parameters: every colour
+the drawing paints with, how much of the drawing each one is, and the expression the recipe gives it.
+Typing one writes the `<replace>` rule; emptying the box takes it away. What the expression comes to
+is read out beside it and follows the sliders, and what is wrong with one is said under the box it was
+typed in — checked as a colour, since a rule's body lands in `fill`, `stroke` and `stop-color`, so an
+expression that is well formed and the wrong type is caught here rather than by the drawing. Nothing
+is written while a row has trouble. A rule for a colour this
+drawing does not have is listed underneath as "not in this drawing" rather than hidden, since one
+recipe covers a family and a rule is for whichever of them has the colour. The list is what the
+build would act on: it comes from the same walk that does the rewriting, so a colour under a `style`
+declaration is offered and the dead attribute beneath it is not.
+
+The tree is editable. Each row carries **Add group**, **Add SVG…** and **Remove**; `Delete` removes
+the selected row, and a row is dragged to move it — dropped on the top or bottom quarter of a group
+it lands beside it, and in the middle it goes inside. A drawing's own settings — its `output`, its
+`class`, anything it overrides — are a **Project** tab in the right pane of the drawing's own tab,
+in front of the parameters the drawing declares for itself: the same pane a group keeps its settings
+in, saved the same way, and the tab a drawing opened from the tree lands on. A project usually builds one file several times with nothing but the class to
+tell the rows apart, so this is the only place those rows can be told apart at all.
+
+Adding, removing and moving write the file as they are made; settings are held until the tab is
+saved, like everything else in a tab. A group is confirmed before it is removed, and there is no
+undo — the project is a text file, and reverting one is what a version control system is for.
+
+`Project → Build` writes the project's outputs, exactly as `svgc --projectFile` would — through the
+same build, so the two cannot come to disagree. Recipes are applied, since the output would not be
+what `svgc` produces otherwise, and what a recipe matched or failed to match is reported along with
+the files written.
+
 ### Options
 
 | Option | |

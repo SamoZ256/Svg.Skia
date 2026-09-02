@@ -9,6 +9,9 @@ Commit the working tree and push it on the branch I am on.
 **Invoking this is the permission to commit.** CLAUDE.md says to ask first; this command is the
 asking. Do not stop to confirm — just do the steps below and report what happened.
 
+The permission is this invocation and nothing after it. A later commit or push in the same session
+asks again, however obviously it follows on from this one.
+
 $ARGUMENTS
 
 1. **Look before you write.** `git status --short` and `git diff --stat`, plus the actual diff of

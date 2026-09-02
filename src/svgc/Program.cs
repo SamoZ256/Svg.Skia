@@ -52,189 +52,13 @@ class Program
         }
     }
 
-    /// <summary>Reads a drawing through the recipe, if any, and builds its model.</summary>
-    static SkiaCSharpDrawing? Build(
-        string inputPath,
-        string namespaceName,
-        string className,
-        string? recipePath,
-        SvgSizeRequest size)
-    {
-        var svg = System.IO.File.ReadAllText(inputPath);
 
-        if (recipePath is { })
-        {
-            svg = ApplyRecipe(svg, recipePath);
-        }
 
-        var svgDocument = Svg.Model.Services.SvgService.FromSvg(svg);
-        if (svgDocument is null)
-        {
-            return null;
-        }
 
-        // Resizing the document rather than the picture it compiles to, so the drawing is fitted
-        // to the new size the way the format defines rather than by a scale wrapped around it.
-        SvgSceneSizing.Apply(svgDocument, AssetLoader, size);
 
-        var picture = SvgSceneRuntime.CreateModel(svgDocument, AssetLoader);
-        if (picture is null || picture.Commands is null)
-        {
-            return null;
-        }
 
-        var declarations = SvgExpressionDeclarations.Parse(svg);
 
-        Warn(inputPath, declarations);
 
-        return new SkiaCSharpDrawing(picture, namespaceName, className, declarations);
-    }
-
-    /// <summary>Says when a drawing's declared defaults will not reach the generated signature.</summary>
-    /// <remarks>
-    /// The one place every generating path goes through, so a batch says it once per drawing rather
-    /// than once per way of being asked. The generated file says the same thing where the signature
-    /// is, since that is where a caller reads it.
-    /// </remarks>
-    static void Warn(string inputPath, SvgExpressionDeclarations declarations)
-    {
-        if (declarations.EmitsDefaultArguments())
-        {
-            return;
-        }
-
-        var lost = declarations.Parameters
-            .Where(parameter => parameter.DefaultExpression is { })
-            .Select(parameter => $"'{parameter.Name}'")
-            .ToList();
-
-        Log(
-            $"warning: {System.IO.Path.GetFileName(inputPath)} declares a parameter with no default after one that has a default, "
-            + $"so every argument is generated as required and {string.Join(", ", lost)} {(lost.Count == 1 ? "loses its" : "lose their")} default. "
-            + "C# takes optional arguments last, and reordering them would change what a positional call means.");
-    }
-
-    /// <summary>
-    /// Converts a drawing and writes the result, without building a scene model.
-    /// </summary>
-    /// <remarks>
-    /// A recipe is a text transformation, so it has no business failing because the drawing uses
-    /// a filter or a font the renderer cannot model. This path is read, rewrite, write.
-    /// </remarks>
-    static void Convert(string inputPath, string outputPath, string recipePath)
-    {
-        var svg = ApplyRecipe(System.IO.File.ReadAllText(inputPath), recipePath);
-
-        System.IO.File.WriteAllText(outputPath, svg);
-    }
-
-    static void Generate(
-        string inputPath,
-        string outputPath,
-        string namespaceName,
-        string className,
-        string? recipePath,
-        SvgSizeRequest size,
-        SvgPictureCache cache = SvgPictureCache.None,
-        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4)
-    {
-        if (Build(inputPath, namespaceName, className, recipePath, size) is { } drawing)
-        {
-            var text = SkiaCSharpCodeGen.Generate(
-                drawing.Picture,
-                drawing.NamespaceName,
-                drawing.ClassName,
-                drawing.Declarations,
-                cache,
-                skiaSharp);
-
-            System.IO.File.WriteAllText(outputPath, text);
-        }
-    }
-
-    /// <summary>
-    /// An internal helper class sits in the global namespace, so two single-file outputs in one
-    /// assembly would collide on the name. Deriving it from the output file keeps them apart.
-    /// A file scoped one is invisible outside its file and needs no such thing.
-    /// </summary>
-    static string HelperClassNameFor(SvgHelperScope scope, string outputPath)
-    {
-        if (scope != SvgHelperScope.Internal)
-        {
-            return SkiaCSharpCodeGen.DefaultHelperClassName;
-        }
-
-        var stem = System.IO.Path.GetFileNameWithoutExtension(outputPath) ?? string.Empty;
-        var identifier = new System.Text.StringBuilder();
-
-        foreach (var c in stem)
-        {
-            identifier.Append(c == '_' || char.IsLetterOrDigit(c) ? c : '_');
-        }
-
-        if (identifier.Length == 0 || char.IsDigit(identifier[0]))
-        {
-            identifier.Insert(0, '_');
-        }
-
-        return identifier + "_" + SkiaCSharpCodeGen.DefaultHelperClassName;
-    }
-
-    /// <summary>
-    /// The size an item is built at: its own when it names one, the project's otherwise. An item
-    /// that names any of width, height or scale replaces the whole group rather than merging with
-    /// it, for the same reason a flag does.
-    /// </summary>
-    static SvgSizeRequest SizeFor(SvgcProjectItem item, SvgSizeRequest projectSize)
-    {
-        // Overlaid on its own, unlike the three sizing values: an item asking for room to leave has
-        // not thereby said anything about what size to be, so it keeps the project's.
-        var padding = item.Padding is { } text ? SvgPadding.Parse(text) : projectSize.Padding;
-
-        return item.HasSize
-            ? new SvgSizeRequest(item.Width, item.Height, item.Scale, padding)
-            : new SvgSizeRequest(projectSize.Width, projectSize.Height, projectSize.Scale, padding);
-    }
-
-    /// <summary>Whether any item asks for a frame of its own, by size or by padding.</summary>
-    static bool AnyItemReframes(SvgcProject? project)
-    {
-        if (project is null)
-        {
-            return false;
-        }
-
-        foreach (var item in project.Items)
-        {
-            if (item.HasSize || item.Padding is { })
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    // Rewrites a plain drawing into the expression format before it is generated from, so one
-    // recipe can parameterise a whole icon set through a project file.
-    static string ApplyRecipe(string svg, string recipePath)
-    {
-        var result = SvgRecipeRewriter.Apply(svg, SvgRecipe.Load(recipePath));
-
-        foreach (var match in result.Matches)
-        {
-            Log($"  {match.Rule.ColorText} -> {{{{ {match.Rule.Expression} }}}} ({match.Count})");
-        }
-
-        // Not an error: the same recipe usually covers a family of drawings, and not every
-        // drawing uses every colour.
-        foreach (var rule in result.UnmatchedRules)
-        {
-            Log($"warning: nothing in {System.IO.Path.GetFileName(recipePath)} matched '{rule.ColorText}'.");
-        }
-
-        return result.Svg;
-    }
 
     static async Task<int> Main(string[] args)
     {
@@ -386,113 +210,39 @@ class Program
                         padding)
                     : new SvgSizeRequest(project?.Width, project?.Height, project?.Scale, padding);
 
-                if (emit == SvgEmit.Svg)
+                var build = new SvgcBuildSettings
+                {
+                    Emit = emit,
+                    Cache = cache,
+                    HelperScope = scope,
+                    SkiaSharp = skiaSharp,
+                    Namespace = namespaceName,
+                    Class = className,
+                    Recipe = recipePath,
+                    SingleFile = singleFilePath,
+                    Size = size
+                };
+
+                if (project is { })
+                {
+                    SvgcProjectBuild.Run(project, build, AssetLoader, Log);
+                }
+                else if (settings.InputFile is { } input && settings.OutputFile is { } output)
                 {
                     // Without a recipe there is nothing to convert, so the output would be a copy
                     // of the input — which is never what was meant.
-                    if (recipePath is null)
+                    if (emit == SvgEmit.Svg && recipePath is null)
                     {
                         throw new ArgumentException("Emitting svg needs a recipe. Pass -r, name one in the project, or emit csharp.");
                     }
 
-                    // One file holds any number of C# classes but only ever one svg document.
-                    if (singleFilePath is { })
-                    {
-                        throw new ArgumentException("Emitting svg cannot be combined with a single file: an svg document holds one drawing.");
-                    }
-
-                    // A conversion rewrites the document's text and never builds a drawing, so
-                    // there is nothing for a size to apply to.
-                    if (!size.IsEmpty || AnyItemReframes(project))
-                    {
-                        throw new ArgumentException("Emitting svg cannot be combined with a resize or a padding: the conversion rewrites the document's text and never compiles it.");
-                    }
-                }
-
-                if (project is { } && singleFilePath is { })
-                {
-                    var drawings = new System.Collections.Generic.List<SkiaCSharpDrawing>();
-
-                    // A per-item output is ignored here rather than rejected, so one project can
-                    // be built either way.
-                    foreach (var item in project.Items)
-                    {
-                        Log($"Reading: {item.Input}");
-
-                        var drawing = Build(
-                            item.Input,
-                            item.Namespace ?? namespaceName,
-                            item.Class ?? className,
-                            item.Recipe ?? recipePath,
-                            SizeFor(item, size));
-
-                        if (drawing is { })
-                        {
-                            drawings.Add(drawing);
-                        }
-                    }
-
-                    Log($"Generating: {singleFilePath}");
-
-                    var text = SkiaCSharpCodeGen.GenerateFile(
-                        drawings,
-                        scope,
-                        HelperClassNameFor(scope, singleFilePath),
-                        cache,
-                        skiaSharp);
-
-                    System.IO.File.WriteAllText(singleFilePath, text);
-                }
-                else if (project is { })
-                {
-                    foreach (var item in project.Items)
-                    {
-                        if (item.Output is null)
-                        {
-                            throw new SvgcProjectException(
-                                $"<svg input=\"{item.Input}\"> has no output, and the project names no singleFile to fold it into.");
-                        }
-
-                        if (emit == SvgEmit.Svg)
-                        {
-                            Log($"Converting: {item.Output}");
-                            Convert(item.Input, item.Output, item.Recipe ?? recipePath!);
-                        }
-                        else
-                        {
-                            Log($"Generating: {item.Output}");
-                            Generate(
-                                item.Input,
-                                item.Output,
-                                item.Namespace ?? namespaceName,
-                                item.Class ?? className,
-                                // One recipe usually covers the whole set, so an item only has to
-                                // name its own when it differs.
-                                item.Recipe ?? recipePath,
-                                SizeFor(item, size),
-                                cache,
-                                skiaSharp);
-                        }
-                    }
-                }
-
-                if (settings.InputFile is { } && settings.OutputFile is { } && emit == SvgEmit.Svg)
-                {
-                    Log($"Converting: {settings.OutputFile.FullName}");
-                    Convert(settings.InputFile.FullName, settings.OutputFile.FullName, recipePath!);
-                }
-                else if (settings.InputFile is { } && settings.OutputFile is { })
-                {
-                    Log($"Generating: {settings.OutputFile.FullName}");
-                    Generate(
-                        settings.InputFile.FullName,
-                        settings.OutputFile.FullName,
-                        namespaceName,
-                        className,
-                        recipePath,
-                        size,
-                        cache,
-                        skiaSharp);
+                    // Described as an item so the one drawing on a command line is built by what
+                    // builds every other drawing, rather than by a second copy of it.
+                    SvgcProjectBuild.Write(
+                        new SvgcProjectItem(input.FullName, output.FullName, null, null, null),
+                        build,
+                        AssetLoader,
+                        Log);
                 }
             }
             catch (Exception ex)
