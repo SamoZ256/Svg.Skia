@@ -257,6 +257,9 @@ public partial class MainWindow : Window
     /// Only a drag carrying files. A row being dragged in the project tree passes through here too,
     /// and it neither carries files nor is finished with: touching its effects would show it as
     /// refused all the way across the tree.
+    ///
+    /// Drawings dropped on the tree never reach here — the tree marks those taken and adds them to
+    /// the project. What is left is everything else, which is still opened.
     /// </remarks>
     private void OnFilesDragOver(object? sender, DragEventArgs e)
     {
@@ -288,6 +291,13 @@ public partial class MainWindow : Window
     /// <summary>Whether a path names an svgc project rather than a drawing.</summary>
     private static bool IsProject(string path)
         => Path.GetExtension(path).Equals(".svgcproj", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether a path names a drawing — what the project is a list of.</summary>
+    /// <remarks>The two extensions the picker offers when a drawing is being added to one.</remarks>
+    private static bool IsDrawing(string path)
+        => Path.GetExtension(path) is { } extension
+            && (extension.Equals(".svg", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".svgz", StringComparison.OrdinalIgnoreCase));
 
     // ---- the project pane ---------------------------------------------------------------------
 
@@ -624,28 +634,60 @@ public partial class MainWindow : Window
             FileTypeFilter = new List<FilePickerFileType> { StudioFileDialogService.Drawings }
         }).ConfigureAwait(true);
 
-        foreach (var path in files.Select(file => file.TryGetLocalPath()).Where(path => path is { Length: > 0 }))
-        {
-            await AddDrawingAsync(beside, path!).ConfigureAwait(true);
-        }
+        var (parent, index) = Beside(beside);
+
+        await AddDrawingsAsync(
+            parent,
+            index,
+            files.Select(file => file.TryGetLocalPath())
+                .Where(path => path is { Length: > 0 })
+                .Select(path => path!)
+                .ToList())
+            .ConfigureAwait(true);
     }
 
     /// <summary>Adds <paramref name="path"/> to the project, and opens it.</summary>
     /// <remarks>Taking the path rather than asking for it, so everything but the panel can be driven.</remarks>
-    public async Task AddDrawingAsync(SvgcProjectNode beside, string path)
+    public Task AddDrawingAsync(SvgcProjectNode beside, string path)
     {
-        if (_workspace is not { } workspace)
+        var (parent, index) = Beside(beside);
+
+        return AddDrawingsAsync(parent, index, new[] { path });
+    }
+
+    /// <summary>
+    /// Puts drawings into <paramref name="parent"/> from <paramref name="index"/> on, in the order
+    /// given, and opens the last of them.
+    /// </summary>
+    /// <remarks>
+    /// The slot is counted here rather than worked out again for each file. Asking where a drop
+    /// lands once per file keeps the order for a landing inside a group, whose end moves along with
+    /// every insert, and for one before a node, whose index moves up — but reverses it after a node,
+    /// which does not move at all, so each file would land immediately after it and push the last
+    /// one out.
+    ///
+    /// One save and one rebuild for the run, and one tab: a folder of drawings dropped on a group
+    /// is one act, and it has no business opening twenty of them.
+    /// </remarks>
+    /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
+    public async Task AddDrawingsAsync(SvgcProjectGroup parent, int index, IReadOnlyList<string> paths)
+    {
+        if (_workspace is not { } workspace || paths.Count == 0)
         {
             return;
         }
 
-        var (parent, index) = Beside(beside);
-        var drawing = parent.AddDrawing(workspace.Carry(path), index);
+        SvgcProjectDrawing? added = null;
+
+        foreach (var path in paths)
+        {
+            added = parent.AddDrawing(workspace.Carry(path), index++);
+        }
 
         workspace.Save();
-        BuildTree(drawing);
+        BuildTree(added);
 
-        await ShowAsync(drawing).ConfigureAwait(true);
+        await ShowAsync(added!).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -691,7 +733,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The one drag this tree carries, so a file dropped on it is left to the viewer.
+    /// What a row being dragged carries, which is how a drag of rows is told from a drag of files.
     /// </summary>
     /// <remarks>
     /// A bare name: Avalonia refuses an identifier with a separator in it, and built here rather
@@ -774,40 +816,108 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Where the drag under the pointer would land — a row being moved, or drawings being added.
+    /// </summary>
+    /// <remarks>
+    /// Two kinds of drag, one landing: both go before a row, after it, or into a group, and both are
+    /// drawn by the same line and outline. Only what is being put there differs.
+    ///
+    /// A drag of files is taken only when every file in it is a drawing. Filtering one instead would
+    /// mean marking the drop taken and dropping the rest of it on the floor — a project dragged in
+    /// with a drawing would stop opening, which it does today wherever it lands.
+    /// </remarks>
     private void OnRowDragOver(object? sender, DragEventArgs e)
     {
-        if (_row is not { } dragged
-            || e.Source is not Visual source
-            || source.FindAncestorOfType<TreeViewItem>(true) is not { Tag: SvgcProjectNode node } item)
+        var over = (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(true);
+
+        if (_row is { } dragged)
+        {
+            if (over is not { Tag: SvgcProjectNode node })
+            {
+                HideDrop();
+
+                return;
+            }
+
+            e.DragEffects = DragDropEffects.Move;
+
+            if (Land(over, node, e) is not { } landing || landing.Parent.DescendsFrom(dragged))
+            {
+                HideDrop();
+
+                return;
+            }
+
+            ShowDrop(over);
+
+            return;
+        }
+
+        if (Dropped(e) is not { Count: > 0 } paths || !paths.All(IsDrawing))
         {
             HideDrop();
 
             return;
         }
 
-        e.DragEffects = DragDropEffects.Move;
+        // Nothing under the pointer is the tree's own background, below the last row: the project
+        // itself, at the end of it. Anywhere in the tree adds to the project, which is what makes
+        // the pane a place to drop rather than a place with places to drop.
+        //
+        // The effects are left alone: the window's own handler narrows them for a file drag, and it
+        // runs after this one.
+        var target = over ?? _projectTree.Items.OfType<TreeViewItem>().FirstOrDefault();
 
-        _dropOn = node;
-        _dropWhere = Bands(e.GetPosition(item).Y, RowHeight(item), node);
-
-        if (Landing(_dropOn, _dropWhere) is not { } landing || landing.Parent.DescendsFrom(dragged))
+        if (target is not { Tag: SvgcProjectNode into } || Land(target, into, e) is null)
         {
             HideDrop();
 
             return;
         }
 
-        ShowDrop(item);
+        ShowDrop(target);
     }
 
-    private void OnRowDrop(object? sender, DragEventArgs e)
+    /// <summary>Takes down where a drop on this row would go, and says where that is.</summary>
+    private (SvgcProjectGroup Parent, int Index)? Land(TreeViewItem row, SvgcProjectNode node, DragEventArgs e)
     {
-        if (_row is { } dragged && _dropOn is { } target)
+        _dropOn = node;
+        _dropWhere = Bands(e.GetPosition(row).Y, RowHeight(row), node);
+
+        return Landing(_dropOn, _dropWhere);
+    }
+
+    private async void OnRowDrop(object? sender, DragEventArgs e)
+    {
+        var target = _dropOn;
+        var where = _dropWhere;
+
+        // Before anything else: the landing is what the pointer said last, and HideDrop forgets it.
+        HideDrop();
+
+        if (_row is { } dragged)
         {
-            Move(dragged, target, _dropWhere);
+            if (target is { })
+            {
+                Move(dragged, target, where);
+            }
+
+            return;
         }
 
-        HideDrop();
+        if (target is null
+            || Landing(target, where) is not { } landing
+            || Dropped(e) is not { Count: > 0 } paths
+            || !paths.All(IsDrawing))
+        {
+            return;
+        }
+
+        // Taken, so the window does not open tabs on the drawings that just became rows.
+        e.Handled = true;
+
+        await AddDrawingsAsync(landing.Parent, landing.Index, paths).ConfigureAwait(true);
     }
 
     /// <summary>
