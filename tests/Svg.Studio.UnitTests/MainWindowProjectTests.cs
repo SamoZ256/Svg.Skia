@@ -90,7 +90,7 @@ public class MainWindowProjectTests : IDisposable
             .ToArray();
 
     [AvaloniaFact]
-    public async Task A_Project_Opens_Into_The_Pane_And_Takes_No_Tab_Of_Its_Own()
+    public async Task A_Project_Opens_Into_The_Pane_And_Onto_Its_Own_Settings()
     {
         Write("home.svg", Drawing);
         Write("badge.svg", Drawing);
@@ -99,9 +99,13 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.Equal("icons.svgcproj", window.Workspace!.Name);
 
-        // The project is what the window works on, not one of the things it shows: opening it adds
-        // no tab at all, and the window had none to begin with.
-        Assert.Empty(Tabs(window).Items);
+        // The pane and one tab: the project's own settings. A window with a project open and
+        // nothing on it showed the tree and an empty strip, and the row to click to see anything
+        // was the one row of the tree that is always there.
+        var tab = Assert.IsType<TabItem>(Assert.Single(Tabs(window).Items));
+
+        Assert.Same(window.Workspace.Document.Root, Assert.IsType<GroupPanel>(tab.Content).Node);
+        Assert.Same(tab, Tabs(window).SelectedItem);
 
         Assert.True(window.FindControl<Border>("ProjectPaneHost")!.IsVisible);
 
@@ -195,9 +199,10 @@ public class MainWindowProjectTests : IDisposable
         var panel = Assert.IsType<GroupPanel>(((TabItem)Tabs(window).SelectedItem!).Content);
         Assert.Same(group, panel.Node);
 
-        // Chosen twice is the same tab, not a second one.
+        // Chosen twice is the same tab, not a second one. Two in the strip: the project's own,
+        // which opening it put there, and this group's.
         await window.ShowAsync(group);
-        Assert.Single(Tabs(window).Items);
+        Assert.Equal(2, Tabs(window).Items.Count);
     }
 
     [AvaloniaFact]
@@ -603,7 +608,8 @@ public class MainWindowProjectTests : IDisposable
         await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
-        var item = Tabs(window).Items.OfType<TabItem>().Single(tab => tab.Content is GroupPanel);
+        var item = Tabs(window).Items.OfType<TabItem>()
+            .Single(tab => tab.Content is GroupPanel group && ProjectWorkspace.Label(group.Node) == "Demo.Icons.Large");
         var panel = (GroupPanel)item.Content!;
         var marker = (TextBlock)((StackPanel)item.Header!).Children[0];
 
@@ -958,14 +964,17 @@ public class MainWindowProjectTests : IDisposable
         await window.ShowAsync((SvgcProjectNode)((TreeViewItem)group.Items[0]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(2, Tabs(window).Items.Count);
+        Assert.Equal(3, Tabs(window).Items.Count);
 
         Assert.True(await window.RemoveAsync((SvgcProjectNode)group.Tag!));
         Dispatcher.UIThread.RunJobs();
 
         // The group's tab and the drawing's under it both go: left open, either would go on editing
-        // an element the document no longer holds and report itself saved.
-        Assert.Empty(Tabs(window).Items);
+        // an element the document no longer holds and report itself saved. The project's own tab is
+        // not under the group and stays.
+        var kept = Assert.IsType<TabItem>(Assert.Single(Tabs(window).Items));
+
+        Assert.Same(window.Workspace!.Document.Root, Assert.IsType<GroupPanel>(kept.Content).Node);
         Assert.Equal(new[] { "Demo.Icons", "home.svg - Home" }, Rows((TreeViewItem)Tree(window).Items[0]!));
 
         // The comment stays. It is a sibling of the group, not part of it.
@@ -1019,7 +1028,8 @@ public class MainWindowProjectTests : IDisposable
         // it stops the removal rather than losing the edit to it.
         Assert.False(await window.RemoveAsync(group));
 
-        Assert.Single(Tabs(window).Items);
+        // The group's tab is still open with the edit in it, beside the project's own.
+        Assert.Equal(2, Tabs(window).Items.Count);
         Assert.Equal(Project, File.ReadAllText(path));
     }
 
@@ -2697,6 +2707,12 @@ public class MainWindowProjectTests : IDisposable
 
         // The tree is the project row and nothing under it: a new project holds no drawings.
         Assert.Equal(new[] { "Project" }, Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        // Written, opened, and open on its own settings — which for a project with nothing in it
+        // yet is the only thing there is to be on.
+        var tab = Assert.IsType<TabItem>(Assert.Single(Tabs(window).Items));
+
+        Assert.Same(window.Workspace.Document.Root, Assert.IsType<GroupPanel>(tab.Content).Node);
     }
 
     /// <summary>

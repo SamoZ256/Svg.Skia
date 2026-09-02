@@ -412,6 +412,13 @@ public partial class MainWindow : Window
 
         ShowProjectPane(true);
         BuildTree();
+
+        // On the project itself, rather than on nothing. What the window has just been pointed at is
+        // the project, and its settings are the one row of the tree that is always there — opening
+        // the file and then having to find that row to see anything was a step with no decision in
+        // it. Whatever a drawing is opened from here replaces nothing: it is a tab of its own.
+        await ShowAsync(workspace.Document.Root).ConfigureAwait(true);
+
         UpdateMenu();
         Remember(path);
     }
