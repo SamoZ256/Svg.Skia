@@ -1496,6 +1496,10 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnSave(object? sender, EventArgs e) => await SaveAsync();
+
+    private async void OnSaveAs(object? sender, EventArgs e) => await SaveAsAsync();
+
     private async void OnExport(object? sender, EventArgs e) => await ExportAsync();
 
     private void OnUndo(object? sender, EventArgs e) => Undo();
@@ -1578,6 +1582,18 @@ public partial class MainWindow : Window
             export.IsEnabled = Selected() is { Document: { } };
         }
 
+        // What the tab's own dot is drawn from, so it covers the drawing's text, the project's say
+        // over it and the recipe behind it without asking any of them separately.
+        if (Item(menu, "Save") is { } save)
+        {
+            save.IsEnabled = _tabs.SelectedItem is TabItem tab && Unsaved(tab) is { };
+        }
+
+        if (Item(menu, "Save As…") is { } saveAs)
+        {
+            saveAs.IsEnabled = Selected() is { Document: { } };
+        }
+
         // Both act on the project, and both did nothing at all when picked without one.
         foreach (var header in new[] { "Build", "Close" })
         {
@@ -1597,6 +1613,21 @@ public partial class MainWindow : Window
 
         Show("Undo", hotkeys.Undo);
         Show("Redo", hotkeys.Redo);
+
+        // Written rather than read: the platform's keymap has no Save in it, so this is the one
+        // gesture the menu and the window have to be told separately. OnKeyDown spells the same
+        // modifier the same way.
+        var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+
+        if (Item(NativeMenu.GetMenu(this), "Save") is { } save)
+        {
+            save.Gesture = new KeyGesture(Key.S, command);
+        }
+
+        if (Item(NativeMenu.GetMenu(this), "Save As…") is { } saveAs)
+        {
+            saveAs.Gesture = new KeyGesture(Key.S, command | KeyModifiers.Shift);
+        }
 
         void Show(string header, IReadOnlyList<KeyGesture> gestures)
         {
@@ -1872,6 +1903,9 @@ public partial class MainWindow : Window
         Marker(item).Classes.Set("unsaved", Unsaved(item) is { });
 
         UpdateTitle();
+
+        // Save is offered by whether there is anything to save, which is what has just changed.
+        UpdateMenu();
     }
 
     private static string Named(SvgViewer viewer)
@@ -2017,14 +2051,82 @@ public partial class MainWindow : Window
     {
         var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
 
-        if (e.Key != Key.S || e.KeyModifiers != command)
+        if (e.Key != Key.S)
         {
             return;
         }
 
-        e.Handled = true;
+        if (e.KeyModifiers == command)
+        {
+            e.Handled = true;
 
-        await SaveAsync();
+            await SaveAsync();
+        }
+        else if (e.KeyModifiers == (command | KeyModifiers.Shift))
+        {
+            e.Handled = true;
+
+            await SaveAsAsync();
+        }
+    }
+
+    /// <summary>Asks where to put the open drawing, and puts it there.</summary>
+    private async Task<bool> SaveAsAsync()
+    {
+        if (Selected() is not { Document: { } document } viewer)
+        {
+            return false;
+        }
+
+        var picked = await new StudioFileDialogService()
+            .SaveSvgAsync(this, document.Path is { } was ? Path.GetFileName(was) : null)
+            .ConfigureAwait(true);
+
+        return picked is { Length: > 0 } && await SaveAsAsync(picked).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Writes the open drawing to <paramref name="target"/>, and points its tab at it.
+    /// </summary>
+    /// <remarks>
+    /// Taking the path rather than asking for it, so everything but the panel can be driven, the
+    /// same as <see cref="ExportAsync"/>.
+    ///
+    /// The text is the viewer's <c>Source</c> rather than its SaveSourceAsync, which answers only
+    /// once the source pane has been opened — a drawing nobody has looked at the text of would have
+    /// been saved as nothing at all. Written through the document, so a file that came in with a
+    /// byte order mark keeps it.
+    ///
+    /// Reading it back is what makes this Save As and not save-a-copy: the tab takes the new file's
+    /// name and ⌘S writes there afterwards. It costs the pane's undo history, which is what saving
+    /// under a new name costs everywhere.
+    /// </remarks>
+    public async Task<bool> SaveAsAsync(string target)
+    {
+        if (target is null)
+        {
+            throw new ArgumentNullException(nameof(target));
+        }
+
+        if (Selected() is not { Document: { } document } viewer)
+        {
+            return false;
+        }
+
+        try
+        {
+            document.Write(viewer.Source, target);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            await Announce("The drawing couldn't be saved", failure.Message).ConfigureAwait(true);
+
+            return false;
+        }
+
+        await viewer.LoadAsync(target).ConfigureAwait(true);
+
+        return true;
     }
 
     /// <summary>

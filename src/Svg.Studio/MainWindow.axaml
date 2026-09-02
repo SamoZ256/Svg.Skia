@@ -166,6 +166,14 @@
         <NativeMenuItem.Menu>
           <NativeMenu>
             <NativeMenuItem Header="Open…" Click="OnOpen" />
+            <NativeMenuItemSeparator />
+            <!--
+              The command was a keystroke and nothing else: Ctrl+S worked and no part of the window
+              said so, which is the whole of why it is here.
+            -->
+            <NativeMenuItem Header="Save" Click="OnSave" />
+            <NativeMenuItem Header="Save As…" Click="OnSaveAs" />
+            <NativeMenuItemSeparator />
             <!--
               One command for both forms: the save panel asks which, and names the file after the
               answer, so nothing here has to ask twice.

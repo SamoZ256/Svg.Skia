@@ -2031,6 +2031,57 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task Saving_A_Drawing_As_Another_File_Points_Its_Tab_At_The_New_One()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = await Settle(window, "home.svg");
+        var copy = Path.Combine(_directory, "copied.svg");
+
+        Assert.True(await window.SaveAsAsync(copy));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(Drawing, File.ReadAllText(copy));
+
+        // The one it came from is left as it was: this is a save under another name, not a move.
+        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "home.svg")));
+
+        // And the tab is the new file's now, so saving again writes there.
+        await Settle(window, "copied.svg");
+
+        Assert.Equal(copy, viewer.DocumentPath);
+        Assert.False(viewer.IsSourceModified);
+    }
+
+    [AvaloniaFact]
+    public async Task Save_Is_Offered_Only_While_Something_Is_Unsaved()
+    {
+        var (window, viewer) = await Painting();
+
+        var save = Menu(window, "Save");
+
+        Assert.False(save.IsEnabled);
+
+        // The recipe behind the drawing, which is the case the tab's dot was widened for — and the
+        // menu is drawn from the same answer, so it follows without being told separately.
+        Assert.True(Colours(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(save.IsEnabled);
+
+        await window.SaveAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(save.IsEnabled);
+    }
+
+    [AvaloniaFact]
     public async Task A_Rule_That_This_Drawing_Has_No_Colour_For_Is_Still_Shown()
     {
         var (_, viewer) = await Painting(Drawing.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
