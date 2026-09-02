@@ -39,7 +39,7 @@ with `git submodule update --init --recursive`.
 
 ```sh
 dotnet build Svg.Skia.slnx -c Release
-dotnet test  Svg.Skia.slnx -c Release                          # ~4300 tests, about a minute
+dotnet test  Svg.Skia.slnx -c Release                          # ~4800 tests, about a minute
 dotnet test tests/Svg.Skia.UnitTests/Svg.Skia.UnitTests.csproj -c Release \
   -f net10.0 --filter "FullyQualifiedName~W3CTestSuiteTests"   # one project, one subset
 dotnet format Svg.Skia.slnx --no-restore --include <changed .cs files>   # or just: the format skill
@@ -97,3 +97,4 @@ or something that drifted, so investigate rather than assume it was already brok
 warnings are `Svg.Custom` deprecating its own paint-server API, and are expected. W3C text rows use
 per-fixture thresholds calibrated against a particular native Skia: a hairline failure after a
 SkiaSharp bump usually wants a threshold nudge and almost never a re-captured baseline.
+`Svg.Studio.UnitTests` builds its own `Application`, so nothing in `App.axaml` is covered by a test.

@@ -51,6 +51,7 @@ await Viewer.LoadAsync("badge.svg");
 | `Parameters` / `ParameterValues` | Reading what is declared and what is bound |
 | `TrySetParameterValue` / `ResetParameters` | Driving values from host UI |
 | `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` / `ShowSource` | Supplying your own chrome |
+| `ShowBounds` | Outlining the drawing's own edges — on by default, since an icon with transparent margins otherwise ends nowhere the eye can see |
 | `SidePanels` | Panels of your own beside the parameters: the right pane becomes a strip of tabs while there are any, yours first and so the first one it opens on, and holds the parameters alone again when there are none |
 | `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
 | `DeclarationTarget` | Where the parameter panel writes, when the drawing's declarations are not in the drawing |

@@ -36,15 +36,21 @@ dotnet format Svg.Skia.slnx --no-restore --include path/one.cs path/two.cs
 
 ## Afterwards
 
-Run `git status --short` and confirm it lists only files you touched.
+Run `git status --short` and confirm it lists only files you touched, and `git diff` those files
+for lines you did not write.
 
-Scoped runs produce no collateral, so this is a safety net rather than a step you expect to need.
-If something else did come back dirty:
+A scoped run usually produces no collateral, but it does reformat a file it is given — not only the
+part you changed. `src/Svg.Studio/GroupPanel.cs` is the known one: a run over it expands a
+pre-existing single-line `switch` nobody has touched, and it has done so in two separate sessions.
+Revert whatever came back that is not yours:
 
 ```sh
 git checkout -- <file>
 git -C externals/SVG checkout -- .     # the submodule, if it is showing as ` m externals/SVG`
 ```
+
+Where that file is one you *did* change, restore it and re-apply your own edit without formatting it,
+rather than committing the reformatting as though it were part of the change.
 
 Repeat until `git status --short` shows your change and nothing else.
 

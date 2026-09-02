@@ -296,15 +296,17 @@ svgc --projectFile ./icons.svgcproj
 - A command line flag beats the project file, which beats the built-in default.
 
 `src/Svg.Studio` opens a project as well as a drawing — `File → Open`, a drop anywhere on the window
-including an empty one, or as a command line argument. `File → Save` writes whatever the selected tab
-is holding, and `Save As…` writes the open drawing somewhere new and points its tab at it. It opens as a workspace rather than as a document: the group tree goes in a pane beside the
-tabs and the project itself takes no tab, one project at a time, closed with `Project → Close`.
+including an empty one, or as a command line argument. A project opens as a workspace rather than as
+a document: the group tree goes in a pane beside the tabs and the project itself takes no tab, one
+project at a time, closed with `Project → Close`. `File → Save` writes whatever the selected tab is
+holding — the drawing, the project settings in its right pane, or the recipe behind them — and
+`Save As…` writes the open drawing somewhere new and points its tab at it.
 Clicking a node opens it — a drawing in a viewer **at the size its groups build it at** rather than
 the one it was written with, a group as its settings and what they come to. A double click is left
 to the tree, which folds a node with it. Picking a tab opens the tree back down to the row it came
-from and marks it, so a group folded away still says where the tab you are looking at lives. Settings are edited
-there and saved back with the file's comments and layout intact. The resize is applied to the picture
-and never to the file, so what a group says about a drawing stays the group's.
+from and marks it, so a group folded away still says where the tab you are looking at lives.
+Settings are edited there and saved back with the file's comments and layout intact. The resize is
+applied to the picture and never to the file, so what a group says about a drawing stays the group's.
 
 A drawing under a `recipe` is shown **as the recipe makes it** — the colours the recipe names already
 turned into expressions, and its parameters on the panel with sliders on them, which is the whole
