@@ -529,6 +529,162 @@ public class SvgcProjectDocumentTests
     }
 
     [Fact]
+    public void A_Copied_Drawing_Takes_A_Line_Of_Its_Own()
+    {
+        var document = Parse("""
+            <svgc>
+              <svg input="a.svg" class="A" />
+              <group namespace="Large" />
+            </svgc>
+            """);
+
+        var drawing = document.Root.Children.OfType<SvgcProjectDrawing>().Single();
+        var large = document.Root.Children.OfType<SvgcProjectGroup>().Single();
+
+        var copy = large.Copy(drawing, 0);
+
+        Assert.NotSame(drawing, copy);
+        Assert.Equal("a.svg", Assert.IsType<SvgcProjectDrawing>(copy).Input);
+
+        // The source stays where it was, which is the whole of what makes this a copy.
+        Assert.Equal("""
+            <svgc>
+              <svg input="a.svg" class="A" />
+              <group namespace="Large">
+                <svg input="a.svg" class="A" />
+              </group>
+            </svgc>
+            """, document.ToXml());
+    }
+
+    /// <summary>
+    /// The copy of a branch is written for where it lands, not for where it was taken from.
+    /// </summary>
+    [Fact]
+    public void A_Copied_Group_Takes_Its_Contents_To_The_New_Depth()
+    {
+        var document = Parse("""
+            <svgc>
+              <group namespace="Large" scale="2">
+                <group class="Huge">
+                  <svg input="c.svg" />
+                </group>
+              </group>
+            </svgc>
+            """);
+
+        var large = document.Root.Children.OfType<SvgcProjectGroup>().Single();
+        var huge = large.Children.OfType<SvgcProjectGroup>().Single();
+
+        var copy = Assert.IsType<SvgcProjectGroup>(document.Root.Copy(huge, 1));
+
+        // Live, not a lump of XML: the children came back as nodes.
+        Assert.Equal("c.svg", Assert.IsType<SvgcProjectDrawing>(Assert.Single(copy.Children)).Input);
+
+        Assert.Equal("""
+            <svgc>
+              <group namespace="Large" scale="2">
+                <group class="Huge">
+                  <svg input="c.svg" />
+                </group>
+              </group>
+              <group class="Huge">
+                <svg input="c.svg" />
+              </group>
+            </svgc>
+            """, document.ToXml());
+    }
+
+    [Fact]
+    public void A_Copy_Is_Edited_Without_Touching_What_It_Came_From()
+    {
+        var document = Parse("""
+            <svgc>
+              <svg input="a.svg" class="A" output="A.cs" />
+            </svgc>
+            """);
+
+        var drawing = document.Root.Children.OfType<SvgcProjectDrawing>().Single();
+
+        var copy = Assert.IsType<SvgcProjectDrawing>(document.Root.Copy(drawing, 1));
+
+        copy.Class = "B";
+        copy.Output = "B.cs";
+
+        Assert.Equal("A", drawing.Class);
+        Assert.Equal("A.cs", drawing.Output);
+
+        Assert.Equal("""
+            <svgc>
+              <svg input="a.svg" class="A" output="A.cs" />
+              <svg input="a.svg" class="B" output="B.cs" />
+            </svgc>
+            """, document.ToXml());
+    }
+
+    /// <summary>
+    /// A class and an output are copied as they were written.
+    /// </summary>
+    /// <remarks>
+    /// Nothing in the format asks for either to be unique — a hand-written project can already
+    /// repeat them — so renaming one here would be a rule this document does not otherwise have.
+    /// </remarks>
+    [Fact]
+    public void A_Copy_Keeps_The_Class_And_Output_It_Was_Written_With()
+    {
+        var document = Parse("""
+            <svgc>
+              <svg input="a.svg" class="A" output="A.cs" />
+            </svgc>
+            """);
+
+        var drawing = document.Root.Children.OfType<SvgcProjectDrawing>().Single();
+        var copy = Assert.IsType<SvgcProjectDrawing>(document.Root.Copy(drawing, 1));
+
+        Assert.Equal("A", copy.Class);
+        Assert.Equal("A.cs", copy.Output);
+    }
+
+    [Fact]
+    public void The_Project_Itself_Cannot_Be_Copied()
+    {
+        var document = Parse("<svgc>\n  <svg input=\"a.svg\" />\n</svgc>");
+
+        Assert.Throws<SvgcProjectException>(() => document.Root.Copy(document.Root, 0));
+    }
+
+    [Fact]
+    public void A_Copy_Survives_A_Save_And_A_Load()
+    {
+        var directory = Directory.CreateTempSubdirectory().FullName;
+        var path = Path.Combine(directory, "icons.svgcproj");
+
+        File.WriteAllText(path, """
+            <svgc>
+              <group scale="2">
+                <svg input="art/home.svg" class="Home" />
+              </group>
+            </svgc>
+            """);
+
+        var document = SvgcProjectDocument.Load(path);
+        var group = document.Root.Children.OfType<SvgcProjectGroup>().Single();
+
+        document.Root.Copy(group, 1);
+        document.Save();
+
+        var reloaded = SvgcProjectDocument.Load(path);
+
+        Assert.Equal(
+            new[] { "art/home.svg", "art/home.svg" },
+            reloaded.Root.Drawings.Select(drawing => drawing.Input));
+
+        Assert.All(reloaded.Flatten().Items, item => Assert.Equal(2f, item.Scale));
+
+        Directory.Delete(directory, recursive: true);
+    }
+
+    [Fact]
     public void Crlf_Survives_A_Save()
     {
         // XmlReader normalises CRLF to LF as the spec requires, so a Windows file read and written
