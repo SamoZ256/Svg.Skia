@@ -130,20 +130,14 @@ public partial class MainWindow : Window
 
         ShowMenuGestures();
         UpdateMenu();
+        ShowRecent();
 
         // Nothing open, and no tab standing in for nothing. A window used to start on a bundled
         // sample in a tab called Untitled, which meant a project opened from the command line came
         // up beside a tab holding neither the project nor anything else.
         if (path is { } startup && File.Exists(startup))
         {
-            if (IsProject(startup))
-            {
-                _ = OpenProjectAsync(startup);
-            }
-            else
-            {
-                _ = AddTab().LoadAsync(startup);
-            }
+            _ = OpenAsync(new[] { startup });
         }
     }
 
@@ -238,7 +232,10 @@ public partial class MainWindow : Window
 
             var viewer = source is { Document: null } ? source : AddTab();
 
-            await viewer.LoadAsync(path).ConfigureAwait(true);
+            if (await viewer.LoadAsync(path).ConfigureAwait(true))
+            {
+                Remember(path);
+            }
         }
     }
 
@@ -333,6 +330,7 @@ public partial class MainWindow : Window
         ShowProjectPane(true);
         BuildTree();
         UpdateMenu();
+        Remember(path);
     }
 
     /// <summary>Closes the open project and everything it opened.</summary>
@@ -1540,6 +1538,47 @@ public partial class MainWindow : Window
         {
             await OpenAsync(new[] { picked }).ConfigureAwait(true);
         }
+    }
+
+    /// <summary>Puts what was just opened at the front of File → Open Recent.</summary>
+    /// <remarks>
+    /// Called where the file was actually read rather than where it was asked for, so a drop, the
+    /// command line, the picker and the viewer's own toolbar all reach it, and a path that failed
+    /// to open reaches none of them.
+    /// </remarks>
+    private void Remember(string path)
+    {
+        RecentFiles.Add(path);
+        ShowRecent();
+    }
+
+    /// <summary>Fills File → Open Recent from the list on disk.</summary>
+    /// <remarks>
+    /// Rebuilt outright each time rather than edited: the list is short, and the item that moved to
+    /// the front is the one thing about it that changes.
+    /// </remarks>
+    private void ShowRecent()
+    {
+        if (Item(NativeMenu.GetMenu(this), "Open Recent") is not { Menu: { } recent } item)
+        {
+            return;
+        }
+
+        recent.Items.Clear();
+
+        foreach (var path in RecentFiles.Paths)
+        {
+            // The file's name, as every other Open Recent names one: a menu of full paths is wider
+            // than the window and still trimmed on macOS.
+            var entry = new NativeMenuItem(Path.GetFileName(path));
+
+            entry.Click += async (_, _) => await OpenAsync(new[] { path }).ConfigureAwait(true);
+
+            recent.Items.Add(entry);
+        }
+
+        // Nothing has been opened yet: an item that opens onto an empty menu reads as broken.
+        item.IsEnabled = recent.Items.Count > 0;
     }
 
     private async void OnSave(object? sender, EventArgs e) => await SaveAsync();

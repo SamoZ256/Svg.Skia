@@ -167,6 +167,15 @@
         <NativeMenuItem.Menu>
           <NativeMenu>
             <NativeMenuItem Header="Open…" Click="OnOpen" />
+            <!--
+              Filled in code from the list on disk. Empty here because the markup cannot know what
+              was opened last time, and the item is disabled until something has been.
+            -->
+            <NativeMenuItem Header="Open Recent">
+              <NativeMenuItem.Menu>
+                <NativeMenu />
+              </NativeMenuItem.Menu>
+            </NativeMenuItem>
             <NativeMenuItemSeparator />
             <!--
               The command was a keystroke and nothing else: Ctrl+S worked and no part of the window

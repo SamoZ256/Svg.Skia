@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Themes.Fluent;
@@ -17,5 +19,12 @@ internal static class SvgStudioTestsAppBuilder
 
 internal sealed class TestApplication : Application
 {
-    public override void Initialize() => Styles.Add(new FluentTheme());
+    public override void Initialize()
+    {
+        Styles.Add(new FluentTheme());
+
+        // Every test that opens a drawing adds it to Open Recent. Pointed at a file of its own so a
+        // run does not rewrite the list belonging to whoever is running it.
+        RecentFiles.Store = Path.Combine(Path.GetTempPath(), $"svg-studio-recent-{Guid.NewGuid():N}");
+    }
 }
