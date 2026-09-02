@@ -90,7 +90,9 @@ public class MainWindowUndoTests
         Dispatcher.UIThread.RunJobs();
 
         // The bundled drawing declares parameters, so the panel is already showing value boxes.
-        var box = window.GetVisualDescendants().OfType<TextBox>().First();
+        // On screen, not merely present: the project pane carries a search box of its own, which is
+        // built with the window and sits in the tree ahead of these whether a project is open or not.
+        var box = window.GetVisualDescendants().OfType<TextBox>().First(box => box.IsEffectivelyVisible);
 
         box.Focus();
         Dispatcher.UIThread.RunJobs();
