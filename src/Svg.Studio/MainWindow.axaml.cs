@@ -624,28 +624,60 @@ public partial class MainWindow : Window
             FileTypeFilter = new List<FilePickerFileType> { StudioFileDialogService.Drawings }
         }).ConfigureAwait(true);
 
-        foreach (var path in files.Select(file => file.TryGetLocalPath()).Where(path => path is { Length: > 0 }))
-        {
-            await AddDrawingAsync(beside, path!).ConfigureAwait(true);
-        }
+        var (parent, index) = Beside(beside);
+
+        await AddDrawingsAsync(
+            parent,
+            index,
+            files.Select(file => file.TryGetLocalPath())
+                .Where(path => path is { Length: > 0 })
+                .Select(path => path!)
+                .ToList())
+            .ConfigureAwait(true);
     }
 
     /// <summary>Adds <paramref name="path"/> to the project, and opens it.</summary>
     /// <remarks>Taking the path rather than asking for it, so everything but the panel can be driven.</remarks>
-    public async Task AddDrawingAsync(SvgcProjectNode beside, string path)
+    public Task AddDrawingAsync(SvgcProjectNode beside, string path)
     {
-        if (_workspace is not { } workspace)
+        var (parent, index) = Beside(beside);
+
+        return AddDrawingsAsync(parent, index, new[] { path });
+    }
+
+    /// <summary>
+    /// Puts drawings into <paramref name="parent"/> from <paramref name="index"/> on, in the order
+    /// given, and opens the last of them.
+    /// </summary>
+    /// <remarks>
+    /// The slot is counted here rather than worked out again for each file. Asking where a drop
+    /// lands once per file keeps the order for a landing inside a group, whose end moves along with
+    /// every insert, and for one before a node, whose index moves up — but reverses it after a node,
+    /// which does not move at all, so each file would land immediately after it and push the last
+    /// one out.
+    ///
+    /// One save and one rebuild for the run, and one tab: a folder of drawings dropped on a group
+    /// is one act, and it has no business opening twenty of them.
+    /// </remarks>
+    /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
+    public async Task AddDrawingsAsync(SvgcProjectGroup parent, int index, IReadOnlyList<string> paths)
+    {
+        if (_workspace is not { } workspace || paths.Count == 0)
         {
             return;
         }
 
-        var (parent, index) = Beside(beside);
-        var drawing = parent.AddDrawing(workspace.Carry(path), index);
+        SvgcProjectDrawing? added = null;
+
+        foreach (var path in paths)
+        {
+            added = parent.AddDrawing(workspace.Carry(path), index++);
+        }
 
         workspace.Save();
-        BuildTree(drawing);
+        BuildTree(added);
 
-        await ShowAsync(drawing).ConfigureAwait(true);
+        await ShowAsync(added!).ConfigureAwait(true);
     }
 
     /// <summary>
