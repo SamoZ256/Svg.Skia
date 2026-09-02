@@ -2113,6 +2113,144 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>The row's own height, without the branch under it — as the window measures it.</summary>
+    private static double RowHeight(TreeViewItem item)
+        => item.IsExpanded
+            && item.Items.Count > 0
+            && item.Items[0] is Visual first
+            && first.TranslatePoint(new Point(0, 0), item) is { Y: > 0 } at
+                ? at.Y
+                : item.Bounds.Height;
+
+    /// <summary>Drops files a fraction of the way down a row, as a file manager would.</summary>
+    /// <remarks>
+    /// Where down the row decides what the drop means — into a group, or before or after a row — so
+    /// the point is measured against the row's own height rather than its bounds, which cover
+    /// everything under it as well.
+    ///
+    /// The drag is walked through in full: only the move over the row works out where the drop
+    /// would land, and a drop that never moved lands nowhere.
+    /// </remarks>
+    private static async Task Drop(MainWindow window, TreeViewItem row, double down, params string[] paths)
+    {
+        var carried = new DataTransfer();
+
+        foreach (var path in paths)
+        {
+            var file = await window.StorageProvider.TryGetFileFromPathAsync(path);
+
+            Assert.NotNull(file);
+
+            carried.Add(DataTransferItem.CreateFile(file!));
+        }
+
+        var at = row.TranslatePoint(new Point(12, RowHeight(row) * down), window);
+
+        Assert.NotNull(at);
+
+        foreach (var stage in new[] { RawDragEventType.DragEnter, RawDragEventType.DragOver, RawDragEventType.Drop })
+        {
+            window.DragDrop(at!.Value, stage, carried, DragDropEffects.Copy, RawInputModifiers.None);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Dropped_On_A_Group_Goes_Into_It()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await Drop(window, (TreeViewItem)root.Items[1]!, 0.5d, Write("extra.svg", Drawing));
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "Demo.Icons.Large", "badge.svg - BadgeLarge", "extra.svg" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        Assert.Contains("<svg input=\"badge.svg\" class=\"BadgeLarge\" />", File.ReadAllText(path));
+        Assert.Contains("<svg input=\"extra.svg\" />", File.ReadAllText(path));
+
+        Assert.Equal("extra.svg", Path.GetFileName((await Settle(window, "extra.svg")).DocumentPath));
+    }
+
+    /// <summary>
+    /// The order dragged, after the row dropped on.
+    /// </summary>
+    /// <remarks>
+    /// The one landing where asking twice gives the wrong answer: the row dropped after does not
+    /// move as drawings are put behind it, so a second file worked out from scratch would land
+    /// between it and the first.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Drawings_Dropped_After_A_Row_Keep_The_Order_They_Came_In()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        var before = Tabs(window).Items.Count;
+
+        await Drop(window, (TreeViewItem)root.Items[0]!, 0.9d, Write("one.svg", Drawing), Write("two.svg", Drawing));
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "one.svg", "two.svg", "Demo.Icons.Large", "badge.svg - BadgeLarge" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        // One tab for the run, on the last of them: a folder of drawings is one act.
+        Assert.Equal("two.svg", Path.GetFileName((await Settle(window, "two.svg")).DocumentPath));
+        Assert.Equal(before + 1, Tabs(window).Items.Count);
+    }
+
+    /// <summary>The tree's background is the project itself, so a drop with no row under it lands there.</summary>
+    [AvaloniaFact]
+    public async Task A_Drawing_Dropped_Below_The_Rows_Goes_To_The_Project()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        // Under everything the project has, which is still inside the tree.
+        await Drop(window, root, (root.Bounds.Height + 40d) / RowHeight(root), Write("extra.svg", Drawing));
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "Demo.Icons.Large", "badge.svg - BadgeLarge", "extra.svg" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+    }
+
+    /// <summary>
+    /// Only drawings are the tree's. Everything else is still the window's, and still opens.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Project_Dropped_On_The_Tree_Opens_As_A_Project()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        var second = Write("other.svgcproj", Project.Replace("Demo.Icons", "Demo.Other", StringComparison.Ordinal));
+
+        await Drop(window, root, 0.5d, second);
+
+        for (var attempt = 0; attempt < 200 && window.Workspace?.Name != "other.svgcproj"; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Assert.Equal("other.svgcproj", window.Workspace!.Name);
+    }
+
     [AvaloniaFact]
     public async Task A_Drawing_Dropped_On_An_Empty_Window_Opens()
     {
