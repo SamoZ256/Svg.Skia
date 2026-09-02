@@ -206,6 +206,9 @@
             <NativeMenuItem Header="Undo" Click="OnUndo" />
             <NativeMenuItem Header="Redo" Click="OnRedo" />
             <NativeMenuItemSeparator />
+            <!-- The editor's own find box, which nothing on screen said was there. -->
+            <NativeMenuItem Header="Find…" Click="OnFind" />
+            <NativeMenuItemSeparator />
             <NativeMenuItem Header="Resize…" Click="OnResize" />
           </NativeMenu>
         </NativeMenuItem.Menu>

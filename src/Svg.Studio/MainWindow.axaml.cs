@@ -1587,6 +1587,25 @@ public partial class MainWindow : Window
 
     private async void OnExport(object? sender, EventArgs e) => await ExportAsync();
 
+    private void OnFind(object? sender, EventArgs e) => Find();
+
+    /// <summary>Opens the find box of whichever editor the selected tab holds.</summary>
+    /// <remarks>
+    /// The recipe first, as <see cref="Undo"/> takes it: a recipe tab has no viewer, and a drawing's
+    /// tab has no editor but the source pane's.
+    /// </remarks>
+    public void Find()
+    {
+        if (Editing() is { } recipe)
+        {
+            recipe.Find();
+
+            return;
+        }
+
+        Selected()?.FindInSource();
+    }
+
     private void OnUndo(object? sender, EventArgs e) => Undo();
 
     private void OnRedo(object? sender, EventArgs e) => Redo();
@@ -1679,6 +1698,11 @@ public partial class MainWindow : Window
             saveAs.IsEnabled = Selected() is { Document: { } };
         }
 
+        if (Item(menu, "Find…") is { } find)
+        {
+            find.IsEnabled = Selected() is { Document: { } } || Editing() is { };
+        }
+
         // Both act on the project, and both did nothing at all when picked without one.
         foreach (var header in new[] { "Build", "Close" })
         {
@@ -1712,6 +1736,12 @@ public partial class MainWindow : Window
         if (Item(NativeMenu.GetMenu(this), "Save As…") is { } saveAs)
         {
             saveAs.Gesture = new KeyGesture(Key.S, command | KeyModifiers.Shift);
+        }
+
+        // Find is the platform's keymap's own gap too, and is written the same way.
+        if (Item(NativeMenu.GetMenu(this), "Find…") is { } find)
+        {
+            find.Gesture = new KeyGesture(Key.F, command);
         }
 
         void Show(string header, IReadOnlyList<KeyGesture> gestures)
@@ -2149,7 +2179,7 @@ public partial class MainWindow : Window
         UpdateMenu();
     }
 
-    /// <summary>Saves the drawing in the selected tab.</summary>
+    /// <summary>Saves the drawing in the selected tab, or opens the find box over its text.</summary>
     /// <remarks>
     /// The modifier follows the platform rather than being spelled Control, so this is Cmd+S on
     /// macOS and Ctrl+S everywhere else, which is what each of them means by "save".
@@ -2157,6 +2187,17 @@ public partial class MainWindow : Window
     private async void OnKeyDown(object? sender, KeyEventArgs e)
     {
         var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+
+        // Taken here rather than left to the editor, which never sees the keystroke while the
+        // drawing has focus — and would have nothing to search until the source pane was opened.
+        if (e.Key == Key.F && e.KeyModifiers == command)
+        {
+            e.Handled = true;
+
+            Find();
+
+            return;
+        }
 
         if (e.Key != Key.S)
         {
