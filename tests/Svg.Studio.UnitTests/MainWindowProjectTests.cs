@@ -2113,6 +2113,206 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>The row for a label, found wherever it sits — the tree is rebuilt after every edit.</summary>
+    private static TreeViewItem Row(MainWindow window, string label)
+        => Descend((TreeViewItem)Tree(window).Items[0]!)
+            .First(item => (string)item.Header! == label);
+
+    private static IEnumerable<TreeViewItem> Descend(TreeViewItem item)
+        => new[] { item }.Concat(item.Items.OfType<TreeViewItem>().SelectMany(Descend));
+
+    /// <summary>What the row's own menu offers, as a right click on it would show.</summary>
+    private static string[] Offers(TreeViewItem row)
+        => row.ContextMenu!.Items.OfType<MenuItem>().Select(item => (string)item.Header!).ToArray();
+
+    /// <summary>Picks a command off a row's menu.</summary>
+    private static void Pick(MainWindow window, string label, string header)
+    {
+        var item = Row(window, label).ContextMenu!.Items
+            .OfType<MenuItem>()
+            .Single(item => (string)item.Header! == header);
+
+        item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The name this platform gives the command, which is the name the menu has to use.</summary>
+    private static string Revealing => OperatingSystem.IsMacOS()
+        ? "Reveal in Finder"
+        : OperatingSystem.IsWindows()
+            ? "Reveal in File Explorer"
+            : "Open Containing Folder";
+
+    [AvaloniaFact]
+    public async Task A_Copied_Row_Is_Pasted_Where_An_Add_Would_Go()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        Pick(window, "home.svg - Home", "Copy");
+        Pick(window, "Demo.Icons.Large", "Paste");
+
+        // Into the group, at its end — and the row it was copied from stays where it was.
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "Demo.Icons.Large", "badge.svg - BadgeLarge", "home.svg - Home" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        Assert.Contains("<svg input=\"home.svg\" class=\"Home\" />\n  </group>", File.ReadAllText(path));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Cut_Row_Moves_Rather_Than_Doubling()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        Pick(window, "badge.svg - BadgeLarge", "Cut");
+        Pick(window, "home.svg - Home", "Paste");
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "badge.svg - BadgeLarge", "Demo.Icons.Large" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        // Once in the file, not twice: what was cut is not still where it was.
+        Assert.Single(window.Workspace!.Document.Root.Drawings, drawing => drawing.Input == "badge.svg");
+
+        // And nothing is left held, so the next row's menu does not offer to paste it again.
+        Assert.DoesNotContain("Paste", Offers(Row(window, "Demo.Icons.Large")));
+    }
+
+    /// <summary>The refusal a drag already makes, made the same way by a paste.</summary>
+    [AvaloniaFact]
+    public async Task A_Group_Cut_Cannot_Be_Pasted_Into_Its_Own_Branch()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        Pick(window, "Demo.Icons.Large", "Cut");
+        Pick(window, "badge.svg - BadgeLarge", "Paste");
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "Demo.Icons.Large", "badge.svg - BadgeLarge" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        Assert.Equal(Project, File.ReadAllText(path));
+    }
+
+    [AvaloniaFact]
+    public async Task Paste_Is_Offered_Only_Once_Something_Is_Held()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        Assert.DoesNotContain("Paste", Offers(Row(window, "Demo.Icons.Large")));
+
+        Pick(window, "home.svg - Home", "Copy");
+
+        Assert.Contains("Paste", Offers(Row(window, "Demo.Icons.Large")));
+    }
+
+    /// <summary>
+    /// The keys the menu shows, taken where only the tree hears them.
+    /// </summary>
+    /// <remarks>
+    /// On the tree rather than on the window: the window's own handler tunnels, so a copy taken
+    /// there would be the tree's answer to every copy in the app, the search box included.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Keys_Copy_And_Paste_The_Selected_Row()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+
+        Press(window, "home.svg - Home", Key.C, command);
+        Press(window, "Demo.Icons.Large", Key.V, command);
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "Demo.Icons.Large", "badge.svg - BadgeLarge", "home.svg - Home" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+    }
+
+    /// <summary>Selects a row and presses a key on the tree, as typing into it would.</summary>
+    private static void Press(MainWindow window, string label, Key key, KeyModifiers modifiers)
+    {
+        Tree(window).SelectedItem = Row(window, label);
+
+        Tree(window).RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = key,
+            KeyModifiers = modifiers
+        });
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The project row is the file: there is nowhere to put it and nothing to take it from.</summary>
+    [AvaloniaFact]
+    public async Task The_Project_Row_Is_Neither_Cut_Nor_Copied()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        var offers = Offers(Row(window, "Demo.Icons"));
+
+        Assert.DoesNotContain("Cut", offers);
+        Assert.DoesNotContain("Copy", offers);
+        Assert.DoesNotContain("Remove", offers);
+    }
+
+    [AvaloniaFact]
+    public async Task Revealing_A_Drawing_Shows_The_File_It_Names()
+    {
+        var drawing = Write("home.svg", Drawing);
+
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var shown = new List<string>();
+
+        window.ShowOnDisk = path => shown.Add(path);
+
+        Pick(window, "home.svg - Home", Revealing);
+
+        Assert.Equal(new[] { drawing }, shown);
+    }
+
+    /// <summary>A group is not a file, so what it shows is the project it is written in.</summary>
+    [AvaloniaFact]
+    public async Task Revealing_A_Group_Shows_The_Project()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+        var shown = new List<string>();
+
+        window.ShowOnDisk = shown.Add;
+
+        Pick(window, "Demo.Icons.Large", Revealing);
+        Pick(window, "Demo.Icons", Revealing);
+
+        Assert.Equal(new[] { path, path }, shown);
+    }
+
     /// <summary>The row's own height, without the branch under it — as the window measures it.</summary>
     private static double RowHeight(TreeViewItem item)
         => item.IsExpanded

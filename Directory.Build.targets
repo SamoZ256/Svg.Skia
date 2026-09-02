@@ -1,0 +1,34 @@
+<Project>
+
+  <PropertyGroup>
+    <TrimForeignNativeAssets Condition="'$(TrimForeignNativeAssets)' == ''">true</TrimForeignNativeAssets>
+    <_HostNativeRid Condition="$([MSBuild]::IsOSPlatform('OSX'))">osx</_HostNativeRid>
+    <_HostNativeRid Condition="$([MSBuild]::IsOSPlatform('Windows'))">win</_HostNativeRid>
+    <_HostNativeRid Condition="$([MSBuild]::IsOSPlatform('Linux'))">linux</_HostNativeRid>
+  </PropertyGroup>
+
+  <!-- SkiaSharp's native asset packages ship every runtime identifier they support, and the SDK
+       copies all of them into every project's output: 536 MB per project, of which 83 MB is a
+       single Windows libSkiaSharp.pdb. Across 67 projects that was 14.7 GB of this working copy.
+       A build with no RuntimeIdentifier can only ever load the host's own natives, so keep those
+       and drop the rest, along with native symbols nothing here debugs into.
+       Left alone when a RuntimeIdentifier is set (cross-compiling for another OS resolves exactly
+       one RID, which is then the one to keep) and while publishing (a portable publish is supposed
+       to carry every RID). Set TrimForeignNativeAssets=false to keep the lot. -->
+  <Target Name="TrimForeignNativeAssets"
+          AfterTargets="ResolveReferences"
+          BeforeTargets="_CopyFilesMarkedCopyLocal"
+          Condition="'$(TrimForeignNativeAssets)' == 'true' and
+                     '$(RuntimeIdentifier)' == '' and
+                     '$(_IsPublishing)' != 'true' and
+                     '$(_HostNativeRid)' != ''">
+    <ItemGroup>
+      <ReferenceCopyLocalPaths
+        Remove="@(ReferenceCopyLocalPaths)"
+        Condition="'%(ReferenceCopyLocalPaths.RuntimeIdentifier)' != '' and
+                   ('%(ReferenceCopyLocalPaths.Extension)' == '.pdb' or
+                    !$([System.String]::Copy('%(ReferenceCopyLocalPaths.RuntimeIdentifier)').StartsWith('$(_HostNativeRid)')))" />
+    </ItemGroup>
+  </Target>
+
+</Project>

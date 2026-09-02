@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -88,6 +90,7 @@ public partial class MainWindow : Window
         ConfirmDiscard = AskDiscard;
         ConfirmRemove = message => Ask("Remove from the project", message, "Remove", "Cancel");
         Announce = (title, message) => Ask(title, message, null, "Close");
+        ShowOnDisk = Reveal;
 
         _tabs = this.FindControl<TabControl>("Tabs")!;
         _tabs.SelectionChanged += (_, _) =>
@@ -492,6 +495,10 @@ public partial class MainWindow : Window
             // The next project opens on its own rows rather than under what was being looked for in
             // the last one. Clearing it empties the tally through the box's own handler.
             _projectSearch.Text = null;
+
+            // And nothing is left held from a project that is no longer open, which would otherwise
+            // be pasted into the next one as a row of a document it does not belong to.
+            _held = null;
         }
     }
 
@@ -570,11 +577,32 @@ public partial class MainWindow : Window
     private ContextMenu Commands(SvgcProjectNode node)
     {
         var menu = new ContextMenu();
+        var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+
+        // The project is the file; it can be neither taken out of the tree nor put back into it.
+        if (node.Parent is { })
+        {
+            Add("Cut", () => Hold(node, cut: true), new KeyGesture(Key.X, command));
+            Add("Copy", () => Hold(node, cut: false), new KeyGesture(Key.C, command));
+        }
+
+        if (_held is { })
+        {
+            Add("Paste", () => Paste(node), new KeyGesture(Key.V, command));
+        }
+
+        menu.Items.Add(new Separator());
 
         Add("Add group", async () => await AddGroupAsync(node));
         Add("Add SVG…", async () => await AddDrawingAsync(node));
 
-        // The project is the file; there is no tree left without it.
+        // A group has no file of its own, so what it shows is the project it is written in.
+        if (OnDisk(node) is { })
+        {
+            menu.Items.Add(new Separator());
+            Add(Revealing, () => ShowOnDisk(OnDisk(node)!));
+        }
+
         if (node.Parent is { })
         {
             menu.Items.Add(new Separator());
@@ -583,14 +611,71 @@ public partial class MainWindow : Window
 
         return menu;
 
-        void Add(string header, Func<Task> command)
+        void Add(string header, Action command, KeyGesture? gesture = null)
         {
-            var item = new MenuItem { Header = header };
+            var item = new MenuItem { Header = header, InputGesture = gesture };
 
-            item.Click += async (_, _) => await command();
+            item.Click += (_, _) => command();
 
             menu.Items.Add(item);
         }
+    }
+
+    /// <summary>What the file manager would be pointed at for this row, or null where nothing would.</summary>
+    /// <remarks>
+    /// A drawing is a file; a group is not, and neither is the project row, so both answer with the
+    /// project file they are written in. A project parsed from text rather than opened has no file
+    /// at all, and no row of it offers the command.
+    /// </remarks>
+    private string? OnDisk(SvgcProjectNode node) => node is SvgcProjectDrawing drawing
+        ? drawing.ResolvedInput
+        : _workspace?.Document.Path;
+
+    /// <summary>Takes a row, to be pasted somewhere else.</summary>
+    private void Hold(SvgcProjectNode node, bool cut)
+    {
+        _held = node;
+        _heldCut = cut;
+
+        // The menus were built when the tree was, and none of them offered Paste.
+        BuildTree(node);
+    }
+
+    /// <summary>
+    /// Puts what was held beside <paramref name="target"/> — the same place an Add goes.
+    /// </summary>
+    /// <remarks>
+    /// A cut is the move a drag makes, so it is refused where a drag would be refused: a group
+    /// cannot be pasted into itself or into its own branch. A copy cannot be refused at all, since
+    /// what lands is a snapshot taken before it was anywhere.
+    ///
+    /// A row cut and then removed is gone, and the hold goes with it rather than waiting to fail.
+    /// </remarks>
+    private void Paste(SvgcProjectNode target)
+    {
+        if (_workspace is not { } workspace || _held is not { } held)
+        {
+            return;
+        }
+
+        if (_heldCut)
+        {
+            if (held.Parent is { })
+            {
+                Move(held, target, target is SvgcProjectGroup ? ProjectDrop.Inside : ProjectDrop.After);
+            }
+
+            _held = null;
+            BuildTree(held.Parent is { } ? held : null);
+
+            return;
+        }
+
+        var (parent, index) = Beside(target);
+        var copy = parent.Copy(held, index);
+
+        workspace.Save();
+        BuildTree(copy);
     }
 
     /// <summary>Where something added beside <paramref name="node"/> goes: in a group, after a drawing.</summary>
@@ -749,6 +834,14 @@ public partial class MainWindow : Window
 
     /// <summary>Whether the press that is finishing was a drag, so the tap it raises opens nothing.</summary>
     private bool _rowDragged;
+
+    /// <summary>The row waiting to be pasted, and whether taking it was a cut rather than a copy.</summary>
+    /// <remarks>
+    /// The window's own, not the machine's: what is held is a row of this project, and pasting one
+    /// into a text editor would mean nothing. Nothing in the app touches the system clipboard.
+    /// </remarks>
+    private SvgcProjectNode? _held;
+    private bool _heldCut;
 
     private SvgcProjectNode? _dropOn;
     private ProjectDrop _dropWhere;
@@ -1046,6 +1139,26 @@ public partial class MainWindow : Window
     {
         if ((_projectTree.SelectedItem as TreeViewItem)?.Tag is not SvgcProjectNode node)
         {
+            return;
+        }
+
+        // Here rather than in the window's own handler, which tunnels: taken there, these would be
+        // the tree's answer to a copy anywhere in the window, including in a box being typed in.
+        var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+
+        if (e.KeyModifiers == command && e.Key is Key.X or Key.C or Key.V)
+        {
+            e.Handled = true;
+
+            if (e.Key == Key.V)
+            {
+                Paste(node);
+            }
+            else
+            {
+                Hold(node, cut: e.Key == Key.X);
+            }
+
             return;
         }
 
@@ -2096,6 +2209,54 @@ public partial class MainWindow : Window
     /// caller that only reads the message would have to pass values it ignores.
     /// </remarks>
     public Func<string, Task<bool>> ConfirmRemove { get; set; }
+
+    /// <summary>
+    /// How the window shows a file where it lives.
+    /// </summary>
+    /// <remarks>
+    /// Replaceable for the reason <see cref="ConfirmDiscard"/> is: starting another program is the
+    /// other thing a test cannot drive, and a suite that really opened Finder would leave a window
+    /// per run behind it.
+    /// </remarks>
+    public Action<string> ShowOnDisk { get; set; }
+
+    /// <summary>What the command is called here, since each desktop names its own file manager.</summary>
+    private static string Revealing => OperatingSystem.IsMacOS()
+        ? "Reveal in Finder"
+        : OperatingSystem.IsWindows()
+            ? "Reveal in File Explorer"
+            : "Open Containing Folder";
+
+    /// <summary>
+    /// Shows a file where it lives, with the file itself picked out where the platform can.
+    /// </summary>
+    /// <remarks>
+    /// Finder and Explorer both select a named file; a Linux desktop is only asked to open the
+    /// directory, since there is no command every file manager answers to for the rest of it.
+    /// Nothing is reported when it fails: the file manager is not the app's to answer for, and a
+    /// dialog about one would be worse than the shrug.
+    /// </remarks>
+    private static void Reveal(string path)
+    {
+        try
+        {
+            if (OperatingSystem.IsMacOS())
+            {
+                Process.Start("open", new[] { "-R", path });
+            }
+            else if (OperatingSystem.IsWindows())
+            {
+                Process.Start("explorer.exe", new[] { $"/select,{path}" });
+            }
+            else
+            {
+                Process.Start("xdg-open", new[] { Path.GetDirectoryName(path) ?? path });
+            }
+        }
+        catch (Exception failure) when (failure is Win32Exception or InvalidOperationException or PlatformNotSupportedException)
+        {
+        }
+    }
 
     /// <returns>Whether the tab closed, or false when its unsaved work was kept.</returns>
     private async Task<bool> CloseTabAsync(TabItem item)

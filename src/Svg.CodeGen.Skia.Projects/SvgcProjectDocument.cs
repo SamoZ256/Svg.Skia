@@ -236,6 +236,42 @@ public class SvgcProjectGroup : SvgcProjectNode
         return drawing;
     }
 
+    /// <summary>
+    /// Adds a copy of <paramref name="source"/>, with everything under it, and hands it back.
+    /// </summary>
+    /// <remarks>
+    /// Nothing but the source's element is read, so where the source sits — this group, another, or
+    /// another document — makes no difference, and the source is left exactly as it was. The copy
+    /// is read back through the readers a load uses, so the settings it carries and the children it
+    /// holds come back live rather than as XML nobody is driving.
+    ///
+    /// No guard against copying a group into itself, which <see cref="Move"/> needs: the element is
+    /// taken before the copy is anywhere, so what lands is a snapshot and cannot contain itself.
+    /// </remarks>
+    public SvgcProjectNode Copy(SvgcProjectNode source, int index)
+    {
+        if (source is SvgcProjectRoot)
+        {
+            throw new SvgcProjectException("The project itself cannot be copied.");
+        }
+
+        // Read before attaching, for the reason Move reads before moving: the whitespace that says
+        // what depth it was written at travels with the element.
+        var was = SvgcProjectDocument.Depth(source.Element);
+
+        var element = new XElement(source.Element);
+
+        var copy = element.Name.LocalName == "group"
+            ? SvgcProjectDocument.ReadGroup(element, this, BaseDirectory)
+            : (SvgcProjectNode)SvgcProjectDocument.ReadDrawing(element, this, BaseDirectory);
+
+        Attach(index, copy);
+
+        Reindent(element, was, SvgcProjectDocument.Depth(element));
+
+        return copy;
+    }
+
     /// <summary>Takes a node out of this group, with everything under it.</summary>
     public void Remove(SvgcProjectNode child)
     {
@@ -772,7 +808,7 @@ public sealed class SvgcProjectDocument
     public void Save(string path)
         => File.WriteAllText(path, ToXml(), new UTF8Encoding(ByteOrderMark));
 
-    private static SvgcProjectGroup ReadGroup(XElement element, SvgcProjectGroup parent, string baseDirectory)
+    internal static SvgcProjectGroup ReadGroup(XElement element, SvgcProjectGroup parent, string baseDirectory)
     {
         RequireKnownAttributes(element, s_groupAttributes, "group");
 
@@ -805,7 +841,7 @@ public sealed class SvgcProjectDocument
         return group;
     }
 
-    private static SvgcProjectDrawing ReadDrawing(XElement element, SvgcProjectGroup parent, string baseDirectory)
+    internal static SvgcProjectDrawing ReadDrawing(XElement element, SvgcProjectGroup parent, string baseDirectory)
     {
         RequireKnownAttributes(element, s_itemAttributes, "svg");
 
