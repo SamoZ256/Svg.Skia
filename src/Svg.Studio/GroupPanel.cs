@@ -16,7 +16,6 @@ using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
-using Svg.Expressions.Recipes;
 using Svg.Skia;
 
 namespace Svg.Studio;
@@ -357,30 +356,19 @@ public sealed class GroupPanel : UserControl
         MimeTypes = new[] { "application/xml" }
     };
 
-    /// <summary>What a new recipe is written with, above the colours it is for.</summary>
+    /// <summary>What a new recipe is written with: the root, and nothing said in it yet.</summary>
     /// <remarks>
-    /// A parameter and a let, and no rule. It applies cleanly as it stands — the declarations reach
-    /// the drawing and nothing is recoloured — so the slider is there to drag the moment the file is
-    /// made. An empty recipe would have been the safer thing to write and would have shown nothing.
+    /// The namespace and no more. A seeded parameter and let applied cleanly and put a slider on the
+    /// drawing straight away, and a survey of the colours the drawings paint was written under it as
+    /// commented-out rules — but both are somebody else's opening line to read and delete before the
+    /// file says what you meant. The root is the only part of it that cannot be typed wrong.
     /// </remarks>
     private const string Skeleton = """
         <?xml version="1.0" encoding="utf-8"?>
         <recipe xmlns="https://svg.skia/expr/1.0">
-
-          <!-- What the drawing is given, and what is worked out from it. -->
-          <code>
-            <param name="hue" type="number" default="200" min="0" max="360" />
-            <let name="accent">hsl(hue, 74%, 55%)</let>
-          </code>
+        </recipe>
 
         """;
-
-    /// <summary>How many colours a new recipe names before it starts counting instead.</summary>
-    /// <remarks>
-    /// New… on the project itself surveys every drawing it builds, and an icon set is hundreds. A
-    /// file that opened on a wall of comments would be worse than one that says how many there were.
-    /// </remarks>
-    private const int Named = 24;
 
     /// <summary>
     /// The recipe: a file, chosen with buttons rather than typed as a path.
@@ -581,78 +569,10 @@ public sealed class GroupPanel : UserControl
 
         if (!File.Exists(path))
         {
-            File.WriteAllText(path, Skeleton + Colours());
+            File.WriteAllText(path, Skeleton);
         }
 
         SetRecipe(path);
-    }
-
-    /// <summary>
-    /// The colours the drawings under this node paint, as the rules a recipe would give them.
-    /// </summary>
-    /// <remarks>
-    /// Commented out, every one. The written file has to apply as it stands, and a live rule binding
-    /// every colour to the one let above would repaint the whole set the moment it was made. What is
-    /// wanted is the list — the colours are the thing you would otherwise go and read out of the
-    /// drawings yourself, which is most of the work of starting a recipe.
-    /// </remarks>
-    private string Colours()
-    {
-        var drawings = Node is SvgcProjectGroup group ? group.Drawings : new[] { (SvgcProjectDrawing)Node };
-
-        var found = new List<string>();
-        var seen = new HashSet<int>();
-
-        foreach (var drawing in drawings)
-        {
-            IReadOnlyList<SvgRecipeSurveyColor> colours;
-
-            try
-            {
-                colours = SvgRecipeRewriter.Survey(File.ReadAllText(drawing.ResolvedInput));
-            }
-            catch (Exception failure)
-                when (failure is SvgRecipeException or IOException or UnauthorizedAccessException)
-            {
-                // A drawing that will not read is one fewer colour to offer, not a reason to refuse
-                // to write the file.
-                continue;
-            }
-
-            foreach (var colour in colours)
-            {
-                if (seen.Add(colour.Argb))
-                {
-                    found.Add(colour.Text);
-                }
-            }
-        }
-
-        if (found.Count == 0)
-        {
-            return "  <!-- One line per colour an expression above should paint. -->" + Environment.NewLine
-                   + "  <!-- <replace color=\"#3b82f6\">accent</replace> -->" + Environment.NewLine
-                   + "</recipe>" + Environment.NewLine;
-        }
-
-        var lines = new List<string>
-        {
-            found.Count == 1
-                ? "  <!-- The colour these drawings paint. Take the comment off to bind it. -->"
-                : $"  <!-- The {found.Count} colours these drawings paint. Take the comment off to bind one. -->"
-        };
-
-        lines.AddRange(found.Take(Named).Select(colour => $"  <!-- <replace color=\"{colour}\">accent</replace> -->"));
-
-        if (found.Count > Named)
-        {
-            lines.Add($"  <!-- …and {found.Count - Named} more. -->");
-        }
-
-        lines.Add("</recipe>");
-        lines.Add(string.Empty);
-
-        return string.Join(Environment.NewLine, lines);
     }
 
     /// <summary>Stops this node naming a recipe. The file itself is left alone.</summary>

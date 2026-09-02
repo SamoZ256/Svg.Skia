@@ -173,6 +173,27 @@ public class SvgRecipeRuleEditorTests
             """, Remove(recipe, "#ff0000"));
     }
 
+    /// <summary>
+    /// The shape Studio writes a new recipe in holds nothing at all, so the first rule bound in one
+    /// has no element to sit under and is measured from the root instead.
+    /// </summary>
+    [Fact]
+    public void SetRule_AddsTheFirstRuleInARecipeThatSaysNothingYet()
+    {
+        const string bare = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <recipe xmlns="https://svg.skia/expr/1.0">
+            </recipe>
+            """;
+
+        Assert.Equal("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace color="#ff0000">alert</replace>
+            </recipe>
+            """, Set(bare, "#ff0000", "alert"));
+    }
+
     [Fact]
     public void SetRule_SayingWhatItAlreadySaysIsNoEdit()
     {
@@ -314,6 +335,26 @@ public class SvgDeclarationEditorRecipeTests
                 <let name="deep">hsl(hue + 5, 71%, 40%)</let>
               </code>
             """, written);
+    }
+
+    /// <summary>The block is written into a recipe that has none, which is how one now starts.</summary>
+    [Fact]
+    public void Add_WritesTheBlockIntoARecipeThatSaysNothingYet()
+    {
+        const string bare = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <recipe xmlns="https://svg.skia/expr/1.0">
+            </recipe>
+            """;
+
+        Assert.Equal("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <code>
+                <param name="hue" type="number" default="217" />
+              </code>
+            </recipe>
+            """, Applied(bare, SvgDeclarationEditor.Add(bare, new SvgExpressionParameter("hue", ExprType.Number, "217"))));
     }
 
     [Fact]

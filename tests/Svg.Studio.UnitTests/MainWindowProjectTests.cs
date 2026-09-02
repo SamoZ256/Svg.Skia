@@ -1405,10 +1405,14 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(File.Exists(recipe));
     }
 
+    /// <summary>
+    /// A new recipe says nothing. It was written with a parameter, a let and the colours its
+    /// drawings paint listed under them as commented-out rules — an opening line to read and delete
+    /// before the file said what its author meant.
+    /// </summary>
     [AvaloniaFact]
-    public async Task A_New_Recipe_Names_The_Colours_Its_Drawings_Paint()
+    public async Task A_New_Recipe_Is_Empty()
     {
-        // Two drawings under the group, painting a colour each.
         Write("badge.svg", Drawing);
         Write("mark.svg", Drawing.Replace("#00ff00", "#ff8800", StringComparison.Ordinal));
 
@@ -1432,14 +1436,15 @@ public class MainWindowProjectTests : IDisposable
 
         var text = File.ReadAllText(written);
 
-        // The colours a recipe is for are the ones its drawings actually paint. Reading them out of
-        // the files yourself was most of the work of starting one.
-        Assert.Contains("""<!-- <replace color="#00ff00">accent</replace> -->""", text);
-        Assert.Contains("""<!-- <replace color="#ff8800">accent</replace> -->""", text);
-        Assert.Contains("The 2 colours these drawings paint", text);
+        Assert.Equal("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <recipe xmlns="https://svg.skia/expr/1.0">
+            </recipe>
 
-        // Commented, every one: the file it writes has to apply as it stands, and binding them all
-        // to the one let above would repaint the whole set the moment it was made.
+            """, text);
+
+        // Empty and still a recipe: it parses, declares nothing and repaints nothing, so the file
+        // applies as it stands rather than having to be finished before the drawing will load.
         var recipe = SvgRecipe.Parse(text);
 
         Assert.Empty(recipe.ColorRules);
@@ -1472,10 +1477,10 @@ public class MainWindowProjectTests : IDisposable
 
         var viewer = await Settle(window, "badge.svg");
 
-        // What it is written with applies as it stands: the drawing has a slider to drag before a
-        // single line of the file has been edited, which is the point of writing one at all.
+        // Empty applies as it stands too: the drawing opens through the recipe with nothing to say
+        // about it, rather than failing to load until the file has been written.
         Assert.Null(viewer.Notice);
-        Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
+        Assert.Empty(viewer.Parameters);
     }
 
     [AvaloniaFact]
