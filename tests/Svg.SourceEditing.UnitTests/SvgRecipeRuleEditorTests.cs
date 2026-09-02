@@ -98,6 +98,81 @@ public class SvgRecipeRuleEditorTests
             """, Set(bare, "#ff0000", "alert"));
     }
 
+    /// <summary>
+    /// The first rule goes after the block, not into it. A &lt;code&gt; ends at its own
+    /// &lt;/code&gt; and not at the &lt;/let&gt; of the last thing in it — measured the other way,
+    /// the rule was written inside the block, where it is not a declaration and the recipe stops
+    /// loading.
+    /// </summary>
+    [Fact]
+    public void SetRule_AddsTheFirstRuleAfterABlockThatHoldsALet()
+    {
+        const string bare = """
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <code>
+                <param name="hue" type="number" default="200" />
+                <let name="accent">hsl(hue, 74%, 55%)</let>
+              </code>
+            </recipe>
+            """;
+
+        Assert.Equal("""
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <code>
+                <param name="hue" type="number" default="200" />
+                <let name="accent">hsl(hue, 74%, 55%)</let>
+              </code>
+              <replace color="#ff0000">alert</replace>
+            </recipe>
+            """, Set(bare, "#ff0000", "alert"));
+    }
+
+    /// <summary>
+    /// A rule commented out is text, not an element, so the block does not end at the
+    /// <c>&lt;/let&gt;</c> inside the comment either. Recipes are written with their rules
+    /// commented out, so this is the shape a new one is edited in.
+    /// </summary>
+    [Fact]
+    public void SetRule_AddsTheFirstRuleAfterABlockEndingInACommentedOutLet()
+    {
+        const string bare = """
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <code>
+                <param name="hue" type="number" default="200" />
+                <!-- <let name="accent">hsl(hue, 74%, 55%)</let> -->
+              </code>
+            </recipe>
+            """;
+
+        Assert.Equal("""
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <code>
+                <param name="hue" type="number" default="200" />
+                <!-- <let name="accent">hsl(hue, 74%, 55%)</let> -->
+              </code>
+              <replace color="#ff0000">alert</replace>
+            </recipe>
+            """, Set(bare, "#ff0000", "alert"));
+    }
+
+    /// <summary>The rule taken away is the whole of it, when what it holds looks like a tag.</summary>
+    [Fact]
+    public void RemoveRule_TakesARuleWhoseExpressionIsWrittenAsCharacterData()
+    {
+        const string recipe = """
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace color="#ff0000"><![CDATA[a </ b]]></replace>
+              <replace color="#00ff00">accent</replace>
+            </recipe>
+            """;
+
+        Assert.Equal("""
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace color="#00ff00">accent</replace>
+            </recipe>
+            """, Remove(recipe, "#ff0000"));
+    }
+
     [Fact]
     public void SetRule_SayingWhatItAlreadySaysIsNoEdit()
     {

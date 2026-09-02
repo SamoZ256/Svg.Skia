@@ -521,7 +521,24 @@ public sealed class SvgExpressionDeclarations
                 return (start, open + 1 - start);
             }
 
-            var close = _text.IndexOf("</", open, StringComparison.Ordinal);
+            // Past the children first. The nearest "</" after an open tag is the last child's, not
+            // this element's — a <code> holding a <let> measured as ending at </let>, and a rule
+            // written after that span landed inside the block, where it is not a declaration.
+            var from = open;
+
+            if (element.Elements().LastOrDefault() is { } last)
+            {
+                var (nested, length) = Span(last);
+
+                if (nested < 0)
+                {
+                    return (-1, 0);
+                }
+
+                from = nested + length;
+            }
+
+            var close = Closing(from);
 
             if (close < 0)
             {
@@ -532,6 +549,41 @@ public sealed class SvgExpressionDeclarations
 
             return end < 0 ? (-1, 0) : (start, end + 1 - start);
         }
+
+        /// <summary>Where the next closing tag from <paramref name="from"/> is written.</summary>
+        /// <remarks>
+        /// A comment and a CDATA section hold text, not markup, and either can hold "&lt;/" — a
+        /// recipe teaches commenting a rule out, so a &lt;code&gt; whose last live child is followed
+        /// by a commented-out &lt;let&gt; is the ordinary case rather than a contrived one.
+        /// </remarks>
+        private int Closing(int from)
+        {
+            for (var at = _text.IndexOf('<', from); at >= 0; at = _text.IndexOf('<', at))
+            {
+                if (Starts(at, "</"))
+                {
+                    return at;
+                }
+
+                var past = Starts(at, "<!--") ? _text.IndexOf("-->", at, StringComparison.Ordinal) + 3
+                    : Starts(at, "<![CDATA[") ? _text.IndexOf("]]>", at, StringComparison.Ordinal) + 3
+                    : _text.IndexOf('>', at) + 1;
+
+                // Unterminated, and the arithmetic above turns the reader's -1 into a position at or
+                // behind where the search began — which is also what would loop here forever.
+                if (past <= at)
+                {
+                    return -1;
+                }
+
+                at = past;
+            }
+
+            return -1;
+        }
+
+        private bool Starts(int at, string text)
+            => string.CompareOrdinal(_text, at, text, 0, text.Length) == 0;
 
         /// <summary>Where <paramref name="element"/>'s content begins, just inside its open tag.</summary>
         /// <remarks>
