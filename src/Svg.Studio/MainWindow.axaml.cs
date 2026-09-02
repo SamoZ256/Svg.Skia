@@ -308,6 +308,69 @@ public partial class MainWindow : Window
     public ProjectWorkspace? Workspace => _workspace;
 
     /// <summary>
+    /// What a new project holds: nothing, on the two lines a first drawing is written between.
+    /// </summary>
+    /// <remarks>
+    /// No namespace, because the build already defaults one and a guess written into the file would
+    /// have to be found and corrected rather than simply typed. Empty rather than a template with a
+    /// drawing in it: the input would name a file that is not there, and the project would not open.
+    /// </remarks>
+    private const string Skeleton = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<svgc>\n</svgc>\n";
+
+    private async void OnNewProject(object? sender, EventArgs e) => await NewProjectAsync();
+
+    /// <summary>Asks where to write a project, writes it, and opens it.</summary>
+    private async Task NewProjectAsync()
+    {
+        if (StorageProvider is not { CanSave: true })
+        {
+            return;
+        }
+
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "New project",
+            SuggestedFileName = "project.svgcproj",
+            DefaultExtension = "svgcproj",
+            FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
+        }).ConfigureAwait(true);
+
+        if (file?.TryGetLocalPath() is { Length: > 0 } path)
+        {
+            await NewProjectAsync(path).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>Writes an empty project at <paramref name="path"/> and opens it.</summary>
+    /// <remarks>
+    /// Taking the path rather than asking for it, so everything but the picker can be driven. A file
+    /// already there is opened rather than written over — the save panel has asked about replacing
+    /// it, but emptying a project somebody wrote is never what picking its name meant.
+    /// </remarks>
+    public async Task NewProjectAsync(string path)
+    {
+        if (path is null)
+        {
+            throw new ArgumentNullException(nameof(path));
+        }
+
+        if (!File.Exists(path))
+        {
+            try
+            {
+                File.WriteAllText(path, Skeleton);
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            {
+                await Announce("The project couldn't be created", failure.Message).ConfigureAwait(true);
+                return;
+            }
+        }
+
+        await OpenProjectAsync(path).ConfigureAwait(true);
+    }
+
+    /// <summary>
     /// Opens a project into the pane.
     /// </summary>
     /// <remarks>
@@ -2498,7 +2561,7 @@ public partial class MainWindow : Window
         /// <c>public.xml</c> was a claim about it that no machine agrees with, narrowing the filter
         /// to files macOS reads as XML rather than widening it. The extension is what matches.
         /// </remarks>
-        private static readonly FilePickerFileType ProjectFileType = new("Svgc Projects")
+        internal static readonly FilePickerFileType Projects = new("Svgc Projects")
         {
             Patterns = new[] { "*.svgcproj" },
             MimeTypes = new[] { "application/xml" }
@@ -2533,7 +2596,7 @@ public partial class MainWindow : Window
             {
                 Title = "Open drawing or project",
                 AllowMultiple = false,
-                FileTypeFilter = new List<FilePickerFileType> { OpenableFileType, Drawings, ProjectFileType, AllFileType }
+                FileTypeFilter = new List<FilePickerFileType> { OpenableFileType, Drawings, Projects, AllFileType }
             }).ConfigureAwait(true);
 
             return files?.Select(file => file.TryGetLocalPath())

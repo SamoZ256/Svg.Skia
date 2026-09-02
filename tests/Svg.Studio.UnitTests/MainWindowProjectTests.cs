@@ -2626,6 +2626,86 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(expected, ((ISolidColorBrush)area.CaretBrush!).Color);
     }
 
+    /// <summary>A window with nothing open, which is what New… is picked from.</summary>
+    private static MainWindow Empty()
+    {
+        var window = new MainWindow();
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        return window;
+    }
+
+    /// <summary>
+    /// New: the project Open cannot reach, because it is not written yet.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_New_Project_Is_Written_And_Opened()
+    {
+        var path = Path.Combine(_directory, "fresh.svgcproj");
+        var window = Empty();
+
+        await window.NewProjectAsync(path);
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(File.Exists(path));
+        Assert.Equal("fresh.svgcproj", window.Workspace!.Name);
+        Assert.Empty(window.Workspace.Document.Root.Drawings);
+
+        // The tree is the project row and nothing under it: a new project holds no drawings.
+        Assert.Equal(new[] { "Project" }, Rows((TreeViewItem)Tree(window).Items[0]!));
+    }
+
+    /// <summary>
+    /// The empty root is somewhere to write into: the first drawing lands indented under it rather
+    /// than level with it, which is what an element written with no sibling to copy risks.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Drawing_Added_To_A_New_Project_Is_Written_Under_It()
+    {
+        var drawing = Write("home.svg", Drawing);
+        var path = Path.Combine(_directory, "fresh.svgcproj");
+        var window = Empty();
+
+        await window.NewProjectAsync(path);
+
+        Dispatcher.UIThread.RunJobs();
+
+        await Drop(window, (TreeViewItem)Tree(window).Items[0]!, 0.5d, drawing);
+
+        for (var attempt = 0; attempt < 200 && !window.Workspace!.Document.Root.Drawings.Any(); attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Assert.Single(window.Workspace!.Document.Root.Drawings);
+        Assert.Contains("\n  <svg ", File.ReadAllText(path), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// New over a project that is already there opens it. The save panel asked about replacing the
+    /// file; emptying somebody's project is not what answering yes to that meant.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_New_Project_Over_One_That_Exists_Opens_It()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = Empty();
+
+        await window.NewProjectAsync(path);
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal("Demo.Icons", window.Workspace!.Document.Root.Namespace);
+    }
+
     /// <summary>Waits for the tab holding <paramref name="name"/> to have finished loading.</summary>
     private static async Task<SvgViewer> Settle(MainWindow window, string name)
     {
