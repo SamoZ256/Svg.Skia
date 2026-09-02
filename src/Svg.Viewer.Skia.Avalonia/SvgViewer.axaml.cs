@@ -793,6 +793,12 @@ public partial class SvgViewer : UserControl
 
     // ---- drag and drop ------------------------------------------------------------------------
 
+    /// <remarks>
+    /// Marked handled where it is taken, so that a host with a drop target of its own behind this
+    /// one — a window that opens a file dropped anywhere on it — does not open the same files a
+    /// second time as the event carries on past. A drag this cannot take is left unhandled for that
+    /// same host to answer.
+    /// </remarks>
     private static void OnDragOver(object? sender, DragEventArgs e)
     {
         e.DragEffects &= DragDropEffects.Copy | DragDropEffects.Link;
@@ -800,9 +806,14 @@ public partial class SvgViewer : UserControl
         if (e.DataTransfer?.TryGetFiles() is not { Length: > 0 })
         {
             e.DragEffects = DragDropEffects.None;
+
+            return;
         }
+
+        e.Handled = true;
     }
 
+    /// <inheritdoc cref="OnDragOver"/>
     private async void OnDrop(object? sender, DragEventArgs e)
     {
         var paths = e.DataTransfer?.TryGetFiles()
@@ -813,6 +824,8 @@ public partial class SvgViewer : UserControl
 
         if (paths is { Count: > 0 })
         {
+            e.Handled = true;
+
             await OpenAsync(paths).ConfigureAwait(true);
         }
     }

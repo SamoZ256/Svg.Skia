@@ -8,9 +8,11 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Input.Raw;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -2079,6 +2081,83 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(save.IsEnabled);
+    }
+
+    /// <summary>Drops <paramref name="path"/> on the middle of the window, as a file manager would.</summary>
+    /// <remarks>
+    /// A real drop rather than a call to the handler: what was broken is hit testing — where the
+    /// event is raised when there is nothing painted under the pointer — and calling the handler
+    /// asserts none of that.
+    /// </remarks>
+    private static async Task Drop(MainWindow window, string path)
+    {
+        var file = await window.StorageProvider.TryGetFileFromPathAsync(path);
+
+        Assert.NotNull(file);
+
+        var carried = new DataTransfer();
+
+        carried.Add(DataTransferItem.CreateFile(file!));
+
+        var at = new Point(window.Width / 2d, window.Height / 2d);
+
+        window.DragDrop(at, RawDragEventType.DragEnter, carried, DragDropEffects.Copy, RawInputModifiers.None);
+        window.DragDrop(at, RawDragEventType.Drop, carried, DragDropEffects.Copy, RawInputModifiers.None);
+
+        for (var attempt = 0; attempt < 200 && Tabs(window).Items.Count == 0; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Dropped_On_An_Empty_Window_Opens()
+    {
+        var drawing = Write("home.svg", Drawing);
+
+        var window = new MainWindow();
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // Nothing is open, so nothing paints where a tab's drawing would be. The tab that used to
+        // always be there was the drop target, and taking it away took the target with it.
+        Assert.Empty(Tabs(window).Items);
+
+        await Drop(window, drawing);
+
+        Assert.Equal("home.svg", Path.GetFileName((await Settle(window, "home.svg")).DocumentPath));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Dropped_On_One_That_Is_Open_Opens_Once()
+    {
+        Write("home.svg", Drawing);
+
+        var badge = Write("badge.svg", Drawing.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
+
+        var window = new MainWindow();
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        await window.OpenAsync(new[] { Path.Combine(_directory, "home.svg") });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Single(Tabs(window).Items);
+
+        await Drop(window, badge);
+
+        // Twice would be the ordinary outcome: the viewer takes a drop on itself and the window
+        // takes everything else, and the same drop reaches both unless the viewer says it is done.
+        for (var attempt = 0; attempt < 200 && Tabs(window).Items.Count < 2; attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Assert.Equal(2, Tabs(window).Items.Count);
     }
 
     [AvaloniaFact]

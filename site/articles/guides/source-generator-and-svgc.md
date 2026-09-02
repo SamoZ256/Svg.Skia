@@ -295,8 +295,9 @@ svgc --projectFile ./icons.svgcproj
   emitted expression helpers. Without it, each `<svg>` needs its own `output`.
 - A command line flag beats the project file, which beats the built-in default.
 
-`src/Svg.Studio` opens a project as well as a drawing — `File → Open`, a drop, or as a command line
-argument. It opens as a workspace rather than as a document: the group tree goes in a pane beside the
+`src/Svg.Studio` opens a project as well as a drawing — `File → Open`, a drop anywhere on the window
+including an empty one, or as a command line argument. `File → Save` writes whatever the selected tab
+is holding, and `Save As…` writes the open drawing somewhere new and points its tab at it. It opens as a workspace rather than as a document: the group tree goes in a pane beside the
 tabs and the project itself takes no tab, one project at a time, closed with `Project → Close`.
 Clicking a node opens it — a drawing in a viewer **at the size its groups build it at** rather than
 the one it was written with, a group as its settings and what they come to. A double click is left

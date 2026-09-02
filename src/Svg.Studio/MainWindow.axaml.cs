@@ -122,6 +122,12 @@ public partial class MainWindow : Window
         _tabs.AddHandler(PointerReleasedEvent, OnTabPointerReleased, RoutingStrategies.Tunnel);
         _tabs.AddHandler(PointerCaptureLostEvent, (_, _) => EndDrag(null));
 
+        // On the window and not on the shell inside it: neither the shell nor the tab strip's
+        // template paints where a tab's content would be, and a panel with no background is not hit
+        // tested — so a drop on an empty window lands on the window's own chrome, above them both.
+        AddHandler(DragDrop.DragOverEvent, OnFilesDragOver);
+        AddHandler(DragDrop.DropEvent, OnFilesDropped);
+
         ShowMenuGestures();
         UpdateMenu();
 
@@ -235,6 +241,46 @@ public partial class MainWindow : Window
             await viewer.LoadAsync(path).ConfigureAwait(true);
         }
     }
+
+    /// <summary>
+    /// Takes a file dropped anywhere on the window, wherever there is nothing else to take it.
+    /// </summary>
+    /// <remarks>
+    /// A drawing's viewer answers a drop on itself and marks it taken, so this is what is left: the
+    /// empty window, the tab strip, and the project pane. It used to be that a window always held a
+    /// viewer, so the drop target was wherever the drawing was — and a window with nothing open had
+    /// nowhere to drop at all.
+    ///
+    /// Only a drag carrying files. A row being dragged in the project tree passes through here too,
+    /// and it neither carries files nor is finished with: touching its effects would show it as
+    /// refused all the way across the tree.
+    /// </remarks>
+    private void OnFilesDragOver(object? sender, DragEventArgs e)
+    {
+        if (e.DataTransfer?.TryGetFiles() is { Length: > 0 })
+        {
+            e.DragEffects &= DragDropEffects.Copy | DragDropEffects.Link;
+        }
+    }
+
+    /// <inheritdoc cref="OnFilesDragOver"/>
+    private async void OnFilesDropped(object? sender, DragEventArgs e)
+    {
+        if (Dropped(e) is { Count: > 0 } paths)
+        {
+            e.Handled = true;
+
+            await OpenAsync(paths).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>The local paths a drag is carrying, or none where it carries no files.</summary>
+    private static List<string>? Dropped(DragEventArgs e)
+        => e.DataTransfer?.TryGetFiles()
+            ?.Select(file => file.TryGetLocalPath())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!)
+            .ToList();
 
     /// <summary>Whether a path names an svgc project rather than a drawing.</summary>
     private static bool IsProject(string path)
