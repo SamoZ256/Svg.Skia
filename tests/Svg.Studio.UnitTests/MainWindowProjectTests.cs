@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Skia;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -233,13 +233,15 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(Write("icons.svgcproj", Project));
 
         // The project row opens as a tab of its own, and it is a group like any other.
-        var cells = Cells(Panel(window, "Demo.Icons"));
+        var drawn = Drawn(Panel(window, "Demo.Icons"));
 
-        Assert.Equal(
-            new[] { "home.svg", "badge.svg" },
-            cells.Select(cell => Path.GetFileName(((SvgcProjectDrawing)cell.Tag!).Input)).ToArray());
+        Assert.Equal(2, drawn.Count);
+        Assert.All(drawn, placed => Assert.NotNull(Picture(placed)));
 
-        Assert.All(cells, cell => Assert.NotNull(Picture(cell)));
+        // In the order the project builds them, and not one on top of another.
+        Assert.StartsWith("home.svg", drawn[0].Label);
+        Assert.StartsWith("badge.svg", drawn[1].Label);
+        Assert.NotEqual(drawn[0].At, drawn[1].At);
     }
 
     [AvaloniaFact]
@@ -253,10 +255,10 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(
             new[]
             {
-                "home.svg  →  Demo.Icons.Home   as written",
-                "badge.svg  →  Demo.Icons.Large.BadgeLarge   ×2"
+                "home.svg\nDemo.Icons.Home   as written",
+                "badge.svg\nDemo.Icons.Large.BadgeLarge   ×2"
             },
-            Cells(Panel(window, "Demo.Icons")).Select(Caption).ToArray());
+            Drawn(Panel(window, "Demo.Icons")).Select(placed => placed.Label).ToArray());
     }
 
     /// <summary>The whole branch, which is what the group builds.</summary>
@@ -272,12 +274,12 @@ public class MainWindowProjectTests : IDisposable
 
         // The project row shows both; the group under it shows the one it holds. Read before the
         // tab is switched, since a panel that is not the one being looked at holds no pictures.
-        Assert.Equal(2, Cells(Panel(window, "Demo.Icons")).Length);
+        Assert.Equal(2, Drawn(Panel(window, "Demo.Icons")).Count);
 
         await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Single(Cells(Panel(window, "Demo.Icons.Large")));
+        Assert.Single(Drawn(Panel(window, "Demo.Icons.Large")));
     }
 
     /// <summary>
@@ -294,16 +296,12 @@ public class MainWindowProjectTests : IDisposable
         Write("badge.svg", Drawing);
 
         var window = await Host(Write("icons.svgcproj", Project));
-        var cells = Cells(Panel(window, "Demo.Icons"));
+        var drawn = Drawn(Panel(window, "Demo.Icons"));
 
-        // The fixture is 24 square; the group builds it at ×2.
-        Assert.Equal(24f, Picture(cells[0])!.CullRect.Width);
-        Assert.Equal(48f, Picture(cells[1])!.CullRect.Width);
-
-        // The canvas is scaled as one, so the larger is twice the smaller whatever the factor is —
-        // and the largest fills the box a drawing is given.
-        Assert.Equal(256d, Box(cells[1]).Width);
-        Assert.Equal(128d, Box(cells[0]).Width);
+        // The fixture is 24 square; the group builds it at ×2. Nothing is fitted to a tile: the
+        // canvas is placed in drawing units and its own zoom is what makes the spread fit.
+        Assert.Equal(24f, Picture(drawn[0])!.CullRect.Width);
+        Assert.Equal(48f, Picture(drawn[1])!.CullRect.Width);
     }
 
     [AvaloniaFact]
@@ -322,10 +320,10 @@ public class MainWindowProjectTests : IDisposable
 
         var panel = Panel(window, "Empty");
 
-        Assert.Empty(Cells(panel));
+        Assert.Empty(Drawn(panel));
         Assert.Contains(
             panel.GetVisualDescendants().OfType<TextBlock>(),
-            block => block.Text == "This group holds no drawings.");
+            block => block.Text == "This group holds no drawings." && block.IsVisible);
     }
 
     [AvaloniaFact]
@@ -335,14 +333,15 @@ public class MainWindowProjectTests : IDisposable
         Write("badge.svg", "not a drawing at all");
 
         var window = await Host(Write("icons.svgcproj", Project));
-        var cells = Cells(Panel(window, "Demo.Icons"));
+        var panel = Panel(window, "Demo.Icons");
 
-        // Both rows are still there, and the one that reads still draws.
-        Assert.Equal(2, cells.Length);
-        Assert.NotNull(Picture(cells[0]));
-        Assert.Null(Picture(cells[1]));
+        // The one that reads is still drawn, and the one that does not is said out loud.
+        Assert.Single(Drawn(panel));
+        Assert.StartsWith("home.svg", Drawn(panel)[0].Label);
 
-        Assert.NotNull(ToolTip.GetTip(cells[1]));
+        Assert.Contains(
+            panel.GetVisualDescendants().OfType<TextBlock>(),
+            block => block.IsVisible && block.Text is { } said && said.StartsWith("badge.svg could not be read"));
     }
 
     /// <summary>
@@ -361,20 +360,20 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(Write("icons.svgcproj", Project));
         var panel = Panel(window, "Demo.Icons");
 
-        Assert.Equal(2, Cells(panel).Length);
+        Assert.Equal(2, Drawn(panel).Count);
 
         var root = (TreeViewItem)Tree(window).Items[0]!;
 
         await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Empty(Cells(panel));
+        Assert.Empty(Drawn(panel));
 
         Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>()
             .Single(item => ReferenceEquals(item.Content, panel));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.All(Cells(panel), cell => Assert.NotNull(Picture(cell)));
+        Assert.All(Drawn(panel), placed => Assert.NotNull(Picture(placed)));
     }
 
     /// <summary>
@@ -393,11 +392,11 @@ public class MainWindowProjectTests : IDisposable
         var recipe = Write("icons.recipe", RedRecipe);
         var window = await Host(Write("icons.svgcproj", RecipeProject));
         var panel = Panel(window, "Demo.Icons");
-        var cells = Cells(panel);
+        var drawn = Drawn(panel);
 
         // home.svg is outside the group the recipe is on, so nothing rewrites it.
-        Assert.Equal(SKColors.Lime, Centre(Picture(cells[0])!));
-        Assert.Equal(SKColors.Red, Centre(Picture(cells[1])!));
+        Assert.Equal(SKColors.Lime, Centre(Picture(drawn[0])!));
+        Assert.Equal(SKColors.Red, Centre(Picture(drawn[1])!));
 
         window.ShowRecipe(recipe).Workspace.Document.Text = RedRecipe.Replace("\"0\"", "\"240\"");
         Dispatcher.UIThread.RunJobs();
@@ -408,7 +407,7 @@ public class MainWindowProjectTests : IDisposable
             .Single(item => ReferenceEquals(item.Content, panel));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(SKColors.Blue, Centre(Picture(Cells(panel)[1])!));
+        Assert.Equal(SKColors.Blue, Centre(Picture(Drawn(panel)[1])!));
     }
 
     /// <summary>The colour in the middle of a drawing, which for the fixture is all of it.</summary>
@@ -425,20 +424,81 @@ public class MainWindowProjectTests : IDisposable
         return bitmap.GetPixel(bitmap.Width / 2, bitmap.Height / 2);
     }
 
-    /// <summary>What one cell is: a box with the drawing in it, and the line under it.</summary>
-    private static Control[] Cells(GroupPanel panel)
-        => panel.GetVisualDescendants()
-            .OfType<Control>()
-            .Where(control => control.Tag is SvgcProjectDrawing)
-            .ToArray();
+    /// <summary>
+    /// The canvas is a canvas: it zooms, it fits, and it outlines what it holds.
+    /// </summary>
+    /// <remarks>
+    /// The viewer's surface rather than a second one written here, so the gestures, the clamps and
+    /// the outline are the ones a drawing's own tab has — these press the buttons that drive it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Canvas_Zooms_And_Outlines_Like_A_Drawings_Own()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
 
-    private static Border Box(Control cell) => cell.GetVisualDescendants().OfType<Border>().First();
+        var window = await Host(Write("icons.svgcproj", Project));
+        var panel = Panel(window, "Demo.Icons");
+        var canvas = Canvas(panel);
 
-    private static SKPicture? Picture(Control cell)
-        => cell.GetVisualDescendants().OfType<SKPictureControl>().FirstOrDefault()?.Picture;
+        var fitted = canvas.Scale;
 
-    private static string? Caption(Control cell)
-        => cell.GetVisualDescendants().OfType<TextBlock>().Last().Text;
+        Assert.True(fitted > 0d);
+
+        Press(panel, "+");
+        Assert.True(canvas.Scale > fitted);
+
+        Press(panel, "−");
+        Assert.Equal(fitted, canvas.Scale, 6);
+
+        // One drawing unit per pixel, whatever the pane is; and back to the fit.
+        Press(panel, "1:1");
+        Assert.Equal(1d, canvas.Scale, 6);
+
+        Press(panel, "Fit");
+        Assert.Equal(fitted, canvas.Scale, 6);
+
+        // Outlines are on to begin with — a drawing with transparent margins ends where the eye
+        // cannot see — and the button turns them off.
+        Assert.True(canvas.ShowBounds);
+
+        Toggle(panel, "Bounds");
+        Assert.False(canvas.ShowBounds);
+
+        Toggle(panel, "Bounds");
+        Assert.True(canvas.ShowBounds);
+    }
+
+    /// <summary>Presses one of the canvas's own buttons.</summary>
+    private static void Press(GroupPanel panel, string content)
+    {
+        panel.GetVisualDescendants()
+            .OfType<Button>()
+            .First(button => Equals(button.Content, content))
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void Toggle(GroupPanel panel, string content)
+    {
+        var button = panel.GetVisualDescendants()
+            .OfType<ToggleButton>()
+            .First(candidate => Equals(candidate.Content, content));
+
+        button.IsChecked = !(button.IsChecked == true);
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The one canvas a group tab draws on.</summary>
+    private static SvgViewerCanvas Canvas(GroupPanel panel)
+        => panel.GetVisualDescendants().OfType<SvgViewerCanvas>().Single();
+
+    /// <summary>What is on it, in the order it was placed.</summary>
+    private static IReadOnlyList<SvgViewerPlacement> Drawn(GroupPanel panel) => Canvas(panel).Placements;
+
+    private static SKPicture? Picture(SvgViewerPlacement placed) => placed.Svg.Picture;
 
     [AvaloniaFact]
     public async Task Clicking_A_Second_Group_Opens_It_Without_Folding_Either()
@@ -1626,9 +1686,17 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>The buttons on a panel's recipe row, by what they are labelled.</summary>
+    /// <summary>
+    /// What the settings pane offers about the recipe.
+    /// </summary>
+    /// <remarks>
+    /// Scoped to the pane, which is the scrolled half: the canvas beside it has buttons of its own,
+    /// and taking every button in the panel would be reading the zoom controls as recipe commands.
+    /// </remarks>
     private static string[] RecipeButtons(GroupPanel panel)
         => panel.GetVisualDescendants()
             .OfType<Button>()
+            .Where(button => button.GetVisualAncestors().OfType<Control>().Any(above => above.Name == "Settings"))
             .Select(button => button.Content as string)
             .Where(content => content is { })
             .ToArray()!;
