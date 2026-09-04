@@ -9,14 +9,18 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
+using SkiaSharp;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
+using Svg.Expressions;
 using Svg.Skia;
+using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
 
@@ -32,9 +36,42 @@ namespace Svg.Studio;
 /// </remarks>
 public sealed class GroupPanel : UserControl
 {
-    private readonly StackPanel _properties = new() { Spacing = 8, Margin = new Thickness(10) };
-    private readonly StackPanel _summary = new() { Spacing = 2, Margin = new Thickness(10) };
+    // Named because the canvas beside it has buttons of its own, and a test asking what the settings
+    // offer has to be able to say which half it means.
+    private readonly StackPanel _properties = new() { Name = "Settings", Spacing = 8, Margin = new Thickness(10) };
+    private readonly SvgViewerCanvas _canvas = new();
     private readonly TextBlock _heading = new() { FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 10, 10, 0) };
+
+    private readonly TextBlock _zoom = new()
+    {
+        Width = 64,
+        VerticalAlignment = VerticalAlignment.Center,
+        TextAlignment = TextAlignment.Center,
+        FontFamily = new FontFamily("Menlo, Consolas, monospace"),
+        Text = "100%"
+    };
+
+    private readonly TextBlock _notice = new()
+    {
+        IsVisible = false,
+        Margin = new Thickness(10, 0, 10, 6),
+        TextWrapping = TextWrapping.Wrap,
+        Opacity = 0.65
+    };
+
+    /// <summary>The drawings on the canvas.</summary>
+    /// <remarks>
+    /// Held because a picture belongs to the document that built it: the canvas only borrows one, so
+    /// both have to be let go together, in that order.
+    /// </remarks>
+    private readonly List<SvgViewerDocument> _loaded = new();
+
+    /// <summary>Whether this is the tab being looked at.</summary>
+    /// <remarks>
+    /// A tab's content leaves the visual tree when another tab is picked, so this is the whole of
+    /// when the pictures are worth having — and every save refreshes every open panel.
+    /// </remarks>
+    private bool _watched;
 
     /// <summary>Edits typed here and not yet written to the project, by setting name.</summary>
     /// <remarks>
@@ -68,10 +105,18 @@ public sealed class GroupPanel : UserControl
         };
 
         var centre = new DockPanel();
+        var tools = Tools();
 
         centre.Children.Add(_heading);
         DockPanel.SetDock(_heading, Dock.Top);
-        centre.Children.Add(new ScrollViewer { Content = _summary });
+
+        centre.Children.Add(tools);
+        DockPanel.SetDock(tools, Dock.Top);
+
+        centre.Children.Add(_notice);
+        DockPanel.SetDock(_notice, Dock.Top);
+
+        centre.Children.Add(_canvas);
 
         grid.Children.Add(centre);
 
@@ -122,6 +167,14 @@ public sealed class GroupPanel : UserControl
     /// project's files are shown is the window's business, not a settings pane's.
     /// </remarks>
     public event EventHandler<string>? RecipeOpened;
+
+    /// <summary>What a drawing's text goes through on its way to being drawn, or null to draw the file.</summary>
+    /// <remarks>
+    /// A hook rather than a recipe path, so the canvas draws what the drawing's own tab draws: the
+    /// host renders through an open buffer, and reading the file here would show a recipe as it was
+    /// last saved rather than as it is being typed.
+    /// </remarks>
+    public Func<SvgcProjectDrawing, string, string>? Rewrite { get; set; }
 
     /// <summary>Writes what was typed here into the project, and the project to its file.</summary>
     public void Save()
@@ -218,40 +271,266 @@ public sealed class GroupPanel : UserControl
     {
         _heading.Text = ProjectWorkspace.Label(Node);
 
-        if (Node is SvgcProjectGroup)
+        if (Node is SvgcProjectGroup && _watched)
         {
-            ShowSummary();
+            ShowDrawings();
         }
 
         ShowProperties(Node);
     }
 
-    private void ShowSummary()
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        _summary.Children.Clear();
+        base.OnAttachedToVisualTree(e);
+
+        _watched = true;
+
+        if (Node is SvgcProjectGroup)
+        {
+            ShowDrawings();
+        }
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnDetachedFromVisualTree(e);
+
+        _watched = false;
+
+        Release();
+    }
+
+    /// <summary>What the group builds, drawn on one canvas.</summary>
+    /// <remarks>
+    /// Laid out at the sizes the project builds them at, with nothing scaled to fit: the canvas has
+    /// a zoom of its own, so a spread that is true to itself can be looked at whole or up close, and
+    /// a drawing built at ×4 stands four times one built at ×1 wherever the zoom is. That difference
+    /// is what a group's settings do, and the question a group tab exists to answer.
+    /// </remarks>
+    private void ShowDrawings()
+    {
+        Release();
 
         var drawings = ((SvgcProjectGroup)Node).Drawings.ToList();
 
         if (drawings.Count == 0)
         {
-            _summary.Children.Add(new TextBlock { Text = "This group holds no drawings.", Opacity = 0.65 });
+            Says("This group holds no drawings.");
             return;
         }
 
-        foreach (var drawing in drawings)
-        {
-            var name = drawing.EffectiveNamespace is { } space && drawing.EffectiveClass is { } className
-                ? $"{space}.{className}"
-                : drawing.EffectiveClass ?? drawing.EffectiveNamespace ?? "(unnamed)";
+        var built = drawings.Select(Draw).ToList();
 
-            _summary.Children.Add(new TextBlock
+        Says(Trouble(built));
+
+        _canvas.Show(Spread(built.Where(drawn => drawn.Svg is { }).ToList()));
+    }
+
+    /// <summary>One drawing built the way the project builds it, or why it could not be.</summary>
+    private Drawn Draw(SvgcProjectDrawing drawing)
+    {
+        try
+        {
+            var document = SvgViewerDocument.Load(
+                drawing.ResolvedInput,
+                ProjectWorkspace.SizeOf(drawing),
+                Rewrite is { } rewrite ? text => rewrite(drawing, text) : null);
+
+            _loaded.Add(document);
+
+            // The declared defaults. A plain load leaves a drawing with expressions in it rendering
+            // its placeholders, which is not what the project builds; a parameter with no default at
+            // all is refused, and placeholders are then the honest answer.
+            try
             {
-                Text = $"{Path.GetFileName(drawing.Input)}  →  {name}   {Size(drawing)}",
-                FontFamily = new FontFamily("Menlo, Consolas, monospace"),
-                FontSize = 12
-            });
+                document.Svg.SetExpressionValues(new Dictionary<string, ExprValue>());
+            }
+            catch (ExprException)
+            {
+            }
+
+            return new Drawn(drawing, document.Svg, document.Svg.Picture?.CullRect.Size ?? default, null);
+        }
+        catch (Exception failure)
+        {
+            // Anything: this is user data reaching a parser, and it arrives as an XmlException, a
+            // FormatException, one of the IO exceptions or the loader's own refusal. A narrower set
+            // would eventually let one through, and one bad drawing would cost the whole tab.
+            return new Drawn(drawing, null, default, failure.Message);
         }
     }
+
+    /// <summary>
+    /// Where each drawing goes: a grid as square as the count allows, every row standing on a line.
+    /// </summary>
+    /// <remarks>
+    /// A column is as wide as the widest thing in it, caption included — measured rather than
+    /// guessed, since a caption is usually wider than the icon it names and two that overlap say
+    /// less than either. Sizes are in drawing units throughout: the canvas is what turns them into
+    /// pixels, and it is the only thing that knows how big the pane is.
+    /// </remarks>
+    private static IReadOnlyList<SvgViewerPlacement> Spread(IReadOnlyList<Drawn> drawn)
+    {
+        if (drawn.Count == 0)
+        {
+            return Array.Empty<SvgViewerPlacement>();
+        }
+
+        var columns = (int)Math.Ceiling(Math.Sqrt(drawn.Count));
+        var rows = (int)Math.Ceiling(drawn.Count / (double)columns);
+
+        var largest = drawn.Max(one => Math.Max(one.Size.Width, one.Size.Height));
+        var label = Math.Max(largest * 0.05f, 1f);
+        var gap = label * 2f;
+
+        using var font = new SKFont(SKTypeface.Default, label);
+
+        var captions = drawn.Select(one => Caption(one.Drawing)).ToList();
+        var widths = new float[columns];
+        var heights = new float[rows];
+
+        for (var index = 0; index < drawn.Count; index++)
+        {
+            var wanted = Math.Max(drawn[index].Size.Width, Widest(font, captions[index]));
+
+            widths[index % columns] = Math.Max(widths[index % columns], wanted);
+            heights[index / columns] = Math.Max(heights[index / columns], drawn[index].Size.Height);
+        }
+
+        var placed = new List<SvgViewerPlacement>(drawn.Count);
+        var y = 0f;
+
+        for (var row = 0; row < rows; row++)
+        {
+            var x = 0f;
+
+            for (var column = 0; column < columns; column++)
+            {
+                var index = row * columns + column;
+
+                if (index < drawn.Count)
+                {
+                    // Centred across its column and standing on the row's floor, so the captions of
+                    // a row line up however differently sized the drawings above them are.
+                    placed.Add(new SvgViewerPlacement(
+                        drawn[index].Svg!,
+                        new SKPoint(
+                            x + (widths[column] - drawn[index].Size.Width) / 2f,
+                            y + heights[row] - drawn[index].Size.Height),
+                        captions[index],
+                        label));
+                }
+
+                x += widths[column] + gap;
+            }
+
+            // Two lines of caption under the row, and a gap before the next.
+            y += heights[row] + label * 3.4f + gap;
+        }
+
+        return placed;
+    }
+
+    private static float Widest(SKFont font, string caption)
+        => caption.Split('\n').Max(line => font.MeasureText(line));
+
+    /// <summary>Lets go of the drawings, and of the documents that own them.</summary>
+    /// <remarks>
+    /// The canvas first: a picture belongs to its document, so one still placed after the document
+    /// is disposed is a surface drawing freed memory.
+    /// </remarks>
+    private void Release()
+    {
+        _canvas.Show(Array.Empty<SvgViewerPlacement>());
+
+        foreach (var document in _loaded)
+        {
+            document.Dispose();
+        }
+
+        _loaded.Clear();
+
+        Says(null);
+    }
+
+    /// <summary>Puts a line above the canvas, or takes it away.</summary>
+    private void Says(string? said)
+    {
+        _notice.Text = said ?? string.Empty;
+        _notice.IsVisible = said is { Length: > 0 };
+    }
+
+    /// <summary>What could not be read, in one line however many of them there were.</summary>
+    private static string? Trouble(IReadOnlyList<Drawn> built)
+    {
+        var faults = built.Where(one => one.Fault is { }).ToList();
+
+        if (faults.Count == 0)
+        {
+            return null;
+        }
+
+        var first = $"{Path.GetFileName(faults[0].Drawing.Input)} could not be read: {faults[0].Fault}";
+
+        return faults.Count == 1 ? first : $"{first} And {faults.Count - 1} more could not be read.";
+    }
+
+    /// <summary>The canvas's own controls, which are the viewer's in the order the viewer has them.</summary>
+    private Control Tools()
+    {
+        var bar = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Margin = new Thickness(10, 8, 10, 6)
+        };
+
+        var bounds = new ToggleButton
+        {
+            Content = "Bounds",
+            IsChecked = _canvas.ShowBounds,
+            [ToolTip.TipProperty] = "Outline each drawing's own edges"
+        };
+
+        bounds.IsCheckedChanged += (_, _) => _canvas.ShowBounds = bounds.IsChecked == true;
+
+        _canvas.ViewChanged += (_, _) =>
+            _zoom.Text = (_canvas.Scale * 100d).ToString("0", CultureInfo.CurrentCulture) + "%";
+
+        bar.Children.Add(Tool("Fit", "Fit to window", () => _canvas.Fit()));
+        bar.Children.Add(Tool("1:1", "Actual size", () => _canvas.ActualSize()));
+        bar.Children.Add(Tool("−", "Zoom out, or scroll down", () => _canvas.ZoomOut()));
+        bar.Children.Add(_zoom);
+        bar.Children.Add(Tool("+", "Zoom in, or scroll up", () => _canvas.ZoomIn()));
+        bar.Children.Add(bounds);
+
+        return bar;
+    }
+
+    private static Button Tool(string content, string tip, Action click)
+    {
+        var button = new Button { Content = content, [ToolTip.TipProperty] = tip };
+
+        button.Click += (_, _) => click();
+
+        return button;
+    }
+
+    /// <summary>What a drawing is called and what it is built at, over two lines.</summary>
+    /// <remarks>
+    /// Two, because one is about twice as wide as the drawings it sits under and the columns are
+    /// sized to hold it.
+    /// </remarks>
+    private static string Caption(SvgcProjectDrawing drawing)
+    {
+        var name = drawing.EffectiveNamespace is { } space && drawing.EffectiveClass is { } className
+            ? $"{space}.{className}"
+            : drawing.EffectiveClass ?? drawing.EffectiveNamespace ?? "(unnamed)";
+
+        return $"{Path.GetFileName(drawing.Input)}\n{name}   {Size(drawing)}";
+    }
+
+    private sealed record Drawn(SvgcProjectDrawing Drawing, SKSvg? Svg, SKSize Size, string? Fault);
 
     /// <summary>What the sizing comes to, said the way the project says it.</summary>
     private static string Size(SvgcProjectNode node)
