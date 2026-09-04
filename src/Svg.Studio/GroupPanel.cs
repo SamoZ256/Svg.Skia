@@ -143,6 +143,14 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     public event EventHandler<string>? RecipeOpened;
 
+    /// <summary>What a drawing's text goes through on its way to being drawn, or null to draw the file.</summary>
+    /// <remarks>
+    /// A hook rather than a recipe path, so the canvas draws what the drawing's own tab draws: the
+    /// host renders through an open buffer, and reading the file here would show a recipe as it was
+    /// last saved rather than as it is being typed.
+    /// </remarks>
+    public Func<SvgcProjectDrawing, string, string>? Rewrite { get; set; }
+
     /// <summary>Writes what was typed here into the project, and the project to its file.</summary>
     public void Save()
     {
@@ -317,7 +325,10 @@ public sealed class GroupPanel : UserControl
     {
         try
         {
-            var document = SvgViewerDocument.Load(drawing.ResolvedInput, ProjectWorkspace.SizeOf(drawing));
+            var document = SvgViewerDocument.Load(
+                drawing.ResolvedInput,
+                ProjectWorkspace.SizeOf(drawing),
+                Rewrite is { } rewrite ? text => rewrite(drawing, text) : null);
 
             _loaded.Add(document);
 

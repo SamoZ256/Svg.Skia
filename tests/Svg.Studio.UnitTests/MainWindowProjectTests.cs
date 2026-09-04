@@ -209,6 +209,21 @@ public class MainWindowProjectTests : IDisposable
 
     // ---- the canvas on a group's tab ----------------------------------------------------------
 
+    /// <summary>A recipe that paints the fixture something it is not, so a pixel can tell.</summary>
+    /// <remarks>
+    /// hue 0 rather than the 120 <see cref="Recipe"/> uses: 120 is hsl for the #00ff00 the drawing
+    /// already is, which would pass whether the recipe reached the canvas or not.
+    /// </remarks>
+    private const string RedRecipe = """
+        <recipe xmlns="https://svg.skia/expr/1.0">
+          <code>
+            <param name="hue" type="number" default="0" />
+            <let name="tint">hsl(hue, 100%, 50%)</let>
+          </code>
+          <replace color="#00ff00">tint</replace>
+        </recipe>
+        """;
+
     [AvaloniaFact]
     public async Task A_Groups_Drawings_Are_Drawn_On_Its_Tab()
     {
@@ -360,6 +375,54 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         Assert.All(Cells(panel), cell => Assert.NotNull(Picture(cell)));
+    }
+
+    /// <summary>
+    /// A group's canvas is painted the way its drawings' own tabs are painted.
+    /// </summary>
+    /// <remarks>
+    /// Through the open buffer rather than the recipe file, which the second half is what proves: a
+    /// rule typed and not saved moves the icons, as it already moves the drawing on its own tab.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Drawing_Under_A_Recipe_Is_Drawn_As_The_Project_Builds_It()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var recipe = Write("icons.recipe", RedRecipe);
+        var window = await Host(Write("icons.svgcproj", RecipeProject));
+        var panel = Panel(window, "Demo.Icons");
+        var cells = Cells(panel);
+
+        // home.svg is outside the group the recipe is on, so nothing rewrites it.
+        Assert.Equal(SKColors.Lime, Centre(Picture(cells[0])!));
+        Assert.Equal(SKColors.Red, Centre(Picture(cells[1])!));
+
+        window.ShowRecipe(recipe).Workspace.Document.Text = RedRecipe.Replace("\"0\"", "\"240\"");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(RedRecipe, File.ReadAllText(recipe));
+
+        Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>()
+            .Single(item => ReferenceEquals(item.Content, panel));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(SKColors.Blue, Centre(Picture(Cells(panel)[1])!));
+    }
+
+    /// <summary>The colour in the middle of a drawing, which for the fixture is all of it.</summary>
+    private static SKColor Centre(SKPicture picture)
+    {
+        var bounds = picture.CullRect;
+
+        using var bitmap = new SKBitmap((int)bounds.Width, (int)bounds.Height);
+        using var canvas = new SKCanvas(bitmap);
+
+        canvas.Clear(SKColors.Transparent);
+        canvas.DrawPicture(picture);
+
+        return bitmap.GetPixel(bitmap.Width / 2, bitmap.Height / 2);
     }
 
     /// <summary>What one cell is: a box with the drawing in it, and the line under it.</summary>

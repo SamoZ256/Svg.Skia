@@ -1402,7 +1402,7 @@ public partial class MainWindow : Window
 
         if (node is SvgcProjectGroup group)
         {
-            AddNodeTab(new GroupPanel(workspace, group), node, ProjectWorkspace.Label(node));
+            AddNodeTab(new GroupPanel(workspace, group) { Rewrite = Built }, node, ProjectWorkspace.Label(node));
             return;
         }
 
@@ -1570,6 +1570,17 @@ public partial class MainWindow : Window
             return svgText;
         }
     }
+
+    /// <summary>A drawing as the project builds it, for a canvas that shows several at once.</summary>
+    /// <remarks>
+    /// Through <see cref="Opened"/> rather than the recipe file, so a group's canvas is painted from
+    /// the same buffer its drawings' own tabs are: a rule being typed in a recipe tab moves the
+    /// icons as it is typed. The cost is that opening a group opens a buffer for every recipe named
+    /// anywhere under it — idempotent, and a buffer nobody has typed in is unmodified, so no tab is
+    /// marked for it.
+    /// </remarks>
+    private string Built(SvgcProjectDrawing drawing, string svgText)
+        => drawing.EffectiveResolvedRecipe is { } recipe ? Rewritten(svgText, Opened(recipe)) : svgText;
 
     /// <summary>
     /// Brings a recipe forward, in a tab of its own.
