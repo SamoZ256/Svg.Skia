@@ -86,11 +86,18 @@ public static class SvgExpressionAttributes
     /// reaching the parser is <c>{{ w }}</c> and every converter refuses it -- which reads as a
     /// malformed number rather than as the real answer, that this attribute takes no expression at
     /// all. Being told which attributes do is the useful half.
+    ///
+    /// The second sentence is why the list is that list, and answers the attribute people reach for
+    /// next. Binding a value re-evaluates the recorded drawing rather than compiling it again, so an
+    /// expression can only drive something the drawing still holds when it is done: a paint, an
+    /// alpha, whether a node was drawn. A font or a layout property is read long before that -- the
+    /// text is measured with it and the positions are baked -- so substituting one afterwards would
+    /// draw the new value at the old value's positions.
     /// </remarks>
     public static string? WhyUnsupported(string localName)
         => IsSupported(localName)
             ? null
-            : $"'{localName}' does not take an expression. The parser lifts {string.Join(", ", Supported)}, and reads a {Open} … {Close} written anywhere else as an ordinary value.";
+            : $"'{localName}' does not take an expression. The parser lifts {string.Join(", ", Supported)} -- what a drawing can still change once it has been recorded -- and reads a {Open} … {Close} written anywhere else as an ordinary value. A font or a layout property is read before the drawing is recorded, and text is measured with it, so it cannot vary.";
 
     public static string KeyFor(string localName) => Namespace + ":" + localName;
 

@@ -61,6 +61,15 @@ public class SvgSourceExpressionTests
         => Assert.Contains(Of("mix(tint, #000000, 0.4)"), t => t.Kind == SvgSourceTokenKind.ExpressionColor);
 
     [Fact]
+    public void A_String_Literal_Is_Its_Own_Kind()
+    {
+        // Quotes and escapes included: the token's span is the literal as written, so a highlighter
+        // that took the resolved value would underline the wrong run.
+        Assert.Equal(SvgSourceTokenKind.ExpressionString, Kind("theme == 'dark'", "'dark'"));
+        Assert.Equal(SvgSourceTokenKind.ExpressionString, Kind(@"theme == 'it\'s'", @"'it\'s'"));
+    }
+
+    [Fact]
     public void A_Word_Operator_Is_Told_From_A_Name()
     {
         // `gt` lexes to the operator `>` spells, so only the text tells them apart.

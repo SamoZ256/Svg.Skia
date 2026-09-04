@@ -31,6 +31,7 @@ public class SvgExpressionDeclarationsTests
                   <e:param name="t" type="number" default="0" />
                   <e:param name="tint" type="color" />
                   <e:param name="bold" type="boolean" default="true" />
+                  <e:param name="theme" type="string" default="'dark'" />
                   <e:let name="wave">(sin(t * tau) + 1) / 2</e:let>
                   <e:let name="level">clamp(wave, 0, 1)</e:let>
                 </e:code>
@@ -40,10 +41,12 @@ public class SvgExpressionDeclarationsTests
 
         Assert.False(declarations.IsEmpty);
 
-        Assert.Equal(new[] { "t", "tint", "bold" }, declarations.Parameters.Select(p => p.Name));
+        Assert.Equal(new[] { "t", "tint", "bold", "theme" }, declarations.Parameters.Select(p => p.Name));
         Assert.Equal(ExprType.Number, declarations.Parameters[0].Type);
         Assert.Equal(ExprType.Color, declarations.Parameters[1].Type);
         Assert.Equal(ExprType.Boolean, declarations.Parameters[2].Type);
+        Assert.Equal(ExprType.String, declarations.Parameters[3].Type);
+        Assert.Equal("'dark'", declarations.Parameters[3].DefaultExpression);
         Assert.Equal("0", declarations.Parameters[0].DefaultExpression);
         Assert.Null(declarations.Parameters[1].DefaultExpression);
 
@@ -426,6 +429,7 @@ public class SvgExpressionDeclarationsTests
     // A range on something with no range: the one to delete is the first one written.
     [InlineData("""<e:param name="tint" type="color" min="0" max="1" />""", "0")]
     [InlineData("""<e:param name="on" type="boolean" step="2" />""", "2")]
+    [InlineData("""<e:param name="theme" type="string" min="0" max="1" />""", "0")]
     // Half a range points at the half that is there.
     [InlineData("""<e:param name="t" type="number" min="3" />""", "3")]
     [InlineData("""<e:param name="t" type="number" max="7" />""", "7")]

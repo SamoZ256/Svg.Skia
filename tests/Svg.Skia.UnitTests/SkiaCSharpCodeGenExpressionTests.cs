@@ -106,6 +106,47 @@ public class SkiaCSharpCodeGenExpressionTests
     }
 
     [Fact]
+    public void A_String_Parameter_With_A_Default_Reaches_The_Body_Through_A_Local()
+    {
+        // A string default is a C# constant only while it stays a literal -- `upper('a')` compiles
+        // to a call -- so every one takes the local rather than the generator deciding constness of
+        // its own output. No `?` on the parameter: string is already a reference type, and the
+        // annotation would warn (CS8632) in a project with nullable annotations off.
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code>
+                <e:param name="theme" type="string" default="'dark'" />
+                <e:let name="ink">theme == 'dark' ? #ffffff : #101010</e:let>
+              </e:code></defs>
+              <rect x="0" y="0" width="10" height="10" fill="{{ ink }}" />
+            </svg>
+            """);
+
+        Assert.Contains("public static SKPicture Record(string theme = null)", code);
+        Assert.Contains("string theme__default = theme ?? \"dark\";", code);
+        Assert.Contains("theme__default ==", code);
+        Assert.Contains("public static void Draw(SKCanvas skCanvas, string theme = null)", code);
+    }
+
+    [Fact]
+    public void A_String_Function_Pulls_Its_Helper_Into_The_Generated_Class()
+    {
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code>
+                <e:param name="theme" type="string" default="'DARK'" />
+                <e:let name="ink">lower(theme) == 'dark' ? #ffffff : #101010</e:let>
+              </e:code></defs>
+              <rect x="0" y="0" width="10" height="10" fill="{{ ink }}" />
+            </svg>
+            """);
+
+        Assert.Contains("private static string SvgLower(string value) => value.ToLowerInvariant();", code);
+        Assert.Contains("SvgLower(theme__default)", code);
+        Assert.DoesNotContain("SvgUpper", code);
+    }
+
+    [Fact]
     public void A_Colour_Parameter_With_A_Default_Becomes_Nullable()
     {
         // `new SKColor(...)` is not a compile-time constant and cannot be a C# argument

@@ -30,11 +30,11 @@ public static class SvgCodeDeclarationsExtensions
         var symbols = declarations.CreateSymbolTable();
         var compiled = new List<(string, ExprType, string)>();
 
-        // A colour default reaches the body through a local, so every reference — the lets below
+        // Such a default reaches the body through a local, so every reference — the lets below
         // included — must be emitted as that local's name.
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        foreach (var fallback in declarations.ColourFallbacks())
+        foreach (var fallback in declarations.ComputedDefaults())
         {
             names[fallback.Parameter] = fallback.Local;
         }
@@ -90,16 +90,18 @@ public static class SvgCodeDeclarationsExtensions
     }
 
     /// <summary>
-    /// One entry per colour parameter that declares a default: the parameter's own name, the local
-    /// the body reads instead, and the C# for the default it falls back to.
+    /// One entry per parameter whose declared default cannot be a C# argument default: the
+    /// parameter's own name, the local the body reads instead, and the C# it falls back to.
     /// </summary>
     /// <remarks>
-    /// <c>new SKColor(…)</c> is not a compile-time constant (CS1736), so a colour parameter is
-    /// emitted as <c>SKColor?</c> and coalesced into a local. Computed here because <c>Resolve</c>
+    /// A C# argument default has to be a compile-time constant, and these are not:
+    /// <c>new SKColor(…)</c> never is (CS1736), and a string default is one only while it stays a
+    /// literal — <c>upper('a')</c> compiles to a call. Both go through a parameter defaulted to
+    /// <see langword="null"/> and coalesced into a local. Computed here because <c>Resolve</c>
     /// rewrites references to those names and the generator declares them, and the two disagreeing
     /// would emit a body naming a local that does not exist.
     /// </remarks>
-    public static IReadOnlyList<(string Parameter, string Local, string DefaultCode)> ColourFallbacks(
+    public static IReadOnlyList<(string Parameter, string Local, string DefaultCode, ExprType Type)> ComputedDefaults(
         this SvgExpressionDeclarations declarations)
     {
         if (declarations is null)
@@ -107,15 +109,15 @@ public static class SvgCodeDeclarationsExtensions
             throw new ArgumentNullException(nameof(declarations));
         }
 
-        // No default reaches the signature, so every colour arrives as a value and there is nothing
-        // to fall back to. Answered here so that Resolve, which asks this to know what the body
-        // should name, cannot disagree with the signature about it.
+        // No default reaches the signature, so every parameter arrives as a value and there is
+        // nothing to fall back to. Answered here so that Resolve, which asks this to know what the
+        // body should name, cannot disagree with the signature about it.
         if (!declarations.EmitsDefaultArguments())
         {
-            return Array.Empty<(string, string, string)>();
+            return Array.Empty<(string, string, string, ExprType)>();
         }
 
-        var fallbacks = new List<(string, string, string)>();
+        var fallbacks = new List<(string, string, string, ExprType)>();
         var taken = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var parameter in declarations.Parameters)
@@ -130,7 +132,7 @@ public static class SvgCodeDeclarationsExtensions
 
         foreach (var parameter in declarations.Parameters)
         {
-            if (parameter.Type != ExprType.Color || parameter.DefaultExpression is null)
+            if (!NeedsLocal(parameter.Type) || parameter.DefaultExpression is null)
             {
                 continue;
             }
@@ -142,11 +144,20 @@ public static class SvgCodeDeclarationsExtensions
                 local += "_";
             }
 
-            fallbacks.Add((parameter.Name, local, parameter.DefaultCode()!));
+            fallbacks.Add((parameter.Name, local, parameter.DefaultCode()!, parameter.Type));
         }
 
         return fallbacks;
     }
+
+    /// <summary>Whether a default of this type has to reach the body through a local.</summary>
+    /// <remarks>
+    /// A string default is sometimes a C# constant and sometimes not, and telling the two apart
+    /// would mean deciding constness of emitted source. Every one takes the local instead, which
+    /// costs a line in the generated method and is always right.
+    /// </remarks>
+    private static bool NeedsLocal(ExprType type)
+        => type is ExprType.Color or ExprType.String;
 
     /// <summary>
     /// Compiles a parameter default, or returns null when the author declared none — in which

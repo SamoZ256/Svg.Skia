@@ -1773,6 +1773,7 @@ public partial class SvgViewer : UserControl
         SvgSourceTokenKind.Expression => "SvgViewerSourceExpressionBrush",
         SvgSourceTokenKind.ExpressionNumber => "SvgViewerSourceExpressionNumberBrush",
         SvgSourceTokenKind.ExpressionColor => "SvgViewerSourceExpressionColorBrush",
+        SvgSourceTokenKind.ExpressionString => "SvgViewerSourceExpressionStringBrush",
         SvgSourceTokenKind.ExpressionFunction => "SvgViewerSourceExpressionFunctionBrush",
         SvgSourceTokenKind.ExpressionConstant => "SvgViewerSourceExpressionConstantBrush",
         SvgSourceTokenKind.ExpressionKeyword => "SvgViewerSourceExpressionKeywordBrush",

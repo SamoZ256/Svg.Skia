@@ -37,6 +37,9 @@ public enum SvgSourceTokenKind
     /// <summary>A colour literal in an expression, such as <c>#3fb5b5</c>.</summary>
     ExpressionColor,
 
+    /// <summary>A string literal in an expression, quotes and escapes included.</summary>
+    ExpressionString,
+
     /// <summary>A name the language defines as a function: <c>hsl</c>, <c>mix</c>, <c>lerp</c>.</summary>
     ExpressionFunction,
 
