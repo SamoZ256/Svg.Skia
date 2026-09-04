@@ -134,7 +134,13 @@ Names must be valid identifiers (letter or `_`, then letters, digits or `_`), mu
 built-in constant, function or operator word ([§3.3](#33-operators)), and must be unique across
 params and lets.
 
-## 2. Which attributes take an expression
+## 2. Where an expression can go
+
+There are two kinds, and which one an attribute is decides what it costs to change.
+
+**Resolved after the drawing is recorded.** The value survives into the compiled drawing, so binding
+a new one rewrites that drawing and nothing is compiled again. This is the cheap path: a slider drag
+stays smooth.
 
 | Attribute | Expression type | Effect |
 | --- | --- | --- |
@@ -150,18 +156,51 @@ params and lets.
 | `visibility` | boolean | `true` meaning visible. Wraps the element's drawing in a condition. |
 | `display` | boolean | `true` meaning displayed. Wraps the element and its subtree in a condition. |
 
+**Resolved before the drawing is recorded.** The value is consumed while the document is compiled —
+the typeface is chosen with it and the text measured against that — so it is substituted into the
+document first, and changing one compiles the drawing again.
+
+| Where | Expression type | Effect |
+| --- | --- | --- |
+| element text | string | The text of a `<text>`, `<tspan>` or `<textPath>`. |
+| `font-family` | string | The typeface the text is laid out with. |
+| `font-weight` | string | `bold`, `700`, and the rest of SVG's own spellings. |
+| `font-style` | string | `normal`, `italic`, `oblique`. |
+| `text-anchor` | string | `start`, `middle`, `end`. |
+| `font-size` | number | User units; a number carries no unit, so `2em` cannot be written this way. |
+| `letter-spacing` | number | User units. |
+| `word-spacing` | number | User units. |
+| `textLength` | number | The length the run is fitted to. |
+
+```xml
+<e:param name="label" type="string" default="'Save'" />
+<e:param name="face"  type="string" default="'Inter'" />
+
+<text x="100" y="40" text-anchor="middle" font-family="{{ face }}">{{ label }}</text>
+```
+
+An element's text is lifted whole or not at all: `{{ … }}` has to be the entire content, so
+`Total: {{ n }}` is literal text and `{{ 'Total: ' + n }}` is the way to say it. The language has `+`
+on strings for exactly this.
+
 Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d`, `transform`, `stroke-width` — is a
 literal. Braces written in one of those are read as an ordinary value and do nothing; a source view
 marks it.
 
-That list is not arbitrary, and the omission people notice first is `font-family`. Binding a value
-**re-evaluates the recorded drawing rather than compiling it again** — which is what makes dragging a
-slider affordable — so an expression can only drive something the drawing still holds once it has
-been recorded: a paint, an alpha, whether a node was drawn at all. A font is read long before that:
-the typeface is resolved while the document is compiled, the text is measured with it, and the
-positions are baked. Substituting a family afterwards would draw the new font at the old font's
-positions — right for left-anchored text, wrong for anything centred or on a path. So there is no
-string-valued attribute, and a `string` earns its keep by choosing between values instead.
+### What the second kind costs
+
+Two things, both worth knowing before reaching for it.
+
+**A compile, not a rewrite.** Measured on a 400-element drawing with 200 text runs: binding a colour
+takes 1.4 ms, binding the text takes 6.0 ms — about four times as much, and still inside a frame.
+Nothing throttles it, and a host that binds one per keystroke will not notice; a host driving one
+from a slider on a very large document might.
+
+**No generated code.** `svgc` and the source generator bake a picture at build time, with the text
+already measured and the glyph positions already numbers. A parameter driving one of these could
+never vary at run time, so a document using them is **refused** rather than generated with a
+signature that offers something it cannot do. Bind it at run time with `SKSvg.SetExpressionValues`,
+or write the value as a literal to generate from.
 
 A **pattern** fill is the one exception among the opacities: it paints into a picture of its own,
 where the alpha is baked into every command rather than sitting on one colour, so `fill-opacity`
@@ -194,13 +233,13 @@ would a literal.
 There are no implicit conversions between them. In particular `+` never turns a number into text:
 between a string and anything else it is an error, not a conversion.
 
-No attribute takes a `string`, and that is deliberate rather than an omission — see
-[§2](#2-which-attributes-take-an-expression). A string is what a drawing is told *which variant it
-is*, and it earns its keep by choosing between values that attributes do take:
+A string reaches a drawing two ways ([§2](#2-where-an-expression-can-go)): as the text or the font
+of a `<text>`, and as the thing that chooses between values the other attributes take.
 
 ```xml
 <e:param name="theme" type="string" default="'dark'" />
 <circle fill="{{ theme == 'dark' ? #ffffff : #101010 }}" />
+<text font-family="{{ theme == 'dark' ? 'Inter' : 'Georgia' }}">{{ theme }}</text>
 ```
 
 ### 3.2 Literals
