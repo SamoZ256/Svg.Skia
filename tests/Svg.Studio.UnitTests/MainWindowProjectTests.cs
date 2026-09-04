@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Skia;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -19,6 +20,7 @@ using Avalonia.VisualTree;
 using AvaloniaEdit;
 using AvaloniaEdit.Editing;
 using Svg.CodeGen.Skia.Projects;
+using SkiaSharp;
 using Svg.Expressions;
 using Svg.Expressions.Recipes;
 using Svg.Viewer.Skia.Avalonia;
@@ -204,6 +206,176 @@ public class MainWindowProjectTests : IDisposable
         await window.ShowAsync(group);
         Assert.Equal(2, Tabs(window).Items.Count);
     }
+
+    // ---- the canvas on a group's tab ----------------------------------------------------------
+
+    [AvaloniaFact]
+    public async Task A_Groups_Drawings_Are_Drawn_On_Its_Tab()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        // The project row opens as a tab of its own, and it is a group like any other.
+        var cells = Cells(Panel(window, "Demo.Icons"));
+
+        Assert.Equal(
+            new[] { "home.svg", "badge.svg" },
+            cells.Select(cell => Path.GetFileName(((SvgcProjectDrawing)cell.Tag!).Input)).ToArray());
+
+        Assert.All(cells, cell => Assert.NotNull(Picture(cell)));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Keeps_The_Line_The_List_Showed_As_Its_Caption()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        Assert.Equal(
+            new[]
+            {
+                "home.svg  →  Demo.Icons.Home   as written",
+                "badge.svg  →  Demo.Icons.Large.BadgeLarge   ×2"
+            },
+            Cells(Panel(window, "Demo.Icons")).Select(Caption).ToArray());
+    }
+
+    /// <summary>The whole branch, which is what the group builds.</summary>
+    [AvaloniaFact]
+    public async Task A_Group_Draws_The_Drawings_Of_The_Groups_Under_It()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        // The project row shows both; the group under it shows the one it holds. Read before the
+        // tab is switched, since a panel that is not the one being looked at holds no pictures.
+        Assert.Equal(2, Cells(Panel(window, "Demo.Icons")).Length);
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Single(Cells(Panel(window, "Demo.Icons.Large")));
+    }
+
+    /// <summary>
+    /// A drawing built at twice the size is drawn twice the size.
+    /// </summary>
+    /// <remarks>
+    /// The point of the canvas rather than a detail of it: a group's settings are about size, and a
+    /// tile per drawing would show every size the same and answer nothing.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Drawings_Are_Drawn_True_To_Each_Other()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var cells = Cells(Panel(window, "Demo.Icons"));
+
+        // The fixture is 24 square; the group builds it at ×2.
+        Assert.Equal(24f, Picture(cells[0])!.CullRect.Width);
+        Assert.Equal(48f, Picture(cells[1])!.CullRect.Width);
+
+        // The canvas is scaled as one, so the larger is twice the smaller whatever the factor is —
+        // and the largest fills the box a drawing is given.
+        Assert.Equal(256d, Box(cells[1]).Width);
+        Assert.Equal(128d, Box(cells[0]).Width);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Group_With_No_Drawings_Still_Says_So()
+    {
+        var window = await Host(Write("icons.svgcproj", """
+            <svgc>
+              <group namespace="Empty" />
+            </svgc>
+            """));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = Panel(window, "Empty");
+
+        Assert.Empty(Cells(panel));
+        Assert.Contains(
+            panel.GetVisualDescendants().OfType<TextBlock>(),
+            block => block.Text == "This group holds no drawings.");
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_That_Cannot_Be_Read_Costs_One_Cell()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", "not a drawing at all");
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var cells = Cells(Panel(window, "Demo.Icons"));
+
+        // Both rows are still there, and the one that reads still draws.
+        Assert.Equal(2, cells.Length);
+        Assert.NotNull(Picture(cells[0]));
+        Assert.Null(Picture(cells[1]));
+
+        Assert.NotNull(ToolTip.GetTip(cells[1]));
+    }
+
+    /// <summary>
+    /// The pictures live exactly as long as the tab is the one being looked at.
+    /// </summary>
+    /// <remarks>
+    /// Written down because it is what keeps the canvas cheap: every save refreshes every open
+    /// panel, and a group tab nobody is looking at would otherwise re-read every drawing under it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Drawings_Are_Let_Go_While_The_Tab_Is_Not_Looked_At()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var panel = Panel(window, "Demo.Icons");
+
+        Assert.Equal(2, Cells(panel).Length);
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(Cells(panel));
+
+        Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>()
+            .Single(item => ReferenceEquals(item.Content, panel));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.All(Cells(panel), cell => Assert.NotNull(Picture(cell)));
+    }
+
+    /// <summary>What one cell is: a box with the drawing in it, and the line under it.</summary>
+    private static Control[] Cells(GroupPanel panel)
+        => panel.GetVisualDescendants()
+            .OfType<Control>()
+            .Where(control => control.Tag is SvgcProjectDrawing)
+            .ToArray();
+
+    private static Border Box(Control cell) => cell.GetVisualDescendants().OfType<Border>().First();
+
+    private static SKPicture? Picture(Control cell)
+        => cell.GetVisualDescendants().OfType<SKPictureControl>().FirstOrDefault()?.Picture;
+
+    private static string? Caption(Control cell)
+        => cell.GetVisualDescendants().OfType<TextBlock>().Last().Text;
 
     [AvaloniaFact]
     public async Task Clicking_A_Second_Group_Opens_It_Without_Folding_Either()

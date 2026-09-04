@@ -9,14 +9,18 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Skia;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
+using SkiaSharp;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
+using Svg.Expressions;
 using Svg.Skia;
+using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
 
@@ -33,8 +37,24 @@ namespace Svg.Studio;
 public sealed class GroupPanel : UserControl
 {
     private readonly StackPanel _properties = new() { Spacing = 8, Margin = new Thickness(10) };
-    private readonly StackPanel _summary = new() { Spacing = 2, Margin = new Thickness(10) };
+    private readonly WrapPanel _summary = new() { ItemSpacing = 14, LineSpacing = 14, Margin = new Thickness(10) };
     private readonly TextBlock _heading = new() { FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 10, 10, 0) };
+
+    /// <summary>The drawings being shown, and the controls showing them.</summary>
+    /// <remarks>
+    /// Held because a picture belongs to the document that built it: the control only borrows one,
+    /// so both have to be let go together, in that order.
+    /// </remarks>
+    private readonly List<SvgViewerDocument> _loaded = new();
+
+    private readonly List<SKPictureControl> _shown = new();
+
+    /// <summary>Whether this is the tab being looked at.</summary>
+    /// <remarks>
+    /// A tab's content leaves the visual tree when another tab is picked, so this is the whole of
+    /// when the pictures are worth having — and every save refreshes every open panel.
+    /// </remarks>
+    private bool _watched;
 
     /// <summary>Edits typed here and not yet written to the project, by setting name.</summary>
     /// <remarks>
@@ -218,17 +238,54 @@ public sealed class GroupPanel : UserControl
     {
         _heading.Text = ProjectWorkspace.Label(Node);
 
-        if (Node is SvgcProjectGroup)
+        if (Node is SvgcProjectGroup && _watched)
         {
-            ShowSummary();
+            ShowDrawings();
         }
 
         ShowProperties(Node);
     }
 
-    private void ShowSummary()
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        _summary.Children.Clear();
+        base.OnAttachedToVisualTree(e);
+
+        _watched = true;
+
+        if (Node is SvgcProjectGroup)
+        {
+            ShowDrawings();
+        }
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnDetachedFromVisualTree(e);
+
+        _watched = false;
+
+        Release();
+    }
+
+    /// <summary>The box the largest drawing on a canvas is drawn in.</summary>
+    /// <remarks>
+    /// A constant rather than the pane's width: measuring the pane to decide what to put in it is a
+    /// layout loop, and the splitter would rebuild every picture as it was dragged. Drawings scale up
+    /// to it as well as down — a set of 24px icons shown at 24px is a preview of nothing, and the
+    /// sizes stay true to each other either way because one factor moves all of them.
+    /// </remarks>
+    private const double Largest = 256d;
+
+    /// <summary>What the group builds, drawn.</summary>
+    /// <remarks>
+    /// Sizes are true to each other rather than to a tile: every drawing is scaled by the one factor
+    /// that makes the largest of them <see cref="Largest"/>, so a drawing built at ×4 looks four
+    /// times one built at ×1 — which is the difference the group's own settings made, and the
+    /// question a group tab exists to answer.
+    /// </remarks>
+    private void ShowDrawings()
+    {
+        Release();
 
         var drawings = ((SvgcProjectGroup)Node).Drawings.ToList();
 
@@ -238,20 +295,140 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        foreach (var drawing in drawings)
-        {
-            var name = drawing.EffectiveNamespace is { } space && drawing.EffectiveClass is { } className
-                ? $"{space}.{className}"
-                : drawing.EffectiveClass ?? drawing.EffectiveNamespace ?? "(unnamed)";
+        // All of them before any of them is placed: one factor for the canvas means what the largest
+        // comes to has to be known first.
+        var built = drawings.Select(Draw).ToList();
 
-            _summary.Children.Add(new TextBlock
-            {
-                Text = $"{Path.GetFileName(drawing.Input)}  →  {name}   {Size(drawing)}",
-                FontFamily = new FontFamily("Menlo, Consolas, monospace"),
-                FontSize = 12
-            });
+        var largest = built
+            .Select(drawn => Math.Max(drawn.Size.Width, drawn.Size.Height))
+            .DefaultIfEmpty(0f)
+            .Max();
+
+        var factor = largest > 0f ? Largest / largest : 1d;
+
+        foreach (var drawn in built)
+        {
+            _summary.Children.Add(Cell(drawn, factor));
         }
     }
+
+    /// <summary>One drawing built the way the project builds it, or why it could not be.</summary>
+    private Drawn Draw(SvgcProjectDrawing drawing)
+    {
+        try
+        {
+            var document = SvgViewerDocument.Load(drawing.ResolvedInput, ProjectWorkspace.SizeOf(drawing));
+
+            _loaded.Add(document);
+
+            // The declared defaults. A plain load leaves a drawing with expressions in it rendering
+            // its placeholders, which is not what the project builds; a parameter with no default at
+            // all is refused, and placeholders are then the honest answer.
+            try
+            {
+                document.Svg.SetExpressionValues(new Dictionary<string, ExprValue>());
+            }
+            catch (ExprException)
+            {
+            }
+
+            var picture = document.Svg.Picture;
+
+            return new Drawn(drawing, picture, picture?.CullRect.Size ?? default, null);
+        }
+        catch (Exception failure)
+        {
+            // Anything: this is user data reaching a parser, and it arrives as an XmlException, a
+            // FormatException, one of the IO exceptions or the loader's own refusal. A narrower set
+            // would eventually let one through, and one bad drawing would cost the whole tab.
+            return new Drawn(drawing, null, default, failure.Message);
+        }
+    }
+
+    /// <summary>One drawing on the canvas: its box, and the line the list used to be.</summary>
+    private Control Cell(Drawn drawn, double factor)
+    {
+        var picture = drawn.Picture is { } drawnPicture
+            ? new SKPictureControl { Picture = drawnPicture, Stretch = Stretch.Uniform }
+            : null;
+
+        if (picture is { })
+        {
+            _shown.Add(picture);
+        }
+
+        // A drawing that could not be read still gets a box, so the canvas has as many cells as the
+        // group has drawings and the caption says which one is missing.
+        var box = new Border
+        {
+            BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(Color.Parse("#20808080")),
+            Width = Math.Max(drawn.Size.Width * factor, 24d),
+            Height = Math.Max(drawn.Size.Height * factor, 24d),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Child = picture ?? (Control)new TextBlock
+            {
+                Text = "✕",
+                Opacity = 0.5,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+
+        var cell = new StackPanel { Spacing = 4, Tag = drawn.Drawing };
+
+        cell.Children.Add(box);
+        cell.Children.Add(new TextBlock
+        {
+            Text = Caption(drawn.Drawing),
+            FontFamily = new FontFamily("Menlo, Consolas, monospace"),
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = Math.Max(box.Width, 160d)
+        });
+
+        if (drawn.Fault is { } fault)
+        {
+            ToolTip.SetTip(cell, fault);
+        }
+
+        return cell;
+    }
+
+    /// <summary>Lets go of the pictures, and of the documents that own them.</summary>
+    /// <remarks>
+    /// The control first: a picture belongs to its document, so one still in a control after the
+    /// document is disposed is a control drawing freed memory.
+    /// </remarks>
+    private void Release()
+    {
+        foreach (var control in _shown)
+        {
+            control.Picture = null;
+        }
+
+        _shown.Clear();
+
+        foreach (var document in _loaded)
+        {
+            document.Dispose();
+        }
+
+        _loaded.Clear();
+        _summary.Children.Clear();
+    }
+
+    /// <summary>What a drawing is called and what it is built at, in one line.</summary>
+    private static string Caption(SvgcProjectDrawing drawing)
+    {
+        var name = drawing.EffectiveNamespace is { } space && drawing.EffectiveClass is { } className
+            ? $"{space}.{className}"
+            : drawing.EffectiveClass ?? drawing.EffectiveNamespace ?? "(unnamed)";
+
+        return $"{Path.GetFileName(drawing.Input)}  →  {name}   {Size(drawing)}";
+    }
+
+    private sealed record Drawn(SvgcProjectDrawing Drawing, SKPicture? Picture, SKSize Size, string? Fault);
 
     /// <summary>What the sizing comes to, said the way the project says it.</summary>
     private static string Size(SvgcProjectNode node)
