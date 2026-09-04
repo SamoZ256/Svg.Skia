@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls.Skia;
 using Avalonia.Input;
@@ -30,7 +31,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
     private static readonly Cursor s_grabCursor = new(StandardCursorType.SizeAll);
 
-    private SKSvg? _svg;
+    private IReadOnlyList<SvgViewerPlacement> _placed = Array.Empty<SvgViewerPlacement>();
     private double _scale = 1d;
     private double _offsetX;
     private double _offsetY;
@@ -47,9 +48,14 @@ public class SvgViewerCanvas : SKCanvasControl
 
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
-    private volatile Snapshot _snapshot = new(null, 1d, 0d, 0d, true);
+    private volatile Snapshot _snapshot = new(Array.Empty<SvgViewerPlacement>(), 1d, 0d, 0d, true);
 
-    private sealed record Snapshot(SKSvg? Svg, double Scale, double OffsetX, double OffsetY, bool Bounds);
+    private sealed record Snapshot(
+        IReadOnlyList<SvgViewerPlacement> Placed,
+        double Scale,
+        double OffsetX,
+        double OffsetY,
+        bool Bounds);
 
     public SvgViewerCanvas()
     {
@@ -104,9 +110,10 @@ public class SvgViewerCanvas : SKCanvasControl
     }
 
     /// <summary>The drawing on show. Assigning a different one starts it fitted.</summary>
+    /// <remarks>The one-drawing case of <see cref="Show"/>, which is what most hosts want.</remarks>
     public SKSvg? Svg
     {
-        get => _svg;
+        get => _placed.Count == 1 ? _placed[0].Svg : null;
         set
         {
             _hasFitted = false;
@@ -114,6 +121,25 @@ public class SvgViewerCanvas : SKCanvasControl
 
             Replace(value);
         }
+    }
+
+    /// <summary>What is on show, in the order it is drawn.</summary>
+    public IReadOnlyList<SvgViewerPlacement> Placements => _placed;
+
+    /// <summary>
+    /// Shows several drawings at once, arranged by the caller.
+    /// </summary>
+    /// <remarks>
+    /// One surface rather than one per drawing, so a set is zoomed, panned and outlined as the one
+    /// thing it is. The arrangement is expected to start at the origin, as a single drawing's own
+    /// picture does — the view is fitted to the size of what is placed, not to where it was put.
+    /// </remarks>
+    public void Show(IReadOnlyList<SvgViewerPlacement> placed)
+    {
+        _hasFitted = false;
+        _userAdjusted = false;
+
+        Place(placed ?? Array.Empty<SvgViewerPlacement>());
     }
 
     /// <summary>Swaps in a rebuild of the drawing already on show, keeping an adjusted view.</summary>
@@ -124,12 +150,17 @@ public class SvgViewerCanvas : SKCanvasControl
     /// </remarks>
     public void Replace(SKSvg? svg)
     {
-        if (ReferenceEquals(_svg, svg))
+        if (ReferenceEquals(Svg, svg))
         {
             return;
         }
 
-        _svg = svg;
+        Place(svg is { } ? new[] { new SvgViewerPlacement(svg, default) } : Array.Empty<SvgViewerPlacement>());
+    }
+
+    private void Place(IReadOnlyList<SvgViewerPlacement> placed)
+    {
+        _placed = placed;
 
         // Published because the drawing changed, whatever the view does about it. The fit below
         // publishes only when it moves the view, so a drawing swapped for one that fits exactly as
@@ -256,20 +287,32 @@ public class SvgViewerCanvas : SKCanvasControl
         return true;
     }
 
+    /// <summary>What is on show, taken together: one drawing's own edges, or all of their union.</summary>
     private bool TryGetCullRect(out SKRect bounds)
     {
         bounds = default;
 
-        var picture = _svg?.Picture;
-        if (picture is null || picture.CullRect.Width <= 0f || picture.CullRect.Height <= 0f)
+        var found = false;
+
+        foreach (var placed in _placed)
         {
-            return false;
+            if (Frame(placed) is not { } frame)
+            {
+                continue;
+            }
+
+            frame.Offset(placed.At);
+
+            bounds = found ? SKRect.Union(bounds, frame) : frame;
+            found = true;
         }
 
-        bounds = picture.CullRect;
-
-        return true;
+        return found && bounds.Width > 0f && bounds.Height > 0f;
     }
+
+    /// <summary>One placed drawing's own edges, in its own space, or null where it has none.</summary>
+    private static SKRect? Frame(SvgViewerPlacement placed)
+        => placed.Svg.Picture is { CullRect: { Width: > 0f, Height: > 0f } cull } ? cull : null;
 
     private void SetView(double scale, double offsetX, double offsetY)
     {
@@ -291,7 +334,7 @@ public class SvgViewerCanvas : SKCanvasControl
     /// <summary>Hands the render thread a new frame's worth of state.</summary>
     internal void Publish()
     {
-        _snapshot = new Snapshot(_svg, _scale, _offsetX, _offsetY, _showBounds);
+        _snapshot = new Snapshot(_placed, _scale, _offsetX, _offsetY, _showBounds);
         InvalidateVisual();
     }
 
@@ -304,7 +347,7 @@ public class SvgViewerCanvas : SKCanvasControl
     /// </remarks>
     private void OnWheel(object? sender, PointerWheelEventArgs e)
     {
-        if (!IsZoomEnabled || _svg is null)
+        if (!IsZoomEnabled || _placed.Count == 0)
         {
             return;
         }
@@ -352,7 +395,7 @@ public class SvgViewerCanvas : SKCanvasControl
     private void OnPressed(object? sender, PointerPressedEventArgs e)
     {
         var properties = e.GetCurrentPoint(this).Properties;
-        if (!IsPanEnabled || _svg is null || !(properties.IsLeftButtonPressed || properties.IsMiddleButtonPressed))
+        if (!IsPanEnabled || _placed.Count == 0 || !(properties.IsLeftButtonPressed || properties.IsMiddleButtonPressed))
         {
             return;
         }
@@ -420,7 +463,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
         canvas.Clear(Background);
 
-        if (state.Svg is not { } svg)
+        if (state.Placed.Count == 0)
         {
             return;
         }
@@ -429,13 +472,42 @@ public class SvgViewerCanvas : SKCanvasControl
         canvas.Translate((float)state.OffsetX, (float)state.OffsetY);
         canvas.Scale((float)state.Scale);
 
-        // SKSvg.Draw brackets itself with BeginDraw/EndDraw, so the picture cannot be disposed
-        // underneath it by a value being bound on the UI thread.
-        svg.Draw(canvas);
+        // One font for the frame rather than one per label: the sizes differ, and setting the size
+        // on a font costs nothing next to building one.
+        using var font = new SKFont(SKTypeface.Default, 1f);
+        using var writing = new SKPaint { IsAntialias = true, Color = SKColors.Gray };
 
-        if (state.Bounds && svg.Picture is { CullRect: { Width: > 0f, Height: > 0f } frame })
+        foreach (var placed in state.Placed)
         {
-            Outline(canvas, frame, state.Scale);
+            canvas.Save();
+            canvas.Translate(placed.At.X, placed.At.Y);
+
+            // SKSvg.Draw brackets itself with BeginDraw/EndDraw, so the picture cannot be disposed
+            // underneath it by a value being bound on the UI thread.
+            placed.Svg.Draw(canvas);
+
+            if (Frame(placed) is { } frame)
+            {
+                if (state.Bounds)
+                {
+                    Outline(canvas, frame, state.Scale);
+                }
+
+                if (placed is { Label: { Length: > 0 } label, LabelSize: > 0f })
+                {
+                    font.Size = placed.LabelSize;
+
+                    canvas.DrawText(
+                        label,
+                        frame.MidX,
+                        frame.Bottom + placed.LabelSize * 1.2f,
+                        SKTextAlign.Center,
+                        font,
+                        writing);
+                }
+            }
+
+            canvas.Restore();
         }
 
         canvas.Restore();

@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Media;
+using SkiaSharp;
 using Xunit;
 
 namespace Svg.Viewer.Skia.Avalonia.UnitTests;
@@ -42,6 +43,47 @@ public class SvgViewerCanvasTests
         canvas.Arrange(new Rect(0, 0, width, height));
 
         return (window, canvas, document);
+    }
+
+    /// <summary>
+    /// Several drawings are one thing to look at: fitted, zoomed and panned together.
+    /// </summary>
+    /// <remarks>
+    /// The union rather than the first of them, which is what a set laid out by a host needs — and
+    /// what makes the same surface serve a project's group without a second canvas being written.
+    /// </remarks>
+    [AvaloniaFact]
+    public void Several_Drawings_Are_Fitted_As_One()
+    {
+        using var left = SvgViewerDocument.LoadFromSvg(Wide);
+        using var right = SvgViewerDocument.LoadFromSvg(Wide);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+
+        window.Show();
+
+        canvas.Show(new[]
+        {
+            new SvgViewerPlacement(left.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(right.Svg, new SKPoint(100f, 50f))
+        });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        Assert.Equal(2, canvas.Placements.Count);
+
+        // The two together are 200x100, so the fit is min(400/200, 200/100) = 2 either way.
+        Assert.Equal(2d, canvas.Scale, 6);
+
+        // And the one-drawing property is the one-drawing case of the same list.
+        canvas.Svg = left.Svg;
+
+        Assert.Same(left.Svg, canvas.Svg);
+        Assert.Equal(4d, canvas.Scale, 6);
+
+        window.Close();
     }
 
     [AvaloniaFact]
