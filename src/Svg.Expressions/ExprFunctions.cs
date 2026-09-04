@@ -139,7 +139,8 @@ public static class ExprFunctions
             "number" => ExprType.Number,
             "color" => ExprType.Color,
             "boolean" => ExprType.Boolean,
-            _ => throw new ExprException($"Unknown type '{text}'. Expected number, color or boolean.", position, part: part)
+            "string" => ExprType.String,
+            _ => throw new ExprException($"Unknown type '{text}'. Expected number, color, boolean or string.", position, part: part)
         };
 
     /// <summary>How a type is written in a document, which is the spelling <see cref="ParseType"/> takes.</summary>
@@ -155,6 +156,7 @@ public static class ExprFunctions
             ExprType.Number => "number",
             ExprType.Color => "color",
             ExprType.Boolean => "boolean",
+            ExprType.String => "string",
             _ => throw Unknown(type)
         };
 
@@ -172,6 +174,9 @@ public static class ExprFunctions
         ExprType.Color => "A paint expression",
         ExprType.Boolean => "A visibility expression",
         ExprType.Number => "An opacity expression",
+
+        // String falls here rather than being named: no attribute holds one, so no expression is
+        // ever asked to produce one, and there is no use to describe.
         _ => throw Unknown(expected),
     };
 
@@ -182,6 +187,7 @@ public static class ExprFunctions
             ExprType.Number => "number",
             ExprType.Color => "colour",
             ExprType.Boolean => "boolean",
+            ExprType.String => "string",
             _ => throw Unknown(type)
         };
 

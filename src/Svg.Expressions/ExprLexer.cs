@@ -12,6 +12,7 @@ internal enum ExprTokenKind
 {
     Number,
     Color,
+    String,
     Identifier,
     Plus,
     Minus,
@@ -36,25 +37,34 @@ internal enum ExprTokenKind
 
 internal readonly struct ExprToken
 {
-    public ExprToken(ExprTokenKind kind, int position, string text, double number = 0, uint color = 0)
+    public ExprToken(ExprTokenKind kind, int position, string text, double number = 0, uint color = 0, string? value = null)
     {
         Kind = kind;
         Position = position;
         Text = text;
         Number = number;
         Color = color;
+        Value = value;
     }
 
     public ExprTokenKind Kind { get; }
 
     public int Position { get; }
 
+    /// <summary>The literal as it was written, quotes and escapes included.</summary>
+    /// <remarks>
+    /// Never the decoded value: a highlighter measures a token's span with this length, so a string
+    /// whose text were its contents would underline the wrong run of source.
+    /// </remarks>
     public string Text { get; }
 
     public double Number { get; }
 
     // Packed 0xRRGGBBAA, only meaningful for Color tokens.
     public uint Color { get; }
+
+    // The escapes resolved, only meaningful for String tokens.
+    public string? Value { get; }
 }
 
 internal static class ExprLexer
@@ -106,6 +116,12 @@ internal static class ExprLexer
             if (c == '#')
             {
                 tokens.Add(ReadColor(text, ref i));
+                continue;
+            }
+
+            if (c == '\'' || c == '"')
+            {
+                tokens.Add(ReadString(text, ref i));
                 continue;
             }
 
@@ -264,6 +280,69 @@ internal static class ExprLexer
 
         return new ExprToken(ExprTokenKind.Number, start, literal, value);
     }
+
+    /// <summary>Reads a string literal, closed by whichever quote opened it.</summary>
+    /// <remarks>
+    /// Both quotes, because an expression is authored inside an XML attribute and reaches the lexer
+    /// decoded: <c>'</c> needs no escaping in the usual double-quoted attribute, and <c>"</c> arrives
+    /// as <c>&amp;quot;</c> for anyone who prefers it. The delimiter is not part of the value, so
+    /// only the one that opened the literal has to be escaped inside it.
+    /// </remarks>
+    private static ExprToken ReadString(string text, ref int i)
+    {
+        var start = i;
+        var quote = text[i];
+
+        i++;
+
+        var value = new StringBuilder();
+
+        while (i < text.Length && text[i] != quote)
+        {
+            if (text[i] != '\\')
+            {
+                value.Append(text[i]);
+                i++;
+
+                continue;
+            }
+
+            i++;
+
+            if (i >= text.Length)
+            {
+                break;
+            }
+
+            value.Append(Escaped(text[i], i));
+            i++;
+        }
+
+        if (i >= text.Length)
+        {
+            throw new ExprException($"This string has no closing {quote}.", start);
+        }
+
+        i++;
+
+        return new ExprToken(
+            ExprTokenKind.String,
+            start,
+            text.Substring(start, i - start),
+            value: value.ToString());
+    }
+
+    private static char Escaped(char c, int position) => c switch
+    {
+        '\\' => '\\',
+        '\'' => '\'',
+        '"' => '"',
+        'n' => '\n',
+        't' => '\t',
+        _ => throw new ExprException(
+            $"'\\{c}' is not an escape. The escapes are \\\\, \\', \\\", \\n and \\t.",
+            position)
+    };
 
     private static ExprToken ReadColor(string text, ref int i)
     {

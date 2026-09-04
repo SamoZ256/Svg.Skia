@@ -11,7 +11,8 @@ public class ExprCompilerTests
     {
         ["t"] = ExprType.Number,
         ["tint"] = ExprType.Color,
-        ["bold"] = ExprType.Boolean
+        ["bold"] = ExprType.Boolean,
+        ["theme"] = ExprType.String
     };
 
     private static string Code(string source) => new ExprCompiler(Symbols).Compile(source).Code;
@@ -283,6 +284,62 @@ public class ExprCompilerTests
     public void An_Empty_Expression_Is_Reported()
     {
         Assert.Contains("empty", Assert.Throws<ExprException>(() => new ExprCompiler(Symbols).Compile("   ")).Message);
+    }
+
+    // ---- strings --------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("'dark'", "\"dark\"")]
+    [InlineData("\"dark\"", "\"dark\"")]
+    [InlineData("''", "\"\"")]
+    public void A_String_Is_Written_With_Either_Quote(string source, string expected)
+    {
+        Assert.Equal(expected, Code(source));
+        Assert.Equal(ExprType.String, Type(source));
+    }
+
+    [Theory]
+    // Only the quote that opened the literal has to be escaped inside it.
+    [InlineData(@"'it\'s'", "\"it's\"")]
+    [InlineData("'it\"s'", "\"it\\\"s\"")]
+    [InlineData(@"'a\\b'", @"""a\\b""")]
+    [InlineData(@"'a\nb'", @"""a\nb""")]
+    [InlineData(@"'a\tb'", @"""a\tb""")]
+    public void The_Escapes_Are_Resolved_Once_And_Re_Emitted(string source, string expected)
+    {
+        Assert.Equal(expected, Code(source));
+    }
+
+    [Fact]
+    public void A_String_That_Is_Never_Closed_Is_Reported()
+    {
+        Assert.Contains("no closing '", Error("'dark").Message);
+        Assert.Contains("no closing \"", Error("\"dark").Message);
+    }
+
+    [Fact]
+    public void An_Escape_The_Language_Does_Not_Have_Is_Reported()
+    {
+        Assert.Contains("is not an escape", Error(@"'a\qb'").Message);
+    }
+
+    [Fact]
+    public void Strings_Compare_And_Choose_Like_Any_Other_Type()
+    {
+        Assert.Equal(ExprType.Boolean, Type("theme == 'dark'"));
+        Assert.Equal("(theme != \"dark\")", Code("theme != 'dark'"));
+        Assert.Equal(ExprType.Color, Type("theme == 'dark' ? #fff : #000"));
+        Assert.Equal(ExprType.String, Type("bold ? theme : 'plain'"));
+    }
+
+    [Fact]
+    public void A_String_Is_Not_A_Number_And_Says_So()
+    {
+        Assert.Contains("expects a number", Error("theme - 1").Message);
+        Assert.Contains("expects a number", Error("theme < 'a'").Message);
+        Assert.Contains("expects a boolean", Error("!theme").Message);
+        Assert.Contains("compares a string with a number", Error("theme == 1").Message);
+        Assert.Contains("must be a number", Error("sin('a')").Message);
     }
 
     [Fact]

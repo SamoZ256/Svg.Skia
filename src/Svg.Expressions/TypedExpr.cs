@@ -26,6 +26,9 @@ public sealed record TypedColor(int Position, byte R, byte G, byte B, byte A)
 public sealed record TypedBoolean(int Position, bool Value)
     : TypedExpr(ExprType.Boolean, Position);
 
+public sealed record TypedString(int Position, string Value)
+    : TypedExpr(ExprType.String, Position);
+
 /// <summary>A parameter or a let, as declared by the document.</summary>
 /// <remarks>
 /// Distinct from <see cref="TypedConstant"/>: a symbol table entry shadows a built-in, so a back end

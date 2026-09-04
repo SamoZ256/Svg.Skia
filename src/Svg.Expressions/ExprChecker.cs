@@ -111,6 +111,9 @@ public sealed class ExprChecker
             case BooleanExpr boolean:
                 return new TypedBoolean(boolean.Position, boolean.Value);
 
+            case StringExpr text:
+                return new TypedString(text.Position, text.Value);
+
             case IdentifierExpr identifier:
                 return CheckIdentifier(identifier);
 

@@ -14,7 +14,8 @@ public enum ExprType
 {
     Number,
     Color,
-    Boolean
+    Boolean,
+    String
 }
 
 public sealed class ExprException : Exception

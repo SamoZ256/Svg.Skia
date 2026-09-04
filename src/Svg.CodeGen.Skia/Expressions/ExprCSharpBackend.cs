@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using Svg.Expressions;
 
 namespace Svg.CodeGen.Skia.Expressions;
@@ -57,6 +58,7 @@ internal static class ExprCSharpBackend
             TypedNumber number => Literal(number.Value),
             TypedColor color => $"new SKColor({color.R}, {color.G}, {color.B}, {color.A})",
             TypedBoolean boolean => boolean.Value ? "true" : "false",
+            TypedString text => Literal(text.Value),
             TypedSymbol symbol => Name(symbol, symbolNames),
             TypedConstant constant => EmitConstant(constant.Constant),
             TypedUnary unary => EmitUnary(unary, symbolNames),
@@ -77,6 +79,7 @@ internal static class ExprCSharpBackend
             ExprType.Number => "float",
             ExprType.Color => "SKColor",
             ExprType.Boolean => "bool",
+            ExprType.String => "string",
             _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.")
         };
 
@@ -104,6 +107,40 @@ internal static class ExprCSharpBackend
         }
 
         return $"{s_names[call.Function]}({string.Join(", ", arguments)})";
+    }
+
+    /// <summary>A string as a C# literal.</summary>
+    /// <remarks>
+    /// Written out rather than taken from a formatter, because the output is compared byte for byte
+    /// against the interpreter's own answer. Anything outside printable ASCII is escaped by code
+    /// point, so a generated file is ASCII whatever encoding it is later saved in.
+    /// </remarks>
+    private static string Literal(string value)
+    {
+        var literal = new StringBuilder(value.Length + 2);
+
+        literal.Append('"');
+
+        foreach (var c in value)
+        {
+            switch (c)
+            {
+                case '\\': literal.Append("\\\\"); break;
+                case '"': literal.Append("\\\""); break;
+                case '\n': literal.Append("\\n"); break;
+                case '\r': literal.Append("\\r"); break;
+                case '\t': literal.Append("\\t"); break;
+                default:
+                    literal.Append(c is >= ' ' and <= '~'
+                        ? c.ToString()
+                        : "\\u" + ((int)c).ToString("x4", CultureInfo.InvariantCulture));
+                    break;
+            }
+        }
+
+        literal.Append('"');
+
+        return literal.ToString();
     }
 
     private static string Literal(double value)

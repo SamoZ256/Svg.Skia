@@ -21,6 +21,7 @@ internal static class ExprValueBackend
             TypedNumber number => ExprValue.Number((float)number.Value),
             TypedColor color => ExprValue.Color(color.R, color.G, color.B, color.A),
             TypedBoolean boolean => ExprValue.Boolean(boolean.Value),
+            TypedString text => ExprValue.String(text.Value),
             TypedSymbol symbol => Lookup(symbol, values),
             TypedConstant constant => EvaluateConstant(constant),
             TypedUnary unary => EvaluateUnary(unary, values),
@@ -117,6 +118,7 @@ internal static class ExprValueBackend
                               && left.Blue == right.Blue
                               && left.Alpha == right.Alpha,
             ExprType.Boolean => left.AsBoolean == right.AsBoolean,
+            ExprType.String => string.Equals(left.AsString, right.AsString, StringComparison.Ordinal),
             _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {left.Type}.")
         };
 
