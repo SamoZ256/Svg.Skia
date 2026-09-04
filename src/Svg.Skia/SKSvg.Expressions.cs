@@ -65,6 +65,15 @@ public partial class SKSvg
         // rendered behind our back.
         var bound = CopyValues(values);
 
+        // A value the compile consumes cannot be rebound by rewriting the recorded drawing: the
+        // typeface was resolved with it and the text measured against that. Recompiling from the
+        // retained document is the answer, and it re-applies the recorded expressions on its way
+        // out, so a document using both kinds still gets both.
+        if (SvgExpressionSubstitution.IsNeeded(SourceDocument))
+        {
+            return Recompiled(bound);
+        }
+
         SKPicture? symbolic;
         lock (Sync)
         {
@@ -87,6 +96,37 @@ public partial class SKSvg
         return RebuildFromModel();
     }
 
+    /// <summary>Binds by compiling again, for a document whose values a compile consumes.</summary>
+    /// <remarks>
+    /// The values are put back on a failure so that the documented rule still holds: nothing changes
+    /// unless the whole set resolves, and a failed call leaves the last rendering up. The cheap path
+    /// gets that by evaluating before it assigns, which a recompile cannot do.
+    /// </remarks>
+    private SkiaSharp.SKPicture? Recompiled(Dictionary<string, ExprValue>? bound)
+    {
+        Dictionary<string, ExprValue>? previous;
+
+        lock (Sync)
+        {
+            previous = _expressionValues;
+            _expressionValues = bound;
+        }
+
+        try
+        {
+            return RefreshFromSourceDocument();
+        }
+        catch
+        {
+            lock (Sync)
+            {
+                _expressionValues = previous;
+            }
+
+            throw;
+        }
+    }
+
     /// <summary>Goes back to rendering the document's placeholders.</summary>
     public SkiaSharp.SKPicture? ClearExpressionValues() => SetExpressionValues(null);
 
@@ -104,6 +144,38 @@ public partial class SKSvg
         var values = _expressionValues;
 
         return values is null ? model : Evaluate(model, values, document) ?? model;
+    }
+
+    /// <summary>
+    /// Substitutes the values a compile consumes into the document, for as long as the returned
+    /// scope lives.
+    /// </summary>
+    /// <remarks>
+    /// Wrapped around every compile rather than called by whoever binds a value: a compile can start
+    /// from a load, a DOM edit, a script mutation or a retained-scene refresh, and one of those
+    /// forgetting would render the document with its text missing.
+    ///
+    /// With nothing bound the evaluator resolves the declared defaults, which is what makes a plain
+    /// load draw what the author described. A declaration block that will not resolve at all gives
+    /// back the empty scope: loading is documented never to fail on one.
+    /// </remarks>
+    private IDisposable BeginExpressionSubstitution(SvgDocument? document)
+    {
+        if (document is null || !SvgExpressionSubstitution.IsNeeded(document))
+        {
+            return SvgExpressionSubstitution.None;
+        }
+
+        try
+        {
+            return SvgExpressionSubstitution.Begin(
+                document,
+                ExprEvaluator.Create(document.ExpressionDeclarations, _expressionValues));
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            return SvgExpressionSubstitution.None;
+        }
     }
 
     private SKPicture? Evaluate(SKPicture model, IReadOnlyDictionary<string, ExprValue>? values)

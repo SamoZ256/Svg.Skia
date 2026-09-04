@@ -49,6 +49,8 @@ public partial class SKSvg
             return false;
         }
 
+        using var substituted = BeginExpressionSubstitution(sourceDocument);
+
         if (!SvgSceneRuntime.TryCompile(sourceDocument, AssetLoader, IgnoreAttributes, GetStandaloneViewport(), out var compiledSceneDocument))
         {
             lock (Sync)
