@@ -204,8 +204,9 @@ public class SkiaCSharpRenderTests
 
         for (var index = 0; index < arguments.Length; index++)
         {
-            // A null argument is a colour left to its default, which leaving the name unbound is
-            // on the evaluator's side.
+            // A null argument is a parameter left to its default -- a colour or a string, the two
+            // that reach the body through a local -- which leaving the name unbound is on the
+            // evaluator's side.
             if (arguments[index] is null)
             {
                 continue;
@@ -216,6 +217,7 @@ public class SkiaCSharpRenderTests
                 float number => ExprValue.Number(number),
                 bool boolean => ExprValue.Boolean(boolean),
                 SKColor color => ExprValue.Color(color.Red, color.Green, color.Blue, color.Alpha),
+                string text => ExprValue.String(text),
                 var other => throw new NotSupportedException($"Unsupported argument type: {other!.GetType().Name}.")
             };
         }
@@ -360,6 +362,46 @@ public class SkiaCSharpRenderTests
             </svg>
             """,
             new object?[] { true },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="9" fill="#22c55e" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_String_Parameter_Chooses_The_Paint()
+        // The whole point of the type: a string reaches no attribute, so the only way it can show up
+        // in a drawing is by choosing between values that do. `lower` comes with it, which is also
+        // what says the helper was selected into the generated class -- an unselected one is CS0103.
+        => AssertExpressionsRenderTheSame(
+            "ExprString",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="theme" type="string" default="'light'" /></e:code></defs>
+              <circle cx="12" cy="12" r="9" fill="{{ lower(theme) == 'dark' ? #22c55e : #1e40af }}" />
+            </svg>
+            """,
+            new object?[] { "DARK" },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="9" fill="#22c55e" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_String_Default_Paints_When_No_Value_Is_Supplied()
+        // Null argument, so the generated body takes the `?? default` local. The default is itself a
+        // call rather than a literal, which is why every string default gets that local: as a C#
+        // argument default it would be CS1736.
+        => AssertExpressionsRenderTheSame(
+            "ExprStringDefault",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="theme" type="string" default="lower('DARK')" /></e:code></defs>
+              <circle cx="12" cy="12" r="9" fill="{{ theme == 'dark' ? #22c55e : #1e40af }}" />
+            </svg>
+            """,
+            new object?[] { null },
             """
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
               <circle cx="12" cy="12" r="9" fill="#22c55e" />
