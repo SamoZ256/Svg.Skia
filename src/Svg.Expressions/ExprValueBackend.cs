@@ -116,7 +116,8 @@ internal static class ExprValueBackend
                               && left.Green == right.Green
                               && left.Blue == right.Blue
                               && left.Alpha == right.Alpha,
-            _ => left.AsBoolean == right.AsBoolean
+            ExprType.Boolean => left.AsBoolean == right.AsBoolean,
+            _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {left.Type}.")
         };
 
     private static ExprValue EvaluateConditional(

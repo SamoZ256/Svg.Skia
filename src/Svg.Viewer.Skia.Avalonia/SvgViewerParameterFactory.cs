@@ -48,7 +48,8 @@ public static class SvgViewerParameterFactory
         {
             ExprType.Number => Number(declaration, seed),
             ExprType.Color => new SvgViewerColorParameter(declaration, ToColor(seed)),
-            _ => new SvgViewerBooleanParameter(declaration, seed?.Type == ExprType.Boolean && seed.Value.AsBoolean)
+            ExprType.Boolean => new SvgViewerBooleanParameter(declaration, seed?.Type == ExprType.Boolean && seed.Value.AsBoolean),
+            _ => throw Unknown(declaration.Type)
         };
     }
 
@@ -105,8 +106,12 @@ public static class SvgViewerParameterFactory
         ExprType.Color => value.Alpha == byte.MaxValue
             ? string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}", value.Red, value.Green, value.Blue)
             : string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}{3:x2}", value.Red, value.Green, value.Blue, value.Alpha),
-        _ => value.AsBoolean ? "true" : "false",
+        ExprType.Boolean => value.AsBoolean ? "true" : "false",
+        _ => throw Unknown(value.Type),
     };
+
+    private static Exception Unknown(ExprType type)
+        => new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.");
 
     /// <summary>
     /// Widens a number the language computed to the double a control wants.

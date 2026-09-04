@@ -82,7 +82,8 @@ public readonly struct ExprValue : IEquatable<ExprValue>
         {
             ExprType.Number => _number.Equals(other._number),
             ExprType.Color => _r == other._r && _g == other._g && _b == other._b && _a == other._a,
-            _ => _boolean == other._boolean
+            ExprType.Boolean => _boolean == other._boolean,
+            _ => throw Unknown(Type)
         };
     }
 
@@ -98,7 +99,8 @@ public readonly struct ExprValue : IEquatable<ExprValue>
             {
                 ExprType.Number => (hash * 397) ^ _number.GetHashCode(),
                 ExprType.Color => (((((hash * 397) ^ _r) * 397) ^ _g) * 397 ^ _b) * 397 ^ _a,
-                _ => (hash * 397) ^ (_boolean ? 1 : 0)
+                ExprType.Boolean => (hash * 397) ^ (_boolean ? 1 : 0),
+                _ => throw Unknown(Type)
             };
 
             return hash;
@@ -110,8 +112,12 @@ public readonly struct ExprValue : IEquatable<ExprValue>
         {
             ExprType.Number => _number.ToString("R", CultureInfo.InvariantCulture),
             ExprType.Color => $"#{_r:x2}{_g:x2}{_b:x2}{_a:x2}",
-            _ => _boolean ? "true" : "false"
+            ExprType.Boolean => _boolean ? "true" : "false",
+            _ => throw Unknown(Type)
         };
+
+    private static Exception Unknown(ExprType type)
+        => new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.");
 
     private ExprValue Require(ExprType type)
     {

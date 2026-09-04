@@ -154,7 +154,8 @@ public static class ExprFunctions
         {
             ExprType.Number => "number",
             ExprType.Color => "color",
-            _ => "boolean"
+            ExprType.Boolean => "boolean",
+            _ => throw Unknown(type)
         };
 
     /// <summary>
@@ -170,7 +171,8 @@ public static class ExprFunctions
     {
         ExprType.Color => "A paint expression",
         ExprType.Boolean => "A visibility expression",
-        _ => "An opacity expression",
+        ExprType.Number => "An opacity expression",
+        _ => throw Unknown(expected),
     };
 
     /// <summary>How a type is named in a diagnostic.</summary>
@@ -179,7 +181,8 @@ public static class ExprFunctions
         {
             ExprType.Number => "number",
             ExprType.Color => "colour",
-            _ => "boolean"
+            ExprType.Boolean => "boolean",
+            _ => throw Unknown(type)
         };
 
     /// <summary>
@@ -187,6 +190,9 @@ public static class ExprFunctions
     /// the diagnostic that rejects an operand and in the C# a back end emits: two copies could
     /// drift, with byte-identical output riding on one and message text on the other.
     /// </summary>
+    private static Exception Unknown(ExprType type)
+        => new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.");
+
     public static string OperatorText(ExprBinaryOp op)
         => op switch
         {

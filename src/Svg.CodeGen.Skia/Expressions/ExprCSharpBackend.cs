@@ -76,7 +76,8 @@ internal static class ExprCSharpBackend
         {
             ExprType.Number => "float",
             ExprType.Color => "SKColor",
-            _ => "bool"
+            ExprType.Boolean => "bool",
+            _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.")
         };
 
     private static string EmitConstant(ExprConstant constant)

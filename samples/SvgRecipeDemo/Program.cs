@@ -116,7 +116,8 @@ internal static class Program
     {
         ExprType.Number => ExprValue.Number(0f),
         ExprType.Boolean => ExprValue.Boolean(string.Equals(parameter.DefaultExpression, "true", StringComparison.Ordinal)),
-        _ => index % 2 == 0 ? ExprValue.Color(0x00, 0x00, 0x00, 0xFF) : ExprValue.Color(0xFF, 0xFF, 0xFF, 0xFF)
+        ExprType.Color => index % 2 == 0 ? ExprValue.Color(0x00, 0x00, 0x00, 0xFF) : ExprValue.Color(0xFF, 0xFF, 0xFF, 0xFF),
+        _ => throw new ArgumentOutOfRangeException(nameof(parameter), parameter.Type, "This demo sweeps only the types it knows.")
     };
 
     private static ExprValue ToValue(object? state) => state switch

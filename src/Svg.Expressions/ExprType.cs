@@ -5,6 +5,11 @@ using System;
 
 namespace Svg.Expressions;
 
+/// <remarks>
+/// Every switch over this names all of its cases and throws on anything else. An arm written as
+/// <c>_</c> reads as a default but is really the last member under another name, so a member added
+/// later inherits its behaviour silently, everywhere at once, without a compiler error.
+/// </remarks>
 public enum ExprType
 {
     Number,

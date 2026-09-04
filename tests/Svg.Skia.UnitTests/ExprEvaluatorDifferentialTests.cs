@@ -44,7 +44,8 @@ public class ExprEvaluatorDifferentialTests
         {
             ExprType.Number => Value.AsNumber,
             ExprType.Color => new SKColor(Value.Red, Value.Green, Value.Blue, Value.Alpha),
-            _ => Value.AsBoolean
+            ExprType.Boolean => Value.AsBoolean,
+            _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {Value.Type}.")
         };
     }
 
@@ -166,9 +167,12 @@ public class ExprEvaluatorDifferentialTests
                     break;
                 }
 
-            default:
+            case ExprType.Boolean:
                 Assert.Equal((bool)compiled, evaluated.AsBoolean);
                 break;
+
+            default:
+                throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.");
         }
     }
 

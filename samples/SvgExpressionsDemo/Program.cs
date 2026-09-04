@@ -71,7 +71,8 @@ internal static class Program
             {
                 ExprType.Number => ExprValue.Number(0.5f),
                 ExprType.Boolean => ExprValue.Boolean(true),
-                _ => ExprValue.Color(0x3F, 0xB5, 0xB5, 0xFF)
+                ExprType.Color => ExprValue.Color(0x3F, 0xB5, 0xB5, 0xFF),
+                _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {p.Type}.")
             },
             StringComparer.Ordinal);
 
