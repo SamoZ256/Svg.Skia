@@ -87,6 +87,7 @@ renderers ignore:
     <e:param name="hue"  type="number"  default="217" min="0" max="360" step="1" />
     <e:param name="tint" type="color"   />
     <e:param name="bold" type="boolean" default="false" />
+    <e:param name="theme" type="string" default="'dark'" />
 
     <e:let name="wave">(sin(t * tau) + 1) / 2</e:let>
     <e:let name="shade">mix(tint, #000000, wave)</e:let>
@@ -120,7 +121,7 @@ increment. All three are optional, and each is an expression like `default` is, 
 ```
 
 `min` and `max` are given together or not at all. `step` may stand alone, against the range of `0` to
-`1` a parameter has when it declares none. All three are for `number` only — a colour or boolean
+`1` a parameter has when it declares none. All three are for `number` only — any other type
 carrying one is an error, as is a `min` above its `max`, or a `step` of zero or less.
 
 They are **advice to a host, not a constraint on the value**. Nothing clamps: a value supplied at run
@@ -153,6 +154,15 @@ Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d`, `transform`, `
 literal. Braces written in one of those are read as an ordinary value and do nothing; a source view
 marks it.
 
+That list is not arbitrary, and the omission people notice first is `font-family`. Binding a value
+**re-evaluates the recorded drawing rather than compiling it again** — which is what makes dragging a
+slider affordable — so an expression can only drive something the drawing still holds once it has
+been recorded: a paint, an alpha, whether a node was drawn at all. A font is read long before that:
+the typeface is resolved while the document is compiled, the text is measured with it, and the
+positions are baked. Substituting a family afterwards would draw the new font at the old font's
+positions — right for left-anchored text, wrong for anything centred or on a path. So there is no
+string-valued attribute, and a `string` earns its keep by choosing between values instead.
+
 A **pattern** fill is the one exception among the opacities: it paints into a picture of its own,
 where the alpha is baked into every command rather than sitting on one colour, so `fill-opacity`
 still applies but only as the value it had when the drawing was compiled.
@@ -179,9 +189,19 @@ would a literal.
 
 ### 3.1 Types
 
-`number` (single-precision float), `color` (RGBA, 8 bits per channel), `boolean`.
+`number` (single-precision float), `color` (RGBA, 8 bits per channel), `boolean`, `string`.
 
-There are no implicit conversions between them.
+There are no implicit conversions between them. In particular `+` never turns a number into text:
+between a string and anything else it is an error, not a conversion.
+
+No attribute takes a `string`, and that is deliberate rather than an omission — see
+[§2](#2-which-attributes-take-an-expression). A string is what a drawing is told *which variant it
+is*, and it earns its keep by choosing between values that attributes do take:
+
+```xml
+<e:param name="theme" type="string" default="'dark'" />
+<circle fill="{{ theme == 'dark' ? #ffffff : #101010 }}" />
+```
 
 ### 3.2 Literals
 
@@ -194,6 +214,14 @@ There are no implicit conversions between them.
 | `#ff8800` | color | 6 hex digits, RGB, alpha 255. |
 | `#ff880080` | color | 8 hex digits, RGBA. |
 | `true`, `false` | boolean | |
+| `'dark'`, `"dark"` | string | Either quote; the one that opened the literal closes it. |
+
+A string literal is closed by whichever quote opened it, and only that quote has to be escaped
+inside it. `'` is the spelling to prefer: an expression lives in a double-quoted XML attribute, where
+`'` needs no entity and `"` has to be written `&quot;`.
+
+The escapes are `\\`, `\'`, `\"`, `\n` and `\t`. Any other character after a backslash is an
+error rather than a passed-through backslash.
 
 `%` is **only** a suffix and never an operator. Use `mod(a, b)` for the remainder. This keeps `55%`
 unambiguous; writing `a % b` is a syntax error with a message saying so.
@@ -210,7 +238,8 @@ listed alongside:
 | 3 | `&&` | `and` | boolean | boolean |
 | 4 | `==` `!=` | `eq` `ne` | both operands the same type | boolean |
 | 5 | `<` `<=` `>` `>=` | `lt` `le` `gt` `ge` | number | boolean |
-| 6 | `+` `-` | | number | number |
+| 6 | `+` | | number, or two strings | number, or string |
+| 6 | `-` | | number | number |
 | 7 | `*` `/` | | number | number |
 | 8 | `-x` (unary) | | number | number |
 | 8 | `!x` | `not x` | boolean | boolean |
@@ -219,6 +248,9 @@ Parentheses group as usual.
 
 Arithmetic on colours is rejected — use `mix(a, b, t)` to blend. Ordering comparisons (`<`, `>`, …)
 are numbers only; `==` and `!=` work on any type provided both sides match.
+
+`+` is the one operator with two meanings: two numbers add, two strings join. A string with anything
+else is an error, because the alternative would make `+` a conversion.
 
 #### Escaping, and the word forms
 
@@ -276,6 +308,13 @@ Colour:
 | `mix(a, b, t)` | Per-channel linear blend including alpha. `t` clamped to 0..1. |
 | `withAlpha(c, a)` | Replaces alpha; `a` is 0..1, clamped. |
 
+String:
+
+| Signature | Notes |
+| --- | --- |
+| `upper(s)` `lower(s)` | **Invariant** case folding, so the answer does not vary with the machine. |
+| `len(s)` | Number of UTF-16 code units, as a **number** — which is how a string reaches the arithmetic. |
+
 Note the deliberate asymmetry: `rgb` takes 0..255 and `hsl` takes degrees plus fractions, matching
 CSS rather than being internally uniform.
 
@@ -290,7 +329,7 @@ comparison     := additive ( ( '<' | '<=' | '>' | '>=' | 'lt' | 'le' | 'gt' | 'g
 additive       := multiplicative ( ( '+' | '-' ) multiplicative )*
 multiplicative := unary ( ( '*' | '/' ) unary )*
 unary          := ( '-' | '!' | 'not' ) unary | primary
-primary        := number | color | 'true' | 'false'
+primary        := number | color | string | 'true' | 'false'
                 | identifier
                 | identifier '(' ( conditional ( ',' conditional )* )? ')'
                 | '(' conditional ')'
