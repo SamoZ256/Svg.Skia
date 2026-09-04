@@ -2427,6 +2427,40 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_directory, "drawing.svg")));
     }
 
+    /// <summary>
+    /// A hold is spent by the paste that takes it, and the clipboard is heard again after.
+    /// </summary>
+    /// <remarks>
+    /// The alternative was a copy that outlives its paste, which reads well until somebody copies a
+    /// row in the morning: every paste that day answers with it, and an icon copied in a drawing
+    /// program cannot be pasted at all.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Copied_Row_Is_Pasted_Once_And_Then_The_Clipboard_Is_Heard()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        await Copy(window, DataTransferItem.CreateText(Drawing));
+
+        Pick(window, "home.svg - Home", "Copy");
+        Pick(window, "Demo.Icons.Large", "Paste");
+
+        // The row, and then what was on the clipboard all along.
+        Pick(window, "Demo.Icons.Large", "Paste");
+        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing.svg"));
+
+        Assert.Equal(
+            new[]
+            {
+                "Demo.Icons", "home.svg - Home", "Demo.Icons.Large", "badge.svg - BadgeLarge",
+                "home.svg - Home", "drawing.svg"
+            },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+    }
+
     /// <summary>Puts one thing on the clipboard, as another program would have left it there.</summary>
     private static async Task Copy(MainWindow window, DataTransferItem item)
     {

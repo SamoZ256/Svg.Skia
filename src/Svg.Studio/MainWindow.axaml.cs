@@ -745,6 +745,11 @@ public partial class MainWindow : Window
         var (parent, index) = Beside(target);
         var copy = parent.Copy(held, index);
 
+        // Once, as a cut is: the hold is what a paste hears before the system clipboard, and a copy
+        // that outlived its paste would go on answering for every paste made afterwards — including
+        // the one meant for an icon copied in another program. Twice is Copy, Paste, Copy, Paste.
+        _held = null;
+
         workspace.Save();
         BuildTree(copy);
     }
@@ -753,9 +758,9 @@ public partial class MainWindow : Window
     /// Puts whatever is waiting to be pasted beside <paramref name="target"/>.
     /// </summary>
     /// <remarks>
-    /// A row held by Cut or Copy first, and the system clipboard only where nothing is held. The two
-    /// cannot be ranked by age — nothing says when a clipboard was written — so the one this window
-    /// was told about wins, and the clipboard answers for every paste that was not a row.
+    /// A row held by Cut or Copy first, and the system clipboard where none is. The two cannot be
+    /// ranked by age — nothing says when a clipboard was written — so the one this window was told
+    /// about wins, and it is spent by the paste that takes it rather than staying to answer the next.
     /// </remarks>
     private async Task PasteAsync(SvgcProjectNode target)
     {
