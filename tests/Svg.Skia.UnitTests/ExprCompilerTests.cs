@@ -343,6 +343,39 @@ public class ExprCompilerTests
     }
 
     [Fact]
+    public void Strings_Join_With_Plus()
+    {
+        Assert.Equal(ExprType.String, Type("'icon-' + theme"));
+        Assert.Equal("(\"icon-\" + theme)", Code("'icon-' + theme"));
+    }
+
+    [Fact]
+    public void Plus_Will_Not_Turn_Something_Else_Into_Text()
+    {
+        Assert.Contains("'+' expects a string", Error("theme + 1").Message);
+        Assert.Contains("'+' expects a string", Error("1 + theme").Message);
+        Assert.Contains("'+' expects a string", Error("theme + bold").Message);
+    }
+
+    [Fact]
+    public void The_String_Functions_Emit_Their_Helpers()
+    {
+        Assert.Equal("SvgUpper(theme)", Code("upper(theme)"));
+        Assert.Equal("SvgLower(theme)", Code("lower(theme)"));
+        Assert.Equal("SvgLen(theme)", Code("len(theme)"));
+
+        Assert.Equal(ExprType.String, Type("upper(theme)"));
+        Assert.Equal(ExprType.Number, Type("len(theme)"));
+    }
+
+    [Fact]
+    public void Len_Puts_A_String_Into_The_Arithmetic()
+    {
+        Assert.Equal(ExprType.Number, Type("len(theme) * 2"));
+        Assert.Equal(ExprType.Boolean, Type("len(theme) > 3"));
+    }
+
+    [Fact]
     public void CompileTo_Enforces_The_Expected_Type()
     {
         var compiler = new ExprCompiler(Symbols);

@@ -38,7 +38,10 @@ public enum ExprFunction
     Hsl,
     Hsla,
     Mix,
-    WithAlpha
+    WithAlpha,
+    Upper,
+    Lower,
+    Len
 }
 
 /// <summary>What a function takes and returns. No spelling in any target language.</summary>
@@ -70,6 +73,7 @@ public static class ExprFunctions
 {
     private const ExprType N = ExprType.Number;
     private const ExprType C = ExprType.Color;
+    private const ExprType S = ExprType.String;
 
     private static readonly Dictionary<string, ExprType> s_constants = new(StringComparer.Ordinal)
     {
@@ -106,7 +110,12 @@ public static class ExprFunctions
         ["hsl"] = new(ExprFunction.Hsl, C, N, N, N),
         ["hsla"] = new(ExprFunction.Hsla, C, N, N, N, N),
         ["mix"] = new(ExprFunction.Mix, C, C, C, N),
-        ["withAlpha"] = new(ExprFunction.WithAlpha, C, C, N)
+        ["withAlpha"] = new(ExprFunction.WithAlpha, C, C, N),
+        ["upper"] = new(ExprFunction.Upper, S, S),
+        ["lower"] = new(ExprFunction.Lower, S, S),
+
+        // Returns a number, so a string can reach the arithmetic rather than being an island.
+        ["len"] = new(ExprFunction.Len, N, S)
     };
 
     /// <summary>Function names as authored. Diagnostics list these, not the enum.</summary>

@@ -187,6 +187,17 @@ public sealed class ExprChecker
             case ExprBinaryOp.Multiply:
             case ExprBinaryOp.Divide:
                 {
+                    // Only with another string. '+' between a string and anything else would be a
+                    // spelling of "make this text", and the language has no conversions.
+                    if (binary.Op == ExprBinaryOp.Add
+                        && (left.Type == ExprType.String || right.Type == ExprType.String))
+                    {
+                        Require(left.Type, ExprType.String, $"'{symbol}'", binary.Position);
+                        Require(right.Type, ExprType.String, $"'{symbol}'", binary.Position);
+
+                        return new TypedBinary(ExprType.String, binary.Position, binary.Op, left, right);
+                    }
+
                     if (left.Type == ExprType.Color || right.Type == ExprType.Color)
                     {
                         throw new ExprException(

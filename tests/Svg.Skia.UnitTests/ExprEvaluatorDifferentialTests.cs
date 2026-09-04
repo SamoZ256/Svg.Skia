@@ -317,6 +317,14 @@ public class ExprEvaluatorDifferentialTests
         AssertSameValue("theme == 'dark'", Text("theme", "light"));
         AssertSameValue("theme != 'dark' ? #22c55e : #1e40af", Text("theme", "dark"));
         AssertSameValue("on ? theme : 'plain'", Text("theme", "dark"), Boolean("on", true));
+        AssertSameValue("'icon-' + theme", Text("theme", "home"));
+        AssertSameValue("upper(theme)", Text("theme", "stra\u00dfe"));
+        AssertSameValue("lower(theme)", Text("theme", "STRASSE"));
+        AssertSameValue("len(theme) * 2", Text("theme", "home"));
+
+        // A case fold that differs by culture, which is why both back ends spell it invariant.
+        AssertSameValue("upper(theme)", Text("theme", "istanbul"));
+        AssertSameValue("lower(theme)", Text("theme", "ISTANBUL"));
     }
 
     [Theory]
