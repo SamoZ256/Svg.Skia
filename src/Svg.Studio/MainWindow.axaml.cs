@@ -523,7 +523,7 @@ public partial class MainWindow : Window
         return true;
     }
 
-    /// <summary>How many paths a build names before it starts counting instead.</summary>
+    /// <summary>How many things a dialog names before it starts counting instead.</summary>
     /// <remarks>
     /// The dialog sizes itself to what it holds and has nothing to scroll, so a project with an
     /// output on every drawing — an ordinary icon set — would make a window taller than the screen.
@@ -657,10 +657,10 @@ public partial class MainWindow : Window
             Add("Copy", () => Hold(node, cut: false), new KeyGesture(Key.C, command));
         }
 
-        if (_held is { })
-        {
-            Add("Paste", () => Paste(node), new KeyGesture(Key.V, command));
-        }
+        // Always, unlike Cut and Copy: what a paste would land is on the system clipboard as often
+        // as it is a row held here, and looking there to find out is a read the platform wants a
+        // paste behind. So the command is offered and answers for itself.
+        Add("Paste", async () => await PasteAsync(node), new KeyGesture(Key.V, command));
 
         menu.Items.Add(new Separator());
 
@@ -747,6 +747,122 @@ public partial class MainWindow : Window
 
         workspace.Save();
         BuildTree(copy);
+    }
+
+    /// <summary>
+    /// Puts whatever is waiting to be pasted beside <paramref name="target"/>.
+    /// </summary>
+    /// <remarks>
+    /// A row held by Cut or Copy first, and the system clipboard only where nothing is held. The two
+    /// cannot be ranked by age — nothing says when a clipboard was written — so the one this window
+    /// was told about wins, and the clipboard answers for every paste that was not a row.
+    /// </remarks>
+    private async Task PasteAsync(SvgcProjectNode target)
+    {
+        if (_workspace is not { } workspace)
+        {
+            return;
+        }
+
+        if (_held is { })
+        {
+            Paste(target);
+
+            return;
+        }
+
+        var carried = await ProjectClipboard.ReadAsync(Clipboard).ConfigureAwait(true);
+        var (parent, index) = Beside(target);
+
+        // The rule a drop of files obeys, obeyed the same way: all of them drawings, or none of it.
+        if (carried.Files is { Count: > 0 } files && files.All(IsDrawing))
+        {
+            await AddDrawingsAsync(parent, index, files).ConfigureAwait(true);
+
+            return;
+        }
+
+        if (carried.Drawing is { } drawing)
+        {
+            if (await WrittenAsync(workspace, drawing).ConfigureAwait(true) is { } written)
+            {
+                await AddDrawingsAsync(parent, index, new[] { written }).ConfigureAwait(true);
+            }
+
+            return;
+        }
+
+        await Announce("There is nothing to paste", Offering(carried)).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Writes a pasted drawing beside the project, under a name nothing there has yet.
+    /// </summary>
+    /// <remarks>
+    /// A file because that is what a project is a list of — it names inputs, and there is nowhere in
+    /// the format to keep a drawing that has none. Beside the project rather than through a save
+    /// panel: a paste is one gesture, and a panel in the middle of it asks for more than the name is
+    /// worth, which the row shows and a rename settles.
+    /// </remarks>
+    /// <returns>The file written, or null when nothing was — which has been said already.</returns>
+    private async Task<string?> WrittenAsync(ProjectWorkspace workspace, string drawing)
+    {
+        if (workspace.Document.BaseDirectory is not { Length: > 0 } directory)
+        {
+            await Announce(
+                    "The drawing couldn't be pasted",
+                    "This project has no file of its own, so there is nowhere beside it to write one.")
+                .ConfigureAwait(true);
+
+            return null;
+        }
+
+        var path = Path.Combine(directory, "drawing.svg");
+
+        for (var next = 2; File.Exists(path); next++)
+        {
+            path = Path.Combine(directory, $"drawing-{next}.svg");
+        }
+
+        try
+        {
+            File.WriteAllText(path, drawing);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            await Announce("The drawing couldn't be pasted", failure.Message).ConfigureAwait(true);
+
+            return null;
+        }
+
+        return path;
+    }
+
+    /// <summary>Why a paste did nothing, in terms of what the clipboard actually had on it.</summary>
+    /// <remarks>
+    /// Naming what was there rather than what was wanted: a drawing program puts several pictures of
+    /// the same art on the clipboard at once, and which of them arrived is the whole difference
+    /// between a paste that works and one that cannot.
+    /// </remarks>
+    private static string Offering(ProjectClipboard carried)
+    {
+        if (carried.Files is { Count: > 0 } files)
+        {
+            return $"The clipboard holds {string.Join(", ", files.Select(Path.GetFileName))}, which "
+                   + "a project has no row for. A drawing is an .svg or an .svgz file.";
+        }
+
+        if (carried.Formats.Count == 0)
+        {
+            return "The clipboard is empty.";
+        }
+
+        var formats = carried.Formats.Count <= Listed
+            ? string.Join(", ", carried.Formats)
+            : $"{string.Join(", ", carried.Formats.Take(Listed))} and {carried.Formats.Count - Listed} more";
+
+        return $"The clipboard holds {formats}, and none of it is a drawing. "
+               + "Illustrator writes one when Preferences > Clipboard Handling > Include SVG Code is on.";
     }
 
     /// <summary>Where something added beside <paramref name="node"/> goes: in a group, after a drawing.</summary>
@@ -1223,7 +1339,7 @@ public partial class MainWindow : Window
 
             if (e.Key == Key.V)
             {
-                Paste(node);
+                await PasteAsync(node);
             }
             else
             {

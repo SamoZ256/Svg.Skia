@@ -2234,8 +2234,15 @@ public class MainWindowProjectTests : IDisposable
         // Once in the file, not twice: what was cut is not still where it was.
         Assert.Single(window.Workspace!.Document.Root.Drawings, drawing => drawing.Input == "badge.svg");
 
-        // And nothing is left held, so the next row's menu does not offer to paste it again.
-        Assert.DoesNotContain("Paste", Offers(Row(window, "Demo.Icons.Large")));
+        // And nothing is left held: a second paste finds no row waiting and falls through to the
+        // clipboard, which in a test has nothing on it, so the tree stays as it is.
+        window.Announce = (_, _) => Task.CompletedTask;
+
+        Pick(window, "Demo.Icons.Large", "Paste");
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "badge.svg - BadgeLarge", "Demo.Icons.Large" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
     }
 
     /// <summary>The refusal a drag already makes, made the same way by a paste.</summary>
@@ -2258,19 +2265,188 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(Project, File.ReadAllText(path));
     }
 
+    /// <summary>
+    /// Unlike Cut and Copy, which are about the row they are on and can be refused by looking at it.
+    /// </summary>
+    /// <remarks>
+    /// What a paste would land is on the system clipboard as often as it is a row held here, and
+    /// there is no looking there to find out: a clipboard read wants a paste behind it. So the
+    /// command is offered either way and says for itself when it found nothing.
+    /// </remarks>
     [AvaloniaFact]
-    public async Task Paste_Is_Offered_Only_Once_Something_Is_Held()
+    public async Task Paste_Is_Offered_Whether_Or_Not_A_Row_Is_Held()
     {
         Write("home.svg", Drawing);
         Write("badge.svg", Drawing);
 
         var window = await Host(Write("icons.svgcproj", Project));
 
-        Assert.DoesNotContain("Paste", Offers(Row(window, "Demo.Icons.Large")));
+        Assert.Contains("Paste", Offers(Row(window, "Demo.Icons.Large")));
 
         Pick(window, "home.svg - Home", "Copy");
 
         Assert.Contains("Paste", Offers(Row(window, "Demo.Icons.Large")));
+    }
+
+    // ---- pasting a drawing off the system clipboard ------------------------------------------
+
+    /// <summary>An icon copied in a drawing program, which has no file to name.</summary>
+    [AvaloniaFact]
+    public async Task An_Svg_On_The_Clipboard_Is_Written_Beside_The_Project_And_Added()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgcproj", Project);
+        var window = await Host(path);
+
+        await Copy(window, DataTransferItem.CreateText(Drawing));
+
+        Pick(window, "Demo.Icons.Large", "Paste");
+        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing.svg"));
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "Demo.Icons.Large", "badge.svg - BadgeLarge", "drawing.svg" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        // A file of its own, and the project naming it the way it names the drawings it was written
+        // with — relative to itself.
+        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "drawing.svg")));
+        Assert.Contains("<svg input=\"drawing.svg\" />", File.ReadAllText(path));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Second_Paste_Does_Not_Write_Over_The_First()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        await Copy(window, DataTransferItem.CreateText(Drawing));
+
+        Pick(window, "Demo.Icons.Large", "Paste");
+        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing.svg"));
+
+        Pick(window, "Demo.Icons.Large", "Paste");
+        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing-2.svg"));
+
+        Assert.True(File.Exists(Path.Combine(_directory, "drawing.svg")));
+        Assert.True(File.Exists(Path.Combine(_directory, "drawing-2.svg")));
+    }
+
+    /// <summary>The format Illustrator has also written the same art as.</summary>
+    [AvaloniaFact]
+    public async Task A_Format_Naming_Itself_Svg_Is_Read_When_The_Text_Is_Not_One()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var carried = new DataTransfer();
+
+        carried.Add(DataTransferItem.CreateText("Adobe Illustrator artwork"));
+        carried.Add(DataTransferItem.Create(DataFormat.CreateStringPlatformFormat("image/svg+xml"), Drawing));
+
+        await window.Clipboard!.SetDataAsync(carried);
+
+        Pick(window, "Demo.Icons.Large", "Paste");
+        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing.svg"));
+
+        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "drawing.svg")));
+    }
+
+    /// <summary>A drawing already on disk is a row where it is, not a copy of it.</summary>
+    [AvaloniaFact]
+    public async Task An_Svg_File_On_The_Clipboard_Is_Added_Where_It_Already_Is()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var copied = Write("mark.svg", Drawing);
+        var file = await window.StorageProvider.TryGetFileFromPathAsync(copied);
+
+        await Copy(window, DataTransferItem.CreateFile(file!));
+
+        Pick(window, "Demo.Icons.Large", "Paste");
+        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("mark.svg"));
+
+        Assert.False(File.Exists(Path.Combine(_directory, "drawing.svg")));
+    }
+
+    /// <summary>
+    /// A clipboard holding none of it says what it held instead.
+    /// </summary>
+    /// <remarks>
+    /// Which is the whole of what somebody can act on: a drawing program puts several pictures of
+    /// the same art on the clipboard, and the paste works or does not by which of them arrived.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Clipboard_With_No_Drawing_On_It_Says_What_It_Had()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+        var said = new List<string>();
+
+        window.Announce = (_, message) => { said.Add(message); return Task.CompletedTask; };
+
+        await Copy(window, DataTransferItem.CreateText("just some words"));
+
+        Pick(window, "Demo.Icons.Large", "Paste");
+        await Settle(() => said.Count > 0);
+
+        Assert.Contains("none of it is a drawing", said.Single());
+        Assert.False(File.Exists(Path.Combine(_directory, "drawing.svg")));
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "Demo.Icons.Large", "badge.svg - BadgeLarge" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+    }
+
+    /// <summary>A row held here is the more particular answer, and the one nothing else knows.</summary>
+    [AvaloniaFact]
+    public async Task A_Held_Row_Is_Pasted_Rather_Than_What_The_Clipboard_Holds()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        await Copy(window, DataTransferItem.CreateText(Drawing));
+
+        Pick(window, "home.svg - Home", "Copy");
+        Pick(window, "Demo.Icons.Large", "Paste");
+
+        Assert.Equal(
+            new[] { "Demo.Icons", "home.svg - Home", "Demo.Icons.Large", "badge.svg - BadgeLarge", "home.svg - Home" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        Assert.False(File.Exists(Path.Combine(_directory, "drawing.svg")));
+    }
+
+    /// <summary>Puts one thing on the clipboard, as another program would have left it there.</summary>
+    private static async Task Copy(MainWindow window, DataTransferItem item)
+    {
+        var carried = new DataTransfer();
+
+        carried.Add(item);
+
+        await window.Clipboard!.SetDataAsync(carried);
+    }
+
+    /// <summary>Runs the loop until something is true, as a paste is not finished when it returns.</summary>
+    private static async Task Settle(Func<bool> until)
+    {
+        for (var attempt = 0; attempt < 200 && !until(); attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Dispatcher.UIThread.RunJobs();
     }
 
     /// <summary>
