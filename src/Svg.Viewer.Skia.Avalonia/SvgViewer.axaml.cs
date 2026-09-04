@@ -734,6 +734,10 @@ public partial class SvgViewer : UserControl
                 boolean.Value = value.AsBoolean;
                 return true;
 
+            case SvgViewerStringParameter text when value.Type == ExprType.String:
+                text.Value = value.AsString;
+                return true;
+
             case SvgViewerColorParameter colour when value.Type == ExprType.Color:
                 colour.Color = global::Avalonia.Media.Color.FromArgb(value.Alpha, value.Red, value.Green, value.Blue);
                 return true;

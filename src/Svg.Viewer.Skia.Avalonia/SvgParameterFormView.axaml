@@ -24,6 +24,7 @@
         <ComboBoxItem>number</ComboBoxItem>
         <ComboBoxItem>color</ComboBoxItem>
         <ComboBoxItem>boolean</ComboBoxItem>
+        <ComboBoxItem>string</ComboBoxItem>
       </ComboBox>
     </Grid>
 

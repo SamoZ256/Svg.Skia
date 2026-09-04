@@ -488,7 +488,7 @@ public class SvgViewerParameterEditingTests
 
         form.GetVisualDescendants().OfType<TextBox>().First(box => box.Name == "NameBox").Text = name;
         form.GetVisualDescendants().OfType<ComboBox>().First(box => box.Name == "TypeBox").SelectedIndex =
-            type == ExprType.Number ? 0 : type == ExprType.Color ? 1 : 2;
+            type == ExprType.Number ? 0 : type == ExprType.Color ? 1 : type == ExprType.Boolean ? 2 : 3;
 
         SvgExpressionParameter? accepted = null;
 

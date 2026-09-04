@@ -49,6 +49,9 @@ public static class SvgViewerParameterFactory
             ExprType.Number => Number(declaration, seed),
             ExprType.Color => new SvgViewerColorParameter(declaration, ToColor(seed)),
             ExprType.Boolean => new SvgViewerBooleanParameter(declaration, seed?.Type == ExprType.Boolean && seed.Value.AsBoolean),
+            ExprType.String => new SvgViewerStringParameter(
+                declaration,
+                seed?.Type == ExprType.String ? seed.Value.AsString : string.Empty),
             _ => throw Unknown(declaration.Type)
         };
     }
@@ -107,6 +110,10 @@ public static class SvgViewerParameterFactory
             ? string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}", value.Red, value.Green, value.Blue)
             : string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}{3:x2}", value.Red, value.Green, value.Blue, value.Alpha),
         ExprType.Boolean => value.AsBoolean ? "true" : "false",
+
+        // Quoted by the language itself, so a committed default is spelled the one way the lexer
+        // reads back.
+        ExprType.String => value.ToString(),
         _ => throw Unknown(value.Type),
     };
 

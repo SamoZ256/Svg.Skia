@@ -44,12 +44,13 @@ public class SampleDocumentTests
         Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
 
         Assert.Null(viewer.Document!.DeclarationError);
-        Assert.Equal(4, viewer.Parameters.Count);
+        Assert.Equal(5, viewer.Parameters.Count);
 
         // One of each, which is what makes it worth shipping as the thing the app opens with.
         Assert.Contains(viewer.Parameters, p => p is SvgViewerNumberParameter);
         Assert.Contains(viewer.Parameters, p => p is SvgViewerColorParameter);
         Assert.Contains(viewer.Parameters, p => p is SvgViewerBooleanParameter);
+        Assert.Contains(viewer.Parameters, p => p is SvgViewerStringParameter);
 
         // The declared ranges reached the rows rather than the 0..1 fallback.
         var hue = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single(p => p.Name == "hue");

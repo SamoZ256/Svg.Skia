@@ -8,9 +8,11 @@
       <e:param name="sweep" type="number"  default="0.35" min="0" max="1" />
       <e:param name="tint"  type="color"   default="#3fb5b5" />
       <e:param name="badge" type="boolean" default="true" />
+      <e:param name="theme" type="string"  default="'dark'" />
 
       <e:let name="primary">hsl(hue, 74%, badge ? 58% : 46%)</e:let>
-      <e:let name="deep">hsl(hue + 12, 62%, 24%)</e:let>
+      <e:let name="dark">lower(theme) == 'dark'</e:let>
+      <e:let name="deep">hsl(hue + 12, 62%, dark ? 24% : 78%)</e:let>
       <e:let name="accent">mix(tint, primary, sweep)</e:let>
       <e:let name="fade">lerp(0.35, 1, sweep)</e:let>
     </e:code>
