@@ -61,6 +61,29 @@ public static class SvgExpressionSubstitution
     }
 
     /// <summary>
+    /// Why <paramref name="document"/> cannot be generated as C#, or null when it can.
+    /// </summary>
+    /// <remarks>
+    /// Generated code replays a picture that was recorded at build time, with the text already
+    /// measured and the glyph positions already written down as numbers. A value the compile consumed
+    /// is therefore frozen into it, and a generated signature offering to vary one would be offering
+    /// something it cannot do. Refusing says so once, where it can still be acted on.
+    /// </remarks>
+    public static string? WhyNotGeneratable(SvgDocument? document)
+    {
+        foreach (var (element, name) in Carriers(document))
+        {
+            var what = name == SvgExpressionAttributes.ContentName
+                ? $"the text of <{element.ElementName}>"
+                : $"'{name}' on <{element.ElementName}>";
+
+            return $"{what} is resolved before the drawing is recorded -- the text is measured with it and the positions are baked -- so a generated picture cannot vary it. Bind it at run time with SKSvg.SetExpressionValues, or write the value as a literal to generate from.";
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Substitutes what <paramref name="evaluator"/> resolves, until the returned scope is disposed.
     /// </summary>
     /// <remarks>

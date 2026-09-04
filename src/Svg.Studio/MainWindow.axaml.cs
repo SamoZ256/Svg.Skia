@@ -503,7 +503,7 @@ public partial class MainWindow : Window
                     new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())),
                     line => log.Add(line))).ConfigureAwait(true);
         }
-        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or IOException or UnauthorizedAccessException)
+        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ExprException or IOException or UnauthorizedAccessException)
         {
             await Announce("The project couldn't be built", failure.Message).ConfigureAwait(true);
 
@@ -2371,7 +2371,7 @@ public partial class MainWindow : Window
             SvgExport.Write(document, viewer.Source, target, viewer.SizeRequest);
         }
         catch (Exception failure)
-            when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
+            when (failure is IOException or UnauthorizedAccessException or InvalidOperationException or ExprException)
         {
             // The drawing is still open and still fine; what failed is one command, so it is
             // reported rather than thrown out of a handler nothing is waiting on.

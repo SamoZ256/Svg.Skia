@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using SkiaSharp;
 using Svg.Expressions;
+using Svg.Model.Services;
 using Xunit;
 
 namespace Svg.Skia.UnitTests;
@@ -192,6 +193,45 @@ public class SvgExpressionSubstitutionTests
         Assert.Equal("label", parameter.Name);
         Assert.Equal(ExprType.String, parameter.Type);
         Assert.Equal("'Hello'", parameter.DefaultExpression);
+    }
+
+    [Fact]
+    public void A_Drawing_Whose_Text_Is_An_Expression_Cannot_Be_Generated()
+    {
+        // A generated picture is recorded at build time with the text already measured, so a
+        // parameter driving it could never vary. Refusing says so where it can still be acted on;
+        // generating would hand back a signature offering something it cannot do.
+        var document = SvgService.FromSvg(Document(
+            """<text x="10" y="40" font-size="24" fill="#000000">{{ label }}</text>""",
+            """<e:param name="label" type="string" default="'Hello'" />"""));
+
+        var refusal = SvgExpressionSubstitution.WhyNotGeneratable(document);
+
+        Assert.NotNull(refusal);
+        Assert.Contains("the text of <text>", refusal);
+        Assert.Contains("SetExpressionValues", refusal);
+    }
+
+    [Fact]
+    public void A_Drawing_Whose_Font_Is_An_Expression_Cannot_Be_Generated()
+    {
+        var document = SvgService.FromSvg(Document(
+            """<text x="10" y="40" font-family="{{ face }}" fill="#000000">Hello</text>""",
+            """<e:param name="face" type="string" default="'serif'" />"""));
+
+        Assert.Contains("'font-family' on <text>", SvgExpressionSubstitution.WhyNotGeneratable(document));
+    }
+
+    [Fact]
+    public void A_Drawing_Using_Only_The_Recorded_Kind_Still_Generates()
+    {
+        // The refusal has to be about this kind alone, or it would take the feature that does
+        // generate down with it.
+        var document = SvgService.FromSvg(Document(
+            """<rect width="24" height="24" fill="{{ ink }}" />""",
+            """<e:param name="ink" type="color" default="#000000" />"""));
+
+        Assert.Null(SvgExpressionSubstitution.WhyNotGeneratable(document));
     }
 
     [Fact]
