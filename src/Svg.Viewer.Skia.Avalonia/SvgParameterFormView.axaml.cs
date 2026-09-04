@@ -29,7 +29,16 @@ public partial class SvgParameterFormView : UserControl
     private readonly Button _add;
     private readonly Button _cancel;
 
+    /// <summary>The type the last added parameter chose, so the next one opens on it.</summary>
+    /// <remarks>
+    /// Static and never written down: parameters are declared several of a kind at a time, and a
+    /// guess worth making within a run is not one worth carrying into the next.
+    /// </remarks>
+    private static ExprType _remembered = ExprType.Number;
+
     private IReadOnlyCollection<string> _taken = Array.Empty<string>();
+
+    private bool _editing;
 
     public SvgParameterFormView()
     {
@@ -50,6 +59,7 @@ public partial class SvgParameterFormView : UserControl
         _add.Click += OnAdd;
         _cancel.Click += (_, _) => Cancelled?.Invoke(this, EventArgs.Empty);
 
+        Select(_remembered);
         ShowRange();
     }
 
@@ -83,13 +93,9 @@ public partial class SvgParameterFormView : UserControl
         _maximum.Text = existing.MaxExpression ?? string.Empty;
         _step.Text = existing.StepExpression ?? string.Empty;
 
-        _type.SelectedIndex = existing.Type switch
-        {
-            ExprType.Number => 0,
-            ExprType.Color => 1,
-            _ => 2,
-        };
+        Select(existing.Type);
 
+        _editing = true;
         _type.IsEnabled = false;
         _add.Content = "Save";
 
@@ -165,11 +171,24 @@ public partial class SvgParameterFormView : UserControl
 
         if (parameter is { })
         {
+            if (!_editing)
+            {
+                _remembered = parameter.Type;
+            }
+
             Accepted?.Invoke(this, parameter);
         }
     }
 
     private void ShowRange() => _range.IsVisible = Selected() == "number";
+
+    private void Select(ExprType type)
+        => _type.SelectedIndex = type switch
+        {
+            ExprType.Number => 0,
+            ExprType.Color => 1,
+            _ => 2,
+        };
 
     private string Selected()
         => (_type.SelectedItem as ComboBoxItem)?.Content as string ?? "number";

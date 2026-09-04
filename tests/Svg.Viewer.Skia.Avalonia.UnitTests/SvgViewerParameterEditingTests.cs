@@ -453,6 +453,57 @@ public class SvgViewerParameterEditingTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public void The_Form_Opens_On_The_Type_The_Last_Added_Parameter_Chose()
+    {
+        // The memory is a static, so this ends where it started: nothing else here asks what type a
+        // fresh form opens on, but a test that leaves the default moved is one waiting to be one.
+        Assert.Equal(ExprType.Number, Added("hue", ExprType.Number).Type);
+        Assert.Equal(ExprType.Color, Added("tint", ExprType.Color).Type);
+
+        var form = new SvgParameterFormView();
+        var window = new Window { Width = 400, Height = 400, Content = form };
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // A name only because a nameless form builds nothing; the type is what is being asked about.
+        form.GetVisualDescendants().OfType<TextBox>().First(box => box.Name == "NameBox").Text = "shade";
+
+        Assert.Equal(ExprType.Color, form.TryBuild(out _)?.Type);
+
+        window.Close();
+
+        Assert.Equal(ExprType.Number, Added("fade", ExprType.Number).Type);
+    }
+
+    /// <summary>Fills a form in and presses its button, as somebody adding a parameter would.</summary>
+    private static SvgExpressionParameter Added(string name, ExprType type)
+    {
+        var form = new SvgParameterFormView();
+        var window = new Window { Width = 400, Height = 400, Content = form };
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        form.GetVisualDescendants().OfType<TextBox>().First(box => box.Name == "NameBox").Text = name;
+        form.GetVisualDescendants().OfType<ComboBox>().First(box => box.Name == "TypeBox").SelectedIndex =
+            type == ExprType.Number ? 0 : type == ExprType.Color ? 1 : 2;
+
+        SvgExpressionParameter? accepted = null;
+
+        form.Accepted += (_, parameter) => accepted = parameter;
+
+        form.GetVisualDescendants()
+            .OfType<Button>()
+            .First(button => button.Name == "AddButton")
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        window.Close();
+
+        return accepted!;
+    }
+
     // ---- committing values as defaults ----
 
     [AvaloniaFact]
