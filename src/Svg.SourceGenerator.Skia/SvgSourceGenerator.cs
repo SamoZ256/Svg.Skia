@@ -46,6 +46,24 @@ public class SvgSourceGenerator : IIncrementalGenerator
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
+    /// <summary>
+    /// Said when a drawing holds an expression that a generated picture could never vary.
+    /// </summary>
+    /// <remarks>
+    /// An error rather than a warning, and generation stops. Carrying on would emit a class whose
+    /// signature offers a parameter that does nothing, which is the failure this exists to prevent
+    /// -- the author would only find it by wondering why passing a value changed no pixels.
+    /// </remarks>
+    private static readonly DiagnosticDescriptor s_notGeneratableDescriptor = new(
+#pragma warning disable RS2008 // Enable analyzer release tracking
+        "SVG0003",
+#pragma warning restore RS2008 // Enable analyzer release tracking
+        "The drawing holds an expression a generated picture cannot vary",
+        "'{0}' cannot be generated: {1}",
+        $"{nameof(SvgSourceGenerator)}",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // Register the additional files provider to get all .svg files
@@ -127,6 +145,17 @@ public class SvgSourceGenerator : IIncrementalGenerator
                 var picture = SvgSceneRuntime.CreateModel(svgDocument, s_assetLoader);
                 if (picture is { } && picture.Commands is { })
                 {
+                    if (Svg.SvgExpressionSubstitution.WhyNotGeneratable(svgDocument) is { } refusal)
+                    {
+                        context.ReportDiagnostic(Diagnostic.Create(
+                            s_notGeneratableDescriptor,
+                            Location.None,
+                            System.IO.Path.GetFileName(file.Path),
+                            refusal));
+
+                        return;
+                    }
+
                     var declarations = SvgExpressionDeclarations.Parse(svg);
 
                     if (!declarations.EmitsDefaultArguments())

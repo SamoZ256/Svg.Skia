@@ -33,35 +33,71 @@ public static class SvgExpressionAttributes
     // The placeholder has to survive the model's own short circuits, which branch on the value:
     // "none" would drop the paint entirely and an opacity of 1 would skip creating a layer, and
     // in either case there would be nothing left for the expression to attach to.
-    // The type is here rather than in a table of its own because all three answers are about the
+    // The type is here rather than in a table of its own because all the answers are about the
     // same attributes, and another table would be another place to add the next one.
     //
     // Inherited is the property's own answer from SVG 1.1, not a choice: where the value travels
     // down the tree the expression has to travel with it, or a child would paint the placeholder
     // its parent's expression was standing in for.
-    private static readonly Dictionary<string, (string Placeholder, ExprType Type, bool Inherited)> s_placeholders = new(StringComparer.Ordinal)
+    //
+    // BeforeRecording is the whole difference between the two kinds. False means the drawing still
+    // holds the value once it has been recorded, so binding rewrites the recorded model and nothing
+    // is compiled again. True means the value is consumed while the drawing is being built -- a
+    // typeface is resolved, text is measured with it, positions are baked -- so it is substituted
+    // into the document before the compile and changing it costs one.
+    private static readonly Dictionary<string, (string Placeholder, ExprType Type, bool Inherited, bool BeforeRecording)> s_placeholders = new(StringComparer.Ordinal)
     {
-        ["fill"] = ("#808080", ExprType.Color, true),
-        ["stroke"] = ("#808080", ExprType.Color, true),
-        ["stop-color"] = ("#808080", ExprType.Color, false),
-        ["flood-color"] = ("#808080", ExprType.Color, false),
-        ["lighting-color"] = ("#808080", ExprType.Color, false),
+        ["fill"] = ("#808080", ExprType.Color, true, false),
+        ["stroke"] = ("#808080", ExprType.Color, true, false),
+        ["stop-color"] = ("#808080", ExprType.Color, false, false),
+        ["flood-color"] = ("#808080", ExprType.Color, false, false),
+        ["lighting-color"] = ("#808080", ExprType.Color, false, false),
         // Not inherited: a group's opacity is applied to the group as a layer, and applying it
         // again per child would compound it.
-        ["opacity"] = ("1", ExprType.Number, false),
+        ["opacity"] = ("1", ExprType.Number, false, false),
         // Fully opaque, so the colour the expression scales is the one the author wrote.
-        ["fill-opacity"] = ("1", ExprType.Number, true),
-        ["stroke-opacity"] = ("1", ExprType.Number, true),
-        ["stop-opacity"] = ("1", ExprType.Number, false),
+        ["fill-opacity"] = ("1", ExprType.Number, true, false),
+        ["stroke-opacity"] = ("1", ExprType.Number, true, false),
+        ["stop-opacity"] = ("1", ExprType.Number, false, false),
         // A hidden element contributes no commands at all, so the placeholder has to be the
         // visible state or there would be nothing left to make conditional. For display that goes
         // further: a display:none container is not compiled at all, subtree included.
         //
         // Neither needs to inherit here: the conditional wraps everything the node contributes,
         // its subtree included, so a group's answer already covers its children.
-        ["visibility"] = ("visible", ExprType.Boolean, false),
-        ["display"] = ("inline", ExprType.Boolean, false)
+        ["visibility"] = ("visible", ExprType.Boolean, false, false),
+        ["display"] = ("inline", ExprType.Boolean, false, false),
+
+        // Resolved before the drawing is recorded. These carry no placeholder and none is written:
+        // the attribute is left absent, so a document whose expression will not evaluate draws the
+        // way the same document without the attribute does. A stand-in would be worse than nothing
+        // here -- an empty font-family is a value, and a value stops the inheritance a missing one
+        // would have allowed.
+        ["font-family"] = ("", ExprType.String, true, true),
+        // A string, not a number: SVG takes `bold` and `lighter` as well as `700`, and a number
+        // reaches the same place through the language's own conversion at the author's hand.
+        ["font-weight"] = ("", ExprType.String, true, true),
+        ["font-style"] = ("", ExprType.String, true, true),
+        ["text-anchor"] = ("", ExprType.String, true, true),
+        // User units. A number carries no unit, so an expression cannot say `2em`; that is the
+        // language's limit rather than this table's.
+        ["font-size"] = ("", ExprType.Number, true, true),
+        ["letter-spacing"] = ("", ExprType.Number, true, true),
+        ["word-spacing"] = ("", ExprType.Number, true, true),
+        // Not a presentation attribute and not inherited: it is one element's own measurement.
+        ["textLength"] = ("", ExprType.Number, false, true)
     };
+
+    /// <summary>The text of a <c>&lt;text&gt;</c> or a <c>&lt;tspan&gt;</c>, as a lifted expression.</summary>
+    /// <remarks>
+    /// Not an attribute, so it is named here rather than put in the table above with a spelling no
+    /// attribute could have. <c>#text</c> is what a DOM calls a text node, and the key it makes sits
+    /// in the same collection as the lifted attributes and travels with the element as they do.
+    /// </remarks>
+    public const string ContentName = "#text";
+
+    /// <summary>What a lifted content expression has to evaluate to.</summary>
+    public const ExprType ContentType = ExprType.String;
 
     /// <summary>Whether a value written in <paramref name="localName"/> is inherited by children.</summary>
     public static bool IsInherited(string localName)
@@ -69,6 +105,18 @@ public static class SvgExpressionAttributes
 
     /// <summary>Attributes an expression can currently drive.</summary>
     public static bool IsSupported(string localName) => s_placeholders.ContainsKey(localName);
+
+    /// <summary>
+    /// Whether a value written in <paramref name="localName"/> is consumed while the drawing is
+    /// being built, rather than surviving into it.
+    /// </summary>
+    /// <remarks>
+    /// The question everything downstream asks: one of these cannot be rebound by rewriting the
+    /// recorded drawing, and cannot be generated into C# at all, because the picture a generator
+    /// bakes has already been measured with it.
+    /// </remarks>
+    public static bool IsResolvedBeforeRecording(string localName)
+        => s_placeholders.TryGetValue(localName, out var supported) && supported.BeforeRecording;
 
     /// <summary>The attributes an expression can drive.</summary>
     /// <remarks>
@@ -87,17 +135,11 @@ public static class SvgExpressionAttributes
     /// malformed number rather than as the real answer, that this attribute takes no expression at
     /// all. Being told which attributes do is the useful half.
     ///
-    /// The second sentence is why the list is that list, and answers the attribute people reach for
-    /// next. Binding a value re-evaluates the recorded drawing rather than compiling it again, so an
-    /// expression can only drive something the drawing still holds when it is done: a paint, an
-    /// alpha, whether a node was drawn. A font or a layout property is read long before that -- the
-    /// text is measured with it and the positions are baked -- so substituting one afterwards would
-    /// draw the new value at the old value's positions.
     /// </remarks>
     public static string? WhyUnsupported(string localName)
         => IsSupported(localName)
             ? null
-            : $"'{localName}' does not take an expression. The parser lifts {string.Join(", ", Supported)} -- what a drawing can still change once it has been recorded -- and reads a {Open} … {Close} written anywhere else as an ordinary value. A font or a layout property is read before the drawing is recorded, and text is measured with it, so it cannot vary.";
+            : $"'{localName}' does not take an expression. The parser lifts {string.Join(", ", Supported)}, and reads a {Open} … {Close} written anywhere else as an ordinary value.";
 
     public static string KeyFor(string localName) => Namespace + ":" + localName;
 
@@ -150,6 +192,20 @@ public static class SvgExpressionAttributes
         }
 
         customAttributes[sourceKey] = specificity.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>The expression lifted out of <paramref name="localName"/>, or null for none.</summary>
+    /// <remarks>
+    /// The inverse of <see cref="Lift"/> and kept beside it, so the key convention has one owner.
+    /// </remarks>
+    public static string? Lifted(IDictionary<string, string> customAttributes, string localName)
+    {
+        if (customAttributes is null)
+        {
+            throw new ArgumentNullException(nameof(customAttributes));
+        }
+
+        return customAttributes.TryGetValue(KeyFor(localName), out var expression) ? expression : null;
     }
 
     /// <summary>
