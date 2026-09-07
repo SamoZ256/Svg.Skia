@@ -637,6 +637,30 @@ public sealed class GroupPanel : UserControl
         _parameterNote.IsVisible = said is { Length: > 0 };
     }
 
+    /// <summary>
+    /// What a drawing renders with before anybody touches it: the values its panel would show.
+    /// </summary>
+    /// <remarks>
+    /// Not the declared defaults. Binding those refuses the whole set the moment one parameter has
+    /// no default — and a recipe is entitled to declare one, since a host is expected to supply it —
+    /// so a single <c>&lt;param name="whiteColor" type="color" /&gt;</c> left every drawing in the
+    /// group on its placeholders, which render grey. The seed is what
+    /// <see cref="SvgViewerParameterFactory"/> puts in a row for a declaration that gives it
+    /// nothing, and it is what a viewer binds on opening the same drawing: the group's canvas and
+    /// the drawing's own tab then show the same picture, which is the whole point of the tab.
+    /// </remarks>
+    private static Dictionary<string, ExprValue> Seeded(SvgViewerDocument document)
+    {
+        var values = new Dictionary<string, ExprValue>(StringComparer.Ordinal);
+
+        foreach (var row in SvgViewerParameterFactory.Create(document.Declarations.Parameters))
+        {
+            values[row.Name] = row.ToExprValue();
+        }
+
+        return values;
+    }
+
     /// <summary>The values the panel is showing, as the drawing takes them.</summary>
     private Dictionary<string, ExprValue> Values()
     {
@@ -875,12 +899,11 @@ public sealed class GroupPanel : UserControl
 
             _loaded.Add(document);
 
-            // The declared defaults. A plain load leaves a drawing with expressions in it rendering
-            // its placeholders, which is not what the project builds; a parameter with no default at
-            // all is refused, and placeholders are then the honest answer.
+            // What the panel would show for this drawing on opening it, which is what a viewer
+            // binds and so what the drawing's own tab renders.
             try
             {
-                document.Svg.SetExpressionValues(new Dictionary<string, ExprValue>());
+                document.Svg.SetExpressionValues(Seeded(document));
             }
             catch (ExprException)
             {

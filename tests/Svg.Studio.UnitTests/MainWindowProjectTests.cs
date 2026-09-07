@@ -794,6 +794,54 @@ public class MainWindowProjectTests : IDisposable
         </svgc>
         """;
 
+    /// <summary>A recipe declaring a parameter the host is expected to supply, as a real one does.</summary>
+    private const string OpenEndedRecipe = """
+        <recipe xmlns="https://svg.skia/expr/1.0">
+          <code>
+            <param name="accent" type="color" default="#00a7ff" />
+            <param name="whiteColor" type="color" />
+            <param name="on" type="boolean" default="true" />
+            <let name="colour">on ? accent : whiteColor</let>
+          </code>
+          <replace color="#00ff00">colour</replace>
+        </recipe>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Parameter_With_No_Default_Does_Not_Grey_The_Group()
+    {
+        // Reported against a real project: every icon came up grey, which is what a drawing renders
+        // when its expressions are left at placeholders. Binding the declared defaults refuses the
+        // whole set the moment one parameter has none -- and a recipe is entitled to declare one --
+        // so nothing was bound at all. A viewer never hit it, because it binds the rows its panel
+        // seeds rather than the defaults.
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", OpenEndedRecipe);
+
+        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var panel = await Group(window, 0);
+
+        foreach (var placed in Drawn(panel))
+        {
+            using var bitmap = new SKBitmap(8, 8);
+
+            using (var surface = new SKCanvas(bitmap))
+            {
+                surface.Clear(SKColors.White);
+                surface.Scale(8f / 24f);
+                placed.Svg.Draw(surface);
+            }
+
+            var painted = bitmap.GetPixel(4, 4);
+
+            // The accent the recipe names, not the placeholder grey it fell back to.
+            Assert.True(
+                painted.Blue > 200 && painted.Red < 100,
+                $"{painted} is not the accent colour: the drawing is still on its placeholders");
+        }
+    }
+
     [AvaloniaFact]
     public async Task A_Value_Reaches_Every_Drawing_Sharing_The_Declaration()
     {
