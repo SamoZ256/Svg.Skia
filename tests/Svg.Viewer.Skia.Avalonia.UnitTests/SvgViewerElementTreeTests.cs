@@ -138,6 +138,82 @@ public class SvgViewerElementTreeTests
     }
 
     [AvaloniaFact]
+    public async Task Filtering_Keeps_The_Matches_And_What_Is_Above_Them()
+    {
+        // A match with its ancestors cut off says where it is not.
+        var (_, viewer) = await Host();
+
+        viewer.Elements.Filter = "rect";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "svg", "g #wrap", "rect" }, Rows(viewer));
+    }
+
+    [AvaloniaFact]
+    public async Task Filtering_Matches_An_Id_As_Well_As_A_Name()
+    {
+        var (_, viewer) = await Host();
+
+        viewer.Elements.Filter = "wrap";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "svg", "g #wrap" }, Rows(viewer));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Filter_Opens_What_It_Keeps_And_Clearing_It_Folds_Back()
+    {
+        // A match three levels down behind a closed row makes the box look broken; and writing that
+        // into what the reader had open would leave the tree unfolded once the box is empty again.
+        var (_, viewer) = await Host();
+
+        var group = viewer.Elements.Root!.Children.Single(node => node.Label == "g");
+
+        group.IsExpanded = false;
+
+        viewer.Elements.Filter = "rect";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Elements.Root!.Children.Single(node => node.Label == "g").IsExpanded);
+
+        viewer.Elements.Filter = "";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(viewer.Elements.Root!.Children.Single(node => node.Label == "g").IsExpanded);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Filter_That_Keeps_Nothing_Says_So()
+    {
+        var (_, viewer) = await Host();
+
+        viewer.Elements.Filter = "nothing-is-called-this";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(viewer.Elements.Root);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Selection_The_Filter_Hides_Comes_Back()
+    {
+        // Hidden is not deleted. Only an element that has gone from the document stops being the
+        // selected one.
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+
+        viewer.Elements.Filter = "text";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(viewer.Elements.SelectedNode);
+
+        viewer.Elements.Filter = "";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("rect", viewer.Elements.SelectedNode!.Label);
+    }
+
+    [AvaloniaFact]
     public async Task Closing_The_Viewer_Empties_The_Tree()
     {
         var (_, viewer) = await Host();

@@ -8,7 +8,12 @@
     <TextBlock Classes="section" DockPanel.Dock="Top" Margin="10,8,10,4"
                FontWeight="SemiBold" Opacity="0.7" FontSize="11" Text="Elements" />
 
-    <!-- Only there when there is nothing to show, which is a drawing that has not been read yet. -->
+    <TextBox x:Name="FilterBox" DockPanel.Dock="Top" Margin="10,0,10,6"
+             FontSize="12" Padding="4,2" MinHeight="0"
+             PlaceholderText="Filter"
+             ToolTip.Tip="Keeps the rows whose name or id contains this, and everything above them." />
+
+    <!-- Only there when there is nothing to show: no drawing, or nothing the filter keeps. -->
     <TextBlock x:Name="EmptyLabel" DockPanel.Dock="Top" Margin="10,0,10,8"
                Opacity="0.6" TextWrapping="Wrap" IsVisible="False"
                Text="No drawing is open." />

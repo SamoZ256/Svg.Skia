@@ -27,12 +27,25 @@ public partial class SvgViewerElementTree : UserControl
 {
     private readonly TreeView _tree;
     private readonly TextBlock _empty;
+    private readonly TextBox _filter;
 
     /// <summary>Which rows are open, by address, so a rebuild does not fold the tree up.</summary>
     private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// What is open while a filter is on, kept apart from <see cref="_expanded"/>.
+    /// </summary>
+    /// <remarks>
+    /// A filter has to open everything it keeps, or a match three levels down is behind a closed
+    /// row and the box appears to do nothing. Written here rather than into the remembered set, so
+    /// clearing the box leaves the tree folded the way the reader left it.
+    /// </remarks>
+    private readonly HashSet<string> _matched = new(StringComparer.Ordinal);
+
     private readonly Dictionary<string, SvgViewerElementNode> _byAddress = new(StringComparer.Ordinal);
 
+    private SvgDocument? _document;
+    private string _query = string.Empty;
     private SvgViewerElementNode? _root;
     private string? _selectedAddress;
     private bool _restoring;
@@ -43,6 +56,14 @@ public partial class SvgViewerElementTree : UserControl
 
         _tree = this.FindControl<TreeView>("Tree")!;
         _empty = this.FindControl<TextBlock>("EmptyLabel")!;
+        _filter = this.FindControl<TextBox>("FilterBox")!;
+
+        _filter.TextChanged += (_, _) =>
+        {
+            _query = _filter.Text ?? string.Empty;
+
+            Show(_document);
+        };
 
         _tree.SelectionChanged += (_, _) =>
         {
@@ -71,19 +92,26 @@ public partial class SvgViewerElementTree : UserControl
     /// <remarks>
     /// Both are kept by address rather than by element, because a drawing rebuilt from edited text
     /// shares no element with the one it replaced. A selection whose element has since been deleted
-    /// is dropped, which is the only honest answer.
+    /// is dropped; one the filter is merely hiding is remembered, and comes back with the box empty.
     /// </remarks>
     public void Show(SvgDocument? document)
     {
-        _byAddress.Clear();
-        _root = document is null ? null : Build(document, string.Empty);
+        _document = document;
 
+        _byAddress.Clear();
+        _matched.Clear();
+
+        var filtering = _query.Length > 0;
+
+        _root = document is null ? null : Build(document, string.Empty, filtering);
+
+        _empty.Text = document is null ? "No drawing is open." : "Nothing here matches.";
         _empty.IsVisible = _root is null;
 
         // The root and its children, so a drawing opens showing what it is made of rather than one
         // closed row. Anything deeper is the reader's to open: a file of any size has more rows
         // than a pane this tall, and the editor's expand-everything scrolls the top off screen.
-        if (_root is { } root && _expanded.Count == 0)
+        if (!filtering && _root is { } root && _expanded.Count == 0)
         {
             _expanded.Add(root.AddressKey);
 
@@ -98,16 +126,34 @@ public partial class SvgViewerElementTree : UserControl
         try
         {
             _tree.ItemsSource = _root is null ? null : new[] { _root };
-            _tree.SelectedItem = _selectedAddress is { } address && _byAddress.TryGetValue(address, out var again)
-                ? again
-                : null;
 
-            _selectedAddress = SelectedNode?.AddressKey;
+            if (_selectedAddress is { } address && _byAddress.TryGetValue(address, out var again))
+            {
+                _tree.SelectedItem = again;
+            }
+            else
+            {
+                _tree.SelectedItem = null;
+
+                // A row the filter is hiding is still the selected row; only one that has gone from
+                // the document stops being it.
+                if (!filtering)
+                {
+                    _selectedAddress = null;
+                }
+            }
         }
         finally
         {
             _restoring = false;
         }
+    }
+
+    /// <summary>What is typed in the filter box.</summary>
+    public string Filter
+    {
+        get => _query;
+        set => _filter.Text = value ?? string.Empty;
     }
 
     /// <summary>Selects the row at <paramref name="addressKey"/>, opening everything above it.</summary>
@@ -152,30 +198,56 @@ public partial class SvgViewerElementTree : UserControl
         }
     }
 
-    private SvgViewerElementNode Build(SvgElement element, string addressKey)
+    /// <summary>
+    /// One row and everything under it, or null where the filter keeps none of it.
+    /// </summary>
+    /// <remarks>
+    /// A row survives if it matches or anything under it does, so filtering for <c>circle</c> leaves
+    /// the groups it took to get there — a match with its ancestors cut off says where it is not.
+    /// </remarks>
+    private SvgViewerElementNode? Build(SvgElement element, string addressKey, bool filtering)
     {
         var children = new List<SvgViewerElementNode>(element.Children.Count);
 
         for (var index = 0; index < element.Children.Count; index++)
         {
-            children.Add(Build(
-                element.Children[index],
-                addressKey.Length == 0
-                    ? index.ToString(CultureInfo.InvariantCulture)
-                    : addressKey + "/" + index.ToString(CultureInfo.InvariantCulture)));
+            var childAddress = addressKey.Length == 0
+                ? index.ToString(CultureInfo.InvariantCulture)
+                : addressKey + "/" + index.ToString(CultureInfo.InvariantCulture);
+
+            if (Build(element.Children[index], childAddress, filtering) is { } child)
+            {
+                children.Add(child);
+            }
+        }
+
+        var label = SvgElementNames.NameOf(element);
+        var id = string.IsNullOrEmpty(element.ID) ? null : "#" + element.ID;
+
+        if (filtering && children.Count == 0 && !Matches(label, id))
+        {
+            return null;
         }
 
         var node = new SvgViewerElementNode(
             element,
             addressKey,
-            SvgElementNames.NameOf(element),
-            string.IsNullOrEmpty(element.ID) ? null : "#" + element.ID,
+            label,
+            id,
             children,
-            _expanded);
+            filtering ? _matched : _expanded);
 
-        // Last, so a duplicate address cannot exist: the key is the path, and a path names one row.
         _byAddress[addressKey] = node;
+
+        if (filtering)
+        {
+            _matched.Add(addressKey);
+        }
 
         return node;
     }
+
+    private bool Matches(string label, string? id)
+        => label.Contains(_query, StringComparison.OrdinalIgnoreCase)
+           || (id is { } written && written.Contains(_query, StringComparison.OrdinalIgnoreCase));
 }
