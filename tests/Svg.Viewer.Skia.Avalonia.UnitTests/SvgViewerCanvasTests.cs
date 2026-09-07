@@ -88,6 +88,57 @@ public class SvgViewerCanvasTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public void A_Point_Says_Which_Drawing_It_Fell_On_And_Where()
+    {
+        // TryGetDrawingPoint answers in the space the drawings are arranged in, which is one
+        // drawing's own space only when there is one of them at the origin. A host showing several
+        // has to know which was clicked before it can ask that one anything.
+        using var first = SvgViewerDocument.LoadFromSvg(Wide);
+        using var second = SvgViewerDocument.LoadFromSvg(Wide);
+        using var third = SvgViewerDocument.LoadFromSvg(Wide);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+
+        window.Show();
+
+        var placements = new[]
+        {
+            new SvgViewerPlacement(first.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(second.Svg, new SKPoint(100f, 0f)),
+            new SvgViewerPlacement(third.Svg, new SKPoint(0f, 50f))
+        };
+
+        canvas.Show(placements);
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // 200x100 arranged into 400x200: the fit is 2 and the origin is 0,0.
+        Assert.Equal(2d, canvas.Scale, 6);
+
+        // Ten in and ten down from the second drawing's own top left, which is at 100,0 arranged
+        // and therefore at 220,20 on the control.
+        Assert.True(canvas.TryGetPlacementAt(new Point(220, 20), out var placement, out var drawingPoint));
+
+        Assert.Same(placements[1], placement);
+        Assert.Equal(10f, drawingPoint.X, 3);
+        Assert.Equal(10f, drawingPoint.Y, 3);
+
+        // And the third, below the first: 0,50 arranged is 0,100 on the control.
+        Assert.True(canvas.TryGetPlacementAt(new Point(20, 120), out placement, out drawingPoint));
+
+        Assert.Same(placements[2], placement);
+        Assert.Equal(10f, drawingPoint.X, 3);
+        Assert.Equal(10f, drawingPoint.Y, 3);
+
+        // The gap the arrangement leaves at the bottom right is on no drawing at all.
+        Assert.False(canvas.TryGetPlacementAt(new Point(300, 120), out placement, out _));
+        Assert.Null(placement);
+
+        window.Close();
+    }
+
     /// <summary>A drawing that is not orange, so the ring cannot be confused with its ink.</summary>
     private const string Blue = """
         <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50">

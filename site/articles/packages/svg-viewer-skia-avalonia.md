@@ -60,7 +60,7 @@ await Viewer.LoadAsync("badge.svg");
 | `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
 | `DeclarationTarget` | Where the parameter panel writes, when the drawing's declarations are not in the drawing |
 | `FileDialogService` | Custom storage or picker integration |
-| `Canvas` | Direct access to the surface for zoom and pan |
+| `Canvas` | Direct access to the surface for zoom and pan; `Show` lays out several drawings at once, and `TryGetPlacementAt` says which one a click fell on |
 | `DocumentOpened` / `ErrorRaised` / `ParameterValueChanged` | Syncing host titles and status |
 | `SvgViewerSourceColorizer` / `SourceResourceKey` | Colouring a source view of your own the way this one is coloured — Svg.Studio paints an svgc recipe with them |
 

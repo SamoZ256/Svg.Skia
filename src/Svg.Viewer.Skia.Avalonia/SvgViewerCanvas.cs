@@ -298,7 +298,59 @@ public class SvgViewerCanvas : SKCanvasControl
             anchor.Y - (anchor.Y - _offsetY) * factor);
     }
 
-    /// <summary>Converts a point in control coordinates to one in the drawing.</summary>
+    /// <summary>
+    /// Which drawing a control point fell on, and where on it.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="TryGetDrawingPoint"/> answers in the space the drawings are <em>arranged</em> in —
+    /// the union of them all — which is a drawing's own space only when there is one of them at the
+    /// origin. A host showing several needs to know which one was clicked before it can ask that one
+    /// anything, and the arrangement is the host's own, so the canvas is the only thing that can say.
+    ///
+    /// Back to front, because that is the order they were drawn in and the last of them is the one
+    /// on top. A drawing with nothing in it is not a candidate, so a click passes through it.
+    /// </remarks>
+    /// <returns>Whether the point fell on a drawing at all.</returns>
+    public bool TryGetPlacementAt(Point point, out SvgViewerPlacement? placement, out SKPoint drawingPoint)
+    {
+        placement = null;
+        drawingPoint = default;
+
+        if (!TryGetDrawingPoint(point, out var arranged))
+        {
+            return false;
+        }
+
+        for (var index = _placed.Count - 1; index >= 0; index--)
+        {
+            var placed = _placed[index];
+
+            if (Frame(placed) is not { } frame)
+            {
+                continue;
+            }
+
+            frame.Offset(placed.At);
+
+            if (!frame.Contains(arranged.X, arranged.Y))
+            {
+                continue;
+            }
+
+            placement = placed;
+            drawingPoint = new SKPoint(arranged.X - placed.At.X, arranged.Y - placed.At.Y);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Converts a point in control coordinates to one in the space the drawings are arranged in.</summary>
+    /// <remarks>
+    /// Which is one drawing's own space only when there is one drawing, at the origin.
+    /// <see cref="TryGetPlacementAt"/> is the one to ask otherwise.
+    /// </remarks>
     public bool TryGetDrawingPoint(Point point, out SKPoint drawingPoint)
     {
         drawingPoint = default;
