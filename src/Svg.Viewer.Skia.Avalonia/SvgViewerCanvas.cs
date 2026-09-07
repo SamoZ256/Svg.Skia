@@ -468,7 +468,12 @@ public class SvgViewerCanvas : SKCanvasControl
     }
 
     /// <summary>Hands the render thread a new frame's worth of state.</summary>
-    internal void Publish()
+    /// <remarks>
+    /// Public because a host can change what the drawings say without changing which drawings they
+    /// are: binding a parameter rewrites the recorded picture in place, and the canvas is holding
+    /// the same placements it was, so nothing else would tell it to paint again.
+    /// </remarks>
+    public void Publish()
     {
         _snapshot = new Snapshot(
             _placed,
