@@ -21,6 +21,7 @@ using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
 using Svg.Skia;
+using Svg.SourceEditing;
 using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
@@ -77,6 +78,36 @@ public sealed class GroupPanel : UserControl
 
     private readonly SvgViewerElementTree _tree = new();
 
+    private readonly SvgViewerDeclarationPanel _parameters = new();
+
+    /// <summary>What the parameters do not reach, when the group's drawings do not all share a recipe.</summary>
+    private readonly TextBlock _parameterNote = new()
+    {
+        Margin = new Thickness(10, 0, 10, 10),
+        Opacity = 0.6,
+        FontSize = 11,
+        TextWrapping = TextWrapping.Wrap,
+        IsVisible = false
+    };
+
+    /// <summary>Where the selected drawing keeps its declarations, or null when nothing is selected.</summary>
+    private ISvgViewerDeclarationTarget? _target;
+
+    /// <summary>Which drawing the rows on the panel belong to, so a value is not carried across drawings.</summary>
+    private SvgcProjectDrawing? _showingParameters;
+
+    private SvgViewerDeclarationCommands? _commands;
+
+    /// <summary>The Colours tab's content: a panel for the picked drawing, or a line saying why not.</summary>
+    private readonly ContentControl _coloursHost = new();
+
+    private readonly TextBlock _coloursNote = new()
+    {
+        Margin = new Thickness(10),
+        Opacity = 0.6,
+        TextWrapping = TextWrapping.Wrap
+    };
+
     /// <summary>Which of the group's drawings the tree is showing, since it can only show one.</summary>
     private readonly TextBlock _showing = new()
     {
@@ -88,7 +119,7 @@ public sealed class GroupPanel : UserControl
     };
 
     /// <summary>The drawing the tree is showing, and where it sits on the canvas.</summary>
-    private (SvgViewerPlacement Placement, SKSvg Svg)? _inspecting;
+    private (SvgViewerPlacement Placement, Drawn Built)? _inspecting;
 
     /// <summary>Whether this is the tab being looked at.</summary>
     /// <remarks>
@@ -122,13 +153,35 @@ public sealed class GroupPanel : UserControl
         // Harmless on a drawing's settings pane, which has no canvas and so no placements to fall on.
         _canvas.Picked += (_, at) => Pick(at);
 
+        _parameters.ValueChanged += (_, _) =>
+        {
+            Bind();
+
+            // The readouts beside each colour are what the values come to, so they follow.
+            (_coloursHost.Content as ColourPanel)?.Readouts();
+        };
+        _parameters.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
+        _parameters.CommitRequested += (_, _) => _commands?.SetDefaults();
+        _parameters.EditRequested += async (_, row) =>
+        {
+            if (_commands is { } commands)
+            {
+                await commands.EditAsync(TopLevel.GetTopLevel(this), row).ConfigureAwait(true);
+            }
+        };
+        _parameters.RemoveRequested += (_, row) => _commands?.Remove(row);
+        _parameters.LetCommitted += (_, let) => _commands?.CommitLet(let);
+        _parameters.LetRemoveRequested += (_, let) => _commands?.RemoveLet(let);
+        _parameters.LetMoveRequested = (let, to) => _commands?.MoveLet(let, to) == true;
+        _parameters.ParameterMoveRequested = (row, to) => _commands?.MoveParameter(row, to) == true;
+
         // The other direction: a row picked in the tree rings the drawing it belongs to, which is
         // the one the tree is showing.
         _tree.Selected += (_, node) =>
         {
-            if (node is { } picked && _inspecting is { } inspecting)
+            if (node is { } picked && _inspecting is { } inspecting && inspecting.Built.Svg is { } svg)
             {
-                Ring(inspecting.Placement, inspecting.Svg, picked.Element);
+                Ring(inspecting.Placement, svg, picked.Element);
             }
         };
 
@@ -203,6 +256,15 @@ public sealed class GroupPanel : UserControl
             Content = new ScrollViewer { Content = _properties }
         });
 
+        var parameters = new DockPanel();
+
+        DockPanel.SetDock(_parameterNote, Dock.Bottom);
+        parameters.Children.Add(_parameterNote);
+        parameters.Children.Add(_parameters);
+
+        tabs.Items.Add(new TabItem { Header = "Parameters", Content = parameters });
+        tabs.Items.Add(new TabItem { Header = "Colours", Content = _coloursHost });
+
         side.Children.Add(tabs);
 
         var splitter = new GridSplitter { Background = Brushes.Transparent };
@@ -266,6 +328,21 @@ public sealed class GroupPanel : UserControl
     /// last saved rather than as it is being typed.
     /// </remarks>
     public Func<SvgcProjectDrawing, string, string>? Rewrite { get; set; }
+
+    /// <summary>
+    /// Where a drawing keeps its declarations: its recipe, the tab it is open in, or its own file.
+    /// </summary>
+    /// <remarks>
+    /// Answered by the host, because deciding it needs to know about both recipes and open tabs and
+    /// this panel knows about neither. What comes back is used for the whole of a drawing's
+    /// parameters — read from and written to — and a <see cref="RecipeWorkspace"/> coming back is
+    /// also what says the drawing has colours a recipe could name.
+    /// </remarks>
+    public Func<SvgcProjectDrawing, ISvgViewerDeclarationTarget?>? DeclarationTargetOf { get; set; }
+
+    /// <summary>How the parameters tab asks what to declare. Replaceable, and faked in tests.</summary>
+    public ISvgViewerParameterDialogService ParameterDialogService { get; set; } =
+        new SvgViewerParameterDialogService();
 
     /// <summary>Writes what was typed here into the project, and the project to its file.</summary>
     public void Save()
@@ -391,6 +468,312 @@ public sealed class GroupPanel : UserControl
         Release();
     }
 
+    /// <summary>
+    /// Shows the parameters of the drawing that is selected, and points the commands at wherever
+    /// that drawing keeps its declarations.
+    /// </summary>
+    /// <remarks>
+    /// The selection is the subject, so this behaves as the drawing's own tab would: the rows come
+    /// from the drawing <em>as built</em>, which is the one path that serves both cases — a recipe's
+    /// declarations are injected into the document it builds, and a drawing declaring its own
+    /// <c>&lt;e:code&gt;</c> has them there already. Reading a recipe's text instead would only ever
+    /// have worked for the drawings that have one.
+    ///
+    /// Rebuilt on every selection, because the target changes with it.
+    /// </remarks>
+    private void ShowParameters()
+    {
+        if (_inspecting is not { } inspecting || inspecting.Built.Document is not { } document)
+        {
+            _target = null;
+            _commands = null;
+            _parameters.Parameters = null;
+            _parameters.ShowLets(null);
+
+            Note("Pick a drawing to see what it declares.");
+
+            return;
+        }
+
+        // The host answers for a recipe and for a tab, which are the two it knows about. What is
+        // left is the file, and the document that was read from it is here rather than there.
+        _target = DeclarationTargetOf?.Invoke(inspecting.Built.Drawing)
+                  ?? (document.SourceText is { } text
+                      ? new DrawingFile(document, inspecting.Built.Drawing.ResolvedInput, text)
+                      : null);
+
+        if (_target is null)
+        {
+            _commands = null;
+            _parameters.Parameters = null;
+            _parameters.ShowLets(null);
+
+            // Only when the file could not be read; everything else has somewhere to go.
+            Note("This drawing could not be read, so there is nowhere to write its declarations.");
+
+            return;
+        }
+
+        _commands = new SvgViewerDeclarationCommands(
+            () => _target?.Text ?? string.Empty,
+            Splice,
+            () => _parameters.Parameters ?? Array.Empty<SvgViewerParameter>(),
+            () => ParameterDialogService);
+
+        // Empty and not null. Null reads as "no document" and takes the Add button away with it,
+        // which is the one button a drawing declaring nothing yet needs.
+        _parameters.Parameters = Carried(
+            inspecting.Built.Drawing,
+            SvgViewerParameterFactory.Create(document.Declarations.Parameters));
+
+        _parameters.ShowLets(document.Declarations.Lets);
+
+        Note(null);
+    }
+
+    /// <summary>
+    /// Asks for a parameter and writes it where the selected drawing keeps its declarations.
+    /// </summary>
+    /// <remarks>
+    /// Public for the reason the viewer's is: it is the half of the button a test can drive, the
+    /// other half being a modal.
+    /// </remarks>
+    /// <returns>Whether anything was written.</returns>
+    public async Task<bool> AddParameterAsync()
+        => _commands is { } commands
+           && await commands.AddAsync(TopLevel.GetTopLevel(this)).ConfigureAwait(true);
+
+    /// <summary>
+    /// Keeps the value on any row still declared the same way, by this drawing or one sharing it.
+    /// </summary>
+    /// <remarks>
+    /// The rows are built again whenever the declarations change, and adding a parameter is a
+    /// change; a slider somebody had dragged would otherwise snap back because they pressed a button
+    /// about a different parameter. Carried across a change of drawing only where the two share
+    /// their declarations, since that is exactly when the value was bound into both.
+    /// </remarks>
+    private IReadOnlyList<SvgViewerParameter> Carried(
+        SvgcProjectDrawing drawing,
+        IReadOnlyList<SvgViewerParameter> rebuilt)
+    {
+        var was = _parameters.Parameters;
+
+        var before = _showingParameters;
+
+        _showingParameters = drawing;
+
+        // Across drawings that share their declarations as well as across a rebuild of one: the
+        // values were bound into all of them, so showing the next one its declared defaults would
+        // have the panel disagreeing with the picture beside it.
+        if (was is null || before is null || !Shares(before, drawing))
+        {
+            return rebuilt;
+        }
+
+        foreach (var row in rebuilt)
+        {
+            var had = was.FirstOrDefault(
+                old => string.Equals(old.Name, row.Name, StringComparison.Ordinal) && old.Type == row.Type);
+
+            if (had is { IsModified: true })
+            {
+                Restore(row, had);
+            }
+        }
+
+        return rebuilt;
+    }
+
+    private static void Restore(SvgViewerParameter row, SvgViewerParameter before)
+    {
+        switch (row)
+        {
+            case SvgViewerNumberParameter number when before is SvgViewerNumberParameter had:
+                number.Value = had.Value;
+                break;
+
+            case SvgViewerColorParameter colour when before is SvgViewerColorParameter had:
+                colour.Color = had.Color;
+                break;
+
+            case SvgViewerBooleanParameter boolean when before is SvgViewerBooleanParameter had:
+                boolean.Value = had.Value;
+                break;
+        }
+    }
+
+    /// <summary>Puts a declaration edit where the drawing keeps them, or says why it would not go.</summary>
+    private bool Splice(SvgSourceEditResult result)
+    {
+        if (_target is not { } target)
+        {
+            return false;
+        }
+
+        if (!result.Succeeded)
+        {
+            Says(result.Refusal);
+
+            return false;
+        }
+
+        if (result.Edits.Count == 0 || !target.Apply(result.Edits))
+        {
+            return false;
+        }
+
+        // The drawing is built from what was just written, so the canvas is out of date; and the
+        // rows are read from the drawing, so they are too. Straight away rather than on the buffer's
+        // Edited, which is debounced by a fifth of a second -- the right delay for somebody typing
+        // and the wrong one for a button they just pressed.
+        ShowDrawings();
+
+        return true;
+    }
+
+    private void Note(string? said)
+    {
+        _parameterNote.Text = said ?? string.Empty;
+        _parameterNote.IsVisible = said is { Length: > 0 };
+    }
+
+    /// <summary>
+    /// What a drawing renders with before anybody touches it: the values its panel would show.
+    /// </summary>
+    /// <remarks>
+    /// Not the declared defaults. Binding those refuses the whole set the moment one parameter has
+    /// no default — and a recipe is entitled to declare one, since a host is expected to supply it —
+    /// so a single <c>&lt;param name="whiteColor" type="color" /&gt;</c> left every drawing in the
+    /// group on its placeholders, which render grey. The seed is what
+    /// <see cref="SvgViewerParameterFactory"/> puts in a row for a declaration that gives it
+    /// nothing, and it is what a viewer binds on opening the same drawing: the group's canvas and
+    /// the drawing's own tab then show the same picture, which is the whole point of the tab.
+    /// </remarks>
+    private static Dictionary<string, ExprValue> Seeded(SvgViewerDocument document)
+    {
+        var values = new Dictionary<string, ExprValue>(StringComparer.Ordinal);
+
+        foreach (var row in SvgViewerParameterFactory.Create(document.Declarations.Parameters))
+        {
+            values[row.Name] = row.ToExprValue();
+        }
+
+        return values;
+    }
+
+    /// <summary>The values the panel is showing, as the drawing takes them.</summary>
+    private Dictionary<string, ExprValue> Values()
+    {
+        var values = new Dictionary<string, ExprValue>(StringComparer.Ordinal);
+
+        foreach (var row in _parameters.Parameters ?? Array.Empty<SvgViewerParameter>())
+        {
+            values[row.Name] = row.ToExprValue();
+        }
+
+        return values;
+    }
+
+    /// <summary>
+    /// Shows what the picked drawing paints with, and what its recipe makes of each colour.
+    /// </summary>
+    /// <remarks>
+    /// Only under a recipe, which is the same rule a drawing's own tab follows — the colours are the
+    /// rules a recipe holds, and a drawing without one has none to show. That the target came back a
+    /// <see cref="RecipeWorkspace"/> is exactly the question "is this drawing under a recipe", so it
+    /// is not asked twice.
+    ///
+    /// Rebuilt with the selection rather than kept: it is one drawing's survey, and the drawing has
+    /// changed.
+    /// </remarks>
+    private void ShowColours()
+    {
+        if (_inspecting is not { } inspecting
+            || inspecting.Built.Document is not { } document
+            || _target is not RecipeWorkspace recipe)
+        {
+            _coloursNote.Text = _inspecting is null
+                ? "Pick a drawing to see what it paints with."
+                : "This drawing is not built through a recipe, so there is nothing to recolour.";
+
+            _coloursHost.Content = _coloursNote;
+
+            return;
+        }
+
+        _coloursHost.Content = new ColourPanel(
+            recipe,
+            () => document.SourceText ?? string.Empty,
+            () => Evaluator(document));
+    }
+
+    /// <summary>What the colour readouts are worked out with: this drawing's names and its values.</summary>
+    private ExprEvaluator? Evaluator(SvgViewerDocument document)
+    {
+        try
+        {
+            return ExprEvaluator.Create(document.Declarations, Values());
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            // A readout nobody can work out is left blank; the row still says what the rule is.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Binds the values on the panel into every drawing that shares the declarations, and repaints.
+    /// </summary>
+    /// <remarks>
+    /// A value belongs where its declaration does. Under a recipe that is every drawing built
+    /// through it, so moving one slider moves the family — which is the whole reason to look at them
+    /// side by side. A drawing declaring its own <c>&lt;e:code&gt;</c> shares with nothing, and moves
+    /// alone.
+    ///
+    /// Cheap for a drag: the pictures are the ones already built, and <c>SetExpressionValues</c>
+    /// re-evaluates a model each has cached rather than reading or compiling anything again.
+    /// </remarks>
+    private void Bind()
+    {
+        if (_inspecting is not { } inspecting)
+        {
+            return;
+        }
+
+        var picked = inspecting.Built.Drawing;
+        var values = Values();
+
+        foreach (var shown in _shown)
+        {
+            if (shown.Built.Svg is not { } svg || !Shares(picked, shown.Built.Drawing))
+            {
+                continue;
+            }
+
+            try
+            {
+                svg.SetExpressionValues(values);
+            }
+            catch (ExprException)
+            {
+                // A value a drawing will not take leaves its last rendering up, as in a viewer.
+            }
+        }
+
+        _canvas.Publish();
+    }
+
+    /// <summary>Whether two drawings take their declarations from the same place.</summary>
+    /// <remarks>
+    /// Which is a recipe or nothing. Two drawings that each declare their own happen to have the
+    /// same names about as often as two files do, and sharing values between them would be a
+    /// coincidence acted on.
+    /// </remarks>
+    private static bool Shares(SvgcProjectDrawing picked, SvgcProjectDrawing other)
+        => ReferenceEquals(picked, other)
+           || (picked.EffectiveResolvedRecipe is { } recipe
+               && string.Equals(recipe, other.EffectiveResolvedRecipe, StringComparison.Ordinal));
+
     /// <summary>What the group builds, drawn on one canvas.</summary>
     /// <remarks>
     /// Laid out at the sizes the project builds them at, with nothing scaled to fit: the canvas has
@@ -481,9 +864,13 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        _inspecting = (placement, svg);
+        _inspecting = (placement, shown.Built);
 
         _tree.Show(svg.SourceDocument);
+
+        // The tabs are about whatever is selected, so they follow it.
+        ShowParameters();
+        ShowColours();
     }
 
     /// <summary>Puts the ring round <paramref name="element"/>, where its drawing sits on the canvas.</summary>
@@ -512,18 +899,17 @@ public sealed class GroupPanel : UserControl
 
             _loaded.Add(document);
 
-            // The declared defaults. A plain load leaves a drawing with expressions in it rendering
-            // its placeholders, which is not what the project builds; a parameter with no default at
-            // all is refused, and placeholders are then the honest answer.
+            // What the panel would show for this drawing on opening it, which is what a viewer
+            // binds and so what the drawing's own tab renders.
             try
             {
-                document.Svg.SetExpressionValues(new Dictionary<string, ExprValue>());
+                document.Svg.SetExpressionValues(Seeded(document));
             }
             catch (ExprException)
             {
             }
 
-            return new Drawn(drawing, document.Svg, document.Svg.Picture?.CullRect.Size ?? default, null);
+            return new Drawn(drawing, document, document.Svg.Picture?.CullRect.Size ?? default, null);
         }
         catch (Exception failure)
         {
@@ -620,9 +1006,12 @@ public sealed class GroupPanel : UserControl
 
         _shown.Clear();
 
-        // The tree holds elements of a document whose picture is about to be disposed.
+        // The tree holds elements of a document whose picture is about to be disposed, and the
+        // parameters belong to the drawing it was showing.
         _inspecting = null;
         _tree.Show(null);
+        ShowParameters();
+        ShowColours();
         _showing.Text = "Click a drawing to see what it is made of.";
 
         foreach (var document in _loaded)
@@ -714,7 +1103,14 @@ public sealed class GroupPanel : UserControl
 
     private static readonly Uri Home = new("avares://Svg.Studio/");
 
-    private sealed record Drawn(SvgcProjectDrawing Drawing, SKSvg? Svg, SKSize Size, string? Fault);
+    /// <remarks>
+    /// The document and not just its picture: the declarations shown on the panel and the text the
+    /// colours are surveyed from are both read off it.
+    /// </remarks>
+    private sealed record Drawn(SvgcProjectDrawing Drawing, SvgViewerDocument? Document, SKSize Size, string? Fault)
+    {
+        public SKSvg? Svg => Document?.Svg;
+    }
 
     /// <summary>What the sizing comes to, said the way the project says it.</summary>
     private static string Size(SvgcProjectNode node)

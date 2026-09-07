@@ -37,7 +37,7 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// here blanks the drawing on an error — a failed load, a malformed block and a rejected value all
 /// leave what is up where it was.
 /// </remarks>
-public partial class SvgViewer : UserControl
+public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 {
     private readonly SvgViewerCanvas _canvas;
     private readonly SvgViewerDeclarationPanel _panel;
@@ -63,6 +63,9 @@ public partial class SvgViewer : UserControl
     private readonly Border _treeHost;
     private readonly GridSplitter _treeSplitter;
     private readonly SvgViewerElementTree _elementTree;
+
+    /// <summary>What the panel's buttons do. Shared with any other host that shows one.</summary>
+    private readonly SvgViewerDeclarationCommands _commands;
     private readonly ToggleButton _elementsButton;
 
     /// <summary>What the source pane's row was last set to, so hiding it can be undone.</summary>
@@ -207,6 +210,12 @@ public partial class SvgViewer : UserControl
 
         // Fired and forgotten: a click is not something to await, and the two report what they did
         // through the note and the drawing like every other edit.
+        _commands = new SvgViewerDeclarationCommands(
+            Declarations,
+            Write,
+            () => _rows,
+            () => ParameterDialogService);
+
         _panel.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
         _panel.CommitRequested += (_, _) => CommitParameterDefaults();
         _panel.EditRequested += async (_, row) => await EditParameterAsync(row).ConfigureAwait(true);
@@ -1357,6 +1366,44 @@ public partial class SvgViewer : UserControl
     /// </remarks>
     public ISvgViewerDeclarationTarget? DeclarationTarget { get; set; }
 
+    /// <summary>The drawing as it stands, for a host writing declarations into it.</summary>
+    /// <remarks>
+    /// A viewer is a target as well as a consumer of one. A host that keeps a drawing's declarations
+    /// somewhere else sets <see cref="DeclarationTarget"/>; a host editing a drawing that is open
+    /// here writes through this instead, so the edit lands in the buffer somebody is looking at
+    /// rather than in the file underneath it — with undo, the unsaved mark, and a save that waits
+    /// to be asked for.
+    ///
+    /// Explicit, because <c>Text</c> and <c>Apply</c> are poor names on a viewer and good ones on a
+    /// target: a caller that wants these has the interface in its hand already.
+    /// </remarks>
+    string ISvgViewerDeclarationTarget.Text => Source;
+
+    /// <inheritdoc />
+    bool ISvgViewerDeclarationTarget.Apply(IReadOnlyList<SvgTextEdit> edits)
+    {
+        if (edits is null || edits.Count == 0 || _document is null)
+        {
+            return false;
+        }
+
+        // Spelled out rather than left to Editable(), which answers yes at once when this viewer has
+        // a DeclarationTarget of its own and never reaches either of these.
+        //
+        // The buffer first: Splice writes into the editor's document, and until it has been filled
+        // that is the empty one AvaloniaEdit starts with — the pane need never have been opened.
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        return Splice(SvgSourceEditResult.From(edits));
+    }
+
     /// <summary>The text the declaration commands read.</summary>
     private string Declarations() => DeclarationTarget?.Text ?? PaneSource();
 
@@ -1423,13 +1470,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        var taken = _rows.Select(row => row.Name).ToList();
-
-        var parameter = await ParameterDialogService
-            .AskAsync(TopLevel.GetTopLevel(this), taken)
-            .ConfigureAwait(true);
-
-        return parameter is { } declared && Write(SvgDeclarationEditor.Add(Declarations(), declared));
+        return await _commands.AddAsync(TopLevel.GetTopLevel(this)).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -1457,18 +1498,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        // Its own name is not one it clashes with.
-        var taken = _rows
-            .Where(row => !ReferenceEquals(row, parameter))
-            .Select(row => row.Name)
-            .ToList();
-
-        var replacement = await ParameterDialogService
-            .EditAsync(TopLevel.GetTopLevel(this), taken, parameter.Declaration)
-            .ConfigureAwait(true);
-
-        return replacement is { } wanted
-            && Write(SvgDeclarationEditor.Update(Declarations(), parameter.Name, wanted));
+        return await _commands.EditAsync(TopLevel.GetTopLevel(this), parameter).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -1497,7 +1527,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        return Write(SvgDeclarationEditor.Remove(Declarations(), parameter.Name));
+        return _commands.Remove(parameter);
     }
 
     /// <summary>
@@ -1520,14 +1550,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        var changed = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        foreach (var row in _rows.Where(row => row.IsModified))
-        {
-            changed[row.Name] = row.ToExpression();
-        }
-
-        return changed.Count > 0 && Write(SvgDeclarationEditor.SetDefaults(Declarations(), changed));
+        return _commands.SetDefaults();
     }
 
     /// <summary>
@@ -1551,13 +1574,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        var name = let.Name.Trim();
-        var expression = let.Expression.Trim();
-
-        return Write(
-            let.Declaration is { } declared
-                ? SvgDeclarationEditor.UpdateLet(Declarations(), declared.Name, name, expression)
-                : SvgDeclarationEditor.AddLet(Declarations(), name, expression));
+        return _commands.CommitLet(let);
     }
 
     /// <summary>
@@ -1576,7 +1593,7 @@ public partial class SvgViewer : UserControl
             throw new ArgumentNullException(nameof(let));
         }
 
-        if (_document is null || let.Declaration is not { } declared)
+        if (_document is null || let.Declaration is null)
         {
             return false;
         }
@@ -1586,7 +1603,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        return Write(SvgDeclarationEditor.MoveLet(Declarations(), declared.Name, to));
+        return _commands.MoveLet(let, to);
     }
 
     /// <summary>
@@ -1605,7 +1622,7 @@ public partial class SvgViewer : UserControl
             throw new ArgumentNullException(nameof(let));
         }
 
-        if (_document is null || let.Declaration is not { } declared)
+        if (_document is null || let.Declaration is null)
         {
             return false;
         }
@@ -1615,7 +1632,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        return Write(SvgDeclarationEditor.RemoveLet(Declarations(), declared.Name));
+        return _commands.RemoveLet(let);
     }
 
     /// <summary>
@@ -1645,7 +1662,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        return Write(SvgDeclarationEditor.MoveParameter(Declarations(), parameter.Name, to));
+        return _commands.MoveParameter(parameter, to);
     }
 
     /// <summary>Shows what each let currently evaluates to, beside it.</summary>
