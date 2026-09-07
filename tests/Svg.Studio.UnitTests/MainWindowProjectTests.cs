@@ -498,6 +498,130 @@ public class MainWindowProjectTests : IDisposable
     /// <summary>What is on it, in the order it was placed.</summary>
     private static IReadOnlyList<SvgViewerPlacement> Drawn(GroupPanel panel) => Canvas(panel).Placements;
 
+    // ---- selecting an element in a group's preview ----------------------------------------------
+
+    private const string Pair = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+
+          <group namespace="Demo.Icons.Both">
+            <svg input="home.svg" class="Home" />
+            <svg input="badge.svg" class="Badge" />
+          </group>
+        </svgc>
+        """;
+
+    /// <summary>Where in the control a point of the arrangement is, checked by mapping it back.</summary>
+    private static Point Over(SvgViewerCanvas canvas, float x, float y)
+    {
+        var at = new Point(x * canvas.Scale + canvas.OffsetX, y * canvas.Scale + canvas.OffsetY);
+
+        Assert.True(canvas.TryGetDrawingPoint(at, out var back));
+        Assert.Equal(x, back.X, 3);
+        Assert.Equal(y, back.Y, 3);
+
+        return at;
+    }
+
+    /// <summary>
+    /// Clicks a point given in the canvas's own coordinates.
+    /// </summary>
+    /// <remarks>
+    /// The point is translated into the window's space first, and the window is what the event is
+    /// told its root is. A pointer event reports its position relative to whatever asks, by way of
+    /// the visual root — hand it a control-local point and call it the root's and every reader is
+    /// off by wherever the control sits, which for a canvas under a toolbar and beside a tree is a
+    /// couple of hundred pixels.
+    /// </remarks>
+    private static void Click(Window window, SvgViewerCanvas canvas, Point at)
+    {
+        var root = canvas.TranslatePoint(at, window)
+                   ?? throw new InvalidOperationException("The canvas is not in the window.");
+
+        canvas.RaiseEvent(new PointerPressedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            root,
+            0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+            KeyModifiers.None)
+        {
+            RoutedEvent = InputElement.PointerPressedEvent
+        });
+
+        canvas.RaiseEvent(new PointerReleasedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            root,
+            0,
+            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+            KeyModifiers.None,
+            MouseButton.Left)
+        {
+            RoutedEvent = InputElement.PointerReleasedEvent
+        });
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>Where a placement sits in the arrangement, as a rectangle.</summary>
+    private static SKRect Area(SvgViewerPlacement placement)
+    {
+        var cull = placement.Svg.Picture!.CullRect;
+
+        return new SKRect(
+            placement.At.X + cull.Left,
+            placement.At.Y + cull.Top,
+            placement.At.X + cull.Right,
+            placement.At.Y + cull.Bottom);
+    }
+
+    [AvaloniaFact]
+    public async Task Clicking_A_Drawing_In_A_Group_Rings_It_There_And_Nowhere_Else()
+    {
+        // The group view is where the same file is compared built several ways, and until now there
+        // was no way to ask which element any of it was. Hit testing the wrong picture would answer
+        // confidently about a shape nobody pointed at, so the assertion is *where* the ring landed.
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Pair));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        var canvas = Canvas(panel);
+        var placements = Drawn(panel);
+
+        Assert.Equal(2, placements.Count);
+        Assert.Null(canvas.Highlight);
+
+        var second = Area(placements[1]);
+
+        var at = Over(canvas, second.MidX, second.MidY);
+
+        Click(window, canvas, at);
+
+        var ring = canvas.Highlight;
+
+        Assert.NotNull(ring);
+
+        // On the drawing that was clicked, and not on the one beside it.
+        Assert.True(second.Contains(ring!.Bounds), $"{ring.Bounds} is not inside {second}");
+        Assert.False(Area(placements[0]).IntersectsWith(ring.Bounds), "the ring landed on the other drawing too");
+    }
+
+
     private static SKPicture? Picture(SvgViewerPlacement placed) => placed.Svg.Picture;
 
     [AvaloniaFact]

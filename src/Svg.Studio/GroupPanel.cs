@@ -66,6 +66,14 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private readonly List<SvgViewerDocument> _loaded = new();
 
+    /// <summary>Each drawing on the canvas, paired with where the spread put it.</summary>
+    /// <remarks>
+    /// The pair is the whole of what a click needs and neither half has it: a placement carries no
+    /// idea which project node it came from, and the built record carries no idea where on the
+    /// canvas it ended up. Both were thrown away as locals before anything asked.
+    /// </remarks>
+    private readonly List<(SvgViewerPlacement Placement, Drawn Built)> _shown = new();
+
     /// <summary>Whether this is the tab being looked at.</summary>
     /// <remarks>
     /// A tab's content leaves the visual tree when another tab is picked, so this is the whole of
@@ -87,6 +95,9 @@ public sealed class GroupPanel : UserControl
         Node = node ?? throw new ArgumentNullException(nameof(node));
 
         Content = node is SvgcProjectGroup ? Built() : Alone();
+
+        // Harmless on a drawing's settings pane, which has no canvas and so no placements to fall on.
+        _canvas.Picked += (_, at) => Pick(at);
 
         // A group saved in another tab changes what this one inherits, so every tab follows the
         // one document rather than the copy it was opened with. Anything typed here and not saved
@@ -323,7 +334,62 @@ public sealed class GroupPanel : UserControl
 
         Says(Trouble(built));
 
-        _canvas.Show(Spread(built.Where(drawn => drawn.Svg is { }).ToList()));
+        // Only the ones that built: Spread lays out what it is given, so the two lists line up
+        // index for index and that is what pairs a placement with the drawing it came from.
+        var drawn = built.Where(drawn => drawn.Svg is { }).ToList();
+        var placements = Spread(drawn);
+
+        for (var index = 0; index < placements.Count; index++)
+        {
+            _shown.Add((placements[index], drawn[index]));
+        }
+
+        _canvas.Show(placements);
+    }
+
+    /// <summary>Rings whatever was clicked, on the drawing it was clicked in.</summary>
+    /// <remarks>
+    /// Two questions, and the canvas answers only the first: which of the drawings the point fell
+    /// on, and then — of that drawing alone — which element is under it. Hit testing the wrong
+    /// picture would answer confidently about a shape somebody was not pointing at.
+    /// </remarks>
+    private void Pick(Point at)
+    {
+        if (!_canvas.TryGetPlacementAt(at, out var placement, out var point) || placement is null)
+        {
+            return;
+        }
+
+        var index = _shown.FindIndex(shown => ReferenceEquals(shown.Placement, placement));
+
+        if (index < 0 || _shown[index].Built.Svg is not { } svg)
+        {
+            return;
+        }
+
+        if (svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) is not { } element)
+        {
+            // A click on the drawing but not on any of its ink. Leaving the ring where it is beats
+            // clearing it: the pane is read alongside the picture, and a click that missed by two
+            // pixels should not throw away what was being looked at.
+            return;
+        }
+
+        Ring(placement, svg, element);
+    }
+
+    /// <summary>Puts the ring round <paramref name="element"/>, where its drawing sits on the canvas.</summary>
+    /// <remarks>
+    /// The tracer answers in the drawing's own coordinates and the canvas rings in the space the
+    /// drawings are arranged in, so the path is moved by the placement's offset on the way across.
+    /// </remarks>
+    private void Ring(SvgViewerPlacement placement, SKSvg svg, SvgElement element)
+    {
+        var outline = SvgViewerOutline.Of(svg, element);
+
+        outline?.Transform(SKMatrix.CreateTranslation(placement.At.X, placement.At.Y));
+
+        _canvas.Highlight = outline;
     }
 
     /// <summary>One drawing built the way the project builds it, or why it could not be.</summary>
@@ -441,7 +507,10 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void Release()
     {
+        _canvas.Highlight = null;
         _canvas.Show(Array.Empty<SvgViewerPlacement>());
+
+        _shown.Clear();
 
         foreach (var document in _loaded)
         {

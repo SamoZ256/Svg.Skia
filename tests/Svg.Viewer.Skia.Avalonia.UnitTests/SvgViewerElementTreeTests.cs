@@ -261,12 +261,23 @@ public class SvgViewerElementTreeTests
         return at;
     }
 
-    private static void Press(SvgViewerCanvas canvas, Point at)
+    /// <summary>
+    /// Where <paramref name="at"/> — a point in the canvas's own space — is in the window's.
+    /// </summary>
+    /// <remarks>
+    /// A pointer event reports its position by way of the visual root, so a control-local point
+    /// handed over as the root's is off by wherever the control sits. Under a toolbar and beside a
+    /// side pane that is enough to land the click on a different shape, or on none.
+    /// </remarks>
+    private static Point Root(Window window, SvgViewerCanvas canvas, Point at)
+        => canvas.TranslatePoint(at, window) ?? at;
+
+    private static void Press(Window window, SvgViewerCanvas canvas, Point at)
         => canvas.RaiseEvent(new PointerPressedEventArgs(
             canvas,
             new Pointer(0, PointerType.Mouse, true),
-            canvas,
-            at,
+            window,
+            Root(window, canvas, at),
             0,
             new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
             KeyModifiers.None)
@@ -274,23 +285,23 @@ public class SvgViewerElementTreeTests
             RoutedEvent = InputElement.PointerPressedEvent
         });
 
-    private static void Move(SvgViewerCanvas canvas, Point at)
+    private static void Move(Window window, SvgViewerCanvas canvas, Point at)
         => canvas.RaiseEvent(new PointerEventArgs(
             InputElement.PointerMovedEvent,
             canvas,
             new Pointer(0, PointerType.Mouse, true),
-            canvas,
-            at,
+            window,
+            Root(window, canvas, at),
             0,
             new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other),
             KeyModifiers.None));
 
-    private static void Release(SvgViewerCanvas canvas, Point at)
+    private static void Release(Window window, SvgViewerCanvas canvas, Point at)
         => canvas.RaiseEvent(new PointerReleasedEventArgs(
             canvas,
             new Pointer(0, PointerType.Mouse, true),
-            canvas,
-            at,
+            window,
+            Root(window, canvas, at),
             0,
             new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
             KeyModifiers.None,
@@ -299,10 +310,10 @@ public class SvgViewerElementTreeTests
             RoutedEvent = InputElement.PointerReleasedEvent
         });
 
-    private static void Click(SvgViewerCanvas canvas, Point at)
+    private static void Click(Window window, SvgViewerCanvas canvas, Point at)
     {
-        Press(canvas, at);
-        Release(canvas, at);
+        Press(window, canvas, at);
+        Release(window, canvas, at);
         Dispatcher.UIThread.RunJobs();
     }
 
@@ -313,7 +324,7 @@ public class SvgViewerElementTreeTests
 
         Arrange(window);
 
-        Click(viewer.Canvas, Over(viewer.Canvas, 25d, 5d));
+        Click(window, viewer.Canvas, Over(viewer.Canvas, 25d, 5d));
 
         Assert.Equal("1", viewer.Elements.SelectedNode!.AddressKey);
         Assert.NotNull(viewer.Canvas.Highlight);
@@ -329,9 +340,9 @@ public class SvgViewerElementTreeTests
 
         var from = Over(viewer.Canvas, 5d, 5d);
 
-        Press(viewer.Canvas, from);
-        Move(viewer.Canvas, from + new Point(60d, 0d));
-        Release(viewer.Canvas, from + new Point(60d, 0d));
+        Press(window, viewer.Canvas, from);
+        Move(window, viewer.Canvas, from + new Point(60d, 0d));
+        Release(window, viewer.Canvas, from + new Point(60d, 0d));
         Dispatcher.UIThread.RunJobs();
 
         Assert.Null(viewer.Elements.SelectedNode);
@@ -346,11 +357,11 @@ public class SvgViewerElementTreeTests
 
         Arrange(window);
 
-        Click(viewer.Canvas, Over(viewer.Canvas, 5d, 5d));
+        Click(window, viewer.Canvas, Over(viewer.Canvas, 5d, 5d));
 
         Assert.Equal("0", viewer.Elements.SelectedNode!.AddressKey);
 
-        Click(viewer.Canvas, Over(viewer.Canvas, 35d, 15d));
+        Click(window, viewer.Canvas, Over(viewer.Canvas, 35d, 15d));
 
         Assert.Equal("0", viewer.Elements.SelectedNode!.AddressKey);
     }
