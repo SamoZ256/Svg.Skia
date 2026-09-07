@@ -502,12 +502,12 @@ public partial class SvgViewer : UserControl
     /// Rings <paramref name="node"/> on the drawing, or clears the ring when there is nothing to ring.
     /// </summary>
     /// <remarks>
+    /// The element's own silhouette, not a box around it. A bounding box says where a shape roughly
+    /// is; on anything that is not a rectangle — a path, a circle, a group of scattered children —
+    /// it also covers a great deal the shape is not, and two overlapping selections look identical.
+    ///
     /// Every scene node the element has, not the first: one reached through <c>&lt;use&gt;</c> is
     /// drawn once per use, and ringing one of them points at a copy nobody picked.
-    ///
-    /// Anything that never reaches the drawing — everything under <c>&lt;defs&gt;</c>, the
-    /// <c>&lt;e:code&gt;</c> block, a <c>&lt;title&gt;</c> — rings nothing while its row still
-    /// selects and is still shown in the text.
     ///
     /// Usually free: the scene graph a load compiled is the one this reads, so nothing is built for
     /// it. Only after something has thrown that away — binding a value, which rewrites the recorded
@@ -519,22 +519,64 @@ public partial class SvgViewer : UserControl
             || _document is not { } open
             || !open.Svg.TryGetRetainedSceneNodes(node.Element, out var scene))
         {
-            _canvas.Highlight = Array.Empty<SkiaSharp.SKRect>();
+            _canvas.Highlight = null;
 
             return;
         }
 
-        var rings = new List<SkiaSharp.SKRect>(scene.Count);
+        var outline = new SkiaSharp.SKPath();
 
         foreach (var placed in scene)
         {
-            if (placed.TransformedBounds is { Width: > 0f, Height: > 0f } bounds)
-            {
-                rings.Add(open.Svg.SkiaModel.ToSKRect(bounds));
-            }
+            Trace(placed, open.Svg.SkiaModel, outline);
         }
 
-        _canvas.Highlight = rings;
+        _canvas.Highlight = outline.IsEmpty ? null : outline;
+    }
+
+    /// <summary>
+    /// Adds what <paramref name="node"/> covers to <paramref name="outline"/>, in the drawing's space.
+    /// </summary>
+    /// <remarks>
+    /// Only the seven basic shapes carry geometry — <c>SvgSceneCompiler.TryGetDirectVisualPath</c>
+    /// builds one for a path, rect, circle, ellipse, line, polyline and polygon, and for nothing
+    /// else. So a container is its children traced one by one, which is what makes a group's ring
+    /// its parts rather than the box around them, and a <c>&lt;use&gt;</c> ring the real shape it
+    /// was drawn from.
+    ///
+    /// What has neither geometry nor children — text, an image — falls back to its own bounds. Those
+    /// are tight rather than nominal (a text node's are the measured run), so the box is the answer
+    /// rather than an approximation of one.
+    /// </remarks>
+    /// <returns>Whether anything was added.</returns>
+    private static bool Trace(SvgSceneNode node, SkiaModel model, SkiaSharp.SKPath outline)
+    {
+        if (node.HitTestPath is { } geometry)
+        {
+            using var traced = model.ToSKPath(geometry);
+
+            var placement = model.ToSKMatrix(node.TotalTransform);
+
+            outline.AddPath(traced, ref placement);
+
+            return true;
+        }
+
+        var tracedAny = false;
+
+        foreach (var child in node.Children)
+        {
+            tracedAny |= Trace(child, model, outline);
+        }
+
+        if (!tracedAny && node.TransformedBounds is { Width: > 0f, Height: > 0f } bounds)
+        {
+            outline.AddRect(model.ToSKRect(bounds));
+
+            return true;
+        }
+
+        return tracedAny;
     }
 
     /// <summary>

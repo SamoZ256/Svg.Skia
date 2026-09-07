@@ -302,7 +302,7 @@ public class SvgViewerElementTreeTests
         Click(viewer.Canvas, Over(viewer.Canvas, 25d, 5d));
 
         Assert.Equal("1", viewer.Elements.SelectedNode!.AddressKey);
-        Assert.NotEmpty(viewer.Canvas.Highlight);
+        Assert.NotNull(viewer.Canvas.Highlight);
     }
 
     [AvaloniaFact]
@@ -348,14 +348,68 @@ public class SvgViewerElementTreeTests
     {
         var (_, viewer) = await Host();
 
-        Assert.Empty(viewer.Canvas.Highlight);
+        Assert.Null(viewer.Canvas.Highlight);
 
         Assert.True(viewer.Elements.TrySelect("1/0"));
         Dispatcher.UIThread.RunJobs();
 
-        var ring = Assert.Single(viewer.Canvas.Highlight);
+        Assert.Equal(new SKRect(0f, 0f, 24f, 24f), viewer.Canvas.Highlight!.Bounds);
+    }
 
-        Assert.Equal(new SKRect(0f, 0f, 24f, 24f), ring);
+    [AvaloniaFact]
+    public async Task The_Ring_Follows_The_Shape_And_Not_The_Box_Around_It()
+    {
+        // The point of tracing geometry rather than bounds. A circle and the square it fits in have
+        // the same bounds and look nothing alike, and two overlapping shapes ringed by their boxes
+        // are indistinguishable.
+        const string round = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20">
+              <circle cx="10" cy="10" r="8" fill="#ff0000" />
+              <text x="0" y="18" font-size="4">hi</text>
+            </svg>
+            """;
+
+        var (_, viewer) = await Host(round);
+
+        Assert.True(viewer.Elements.TrySelect("0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new SKRect(2f, 2f, 18f, 18f), viewer.Canvas.Highlight!.Bounds);
+        Assert.False(viewer.Canvas.Highlight.IsRect, "the circle was ringed as a rectangle");
+
+        // Text carries no geometry, so its own measured bounds are the answer rather than an
+        // approximation of one.
+        Assert.True(viewer.Elements.TrySelect("1"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Canvas.Highlight!.IsRect);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Group_Is_Ringed_By_Its_Parts()
+    {
+        // Not by the box around them, which on a group of scattered children covers mostly nothing.
+        const string scattered = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+              <g id="pair">
+                <rect x="0" y="0" width="10" height="10" fill="#ff0000" />
+                <rect x="30" y="30" width="10" height="10" fill="#0000ff" />
+              </g>
+            </svg>
+            """;
+
+        var (_, viewer) = await Host(scattered);
+
+        Assert.True(viewer.Elements.TrySelect("0"));
+        Dispatcher.UIThread.RunJobs();
+
+        var ring = viewer.Canvas.Highlight!;
+
+        // Both corners are covered, and the middle -- which the group's box would have ringed --
+        // is not on the outline at all.
+        Assert.Equal(new SKRect(0f, 0f, 40f, 40f), ring.Bounds);
+        Assert.False(ring.IsRect, "the two shapes were ringed as one box");
+        Assert.False(ring.Contains(20f, 20f), "the empty middle of the group was ringed");
     }
 
     [AvaloniaFact]
@@ -368,12 +422,12 @@ public class SvgViewerElementTreeTests
         Assert.True(viewer.Elements.TrySelect("1/0"));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.NotEmpty(viewer.Canvas.Highlight);
+        Assert.NotNull(viewer.Canvas.Highlight);
 
         Assert.True(viewer.Elements.TrySelect("0/0/0"));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Empty(viewer.Canvas.Highlight);
+        Assert.Null(viewer.Canvas.Highlight);
     }
 
     [AvaloniaFact]
@@ -394,9 +448,13 @@ public class SvgViewerElementTreeTests
         Assert.True(viewer.Elements.TrySelect("0/0"));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(2, viewer.Canvas.Highlight.Count);
-        Assert.Contains(viewer.Canvas.Highlight, ring => ring.Left == 0f);
-        Assert.Contains(viewer.Canvas.Highlight, ring => ring.Left == 20f);
+        var ring = viewer.Canvas.Highlight!;
+
+        Assert.Equal(new SKRect(0f, 0f, 30f, 10f), ring.Bounds);
+
+        // Two tiles with a gap, not one box across both.
+        Assert.False(ring.IsRect, "the two uses were ringed as one box");
+        Assert.False(ring.Contains(15f, 5f), "the gap between the two uses was ringed");
     }
 
     [AvaloniaFact]
@@ -410,7 +468,7 @@ public class SvgViewerElementTreeTests
         viewer.Close();
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Empty(viewer.Canvas.Highlight);
+        Assert.Null(viewer.Canvas.Highlight);
     }
 
     // ---- showing the element in the text -------------------------------------------------------
@@ -542,7 +600,7 @@ public class SvgViewerElementTreeTests
         viewer.ShowElementTree = false;
 
         Assert.Null(viewer.Elements.Root);
-        Assert.Empty(viewer.Canvas.Highlight);
+        Assert.Null(viewer.Canvas.Highlight);
 
         Assert.True(viewer.Rebuild());
         Dispatcher.UIThread.RunJobs();

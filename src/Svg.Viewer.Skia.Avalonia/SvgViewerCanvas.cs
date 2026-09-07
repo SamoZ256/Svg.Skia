@@ -3,10 +3,12 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls.Skia;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using SkiaSharp;
 using Svg.Skia;
 
@@ -45,14 +47,28 @@ public class SvgViewerCanvas : SKCanvasControl
     private bool _dragging;
     private Cursor? _restoreCursor;
     private bool _showBounds = true;
-    private IReadOnlyList<SKRect> _highlight = Array.Empty<SKRect>();
+    private SKPath? _highlight;
+
+    /// <summary>How long the ring has been up, which is what the pulse is a function of.</summary>
+    private readonly Stopwatch _highlightAge = new();
+
+    /// <summary>
+    /// Repaints while the ring is settling in.
+    /// </summary>
+    /// <remarks>
+    /// A pulse that ran for ever would repaint the whole drawing thirty times a second for as long
+    /// as anything was selected, which is a real cost to pay for decoration. It runs for
+    /// <see cref="PulseSeconds"/> and stops itself: long enough for the eye to be pulled to the
+    /// ring, after which the ring is still there and no longer costs anything.
+    /// </remarks>
+    private readonly DispatcherTimer _pulse = new() { Interval = TimeSpan.FromMilliseconds(33d) };
     private Point _pressOrigin;
     private bool _pressed;
 
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
-        Array.Empty<SvgViewerPlacement>(), 1d, 0d, 0d, true, Array.Empty<SKRect>());
+        Array.Empty<SvgViewerPlacement>(), 1d, 0d, 0d, true, null, 0d);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -60,7 +76,8 @@ public class SvgViewerCanvas : SKCanvasControl
         double OffsetX,
         double OffsetY,
         bool Bounds,
-        IReadOnlyList<SKRect> Highlight);
+        SKPath? Highlight,
+        double HighlightAge);
 
     public SvgViewerCanvas()
     {
@@ -68,6 +85,16 @@ public class SvgViewerCanvas : SKCanvasControl
         Focusable = true;
 
         Draw += OnDraw;
+
+        _pulse.Tick += (_, _) =>
+        {
+            if (_highlight is null || _highlightAge.Elapsed.TotalSeconds > PulseSeconds)
+            {
+                _pulse.IsEnabled = false;
+            }
+
+            Publish();
+        };
 
         // Tunnelling, because the pointer and wheel events are forwarded to the document's own
         // interaction dispatcher by anything hosting an SVG, and chrome gets first refusal.
@@ -104,22 +131,30 @@ public class SvgViewerCanvas : SKCanvasControl
     /// wanting the drawing on its own turns it off.
     /// </remarks>
     /// <summary>
-    /// Rectangles to ring on the drawing, in the drawing's own coordinates.
+    /// The silhouette to ring on the drawing, in the drawing's own coordinates.
     /// </summary>
     /// <remarks>
-    /// A list rather than one, because an element reached through <c>&lt;use&gt;</c> is drawn once
-    /// per use and ringing only the first would point at a copy nobody picked.
+    /// One path holding every piece, so an element drawn several times through <c>&lt;use&gt;</c> is
+    /// ringed at each of them and the whole thing is still one object to hand across to the render
+    /// thread. Stroked, never filled, so the pieces need not be unioned.
+    ///
+    /// Not disposed when replaced: the render thread may still be drawing the snapshot holding it,
+    /// and a path freed underneath it would take the process down. Left to the finalizer, which is
+    /// affordable for something built only when somebody picks a row.
     ///
     /// Drawn inside each placement's transform. A canvas showing several drawings at once — the
-    /// preview of everything a project group builds — would ring the same rectangle on each of
-    /// them, which is why only the viewer sets this.
+    /// preview of everything a project group builds — would ring the same shape on each of them,
+    /// which is why only the viewer sets this.
     /// </remarks>
-    public IReadOnlyList<SKRect> Highlight
+    public SKPath? Highlight
     {
         get => _highlight;
         set
         {
-            _highlight = value ?? Array.Empty<SKRect>();
+            _highlight = value;
+
+            _highlightAge.Restart();
+            _pulse.IsEnabled = value is { };
 
             Publish();
         }
@@ -374,7 +409,15 @@ public class SvgViewerCanvas : SKCanvasControl
     /// <summary>Hands the render thread a new frame's worth of state.</summary>
     internal void Publish()
     {
-        _snapshot = new Snapshot(_placed, _scale, _offsetX, _offsetY, _showBounds, _highlight);
+        _snapshot = new Snapshot(
+            _placed,
+            _scale,
+            _offsetX,
+            _offsetY,
+            _showBounds,
+            _highlight,
+            _highlightAge.Elapsed.TotalSeconds);
+
         InvalidateVisual();
     }
 
@@ -505,6 +548,17 @@ public class SvgViewerCanvas : SKCanvasControl
         e.Handled = true;
     }
 
+    /// <remarks>
+    /// The timer holds this control, so a canvas taken off the tree while its ring was still
+    /// settling would go on repainting something nobody can see until the pulse ran out.
+    /// </remarks>
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnDetachedFromVisualTree(e);
+
+        _pulse.IsEnabled = false;
+    }
+
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
     {
         base.OnPointerCaptureLost(e);
@@ -547,16 +601,16 @@ public class SvgViewerCanvas : SKCanvasControl
             // underneath it by a value being bound on the UI thread.
             placed.Svg.Draw(canvas);
 
-            foreach (var ringed in state.Highlight)
+            if (state.Highlight is { } ringed)
             {
-                Outline(canvas, ringed, state.Scale, SKColors.DodgerBlue);
+                Ring(canvas, ringed, state.Scale, state.HighlightAge);
             }
 
             if (Frame(placed) is { } frame)
             {
                 if (state.Bounds)
                 {
-                    Outline(canvas, frame, state.Scale, SKColors.Gray);
+                    Outline(canvas, frame, state.Scale);
                 }
 
                 if (placed is { Label: { Length: > 0 } label, LabelSize: > 0f })
@@ -591,7 +645,56 @@ public class SvgViewerCanvas : SKCanvasControl
     /// Every length is divided by the scale because the canvas is scaled around it, which is what
     /// keeps the line one pixel wide and the dashes one length at every zoom.
     /// </remarks>
-    private static void Outline(SKCanvas canvas, SKRect frame, double scale, SKColor colour)
+    /// <summary>How long the ring pulses for after it appears.</summary>
+    private const double PulseSeconds = 1.8d;
+
+    /// <summary>
+    /// Draws the selected element's silhouette.
+    /// </summary>
+    /// <remarks>
+    /// Two strokes, not one. A single coloured line disappears into a drawing of about that colour,
+    /// and a drawing is entitled to be any colour; the white casing under it is what keeps the ring
+    /// readable on a dark one, and the blue on top is what keeps it readable on a light one.
+    ///
+    /// The line swells and settles for the first <see cref="PulseSeconds"/>. A ring that appears
+    /// somewhere off screen, or around one shape among hundreds, is easy to miss on a picture the
+    /// eye is already busy reading; a moment of movement is what finds it. It dies away rather than
+    /// beating on, because by then it has been found.
+    /// </remarks>
+    private static void Ring(SKCanvas canvas, SKPath outline, double scale, double age)
+    {
+        var hairline = (float)(1d / scale);
+
+        // Fades from one to nothing across the window, so the pulse settles rather than stopping.
+        var settling = Math.Clamp(1d - age / PulseSeconds, 0d, 1d);
+        var swell = (float)(settling * (0.5d + 0.5d * Math.Sin(age * Math.PI * 2d / 0.6d)));
+
+        using var casing = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            Color = SKColors.White.WithAlpha(170),
+            StrokeWidth = (3.5f + 3f * swell) * hairline,
+            StrokeJoin = SKStrokeJoin.Round,
+            StrokeCap = SKStrokeCap.Round
+        };
+
+        canvas.DrawPath(outline, casing);
+
+        using var line = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            Color = new SKColor(0x0D, 0x99, 0xFF),
+            StrokeWidth = (1.6f + 1.4f * swell) * hairline,
+            StrokeJoin = SKStrokeJoin.Round,
+            StrokeCap = SKStrokeCap.Round
+        };
+
+        canvas.DrawPath(outline, line);
+    }
+
+    private static void Outline(SKCanvas canvas, SKRect frame, double scale)
     {
         var hairline = (float)(1d / scale);
 
@@ -599,7 +702,7 @@ public class SvgViewerCanvas : SKCanvasControl
         {
             IsAntialias = true,
             Style = SKPaintStyle.Stroke,
-            Color = colour,
+            Color = SKColors.Gray,
             StrokeWidth = hairline,
             PathEffect = SKPathEffect.CreateDash(new[] { 4f * hairline, 4f * hairline }, 0f)
         };

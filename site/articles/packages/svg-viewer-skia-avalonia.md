@@ -243,15 +243,20 @@ in a file is the question it answers, and half of that never reaches the canvas.
 because it is rebuilt every time typing pauses and that is 27ms at 4,000 elements.
 
 Picking a row does two things: it rings the element on the drawing, and it opens the source pane with
-the element's start tag selected. Clicking the drawing does the reverse and selects the row. A drag
+the element's start tag selected. The ring is the element's own **silhouette**, traced from the scene
+geometry rather than drawn around its bounds — a circle rings as a circle, and a group rings as its
+parts rather than as the box containing them. It swells and settles over about two seconds when it
+appears, which is what finds it on a busy picture, and then costs nothing. Clicking the drawing does the reverse and selects the row. A drag
 still only pans, and a click that lands on nothing changes nothing — the pane is read alongside the
 drawing, and a click two pixels wide of a shape should not throw away the row and the place in the
 text somebody was reading.
 
 Three things are worth knowing before relying on it:
 
-- **Not everything can be ringed.** Anything that never reaches the drawing has no scene node and so
-  no rectangle. The row still selects and is still shown in the text.
+- **Not everything can be ringed.** Anything that never reaches the drawing has no scene node at all
+  — the row still selects and is still shown in the text. And only the seven basic shapes carry
+  geometry, so text and images ring as their own measured bounds, which for those is the answer
+  rather than an approximation of one.
 - **Not everything can be shown in the text.** The tree comes from the parsed document and the spans
   come from a second reading of the file (`SvgSourceElements`), and the two are checked against each
   other by name before the caret moves. A disagreement, or a drawing too large for the pane to hold,
