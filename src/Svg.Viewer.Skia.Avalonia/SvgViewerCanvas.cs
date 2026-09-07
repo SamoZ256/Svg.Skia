@@ -645,54 +645,53 @@ public class SvgViewerCanvas : SKCanvasControl
     /// Every length is divided by the scale because the canvas is scaled around it, which is what
     /// keeps the line one pixel wide and the dashes one length at every zoom.
     /// </remarks>
-    /// <summary>How long the ring pulses for after it appears.</summary>
+    /// <summary>How long the ring's colour sweeps for after it appears.</summary>
     private const double PulseSeconds = 1.8d;
+
+    /// <summary>What the ring settles to, and what the sweep lifts it towards.</summary>
+    private static readonly SKColor s_ringSettled = new(0xFF, 0x7A, 0x00);
+    private static readonly SKColor s_ringLit = new(0xFF, 0xC8, 0x6E);
 
     /// <summary>
     /// Draws the selected element's silhouette.
     /// </summary>
     /// <remarks>
-    /// Two strokes, not one. A single coloured line disappears into a drawing of about that colour,
-    /// and a drawing is entitled to be any colour; the white casing under it is what keeps the ring
-    /// readable on a dark one, and the blue on top is what keeps it readable on a light one.
+    /// One stroke, one width, and orange because a drawing is rarely orange: what says "this is the
+    /// selection and not part of the picture" is a colour nothing else in the pane uses. The cost of
+    /// a single line is that there is no fallback on a drawing that <em>is</em> orange, where it will
+    /// be hard to pick out.
     ///
-    /// The line swells and settles for the first <see cref="PulseSeconds"/>. A ring that appears
-    /// somewhere off screen, or around one shape among hundreds, is easy to miss on a picture the
-    /// eye is already busy reading; a moment of movement is what finds it. It dies away rather than
-    /// beating on, because by then it has been found.
+    /// The colour sweeps for the first <see cref="PulseSeconds"/> and settles. A ring around one
+    /// shape among hundreds is easy to miss on a picture the eye is already reading, and a moment of
+    /// movement is what finds it; the width is left alone, so nothing about the shape it is tracing
+    /// appears to change. It dies away rather than beating on, because a pulse that ran for ever
+    /// would repaint the whole drawing thirty times a second for as long as anything was selected.
     /// </remarks>
     private static void Ring(SKCanvas canvas, SKPath outline, double scale, double age)
     {
-        var hairline = (float)(1d / scale);
-
-        // Fades from one to nothing across the window, so the pulse settles rather than stopping.
+        // Fades to nothing across the window, so the colour comes to rest rather than stopping
+        // wherever the sine happened to be.
         var settling = Math.Clamp(1d - age / PulseSeconds, 0d, 1d);
-        var swell = (float)(settling * (0.5d + 0.5d * Math.Sin(age * Math.PI * 2d / 0.6d)));
-
-        using var casing = new SKPaint
-        {
-            IsAntialias = true,
-            Style = SKPaintStyle.Stroke,
-            Color = SKColors.White.WithAlpha(170),
-            StrokeWidth = (3.5f + 3f * swell) * hairline,
-            StrokeJoin = SKStrokeJoin.Round,
-            StrokeCap = SKStrokeCap.Round
-        };
-
-        canvas.DrawPath(outline, casing);
+        var sweep = (float)(settling * (0.5d + 0.5d * Math.Sin(age * Math.PI * 2d / 0.6d)));
 
         using var line = new SKPaint
         {
             IsAntialias = true,
             Style = SKPaintStyle.Stroke,
-            Color = new SKColor(0x0D, 0x99, 0xFF),
-            StrokeWidth = (1.6f + 1.4f * swell) * hairline,
+            Color = Between(s_ringSettled, s_ringLit, sweep),
+            StrokeWidth = 2f * (float)(1d / scale),
             StrokeJoin = SKStrokeJoin.Round,
             StrokeCap = SKStrokeCap.Round
         };
 
         canvas.DrawPath(outline, line);
     }
+
+    private static SKColor Between(SKColor from, SKColor to, float amount)
+        => new(
+            (byte)(from.Red + (to.Red - from.Red) * amount),
+            (byte)(from.Green + (to.Green - from.Green) * amount),
+            (byte)(from.Blue + (to.Blue - from.Blue) * amount));
 
     private static void Outline(SKCanvas canvas, SKRect frame, double scale)
     {

@@ -246,8 +246,9 @@ Picking a row does two things: it rings the element on the drawing, and it opens
 the element's start tag selected. The ring is the element's own **silhouette**, traced from the scene
 geometry rather than drawn around its bounds — a circle rings as a circle, a stroked path rings round
 both edges of the stroke rather than down the middle of it, and a group rings as its parts rather
-than as the box containing them. It swells and settles over about two seconds when it
-appears, which is what finds it on a busy picture, and then costs nothing. Clicking the drawing does the reverse and selects the row. A drag
+than as the box containing them. It is one orange line, whose colour sweeps and settles over about
+two seconds when it appears — that is what finds it on a busy picture, and once settled it costs
+nothing. Clicking the drawing does the reverse and selects the row. A drag
 still only pans, and a click that lands on nothing changes nothing — the pane is read alongside the
 drawing, and a click two pixels wide of a shape should not throw away the row and the place in the
 text somebody was reading.
