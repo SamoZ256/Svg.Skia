@@ -1,10 +1,12 @@
 ---
-description: Push the current branch, open a PR against a target branch, merge it, and land; or finish a PR that already exists
+description: Push the current branch, open a PR against a target branch, merge it, and land; or push and finish a PR that already exists
 argument-hint: [target-branch, or the number of a PR that already exists]
 allowed-tools: SlashCommand, Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git ls-files:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(git rev-list:*), Bash(git checkout:*), Bash(git switch:*), Bash(git restore:*), Bash(git pull:*), Bash(git fetch:*), Bash(gh auth:*), Bash(gh pr:*), Bash(gh repo:*), Bash(dotnet build:*), Bash(dotnet test:*), Bash(dotnet format:*)
 ---
 
 Take a branch all the way in: push it, open a pull request, merge that, and clean up after it.
+
+**It always pushes first**, whichever form is used, so what merges is what I have in front of me.
 
 **$1** is either the branch to merge into, or the number of a pull request `/pr` has already
 opened — a value that is all digits is a number, anything else is a branch name.
@@ -23,9 +25,10 @@ Stop at the first thing that looks wrong. Never force, never `-D`, never merge p
    stops, this stops with it: nothing below should run against a failing build, a test you have not
    seen, or a branch with nothing on it. The target is `$1`.
 
-   **`$1` is a number:** `/pr` has already been here, so do not run it again — pushing and opening
-   are done. Read the pull request instead, and take the target from it rather than asking me for
-   something GitHub already knows:
+   **`$1` is a number:** the pull request is already open, so do not run `/pr` — but this still
+   pushes, because whatever I have been doing since it was opened is what I mean to merge. Read the
+   pull request first: where I am standing decides whether pushing is safe, and the target is
+   something GitHub already knows.
 
    ```sh
    gh pr view --repo SamoZ256/Svg.Skia $1 --json number,state,headRefName,baseRefName,url
@@ -33,10 +36,16 @@ Stop at the first thing that looks wrong. Never force, never `-D`, never merge p
 
    The target is its `baseRefName`. Stop if its state is not `OPEN`.
 
-   Then check nothing of mine is missing from it. If I am on its head branch, `git status --short`
-   must be empty and `git log @{u}..HEAD` must be empty too; if either is not, stop and say so
-   rather than merging a pull request that does not have my latest work in it. `/push` is what I
-   would want next.
+   Then **run `/push`, but only while I am on the pull request's head branch.** On any other branch
+   it would commit whatever is lying around there and push it somewhere this merge is not about;
+   leave it alone, say which branch was left and that nothing was pushed, and carry on to step 2
+   with what the pull request already has.
+
+   `/push` stops when there is nothing to commit. For a branch that has already been pushed that is
+   the ordinary case, not a failure — carry on. What it does not cover is a clean tree with commits
+   the remote has not got, since it stops before pushing: check `git log @{u}..HEAD` afterwards and
+   `git push` if anything is there. Merging a pull request that does not have my latest work in it
+   is the thing this step exists to prevent.
 
    Either way, record three things: the number, the head branch — which is the one to delete at the
    end — and the target branch.
