@@ -26,6 +26,8 @@ dotnet add package Svg.Viewer.Skia.Avalonia
 | `SvgViewer` | The drop-in: toolbar, canvas, parameter panel and status strip |
 | `SvgViewerCanvas` | The drawing surface alone, owning scale and offset |
 | `SvgViewerDeclarationPanel` | One control per declared parameter, and one row per declared let |
+| `SvgViewerElementTree` | Every element of the open drawing, as a tree, with a filter box |
+| `SvgViewerElementNode` | One row: the element, its address, its name and its id |
 | `SvgViewerLet` | A let row: the name and body being typed, what it evaluates to, and what is wrong with it |
 | `SvgExpressionPresenter` | Paints an expression box by token, in place of a `TextBox`'s own presenter |
 | `SvgViewerDocument` | A loaded drawing, its declarations, and any declaration error |
@@ -50,7 +52,9 @@ await Viewer.LoadAsync("badge.svg");
 | `Close` | Releasing the open document when the viewer itself is discarded |
 | `Parameters` / `ParameterValues` | Reading what is declared and what is bound |
 | `TrySetParameterValue` / `ResetParameters` | Driving values from host UI |
-| `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` / `ShowSource` | Supplying your own chrome |
+| `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` / `ShowSource` | Supplying your own chrome. `ShowDeclarationPanel` is the whole right-hand strip, element tree included |
+| `ShowElementTree` / `Elements` | The tree under the parameters — on by default; `Elements.Filter` is the box above it |
+| `SelectedElement` / `ElementSelected` / `RevealInSource` | Which element is picked, and showing one in the text without waiting for a click |
 | `ShowBounds` | Outlining the drawing's own edges — on by default, since an icon with transparent margins otherwise ends nowhere the eye can see |
 | `SidePanels` | Panels of your own beside the parameters: the right pane becomes a strip of tabs while there are any, yours first and so the first one it opens on, and holds the parameters alone again when there are none |
 | `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
@@ -229,6 +233,35 @@ var text = viewer.Document?.SourceText;
 Drawings loaded from text or from a stream carry it too, so a viewer fed by a database or an archive
 shows source like any other. The pane holds at most 2,000,000 characters — a backstop on what is kept in
 memory rather than a layout limit — while `SourceText` itself is always whole.
+
+## The element tree
+
+Under the parameters, in the same column, split by a splitter of its own. It lists **every** element
+of the open drawing — `<defs>` and its contents, the `<e:code>` block, a `<title>` — because what is
+in a file is the question it answers, and half of that never reaches the canvas. On by default;
+`ShowElementTree = false` gives the height back.
+
+Picking a row does two things: it rings the element on the drawing, and it opens the source pane with
+the element's start tag selected. Clicking the drawing does the reverse and selects the row. A drag
+still only pans, and a click that lands on nothing changes nothing — the pane is read alongside the
+drawing, and a click two pixels wide of a shape should not throw away the row and the place in the
+text somebody was reading.
+
+Three things are worth knowing before relying on it:
+
+- **Not everything can be ringed.** Anything that never reaches the drawing has no scene node and so
+  no rectangle. The row still selects and is still shown in the text.
+- **Not everything can be shown in the text.** The tree comes from the parsed document and the spans
+  come from a second reading of the file (`SvgSourceElements`), and the two are checked against each
+  other by name before the caret moves. A disagreement, or a drawing too large for the pane to hold,
+  means nothing happens rather than a jump to the wrong line.
+- **A `<use>` has one row, not one per use.** What is listed is what is written. Picking the
+  definition rings it everywhere it is drawn, and clicking any of those copies selects that one row.
+
+Rows are held by the child-index address `SvgElementAddress` spells, not by element. A drawing
+rebuilt from edited text shares no element with the one it replaced, so that is what keeps the
+selection and the open branches across a keystroke; a selection whose element has been deleted is
+dropped.
 
 ## One document per viewer
 

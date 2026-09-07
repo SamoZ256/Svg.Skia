@@ -61,9 +61,25 @@ The repository wraps the vendored SVG sources with project-level concerns such a
 - embedded SVG 1.1 DTD resources,
 - analyzer and generator integration used by the vendored code path,
 - repository-local SVG 1.1 animation object-model types,
-- typed `pointer-events` support used by the shared hit-test and interaction layers.
+- typed `pointer-events` support used by the shared hit-test and interaction layers,
+- `SvgElementNames.NameOf` and `SvgElementAddress`, which answer the two questions the vendored
+  `SvgElement` cannot: what an element is called, and which element it is.
 
 The rendering behavior still lives above this package, not inside it.
+
+### Naming and addressing an element
+
+`SvgElement.ElementName` is `protected internal`, so nothing outside this package can say what an
+element is called. `SvgElementNames.NameOf` carries the rules once: a document is `svg`, a
+foreign-namespace element carries its own name, an element whose name this renderer does not
+recognise keeps what it was written with, and everything else is named by its type.
+
+`SvgElementAddress` is the child-index path from the root — `Create(element).Key` is `0/2/1`, and
+`Resolve(document)` walks it back down. It is the identity that survives a document being rebuilt:
+a host reloading a drawing from edited text gets a new `SvgDocument` and new elements every time, so
+a reference taken a moment ago names nothing. `SvgSceneNode.ElementAddressKey` spells the same path,
+and so does `SvgSourceElements` in `Svg.Highlighting`, which is what lets a scene node, a row of text
+and an element all be talked about as the same thing.
 
 ## Animation DOM coverage
 
