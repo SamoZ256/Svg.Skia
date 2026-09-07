@@ -80,6 +80,8 @@
                       ToolTip.Tip="Outline the drawing's own edges" />
         <ToggleButton x:Name="SourceButton" Content="Source"
                       ToolTip.Tip="Show the drawing's text" />
+        <ToggleButton x:Name="ElementsButton" Content="Elements"
+                      ToolTip.Tip="Show what the drawing is made of" />
       </StackPanel>
     </Border>
 
@@ -149,10 +151,27 @@
         <GridSplitter x:Name="Splitter" Grid.Column="1"
                       ResizeDirection="Columns" Background="Transparent" />
 
-        <Border x:Name="DeclarationPanelHost" Grid.Column="2"
-                BorderThickness="1,0,0,0" BorderBrush="#20808080">
-          <viewer:SvgViewerDeclarationPanel x:Name="PART_Declarations" />
-        </Border>
+        <!--
+          Two rows in the one column rather than a third tab beside the parameters, because the two
+          are read together: the tree says which element a row of the drawing is, and the panel says
+          what it is painted with. Behind a tab, each hides the other.
+        -->
+        <Grid x:Name="Side" Grid.Column="2" RowDefinitions="*,6,200">
+
+          <Border x:Name="DeclarationPanelHost" Grid.Row="0"
+                  BorderThickness="1,0,0,0" BorderBrush="#20808080">
+            <viewer:SvgViewerDeclarationPanel x:Name="PART_Declarations" />
+          </Border>
+
+          <GridSplitter x:Name="TreeSplitter" Grid.Row="1"
+                        ResizeDirection="Rows" Background="Transparent" />
+
+          <Border x:Name="ElementTreeHost" Grid.Row="2"
+                  BorderThickness="1,1,0,0" BorderBrush="#20808080">
+            <viewer:SvgViewerElementTree x:Name="PART_Elements" />
+          </Border>
+
+        </Grid>
 
       </Grid>
 

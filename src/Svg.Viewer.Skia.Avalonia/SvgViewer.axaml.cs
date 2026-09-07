@@ -59,12 +59,20 @@ public partial class SvgViewer : UserControl
     private readonly ToggleButton _boundsButton;
     private readonly Grid _body;
     private readonly Grid _drawing;
+    private readonly Grid _side;
+    private readonly Border _treeHost;
+    private readonly GridSplitter _treeSplitter;
+    private readonly SvgViewerElementTree _elementTree;
+    private readonly ToggleButton _elementsButton;
 
     /// <summary>What the source pane's row was last set to, so hiding it can be undone.</summary>
     private GridLength _sourceHeight;
 
     /// <summary>What the panel's column was last set to, for the same reason.</summary>
     private GridLength _panelWidth;
+
+    /// <summary>What the element tree's row was last set to, for the same reason.</summary>
+    private GridLength _treeHeight;
 
     /// <summary>Whether the pane's text is stale — a document arrived, or the theme changed.</summary>
     private bool _sourceStale = true;
@@ -129,9 +137,15 @@ public partial class SvgViewer : UserControl
         _boundsButton = this.FindControl<ToggleButton>("BoundsButton")!;
         _body = this.FindControl<Grid>("Body")!;
         _drawing = this.FindControl<Grid>("Drawing")!;
+        _side = this.FindControl<Grid>("Side")!;
+        _treeHost = this.FindControl<Border>("ElementTreeHost")!;
+        _treeSplitter = this.FindControl<GridSplitter>("TreeSplitter")!;
+        _elementTree = this.FindControl<SvgViewerElementTree>("PART_Elements")!;
+        _elementsButton = this.FindControl<ToggleButton>("ElementsButton")!;
 
         _sourceHeight = _body.RowDefinitions[2].Height;
         _panelWidth = _drawing.ColumnDefinitions[2].Width;
+        _treeHeight = _side.RowDefinitions[2].Height;
 
         this.FindControl<Button>("FitButton")!.Click += (_, _) => _canvas.Fit();
         this.FindControl<Button>("ActualSizeButton")!.Click += (_, _) => _canvas.ActualSize();
@@ -141,6 +155,9 @@ public partial class SvgViewer : UserControl
         this.FindControl<Button>("ResetParametersButton")!.Click += (_, _) => ResetParameters();
 
         _sourceButton.IsCheckedChanged += (_, _) => ShowSource = _sourceButton.IsChecked == true;
+
+        _elementsButton.IsChecked = true;
+        _elementsButton.IsCheckedChanged += (_, _) => ShowElementTree = _elementsButton.IsChecked == true;
 
         _boundsButton.IsChecked = ShowBounds;
         _boundsButton.IsCheckedChanged += (_, _) => ShowBounds = _boundsButton.IsChecked == true;
@@ -369,7 +386,8 @@ public partial class SvgViewer : UserControl
 
             // The column carries the width, so hiding the panel has to zero it — and its minimum
             // with it — or the drawing keeps paying for a strip it cannot see. What the splitter was
-            // dragged to comes back.
+            // dragged to comes back. The element tree is in the same column and goes with it: what
+            // this hides is the whole right-hand strip, not one pane of it.
             if (value)
             {
                 _drawing.ColumnDefinitions[2].MinWidth = PanelMinimum;
@@ -389,6 +407,45 @@ public partial class SvgViewer : UserControl
 
     /// <summary>The narrowest the panel is worth being, matching what the markup declares.</summary>
     private const double PanelMinimum = 260d;
+
+    /// <summary>
+    /// Whether the drawing's elements are listed under the parameters.
+    /// </summary>
+    /// <remarks>
+    /// On, unlike <see cref="ShowSource"/>: what a drawing is made of is the question a viewer is
+    /// opened to answer, and a pane nobody finds answers nothing. A host that wants the height back
+    /// turns it off. Hidden with the whole column by <see cref="ShowDeclarationPanel"/>.
+    /// </remarks>
+    public bool ShowElementTree
+    {
+        get => _treeHost.IsVisible;
+        set
+        {
+            if (_treeHost.IsVisible == value)
+            {
+                return;
+            }
+
+            // The row carries the height, the way the source pane's does: hiding the border alone
+            // would leave the parameters paying for a strip of nothing.
+            if (value)
+            {
+                _side.RowDefinitions[2].Height = _treeHeight;
+            }
+            else
+            {
+                _treeHeight = _side.RowDefinitions[2].Height;
+                _side.RowDefinitions[2].Height = new GridLength(0d);
+            }
+
+            _treeHost.IsVisible = value;
+            _treeSplitter.IsVisible = value;
+            _elementsButton.IsChecked = value;
+        }
+    }
+
+    /// <summary>The tree of the open drawing's elements.</summary>
+    public SvgViewerElementTree Elements => _elementTree;
 
     /// <summary>
     /// Whether the drawing's text is shown under it.
@@ -634,6 +691,7 @@ public partial class SvgViewer : UserControl
         UpdateStatus();
         UpdateZoomText();
         UpdateSource();
+        UpdateElementTree();
 
         DocumentOpened?.Invoke(this, document);
     }
@@ -662,6 +720,7 @@ public partial class SvgViewer : UserControl
         UpdateStatus();
         UpdateZoomText();
         UpdateSource();
+        UpdateElementTree();
     }
 
     // ---- parameters ---------------------------------------------------------------------------
@@ -874,6 +933,9 @@ public partial class SvgViewer : UserControl
         ForgetSource();
         RenderSource();
     }
+
+    /// <summary>Shows what the open drawing is made of, or empties the pane when nothing is open.</summary>
+    private void UpdateElementTree() => _elementTree.Show(_document?.Svg.SourceDocument);
 
     /// <summary>Drops what was known about the drawing that was open.</summary>
     private void ForgetSource()
@@ -1100,6 +1162,11 @@ public partial class SvgViewer : UserControl
         open.Dispose();
 
         UpdateStatus();
+
+        // Here as well as in SetDocument, and this is the easy one to miss: a rebuild raises no
+        // DocumentOpened, so a tree that followed the event alone would be showing the document as
+        // it was before the last keystroke.
+        UpdateElementTree();
     }
 
     /// <summary>Whether the pane holds edits that are not on disk.</summary>
