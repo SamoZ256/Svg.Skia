@@ -544,13 +544,13 @@ public sealed class GroupPanel : UserControl
            && await commands.AddAsync(TopLevel.GetTopLevel(this)).ConfigureAwait(true);
 
     /// <summary>
-    /// Keeps the value on any row still declared the same way by the same drawing.
+    /// Keeps the value on any row still declared the same way, by this drawing or one sharing it.
     /// </summary>
     /// <remarks>
     /// The rows are built again whenever the declarations change, and adding a parameter is a
     /// change; a slider somebody had dragged would otherwise snap back because they pressed a button
-    /// about a different parameter. Only for the same drawing: a row of one drawing is not a row of
-    /// another, however alike their names.
+    /// about a different parameter. Carried across a change of drawing only where the two share
+    /// their declarations, since that is exactly when the value was bound into both.
     /// </remarks>
     private IReadOnlyList<SvgViewerParameter> Carried(
         SvgcProjectDrawing drawing,
@@ -558,21 +558,26 @@ public sealed class GroupPanel : UserControl
     {
         var was = _parameters.Parameters;
 
-        if (was is null || !ReferenceEquals(_showingParameters, drawing))
-        {
-            _showingParameters = drawing;
+        var before = _showingParameters;
 
+        _showingParameters = drawing;
+
+        // Across drawings that share their declarations as well as across a rebuild of one: the
+        // values were bound into all of them, so showing the next one its declared defaults would
+        // have the panel disagreeing with the picture beside it.
+        if (was is null || before is null || !Shares(before, drawing))
+        {
             return rebuilt;
         }
 
         foreach (var row in rebuilt)
         {
-            var before = was.FirstOrDefault(
+            var had = was.FirstOrDefault(
                 old => string.Equals(old.Name, row.Name, StringComparison.Ordinal) && old.Type == row.Type);
 
-            if (before is { IsModified: true })
+            if (had is { IsModified: true })
             {
-                Restore(row, before);
+                Restore(row, had);
             }
         }
 
@@ -692,33 +697,58 @@ public sealed class GroupPanel : UserControl
         }
     }
 
-    /// <summary>Binds the values on the panel into the selected drawing, and repaints.</summary>
+    /// <summary>
+    /// Binds the values on the panel into every drawing that shares the declarations, and repaints.
+    /// </summary>
     /// <remarks>
-    /// One drawing, because that is what a viewer does with the one document it holds. The picture
-    /// is the one already built and <c>SetExpressionValues</c> re-evaluates a model it has cached,
-    /// so a slider drag reads and compiles nothing.
+    /// A value belongs where its declaration does. Under a recipe that is every drawing built
+    /// through it, so moving one slider moves the family — which is the whole reason to look at them
+    /// side by side. A drawing declaring its own <c>&lt;e:code&gt;</c> shares with nothing, and moves
+    /// alone.
+    ///
+    /// Cheap for a drag: the pictures are the ones already built, and <c>SetExpressionValues</c>
+    /// re-evaluates a model each has cached rather than reading or compiling anything again.
     /// </remarks>
     private void Bind()
     {
-        if (_inspecting is not { } inspecting || inspecting.Built.Svg is not { } svg)
+        if (_inspecting is not { } inspecting)
         {
             return;
         }
 
+        var picked = inspecting.Built.Drawing;
         var values = Values();
 
-        try
+        foreach (var shown in _shown)
         {
-            svg.SetExpressionValues(values);
-        }
-        catch (ExprException)
-        {
-            // A value the drawing will not take leaves the last rendering up, as it does in a viewer.
-            return;
+            if (shown.Built.Svg is not { } svg || !Shares(picked, shown.Built.Drawing))
+            {
+                continue;
+            }
+
+            try
+            {
+                svg.SetExpressionValues(values);
+            }
+            catch (ExprException)
+            {
+                // A value a drawing will not take leaves its last rendering up, as in a viewer.
+            }
         }
 
         _canvas.Publish();
     }
+
+    /// <summary>Whether two drawings take their declarations from the same place.</summary>
+    /// <remarks>
+    /// Which is a recipe or nothing. Two drawings that each declare their own happen to have the
+    /// same names about as often as two files do, and sharing values between them would be a
+    /// coincidence acted on.
+    /// </remarks>
+    private static bool Shares(SvgcProjectDrawing picked, SvgcProjectDrawing other)
+        => ReferenceEquals(picked, other)
+           || (picked.EffectiveResolvedRecipe is { } recipe
+               && string.Equals(recipe, other.EffectiveResolvedRecipe, StringComparison.Ordinal));
 
     /// <summary>What the group builds, drawn on one canvas.</summary>
     /// <remarks>

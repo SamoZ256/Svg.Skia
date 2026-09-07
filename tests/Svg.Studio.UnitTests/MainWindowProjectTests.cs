@@ -780,28 +780,79 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(new[] { "hue" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
     }
 
+    /// <summary>A group holding two drawings under one recipe and one that declares its own.</summary>
+    private const string MixedProject = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+          <group namespace="Demo.Icons.Mixed">
+            <group recipe="icons.recipe">
+              <svg input="home.svg" class="One" />
+              <svg input="badge.svg" class="Two" />
+            </group>
+            <svg input="plain.svg" class="Plain" />
+          </group>
+        </svgc>
+        """;
+
     [AvaloniaFact]
-    public async Task A_Value_Repaints_Only_The_Drawing_Picked()
+    public async Task A_Value_Reaches_Every_Drawing_Sharing_The_Declaration()
     {
-        // What a viewer does with the one document it holds, which is what these tabs are meant to
-        // behave like -- not what the first attempt did, which moved the whole family at once.
+        // A value belongs where its declaration does. Under a recipe that is every drawing built
+        // through it, so moving one slider moves the family -- which is the whole reason to look at
+        // them side by side. A drawing declaring its own shares with nothing.
         Write("home.svg", Drawing);
         Write("badge.svg", Drawing);
+        Write("plain.svg", Declaring);
         Write("icons.recipe", Recipe);
 
-        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var window = await Host(Write("icons.svgcproj", MixedProject));
         var panel = await Group(window, 0);
+
+        var placements = Drawn(panel);
+
+        Assert.Equal(3, placements.Count);
 
         Pick(window, panel, 0);
 
-        var placements = Drawn(panel);
         var before = placements.Select(placed => placed.Svg.Picture).ToArray();
 
         ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single()).Value = 0d;
         Dispatcher.UIThread.RunJobs();
 
         Assert.NotSame(before[0], placements[0].Svg.Picture);
-        Assert.Same(before[1], placements[1].Svg.Picture);
+        Assert.NotSame(before[1], placements[1].Svg.Picture);
+
+        // Its own declarations, so nothing was shared with it.
+        Assert.Same(before[2], placements[2].Svg.Picture);
+    }
+
+    [AvaloniaFact]
+    public async Task Picking_A_Drawing_That_Shares_Keeps_The_Value_On_Show()
+    {
+        // The value was bound into both, so the panel showing the next one its declared default
+        // would have it disagreeing with the picture beside it.
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("plain.svg", Declaring);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", MixedProject));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single()).Value = 0d;
+        Dispatcher.UIThread.RunJobs();
+
+        // The other drawing under the same recipe.
+        Pick(window, panel, 1);
+
+        Assert.Equal(0d, ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single()).Value);
+
+        // The one that shares nothing shows what it declares.
+        Pick(window, panel, 2);
+
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
     }
 
     [AvaloniaFact]
