@@ -621,6 +621,56 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(Area(placements[0]).IntersectsWith(ring.Bounds), "the ring landed on the other drawing too");
     }
 
+    private static SvgViewerElementTree Elements(GroupPanel panel)
+        => panel.GetVisualDescendants().OfType<SvgViewerElementTree>().Single();
+
+    [AvaloniaFact]
+    public async Task The_Tree_Follows_Whichever_Drawing_Was_Clicked()
+    {
+        // One drawing at a time: the tree keys its rows by a path unique only inside one document,
+        // so a group's several would collide. Clicking the other one swaps what is on show.
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Pair));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        var canvas = Canvas(panel);
+        var placements = Drawn(panel);
+        var tree = Elements(panel);
+
+        // Nothing is on show until something is picked: a group builds several and the pane cannot
+        // guess which of them is meant.
+        Assert.Null(tree.Root);
+
+        var first = Area(placements[0]);
+
+        Click(window, canvas, Over(canvas, first.MidX, first.MidY));
+
+        Assert.NotNull(tree.Root);
+        Assert.Equal("rect", tree.SelectedNode!.Label);
+
+        var showing = tree.Root!.Element;
+
+        // The other drawing is a different document, so the tree is rebuilt rather than reselected.
+        var second = Area(placements[1]);
+
+        Click(window, canvas, Over(canvas, second.MidX, second.MidY));
+
+        Assert.NotSame(showing, tree.Root!.Element);
+        Assert.Equal("rect", tree.SelectedNode!.Label);
+    }
+
 
     private static SKPicture? Picture(SvgViewerPlacement placed) => placed.Svg.Picture;
 

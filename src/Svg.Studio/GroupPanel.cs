@@ -12,6 +12,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
@@ -74,6 +75,21 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private readonly List<(SvgViewerPlacement Placement, Drawn Built)> _shown = new();
 
+    private readonly SvgViewerElementTree _tree = new();
+
+    /// <summary>Which of the group's drawings the tree is showing, since it can only show one.</summary>
+    private readonly TextBlock _showing = new()
+    {
+        Margin = new Thickness(10, 8, 10, 0),
+        Opacity = 0.55,
+        FontSize = 11,
+        TextTrimming = TextTrimming.CharacterEllipsis,
+        Text = "Click a drawing to see what it is made of."
+    };
+
+    /// <summary>The drawing the tree is showing, and where it sits on the canvas.</summary>
+    private (SvgViewerPlacement Placement, SKSvg Svg)? _inspecting;
+
     /// <summary>Whether this is the tab being looked at.</summary>
     /// <remarks>
     /// A tab's content leaves the visual tree when another tab is picked, so this is the whole of
@@ -94,10 +110,27 @@ public sealed class GroupPanel : UserControl
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         Node = node ?? throw new ArgumentNullException(nameof(node));
 
+        // The viewer's own strip wears these, and a second strip that was meant to look the same
+        // would not stay that way if it wore a copy.
+        Styles.Add(new StyleInclude(Home)
+        {
+            Source = new Uri("avares://Svg.Viewer.Skia.Avalonia/SvgViewerPaneTabs.axaml")
+        });
+
         Content = node is SvgcProjectGroup ? Built() : Alone();
 
         // Harmless on a drawing's settings pane, which has no canvas and so no placements to fall on.
         _canvas.Picked += (_, at) => Pick(at);
+
+        // The other direction: a row picked in the tree rings the drawing it belongs to, which is
+        // the one the tree is showing.
+        _tree.Selected += (_, node) =>
+        {
+            if (node is { } picked && _inspecting is { } inspecting)
+            {
+                Ring(inspecting.Placement, inspecting.Svg, picked.Element);
+            }
+        };
 
         // A group saved in another tab changes what this one inherits, so every tab follows the
         // one document rather than the copy it was opened with. Anything typed here and not saved
@@ -140,13 +173,60 @@ public sealed class GroupPanel : UserControl
         {
             BorderThickness = new Thickness(1, 0, 0, 0),
             BorderBrush = new SolidColorBrush(Color.Parse("#20808080")),
-            Child = new ScrollViewer { Content = _properties }
+            Child = Side()
         };
 
         Grid.SetColumn(right, 2);
         grid.Children.Add(right);
 
         return grid;
+    }
+
+    /// <summary>
+    /// The strip beside a group's drawings: what the settings say, and what the drawings are made of.
+    /// </summary>
+    /// <remarks>
+    /// The same two halves the viewer's own side pane has, and deliberately the same shape — a strip
+    /// of tabs over a tree, split by a splitter. Built in code because everything in this panel is,
+    /// and wearing the viewer's tab style so the two strips cannot drift apart; a tab of one alone
+    /// is a strip waiting for the colours and the parameters to join it.
+    /// </remarks>
+    private Control Side()
+    {
+        var side = new Grid { RowDefinitions = new RowDefinitions("*,6,220") };
+
+        var tabs = new TabControl { Classes = { "panes" }, Padding = new Thickness(0) };
+
+        tabs.Items.Add(new TabItem
+        {
+            Header = "Project",
+            Content = new ScrollViewer { Content = _properties }
+        });
+
+        side.Children.Add(tabs);
+
+        var splitter = new GridSplitter { Background = Brushes.Transparent };
+
+        Grid.SetRow(splitter, 1);
+        side.Children.Add(splitter);
+
+        var below = new DockPanel();
+
+        DockPanel.SetDock(_showing, Dock.Top);
+        below.Children.Add(_showing);
+        below.Children.Add(_tree);
+
+        var host = new Border
+        {
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            BorderBrush = new SolidColorBrush(Color.Parse("#20808080")),
+            Child = below
+        };
+
+        Grid.SetRow(host, 2);
+        side.Children.Add(host);
+
+        return side;
     }
 
     /// <summary>A drawing's settings, with nothing beside them, for the pane.</summary>
@@ -375,7 +455,30 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        Ring(placement, svg, element);
+        Inspect(_shown[index], placement, svg);
+
+        // Selecting the row rings it, so there is one path to the ring however it was asked for.
+        _tree.TrySelect(SvgElementAddress.Create(element).Key);
+    }
+
+    /// <summary>Puts <paramref name="svg"/> in the tree, if it is not the one already there.</summary>
+    /// <remarks>
+    /// One drawing at a time. A group builds several and the tree keys its rows by a path that is
+    /// unique only inside one document, so showing them all at once would need a different tree; the
+    /// label above it is what says which of them this is.
+    /// </remarks>
+    private void Inspect((SvgViewerPlacement Placement, Drawn Built) shown, SvgViewerPlacement placement, SKSvg svg)
+    {
+        _showing.Text = ProjectWorkspace.Label(shown.Built.Drawing);
+
+        if (_inspecting is { } inspecting && ReferenceEquals(inspecting.Placement, placement))
+        {
+            return;
+        }
+
+        _inspecting = (placement, svg);
+
+        _tree.Show(svg.SourceDocument);
     }
 
     /// <summary>Puts the ring round <paramref name="element"/>, where its drawing sits on the canvas.</summary>
@@ -512,6 +615,11 @@ public sealed class GroupPanel : UserControl
 
         _shown.Clear();
 
+        // The tree holds elements of a document whose picture is about to be disposed.
+        _inspecting = null;
+        _tree.Show(null);
+        _showing.Text = "Click a drawing to see what it is made of.";
+
         foreach (var document in _loaded)
         {
             document.Dispose();
@@ -598,6 +706,8 @@ public sealed class GroupPanel : UserControl
 
         return $"{Path.GetFileName(drawing.Input)}\n{name}   {Size(drawing)}";
     }
+
+    private static readonly Uri Home = new("avares://Svg.Studio/");
 
     private sealed record Drawn(SvgcProjectDrawing Drawing, SKSvg? Svg, SKSize Size, string? Fault);
 
