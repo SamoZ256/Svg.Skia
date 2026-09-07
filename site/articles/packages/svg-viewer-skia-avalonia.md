@@ -236,7 +236,9 @@ memory rather than a layout limit — while `SourceText` itself is always whole.
 
 ## The element tree
 
-Under the parameters, in the same column, split by a splitter of its own. It lists **every** element
+Under the parameters, in the same column, split by a splitter of its own. That column is the full
+height of the viewer: the source pane belongs to the drawing's column, so showing the text costs the
+canvas its height and costs the parameters and the tree nothing. It lists **every** element
 of the open drawing — `<defs>` and its contents, the `<e:code>` block, a `<title>` — because what is
 in a file is the question it answers, and half of that never reaches the canvas. On by default;
 `ShowElementTree = false` gives the height back and stops the work — a hidden tree holds nothing,

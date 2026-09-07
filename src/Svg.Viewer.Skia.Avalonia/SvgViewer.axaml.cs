@@ -150,8 +150,8 @@ public partial class SvgViewer : UserControl
         _elementTree = this.FindControl<SvgViewerElementTree>("PART_Elements")!;
         _elementsButton = this.FindControl<ToggleButton>("ElementsButton")!;
 
-        _sourceHeight = _body.RowDefinitions[2].Height;
-        _panelWidth = _drawing.ColumnDefinitions[2].Width;
+        _sourceHeight = _drawing.RowDefinitions[2].Height;
+        _panelWidth = _body.ColumnDefinitions[2].Width;
         _treeHeight = _side.RowDefinitions[2].Height;
 
         this.FindControl<Button>("FitButton")!.Click += (_, _) => _canvas.Fit();
@@ -410,17 +410,18 @@ public partial class SvgViewer : UserControl
             // The column carries the width, so hiding the panel has to zero it — and its minimum
             // with it — or the drawing keeps paying for a strip it cannot see. What the splitter was
             // dragged to comes back. The element tree is in the same column and goes with it: what
-            // this hides is the whole right-hand strip, not one pane of it.
+            // this hides is the whole right-hand strip, not one pane of it. The strip is the full
+            // height of the viewer, so this is the width of everything but the drawing and its text.
             if (value)
             {
-                _drawing.ColumnDefinitions[2].MinWidth = PanelMinimum;
-                _drawing.ColumnDefinitions[2].Width = _panelWidth;
+                _body.ColumnDefinitions[2].MinWidth = PanelMinimum;
+                _body.ColumnDefinitions[2].Width = _panelWidth;
             }
             else
             {
-                _panelWidth = _drawing.ColumnDefinitions[2].Width;
-                _drawing.ColumnDefinitions[2].MinWidth = 0d;
-                _drawing.ColumnDefinitions[2].Width = new GridLength(0d);
+                _panelWidth = _body.ColumnDefinitions[2].Width;
+                _body.ColumnDefinitions[2].MinWidth = 0d;
+                _body.ColumnDefinitions[2].Width = new GridLength(0d);
             }
 
             _panelHost.IsVisible = value;
@@ -708,15 +709,17 @@ public partial class SvgViewer : UserControl
             }
 
             // The row carries the height, so hiding the pane has to zero it or the drawing keeps
-            // paying for a strip it cannot see. What the splitter was dragged to comes back.
+            // paying for a strip it cannot see. What the splitter was dragged to comes back. The row
+            // is the drawing's column alone, so showing the text costs the canvas its height and
+            // costs the side panes nothing.
             if (value)
             {
-                _body.RowDefinitions[2].Height = _sourceHeight;
+                _drawing.RowDefinitions[2].Height = _sourceHeight;
             }
             else
             {
-                _sourceHeight = _body.RowDefinitions[2].Height;
-                _body.RowDefinitions[2].Height = new GridLength(0d);
+                _sourceHeight = _drawing.RowDefinitions[2].Height;
+                _drawing.RowDefinitions[2].Height = new GridLength(0d);
             }
 
             _sourceHost.IsVisible = value;
