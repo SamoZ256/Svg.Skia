@@ -46,6 +46,8 @@ public class SvgViewerCanvas : SKCanvasControl
     private Cursor? _restoreCursor;
     private bool _showBounds = true;
     private IReadOnlyList<SKRect> _highlight = Array.Empty<SKRect>();
+    private Point _pressOrigin;
+    private bool _pressed;
 
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
@@ -78,6 +80,13 @@ public class SvgViewerCanvas : SKCanvasControl
 
     /// <summary>Raised whenever the scale or offset changes, for a zoom readout.</summary>
     public event EventHandler? ViewChanged;
+
+    /// <summary>Raised where a click landed, in control coordinates.</summary>
+    /// <remarks>
+    /// Only for a press and release the pointer did not travel between: a drag is a pan, and what
+    /// it panned over is not what the reader meant to point at.
+    /// </remarks>
+    public event EventHandler<Point>? Picked;
 
     /// <summary>What is painted behind the drawing.</summary>
     public SKColor Background { get; set; } = new(0x1A, 0x1A, 0x1E);
@@ -335,6 +344,12 @@ public class SvgViewerCanvas : SKCanvasControl
         return found && bounds.Width > 0f && bounds.Height > 0f;
     }
 
+    /// <summary>How far a pointer may travel between press and release and still be a pick.</summary>
+    private const double PickSlack = 4d;
+
+    private static bool Away(Point moved, Point from)
+        => Math.Abs(moved.X - from.X) > PickSlack || Math.Abs(moved.Y - from.Y) > PickSlack;
+
     /// <summary>One placed drawing's own edges, in its own space, or null where it has none.</summary>
     private static SKRect? Frame(SvgViewerPlacement placed)
         => placed.Svg.Picture is { CullRect: { Width: > 0f, Height: > 0f } cull } ? cull : null;
@@ -420,6 +435,12 @@ public class SvgViewerCanvas : SKCanvasControl
     private void OnPressed(object? sender, PointerPressedEventArgs e)
     {
         var properties = e.GetCurrentPoint(this).Properties;
+
+        // Recorded before the pan is decided on, so a host that has turned panning off can still be
+        // clicked. Whether this becomes a pick is settled on release.
+        _pressed = properties.IsLeftButtonPressed && _placed.Count > 0;
+        _pressOrigin = e.GetPosition(this);
+
         if (!IsPanEnabled || _placed.Count == 0 || !(properties.IsLeftButtonPressed || properties.IsMiddleButtonPressed))
         {
             return;
@@ -440,6 +461,13 @@ public class SvgViewerCanvas : SKCanvasControl
 
     private void OnMoved(object? sender, PointerEventArgs e)
     {
+        if (_pressed && Away(e.GetPosition(this), _pressOrigin))
+        {
+            // Moved: the gesture is a drag, and a drag pans. Anything a hand does while clicking is
+            // inside the slack and still a pick.
+            _pressed = false;
+        }
+
         if (!_dragging)
         {
             return;
@@ -459,6 +487,13 @@ public class SvgViewerCanvas : SKCanvasControl
 
     private void OnReleased(object? sender, PointerReleasedEventArgs e)
     {
+        if (_pressed)
+        {
+            _pressed = false;
+
+            Picked?.Invoke(this, e.GetPosition(this));
+        }
+
         if (!_dragging)
         {
             return;
@@ -475,6 +510,7 @@ public class SvgViewerCanvas : SKCanvasControl
         base.OnPointerCaptureLost(e);
 
         _dragging = false;
+        _pressed = false;
         Cursor = _restoreCursor;
     }
 

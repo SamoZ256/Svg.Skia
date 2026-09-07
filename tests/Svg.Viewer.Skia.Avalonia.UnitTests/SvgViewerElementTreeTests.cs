@@ -1,7 +1,10 @@
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -212,6 +215,130 @@ public class SvgViewerElementTreeTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal("rect", viewer.Elements.SelectedNode!.Label);
+    }
+
+    // ---- picking from the drawing --------------------------------------------------------------
+
+    /// <summary>A document with a gap in it: two tiles, and empty space to the right of them.</summary>
+    private const string Tiles = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" width="40" height="20">
+          <rect x="0" y="0" width="10" height="10" fill="#ff0000" />
+          <rect x="20" y="0" width="10" height="10" fill="#0000ff" />
+        </svg>
+        """;
+
+    /// <summary>Lays the window out, so the canvas has a size and a scale to map through.</summary>
+    private static void Arrange(Window window)
+    {
+        window.Measure(new Size(700, 500));
+        window.Arrange(new Rect(0, 0, 700, 500));
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>Where in the control a point of the drawing is, checked by mapping it back.</summary>
+    private static Point Over(SvgViewerCanvas canvas, double x, double y)
+    {
+        var at = new Point(x * canvas.Scale + canvas.OffsetX, y * canvas.Scale + canvas.OffsetY);
+
+        Assert.True(canvas.TryGetDrawingPoint(at, out var back));
+        Assert.Equal(x, back.X, 3);
+        Assert.Equal(y, back.Y, 3);
+
+        return at;
+    }
+
+    private static void Press(SvgViewerCanvas canvas, Point at)
+        => canvas.RaiseEvent(new PointerPressedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            canvas,
+            at,
+            0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+            KeyModifiers.None)
+        {
+            RoutedEvent = InputElement.PointerPressedEvent
+        });
+
+    private static void Move(SvgViewerCanvas canvas, Point at)
+        => canvas.RaiseEvent(new PointerEventArgs(
+            InputElement.PointerMovedEvent,
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            canvas,
+            at,
+            0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other),
+            KeyModifiers.None));
+
+    private static void Release(SvgViewerCanvas canvas, Point at)
+        => canvas.RaiseEvent(new PointerReleasedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            canvas,
+            at,
+            0,
+            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+            KeyModifiers.None,
+            MouseButton.Left)
+        {
+            RoutedEvent = InputElement.PointerReleasedEvent
+        });
+
+    private static void Click(SvgViewerCanvas canvas, Point at)
+    {
+        Press(canvas, at);
+        Release(canvas, at);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
+    public async Task Clicking_A_Shape_Selects_Its_Row()
+    {
+        var (window, viewer) = await Host(Tiles);
+
+        Arrange(window);
+
+        Click(viewer.Canvas, Over(viewer.Canvas, 25d, 5d));
+
+        Assert.Equal("1", viewer.Elements.SelectedNode!.AddressKey);
+        Assert.NotEmpty(viewer.Canvas.Highlight);
+    }
+
+    [AvaloniaFact]
+    public async Task Dragging_The_Drawing_Picks_Nothing()
+    {
+        // A drag pans, and what it panned over is not what the reader meant to point at.
+        var (window, viewer) = await Host(Tiles);
+
+        Arrange(window);
+
+        var from = Over(viewer.Canvas, 5d, 5d);
+
+        Press(viewer.Canvas, from);
+        Move(viewer.Canvas, from + new Point(60d, 0d));
+        Release(viewer.Canvas, from + new Point(60d, 0d));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(viewer.Elements.SelectedNode);
+    }
+
+    [AvaloniaFact]
+    public async Task Clicking_Nothing_Leaves_The_Selection_Alone()
+    {
+        // Clearing on a miss is the design tool's convention and the wrong one here: a click two
+        // pixels off would throw away the row and the place in the text somebody was reading.
+        var (window, viewer) = await Host(Tiles);
+
+        Arrange(window);
+
+        Click(viewer.Canvas, Over(viewer.Canvas, 5d, 5d));
+
+        Assert.Equal("0", viewer.Elements.SelectedNode!.AddressKey);
+
+        Click(viewer.Canvas, Over(viewer.Canvas, 35d, 15d));
+
+        Assert.Equal("0", viewer.Elements.SelectedNode!.AddressKey);
     }
 
     // ---- ringing the element on the drawing ----------------------------------------------------

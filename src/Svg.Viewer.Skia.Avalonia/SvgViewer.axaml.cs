@@ -195,6 +195,7 @@ public partial class SvgViewer : UserControl
         };
 
         _canvas.ViewChanged += (_, _) => UpdateZoomText();
+        _canvas.Picked += (_, at) => PickElement(at);
         _panel.ValueChanged += (_, _) => RequestApply();
 
         // Fired and forgotten: a click is not something to await, and the two report what they did
@@ -467,6 +468,31 @@ public partial class SvgViewer : UserControl
 
     /// <summary>Raised when the picked element changes, with null when the pick is dropped.</summary>
     public event EventHandler<SvgElement?>? ElementSelected;
+
+    /// <summary>
+    /// Selects the row for whatever was clicked at <paramref name="at"/>.
+    /// </summary>
+    /// <remarks>
+    /// A click that lands on nothing changes nothing. Clearing the selection is the design tool's
+    /// convention and it is the wrong one here: the pane exists to be read alongside the drawing,
+    /// and a click that missed by two pixels would throw away the row and the place in the text
+    /// somebody was looking at.
+    ///
+    /// What is picked is the element that was drawn, so clicking a shape placed by <c>&lt;use&gt;</c>
+    /// selects the definition it was drawn from — which is where it is written, and the only row
+    /// there is for it.
+    /// </remarks>
+    private void PickElement(Point at)
+    {
+        if (_document is not { } open
+            || !_canvas.TryGetDrawingPoint(at, out var point)
+            || open.Svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) is not { } element)
+        {
+            return;
+        }
+
+        _elementTree.TrySelect(SvgElementAddress.Create(element).Key);
+    }
 
     /// <summary>
     /// Rings <paramref name="node"/> on the drawing, or clears the ring when there is nothing to ring.
