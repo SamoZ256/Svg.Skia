@@ -54,7 +54,7 @@ await Viewer.LoadAsync("badge.svg");
 | `TrySetParameterValue` / `ResetParameters` | Driving values from host UI |
 | `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` / `ShowSource` | Supplying your own chrome. `ShowDeclarationPanel` is the whole right-hand strip, element tree included |
 | `ShowElementTree` / `Elements` | The tree under the parameters — on by default; `Elements.Filter` is the box above it |
-| `SelectedElement` / `ElementSelected` / `RevealInSource` | Which element is picked, and showing one in the text without waiting for a click |
+| `SelectedElement` / `ElementSelected` / `RevealInSource` | Which element is picked, and showing one in the text — `RevealInSource` opens the source pane, which picking a row never does |
 | `ShowBounds` | Outlining the drawing's own edges — on by default, since an icon with transparent margins otherwise ends nowhere the eye can see |
 | `SidePanels` | Panels of your own beside the parameters: the right pane becomes a strip of tabs while there are any, yours first and so the first one it opens on, and holds the parameters alone again when there are none |
 | `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
@@ -242,8 +242,10 @@ in a file is the question it answers, and half of that never reaches the canvas.
 `ShowElementTree = false` gives the height back and stops the work — a hidden tree holds nothing,
 because it is rebuilt every time typing pauses and that is 27ms at 4,000 elements.
 
-Picking a row does two things: it rings the element on the drawing, and it opens the source pane with
-the element's start tag selected. The ring is the element's own **silhouette**, traced from the scene
+Picking a row rings the element on the drawing, and — only if the source pane is already open —
+selects the element's start tag in it. It never opens the pane: picking a row is about the drawing,
+and a pane throwing itself over it would be answering a question nobody asked. `RevealInSource` is
+the seam for a host that does mean to show the text, and that one does open it. The ring is the element's own **silhouette**, traced from the scene
 geometry rather than drawn around its bounds — a circle rings as a circle, a stroked path rings round
 both edges of the stroke rather than down the middle of it, and a group rings as its parts rather
 than as the box containing them. It is one orange line, whose colour sweeps and settles over about

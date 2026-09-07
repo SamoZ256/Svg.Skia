@@ -540,13 +540,49 @@ public class SvgViewerElementTreeTests
     // ---- showing the element in the text -------------------------------------------------------
 
     [AvaloniaFact]
-    public async Task Selecting_A_Row_Opens_The_Source_And_Selects_Its_Start_Tag()
+    public async Task Selecting_A_Row_Selects_Its_Start_Tag_In_An_Open_Source_Pane()
     {
+        var (_, viewer) = await Host();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            """<rect x="0" y="0" width="24" height="24" fill="{{ tint }}" />""",
+            Editor(viewer).SelectedText);
+    }
+
+    [AvaloniaFact]
+    public async Task Selecting_A_Row_Does_Not_Open_The_Source_Pane()
+    {
+        // Picking a row is about the drawing. A pane throwing itself open over it every time would
+        // be answering a question nobody asked, and it takes the height from what is being looked at.
         var (_, viewer) = await Host();
 
         Assert.False(viewer.ShowSource);
 
         Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(viewer.ShowSource);
+
+        // The ring is still the answer to which element it is; only the text stayed put.
+        Assert.NotNull(viewer.Canvas.Highlight);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Host_Asking_For_The_Text_Still_Gets_The_Pane()
+    {
+        // The seam a host calls deliberately, which is a direct request to be shown the text.
+        var (_, viewer) = await Host();
+
+        Assert.False(viewer.ShowSource);
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Assert.True(viewer.RevealInSource(viewer.Elements.SelectedNode));
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(viewer.ShowSource);
@@ -561,6 +597,9 @@ public class SvgViewerElementTreeTests
         // The root's address is the empty string, which is easy to write off as "no address".
         var (_, viewer) = await Host();
 
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
         Assert.True(viewer.Elements.TrySelect(""));
         Dispatcher.UIThread.RunJobs();
 
@@ -572,6 +611,9 @@ public class SvgViewerElementTreeTests
     public async Task An_Element_In_The_Declarations_Block_Is_Shown_Like_Any_Other()
     {
         var (_, viewer) = await Host();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
 
         Assert.True(viewer.Elements.TrySelect("0/0/0"));
         Dispatcher.UIThread.RunJobs();
@@ -605,6 +647,9 @@ public class SvgViewerElementTreeTests
         // Restoring the selection is not the reader picking something. A rebuild happens on every
         // keystroke, and one that scrolled the pane would fight whoever was typing in it.
         var (_, viewer) = await Host();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
 
         Assert.True(viewer.Elements.TrySelect("1/1"));
         Dispatcher.UIThread.RunJobs();

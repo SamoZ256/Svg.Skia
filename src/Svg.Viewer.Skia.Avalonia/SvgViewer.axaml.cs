@@ -169,7 +169,14 @@ public partial class SvgViewer : UserControl
         _elementTree.Selected += (_, node) =>
         {
             OutlineElement(node);
-            RevealInSource(node);
+
+            // Only where the text is already being read. Picking a row is about the drawing, and a
+            // pane that threw itself open over it every time would be answering a question nobody
+            // asked. A host that does mean to show the text calls RevealInSource itself.
+            if (ShowSource)
+            {
+                RevealInSource(node);
+            }
 
             ElementSelected?.Invoke(this, node?.Element);
         };
@@ -647,6 +654,9 @@ public partial class SvgViewer : UserControl
     /// Shows where <paramref name="node"/> is written, opening the source pane to do it.
     /// </summary>
     /// <remarks>
+    /// Opens the pane, because calling this is asking to be shown the text. Picking a row in the
+    /// tree does not call it unless the pane is already open.
+    ///
     /// The name is checked before the caret moves. The text and the document are read separately and
     /// nothing correlates them, so the one failure worth engineering against is scrolling somebody
     /// confidently to the wrong line; not moving at all is a fine second best. It is also what
