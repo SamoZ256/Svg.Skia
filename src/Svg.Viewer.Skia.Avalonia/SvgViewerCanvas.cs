@@ -131,7 +131,7 @@ public class SvgViewerCanvas : SKCanvasControl
     /// wanting the drawing on its own turns it off.
     /// </remarks>
     /// <summary>
-    /// The silhouette to ring on the drawing, in the drawing's own coordinates.
+    /// The silhouette to ring, in the space the drawings are arranged in.
     /// </summary>
     /// <remarks>
     /// One path holding every piece, so an element drawn several times through <c>&lt;use&gt;</c> is
@@ -142,9 +142,10 @@ public class SvgViewerCanvas : SKCanvasControl
     /// and a path freed underneath it would take the process down. Left to the finalizer, which is
     /// affordable for something built only when somebody picks a row.
     ///
-    /// Drawn inside each placement's transform. A canvas showing several drawings at once — the
-    /// preview of everything a project group builds — would ring the same shape on each of them,
-    /// which is why only the viewer sets this.
+    /// In the arrangement's space rather than any one drawing's, and drawn once rather than once per
+    /// placement. With a single drawing at the origin the two spaces are the same, so a viewer hands
+    /// over what it traced; a host showing several — the preview of everything a project group
+    /// builds — offsets the path by the placement it belongs to.
     /// </remarks>
     public SKPath? Highlight
     {
@@ -601,11 +602,6 @@ public class SvgViewerCanvas : SKCanvasControl
             // underneath it by a value being bound on the UI thread.
             placed.Svg.Draw(canvas);
 
-            if (state.Highlight is { } ringed)
-            {
-                Ring(canvas, ringed, state.Scale, state.HighlightAge);
-            }
-
             if (Frame(placed) is { } frame)
             {
                 if (state.Bounds)
@@ -628,6 +624,13 @@ public class SvgViewerCanvas : SKCanvasControl
             }
 
             canvas.Restore();
+        }
+
+        // Outside the loop, so it is drawn once wherever it was put rather than once per drawing on
+        // top of each of them.
+        if (state.Highlight is { } ringed)
+        {
+            Ring(canvas, ringed, state.Scale, state.HighlightAge);
         }
 
         canvas.Restore();

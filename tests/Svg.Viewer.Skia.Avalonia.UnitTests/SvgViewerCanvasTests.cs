@@ -1,6 +1,8 @@
 using System;
+using System.IO;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -82,6 +84,99 @@ public class SvgViewerCanvasTests
 
         Assert.Same(left.Svg, canvas.Svg);
         Assert.Equal(4d, canvas.Scale, 6);
+
+        window.Close();
+    }
+
+    /// <summary>A drawing that is not orange, so the ring cannot be confused with its ink.</summary>
+    private const string Blue = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50">
+          <rect x="0" y="0" width="100" height="50" fill="#0000ff" />
+        </svg>
+        """;
+
+    /// <summary>How much of a rectangle of the frame the selection ring paints.</summary>
+    private static int Ringed(Window window, PixelRect where)
+    {
+        var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("No rendered frame was captured.");
+
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-ring-{Guid.NewGuid():N}.png");
+        frame.Save(path);
+
+        try
+        {
+            using var bitmap = SKBitmap.Decode(path);
+
+            var found = 0;
+
+            for (var x = where.X; x < where.Right && x < bitmap!.Width; x++)
+            {
+                for (var y = where.Y; y < where.Bottom && y < bitmap.Height; y++)
+                {
+                    var pixel = bitmap.GetPixel(x, y);
+
+                    // Orange: red up, blue down, and green in between — which the blue drawing under
+                    // it, the grey bounds outline and the white ground are all outside.
+                    if (pixel.Red > 180 && pixel.Green is > 70 and < 230 && pixel.Blue < 110)
+                    {
+                        found++;
+                    }
+                }
+            }
+
+            return found;
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// The ring belongs to the arrangement, not to each drawing in it.
+    /// </summary>
+    /// <remarks>
+    /// It used to be drawn inside every placement's transform, so a canvas showing a project group's
+    /// drawings rang the same shape on all of them and only one of those was the element picked.
+    /// </remarks>
+    [AvaloniaFact]
+    public void The_Ring_Is_Drawn_Once_Where_It_Was_Put()
+    {
+        using var left = SvgViewerDocument.LoadFromSvg(Blue);
+        using var right = SvgViewerDocument.LoadFromSvg(Blue);
+
+        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        canvas.Show(new[]
+        {
+            new SvgViewerPlacement(left.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(right.Svg, new SKPoint(100f, 50f))
+        });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // The two together are 200x100 in a 400x200 pane, so the fit is 2 and the origin is 0,0.
+        Assert.Equal(2d, canvas.Scale, 6);
+
+        var ring = new SKPath();
+        ring.AddRect(new SKRect(10f, 10f, 90f, 40f));
+
+        canvas.Highlight = ring;
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // Where it was put: 10,10..90,40 at scale 2 is 20,20..180,80.
+        Assert.True(Ringed(window, new PixelRect(0, 0, 200, 100)) > 0, "the ring was not drawn where it was put");
+
+        // And where the second placement would have repeated it: the same rectangle offset by
+        // 100,50, which at scale 2 lands in the opposite quarter of the frame.
+        Assert.Equal(0, Ringed(window, new PixelRect(200, 100, 200, 100)));
 
         window.Close();
     }
