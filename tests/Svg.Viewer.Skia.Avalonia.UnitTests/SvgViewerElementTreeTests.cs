@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -42,6 +43,19 @@ public class SvgViewerElementTreeTests
         Dispatcher.UIThread.RunJobs();
 
         return (window, viewer);
+    }
+
+    /// <summary>Compares rectangles the way a widened path produces them: to within a rounding.</summary>
+    private static void AssertRect(SKRect expected, SKRect actual)
+    {
+        const float tolerance = 0.001f;
+
+        Assert.True(
+            Math.Abs(expected.Left - actual.Left) < tolerance
+            && Math.Abs(expected.Top - actual.Top) < tolerance
+            && Math.Abs(expected.Right - actual.Right) < tolerance
+            && Math.Abs(expected.Bottom - actual.Bottom) < tolerance,
+            $"{actual} is not {expected}");
     }
 
     /// <summary>Every row, in document order, as it reads.</summary>
@@ -383,6 +397,58 @@ public class SvgViewerElementTreeTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(viewer.Canvas.Highlight!.IsRect);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Stroked_Shape_Is_Ringed_Round_Its_Stroke()
+    {
+        // The geometry is the line a stroke is drawn along, not what gets drawn. Ringing it ran the
+        // ring down the middle of the stroke, which at any real width hides the thing it points at.
+        // This is the icon shape it was reported on: three points, round caps, no fill.
+        const string stroked = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none">
+              <path stroke="#d14eb6" stroke-linecap="round" stroke-linejoin="round"
+                    d="m13.5 8.5 -4 5 -2 -1.5" stroke-width="1" />
+            </svg>
+            """;
+
+        var (_, viewer) = await Host(stroked);
+
+        Assert.True(viewer.Elements.TrySelect("0"));
+        Dispatcher.UIThread.RunJobs();
+
+        var ring = viewer.Canvas.Highlight!;
+
+        // The geometry spans 7.5,8.5 to 13.5,13.5. Half a unit of stroke on every side of it, round
+        // caps included, is what the drawing actually covers.
+        AssertRect(new SKRect(7f, 8f, 14f, 14f), ring.TightBounds);
+
+        // Pinned either side of the edge, so a ring that ignored the width again would fail here
+        // rather than merely looking wrong.
+        Assert.True(ring.Contains(7.2f, 12f), "the width of the stroke is not inside the ring");
+        Assert.False(ring.Contains(6.9f, 12f), "the ring is wider than the stroke it follows");
+    }
+
+    [AvaloniaFact]
+    public async Task A_Filled_And_Stroked_Shape_Is_Ringed_Once_Round_The_Outside()
+    {
+        // Widening a stroke gives both of its edges, and the inner one falls inside a filled shape:
+        // ringing it would draw a second line through the middle of a solid area.
+        const string both = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" width="12" height="12">
+              <rect x="2" y="2" width="8" height="8" fill="#00ff00" stroke="#000000" stroke-width="2" />
+            </svg>
+            """;
+
+        var (_, viewer) = await Host(both);
+
+        Assert.True(viewer.Elements.TrySelect("0"));
+        Dispatcher.UIThread.RunJobs();
+
+        var ring = viewer.Canvas.Highlight!;
+
+        AssertRect(new SKRect(1f, 1f, 11f, 11f), ring.TightBounds);
+        Assert.True(ring.Contains(6f, 6f), "the ring is the two edges of the stroke, not the outside");
     }
 
     [AvaloniaFact]
