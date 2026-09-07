@@ -648,6 +648,9 @@ public class SvgViewerCanvas : SKCanvasControl
     /// <summary>How long the ring's colour sweeps for after it appears.</summary>
     private const double PulseSeconds = 1.8d;
 
+    /// <summary>How wide the ring is drawn, in screen pixels.</summary>
+    private const float RingWidth = 3.5f;
+
     /// <summary>What the ring settles to, and what the sweep lifts it towards.</summary>
     private static readonly SKColor s_ringSettled = new(0xFF, 0x7A, 0x00);
     private static readonly SKColor s_ringLit = new(0xFF, 0xC8, 0x6E);
@@ -679,7 +682,9 @@ public class SvgViewerCanvas : SKCanvasControl
             IsAntialias = true,
             Style = SKPaintStyle.Stroke,
             Color = Between(s_ringSettled, s_ringLit, sweep),
-            StrokeWidth = 2f * (float)(1d / scale),
+            // In screen pixels whatever the zoom, so the ring reads the same on an icon filling the
+            // window and on one at actual size.
+            StrokeWidth = RingWidth * (float)(1d / scale),
             StrokeJoin = SKStrokeJoin.Round,
             StrokeCap = SKStrokeCap.Round
         };
