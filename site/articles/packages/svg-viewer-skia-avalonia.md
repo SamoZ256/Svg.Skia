@@ -239,7 +239,8 @@ memory rather than a layout limit — while `SourceText` itself is always whole.
 Under the parameters, in the same column, split by a splitter of its own. It lists **every** element
 of the open drawing — `<defs>` and its contents, the `<e:code>` block, a `<title>` — because what is
 in a file is the question it answers, and half of that never reaches the canvas. On by default;
-`ShowElementTree = false` gives the height back.
+`ShowElementTree = false` gives the height back and stops the work — a hidden tree holds nothing,
+because it is rebuilt every time typing pauses and that is 27ms at 4,000 elements.
 
 Picking a row does two things: it rings the element on the drawing, and it opens the source pane with
 the element's start tag selected. Clicking the drawing does the reverse and selects the row. A drag

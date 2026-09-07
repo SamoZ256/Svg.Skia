@@ -530,6 +530,31 @@ public class SvgViewerElementTreeTests
     }
 
     [AvaloniaFact]
+    public async Task A_Hidden_Tree_Holds_Nothing_And_Fills_Again_When_Shown()
+    {
+        // What makes turning it off worth anything: the tree is rebuilt every time typing pauses,
+        // and a host that hid the pane should not be paying for it.
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.ShowElementTree = false;
+
+        Assert.Null(viewer.Elements.Root);
+        Assert.Empty(viewer.Canvas.Highlight);
+
+        Assert.True(viewer.Rebuild());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(viewer.Elements.Root);
+
+        viewer.ShowElementTree = true;
+
+        Assert.Equal(new[] { "svg", "defs", "code", "param", "g #wrap", "rect", "text" }, Rows(viewer));
+    }
+
+    [AvaloniaFact]
     public async Task The_Tree_Is_Shown_Unless_A_Host_Says_Otherwise()
     {
         var (_, viewer) = await Host();
