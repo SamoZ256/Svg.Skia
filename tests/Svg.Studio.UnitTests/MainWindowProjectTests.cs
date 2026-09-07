@@ -512,9 +512,18 @@ public class MainWindowProjectTests : IDisposable
         """;
 
     /// <summary>Where in the control a point of the arrangement is, checked by mapping it back.</summary>
+    /// <remarks>
+    /// The arrangement does not have to start at the origin — a spread whose first drawing is
+    /// narrower than its caption begins part way in — so where it does start is asked for rather
+    /// than assumed: the control's own origin maps to it.
+    /// </remarks>
     private static Point Over(SvgViewerCanvas canvas, float x, float y)
     {
-        var at = new Point(x * canvas.Scale + canvas.OffsetX, y * canvas.Scale + canvas.OffsetY);
+        Assert.True(canvas.TryGetDrawingPoint(new Point(canvas.OffsetX, canvas.OffsetY), out var origin));
+
+        var at = new Point(
+            (x - origin.X) * canvas.Scale + canvas.OffsetX,
+            (y - origin.Y) * canvas.Scale + canvas.OffsetY);
 
         Assert.True(canvas.TryGetDrawingPoint(at, out var back));
         Assert.Equal(x, back.X, 3);
@@ -619,6 +628,63 @@ public class MainWindowProjectTests : IDisposable
         // On the drawing that was clicked, and not on the one beside it.
         Assert.True(second.Contains(ring!.Bounds), $"{ring.Bounds} is not inside {second}");
         Assert.False(Area(placements[0]).IntersectsWith(ring.Bounds), "the ring landed on the other drawing too");
+    }
+
+    /// <summary>A group that builds the one file twice, which is what a project usually does.</summary>
+    private const string Twice = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+          <group namespace="Demo.Icons.Large" scale="2">
+            <svg input="badge.svg" class="BadgeLarge" />
+            <group class="BadgeHuge">
+              <svg input="badge.svg" scale="4" />
+            </group>
+          </group>
+        </svgc>
+        """;
+
+    [AvaloniaFact]
+    public async Task Each_Build_Of_The_Same_File_Can_Be_Picked_In_Turn()
+    {
+        // Reported against Demo.Icons.Large: nothing in BadgeLarge could be picked once anything in
+        // BadgeHuge had been. Both are built from badge.svg, so their elements carry the same
+        // addresses, and asking a tree keyed by address for a row it already has selected is
+        // indistinguishable from asking it for nothing.
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Twice));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        var canvas = Canvas(panel);
+        var placements = Drawn(panel);
+
+        Assert.Equal(2, placements.Count);
+
+        // Back and forth, because the failure only showed on the second of any two.
+        for (var round = 0; round < 2; round++)
+        {
+            foreach (var placed in placements)
+            {
+                var area = Area(placed);
+
+                Click(window, canvas, Over(canvas, area.MidX, area.MidY));
+
+                Assert.NotNull(canvas.Highlight);
+                Assert.True(
+                    area.Contains(canvas.Highlight!.Bounds),
+                    $"round {round}: the ring is at {canvas.Highlight.Bounds}, not on the drawing at {area}");
+            }
+        }
     }
 
     private static SvgViewerElementTree Elements(GroupPanel panel)

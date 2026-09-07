@@ -457,8 +457,13 @@ public sealed class GroupPanel : UserControl
 
         Inspect(_shown[index], placement, svg);
 
-        // Selecting the row rings it, so there is one path to the ring however it was asked for.
         _tree.TrySelect(SvgElementAddress.Create(element).Key);
+
+        // Rung here rather than left to the row being selected. A group usually builds one file
+        // several ways, so its drawings give their elements the same addresses; picking a shape in
+        // one and the same shape in another asks the tree for a row it already has selected, it
+        // raises nothing, and the ring stays on the drawing picked first.
+        Ring(placement, svg, element);
     }
 
     /// <summary>Puts <paramref name="svg"/> in the tree, if it is not the one already there.</summary>
