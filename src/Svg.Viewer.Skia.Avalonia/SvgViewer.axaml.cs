@@ -83,6 +83,13 @@ public partial class SvgViewer : UserControl
     /// <summary>Whether the drawing has been analysed, which is not the same as being shown.</summary>
     private bool _sourceAnalysed;
 
+    /// <summary>Where each element is written, for the text the pane is holding.</summary>
+    private IReadOnlyDictionary<string, SvgSourceElement> _sourceElements =
+        new Dictionary<string, SvgSourceElement>(StringComparer.Ordinal);
+
+    /// <summary>Whether that has been worked out, which costs a second read of the whole file.</summary>
+    private bool _sourceMapped;
+
     /// <summary>Whether the pane is showing less than the whole drawing, which it may not edit.</summary>
     private bool _sourceTruncated;
 
@@ -158,6 +165,13 @@ public partial class SvgViewer : UserControl
 
         _elementsButton.IsChecked = true;
         _elementsButton.IsCheckedChanged += (_, _) => ShowElementTree = _elementsButton.IsChecked == true;
+
+        _elementTree.Selected += (_, node) =>
+        {
+            RevealInSource(node);
+
+            ElementSelected?.Invoke(this, node?.Element);
+        };
 
         _boundsButton.IsChecked = ShowBounds;
         _boundsButton.IsCheckedChanged += (_, _) => ShowBounds = _boundsButton.IsChecked == true;
@@ -446,6 +460,49 @@ public partial class SvgViewer : UserControl
 
     /// <summary>The tree of the open drawing's elements.</summary>
     public SvgViewerElementTree Elements => _elementTree;
+
+    /// <summary>The element picked in the tree, or null when none is.</summary>
+    public SvgElement? SelectedElement => _elementTree.SelectedNode?.Element;
+
+    /// <summary>Raised when the picked element changes, with null when the pick is dropped.</summary>
+    public event EventHandler<SvgElement?>? ElementSelected;
+
+    /// <summary>
+    /// Shows where <paramref name="node"/> is written, opening the source pane to do it.
+    /// </summary>
+    /// <remarks>
+    /// The name is checked before the caret moves. The text and the document are read separately and
+    /// nothing correlates them, so the one failure worth engineering against is scrolling somebody
+    /// confidently to the wrong line; not moving at all is a fine second best. It is also what
+    /// happens for a drawing too large for the pane to hold, which is shown cut and will not parse.
+    /// </remarks>
+    /// <returns>Whether the element could be placed in the text.</returns>
+    public bool RevealInSource(SvgViewerElementNode? node)
+    {
+        if (node is null || _document is null)
+        {
+            return false;
+        }
+
+        ShowSource = true;
+        EnsureSourceBuffer();
+
+        if (!SourceElements().TryGetValue(node.AddressKey, out var placed)
+            || !string.Equals(placed.Name, node.Label, StringComparison.Ordinal)
+            || _sourceEditor.Document is not { } text
+            || placed.Start + placed.Length > text.TextLength)
+        {
+            return false;
+        }
+
+        _sourceEditor.Select(placed.Start, placed.Length);
+
+        var at = text.GetLocation(placed.Start);
+
+        _sourceEditor.ScrollTo(at.Line, at.Column);
+
+        return true;
+    }
 
     /// <summary>
     /// Whether the drawing's text is shown under it.
@@ -943,7 +1000,9 @@ public partial class SvgViewer : UserControl
         _sourceStale = true;
         _sourceBuffered = false;
         _sourceAnalysed = false;
+        _sourceMapped = false;
         _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
+        _sourceElements = new Dictionary<string, SvgSourceElement>(StringComparer.Ordinal);
 
         _rebuild.Stop();
     }
@@ -987,6 +1046,26 @@ public partial class SvgViewer : UserControl
         _sourceDiagnostics = SvgSourceDiagnostics.Analyse(PaneSource());
 
         return _sourceDiagnostics;
+    }
+
+    /// <summary>
+    /// Where each element of the drawing is written, worked out at most once per edit.
+    /// </summary>
+    /// <remarks>
+    /// A second read of the whole file, so it is put off until somebody asks to be shown an
+    /// element. A reader who never picks a row never pays for it.
+    /// </remarks>
+    private IReadOnlyDictionary<string, SvgSourceElement> SourceElements()
+    {
+        if (_sourceMapped)
+        {
+            return _sourceElements;
+        }
+
+        _sourceMapped = true;
+        _sourceElements = SvgSourceElements.Map(PaneSource());
+
+        return _sourceElements;
     }
 
     /// <summary>
@@ -1075,6 +1154,7 @@ public partial class SvgViewer : UserControl
         }
 
         _sourceAnalysed = false;
+        _sourceMapped = false;
 
         // Posted rather than called: AvaloniaEdit raises TextChanged before its undo stack has
         // taken the edit, so IsOriginalFile is still true at this point and the drawing reads as

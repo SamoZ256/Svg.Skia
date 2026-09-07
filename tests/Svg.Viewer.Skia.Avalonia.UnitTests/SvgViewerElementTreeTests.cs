@@ -213,6 +213,88 @@ public class SvgViewerElementTreeTests
         Assert.Equal("rect", viewer.Elements.SelectedNode!.Label);
     }
 
+    // ---- showing the element in the text -------------------------------------------------------
+
+    [AvaloniaFact]
+    public async Task Selecting_A_Row_Opens_The_Source_And_Selects_Its_Start_Tag()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.False(viewer.ShowSource);
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.ShowSource);
+        Assert.Equal(
+            """<rect x="0" y="0" width="24" height="24" fill="{{ tint }}" />""",
+            Editor(viewer).SelectedText);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Root_Row_Selects_The_Svg_Tag()
+    {
+        // The root's address is the empty string, which is easy to write off as "no address".
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(""));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.StartsWith("<svg xmlns=", Editor(viewer).SelectedText);
+        Assert.EndsWith("""height="24">""", Editor(viewer).SelectedText);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Element_In_The_Declarations_Block_Is_Shown_Like_Any_Other()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect("0/0/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            """<e:param name="tint" type="color" default="#ff0000" />""",
+            Editor(viewer).SelectedText);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Row_That_Cannot_Be_Placed_Moves_Nothing()
+    {
+        // Half-typed markup does not parse, so the drawing and its tree are the last ones that did
+        // while the text is something else entirely. Scrolling somebody confidently to the wrong
+        // line is the failure worth engineering against; not moving is the second best.
+        var (_, viewer) = await Host();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Editor(viewer).Text = "<svg><rect";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(viewer.RevealInSource(viewer.Elements.Root!.Children[1]));
+        Assert.Equal(string.Empty, Editor(viewer).SelectedText);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Rebuild_Does_Not_Move_The_Source_View()
+    {
+        // Restoring the selection is not the reader picking something. A rebuild happens on every
+        // keystroke, and one that scrolled the pane would fight whoever was typing in it.
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect("1/1"));
+        Dispatcher.UIThread.RunJobs();
+
+        Editor(viewer).CaretOffset = 0;
+        Editor(viewer).SelectionLength = 0;
+
+        Assert.True(viewer.Rebuild());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(string.Empty, Editor(viewer).SelectedText);
+        Assert.Equal("text", viewer.Elements.SelectedNode!.Label);
+    }
+
     [AvaloniaFact]
     public async Task Closing_The_Viewer_Empties_The_Tree()
     {
