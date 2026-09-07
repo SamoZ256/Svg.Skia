@@ -80,6 +80,8 @@
                       ToolTip.Tip="Outline the drawing's own edges" />
         <ToggleButton x:Name="SourceButton" Content="Source"
                       ToolTip.Tip="Show the drawing's text" />
+        <ToggleButton x:Name="ElementsButton" Content="Elements"
+                      ToolTip.Tip="Show what the drawing is made of" />
       </StackPanel>
     </Border>
 
@@ -97,23 +99,32 @@
       </Grid>
     </Border>
 
-    <Grid x:Name="Body" RowDefinitions="*,6,220">
+    <!--
+      The columns are the outer split, so the source pane belongs to the drawing's column and the
+      side panes keep the whole window height. The other way round — one row of columns above a
+      full-width source pane — took the text's height out of the parameters and the element tree as
+      well as out of the canvas, which is a strange price to pay for reading the file.
 
-      <Grid x:Name="Drawing" Grid.Row="0">
+      The width is on the column, not on the border in it. With Auto plus a Width="300" child, the
+      splitter moved the column and the panel stayed 300 wide — so dragging it did nothing. Both
+      ends have a minimum, because a splitter that can be dragged until one side vanishes gives no
+      way back.
+    -->
+    <Grid x:Name="Body">
 
-        <!--
-          The width is on the column, not on the border in it. With Auto plus a Width="300" child,
-          the splitter moved the column and the panel stayed 300 wide — so dragging it did nothing.
-          Both ends have a minimum, because a splitter that can be dragged until one side vanishes
-          gives no way back.
-        -->
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*" MinWidth="160" />
-          <ColumnDefinition Width="6" />
-          <ColumnDefinition Width="340" MinWidth="260" />
-        </Grid.ColumnDefinitions>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MinWidth="160" />
+        <ColumnDefinition Width="6" />
+        <ColumnDefinition Width="340" MinWidth="260" />
+      </Grid.ColumnDefinitions>
 
-        <Grid Grid.Column="0">
+      <!--
+        The drawing and its text. They are stacked rather than side by side because SVG lines are
+        long and the column beside them is a few hundred pixels at most.
+      -->
+      <Grid x:Name="Drawing" Grid.Column="0" RowDefinitions="*,6,220">
+
+        <Grid Grid.Row="0">
 
           <viewer:SvgViewerCanvas x:Name="PART_Canvas" />
 
@@ -146,30 +157,11 @@
 
         </Grid>
 
-        <GridSplitter x:Name="Splitter" Grid.Column="1"
-                      ResizeDirection="Columns" Background="Transparent" />
+        <GridSplitter x:Name="SourceSplitter" Grid.Row="1"
+                      ResizeDirection="Rows" Background="Transparent" />
 
-        <Border x:Name="DeclarationPanelHost" Grid.Column="2"
-                BorderThickness="1,0,0,0" BorderBrush="#20808080">
-          <viewer:SvgViewerDeclarationPanel x:Name="PART_Declarations" />
-        </Border>
-
-      </Grid>
-
-      <!--
-        The text sits under the drawing rather than beside it because SVG lines are long, and the
-        column to the right is the declarations' and a few hundred pixels at most.
-      -->
-      <GridSplitter x:Name="SourceSplitter" Grid.Row="1"
-                    ResizeDirection="Rows" Background="Transparent" />
-
-      <Border x:Name="SourcePanelHost" Grid.Row="2"
-              BorderThickness="0,1,0,0" BorderBrush="#20808080">
-        <!--
-          One document rather than a control per line, which is what lets a selection cross one.
-          The editor virtualises by itself and colours only the lines on screen, so there is no size
-          at which this gives up. Read-only for now; editing is the reason it is an editor.
-        -->
+        <Border x:Name="SourcePanelHost" Grid.Row="2"
+                BorderThickness="0,1,0,0" BorderBrush="#20808080">
         <edit:TextEditor x:Name="SourceEditor"
                          IsReadOnly="True"
                          ShowLineNumbers="True"
@@ -179,6 +171,40 @@
                          Padding="8,6"
                          HorizontalScrollBarVisibility="Auto"
                          VerticalScrollBarVisibility="Auto" />
+        </Border>
+
+      </Grid>
+
+      <GridSplitter x:Name="Splitter" Grid.Column="1"
+                    ResizeDirection="Columns" Background="Transparent" />
+
+      <!--
+        The divider is on the strip rather than on each pane in it, or the splitter between them
+        leaves a six pixel hole in a line that now runs the whole height of the window.
+      -->
+      <Border Grid.Column="2" BorderThickness="1,0,0,0" BorderBrush="#20808080">
+
+        <!--
+          Two rows in the one column rather than a third tab beside the parameters, because the two
+          are read together: the tree says which element a row of the drawing is, and the panel says
+          what it is painted with. Behind a tab, each hides the other.
+        -->
+        <Grid x:Name="Side" RowDefinitions="*,6,200">
+
+          <Border x:Name="DeclarationPanelHost" Grid.Row="0">
+            <viewer:SvgViewerDeclarationPanel x:Name="PART_Declarations" />
+          </Border>
+
+          <GridSplitter x:Name="TreeSplitter" Grid.Row="1"
+                        ResizeDirection="Rows" Background="Transparent" />
+
+          <Border x:Name="ElementTreeHost" Grid.Row="2"
+                  BorderThickness="0,1,0,0" BorderBrush="#20808080">
+            <viewer:SvgViewerElementTree x:Name="PART_Elements" />
+          </Border>
+
+        </Grid>
+
       </Border>
 
     </Grid>

@@ -1984,8 +1984,38 @@ public class SvgViewerTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public async Task Showing_The_Text_Costs_The_Drawing_Height_And_The_Side_Panes_None()
+    {
+        // The columns are the outer split for this reason. With one row of columns above a
+        // full-width source pane, reading the file took height from the parameters and the element
+        // tree as well as from the canvas, which is a strange price to pay for reading it.
+        var (window, viewer) = await HostLoaded();
+
+        window.Measure(new Size(700, 500));
+        window.Arrange(new Rect(0, 0, 700, 500));
+        Dispatcher.UIThread.RunJobs();
+
+        var side = viewer.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "Side");
+        var canvas = viewer.Canvas;
+
+        var sideWas = side.Bounds.Height;
+        var canvasWas = canvas.Bounds.Height;
+
+        viewer.ShowSource = true;
+
+        window.Measure(new Size(700, 500));
+        window.Arrange(new Rect(0, 0, 700, 500));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(sideWas, side.Bounds.Height);
+        Assert.True(canvas.Bounds.Height < canvasWas, $"{canvas.Bounds.Height} is not less than {canvasWas}");
+
+        window.Close();
+    }
+
     private static ColumnDefinition Column(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "Drawing").ColumnDefinitions[2];
+        => viewer.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "Body").ColumnDefinitions[2];
 
     private sealed class StubFileDialogService : ISvgViewerFileDialogService
     {

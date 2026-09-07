@@ -1,0 +1,50 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia"
+             x:Class="Svg.Viewer.Skia.Avalonia.SvgViewerElementTree">
+
+  <DockPanel>
+
+    <TextBlock Classes="section" DockPanel.Dock="Top" Margin="10,8,10,4"
+               FontWeight="SemiBold" Opacity="0.7" FontSize="11" Text="Elements" />
+
+    <TextBox x:Name="FilterBox" DockPanel.Dock="Top" Margin="10,0,10,6"
+             FontSize="12" Padding="4,2" MinHeight="0"
+             PlaceholderText="Filter"
+             ToolTip.Tip="Keeps the rows whose name or id contains this, and everything above them." />
+
+    <!-- Only there when there is nothing to show: no drawing, or nothing the filter keeps. -->
+    <TextBlock x:Name="EmptyLabel" DockPanel.Dock="Top" Margin="10,0,10,8"
+               Opacity="0.6" TextWrapping="Wrap" IsVisible="False"
+               Text="No drawing is open." />
+
+    <TreeView x:Name="Tree" Background="Transparent" BorderThickness="0" Padding="2,0,2,8">
+
+      <TreeView.Styles>
+        <!--
+          Bound to the row rather than set on the container. The rows are thrown away and built
+          again on every keystroke, and reading the containers back to find out what was open — the
+          way the editor's outline does — walks the whole tree twice per edit.
+        -->
+        <Style Selector="TreeViewItem">
+          <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+        </Style>
+      </TreeView.Styles>
+
+      <TreeView.ItemTemplate>
+        <TreeDataTemplate DataType="viewer:SvgViewerElementNode" ItemsSource="{Binding Children}">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="{Binding Label}" FontFamily="monospace" FontSize="12"
+                       VerticalAlignment="Center" />
+            <TextBlock Text="{Binding Id}" IsVisible="{Binding HasId}"
+                       FontFamily="monospace" FontSize="11" Opacity="0.55"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+          </StackPanel>
+        </TreeDataTemplate>
+      </TreeView.ItemTemplate>
+
+    </TreeView>
+
+  </DockPanel>
+
+</UserControl>

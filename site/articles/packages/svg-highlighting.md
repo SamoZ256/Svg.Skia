@@ -32,6 +32,8 @@ dotnet add package Svg.Highlighting
 | `SvgSourceLine` | One line's tokens, its number and range, and the rest of it past a limit |
 | `SvgSourceDiagnostics` | `Analyse` — what is wrong with the expressions and the attribute values in a document |
 | `SvgSourceDiagnostic` | A range, a severity and a message, in the same coordinates as a token |
+| `SvgSourceElements` | `Map` — where every element of a document is written, by address |
+| `SvgSourceElement` | An element's name and the range its start tag occupies |
 
 ## Colouring a document
 
@@ -216,6 +218,24 @@ document deliberately never does.
 Splitting is context-free and analysing is not, which is why they are separate calls: colouring a
 placeholder needs only the span, checking it needs the whole file. Splitting a 132KB drawing twice —
 once for lines, once for analysis — costs about 12ms.
+
+## Placing an element in the text
+
+An `SvgElement` holds no source position — the parser never asks the reader for one — so a host holding a parsed document has nothing to go on when it wants to show an element in the file. `SvgSourceElements.Map` reads the text a second time and answers that, giving each element's start tag as a range:
+
+```csharp
+var map = SvgSourceElements.Map(svgText);
+
+if (map.TryGetValue(SvgElementAddress.Create(element).Key, out var placed)
+    && placed.Name == SvgElementNames.NameOf(element))
+{
+    editor.Select(placed.Start, placed.Length);
+}
+```
+
+The key is the child-index path `SvgElementAddress` spells, and that works because it is the one name both sides can produce without knowing about each other: this side counts `XElement`s, the other counts `SvgElement.Children`, and neither counts a comment or a run of text. It is also the key that survives a document being rebuilt from edited text, where every element is a new object.
+
+**Check the name before you move the caret.** The two readings are not correlated by anything, so `Name` is carried alongside the range for exactly this: a disagreement should become nothing happening, never a confident jump to the wrong line. A document that will not parse maps nothing at all, which is what a drawing looks like for most of the time somebody is typing one.
 
 ## It describes rather than validates
 

@@ -231,34 +231,7 @@ public sealed class SvgJavaScriptDocument
         }
     }
 
-    internal static string GetElementName(SvgElement element)
-    {
-        if (element is SvgDocument)
-        {
-            return "svg";
-        }
-
-        if (element is NonSvgElement nonSvgElement)
-        {
-            return nonSvgElement.Name;
-        }
-
-        if (element is SvgUnknownElement && element.CustomAttributes.TryGetValue("tagName", out var tagName))
-        {
-            return tagName;
-        }
-
-        if (!string.IsNullOrEmpty(element.ElementName))
-        {
-            return element.ElementName;
-        }
-
-        return element switch
-        {
-            _ when SvgElements.ElementNames.TryGetValue(element.GetType(), out var elementName) => elementName,
-            _ => element.GetType().Name
-        };
-    }
+    internal static string GetElementName(SvgElement element) => SvgElementNames.NameOf(element);
 
     internal static string GetElementNamespace(SvgElement element)
     {

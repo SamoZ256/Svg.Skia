@@ -6,7 +6,16 @@ using System.Text;
 
 namespace Svg;
 
-internal sealed class SvgElementAddress
+/// <summary>
+/// Where an element sits in its document, as the child indexes leading down to it.
+/// </summary>
+/// <remarks>
+/// The identity that survives a rebuild. A host that reloads a drawing from edited text gets a new
+/// <see cref="SvgDocument"/> and new elements every time, so a reference taken a keystroke ago names
+/// nothing; this names the same place in whatever document is current. It is also what
+/// <c>SvgSceneNode.ElementAddressKey</c> spells, so a scene node and an element agree on it.
+/// </remarks>
+public sealed class SvgElementAddress
 {
     public SvgElementAddress(int[] childIndexes)
     {
