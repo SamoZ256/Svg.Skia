@@ -168,6 +168,7 @@ public partial class SvgViewer : UserControl
 
         _elementTree.Selected += (_, node) =>
         {
+            OutlineElement(node);
             RevealInSource(node);
 
             ElementSelected?.Invoke(this, node?.Element);
@@ -466,6 +467,45 @@ public partial class SvgViewer : UserControl
 
     /// <summary>Raised when the picked element changes, with null when the pick is dropped.</summary>
     public event EventHandler<SvgElement?>? ElementSelected;
+
+    /// <summary>
+    /// Rings <paramref name="node"/> on the drawing, or clears the ring when there is nothing to ring.
+    /// </summary>
+    /// <remarks>
+    /// Every scene node the element has, not the first: one reached through <c>&lt;use&gt;</c> is
+    /// drawn once per use, and ringing one of them points at a copy nobody picked.
+    ///
+    /// Anything that never reaches the drawing — everything under <c>&lt;defs&gt;</c>, the
+    /// <c>&lt;e:code&gt;</c> block, a <c>&lt;title&gt;</c> — rings nothing while its row still
+    /// selects and is still shown in the text.
+    ///
+    /// Usually free: the scene graph a load compiled is the one this reads, so nothing is built for
+    /// it. Only after something has thrown that away — binding a value, which rewrites the recorded
+    /// drawing rather than compiling one — does the next ring pay for a compile.
+    /// </remarks>
+    private void OutlineElement(SvgViewerElementNode? node)
+    {
+        if (node is null
+            || _document is not { } open
+            || !open.Svg.TryGetRetainedSceneNodes(node.Element, out var scene))
+        {
+            _canvas.Highlight = Array.Empty<SkiaSharp.SKRect>();
+
+            return;
+        }
+
+        var rings = new List<SkiaSharp.SKRect>(scene.Count);
+
+        foreach (var placed in scene)
+        {
+            if (placed.TransformedBounds is { Width: > 0f, Height: > 0f } bounds)
+            {
+                rings.Add(open.Svg.SkiaModel.ToSKRect(bounds));
+            }
+        }
+
+        _canvas.Highlight = rings;
+    }
 
     /// <summary>
     /// Shows where <paramref name="node"/> is written, opening the source pane to do it.
@@ -992,7 +1032,17 @@ public partial class SvgViewer : UserControl
     }
 
     /// <summary>Shows what the open drawing is made of, or empties the pane when nothing is open.</summary>
-    private void UpdateElementTree() => _elementTree.Show(_document?.Svg.SourceDocument);
+    /// <remarks>
+    /// The ring is drawn again rather than left: a rebuild restores the selected row without raising
+    /// anything, and the rectangles it was ringing belong to the scene the last document compiled.
+    /// Keeping them would leave a ring where the shape used to be, which is worse than none.
+    /// </remarks>
+    private void UpdateElementTree()
+    {
+        _elementTree.Show(_document?.Svg.SourceDocument);
+
+        OutlineElement(_elementTree.SelectedNode);
+    }
 
     /// <summary>Drops what was known about the drawing that was open.</summary>
     private void ForgetSource()

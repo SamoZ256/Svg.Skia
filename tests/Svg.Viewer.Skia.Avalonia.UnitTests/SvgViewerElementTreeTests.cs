@@ -6,6 +6,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using AvaloniaEdit;
+using SkiaSharp;
 using Xunit;
 
 namespace Svg.Viewer.Skia.Avalonia.UnitTests;
@@ -211,6 +212,78 @@ public class SvgViewerElementTreeTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal("rect", viewer.Elements.SelectedNode!.Label);
+    }
+
+    // ---- ringing the element on the drawing ----------------------------------------------------
+
+    [AvaloniaFact]
+    public async Task Selecting_A_Shape_Rings_It_On_The_Drawing()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.Empty(viewer.Canvas.Highlight);
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        var ring = Assert.Single(viewer.Canvas.Highlight);
+
+        Assert.Equal(new SKRect(0f, 0f, 24f, 24f), ring);
+    }
+
+    [AvaloniaFact]
+    public async Task Selecting_Something_That_Is_Never_Drawn_Rings_Nothing()
+    {
+        // Everything under <defs>, the <e:code> block, a <title>. The row still selects and is
+        // still shown in the text; there is simply nothing on the canvas to point at.
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotEmpty(viewer.Canvas.Highlight);
+
+        Assert.True(viewer.Elements.TrySelect("0/0/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(viewer.Canvas.Highlight);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Used_Element_Is_Ringed_Wherever_It_Is_Drawn()
+    {
+        // Ringing the first scene node would point at a copy nobody picked.
+        const string used = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" width="40" height="20">
+              <defs><rect id="tile" width="10" height="10" /></defs>
+              <use href="#tile" x="0" y="0" />
+              <use href="#tile" x="20" y="0" />
+            </svg>
+            """;
+
+        var (_, viewer) = await Host(used);
+
+        // The <rect> inside <defs>, which is drawn twice and written once.
+        Assert.True(viewer.Elements.TrySelect("0/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(2, viewer.Canvas.Highlight.Count);
+        Assert.Contains(viewer.Canvas.Highlight, ring => ring.Left == 0f);
+        Assert.Contains(viewer.Canvas.Highlight, ring => ring.Left == 20f);
+    }
+
+    [AvaloniaFact]
+    public async Task Closing_The_Viewer_Clears_The_Ring()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(viewer.Canvas.Highlight);
     }
 
     // ---- showing the element in the text -------------------------------------------------------

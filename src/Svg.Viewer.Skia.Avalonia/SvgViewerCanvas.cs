@@ -45,17 +45,20 @@ public class SvgViewerCanvas : SKCanvasControl
     private bool _dragging;
     private Cursor? _restoreCursor;
     private bool _showBounds = true;
+    private IReadOnlyList<SKRect> _highlight = Array.Empty<SKRect>();
 
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
-    private volatile Snapshot _snapshot = new(Array.Empty<SvgViewerPlacement>(), 1d, 0d, 0d, true);
+    private volatile Snapshot _snapshot = new(
+        Array.Empty<SvgViewerPlacement>(), 1d, 0d, 0d, true, Array.Empty<SKRect>());
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
         double Scale,
         double OffsetX,
         double OffsetY,
-        bool Bounds);
+        bool Bounds,
+        IReadOnlyList<SKRect> Highlight);
 
     public SvgViewerCanvas()
     {
@@ -91,6 +94,28 @@ public class SvgViewerCanvas : SKCanvasControl
     /// an export writes and what a project's sizing moves. On by default for that reason; a host
     /// wanting the drawing on its own turns it off.
     /// </remarks>
+    /// <summary>
+    /// Rectangles to ring on the drawing, in the drawing's own coordinates.
+    /// </summary>
+    /// <remarks>
+    /// A list rather than one, because an element reached through <c>&lt;use&gt;</c> is drawn once
+    /// per use and ringing only the first would point at a copy nobody picked.
+    ///
+    /// Drawn inside each placement's transform. A canvas showing several drawings at once — the
+    /// preview of everything a project group builds — would ring the same rectangle on each of
+    /// them, which is why only the viewer sets this.
+    /// </remarks>
+    public IReadOnlyList<SKRect> Highlight
+    {
+        get => _highlight;
+        set
+        {
+            _highlight = value ?? Array.Empty<SKRect>();
+
+            Publish();
+        }
+    }
+
     public bool ShowBounds
     {
         get => _showBounds;
@@ -334,7 +359,7 @@ public class SvgViewerCanvas : SKCanvasControl
     /// <summary>Hands the render thread a new frame's worth of state.</summary>
     internal void Publish()
     {
-        _snapshot = new Snapshot(_placed, _scale, _offsetX, _offsetY, _showBounds);
+        _snapshot = new Snapshot(_placed, _scale, _offsetX, _offsetY, _showBounds, _highlight);
         InvalidateVisual();
     }
 
@@ -486,11 +511,16 @@ public class SvgViewerCanvas : SKCanvasControl
             // underneath it by a value being bound on the UI thread.
             placed.Svg.Draw(canvas);
 
+            foreach (var ringed in state.Highlight)
+            {
+                Outline(canvas, ringed, state.Scale, SKColors.DodgerBlue);
+            }
+
             if (Frame(placed) is { } frame)
             {
                 if (state.Bounds)
                 {
-                    Outline(canvas, frame, state.Scale);
+                    Outline(canvas, frame, state.Scale, SKColors.Gray);
                 }
 
                 if (placed is { Label: { Length: > 0 } label, LabelSize: > 0f })
@@ -525,7 +555,7 @@ public class SvgViewerCanvas : SKCanvasControl
     /// Every length is divided by the scale because the canvas is scaled around it, which is what
     /// keeps the line one pixel wide and the dashes one length at every zoom.
     /// </remarks>
-    private static void Outline(SKCanvas canvas, SKRect frame, double scale)
+    private static void Outline(SKCanvas canvas, SKRect frame, double scale, SKColor colour)
     {
         var hairline = (float)(1d / scale);
 
@@ -533,7 +563,7 @@ public class SvgViewerCanvas : SKCanvasControl
         {
             IsAntialias = true,
             Style = SKPaintStyle.Stroke,
-            Color = SKColors.Gray,
+            Color = colour,
             StrokeWidth = hairline,
             PathEffect = SKPathEffect.CreateDash(new[] { 4f * hairline, 4f * hairline }, 0f)
         };
