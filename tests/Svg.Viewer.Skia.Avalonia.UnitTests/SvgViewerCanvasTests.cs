@@ -139,6 +139,78 @@ public class SvgViewerCanvasTests
         window.Close();
     }
 
+    /// <summary>What the frame is painted at one point of the control.</summary>
+    private static SKColor Painted(Window window, int x, int y)
+    {
+        var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("No rendered frame was captured.");
+
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-at-{Guid.NewGuid():N}.png");
+        frame.Save(path);
+
+        try
+        {
+            using var bitmap = SKBitmap.Decode(path);
+
+            return bitmap!.GetPixel(x, y);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// An arrangement that does not begin at the origin is drawn where everything else says it is.
+    /// </summary>
+    /// <remarks>
+    /// The fit centres the arrangement's <em>size</em> and the offset is where its top left goes, so
+    /// the drawings have to be moved to start there. They were not, while
+    /// <see cref="SvgViewerCanvas.TryGetDrawingPoint"/> mapped back as though they had been — so a
+    /// pointer and a picture disagreed by however far from the origin the arrangement was laid out.
+    /// A single drawing sits at the origin and never noticed; a project group centres each drawing
+    /// in a column as wide as its caption, and the first of them can start hundreds of units in.
+    /// </remarks>
+    [AvaloniaFact]
+    public void An_Arrangement_Away_From_The_Origin_Is_Drawn_Where_It_Is_Mapped()
+    {
+        using var first = SvgViewerDocument.LoadFromSvg(Blue);
+        using var second = SvgViewerDocument.LoadFromSvg(Blue);
+
+        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        // Nothing is placed at the origin: the union runs from 50 to 300 across.
+        canvas.Show(new[]
+        {
+            new SvgViewerPlacement(first.Svg, new SKPoint(50f, 0f)),
+            new SvgViewerPlacement(second.Svg, new SKPoint(200f, 0f))
+        });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // 250x50 in 400x200: the fit is bounded by width at 1.6, and the height is centred.
+        Assert.Equal(1.6d, canvas.Scale, 6);
+
+        // Well inside the first drawing: the arrangement starts at 50, so the control's own left
+        // edge is arranged 50, and 20 across is arranged 62.5 — a fifth of the way into it.
+        Assert.True(canvas.TryGetPlacementAt(new Point(20, 100), out var placement, out var drawingPoint));
+
+        Assert.Same(canvas.Placements[0], placement);
+        Assert.Equal(12.5f, drawingPoint.X, 3);
+        Assert.Equal(25f, drawingPoint.Y, 3);
+
+        // And that is where the ink is. Mapping and painting have to agree, or a click lands on
+        // whatever the difference between them happens to point at. Drawn without the arrangement's
+        // origin taken off, this column is 80 pixels left of anything painted at all.
+        var painted = Painted(window, 20, 100);
+
+        Assert.True(painted.Blue > 200 && painted.Red < 100, $"{painted} is not the drawing's blue");
+    }
+
     /// <summary>A drawing that is not orange, so the ring cannot be confused with its ink.</summary>
     private const string Blue = """
         <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50">

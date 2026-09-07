@@ -47,6 +47,7 @@ public class SvgViewerCanvas : SKCanvasControl
     private bool _dragging;
     private Cursor? _restoreCursor;
     private bool _showBounds = true;
+    private SKPoint _origin;
     private SKPath? _highlight;
 
     /// <summary>How long the ring has been up, which is what the pulse is a function of.</summary>
@@ -68,7 +69,7 @@ public class SvgViewerCanvas : SKCanvasControl
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
-        Array.Empty<SvgViewerPlacement>(), 1d, 0d, 0d, true, null, 0d);
+        Array.Empty<SvgViewerPlacement>(), 1d, 0d, 0d, true, null, 0d, default);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -77,7 +78,8 @@ public class SvgViewerCanvas : SKCanvasControl
         double OffsetY,
         bool Bounds,
         SKPath? Highlight,
-        double HighlightAge);
+        double HighlightAge,
+        SKPoint Origin);
 
     public SvgViewerCanvas()
     {
@@ -231,6 +233,12 @@ public class SvgViewerCanvas : SKCanvasControl
     private void Place(IReadOnlyList<SvgViewerPlacement> placed)
     {
         _placed = placed;
+
+        // Where the arrangement begins, which is not always the origin: a host laying drawings out
+        // centres each in a column as wide as its caption, so the first of them can start well to
+        // the right of nothing. Held rather than recomputed, since it changes only with the
+        // placements while the view changes with every scroll of a wheel.
+        _origin = TryGetCullRect(out var bounds) ? new SKPoint(bounds.Left, bounds.Top) : default;
 
         // Published because the drawing changed, whatever the view does about it. The fit below
         // publishes only when it moves the view, so a drawing swapped for one that fits exactly as
@@ -469,7 +477,8 @@ public class SvgViewerCanvas : SKCanvasControl
             _offsetY,
             _showBounds,
             _highlight,
-            _highlightAge.Elapsed.TotalSeconds);
+            _highlightAge.Elapsed.TotalSeconds,
+            _origin);
 
         InvalidateVisual();
     }
@@ -639,6 +648,13 @@ public class SvgViewerCanvas : SKCanvasControl
         canvas.Save();
         canvas.Translate((float)state.OffsetX, (float)state.OffsetY);
         canvas.Scale((float)state.Scale);
+
+        // The fit centres the arrangement's size and the offset is where its top left goes, so the
+        // arrangement has to be moved to start there. Without this the drawings are painted further
+        // right and further down than everything else believes them to be, by however far from the
+        // origin they were laid out — which is nothing at all for one drawing at the origin, and
+        // several hundred units for a group whose first drawing is narrower than its caption.
+        canvas.Translate(-state.Origin.X, -state.Origin.Y);
 
         // One font for the frame rather than one per label: the sizes differ, and setting the size
         // on a font costs nothing next to building one.
