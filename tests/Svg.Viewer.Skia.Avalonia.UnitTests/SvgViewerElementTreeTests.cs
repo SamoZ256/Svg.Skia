@@ -11,6 +11,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using AvaloniaEdit;
 using SkiaSharp;
+using Svg.Expressions;
 using Xunit;
 
 namespace Svg.Viewer.Skia.Avalonia.UnitTests;
@@ -379,6 +380,41 @@ public class SvgViewerElementTreeTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new SKRect(0f, 0f, 24f, 24f), viewer.Canvas.Highlight!.Bounds);
+    }
+
+    /// <summary>
+    /// The ring after a value moves the element it is already drawn around.
+    /// </summary>
+    /// <remarks>
+    /// Picking rings it and binding moves it, and those are two different events: the ring was
+    /// traced once, when the row was picked, and nothing retraced it when the drawing moved
+    /// underneath. Every other test here picks after the value is set and so could not see it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Ring_Follows_A_Bound_Transform_After_The_Element_Was_Picked()
+    {
+        const string driven = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 100 100" width="100" height="100">
+              <defs><e:code><e:param name="dx" type="number" default="0" min="0" max="100" step="1" /></e:code></defs>
+              <rect x="10" y="40" width="20" height="20" transform="translate({{ dx }}, 0)" fill="#ff0000" />
+            </svg>
+            """;
+
+        var (_, viewer) = await Host(driven);
+
+        Assert.True(viewer.Elements.TrySelect("1"));
+        Dispatcher.UIThread.RunJobs();
+
+        var picked = viewer.Canvas.Highlight!.Bounds;
+
+        Assert.True(viewer.TrySetParameterValue("dx", ExprValue.Number(30f)));
+        Dispatcher.UIThread.RunJobs();
+        await Task.Delay(400).ConfigureAwait(true);
+        Dispatcher.UIThread.RunJobs();
+
+        // The row clamps to the range the parameter declares, which is why it declares one.
+        Assert.Equal(picked.Left + 30f, viewer.Canvas.Highlight!.Bounds.Left, 3);
+        Assert.Equal(picked.Top, viewer.Canvas.Highlight!.Bounds.Top, 3);
     }
 
     [AvaloniaFact]
