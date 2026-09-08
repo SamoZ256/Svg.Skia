@@ -258,13 +258,13 @@ public class SvgViewerTests
         // Several of them, in the order they were given, and the parameters still last.
         var second = new TextBlock { Text = "and another" };
 
-        viewer.SidePanels = new[] { new SvgViewerPane("Project", mine), new SvgViewerPane("Colours", second) };
+        viewer.SidePanels = new[] { new SvgViewerPane("Project", mine), new SvgViewerPane("Replacements", second) };
         Dispatcher.UIThread.RunJobs();
 
         tabs = Assert.IsType<TabControl>(host.Child);
 
         Assert.Equal(
-            new[] { "Project", "Colours", "Parameters" },
+            new[] { "Project", "Replacements", "Parameters" },
             tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
         Assert.Same(second, ((TabItem)tabs.Items[1]!).Content);
 

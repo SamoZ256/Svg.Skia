@@ -9,13 +9,13 @@ namespace Svg.Expressions.Recipes;
 /// <summary>How many attributes one rule claimed.</summary>
 public sealed class SvgRecipeRuleMatch
 {
-    public SvgRecipeRuleMatch(SvgColorRule rule, int count)
+    public SvgRecipeRuleMatch(SvgReplaceRule rule, int count)
     {
         Rule = rule;
         Count = count;
     }
 
-    public SvgColorRule Rule { get; }
+    public SvgReplaceRule Rule { get; }
 
     public int Count { get; }
 }
@@ -23,7 +23,7 @@ public sealed class SvgRecipeRuleMatch
 /// <summary>
 /// The rewritten document, with a per-rule tally. A rule that matched nothing is reported
 /// rather than treated as an error: the same recipe is often applied to a family of drawings,
-/// not all of which use every colour.
+/// not all of which use every value.
 /// </summary>
 public sealed class SvgRecipeResult
 {
@@ -39,6 +39,6 @@ public sealed class SvgRecipeResult
 
     public int TotalReplacements => Matches.Sum(match => match.Count);
 
-    public IEnumerable<SvgColorRule> UnmatchedRules
+    public IEnumerable<SvgReplaceRule> UnmatchedRules
         => Matches.Where(match => match.Count == 0).Select(match => match.Rule);
 }

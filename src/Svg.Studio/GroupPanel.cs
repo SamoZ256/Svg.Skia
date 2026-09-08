@@ -98,10 +98,10 @@ public sealed class GroupPanel : UserControl
 
     private SvgViewerDeclarationCommands? _commands;
 
-    /// <summary>The Colours tab's content: a panel for the picked drawing, or a line saying why not.</summary>
-    private readonly ContentControl _coloursHost = new();
+    /// <summary>The Replacements tab's content: a panel for the picked drawing, or a line saying why not.</summary>
+    private readonly ContentControl _replacementsHost = new();
 
-    private readonly TextBlock _coloursNote = new()
+    private readonly TextBlock _replacementsNote = new()
     {
         Margin = new Thickness(10),
         Opacity = 0.6,
@@ -158,7 +158,7 @@ public sealed class GroupPanel : UserControl
             Bind();
 
             // The readouts beside each colour are what the values come to, so they follow.
-            (_coloursHost.Content as ColourPanel)?.Readouts();
+            (_replacementsHost.Content as ReplacementsPanel)?.Readouts();
         };
         _parameters.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
         _parameters.CommitRequested += (_, _) => _commands?.SetDefaults();
@@ -263,7 +263,7 @@ public sealed class GroupPanel : UserControl
         parameters.Children.Add(_parameters);
 
         tabs.Items.Add(new TabItem { Header = "Parameters", Content = parameters });
-        tabs.Items.Add(new TabItem { Header = "Colours", Content = _coloursHost });
+        tabs.Items.Add(new TabItem { Header = "Replacements", Content = _replacementsHost });
 
         side.Children.Add(tabs);
 
@@ -675,10 +675,10 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>
-    /// Shows what the picked drawing paints with, and what its recipe makes of each colour.
+    /// Shows what the picked drawing uses, and what its recipe makes of each value.
     /// </summary>
     /// <remarks>
-    /// Only under a recipe, which is the same rule a drawing's own tab follows — the colours are the
+    /// Only under a recipe, which is the same rule a drawing's own tab follows — the rows are the
     /// rules a recipe holds, and a drawing without one has none to show. That the target came back a
     /// <see cref="RecipeWorkspace"/> is exactly the question "is this drawing under a recipe", so it
     /// is not asked twice.
@@ -686,22 +686,22 @@ public sealed class GroupPanel : UserControl
     /// Rebuilt with the selection rather than kept: it is one drawing's survey, and the drawing has
     /// changed.
     /// </remarks>
-    private void ShowColours()
+    private void ShowReplacements()
     {
         if (_inspecting is not { } inspecting
             || inspecting.Built.Document is not { } document
             || _target is not RecipeWorkspace recipe)
         {
-            _coloursNote.Text = _inspecting is null
-                ? "Pick a drawing to see what it paints with."
-                : "This drawing is not built through a recipe, so there is nothing to recolour.";
+            _replacementsNote.Text = _inspecting is null
+                ? "Pick a drawing to see what it uses."
+                : "This drawing is not built through a recipe, so there is nothing to replace.";
 
-            _coloursHost.Content = _coloursNote;
+            _replacementsHost.Content = _replacementsNote;
 
             return;
         }
 
-        _coloursHost.Content = new ColourPanel(
+        _replacementsHost.Content = new ReplacementsPanel(
             recipe,
             () => document.SourceText ?? string.Empty,
             () => Evaluator(document));
@@ -870,7 +870,7 @@ public sealed class GroupPanel : UserControl
 
         // The tabs are about whatever is selected, so they follow it.
         ShowParameters();
-        ShowColours();
+        ShowReplacements();
     }
 
     /// <summary>Puts the ring round <paramref name="element"/>, where its drawing sits on the canvas.</summary>
@@ -1011,7 +1011,7 @@ public sealed class GroupPanel : UserControl
         _inspecting = null;
         _tree.Show(null);
         ShowParameters();
-        ShowColours();
+        ShowReplacements();
         _showing.Text = "Click a drawing to see what it is made of.";
 
         foreach (var document in _loaded)

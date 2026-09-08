@@ -20,11 +20,11 @@ using Svg.Viewer.Skia.Avalonia;
 namespace Svg.Studio;
 
 /// <summary>
-/// The colours one drawing paints with, and the expression a recipe gives each.
+/// The values one drawing uses that a recipe can replace, and the expression it gives each.
 /// </summary>
 /// <remarks>
-/// What a recipe is written for. Binding a colour used to mean reading it out of the SVG yourself
-/// and typing a <c>&lt;replace&gt;</c> for it; the drawing already knows which colours it has, and
+/// What a recipe is written for. Binding a value used to mean reading it out of the SVG yourself
+/// and typing a <c>&lt;replace&gt;</c> for it; the drawing already knows which values it has, and
 /// the recipe already knows which of them it has claimed, so the two together are this list.
 ///
 /// The rows are the drawing's, not the recipe's: a recipe usually covers a family and its other
@@ -32,9 +32,9 @@ namespace Svg.Studio;
 /// seeing rather than looking lost, so those follow underneath.
 ///
 /// Edits go into the recipe's buffer and nowhere near the drawing, which is the whole point: the
-/// drawing keeps the colours it was drawn with, and what they are painted as is the recipe's to say.
+/// drawing keeps the values it was drawn with, and what stands in for them is the recipe's to say.
 /// </remarks>
-public sealed class ColourPanel : UserControl
+public sealed class ReplacementsPanel : UserControl
 {
     /// <summary>What a relative include is read against, which nothing here writes one of.</summary>
     private static readonly Uri Home = new("avares://Svg.Studio/");
@@ -64,14 +64,14 @@ public sealed class ColourPanel : UserControl
     private readonly Func<ExprEvaluator?> _values;
 
     /// <summary>The rows on screen, so a readout can be moved without rebuilding them.</summary>
-    private readonly List<(string Colour, TextBox Box, TextBlock Readout, TextBlock Trouble)> _shown = new();
+    private readonly List<(SvgRecipeSurveyValue Value, TextBox Box, TextBlock Readout, TextBlock Trouble)> _shown = new();
 
     /// <summary>Whether a rebuild was put off because somebody was typing in a row.</summary>
     private bool _waiting;
 
-    private IReadOnlyList<SvgRecipeSurveyColor> _colours = Array.Empty<SvgRecipeSurveyColor>();
+    private IReadOnlyList<SvgRecipeSurveyValue> _found = Array.Empty<SvgRecipeSurveyValue>();
 
-    public ColourPanel(RecipeWorkspace recipe, Func<string> drawing, Func<ExprEvaluator?> values)
+    public ReplacementsPanel(RecipeWorkspace recipe, Func<string> drawing, Func<ExprEvaluator?> values)
     {
         Recipe = recipe ?? throw new ArgumentNullException(nameof(recipe));
         _drawing = drawing ?? throw new ArgumentNullException(nameof(drawing));
@@ -100,46 +100,61 @@ public sealed class ColourPanel : UserControl
         Refresh();
     }
 
-    /// <summary>The recipe these colours are painted by.</summary>
+    /// <summary>The recipe these values are replaced by.</summary>
     public RecipeWorkspace Recipe { get; }
 
-    /// <summary>The colours the drawing paints with, as a rule would name them.</summary>
-    public IReadOnlyList<string> Colours => _colours.Select(colour => colour.Text).ToList();
+    /// <summary>The values the drawing uses that a rule could name.</summary>
+    public IReadOnlyList<SvgRecipeSurveyValue> Values => _found;
 
     /// <summary>Why the last edit was refused, or null.</summary>
     public string? Fault { get; private set; }
 
-    /// <summary>What <paramref name="colour"/> is painted with, or null when nothing claims it.</summary>
-    public string? Expression(string colour) => Rule(colour)?.Expression;
+    /// <summary>What replaces <paramref name="value"/>, or null when nothing claims it.</summary>
+    public string? Expression(string name, string value) => Rule(name, value)?.Expression;
 
     /// <summary>
-    /// Says what paints <paramref name="colour"/>, writing the rule into the recipe.
+    /// Says what replaces <paramref name="value"/>, writing the rule into the recipe.
     /// </summary>
     /// <remarks>
-    /// Taking the colour rather than a row, so everything but the pointer can be driven. The rule is
-    /// named as the recipe already writes this colour where there is one — a colour has many
+    /// Taking the value rather than a row, so everything but the pointer can be driven. The rule is
+    /// named as the recipe already writes this value where there is one — a colour has many
     /// spellings and only one of them can be the rule's, or the recipe would hold two rules for one
     /// colour and refuse to read at all.
     /// </remarks>
-    public bool Bind(string colour, string expression)
+    public bool Bind(string name, string value, string expression)
     {
-        if (colour is null)
+        if (name is null)
         {
-            throw new ArgumentNullException(nameof(colour));
+            throw new ArgumentNullException(nameof(name));
         }
 
-        return Splice(SvgRecipeRuleEditor.SetRule(Recipe.Text, Rule(colour)?.ColorText ?? colour, expression ?? string.Empty));
+        if (value is null)
+        {
+            throw new ArgumentNullException(nameof(value));
+        }
+
+        return Splice(SvgRecipeRuleEditor.SetRule(
+            Recipe.Text,
+            name,
+            Rule(name, value)?.ValueText ?? value,
+            expression ?? string.Empty));
     }
 
-    /// <summary>Takes back whatever paints <paramref name="colour"/>, leaving it as the drawing has it.</summary>
-    public bool Unbind(string colour)
+    /// <summary>Takes back whatever replaces <paramref name="value"/>, leaving it as the drawing has it.</summary>
+    public bool Unbind(string name, string value)
     {
-        if (colour is null)
+        if (name is null)
         {
-            throw new ArgumentNullException(nameof(colour));
+            throw new ArgumentNullException(nameof(name));
         }
 
-        return Rule(colour) is { } rule && Splice(SvgRecipeRuleEditor.RemoveRule(Recipe.Text, rule.ColorText));
+        if (value is null)
+        {
+            throw new ArgumentNullException(nameof(value));
+        }
+
+        return Rule(name, value) is { } rule
+               && Splice(SvgRecipeRuleEditor.RemoveRule(Recipe.Text, name, rule.ValueText));
     }
 
     /// <summary>Reads the drawing and the recipe again, and says what the two come to.</summary>
@@ -158,7 +173,7 @@ public sealed class ColourPanel : UserControl
 
         try
         {
-            _colours = SvgRecipeRewriter.Survey(_drawing());
+            _found = SvgRecipeRewriter.Survey(_drawing());
         }
         catch (SvgRecipeException)
         {
@@ -174,7 +189,7 @@ public sealed class ColourPanel : UserControl
         base.OnAttachedToVisualTree(e);
 
         // A tab's content leaves the tree when another tab is picked, so this is every time the
-        // pane is looked at — which is when a colour typed into the source pane since should appear.
+        // pane is looked at — which is when a value typed into the source pane since should appear.
         Refresh();
     }
 
@@ -192,10 +207,10 @@ public sealed class ColourPanel : UserControl
     }
 
     /// <summary>Fills one row's trouble and readout from what its box currently says.</summary>
-    private void Says((string Colour, TextBox Box, TextBlock Readout, TextBlock Trouble) row)
+    private void Says((SvgRecipeSurveyValue Value, TextBox Box, TextBlock Readout, TextBlock Trouble) row)
     {
         var written = row.Box.Text?.Trim() ?? string.Empty;
-        var trouble = Trouble(written);
+        var trouble = Trouble(written, row.Value.Type);
 
         row.Trouble.Text = trouble;
         row.Trouble.IsVisible = trouble is { };
@@ -215,11 +230,13 @@ public sealed class ColourPanel : UserControl
     /// Checked rather than evaluated, and checked against the recipe's own declarations: this has to
     /// answer while the parameters are still being typed and before any value has been bound.
     ///
-    /// As a colour, because a rule's body lands in <c>fill</c>, <c>stroke</c> and
-    /// <c>stop-color</c> — every one a colour slot. That catches the second kind of mistake nothing
-    /// caught before: an expression that is well formed and the wrong type.
+    /// As whatever the attribute holds, which is what the row is for: a rule's body lands in the
+    /// attribute it names, so an expression for <c>opacity</c> has to be a number and one for
+    /// <c>fill</c> a colour. That catches the second kind of mistake nothing caught before — an
+    /// expression that is well formed and the wrong type — where it was typed rather than on the
+    /// drawing's status line.
     /// </remarks>
-    private string? Trouble(string expression)
+    private string? Trouble(string expression, ExprType type)
     {
         if (expression.Length == 0)
         {
@@ -237,7 +254,7 @@ public sealed class ColourPanel : UserControl
 
         try
         {
-            ExprChecker.For(declarations).CheckAs(expression, ExprType.Color, ExprFunctions.DescribeUse(ExprType.Color));
+            ExprChecker.For(declarations).CheckAs(expression, type, ExprFunctions.DescribeUse(type));
 
             return null;
         }
@@ -272,26 +289,26 @@ public sealed class ColourPanel : UserControl
         _shown.Clear();
         _rows.Children.Clear();
 
-        if (_colours.Count == 0)
+        if (_found.Count == 0)
         {
             _rows.Children.Add(new TextBlock
             {
-                Text = "This drawing paints with no colour a recipe could name.",
+                Text = "This drawing uses no value a recipe could name.",
                 Opacity = 0.65,
                 TextWrapping = TextWrapping.Wrap
             });
         }
 
-        foreach (var colour in _colours)
+        foreach (var value in _found)
         {
-            _rows.Children.Add(Row(colour.Text, Places(colour.Count)));
+            _rows.Children.Add(Row(value, Places(value.Count)));
         }
 
         // Rules this drawing gives nothing to. Not an error — one recipe usually covers a family,
-        // and a rule is for whichever of them has the colour — but a rule that appeared to have
+        // and a rule is for whichever of them has the value — but a rule that appeared to have
         // vanished would be worse than one shown as unused.
-        var elsewhere = (Recipe.Recipe?.ColorRules ?? Array.Empty<SvgColorRule>())
-            .Where(rule => !_colours.Any(colour => colour.Argb == rule.Argb))
+        var elsewhere = (Recipe.Recipe?.Rules ?? Array.Empty<SvgReplaceRule>())
+            .Where(rule => !_found.Any(value => value.Name == rule.Name && value.Text == rule.Key))
             .ToList();
 
         if (elsewhere.Count == 0)
@@ -310,36 +327,49 @@ public sealed class ColourPanel : UserControl
 
         foreach (var rule in elsewhere)
         {
-            _rows.Children.Add(Row(rule.ColorText, null));
+            // Named as the recipe writes it, so the box that appears is the one that rule's edits
+            // go through — and counted as nothing, since this drawing gives it nothing.
+            _rows.Children.Add(Row(new SvgRecipeSurveyValue(rule.Name, rule.ValueText, rule.Type, 0), null));
         }
     }
 
     private static string Places(int count) => count == 1 ? "1 place" : $"{count} places";
 
-    /// <summary>One colour: what it is, how much of the drawing it is, and what paints it.</summary>
-    private Control Row(string colour, string? places)
+    /// <summary>One value: what it is, how much of the drawing it is, and what replaces it.</summary>
+    private Control Row(SvgRecipeSurveyValue value, string? places)
     {
-        var swatch = new Border
-        {
-            Width = 14,
-            Height = 14,
-            CornerRadius = new CornerRadius(3),
-            BorderThickness = new Thickness(1),
-            BorderBrush = new SolidColorBrush(Color.Parse("#40808080")),
-            VerticalAlignment = VerticalAlignment.Center,
-            Background = SvgRecipeColor.TryParse(colour, out var argb)
-                ? new SolidColorBrush(Color.FromUInt32(unchecked((uint)argb)))
-                : Brushes.Transparent
-        };
-
         var heading = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*") };
 
-        Grid.SetColumn(swatch, 0);
-        heading.Children.Add(swatch);
+        // A colour shows itself; everything else has to say which attribute it is on, since 0.5
+        // means one thing on an opacity and another on a stop-opacity and the value alone cannot
+        // tell them apart.
+        var mark = value.Type == ExprType.Color
+            ? new Border
+            {
+                Width = 14,
+                Height = 14,
+                CornerRadius = new CornerRadius(3),
+                BorderThickness = new Thickness(1),
+                BorderBrush = new SolidColorBrush(Color.Parse("#40808080")),
+                VerticalAlignment = VerticalAlignment.Center,
+                Background = SvgRecipeColor.TryParse(value.Text, out var argb)
+                    ? new SolidColorBrush(Color.FromUInt32(unchecked((uint)argb)))
+                    : Brushes.Transparent
+            }
+            : (Control)new TextBlock
+            {
+                Text = value.Name,
+                FontSize = 11,
+                Opacity = 0.6,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+        Grid.SetColumn(mark, 0);
+        heading.Children.Add(mark);
 
         var name = new TextBlock
         {
-            Text = colour,
+            Text = value.Text,
             FontFamily = new FontFamily("Menlo, Consolas, monospace"),
             FontSize = 12,
             Margin = new Thickness(8, 0, 0, 0),
@@ -366,10 +396,10 @@ public sealed class ColourPanel : UserControl
 
         var box = new TextBox
         {
-            Text = Expression(colour),
-            Watermark = "not painted by the recipe",
+            Text = Expression(value.Name, value.Text),
+            Watermark = "not replaced by the recipe",
             FontSize = 12,
-            Tag = colour
+            Tag = (value.Name, value.Text)
         };
 
         if (this.TryFindResource("SvgExpressionBox", ActualThemeVariant, out var theme) && theme is ControlTheme box_)
@@ -408,13 +438,13 @@ public sealed class ColourPanel : UserControl
         Grid.SetColumn(readout, 1);
         line.Children.Add(readout);
 
-        var row = (colour, box, readout, trouble);
+        var row = (value, box, readout, trouble);
 
         _shown.Add(row);
 
         box.TextChanged += (_, _) => Says(row);
 
-        box.LostFocus += (_, _) => Commit(box, colour);
+        box.LostFocus += (_, _) => Commit(box, value);
 
         box.KeyDown += (_, e) =>
         {
@@ -424,7 +454,7 @@ public sealed class ColourPanel : UserControl
             }
 
             e.Handled = true;
-            Commit(box, colour);
+            Commit(box, value);
         };
 
         Says(row);
@@ -433,11 +463,11 @@ public sealed class ColourPanel : UserControl
     }
 
     /// <summary>Writes what a box says into the recipe, if it says something else than the rule does.</summary>
-    private void Commit(TextBox box, string colour)
+    private void Commit(TextBox box, SvgRecipeSurveyValue value)
     {
         var written = box.Text?.Trim() ?? string.Empty;
 
-        if (string.Equals(written, Expression(colour) ?? string.Empty, StringComparison.Ordinal))
+        if (string.Equals(written, Expression(value.Name, value.Text) ?? string.Empty, StringComparison.Ordinal))
         {
             Settle();
 
@@ -446,17 +476,19 @@ public sealed class ColourPanel : UserControl
 
         // Said on the row already, and writing it would put the drawing's own trouble somewhere
         // else again. The box keeps what was typed, so it can be finished.
-        if (Trouble(written) is { })
+        if (Trouble(written, value.Type) is { })
         {
             return;
         }
 
-        // An emptied box takes the rule away, which is the only way to say "leave this colour as the
+        // An emptied box takes the rule away, which is the only way to say "leave this value as the
         // drawing has it" without a second control saying it.
-        if (!(written.Length == 0 ? Unbind(colour) : Bind(colour, written)))
+        if (!(written.Length == 0
+                ? Unbind(value.Name, value.Text)
+                : Bind(value.Name, value.Text, written)))
         {
             // Put back, and said, rather than left looking accepted.
-            box.Text = Expression(colour);
+            box.Text = Expression(value.Name, value.Text);
         }
 
         Settle();
@@ -499,14 +531,16 @@ public sealed class ColourPanel : UserControl
             new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("SvgViewerSourceErrorBrush");
     }
 
-    /// <summary>The rule for <paramref name="colour"/>, matched by value rather than by spelling.</summary>
-    private SvgColorRule? Rule(string colour)
-        => Recipe.Recipe is { } recipe && SvgRecipeColor.TryParse(colour, out var argb)
-            ? recipe.ColorRules.FirstOrDefault(rule => rule.Argb == argb)
+    /// <summary>The rule for <paramref name="value"/>, matched by value rather than by spelling.</summary>
+    private SvgReplaceRule? Rule(string name, string value)
+        => Recipe.Recipe is { } recipe
+           && SvgRecipeValue.TypeFor(name) is { } type
+           && SvgRecipeValue.TryKey(type, value, out var key)
+            ? recipe.Rules.FirstOrDefault(rule => rule.Name == name && rule.Key == key)
             : null;
 
     /// <summary>Whether the caret is in one of this panel's boxes.</summary>
     private bool Typing()
         => TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox box
-           && ReferenceEquals(box.FindAncestorOfType<ColourPanel>(), this);
+           && ReferenceEquals(box.FindAncestorOfType<ReplacementsPanel>(), this);
 }

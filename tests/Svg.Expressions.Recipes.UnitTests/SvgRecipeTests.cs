@@ -23,8 +23,8 @@ public class SvgRecipeTests
             declaration => Assert.Equal("param", declaration.Name.LocalName),
             declaration => Assert.Equal("let", declaration.Name.LocalName));
 
-        var rule = Assert.Single(recipe.ColorRules);
-        Assert.Equal("#3b82f6", rule.ColorText);
+        var rule = Assert.Single(recipe.Rules);
+        Assert.Equal("#3b82f6", rule.ValueText);
         Assert.Equal("primary", rule.Expression);
     }
 
@@ -56,7 +56,7 @@ public class SvgRecipeTests
 
         // The expression ends up in an XML attribute, where any reader would collapse the
         // newlines anyway.
-        Assert.Equal("t < 1 ? #ff0000 : #00ff00", recipe.ColorRules[0].Expression);
+        Assert.Equal("t < 1 ? #ff0000 : #00ff00", recipe.Rules[0].Expression);
     }
 
     [Theory]
@@ -73,8 +73,7 @@ public class SvgRecipeTests
             </recipe>
             """);
 
-        Assert.True(SvgRecipeColor.TryParse(equivalent, out var argb));
-        Assert.Equal(argb, recipe.ColorRules[0].Argb);
+        Assert.Equal(equivalent, recipe.Rules[0].Key);
     }
 
     [Fact]
@@ -92,14 +91,76 @@ public class SvgRecipeTests
     }
 
     [Theory]
+    [InlineData("opacity", "0.5", "0.5")]
+    [InlineData("opacity", ".5", "0.5")]
+    [InlineData("fill-opacity", "0.50", "0.5")]
+    [InlineData("stroke-opacity", "1", "1")]
+    // A keyword is compared the way the pipeline compares it, which is without regard to case.
+    [InlineData("display", "NONE", "none")]
+    [InlineData("visibility", "Hidden", "hidden")]
+    public void Parse_ReadsARuleForSomethingOtherThanAColour(string name, string written, string key)
+    {
+        var recipe = SvgRecipe.Parse($"""
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace {name}="{written}">shown</replace>
+            </recipe>
+            """);
+
+        var rule = Assert.Single(recipe.Rules);
+
+        Assert.Equal(name, rule.Name);
+        Assert.Equal(written, rule.ValueText);
+        Assert.Equal(key, rule.Key);
+        Assert.Equal("shown", rule.Expression);
+    }
+
+    /// <summary>
+    /// Two names for one value cannot both apply. Colours have one name for every attribute they
+    /// paint and everything else is named per attribute, so the two can never collide across names
+    /// and this is the whole of the check.
+    /// </summary>
+    [Fact]
+    public void Parse_RejectsTwoRulesForTheSameOpacity()
+    {
+        var ex = Assert.Throws<SvgRecipeException>(() => SvgRecipe.Parse("""
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace opacity="0.5">a</replace>
+              <replace opacity=".50">b</replace>
+            </recipe>
+            """));
+
+        Assert.Contains("same number", ex.Message);
+    }
+
+    /// <summary>An opacity and a stop-opacity of the same value are different quantities.</summary>
+    [Fact]
+    public void Parse_KeepsTheSameNumberOnTwoAttributesApart()
+    {
+        var recipe = SvgRecipe.Parse("""
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace opacity="0.5">a</replace>
+              <replace stop-opacity="0.5">b</replace>
+            </recipe>
+            """);
+
+        Assert.Equal(new[] { "opacity", "stop-opacity" }, recipe.Rules.Select(rule => rule.Name).ToArray());
+    }
+
+    [Theory]
     [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><rplace color=\"red\">a</rplace></recipe>", "not a recipe element")]
     [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><code><parm name=\"a\" /></code></recipe>", "not a declaration")]
-    [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace>a</replace></recipe>", "missing a color")]
+    [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace>a</replace></recipe>", "missing a value to replace")]
     [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace color=\"nonsense\">a</replace></recipe>", "not a colour")]
     [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace color=\"red\"> </replace></recipe>", "no expression")]
     [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace color=\"red\">{{ a }}</replace></recipe>", "must not contain braces")]
     [InlineData("<recipe><replace color=\"red\">a</replace></recipe>", "must be <recipe")]
     [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace color=\"red\">a</replace>", "not well formed")]
+    // A value the language cannot drive at all, named as an attribute.
+    [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace stroke-width=\"1\">w</replace></recipe>", "cannot replace 'stroke-width'")]
+    // A colour attribute is replaceable, but only under the one name that claims all of them.
+    [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace fill=\"red\">a</replace></recipe>", "one attribute at a time")]
+    [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace color=\"red\" opacity=\"1\">a</replace></recipe>", "a rule replaces one value")]
+    [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace opacity=\"half\">a</replace></recipe>", "not a number")]
     public void Parse_Rejects(string recipeXml, string expected)
     {
         var ex = Assert.Throws<SvgRecipeException>(() => SvgRecipe.Parse(recipeXml));

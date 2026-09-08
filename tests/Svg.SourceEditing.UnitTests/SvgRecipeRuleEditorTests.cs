@@ -30,11 +30,11 @@ public class SvgRecipeRuleEditorTests
         </recipe>
         """;
 
-    private static string Set(string recipe, string color, string expression)
-        => Applied(recipe, SvgRecipeRuleEditor.SetRule(recipe, color, expression));
+    private static string Set(string recipe, string value, string expression, string name = "color")
+        => Applied(recipe, SvgRecipeRuleEditor.SetRule(recipe, name, value, expression));
 
-    private static string Remove(string recipe, string color)
-        => Applied(recipe, SvgRecipeRuleEditor.RemoveRule(recipe, color));
+    private static string Remove(string recipe, string value, string name = "color")
+        => Applied(recipe, SvgRecipeRuleEditor.RemoveRule(recipe, name, value));
 
     private static string Applied(string recipe, SvgSourceEditResult result)
     {
@@ -194,10 +194,61 @@ public class SvgRecipeRuleEditorTests
             """, Set(bare, "#ff0000", "alert"));
     }
 
+    /// <summary>
+    /// The attribute a rule is written on is the caller's to choose. This end matches on it and
+    /// writes it back, and knows nothing about which names mean anything.
+    /// </summary>
+    [Fact]
+    public void SetRule_WritesARuleOnTheAttributeItWasGiven()
+    {
+        var written = Set(Recipe, "0.5", "fade", "opacity");
+
+        Assert.Contains("""
+              <replace color="#3b82f6">primary</replace>
+              <replace opacity="0.5">fade</replace>
+            </recipe>
+            """, written);
+    }
+
+    /// <summary>A value under one name is not the same rule as the same value under another.</summary>
+    [Fact]
+    public void SetRule_DoesNotTakeARuleOnAnotherAttributeForItsOwn()
+    {
+        const string recipe = """
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace opacity="0.5">fade</replace>
+            </recipe>
+            """;
+
+        Assert.Equal("""
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace opacity="0.5">fade</replace>
+              <replace stop-opacity="0.5">soften</replace>
+            </recipe>
+            """, Set(recipe, "0.5", "soften", "stop-opacity"));
+    }
+
+    [Fact]
+    public void RemoveRule_TakesTheRuleOnThatAttributeAndLeavesTheOthers()
+    {
+        const string recipe = """
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace opacity="0.5">fade</replace>
+              <replace stop-opacity="0.5">soften</replace>
+            </recipe>
+            """;
+
+        Assert.Equal("""
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace stop-opacity="0.5">soften</replace>
+            </recipe>
+            """, Remove(recipe, "0.5", "opacity"));
+    }
+
     [Fact]
     public void SetRule_SayingWhatItAlreadySaysIsNoEdit()
     {
-        var result = SvgRecipeRuleEditor.SetRule(Recipe, "#3b82f6", "primary");
+        var result = SvgRecipeRuleEditor.SetRule(Recipe, "color", "#3b82f6", "primary");
 
         Assert.True(result.Succeeded);
         Assert.Empty(result.Edits);
@@ -208,7 +259,7 @@ public class SvgRecipeRuleEditorTests
     {
         // They are added when the rule is used. A recipe carrying them produces {{ {{ … }} }},
         // which the drawing then cannot read — and the recipe parser says so far from here.
-        var result = SvgRecipeRuleEditor.SetRule(Recipe, "#3b82f6", "{{ primary }}");
+        var result = SvgRecipeRuleEditor.SetRule(Recipe, "color", "#3b82f6", "{{ primary }}");
 
         Assert.False(result.Succeeded);
         Assert.Contains("without braces", result.Refusal);
@@ -217,7 +268,7 @@ public class SvgRecipeRuleEditorTests
     [Fact]
     public void SetRule_RefusesAnEmptyExpression()
     {
-        Assert.Contains("Remove it instead", SvgRecipeRuleEditor.SetRule(Recipe, "#3b82f6", "  ").Refusal);
+        Assert.Contains("Remove it instead", SvgRecipeRuleEditor.SetRule(Recipe, "color", "#3b82f6", "  ").Refusal);
     }
 
     [Fact]
@@ -245,7 +296,7 @@ public class SvgRecipeRuleEditorTests
     public void RemoveRule_ForAColourWithNoRuleIsNoEdit()
     {
         // The ordinary state of most colours in a drawing, and clearing one twice is not a mistake.
-        var result = SvgRecipeRuleEditor.RemoveRule(Recipe, "#00ff00");
+        var result = SvgRecipeRuleEditor.RemoveRule(Recipe, "color", "#00ff00");
 
         Assert.True(result.Succeeded);
         Assert.Empty(result.Edits);
@@ -256,6 +307,7 @@ public class SvgRecipeRuleEditorTests
     {
         var result = SvgRecipeRuleEditor.SetRule(
             """<svg xmlns="http://www.w3.org/2000/svg"><rect fill="#3b82f6" /></svg>""",
+            "color",
             "#3b82f6",
             "primary");
 
@@ -266,7 +318,7 @@ public class SvgRecipeRuleEditorTests
     [Fact]
     public void Rules_AreRefusedWhileTheTextIsNotWellFormed()
     {
-        var result = SvgRecipeRuleEditor.SetRule(Recipe.Replace("</recipe>", string.Empty), "#3b82f6", "deep");
+        var result = SvgRecipeRuleEditor.SetRule(Recipe.Replace("</recipe>", string.Empty), "color", "#3b82f6", "deep");
 
         Assert.False(result.Succeeded);
         Assert.NotNull(result.Refusal);

@@ -41,7 +41,7 @@ internal static class Program
 
         foreach (var match in result.Matches)
         {
-            Console.WriteLine($"  {match.Rule.ColorText} -> {{{{ {match.Rule.Expression} }}}} ({match.Count})");
+            Console.WriteLine($"  {match.Rule.ValueText} -> {{{{ {match.Rule.Expression} }}}} ({match.Count})");
         }
 
         if (!result.Success)

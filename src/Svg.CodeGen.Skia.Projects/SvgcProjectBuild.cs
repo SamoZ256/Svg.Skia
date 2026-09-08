@@ -336,18 +336,26 @@ public static class SvgcProjectBuild
 
         foreach (var match in result.Matches)
         {
-            log?.Invoke($"  {match.Rule.ColorText} -> {{{{ {match.Rule.Expression} }}}} ({match.Count})");
+            log?.Invoke($"  {Named(match.Rule)} -> {{{{ {match.Rule.Expression} }}}} ({match.Count})");
         }
 
         // Not an error: the same recipe usually covers a family of drawings, and not every drawing
-        // uses every colour.
+        // uses every value.
         foreach (var rule in result.UnmatchedRules)
         {
-            log?.Invoke($"warning: nothing in {Path.GetFileName(recipePath)} matched '{rule.ColorText}'.");
+            log?.Invoke($"warning: nothing in {Path.GetFileName(recipePath)} matched '{Named(rule)}'.");
         }
 
         return result.Svg;
     }
+
+    /// <summary>How a rule reads in the log: the value alone for a colour, else the attribute too.</summary>
+    /// <remarks>
+    /// A colour is the only kind whose value says which it is, so naming the attribute there would
+    /// add noise to the line this has always printed.
+    /// </remarks>
+    private static string Named(SvgReplaceRule rule)
+        => rule.Name == SvgRecipeValue.ColorName ? rule.ValueText : $"{rule.Name} {rule.ValueText}";
 
     /// <summary>Says when a drawing's declared defaults will not reach the generated signature.</summary>
     /// <remarks>
