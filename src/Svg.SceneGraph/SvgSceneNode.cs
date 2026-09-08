@@ -248,6 +248,15 @@ public sealed class SvgSceneNode : IReadOnlyList<SvgSceneNode>
 
     public SKMatrix Transform { get; internal set; }
 
+    /// <summary>The functions <see cref="Transform"/> was written with, where one is driven.</summary>
+    /// <remarks>
+    /// Null for everything a document does not drive, which is almost all of it: the recorded
+    /// commands then hold exactly what they always did. Where it is set it describes the whole of
+    /// <see cref="Transform"/>, not only the author's own functions, because
+    /// <c>SKCanvas.SetMatrix</c> takes it in place of the baked matrix rather than beside it.
+    /// </remarks>
+    public SymMatrix? SymbolicTransform { get; internal set; }
+
     public SKMatrix TotalTransform { get; internal set; }
 
     public SKRect? Overflow
@@ -634,6 +643,7 @@ public sealed class SvgSceneNode : IReadOnlyList<SvgSceneNode>
         GeometryBounds = replacement.GeometryBounds;
         TransformedBounds = replacement.TransformedBounds;
         Transform = replacement.Transform;
+        SymbolicTransform = replacement.SymbolicTransform;
         TotalTransform = replacement.TotalTransform;
         Overflow = replacement.Overflow;
         Clip = replacement.Clip;

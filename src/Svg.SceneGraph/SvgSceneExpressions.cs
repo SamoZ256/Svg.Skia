@@ -1,5 +1,7 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System.Collections.Generic;
+using System.Globalization;
 using ShimSkiaSharp;
 using Svg;
 
@@ -100,6 +102,98 @@ internal static class SvgSceneExpressions
     /// </remarks>
     private static bool Declares(SvgElement element, string localName)
         => element.Attributes.ContainsKey(localName);
+
+    /// <summary>The functions written in <c>transform</c>, or null where nothing drives it.</summary>
+    /// <remarks>
+    /// A direct lookup rather than the walk above: for this one name the lifted value is the whole
+    /// author text rather than the code inside the braces. Anything that cannot be mapped — an
+    /// argument count SVG does not allow, a literal that will not parse, a function the model has no
+    /// case for — comes back null, and the element draws the stand-in rather than something invented
+    /// here.
+    /// </remarks>
+    internal static SymMatrix? TryGetTransform(SvgElement? element)
+    {
+        if (element?.CustomAttributes is not { Count: > 0 } attributes ||
+            SvgExpressionAttributes.Lifted(attributes, SvgTransformExpression.Name) is not { } value)
+        {
+            return null;
+        }
+
+        var written = SvgTransformExpression.Parse(value);
+
+        if (!written.Any)
+        {
+            return null;
+        }
+
+        var transforms = new SymTransform[written.Functions.Count];
+
+        for (var index = 0; index < transforms.Length; index++)
+        {
+            if (ToTransform(written.Functions[index]) is not { } transform)
+            {
+                return null;
+            }
+
+            transforms[index] = transform;
+        }
+
+        return new SymMatrix(transforms);
+    }
+
+    /// <summary>One function, filled out to the arity the model folds it at.</summary>
+    /// <remarks>
+    /// SVG's own defaults for the arguments the author left off, which are not all zero: an omitted
+    /// scale factor repeats the one given, so <c>scale(2)</c> is <c>scale(2, 2)</c> and stays that
+    /// way when the expression behind it is rebound.
+    /// </remarks>
+    private static SymTransform? ToTransform(SvgTransformExpressionFunction function)
+    {
+        if (!TryReadArguments(function.Arguments, out var read))
+        {
+            return null;
+        }
+
+        return function.Name switch
+        {
+            "translate" when read.Length == 1 => new SymTransform(SymTransformOp.Translate, new[] { read[0], SymNode.Zero }),
+            "translate" when read.Length == 2 => new SymTransform(SymTransformOp.Translate, read),
+            "scale" when read.Length == 1 => new SymTransform(SymTransformOp.Scale, new[] { read[0], read[0] }),
+            "scale" when read.Length == 2 => new SymTransform(SymTransformOp.Scale, read),
+            "rotate" when read.Length == 1 => new SymTransform(SymTransformOp.Rotate, new[] { read[0], SymNode.Zero, SymNode.Zero }),
+            "rotate" when read.Length == 3 => new SymTransform(SymTransformOp.Rotate, read),
+            "skewX" when read.Length == 1 => new SymTransform(SymTransformOp.Skew, new[] { read[0], SymNode.Zero }),
+            "skewY" when read.Length == 1 => new SymTransform(SymTransformOp.Skew, new[] { SymNode.Zero, read[0] }),
+            "matrix" when read.Length == 6 => new SymTransform(SymTransformOp.Matrix, read),
+            _ => null
+        };
+    }
+
+    private static bool TryReadArguments(IReadOnlyList<SvgTransformExpressionArgument> arguments, out SymNode[] read)
+    {
+        read = new SymNode[arguments.Count];
+
+        for (var index = 0; index < read.Length; index++)
+        {
+            var argument = arguments[index];
+
+            if (argument.Expression is { } expression)
+            {
+                read[index] = SymNode.Source(expression);
+
+                continue;
+            }
+
+            if (!double.TryParse(argument.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var literal))
+            {
+                return false;
+            }
+
+            read[index] = SymNode.Literal(literal);
+        }
+
+        return true;
+    }
 
     internal static SymNode? TryGetPaint(SvgElement? element, bool forStroke)
         => TryGet(element, forStroke ? Stroke : Fill);

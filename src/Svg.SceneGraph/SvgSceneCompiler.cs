@@ -1321,6 +1321,7 @@ public static class SvgSceneCompiler
             IsRenderable = false,
             IsAntialias = element is SvgVisualElement visual ? PaintingService.IsAntialias(visual) : true,
             Transform = transform,
+            SymbolicTransform = SymbolicTransformOf(element, transform),
             TotalTransform = parentTotalTransform.PreConcat(transform),
             HitTestTargetElement = null
         };
@@ -1605,6 +1606,7 @@ public static class SvgSceneCompiler
             parentTotalTransform,
             bounds,
             TransformsService.ApplyTransformOrigin(svgGroup, bounds, viewport, node.Transform));
+        node.SymbolicTransform = SymbolicTransformOf(svgGroup, node.Transform);
     }
 
     private static void FinalizeDirectAnchorNode(
@@ -1620,6 +1622,7 @@ public static class SvgSceneCompiler
             parentTotalTransform,
             bounds,
             TransformsService.ApplyTransformOrigin(svgAnchor, bounds, viewport, node.Transform));
+        node.SymbolicTransform = SymbolicTransformOf(svgAnchor, node.Transform);
         node.ClipPath = null;
         node.MaskPaint = null;
         node.MaskDstIn = null;
@@ -1642,6 +1645,7 @@ public static class SvgSceneCompiler
             parentTotalTransform,
             bounds,
             TransformsService.ApplyTransformOrigin(svgSwitch, bounds, viewport, node.Transform));
+        node.SymbolicTransform = SymbolicTransformOf(svgSwitch, node.Transform);
         node.ClipPath = null;
         node.MaskPaint = null;
         node.MaskDstIn = null;
@@ -1673,6 +1677,7 @@ public static class SvgSceneCompiler
             parentTotalTransform,
             bounds,
             transform.PreConcat(viewBoxTransform));
+        node.SymbolicTransform = SymbolicTransformOf(svgFragment, node.Transform, viewBoxTransform);
     }
 
     private static void FinalizeDirectForeignObjectNode(
@@ -1748,6 +1753,31 @@ public static class SvgSceneCompiler
             parentTotalTransform,
             CalculateDirectStructuralBounds(node),
             node.Transform);
+    }
+
+    /// <summary>
+    /// The functions behind a transform just baked, or null where the element drives none.
+    /// </summary>
+    /// <remarks>
+    /// <c>SKCanvas.SetMatrix</c> takes a symbolic delta in place of the baked one rather than beside
+    /// it, so <paramref name="trailing"/> — a viewBox fit, a &lt;use&gt; offset, a marker's
+    /// placement — has to be folded back in as a literal. A transform-origin wraps the author's
+    /// functions in translations no list of them can describe, so it fails the check below and the
+    /// element stays undriven.
+    /// </remarks>
+    private static SymMatrix? SymbolicTransformOf(SvgElement element, SKMatrix baked, SKMatrix? trailing = null)
+    {
+        if (SvgSceneExpressions.TryGetTransform(element) is not { } symbolic)
+        {
+            return null;
+        }
+
+        var own = TransformsService.ToMatrix(element.Transforms);
+        var rest = trailing ?? SKMatrix.Identity;
+
+        return baked.Equals(own.PreConcat(rest))
+            ? SymMatrix.PreConcat(symbolic, own, null, rest)
+            : null;
     }
 
     private static SKRect CalculateDirectStructuralBounds(SvgSceneNode node)
@@ -1984,6 +2014,7 @@ public static class SvgSceneCompiler
         node.IsAntialias = PaintingService.IsAntialias(visualElement);
         node.GeometryBounds = path?.Bounds ?? SKRect.Empty;
         node.Transform = TransformsService.ToMatrix(visualElement.Transforms, visualElement, node.GeometryBounds, viewport);
+        node.SymbolicTransform = SymbolicTransformOf(visualElement, node.Transform);
         node.TotalTransform = parentTotalTransform.PreConcat(node.Transform);
         node.TransformedBounds = node.TotalTransform.MapRect(node.GeometryBounds);
         node.HitTestPath = path;
@@ -2133,13 +2164,13 @@ public static class SvgSceneCompiler
         width = ResolveUseDimension(svgUse, referencedElement, hasExplicitWidth, width, UnitRenderingType.Horizontal, viewport);
         height = ResolveUseDimension(svgUse, referencedElement, hasExplicitHeight, height, UnitRenderingType.Vertical, viewport);
 
-        var useTransform = TransformsService.ToMatrix(svgUse.Transforms);
-        if (referencedElement is not SvgSymbol)
-        {
-            useTransform = useTransform.PreConcat(SKMatrix.CreateTranslation(x, y));
-        }
+        var useOffset = referencedElement is SvgSymbol
+            ? SKMatrix.Identity
+            : SKMatrix.CreateTranslation(x, y);
+        var useTransform = TransformsService.ToMatrix(svgUse.Transforms).PreConcat(useOffset);
 
         useNode.Transform = useTransform;
+        useNode.SymbolicTransform = SymbolicTransformOf(svgUse, useTransform, useOffset);
         useNode.TotalTransform = parentTotalTransform.PreConcat(useTransform);
 
         if (!useNode.IsRenderable ||
@@ -2202,6 +2233,7 @@ public static class SvgSceneCompiler
             parentTotalTransform,
             useBounds,
             ResolveUseTransform(svgUse, referencedElement, x, y, useBounds, viewport));
+        useNode.SymbolicTransform = SymbolicTransformOf(svgUse, useNode.Transform, useOffset);
         node = useNode;
         return true;
     }
@@ -2483,6 +2515,7 @@ public static class SvgSceneCompiler
         var geometryBounds = usesReferencedSvgViewport ? destClip : destRect;
         node.GeometryBounds = geometryBounds;
         node.Transform = TransformsService.ToMatrix(svgImage.Transforms, svgImage, geometryBounds, viewport);
+        node.SymbolicTransform = SymbolicTransformOf(svgImage, node.Transform);
         node.TotalTransform = parentTotalTransform.PreConcat(node.Transform);
         node.TransformedBounds = node.TotalTransform.MapRect(geometryBounds);
         node.Clip = MaskingService.GetClipRect(svgImage.Clip, destClip) ?? destClip;
@@ -2639,6 +2672,7 @@ public static class SvgSceneCompiler
             parentTotalTransform,
             bounds,
             resolvedTransform.PreConcat(resolvedViewBoxTransform));
+        node.SymbolicTransform = SymbolicTransformOf(svgSymbol, node.Transform, resolvedViewBoxTransform);
         return node;
     }
 
@@ -2882,6 +2916,7 @@ public static class SvgSceneCompiler
 
         node.GeometryBounds = destRect;
         node.Transform = TransformsService.ToMatrix(svgImage.Transforms, svgImage, destRect, viewport);
+        node.SymbolicTransform = SymbolicTransformOf(svgImage, node.Transform);
         node.TotalTransform = parentTotalTransform.PreConcat(node.Transform);
         node.TransformedBounds = node.TotalTransform.MapRect(destRect);
         node.Clip = MaskingService.GetClipRect(svgImage.Clip, destRect) ?? destRect;
@@ -3818,6 +3853,7 @@ public static class SvgSceneCompiler
             IsRenderable = true,
             IsAntialias = PaintingService.IsAntialias(svgMarker),
             Transform = transform,
+            SymbolicTransform = SymbolicTransformOf(svgMarker, transform, markerMatrix),
             TotalTransform = parentTotalTransform.PreConcat(transform),
             Fill = null,
             Stroke = null
