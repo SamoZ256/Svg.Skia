@@ -28,6 +28,8 @@ dotnet add package ShimSkiaSharp
 | `SKCanvas` | Records commands such as `DrawPath`, `DrawImage`, `Save`, and `Restore` |
 | `SKPath` | Stores geometric path commands |
 | `SKPaint` | Stores fill, stroke, shader, filter, and typography state |
+| `SymNode` | How a value was derived, where an expression drives it |
+| `SymMatrix` | How a matrix was derived: the transform functions that built it |
 | `ShimSkiaSharp.Editing.*` | Clone-on-write and traversal helpers for model editing |
 
 ## Recording and inspecting commands
@@ -58,6 +60,17 @@ foreach (var command in picture.Commands ?? Array.Empty<CanvasCommand>())
 ```
 
 This is the same family of types that `Svg.Model`, `Svg.CodeGen.Skia`, and parts of `Svg.Skia` exchange internally.
+
+## How a command was derived
+
+A drawing that uses the [expression extension](svg-expressions) records not only what a command draws but how that was arrived at, so a bound value can rewrite the picture instead of compiling the document again:
+
+- `SymNode` describes how one **value** was derived — a literal, author-supplied expression source, or an operation over those. It interprets nothing; a back end decides what it evaluates or emits as.
+- `SymTransform` and `SymMatrix` describe how a **matrix** was derived: the transform functions that built it (`Matrix`, `Translate`, `Scale`, `Rotate`, `Skew`), each with `SymNode` arguments.
+
+A matrix is described *beside* `SymNode` rather than as a kind of one because a `SymNode` says how a value was derived and both back ends thread the expected `ExprType` through it, so a matrix-shaped node could reach a slot expecting a colour.
+
+`SetMatrixCanvasCommand` therefore carries `SymbolicDelta` and `SymbolicTotal` beside the `DeltaMatrix` and `TotalMatrix` it always had. Both are null where a drawing drives no transform, so nothing changes for a document that does not use the extension. The symbolic total is composed off the same save and restore stack as the baked one, which means a command's `SymbolicTotal` is already the whole composition down to it and no consumer has to keep a running matrix of its own. `SymMatrix.Apply` is the one place a function becomes an `SKMatrix`, so the recorder, the evaluator and the code generator cannot disagree about what a skew angle means.
 
 ## Why it exists
 

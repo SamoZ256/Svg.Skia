@@ -54,6 +54,19 @@ An expression is written directly in the attribute it drives, wrapped in double 
 The whole attribute value must be the expression. A value that merely *contains* braces is left
 alone — `fill="url(#g) {%{{{ x }}}%}"` is an ordinary (invalid) value, not an expression.
 
+`transform` is the one exception, and it moves the rule one level down rather than dropping it: there
+an expression is the whole of one function **argument**, and one value may hold several.
+
+{%{
+```xml
+<rect transform="translate({{ dx }}, 0) rotate({{ angle }} 32 32)" width="64" height="64" />
+```
+}%}
+
+Each argument is wholly an expression or wholly a literal, so {%{`translate(1{{ dx }}, 0)`}%} is an
+ordinary value that drives nothing — and so is {%{`transform="{{ t }}"`}%}, where the braces stand
+where a function goes rather than where an argument does. A source view marks both.
+
 Whitespace inside the braces is trimmed, so {%{`{{primary}}` and `{{ primary }}`}%} are equivalent.
 
 A declaration in a `style` attribute works the same way, and the same rule applies to its value:
@@ -155,6 +168,7 @@ stays smooth.
 | `stop-opacity` | number | Scales one gradient stop's alpha. |
 | `visibility` | boolean | `true` meaning visible. Wraps the element's drawing in a condition. |
 | `display` | boolean | `true` meaning displayed. Wraps the element and its subtree in a condition. |
+| `transform` | number, per argument | One expression drives one argument of one function. Unbound, an argument reads as the identity of **its slot** — 0 for an offset, an angle or a rotation centre, 1 for a scale factor — rather than one constant for all of them, since an unbound `scale` of 0 would leave no shape on screen to bind to. |
 
 **Resolved before the drawing is recorded.** The value is consumed while the document is compiled —
 the typeface is chosen with it and the text measured against that — so it is substituted into the
@@ -183,9 +197,12 @@ An element's text is lifted whole or not at all: `{{ … }}` has to be the entir
 `Total: {{ n }}` is literal text and `{{ 'Total: ' + n }}` is the way to say it. The language has `+`
 on strings for exactly this.
 
-Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d`, `transform`, `stroke-width` — is a
-literal. Braces written in one of those are read as an ordinary value and do nothing; a source view
-marks it.
+Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d`, `stroke-width` — is a literal.
+Braces written in one of those are read as an ordinary value and do nothing; a source view marks it.
+
+Position through `x` or `cx` stays literal because those are consumed into the path the drawing
+records — a rect is points by the time anything could rewrite it — so `translate` is how a driven
+position is said.
 
 ### What the second kind costs
 
@@ -217,12 +234,39 @@ difference between drawing and not.
 
 Written on one element they nest, in either order, and the element draws only where both hold. What
 neither reaches is hit testing, which reads the placeholder: an element hidden by an expression
-alone still answers a hit.
+alone still answers a hit. A driven transform is the same thing from the other side — hit testing,
+node bounds, the editor's selection handles and the viewer's outline all read the placeholder
+matrix, so an element moved by a binding still answers, measures and is drawn around where it was
+compiled.
 
 The two compose in either direction: an opacity expression scales a literal colour, a colour
 expression is scaled by a literal opacity, and where both are expressions the alpha is scaled by
 whatever the number one yields. `color-interpolation="linearRGB"` converts the result, exactly as it
 would a literal.
+
+### Where a driven transform is refused
+
+A recorded matrix can be rewritten because nothing downstream measured it. Where something *was*
+measured against it while the drawing was compiled, binding another value would move the element out
+from under that measurement, so the expression is **refused** rather than bound:
+
+- a **filter** — on the element, above it or below it. Its region was measured against the matrix in
+  force when the drawing was recorded.
+- a strict **ancestor that opens a layer**: `opacity`, `mask`, a blend mode, an isolation group. That
+  layer's bounds were unioned from the transforms of the children under it, and `SaveLayer`'s bounds
+  are a hard clip rather than a hint — an element bound outside them would not be clipped late, it
+  would be gone.
+- a transform written **inside a `<clipPath>`**, whose contents compile to geometry and are never
+  recorded as commands, so there is no matrix left in the drawing to rewrite.
+
+Three that look like they belong on that list and do not, which is the more useful half of the rule:
+
+- **`clip-path`** on the element or on an ancestor. The clip is recorded after the element's own
+  matrix, in its own space, and `clipPathUnits` resolves against local bounds — so it travels with
+  the element rather than staying where the element was.
+- a **`userSpaceOnUse`** gradient or pattern. It is built from local bounds and applied under the
+  live canvas matrix, which is precisely what SVG means by user space: the paint moves with the shape.
+- **`vector-effect="non-scaling-stroke"`**, which is redone against the live matrix.
 
 ## 3. Language reference
 

@@ -109,7 +109,10 @@ value is split into declarations first, so `style="fill: {{ hue }}"` is refused 
 
 `fill`, `stroke`, `stop-color`, `flood-color` and `lighting-color` want a colour, `opacity` and the
 three that scale an alpha —
-`fill-opacity`, `stroke-opacity`, `stop-opacity` — a number, `visibility` and `display` a boolean. Both
+`fill-opacity`, `stroke-opacity`, `stop-opacity` — a number, `visibility` and `display` a boolean.
+`transform` is the one attribute checked argument by argument rather than whole: each `{%{{{ … }}}%}`
+inside it is its own span, wants a number, and is marked where it was written. Braces there that are
+not the whole of one argument drive nothing, and are reported as that rather than as a bad number. Both
 back ends already refuse the wrong one as they read the document — the emitter and the renderer — so
 this asks the same question earlier and reports it in the same words, rather than letting a drawing
 open and fail when it is generated or drawn.

@@ -217,7 +217,8 @@ stand for them:
 </recipe>
 ```
 
-A rule names one of the attributes an expression can drive, and there are eleven of them:
+A rule names one of the attributes whose whole value an expression can drive, and there are eleven
+of them:
 
 | Rule | Replaces | The expression is a |
 | --- | --- | --- |
@@ -231,8 +232,11 @@ icons wants. The others are named one at a time on purpose: a group's `opacity` 
 `stop-opacity` are different quantities, and one name for both would replace a value nobody meant.
 Writing `<replace fill="…">` is refused for the same reason, pointing at `color`.
 
-Anything else — `stroke-width`, `transform`, `d`, the geometry attributes — takes no expression
-anywhere in the pipeline, so a rule naming one is refused rather than written and silently ignored.
+`transform` takes an expression but no rule: an expression there drives one function argument rather
+than the whole value, and a rule names one whole value and swaps it for one whole expression — half a
+transform is not a rule. Anything else — `stroke-width`, `d`, the geometry attributes — takes no
+expression anywhere in the pipeline, so a rule naming one is refused rather than written and silently
+ignored.
 
 `--recipeFile` (`-r`) applies it to the input before anything is generated, which is how one recipe
 parameterises a whole icon set. Values are matched by value rather than by spelling, through whatever
