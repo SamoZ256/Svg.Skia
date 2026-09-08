@@ -195,7 +195,7 @@ defaults first avoids the whole question.
 
 ### Recipes: making a flat drawing parametric
 
-A recipe declares parameters and named expressions, then says which literal colours of a drawing
+A recipe declares parameters and named expressions, then says which literal values of a drawing
 stand for them:
 
 ```xml
@@ -206,17 +206,40 @@ stand for them:
 
     <let name="primary">hsl(hue, 91%, bold ? 66% : 60%)</let>
     <let name="deep">hsl(hue + 5, 71%, 40%)</let>
+    <let name="alert"><![CDATA[hue < 100 ? #ff0000 : #ff6600]]></let>
   </code>
 
   <replace color="#3b82f6">primary</replace>
   <replace color="rgb(30,64,175)">deep</replace>
+  <replace color="red">alert</replace>
+
+  <replace opacity="0.5">bold ? 1 : 0.5</replace>
 </recipe>
 ```
 
+A rule names one of the attributes an expression can drive, and there are eleven of them:
+
+| Rule | Replaces | The expression is a |
+| --- | --- | --- |
+| `color` | `fill`, `stroke`, `stop-color`, `flood-color`, `lighting-color` | colour |
+| `opacity`, `fill-opacity`, `stroke-opacity`, `stop-opacity` | that attribute | number |
+| `visibility`, `display` | that attribute | boolean |
+
+`color` is the only name that is not an attribute. A colour means the same thing wherever it is
+painted, so one rule claims every colour attribute at once — which is what a recipe over a family of
+icons wants. The others are named one at a time on purpose: a group's `opacity` and a gradient stop's
+`stop-opacity` are different quantities, and one name for both would replace a value nobody meant.
+Writing `<replace fill="…">` is refused for the same reason, pointing at `color`.
+
+Anything else — `stroke-width`, `transform`, `d`, the geometry attributes — takes no expression
+anywhere in the pipeline, so a rule naming one is refused rather than written and silently ignored.
+
 `--recipeFile` (`-r`) applies it to the input before anything is generated, which is how one recipe
-parameterises a whole icon set. Colours are matched by value rather than by spelling, so `#3B82F6`
-and `#3b82f6` are one rule, and a colour written inside a `style="…"` declaration is lifted out into
-a real attribute — a placeholder has to live on one.
+parameterises a whole icon set. Values are matched by value rather than by spelling, through whatever
+the document parser reads that attribute with: `#3B82F6` and `#3b82f6` are one rule, so are `0.5`,
+`.5` and `0.50`, and `none` matches `NONE`. A value written inside a `style="…"` declaration is
+replaced where it stands, and the presentation attribute it was shadowing is left alone — the cascade
+means that one was never painting anything.
 
 ```bash
 svgc -i badge.svg -o Badge.cs -r badge.recipe -n Demo.Icons -c Badge
@@ -226,7 +249,11 @@ svgc -i badge.svg -o Badge.cs -r badge.recipe -n Demo.Icons -c Badge
 Generating: /tmp/demo/Badge.cs
   #3b82f6 -> {{ primary }} (3)
   rgb(30,64,175) -> {{ deep }} (2)
+  red -> {{ alert }} (2)
+  opacity 0.5 -> {{ bold ? 1 : 0.5 }} (1)
 ```
+
+A colour is named alone because its value says which it is; anything else carries its attribute.
 
 The generated class takes the recipe's parameters, exactly as a drawing that declared them itself
 would:
@@ -309,9 +336,9 @@ Settings are edited there and saved back with the file's comments and layout int
 applied to the picture and never to the file, so what a group says about a drawing stays the group's.
 
 A group's tab is not only a picture of what it builds. Clicking a shape on it — or a row in the
-**element tree** beside it — picks that drawing, and the **Parameters** and **Colours** tabs then
+**element tree** beside it — picks that drawing, and the **Parameters** and **Replacements** tabs then
 behave as they would on that drawing's own tab: the parameters are the ones the drawing is built
-with, dragging one repaints that drawing alone, and the colours are what its recipe can name. Until
+with, dragging one repaints that drawing alone, and the replacements are what its recipe can name. Until
 something is picked they say so, because a group builds several drawings and cannot guess which is
 meant.
 
@@ -324,7 +351,7 @@ mark and saves it. A drawing that is under no recipe and open nowhere is the las
 **file is written directly**: there is no buffer to hold it, so the edit is saved as it is made and
 there is nothing to undo.
 
-A drawing under a `recipe` is shown **as the recipe makes it** — the colours the recipe names already
+A drawing under a `recipe` is shown **as the recipe makes it** — the values the recipe names already
 turned into expressions, and its parameters on the panel with sliders on them, which is the whole
 loop a recipe is written for. The file is untouched: the source pane shows, edits and saves the
 drawing itself, and `File → Export…` writes what the project builds, which is the document
@@ -338,12 +365,11 @@ drawing, which still opens.
 A `recipe` is named with buttons rather than typed as a path. With none, the row offers **Add…** for
 one that exists and **New…** to write one — a recipe that does not exist yet cannot be picked, and
 leaving for a text editor to make an empty one was most of what made recipes awkward to start using.
-What **New…** writes applies as it stands: it declares a `hue` and an `accent` computed from it and
-recolours nothing, so there is a slider to drag before a line of it has been edited. Underneath it
-names **the colours the drawings under that node actually paint**, one commented `<replace>` each, so
-starting a recipe no longer means reading them out of the files yourself. Commented because the file
-has to apply as it stands — binding them all to the one let above would repaint the whole set the
-moment it was made. A file already at that name is named rather than written over.
+What **New…** writes is the root and nothing else. It applies as it stands and changes nothing, which
+is the point: a seeded parameter and a survey of the drawings' colours written under it as commented
+rules were both somebody else's opening line to read and delete before the file said what you meant.
+The **Replacements** tab is where the drawing's own values are listed, so they no longer have to be
+read out of the files by hand either. A file already at that name is named rather than written over.
 With one named, the row is the file and a **✕** that stops using it — the file itself is left where
 it is. **Double-clicking the file opens it**, in a tab of its own: the recipe as text, coloured the
 way the source pane colours a drawing, with what the parser makes of it said underneath as it is
@@ -355,16 +381,20 @@ back, and closing the project asks about it — including when the tab it was ed
 There is one buffer per open recipe, so the drawings under it follow it **as it is typed** rather
 than when it is saved — a tab you are not looking at is read again when you come back to it.
 
-A drawing under a recipe also gets a **Colours** tab beside its Project and Parameters: every colour
-the drawing paints with, how much of the drawing each one is, and the expression the recipe gives it.
+A drawing under a recipe also gets a **Replacements** tab beside its Project and Parameters: every
+value the drawing uses that a rule could name, how much of the drawing each one is, and the expression
+the recipe gives it. A colour shows as a swatch and is one row however many attributes paint it;
+everything else shows the attribute beside the value, because `0.5` means one thing on an `opacity`
+and another on a `stop-opacity`.
+
 Typing one writes the `<replace>` rule; emptying the box takes it away. What the expression comes to
 is read out beside it and follows the sliders, and what is wrong with one is said under the box it was
-typed in — checked as a colour, since a rule's body lands in `fill`, `stroke` and `stop-color`, so an
-expression that is well formed and the wrong type is caught here rather than by the drawing. Nothing
-is written while a row has trouble. A rule for a colour this
+typed in — checked as whatever that attribute holds, so a colour typed into an `opacity` row is
+caught here rather than by the drawing, as is a number typed into a colour one. Nothing
+is written while a row has trouble. A rule for a value this
 drawing does not have is listed underneath as "not in this drawing" rather than hidden, since one
-recipe covers a family and a rule is for whichever of them has the colour. The list is what the
-build would act on: it comes from the same walk that does the rewriting, so a colour under a `style`
+recipe covers a family and a rule is for whichever of them has the value. The list is what the
+build would act on: it comes from the same walk that does the rewriting, so a value under a `style`
 declaration is offered and the dead attribute beneath it is not.
 
 The tree is editable. Each row carries **Add group**, **Add SVG…** and **Remove**; `Delete` removes
@@ -417,7 +447,7 @@ error: Unknown name 'nosuchname' (in scope: alert, bold, deep, hue, pi, primary,
 ```
 
 A recipe rule that matched nothing is a **warning** and exits zero, because one recipe usually covers
-a family of drawings and not every drawing uses every colour:
+a family of drawings and not every drawing uses every value:
 
 ```
 warning: nothing in badge.recipe matched '#00ff00'.

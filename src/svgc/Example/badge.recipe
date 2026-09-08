@@ -15,4 +15,7 @@
   <replace color="#3b82f6">primary</replace>
   <replace color="rgb(30,64,175)">deep</replace>
   <replace color="red">alert</replace>
+
+  <!-- Anything else an expression can drive is named by the attribute it sits on. -->
+  <replace opacity="0.5">bold ? 1 : 0.5</replace>
 </recipe>
