@@ -1804,7 +1804,17 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        if (result.Edits.Count == 0 || _sourceEditor.Document is not { } document)
+        if (result.Edits.Count == 0)
+        {
+            return false;
+        }
+
+        // Filled first, because the edits were measured against PaneSource(), which reads the
+        // drawing's own text until the pane holds it. Splicing them into the pane's empty document
+        // threw ArgumentOutOfRangeException for every edit made before the source pane was opened.
+        EnsureSourceBuffer();
+
+        if (_sourceEditor.Document is not { } document)
         {
             return false;
         }
