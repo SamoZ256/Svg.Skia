@@ -31,6 +31,7 @@ dotnet add package Svg.SourceEditing
 | --- | --- |
 | `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `MoveParameter` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
 | `SvgRecipeRuleEditor` | `SetRule` and `RemoveRule` for an svgc recipe's replacement rules — the half of a recipe that is not declarations |
+| `SvgAttributeEditor` | `SetAttribute` on any element, named by its address, and `Attributes` to read what one is written with |
 | `SvgTextEdit` | One span to replace, and `ApplyAll` for a caller holding only a string |
 | `SvgSourceEditResult` | The spans, or why nothing can be done |
 
@@ -174,6 +175,16 @@ that package to borrow the first would pull a whole SVG parser into a text edito
 decides which rule it means — by value, against a parsed recipe — and passes the attribute and the
 value as that rule already writes them. Passing a second spelling of a value a rule already names
 adds a second rule, which the recipe then refuses to read.
+
+`SvgAttributeEditor` writes anything else: one attribute of one element, named by the child-index
+path `SvgElementAddress.Key` spells — as a string, since that type belongs to the SVG parser and this
+package deliberately cannot see it. The walk that resolves the path is mirrored rather than borrowed
+for the same reason, so the two rules that make the two agree are pinned by a test: the root is the
+empty key, and a comment or a run of text takes no index.
+
+It refuses an attribute a `style` declaration overrides. The declaration wins, so writing the
+attribute would leave a document where the change paints nothing and nothing said so; editing inside
+the declaration needs the scanner that splits one properly, which is internal to the SVG parser.
 
 ## Related docs
 

@@ -1020,10 +1020,14 @@ public static class SvgDeclarationEditor
             return null;
         }
 
-        // Nothing to replace, so it joins the attributes already there.
-        var last = element.Attributes().LastOrDefault();
+        // Nothing to replace, so it joins the attributes already there -- or, where there are none,
+        // follows the element's own name. <rect /> has nowhere else to put a first attribute, and
+        // measuring from the last one answers -1 for it.
+        var last = element.Attributes().LastOrDefault(attribute => !attribute.IsNamespaceDeclaration);
 
-        var at = last is { } ? positions.EndOfValue(last) : -1;
+        var at = last is { }
+            ? positions.EndOfValue(last)
+            : EndOfName(svgText, element, positions);
 
         if (at < 0)
         {
@@ -1031,6 +1035,31 @@ public static class SvgDeclarationEditor
         }
 
         return new SvgTextEdit(at + 1, 0, $" {attributeName}=\"{Escape(expression)}\"");
+    }
+
+    /// <summary>The last character of an element's name, as <c>EndOfValue</c> answers for a value.</summary>
+    /// <remarks>
+    /// One past the name is where a first attribute goes. Answered in the same shape as the value
+    /// positions so the caller adds one either way rather than branching on which it got.
+    /// </remarks>
+    private static int EndOfName(string svgText, XElement element, SvgExpressionDeclarations.Positions positions)
+    {
+        var start = positions.Of(element, null);
+
+        if (start < 0)
+        {
+            return -1;
+        }
+
+        var at = start;
+
+        // The name as the document spells it, prefix and all, which is what the reader pointed at.
+        while (at < svgText.Length && !char.IsWhiteSpace(svgText[at]) && svgText[at] != '>' && svgText[at] != '/')
+        {
+            at++;
+        }
+
+        return at == start ? -1 : at - 1;
     }
 
     /// <summary>An element's name under <paramref name="prefix"/>, which is empty for a default one.</summary>

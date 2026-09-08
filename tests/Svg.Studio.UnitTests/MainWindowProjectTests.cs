@@ -1230,6 +1230,60 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>The Replacements tab's content, whatever it currently is.</summary>
+    /// <summary>The Element tab's content, whatever it currently is.</summary>
+    private static object? Element(GroupPanel panel)
+    {
+        var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
+
+        tabs.SelectedIndex = 3;
+        Dispatcher.UIThread.RunJobs();
+
+        return ((TabItem)tabs.Items[3]!).Content is ContentControl host ? host.Content : null;
+    }
+
+    [AvaloniaFact]
+    public async Task Picking_A_Shape_Shows_What_It_Is_Written_With()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
+
+        // The rect the fixture draws, in the file's own words — and the recipe injected a defs in
+        // front of it, so this is also the address translation working.
+        Assert.Equal("#00ff00", element.Shown("fill"));
+        Assert.Contains("width", element.Attributes);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Element_Edited_From_A_Group_Lands_In_The_Drawing()
+    {
+        var home = Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        var recipe = Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
+
+        Assert.True(element.Set("fill", "{{ tint }}"));
+        Dispatcher.UIThread.RunJobs();
+
+        // Into the drawing, which is where an element's attribute lives. Never the recipe, however
+        // much the recipe is what declares the name it now uses.
+        Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(home));
+        Assert.Equal(Recipe, File.ReadAllText(recipe));
+    }
+
     private static object? Replacements(GroupPanel panel)
     {
         var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
@@ -2345,7 +2399,7 @@ public class MainWindowProjectTests : IDisposable
 
         // First of the two, and so the one shown: a drawing opened from the tree is being looked at
         // as part of a project, so what the project says about it is what to open on.
-        Assert.Equal(new[] { "Project", "Parameters" }, panes.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        Assert.Equal(new[] { "Project", "Parameters", "Element" }, panes.Items.OfType<TabItem>().Select(item => (string)item.Header!));
         Assert.Equal(0, panes.SelectedIndex);
 
         var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "class"));
@@ -2936,7 +2990,7 @@ public class MainWindowProjectTests : IDisposable
         var (window, viewer) = await Painting();
 
         Assert.Equal(
-            new[] { "Project", "Replacements", "Parameters" },
+            new[] { "Project", "Replacements", "Parameters", "Element" },
             viewer.GetVisualDescendants()
                 .OfType<TabControl>()
                 .Single(control => control.Classes.Contains("panes"))

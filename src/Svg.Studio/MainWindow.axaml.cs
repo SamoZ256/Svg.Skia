@@ -1672,7 +1672,7 @@ public partial class MainWindow : Window
 
         if (node is SvgcProjectGroup group)
         {
-            AddNodeTab(new GroupPanel(workspace, group) { Rewrite = Built, DeclarationTargetOf = DeclarationsOf }, node, ProjectWorkspace.Label(node));
+            AddNodeTab(new GroupPanel(workspace, group) { Rewrite = Built, DeclarationTargetOf = DeclarationsOf, DrawingTargetOf = DrawingOf }, node, ProjectWorkspace.Label(node));
             return;
         }
 
@@ -1841,12 +1841,21 @@ public partial class MainWindow : Window
     /// and anything else put there would be invisible to all three.
     /// </remarks>
     private ISvgViewerDeclarationTarget? DeclarationsOf(SvgcProjectDrawing drawing)
-    {
-        if (drawing.EffectiveResolvedRecipe is { } recipe)
-        {
-            return Opened(recipe);
-        }
+        => drawing.EffectiveResolvedRecipe is { } recipe ? Opened(recipe) : DrawingOf(drawing);
 
+    /// <summary>
+    /// Where a drawing's own text is written, whatever builds it.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="DeclarationsOf"/> without its first step. A declaration belongs to the recipe that
+    /// declared it; an attribute of an element belongs to the drawing it is written in, and a recipe
+    /// has nowhere to put one.
+    ///
+    /// The tab it is open in, so the edit lands in a buffer somebody can take back — and so two tabs
+    /// on one file cannot end up disagreeing. Null is answered by the caller with the file itself.
+    /// </remarks>
+    private ISvgViewerDeclarationTarget? DrawingOf(SvgcProjectDrawing drawing)
+    {
         var path = drawing.ResolvedInput;
 
         // The comparison Rebuild and Reread already use. Not normalised, so two spellings of one

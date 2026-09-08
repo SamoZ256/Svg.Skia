@@ -20,6 +20,7 @@ using SkiaSharp;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
+using Svg.Highlighting;
 using Svg.Skia;
 using Svg.SourceEditing;
 using Svg.Viewer.Skia.Avalonia;
@@ -100,6 +101,16 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>The Replacements tab's content: a panel for the picked drawing, or a line saying why not.</summary>
     private readonly ContentControl _replacementsHost = new();
+
+    /// <summary>The Element tab's content: a panel for the picked element, or a line saying why not.</summary>
+    private readonly ContentControl _elementHost = new();
+
+    private readonly TextBlock _elementNote = new()
+    {
+        Margin = new Thickness(10),
+        Opacity = 0.6,
+        TextWrapping = TextWrapping.Wrap
+    };
 
     private readonly TextBlock _replacementsNote = new()
     {
@@ -183,6 +194,8 @@ public sealed class GroupPanel : UserControl
             {
                 Ring(inspecting.Placement, svg, picked.Element);
             }
+
+            ShowElement(node?.AddressKey);
         };
 
         // A group saved in another tab changes what this one inherits, so every tab follows the
@@ -264,6 +277,7 @@ public sealed class GroupPanel : UserControl
 
         tabs.Items.Add(new TabItem { Header = "Parameters", Content = parameters });
         tabs.Items.Add(new TabItem { Header = "Replacements", Content = _replacementsHost });
+        tabs.Items.Add(new TabItem { Header = "Element", Content = _elementHost });
 
         side.Children.Add(tabs);
 
@@ -347,6 +361,14 @@ public sealed class GroupPanel : UserControl
     /// also what says the drawing has colours a recipe could name.
     /// </remarks>
     public Func<SvgcProjectDrawing, ISvgViewerDeclarationTarget?>? DeclarationTargetOf { get; set; }
+
+    /// <summary>Where a drawing's own text is written: the tab it is open in, or nothing.</summary>
+    /// <remarks>
+    /// <see cref="DeclarationTargetOf"/> answers with the recipe where there is one, which is right
+    /// for a declaration and wrong for an attribute of an element — that belongs to the drawing
+    /// whatever builds it. Null is answered with the file, which the panel holds the document for.
+    /// </remarks>
+    public Func<SvgcProjectDrawing, ISvgViewerDeclarationTarget?>? DrawingTargetOf { get; set; }
 
     /// <summary>How the parameters tab asks what to declare. Replaceable, and faked in tests.</summary>
     public ISvgViewerParameterDialogService ParameterDialogService { get; set; } =
@@ -716,6 +738,74 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>What the colour readouts are worked out with: this drawing's names and its values.</summary>
+    /// <summary>
+    /// Shows what the picked element is written with, in the drawing's own file.
+    /// </summary>
+    /// <remarks>
+    /// The address comes from a tree of the drawing that was <em>built</em>, and what is edited is
+    /// the file it was made from. Under a recipe the two disagree by whatever it injected, so it is
+    /// translated before the panel is given it.
+    ///
+    /// Rebuilt with the selection rather than kept: it is one element of one drawing, and both
+    /// change together.
+    /// </remarks>
+    private void ShowElement(string? addressKey)
+    {
+        if (_inspecting is not { } inspecting
+            || inspecting.Built.Document is not { } document
+            || document.SourceText is not { } source)
+        {
+            _elementNote.Text = _inspecting is null
+                ? "Pick an element to see what it is written with."
+                : "This drawing could not be read, so there is nothing to show.";
+
+            _elementHost.Content = _elementNote;
+
+            return;
+        }
+
+        if (addressKey is null)
+        {
+            _elementNote.Text = "Pick an element to see what it is written with.";
+            _elementHost.Content = _elementNote;
+
+            return;
+        }
+
+        var drawing = inspecting.Built.Drawing;
+
+        // The drawing's own text, never the recipe: an element's attribute is the drawing's. This is
+        // why it is not DeclarationTargetOf, which answers with the recipe and rightly so.
+        var target = DrawingTargetOf?.Invoke(drawing)
+                     ?? new DrawingFile(document, drawing.ResolvedInput, source);
+
+        // The names in scope are the drawing's as built, which under a recipe are the recipe's. The
+        // text being edited declares none of them and checking against it would refuse every
+        // expression a recipe makes available.
+        var declaring = DeclarationTargetOf?.Invoke(drawing);
+
+        var panel = new SvgViewerElementPanel(
+            () => target.Text,
+            () => declaring?.Text ?? target.Text,
+            result => target.Apply(result.Edits) && Written(),
+            () => Evaluator(document));
+
+        panel.Show(SvgSourceElements.Addresses(target.Text, document.Built(target.Text))
+            .TryGetValue(addressKey, out var mine)
+            ? mine
+            : null);
+
+        _elementHost.Content = panel;
+    }
+
+    /// <summary>Reads the drawings again after an element was written, and answers that it went.</summary>
+    private bool Written()
+    {
+        ShowDrawings();
+
+        return true;
+    }
+
     private ExprEvaluator? Evaluator(SvgViewerDocument document)
     {
         try
@@ -855,6 +945,9 @@ public sealed class GroupPanel : UserControl
         // one and the same shape in another asks the tree for a row it already has selected, it
         // raises nothing, and the ring stays on the drawing picked first.
         Ring(placement, svg, element);
+
+        // And shown here for the same reason: the drawing changed even where the address did not.
+        ShowElement(SvgElementAddress.Create(element).Key);
     }
 
     /// <summary>Puts <paramref name="svg"/> in the tree, if it is not the one already there.</summary>
@@ -1020,6 +1113,7 @@ public sealed class GroupPanel : UserControl
         _tree.Show(null);
         ShowParameters();
         ShowReplacements();
+        ShowElement(null);
         _showing.Text = "Click a drawing to see what it is made of.";
 
         foreach (var document in _loaded)

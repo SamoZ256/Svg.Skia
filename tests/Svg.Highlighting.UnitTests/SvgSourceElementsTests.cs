@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -233,6 +234,56 @@ public class SvgSourceElementsTests
 
         Assert.Equal(SvgSourceElements.Map(source).Count, SvgSourceElements.Map(source, source).Count);
         Assert.Equal(SvgSourceElements.Map(source).Count, SvgSourceElements.Map(source, null).Count);
+    }
+
+    /// <summary>
+    /// What an element of the built document is called in the file it was made from.
+    /// </summary>
+    /// <remarks>
+    /// An editor writing back has to address the element it is changing, and the address it was
+    /// handed is the built document's. Where a recipe injected a block, the two differ by one step.
+    /// </remarks>
+    [Fact]
+    public void An_Address_Of_The_Built_Document_Is_Named_In_The_File()
+    {
+        const string source = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <rect fill="#00ff00" />
+              <circle r="6" />
+            </svg>
+            """;
+
+        const string built = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="tint" type="color" /></e:code></defs>
+              <rect fill="{{ tint }}" />
+              <circle r="6" />
+            </svg>
+            """;
+
+        var paired = SvgSourceElements.Addresses(source, built);
+
+        Assert.Equal(string.Empty, paired[string.Empty]);
+        Assert.Equal("0", paired["1"]);
+        Assert.Equal("1", paired["2"]);
+
+        // The injected block is in the built document alone, so nothing in the file answers to it.
+        Assert.False(paired.ContainsKey("0"));
+    }
+
+    [Fact]
+    public void Without_A_Rewrite_Every_Address_Is_Its_Own()
+    {
+        const string source = """<svg xmlns="http://www.w3.org/2000/svg"><g><rect /></g></svg>""";
+
+        foreach (var pair in SvgSourceElements.Addresses(source, source))
+        {
+            Assert.Equal(pair.Key, pair.Value);
+        }
+
+        Assert.Equal(
+            SvgSourceElements.Map(source).Keys.OrderBy(key => key, StringComparer.Ordinal),
+            SvgSourceElements.Addresses(source, null).Keys.OrderBy(key => key, StringComparer.Ordinal));
     }
 
     [Fact]
