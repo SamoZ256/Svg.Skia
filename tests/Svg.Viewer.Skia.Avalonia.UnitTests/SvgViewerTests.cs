@@ -121,6 +121,41 @@ public class SvgViewerTests
         }
     }
 
+    /// <summary>
+    /// A viewer is a place declarations can be written to, as well as one that reads them.
+    /// </summary>
+    /// <remarks>
+    /// For a host editing a drawing that happens to be open: the edit belongs in the buffer somebody
+    /// is looking at rather than in the file underneath it, so it can be taken back and is saved
+    /// when they ask. Svg.Studio's group tab writes a drawing this way.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Viewer_Takes_A_Declaration_Edit_Into_Its_Buffer()
+    {
+        var (window, viewer) = await HostLoaded(Plain);
+
+        // The pane has never been opened, so the editor is still holding the empty document it was
+        // born with. Writing into that instead of the drawing is the trap here.
+        Assert.False(viewer.ShowSource);
+        Assert.False(viewer.IsSourceModified);
+
+        var target = (ISvgViewerDeclarationTarget)viewer;
+
+        Assert.Equal(Plain, target.Text);
+
+        Assert.True(target.Apply(new[] { new SvgTextEdit(0, 0, "<!-- written -->\n") }));
+
+        Assert.StartsWith("<!-- written -->", viewer.Source);
+        Assert.Contains("<rect", viewer.Source);
+
+        // Into the buffer, so it is somebody's to save and somebody's to take back.
+        Assert.True(viewer.IsSourceModified);
+        Assert.True(viewer.Undo());
+        Assert.Equal(Plain, viewer.Source);
+
+        window.Close();
+    }
+
     /// <summary>A document of the host's own for the panel to write into, standing in for a recipe.</summary>
     private sealed class Elsewhere : ISvgViewerDeclarationTarget
     {

@@ -47,6 +47,7 @@ public class SvgViewerCanvas : SKCanvasControl
     private bool _dragging;
     private Cursor? _restoreCursor;
     private bool _showBounds = true;
+    private SKPoint _origin;
     private SKPath? _highlight;
 
     /// <summary>How long the ring has been up, which is what the pulse is a function of.</summary>
@@ -68,7 +69,7 @@ public class SvgViewerCanvas : SKCanvasControl
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
-        Array.Empty<SvgViewerPlacement>(), 1d, 0d, 0d, true, null, 0d);
+        Array.Empty<SvgViewerPlacement>(), 1d, 0d, 0d, true, null, 0d, default);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -77,7 +78,8 @@ public class SvgViewerCanvas : SKCanvasControl
         double OffsetY,
         bool Bounds,
         SKPath? Highlight,
-        double HighlightAge);
+        double HighlightAge,
+        SKPoint Origin);
 
     public SvgViewerCanvas()
     {
@@ -131,7 +133,7 @@ public class SvgViewerCanvas : SKCanvasControl
     /// wanting the drawing on its own turns it off.
     /// </remarks>
     /// <summary>
-    /// The silhouette to ring on the drawing, in the drawing's own coordinates.
+    /// The silhouette to ring, in the space the drawings are arranged in.
     /// </summary>
     /// <remarks>
     /// One path holding every piece, so an element drawn several times through <c>&lt;use&gt;</c> is
@@ -142,9 +144,10 @@ public class SvgViewerCanvas : SKCanvasControl
     /// and a path freed underneath it would take the process down. Left to the finalizer, which is
     /// affordable for something built only when somebody picks a row.
     ///
-    /// Drawn inside each placement's transform. A canvas showing several drawings at once — the
-    /// preview of everything a project group builds — would ring the same shape on each of them,
-    /// which is why only the viewer sets this.
+    /// In the arrangement's space rather than any one drawing's, and drawn once rather than once per
+    /// placement. With a single drawing at the origin the two spaces are the same, so a viewer hands
+    /// over what it traced; a host showing several — the preview of everything a project group
+    /// builds — offsets the path by the placement it belongs to.
     /// </remarks>
     public SKPath? Highlight
     {
@@ -231,6 +234,12 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         _placed = placed;
 
+        // Where the arrangement begins, which is not always the origin: a host laying drawings out
+        // centres each in a column as wide as its caption, so the first of them can start well to
+        // the right of nothing. Held rather than recomputed, since it changes only with the
+        // placements while the view changes with every scroll of a wheel.
+        _origin = TryGetCullRect(out var bounds) ? new SKPoint(bounds.Left, bounds.Top) : default;
+
         // Published because the drawing changed, whatever the view does about it. The fit below
         // publishes only when it moves the view, so a drawing swapped for one that fits exactly as
         // the last did — a padding change inside the same frame — left the render thread holding
@@ -297,7 +306,59 @@ public class SvgViewerCanvas : SKCanvasControl
             anchor.Y - (anchor.Y - _offsetY) * factor);
     }
 
-    /// <summary>Converts a point in control coordinates to one in the drawing.</summary>
+    /// <summary>
+    /// Which drawing a control point fell on, and where on it.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="TryGetDrawingPoint"/> answers in the space the drawings are <em>arranged</em> in —
+    /// the union of them all — which is a drawing's own space only when there is one of them at the
+    /// origin. A host showing several needs to know which one was clicked before it can ask that one
+    /// anything, and the arrangement is the host's own, so the canvas is the only thing that can say.
+    ///
+    /// Back to front, because that is the order they were drawn in and the last of them is the one
+    /// on top. A drawing with nothing in it is not a candidate, so a click passes through it.
+    /// </remarks>
+    /// <returns>Whether the point fell on a drawing at all.</returns>
+    public bool TryGetPlacementAt(Point point, out SvgViewerPlacement? placement, out SKPoint drawingPoint)
+    {
+        placement = null;
+        drawingPoint = default;
+
+        if (!TryGetDrawingPoint(point, out var arranged))
+        {
+            return false;
+        }
+
+        for (var index = _placed.Count - 1; index >= 0; index--)
+        {
+            var placed = _placed[index];
+
+            if (Frame(placed) is not { } frame)
+            {
+                continue;
+            }
+
+            frame.Offset(placed.At);
+
+            if (!frame.Contains(arranged.X, arranged.Y))
+            {
+                continue;
+            }
+
+            placement = placed;
+            drawingPoint = new SKPoint(arranged.X - placed.At.X, arranged.Y - placed.At.Y);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Converts a point in control coordinates to one in the space the drawings are arranged in.</summary>
+    /// <remarks>
+    /// Which is one drawing's own space only when there is one drawing, at the origin.
+    /// <see cref="TryGetPlacementAt"/> is the one to ask otherwise.
+    /// </remarks>
     public bool TryGetDrawingPoint(Point point, out SKPoint drawingPoint)
     {
         drawingPoint = default;
@@ -407,7 +468,12 @@ public class SvgViewerCanvas : SKCanvasControl
     }
 
     /// <summary>Hands the render thread a new frame's worth of state.</summary>
-    internal void Publish()
+    /// <remarks>
+    /// Public because a host can change what the drawings say without changing which drawings they
+    /// are: binding a parameter rewrites the recorded picture in place, and the canvas is holding
+    /// the same placements it was, so nothing else would tell it to paint again.
+    /// </remarks>
+    public void Publish()
     {
         _snapshot = new Snapshot(
             _placed,
@@ -416,7 +482,8 @@ public class SvgViewerCanvas : SKCanvasControl
             _offsetY,
             _showBounds,
             _highlight,
-            _highlightAge.Elapsed.TotalSeconds);
+            _highlightAge.Elapsed.TotalSeconds,
+            _origin);
 
         InvalidateVisual();
     }
@@ -587,6 +654,13 @@ public class SvgViewerCanvas : SKCanvasControl
         canvas.Translate((float)state.OffsetX, (float)state.OffsetY);
         canvas.Scale((float)state.Scale);
 
+        // The fit centres the arrangement's size and the offset is where its top left goes, so the
+        // arrangement has to be moved to start there. Without this the drawings are painted further
+        // right and further down than everything else believes them to be, by however far from the
+        // origin they were laid out — which is nothing at all for one drawing at the origin, and
+        // several hundred units for a group whose first drawing is narrower than its caption.
+        canvas.Translate(-state.Origin.X, -state.Origin.Y);
+
         // One font for the frame rather than one per label: the sizes differ, and setting the size
         // on a font costs nothing next to building one.
         using var font = new SKFont(SKTypeface.Default, 1f);
@@ -600,11 +674,6 @@ public class SvgViewerCanvas : SKCanvasControl
             // SKSvg.Draw brackets itself with BeginDraw/EndDraw, so the picture cannot be disposed
             // underneath it by a value being bound on the UI thread.
             placed.Svg.Draw(canvas);
-
-            if (state.Highlight is { } ringed)
-            {
-                Ring(canvas, ringed, state.Scale, state.HighlightAge);
-            }
 
             if (Frame(placed) is { } frame)
             {
@@ -628,6 +697,13 @@ public class SvgViewerCanvas : SKCanvasControl
             }
 
             canvas.Restore();
+        }
+
+        // Outside the loop, so it is drawn once wherever it was put rather than once per drawing on
+        // top of each of them.
+        if (state.Highlight is { } ringed)
+        {
+            Ring(canvas, ringed, state.Scale, state.HighlightAge);
         }
 
         canvas.Restore();

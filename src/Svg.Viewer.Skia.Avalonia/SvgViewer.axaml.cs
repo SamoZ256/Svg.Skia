@@ -37,7 +37,7 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// here blanks the drawing on an error — a failed load, a malformed block and a rejected value all
 /// leave what is up where it was.
 /// </remarks>
-public partial class SvgViewer : UserControl
+public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 {
     private readonly SvgViewerCanvas _canvas;
     private readonly SvgViewerDeclarationPanel _panel;
@@ -63,6 +63,9 @@ public partial class SvgViewer : UserControl
     private readonly Border _treeHost;
     private readonly GridSplitter _treeSplitter;
     private readonly SvgViewerElementTree _elementTree;
+
+    /// <summary>What the panel's buttons do. Shared with any other host that shows one.</summary>
+    private readonly SvgViewerDeclarationCommands _commands;
     private readonly ToggleButton _elementsButton;
 
     /// <summary>What the source pane's row was last set to, so hiding it can be undone.</summary>
@@ -207,6 +210,12 @@ public partial class SvgViewer : UserControl
 
         // Fired and forgotten: a click is not something to await, and the two report what they did
         // through the note and the drawing like every other edit.
+        _commands = new SvgViewerDeclarationCommands(
+            Declarations,
+            Write,
+            () => _rows,
+            () => ParameterDialogService);
+
         _panel.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
         _panel.CommitRequested += (_, _) => CommitParameterDefaults();
         _panel.EditRequested += async (_, row) => await EditParameterAsync(row).ConfigureAwait(true);
@@ -510,146 +519,17 @@ public partial class SvgViewer : UserControl
     /// Rings <paramref name="node"/> on the drawing, or clears the ring when there is nothing to ring.
     /// </summary>
     /// <remarks>
-    /// The element's own silhouette, not a box around it. A bounding box says where a shape roughly
-    /// is; on anything that is not a rectangle — a path, a circle, a group of scattered children —
-    /// it also covers a great deal the shape is not, and two overlapping selections look identical.
+    /// Anything that never reaches the drawing — everything under <c>&lt;defs&gt;</c>, the
+    /// <c>&lt;e:code&gt;</c> block, a <c>&lt;title&gt;</c> — rings nothing while its row still
+    /// selects and is still shown in the text.
     ///
-    /// Every scene node the element has, not the first: one reached through <c>&lt;use&gt;</c> is
-    /// drawn once per use, and ringing one of them points at a copy nobody picked.
-    ///
-    /// Usually free: the scene graph a load compiled is the one this reads, so nothing is built for
-    /// it. Only after something has thrown that away — binding a value, which rewrites the recorded
-    /// drawing rather than compiling one — does the next ring pay for a compile.
+    /// The drawing sits at the origin here, so what <see cref="SvgViewerOutline"/> traces needs no
+    /// offsetting before the canvas is given it.
     /// </remarks>
     private void OutlineElement(SvgViewerElementNode? node)
-    {
-        if (node is null
-            || _document is not { } open
-            || !open.Svg.TryGetRetainedSceneNodes(node.Element, out var scene))
-        {
-            _canvas.Highlight = null;
-
-            return;
-        }
-
-        var outline = new SkiaSharp.SKPath();
-
-        foreach (var placed in scene)
-        {
-            Trace(placed, open.Svg.SkiaModel, outline);
-        }
-
-        _canvas.Highlight = outline.IsEmpty ? null : outline;
-    }
-
-    /// <summary>
-    /// Adds what <paramref name="node"/> covers to <paramref name="outline"/>, in the drawing's space.
-    /// </summary>
-    /// <remarks>
-    /// Only the seven basic shapes carry geometry — <c>SvgSceneCompiler.TryGetDirectVisualPath</c>
-    /// builds one for a path, rect, circle, ellipse, line, polyline and polygon, and for nothing
-    /// else. So a container is its children traced one by one, which is what makes a group's ring
-    /// its parts rather than the box around them, and a <c>&lt;use&gt;</c> ring the real shape it
-    /// was drawn from.
-    ///
-    /// What has neither geometry nor children — text, an image — falls back to its own bounds. Those
-    /// are tight rather than nominal (a text node's are the measured run), so the box is the answer
-    /// rather than an approximation of one.
-    /// </remarks>
-    /// <summary>
-    /// The edges of the band <paramref name="node"/>'s stroke paints, or null when it paints none.
-    /// </summary>
-    /// <remarks>
-    /// A shape's geometry is the line a stroke is drawn <em>along</em>, not what gets drawn. On an
-    /// icon made of stroked paths — most of them are — ringing the geometry runs the ring down the
-    /// middle of the stroke, which reads as the shape being recoloured rather than outlined, and at
-    /// any real stroke width it hides the thing it is pointing at.
-    ///
-    /// So the stroke is widened into the region it covers, the same way
-    /// <c>Svg.Editor.Skia.PathService.OffsetPath</c> does it. A stroke-only shape needs no more: the
-    /// two edges of the band and its caps are exactly its outline. One that is filled as well is
-    /// unioned with its own geometry, because there the inner edge of the band falls inside the
-    /// shape and ringing it would draw a second line through the middle of a filled area.
-    ///
-    /// <c>node.Stroke</c> can be left unresolved in general, but not here: the payload is
-    /// resolved for any node with a <c>HitTestPath</c> (<c>SvgSceneDocument.HasOwnPaintPayload</c>),
-    /// and that is the only kind this is called for.
-    ///
-    /// Not right for <c>vector-effect="non-scaling-stroke"</c>, whose width is in device space while
-    /// this widens in the shape's own. The ring is then too thin or too fat by the zoom factor.
-    ///
-    /// Measured over a group of 500 stroked paths: 7ms to ring them untouched, 16ms widened and
-    /// unioned, 42ms widened with round caps. The union is not what costs — the caps are — so it
-    /// stays; and the whole of it is inside the 200ms a rebuild is debounced by, which is the only
-    /// place this runs other than a click.
-    /// </remarks>
-    private static SkiaSharp.SKPath? Drawn(SvgSceneNode node, SkiaSharp.SKPath geometry, SkiaModel model)
-    {
-        if (node.Stroke is not { StrokeWidth: > 0f } stroke)
-        {
-            return null;
-        }
-
-        using var pen = new SkiaSharp.SKPaint
-        {
-            Style = SkiaSharp.SKPaintStyle.Stroke,
-            StrokeWidth = stroke.StrokeWidth,
-            StrokeCap = model.ToSKStrokeCap(stroke.StrokeCap),
-            StrokeJoin = model.ToSKStrokeJoin(stroke.StrokeJoin),
-            StrokeMiter = stroke.StrokeMiter
-        };
-
-        using var widened = new SkiaSharp.SKPathBuilder();
-
-        if (!pen.GetFillPath(geometry, widened))
-        {
-            return null;
-        }
-
-        var band = widened.Detach();
-
-        if (!node.SupportsFillHitTest)
-        {
-            return band;
-        }
-
-        using (band)
-        {
-            return geometry.Op(band, SkiaSharp.SKPathOp.Union);
-        }
-    }
-
-    /// <returns>Whether anything was added.</returns>
-    private static bool Trace(SvgSceneNode node, SkiaModel model, SkiaSharp.SKPath outline)
-    {
-        if (node.HitTestPath is { } geometry)
-        {
-            using var traced = model.ToSKPath(geometry);
-            using var drawn = Drawn(node, traced, model);
-
-            var placement = model.ToSKMatrix(node.TotalTransform);
-
-            outline.AddPath(drawn ?? traced, ref placement);
-
-            return true;
-        }
-
-        var tracedAny = false;
-
-        foreach (var child in node.Children)
-        {
-            tracedAny |= Trace(child, model, outline);
-        }
-
-        if (!tracedAny && node.TransformedBounds is { Width: > 0f, Height: > 0f } bounds)
-        {
-            outline.AddRect(model.ToSKRect(bounds));
-
-            return true;
-        }
-
-        return tracedAny;
-    }
+        => _canvas.Highlight = node is null || _document is not { } open
+            ? null
+            : SvgViewerOutline.Of(open.Svg, node.Element);
 
     /// <summary>
     /// Shows where <paramref name="node"/> is written, opening the source pane to do it.
@@ -1486,6 +1366,44 @@ public partial class SvgViewer : UserControl
     /// </remarks>
     public ISvgViewerDeclarationTarget? DeclarationTarget { get; set; }
 
+    /// <summary>The drawing as it stands, for a host writing declarations into it.</summary>
+    /// <remarks>
+    /// A viewer is a target as well as a consumer of one. A host that keeps a drawing's declarations
+    /// somewhere else sets <see cref="DeclarationTarget"/>; a host editing a drawing that is open
+    /// here writes through this instead, so the edit lands in the buffer somebody is looking at
+    /// rather than in the file underneath it — with undo, the unsaved mark, and a save that waits
+    /// to be asked for.
+    ///
+    /// Explicit, because <c>Text</c> and <c>Apply</c> are poor names on a viewer and good ones on a
+    /// target: a caller that wants these has the interface in its hand already.
+    /// </remarks>
+    string ISvgViewerDeclarationTarget.Text => Source;
+
+    /// <inheritdoc />
+    bool ISvgViewerDeclarationTarget.Apply(IReadOnlyList<SvgTextEdit> edits)
+    {
+        if (edits is null || edits.Count == 0 || _document is null)
+        {
+            return false;
+        }
+
+        // Spelled out rather than left to Editable(), which answers yes at once when this viewer has
+        // a DeclarationTarget of its own and never reaches either of these.
+        //
+        // The buffer first: Splice writes into the editor's document, and until it has been filled
+        // that is the empty one AvaloniaEdit starts with — the pane need never have been opened.
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
+        {
+            ShowNote("This drawing is too large to edit here.");
+
+            return false;
+        }
+
+        return Splice(SvgSourceEditResult.From(edits));
+    }
+
     /// <summary>The text the declaration commands read.</summary>
     private string Declarations() => DeclarationTarget?.Text ?? PaneSource();
 
@@ -1552,13 +1470,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        var taken = _rows.Select(row => row.Name).ToList();
-
-        var parameter = await ParameterDialogService
-            .AskAsync(TopLevel.GetTopLevel(this), taken)
-            .ConfigureAwait(true);
-
-        return parameter is { } declared && Write(SvgDeclarationEditor.Add(Declarations(), declared));
+        return await _commands.AddAsync(TopLevel.GetTopLevel(this)).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -1586,18 +1498,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        // Its own name is not one it clashes with.
-        var taken = _rows
-            .Where(row => !ReferenceEquals(row, parameter))
-            .Select(row => row.Name)
-            .ToList();
-
-        var replacement = await ParameterDialogService
-            .EditAsync(TopLevel.GetTopLevel(this), taken, parameter.Declaration)
-            .ConfigureAwait(true);
-
-        return replacement is { } wanted
-            && Write(SvgDeclarationEditor.Update(Declarations(), parameter.Name, wanted));
+        return await _commands.EditAsync(TopLevel.GetTopLevel(this), parameter).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -1626,7 +1527,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        return Write(SvgDeclarationEditor.Remove(Declarations(), parameter.Name));
+        return _commands.Remove(parameter);
     }
 
     /// <summary>
@@ -1649,14 +1550,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        var changed = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        foreach (var row in _rows.Where(row => row.IsModified))
-        {
-            changed[row.Name] = row.ToExpression();
-        }
-
-        return changed.Count > 0 && Write(SvgDeclarationEditor.SetDefaults(Declarations(), changed));
+        return _commands.SetDefaults();
     }
 
     /// <summary>
@@ -1680,13 +1574,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        var name = let.Name.Trim();
-        var expression = let.Expression.Trim();
-
-        return Write(
-            let.Declaration is { } declared
-                ? SvgDeclarationEditor.UpdateLet(Declarations(), declared.Name, name, expression)
-                : SvgDeclarationEditor.AddLet(Declarations(), name, expression));
+        return _commands.CommitLet(let);
     }
 
     /// <summary>
@@ -1705,7 +1593,7 @@ public partial class SvgViewer : UserControl
             throw new ArgumentNullException(nameof(let));
         }
 
-        if (_document is null || let.Declaration is not { } declared)
+        if (_document is null || let.Declaration is null)
         {
             return false;
         }
@@ -1715,7 +1603,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        return Write(SvgDeclarationEditor.MoveLet(Declarations(), declared.Name, to));
+        return _commands.MoveLet(let, to);
     }
 
     /// <summary>
@@ -1734,7 +1622,7 @@ public partial class SvgViewer : UserControl
             throw new ArgumentNullException(nameof(let));
         }
 
-        if (_document is null || let.Declaration is not { } declared)
+        if (_document is null || let.Declaration is null)
         {
             return false;
         }
@@ -1744,7 +1632,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        return Write(SvgDeclarationEditor.RemoveLet(Declarations(), declared.Name));
+        return _commands.RemoveLet(let);
     }
 
     /// <summary>
@@ -1774,7 +1662,7 @@ public partial class SvgViewer : UserControl
             return false;
         }
 
-        return Write(SvgDeclarationEditor.MoveParameter(Declarations(), parameter.Name, to));
+        return _commands.MoveParameter(parameter, to);
     }
 
     /// <summary>Shows what each let currently evaluates to, beside it.</summary>

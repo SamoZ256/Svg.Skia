@@ -498,6 +498,607 @@ public class MainWindowProjectTests : IDisposable
     /// <summary>What is on it, in the order it was placed.</summary>
     private static IReadOnlyList<SvgViewerPlacement> Drawn(GroupPanel panel) => Canvas(panel).Placements;
 
+    // ---- selecting an element in a group's preview ----------------------------------------------
+
+    private const string Pair = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+
+          <group namespace="Demo.Icons.Both">
+            <svg input="home.svg" class="Home" />
+            <svg input="badge.svg" class="Badge" />
+          </group>
+        </svgc>
+        """;
+
+    /// <summary>Where in the control a point of the arrangement is, checked by mapping it back.</summary>
+    /// <remarks>
+    /// The arrangement does not have to start at the origin — a spread whose first drawing is
+    /// narrower than its caption begins part way in — so where it does start is asked for rather
+    /// than assumed: the control's own origin maps to it.
+    /// </remarks>
+    private static Point Over(SvgViewerCanvas canvas, float x, float y)
+    {
+        Assert.True(canvas.TryGetDrawingPoint(new Point(canvas.OffsetX, canvas.OffsetY), out var origin));
+
+        var at = new Point(
+            (x - origin.X) * canvas.Scale + canvas.OffsetX,
+            (y - origin.Y) * canvas.Scale + canvas.OffsetY);
+
+        Assert.True(canvas.TryGetDrawingPoint(at, out var back));
+        Assert.Equal(x, back.X, 3);
+        Assert.Equal(y, back.Y, 3);
+
+        return at;
+    }
+
+    /// <summary>
+    /// Clicks a point given in the canvas's own coordinates.
+    /// </summary>
+    /// <remarks>
+    /// The point is translated into the window's space first, and the window is what the event is
+    /// told its root is. A pointer event reports its position relative to whatever asks, by way of
+    /// the visual root — hand it a control-local point and call it the root's and every reader is
+    /// off by wherever the control sits, which for a canvas under a toolbar and beside a tree is a
+    /// couple of hundred pixels.
+    /// </remarks>
+    private static void Click(Window window, SvgViewerCanvas canvas, Point at)
+    {
+        var root = canvas.TranslatePoint(at, window)
+                   ?? throw new InvalidOperationException("The canvas is not in the window.");
+
+        canvas.RaiseEvent(new PointerPressedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            root,
+            0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+            KeyModifiers.None)
+        {
+            RoutedEvent = InputElement.PointerPressedEvent
+        });
+
+        canvas.RaiseEvent(new PointerReleasedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            root,
+            0,
+            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+            KeyModifiers.None,
+            MouseButton.Left)
+        {
+            RoutedEvent = InputElement.PointerReleasedEvent
+        });
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>Where a placement sits in the arrangement, as a rectangle.</summary>
+    private static SKRect Area(SvgViewerPlacement placement)
+    {
+        var cull = placement.Svg.Picture!.CullRect;
+
+        return new SKRect(
+            placement.At.X + cull.Left,
+            placement.At.Y + cull.Top,
+            placement.At.X + cull.Right,
+            placement.At.Y + cull.Bottom);
+    }
+
+    [AvaloniaFact]
+    public async Task Clicking_A_Drawing_In_A_Group_Rings_It_There_And_Nowhere_Else()
+    {
+        // The group view is where the same file is compared built several ways, and until now there
+        // was no way to ask which element any of it was. Hit testing the wrong picture would answer
+        // confidently about a shape nobody pointed at, so the assertion is *where* the ring landed.
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Pair));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        var canvas = Canvas(panel);
+        var placements = Drawn(panel);
+
+        Assert.Equal(2, placements.Count);
+        Assert.Null(canvas.Highlight);
+
+        var second = Area(placements[1]);
+
+        var at = Over(canvas, second.MidX, second.MidY);
+
+        Click(window, canvas, at);
+
+        var ring = canvas.Highlight;
+
+        Assert.NotNull(ring);
+
+        // On the drawing that was clicked, and not on the one beside it.
+        Assert.True(second.Contains(ring!.Bounds), $"{ring.Bounds} is not inside {second}");
+        Assert.False(Area(placements[0]).IntersectsWith(ring.Bounds), "the ring landed on the other drawing too");
+    }
+
+    /// <summary>A group that builds the one file twice, which is what a project usually does.</summary>
+    private const string Twice = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+          <group namespace="Demo.Icons.Large" scale="2">
+            <svg input="badge.svg" class="BadgeLarge" />
+            <group class="BadgeHuge">
+              <svg input="badge.svg" scale="4" />
+            </group>
+          </group>
+        </svgc>
+        """;
+
+    [AvaloniaFact]
+    public async Task Each_Build_Of_The_Same_File_Can_Be_Picked_In_Turn()
+    {
+        // Reported against Demo.Icons.Large: nothing in BadgeLarge could be picked once anything in
+        // BadgeHuge had been. Both are built from badge.svg, so their elements carry the same
+        // addresses, and asking a tree keyed by address for a row it already has selected is
+        // indistinguishable from asking it for nothing.
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Twice));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        var canvas = Canvas(panel);
+        var placements = Drawn(panel);
+
+        Assert.Equal(2, placements.Count);
+
+        // Back and forth, because the failure only showed on the second of any two.
+        for (var round = 0; round < 2; round++)
+        {
+            foreach (var placed in placements)
+            {
+                var area = Area(placed);
+
+                Click(window, canvas, Over(canvas, area.MidX, area.MidY));
+
+                Assert.NotNull(canvas.Highlight);
+                Assert.True(
+                    area.Contains(canvas.Highlight!.Bounds),
+                    $"round {round}: the ring is at {canvas.Highlight.Bounds}, not on the drawing at {area}");
+            }
+        }
+    }
+
+
+    // ---- the tabs follow the selected drawing ---------------------------------------------------
+
+    /// <summary>A drawing that declares its own parameters, so it needs no recipe.</summary>
+    private const string Declaring = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="tint" type="color" default="#00ff00" /></e:code></defs>
+          <rect width="24" height="24" fill="{{ tint }}" />
+        </svg>
+        """;
+
+    /// <summary>A group with a recipe on it and two drawings built through it.</summary>
+    private const string SharedRecipeProject = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+          <group namespace="Demo.Icons.Both" recipe="icons.recipe">
+            <svg input="home.svg" class="Home" />
+            <svg input="badge.svg" class="Badge" />
+          </group>
+        </svgc>
+        """;
+
+    /// <summary>The declaration panel on a group's Parameters tab, which the tab must be on to hold.</summary>
+    private static SvgViewerDeclarationPanel Declarations(GroupPanel panel)
+    {
+        var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
+
+        tabs.SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+
+        return panel.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
+    }
+
+    private static async Task<GroupPanel> Group(MainWindow window, int child)
+    {
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[child]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        return panel;
+    }
+
+    /// <summary>Picks the drawing at <paramref name="index"/> by clicking the middle of it.</summary>
+    private static void Pick(MainWindow window, GroupPanel panel, int index)
+    {
+        var canvas = Canvas(panel);
+        var area = Area(Drawn(panel)[index]);
+
+        Click(window, canvas, Over(canvas, area.MidX, area.MidY));
+    }
+
+    [AvaloniaFact]
+    public async Task Nothing_Picked_Says_To_Pick_Something()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var panel = await Group(window, 0);
+
+        // The tabs are about a drawing, and a group builds several: it cannot guess which.
+        Assert.Null(Declarations(panel).Parameters);
+
+        var note = panel.GetVisualDescendants().OfType<TextBlock>()
+            .FirstOrDefault(block => block.Text is { } said && said.Contains("Pick a drawing"));
+
+        Assert.NotNull(note);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Parameters_Are_The_Picked_Drawings()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        // Read off the drawing as built, which is where a recipe's declarations end up.
+        Assert.Equal(new[] { "hue" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    /// <summary>A group holding two drawings under one recipe and one that declares its own.</summary>
+    private const string MixedProject = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+          <group namespace="Demo.Icons.Mixed">
+            <group recipe="icons.recipe">
+              <svg input="home.svg" class="One" />
+              <svg input="badge.svg" class="Two" />
+            </group>
+            <svg input="plain.svg" class="Plain" />
+          </group>
+        </svgc>
+        """;
+
+    /// <summary>A recipe declaring a parameter the host is expected to supply, as a real one does.</summary>
+    private const string OpenEndedRecipe = """
+        <recipe xmlns="https://svg.skia/expr/1.0">
+          <code>
+            <param name="accent" type="color" default="#00a7ff" />
+            <param name="whiteColor" type="color" />
+            <param name="on" type="boolean" default="true" />
+            <let name="colour">on ? accent : whiteColor</let>
+          </code>
+          <replace color="#00ff00">colour</replace>
+        </recipe>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Parameter_With_No_Default_Does_Not_Grey_The_Group()
+    {
+        // Reported against a real project: every icon came up grey, which is what a drawing renders
+        // when its expressions are left at placeholders. Binding the declared defaults refuses the
+        // whole set the moment one parameter has none -- and a recipe is entitled to declare one --
+        // so nothing was bound at all. A viewer never hit it, because it binds the rows its panel
+        // seeds rather than the defaults.
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", OpenEndedRecipe);
+
+        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var panel = await Group(window, 0);
+
+        foreach (var placed in Drawn(panel))
+        {
+            using var bitmap = new SKBitmap(8, 8);
+
+            using (var surface = new SKCanvas(bitmap))
+            {
+                surface.Clear(SKColors.White);
+                surface.Scale(8f / 24f);
+                placed.Svg.Draw(surface);
+            }
+
+            var painted = bitmap.GetPixel(4, 4);
+
+            // The accent the recipe names, not the placeholder grey it fell back to.
+            Assert.True(
+                painted.Blue > 200 && painted.Red < 100,
+                $"{painted} is not the accent colour: the drawing is still on its placeholders");
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task A_Value_Reaches_Every_Drawing_Sharing_The_Declaration()
+    {
+        // A value belongs where its declaration does. Under a recipe that is every drawing built
+        // through it, so moving one slider moves the family -- which is the whole reason to look at
+        // them side by side. A drawing declaring its own shares with nothing.
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("plain.svg", Declaring);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", MixedProject));
+        var panel = await Group(window, 0);
+
+        var placements = Drawn(panel);
+
+        Assert.Equal(3, placements.Count);
+
+        Pick(window, panel, 0);
+
+        var before = placements.Select(placed => placed.Svg.Picture).ToArray();
+
+        ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single()).Value = 0d;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotSame(before[0], placements[0].Svg.Picture);
+        Assert.NotSame(before[1], placements[1].Svg.Picture);
+
+        // Its own declarations, so nothing was shared with it.
+        Assert.Same(before[2], placements[2].Svg.Picture);
+    }
+
+    [AvaloniaFact]
+    public async Task Picking_A_Drawing_That_Shares_Keeps_The_Value_On_Show()
+    {
+        // The value was bound into both, so the panel showing the next one its declared default
+        // would have it disagreeing with the picture beside it.
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("plain.svg", Declaring);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", MixedProject));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single()).Value = 0d;
+        Dispatcher.UIThread.RunJobs();
+
+        // The other drawing under the same recipe.
+        Pick(window, panel, 1);
+
+        Assert.Equal(0d, ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single()).Value);
+
+        // The one that shares nothing shows what it declares.
+        Pick(window, panel, 2);
+
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    [AvaloniaFact]
+    public async Task Adding_A_Parameter_Writes_Into_The_Drawings_Recipe()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        var recipe = Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.True(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        // Into the recipe's shared buffer, which is where a drawing under one keeps its parameters.
+        Assert.Contains("sweep", window.ShowRecipe(recipe).Workspace.Document.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_With_No_Recipe_Is_Written_To_Its_File()
+    {
+        // The last resort, and the one that has no buffer behind it: the edit is written and saved
+        // at once, because there is nothing else holding the drawing.
+        var home = Write("home.svg", Declaring);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Pair));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.True(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("sweep", File.ReadAllText(home));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Open_In_A_Tab_Is_Edited_Through_That_Tab()
+    {
+        // So the edit can be taken back and is saved when somebody asks, and so two tabs on one
+        // file cannot end up disagreeing about it.
+        var home = Write("home.svg", Declaring);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Pair));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var group = (SvgcProjectGroup)(SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!;
+
+        // Open the drawing in a tab of its own first.
+        await window.ShowAsync(group.Drawings.First());
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.True(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        // In the open tab, and not on disk: it is unsaved work like any other.
+        Assert.Contains("sweep", viewer.Source);
+        Assert.True(viewer.IsSourceModified);
+        Assert.DoesNotContain("sweep", File.ReadAllText(home));
+    }
+
+    /// <summary>The Colours tab's content, whatever it currently is.</summary>
+    private static object? Colours(GroupPanel panel)
+    {
+        var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
+
+        tabs.SelectedIndex = 2;
+        Dispatcher.UIThread.RunJobs();
+
+        return ((TabItem)tabs.Items[2]!).Content is ContentControl host ? host.Content : null;
+    }
+
+    [AvaloniaFact]
+    public async Task The_Colours_Are_The_Picked_Drawings()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var colours = Assert.IsType<ColourPanel>(Colours(panel));
+
+        // The fixture paints one colour, and the recipe has a rule for it.
+        Assert.Equal(new[] { "#00ff00" }, colours.Colours.ToArray());
+        Assert.Equal("tint", colours.Expression("#00ff00"));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Under_No_Recipe_Has_Nothing_To_Recolour()
+    {
+        // The same rule a drawing's own tab follows: the colours are a recipe's rules, and without
+        // one there are none.
+        Write("home.svg", Declaring);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Pair));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var said = Assert.IsType<TextBlock>(Colours(panel));
+
+        Assert.Contains("not built through a recipe", said.Text);
+    }
+
+    private sealed class StubParameterDialogService : ISvgViewerParameterDialogService
+    {
+        private readonly SvgExpressionParameter? _answer;
+
+        public StubParameterDialogService(SvgExpressionParameter? answer) => _answer = answer;
+
+        public Task<SvgExpressionParameter?> AskAsync(TopLevel? owner, IReadOnlyCollection<string> taken)
+            => Task.FromResult(_answer);
+
+        public Task<SvgExpressionParameter?> EditAsync(
+            TopLevel? owner,
+            IReadOnlyCollection<string> taken,
+            SvgExpressionParameter existing)
+            => Task.FromResult(_answer);
+    }
+
+    private static SvgViewerElementTree Elements(GroupPanel panel)
+        => panel.GetVisualDescendants().OfType<SvgViewerElementTree>().Single();
+
+    [AvaloniaFact]
+    public async Task The_Tree_Follows_Whichever_Drawing_Was_Clicked()
+    {
+        // One drawing at a time: the tree keys its rows by a path unique only inside one document,
+        // so a group's several would collide. Clicking the other one swaps what is on show.
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Pair));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        var canvas = Canvas(panel);
+        var placements = Drawn(panel);
+        var tree = Elements(panel);
+
+        // Nothing is on show until something is picked: a group builds several and the pane cannot
+        // guess which of them is meant.
+        Assert.Null(tree.Root);
+
+        var first = Area(placements[0]);
+
+        Click(window, canvas, Over(canvas, first.MidX, first.MidY));
+
+        Assert.NotNull(tree.Root);
+        Assert.Equal("rect", tree.SelectedNode!.Label);
+
+        var showing = tree.Root!.Element;
+
+        // The other drawing is a different document, so the tree is rebuilt rather than reselected.
+        var second = Area(placements[1]);
+
+        Click(window, canvas, Over(canvas, second.MidX, second.MidY));
+
+        Assert.NotSame(showing, tree.Root!.Element);
+        Assert.Equal("rect", tree.SelectedNode!.Label);
+    }
+
+
     private static SKPicture? Picture(SvgViewerPlacement placed) => placed.Svg.Picture;
 
     [AvaloniaFact]

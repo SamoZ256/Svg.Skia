@@ -1,6 +1,8 @@
 using System;
+using System.IO;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -82,6 +84,222 @@ public class SvgViewerCanvasTests
 
         Assert.Same(left.Svg, canvas.Svg);
         Assert.Equal(4d, canvas.Scale, 6);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Point_Says_Which_Drawing_It_Fell_On_And_Where()
+    {
+        // TryGetDrawingPoint answers in the space the drawings are arranged in, which is one
+        // drawing's own space only when there is one of them at the origin. A host showing several
+        // has to know which was clicked before it can ask that one anything.
+        using var first = SvgViewerDocument.LoadFromSvg(Wide);
+        using var second = SvgViewerDocument.LoadFromSvg(Wide);
+        using var third = SvgViewerDocument.LoadFromSvg(Wide);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+
+        window.Show();
+
+        var placements = new[]
+        {
+            new SvgViewerPlacement(first.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(second.Svg, new SKPoint(100f, 0f)),
+            new SvgViewerPlacement(third.Svg, new SKPoint(0f, 50f))
+        };
+
+        canvas.Show(placements);
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // 200x100 arranged into 400x200: the fit is 2 and the origin is 0,0.
+        Assert.Equal(2d, canvas.Scale, 6);
+
+        // Ten in and ten down from the second drawing's own top left, which is at 100,0 arranged
+        // and therefore at 220,20 on the control.
+        Assert.True(canvas.TryGetPlacementAt(new Point(220, 20), out var placement, out var drawingPoint));
+
+        Assert.Same(placements[1], placement);
+        Assert.Equal(10f, drawingPoint.X, 3);
+        Assert.Equal(10f, drawingPoint.Y, 3);
+
+        // And the third, below the first: 0,50 arranged is 0,100 on the control.
+        Assert.True(canvas.TryGetPlacementAt(new Point(20, 120), out placement, out drawingPoint));
+
+        Assert.Same(placements[2], placement);
+        Assert.Equal(10f, drawingPoint.X, 3);
+        Assert.Equal(10f, drawingPoint.Y, 3);
+
+        // The gap the arrangement leaves at the bottom right is on no drawing at all.
+        Assert.False(canvas.TryGetPlacementAt(new Point(300, 120), out placement, out _));
+        Assert.Null(placement);
+
+        window.Close();
+    }
+
+    /// <summary>What the frame is painted at one point of the control.</summary>
+    private static SKColor Painted(Window window, int x, int y)
+    {
+        var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("No rendered frame was captured.");
+
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-at-{Guid.NewGuid():N}.png");
+        frame.Save(path);
+
+        try
+        {
+            using var bitmap = SKBitmap.Decode(path);
+
+            return bitmap!.GetPixel(x, y);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// An arrangement that does not begin at the origin is drawn where everything else says it is.
+    /// </summary>
+    /// <remarks>
+    /// The fit centres the arrangement's <em>size</em> and the offset is where its top left goes, so
+    /// the drawings have to be moved to start there. They were not, while
+    /// <see cref="SvgViewerCanvas.TryGetDrawingPoint"/> mapped back as though they had been — so a
+    /// pointer and a picture disagreed by however far from the origin the arrangement was laid out.
+    /// A single drawing sits at the origin and never noticed; a project group centres each drawing
+    /// in a column as wide as its caption, and the first of them can start hundreds of units in.
+    /// </remarks>
+    [AvaloniaFact]
+    public void An_Arrangement_Away_From_The_Origin_Is_Drawn_Where_It_Is_Mapped()
+    {
+        using var first = SvgViewerDocument.LoadFromSvg(Blue);
+        using var second = SvgViewerDocument.LoadFromSvg(Blue);
+
+        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        // Nothing is placed at the origin: the union runs from 50 to 300 across.
+        canvas.Show(new[]
+        {
+            new SvgViewerPlacement(first.Svg, new SKPoint(50f, 0f)),
+            new SvgViewerPlacement(second.Svg, new SKPoint(200f, 0f))
+        });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // 250x50 in 400x200: the fit is bounded by width at 1.6, and the height is centred.
+        Assert.Equal(1.6d, canvas.Scale, 6);
+
+        // Well inside the first drawing: the arrangement starts at 50, so the control's own left
+        // edge is arranged 50, and 20 across is arranged 62.5 — a fifth of the way into it.
+        Assert.True(canvas.TryGetPlacementAt(new Point(20, 100), out var placement, out var drawingPoint));
+
+        Assert.Same(canvas.Placements[0], placement);
+        Assert.Equal(12.5f, drawingPoint.X, 3);
+        Assert.Equal(25f, drawingPoint.Y, 3);
+
+        // And that is where the ink is. Mapping and painting have to agree, or a click lands on
+        // whatever the difference between them happens to point at. Drawn without the arrangement's
+        // origin taken off, this column is 80 pixels left of anything painted at all.
+        var painted = Painted(window, 20, 100);
+
+        Assert.True(painted.Blue > 200 && painted.Red < 100, $"{painted} is not the drawing's blue");
+    }
+
+    /// <summary>A drawing that is not orange, so the ring cannot be confused with its ink.</summary>
+    private const string Blue = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50">
+          <rect x="0" y="0" width="100" height="50" fill="#0000ff" />
+        </svg>
+        """;
+
+    /// <summary>How much of a rectangle of the frame the selection ring paints.</summary>
+    private static int Ringed(Window window, PixelRect where)
+    {
+        var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("No rendered frame was captured.");
+
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-ring-{Guid.NewGuid():N}.png");
+        frame.Save(path);
+
+        try
+        {
+            using var bitmap = SKBitmap.Decode(path);
+
+            var found = 0;
+
+            for (var x = where.X; x < where.Right && x < bitmap!.Width; x++)
+            {
+                for (var y = where.Y; y < where.Bottom && y < bitmap.Height; y++)
+                {
+                    var pixel = bitmap.GetPixel(x, y);
+
+                    // Orange: red up, blue down, and green in between — which the blue drawing under
+                    // it, the grey bounds outline and the white ground are all outside.
+                    if (pixel.Red > 180 && pixel.Green is > 70 and < 230 && pixel.Blue < 110)
+                    {
+                        found++;
+                    }
+                }
+            }
+
+            return found;
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// The ring belongs to the arrangement, not to each drawing in it.
+    /// </summary>
+    /// <remarks>
+    /// It used to be drawn inside every placement's transform, so a canvas showing a project group's
+    /// drawings rang the same shape on all of them and only one of those was the element picked.
+    /// </remarks>
+    [AvaloniaFact]
+    public void The_Ring_Is_Drawn_Once_Where_It_Was_Put()
+    {
+        using var left = SvgViewerDocument.LoadFromSvg(Blue);
+        using var right = SvgViewerDocument.LoadFromSvg(Blue);
+
+        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        canvas.Show(new[]
+        {
+            new SvgViewerPlacement(left.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(right.Svg, new SKPoint(100f, 50f))
+        });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // The two together are 200x100 in a 400x200 pane, so the fit is 2 and the origin is 0,0.
+        Assert.Equal(2d, canvas.Scale, 6);
+
+        var ring = new SKPath();
+        ring.AddRect(new SKRect(10f, 10f, 90f, 40f));
+
+        canvas.Highlight = ring;
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // Where it was put: 10,10..90,40 at scale 2 is 20,20..180,80.
+        Assert.True(Ringed(window, new PixelRect(0, 0, 200, 100)) > 0, "the ring was not drawn where it was put");
+
+        // And where the second placement would have repeated it: the same rectangle offset by
+        // 100,50, which at scale 2 lands in the opposite quarter of the frame.
+        Assert.Equal(0, Ringed(window, new PixelRect(200, 100, 200, 100)));
 
         window.Close();
     }

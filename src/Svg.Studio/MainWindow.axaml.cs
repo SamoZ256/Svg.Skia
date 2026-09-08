@@ -1402,7 +1402,7 @@ public partial class MainWindow : Window
 
         if (node is SvgcProjectGroup group)
         {
-            AddNodeTab(new GroupPanel(workspace, group) { Rewrite = Built }, node, ProjectWorkspace.Label(node));
+            AddNodeTab(new GroupPanel(workspace, group) { Rewrite = Built, DeclarationTargetOf = DeclarationsOf }, node, ProjectWorkspace.Label(node));
             return;
         }
 
@@ -1546,6 +1546,45 @@ public partial class MainWindow : Window
         _recipes.Add(path, workspace);
 
         return workspace;
+    }
+
+    /// <summary>
+    /// Where a drawing keeps its declarations, for a host that wants to write one.
+    /// </summary>
+    /// <remarks>
+    /// The two this window knows about, in the order that loses the least. Its recipe, if it has
+    /// one: that is where the parameters came from, and a drawing under one refuses a block of its
+    /// own. Otherwise the tab it is open in, so the edit lands in a buffer somebody can take back
+    /// and saves when they ask — and so two tabs on one file cannot end up disagreeing about it.
+    ///
+    /// Null for anything else, which the caller answers with the drawing's own file: the document
+    /// read from it belongs to whatever built the drawing, not to this window.
+    ///
+    /// This is never assigned to a viewer's own <c>DeclarationTarget</c>. That is read back with an
+    /// <c>as RecipeWorkspace</c> in three places — the unsaved dot, Save, and the modified fan-out —
+    /// and anything else put there would be invisible to all three.
+    /// </remarks>
+    private ISvgViewerDeclarationTarget? DeclarationsOf(SvgcProjectDrawing drawing)
+    {
+        if (drawing.EffectiveResolvedRecipe is { } recipe)
+        {
+            return Opened(recipe);
+        }
+
+        var path = drawing.ResolvedInput;
+
+        // The comparison Rebuild and Reread already use. Not normalised, so two spellings of one
+        // path do not meet — their limitation, and not one to fix from here.
+        foreach (var item in _tabs.Items.OfType<TabItem>())
+        {
+            if (item.Content is SvgViewer viewer
+                && string.Equals(viewer.DocumentPath, path, StringComparison.Ordinal))
+            {
+                return viewer;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>The drawing as its recipe makes it, or as it is when the recipe will not have it.</summary>

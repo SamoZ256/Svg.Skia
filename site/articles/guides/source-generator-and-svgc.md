@@ -308,6 +308,22 @@ from and marks it, so a group folded away still says where the tab you are looki
 Settings are edited there and saved back with the file's comments and layout intact. The resize is
 applied to the picture and never to the file, so what a group says about a drawing stays the group's.
 
+A group's tab is not only a picture of what it builds. Clicking a shape on it — or a row in the
+**element tree** beside it — picks that drawing, and the **Parameters** and **Colours** tabs then
+behave as they would on that drawing's own tab: the parameters are the ones the drawing is built
+with, dragging one repaints that drawing alone, and the colours are what its recipe can name. Until
+something is picked they say so, because a group builds several drawings and cannot guess which is
+meant.
+
+Where an edit lands follows the same rule as everywhere else, in the order that loses the least. A
+drawing under a **recipe** writes into the recipe, which is where its parameters came from. One that
+is also **open in a tab** writes into that tab's buffer, so it can be taken back and is saved when
+you ask — and two tabs on one file cannot come to disagree about it. That edit is unsaved work on the
+drawing's tab, and ⌘S on the *group's* tab will not save it; the drawing's tab carries the unsaved
+mark and saves it. A drawing that is under no recipe and open nowhere is the last case, and its
+**file is written directly**: there is no buffer to hold it, so the edit is saved as it is made and
+there is nothing to undo.
+
 A drawing under a `recipe` is shown **as the recipe makes it** — the colours the recipe names already
 turned into expressions, and its parameters on the panel with sliders on them, which is the whole
 loop a recipe is written for. The file is untouched: the source pane shows, edits and saves the
