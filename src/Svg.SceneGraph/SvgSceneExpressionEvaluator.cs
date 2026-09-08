@@ -139,12 +139,11 @@ public static class SvgSceneExpressionEvaluator
                 {
                     if (IsCanvasState(command))
                     {
-                        // Kept, not dropped. Generated code can drop a false range because it
-                        // assigns SetMatrix(TotalMatrix); the runtime renderer applies
-                        // Concat(DeltaMatrix), where a dropped delta mistransforms every later
-                        // command. No document produces such a picture — the recorder balances every
-                        // range — so ConditionalRangeTests pins it on one built by hand.
-                        target.Add(command);
+                        // Kept because the runtime renderer applies Concat(DeltaMatrix), where a
+                        // dropped delta mistransforms every later command. Only the matrix is
+                        // rewritten: evaluating a paint here would raise on dead code, which is the
+                        // reason a nested condition is not evaluated either.
+                        target.Add(command is SetMatrixCanvasCommand ? RewriteCommand(command) : command);
                     }
 
                     changed = true;
@@ -273,6 +272,22 @@ public static class SvgSceneExpressionEvaluator
                             ? command
                             : Carry(command, draw with { Paint = paint });
                     }
+
+                case SetMatrixCanvasCommand matrix when matrix.SymbolicDelta is { } || matrix.SymbolicTotal is { }:
+                    // Both symbolic halves are cleared for the reason ToColor drops a resolved
+                    // colour's expression: a consumer that still saw one would have no reason to
+                    // trust the matrix beside it.
+                    return Carry(command, matrix with
+                    {
+                        DeltaMatrix = matrix.SymbolicDelta is { } delta
+                            ? SvgSceneSymEvaluator.EvaluateMatrix(delta, _evaluator)
+                            : matrix.DeltaMatrix,
+                        TotalMatrix = matrix.SymbolicTotal is { } total
+                            ? SvgSceneSymEvaluator.EvaluateMatrix(total, _evaluator)
+                            : matrix.TotalMatrix,
+                        SymbolicDelta = null,
+                        SymbolicTotal = null
+                    });
 
                 case DrawPictureCanvasCommand draw when draw.Picture is { } nested:
                     {
