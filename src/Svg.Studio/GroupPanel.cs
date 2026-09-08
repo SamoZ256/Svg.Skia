@@ -675,10 +675,10 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>
-    /// Shows what the picked drawing paints with, and what its recipe makes of each colour.
+    /// Shows what the picked drawing uses, and what its recipe makes of each value.
     /// </summary>
     /// <remarks>
-    /// Only under a recipe, which is the same rule a drawing's own tab follows — the colours are the
+    /// Only under a recipe, which is the same rule a drawing's own tab follows — the rows are the
     /// rules a recipe holds, and a drawing without one has none to show. That the target came back a
     /// <see cref="RecipeWorkspace"/> is exactly the question "is this drawing under a recipe", so it
     /// is not asked twice.
@@ -693,8 +693,8 @@ public sealed class GroupPanel : UserControl
             || _target is not RecipeWorkspace recipe)
         {
             _replacementsNote.Text = _inspecting is null
-                ? "Pick a drawing to see what it paints with."
-                : "This drawing is not built through a recipe, so there is nothing to recolour.";
+                ? "Pick a drawing to see what it uses."
+                : "This drawing is not built through a recipe, so there is nothing to replace.";
 
             _replacementsHost.Content = _replacementsNote;
 
