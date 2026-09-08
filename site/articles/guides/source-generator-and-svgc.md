@@ -402,6 +402,26 @@ drawing that already holds its declarations replaces nothing and declares nothin
 converted last week converts the rest and leaves the rest alone. That is also what makes an
 inherited recipe safe to leave named.
 
+Beside them is an **Element** tab, and it needs no recipe. It lists the attributes of whatever is
+picked — on the canvas or in the element tree, on a drawing's own tab or on a group's — in the order
+the file writes them, then the ones an expression could drive that the element has no value for yet.
+
+A row's box holds the value itself, whatever it is. Typing `{{ tint }}` into `fill` writes that into
+the drawing; typing `#00ff00` back writes that. Binding and unbinding are the same gesture, so
+nothing has to remember what a value used to be, and emptying the box takes the attribute away.
+Typing into one of the empty rows adds it.
+
+Only an expression is judged: what it comes to is read out beside it, an expression of the wrong type
+is caught in the box, and one written on an attribute the parser lifts nothing out of is refused
+rather than written as braces nobody reads. Anything else is the file's own value and the parser
+answers for it as it always did.
+
+Rows come from the drawing's text rather than from the drawing, so what is listed is what is there —
+an attribute already holding an expression reads back as that, and the order matches the source pane.
+An edit lands in the drawing whatever builds it: never in the recipe, which has nowhere to put one
+element's attribute. A value a `style` declaration overrides is refused, since the attribute under
+one paints nothing.
+
 A drawing under a recipe also gets a **Replacements** tab beside its Project and Parameters: every
 value the drawing uses that a rule could name, how much of the drawing each one is, and the expression
 the recipe gives it. A colour shows as a swatch and is one row however many attributes paint it;
