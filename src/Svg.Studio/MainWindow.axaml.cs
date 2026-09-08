@@ -1540,6 +1540,11 @@ public partial class MainWindow : Window
                 {
                     Mark(item);
                 }
+                else if (item.Content is GroupPanel group
+                         && RecipesUnder(group.Node).Any(under => ReferenceEquals(under, workspace)))
+                {
+                    Mark(item);
+                }
             }
         };
 
@@ -1706,6 +1711,19 @@ public partial class MainWindow : Window
     {
         foreach (var item in _tabs.Items.OfType<TabItem>())
         {
+            // A group builds its own drawings, and a recipe decides what they come to, so it goes
+            // stale for exactly the reason a viewer does. It was left out of this, so a rule written
+            // from a group's own Replacements tab repainted nothing until the tab was left and come
+            // back to -- which is what rebuilds it, and what made the bug look like it had not been
+            // written at all. Only the tab on screen does the work; the rest rebuild when they are
+            // next attached.
+            if (item.Content is GroupPanel group)
+            {
+                group.Refresh();
+
+                continue;
+            }
+
             if (item.Tag is not SvgcProjectDrawing drawing || item.Content is not SvgViewer viewer)
             {
                 continue;
@@ -2584,19 +2602,54 @@ public partial class MainWindow : Window
     /// A drawing's tab answers for three things: the drawing's own text, the project settings riding
     /// in its right pane, and the recipe those panes write into. Any one of them unsaved is the tab
     /// unsaved — the recipe last, since it is the one the tab is not named after.
+    ///
+    /// A group's tab answers for the same last thing, for the same reason: its tabs write into the
+    /// recipe covering whichever drawing is selected, and with no drawing tab open there is nothing
+    /// else holding that work. It used to say nothing, so an edit made there was unsaved with no
+    /// dot on any tab and no way to save it.
     /// </remarks>
-    private static string? Unsaved(TabItem item) => item.Content switch
+    private string? Unsaved(TabItem item) => item.Content switch
     {
         SvgViewer viewer when viewer.IsSourceModified || Settings(viewer) is { IsModified: true }
             => Named(viewer),
         SvgViewer viewer when Recipe(viewer) is { IsModified: true } recipe => Path.GetFileName(recipe.Path),
         GroupPanel panel when panel.IsModified => ProjectWorkspace.Label(panel.Node),
+        GroupPanel panel when Modified(panel.Node) is { } recipe => Path.GetFileName(recipe.Path),
         RecipePanel recipe when recipe.IsModified => Path.GetFileName(recipe.Path),
         _ => null
     };
 
+    /// <summary>The first recipe under <paramref name="node"/> holding work, or null.</summary>
+    private RecipeWorkspace? Modified(SvgcProjectNode node)
+        => RecipesUnder(node).FirstOrDefault(recipe => recipe.IsModified);
+
     /// <summary>The recipe a viewer's panes write into, when one covers the drawing.</summary>
     private static RecipeWorkspace? Recipe(SvgViewer? viewer) => viewer?.DeclarationTarget as RecipeWorkspace;
+
+    /// <summary>
+    /// The open recipes the drawings under <paramref name="node"/> are built through.
+    /// </summary>
+    /// <remarks>
+    /// What a group's tab answers for. Its Replacements and Parameters tabs write into whichever
+    /// recipe covers the drawing that is selected, and a group can hold several — a nested group
+    /// naming its own wins for the drawings under it.
+    ///
+    /// Only recipes already open. Asking through <see cref="Opened"/> would open the file as a side
+    /// effect of asking whether a tab is dirty, and one that was never opened cannot be modified.
+    /// </remarks>
+    private IEnumerable<RecipeWorkspace> RecipesUnder(SvgcProjectNode node)
+        => (node switch
+            {
+                SvgcProjectGroup group => group.Drawings,
+                SvgcProjectDrawing drawing => new[] { drawing },
+                _ => Enumerable.Empty<SvgcProjectDrawing>()
+            })
+            .Select(drawing => drawing.EffectiveResolvedRecipe)
+            .Where(path => path is { })
+            .Distinct(StringComparer.Ordinal)
+            .Select(path => _recipes.TryGetValue(path!, out var workspace) ? workspace : null)
+            .Where(workspace => workspace is { })
+            .Select(workspace => workspace!);
 
     /// <summary>The project's say over the drawing a viewer is showing, when it came from a project.</summary>
     private static GroupPanel? Settings(SvgViewer viewer)
@@ -2952,6 +3005,21 @@ public partial class MainWindow : Window
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
                 await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
+            }
+
+            // Both halves, as a drawing's tab saves both of its. A rule written from the group's
+            // Replacements tab lands in a recipe, and this returning after the project file left it
+            // unsaved with nothing else open to save it from.
+            foreach (var under in RecipesUnder(panel.Node).Where(recipe => recipe.IsModified).ToList())
+            {
+                try
+                {
+                    under.Save();
+                }
+                catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+                {
+                    await Announce("The recipe couldn't be saved", failure.Message).ConfigureAwait(true);
+                }
             }
 
             return;

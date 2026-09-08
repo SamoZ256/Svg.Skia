@@ -1014,6 +1014,84 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal("tint", colours.Expression("color", "#00ff00"));
     }
 
+    /// <summary>
+    /// A rule written from a group repaints the group, straight away.
+    /// </summary>
+    /// <remarks>
+    /// The panel writes into the recipe's buffer, which is what a drawing's own tab is rebuilt from.
+    /// A group was not: <c>Rebuild</c> only looked at tabs holding a viewer, so the drawings on
+    /// screen went on showing what the recipe used to say until the tab was left and come back to.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Rule_Written_From_A_Group_Repaints_It()
+    {
+        Write("home.svg", Fading);
+        Write("badge.svg", Fading);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var placements = Drawn(panel);
+        var before = placements.Select(placed => placed.Svg.Picture).ToArray();
+
+        // A value the recipe says nothing about yet, so this is an added rule rather than an edited
+        // one -- which is what changes the document the drawings are built from.
+        Assert.True(Assert.IsType<ReplacementsPanel>(Replacements(panel)).Bind("opacity", "0.5", "hue / 240"));
+
+        // The buffer settles a fifth of a second after the last keystroke, so this waits it out the
+        // way the drawing-tab rebuild test does.
+        for (var attempt = 0; attempt < 200 && ReferenceEquals(before[0], Drawn(panel)[0].Svg.Picture); attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Assert.NotSame(before[0], Drawn(panel)[0].Svg.Picture);
+
+        // And the one beside it, since both are built through the recipe that just changed.
+        Assert.NotSame(before[1], Drawn(panel)[1].Svg.Picture);
+    }
+
+    /// <summary>
+    /// A group tab answers for the recipe it wrote into: it takes the mark, and ⌘S saves it.
+    /// </summary>
+    /// <remarks>
+    /// With no drawing tab open there was nothing else holding the edit, and nothing said so —
+    /// the modified fan-out knew about viewer and recipe tabs only, and Save's group branch wrote
+    /// the project file and returned. The work was unsaved with no dot and no way to save it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Recipe_Edited_From_A_Group_Is_Marked_And_Saved_On_That_Tab()
+    {
+        Write("home.svg", Fading);
+        Write("badge.svg", Fading);
+        var recipe = Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var tab = Tabs(window).Items.OfType<TabItem>().Single(item => ReferenceEquals(item.Content, panel));
+
+        Assert.DoesNotContain("unsaved", Marker(tab).Classes);
+
+        Assert.True(Assert.IsType<ReplacementsPanel>(Replacements(panel)).Bind("opacity", "0.5", "hue / 240"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("unsaved", Marker(tab).Classes);
+        Assert.DoesNotContain("hue / 240", File.ReadAllText(recipe));
+
+        await window.SaveAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("hue / 240", File.ReadAllText(recipe));
+        Assert.DoesNotContain("unsaved", Marker(tab).Classes);
+    }
+
     [AvaloniaFact]
     public async Task A_Drawing_Under_No_Recipe_Has_Nothing_To_Recolour()
     {
