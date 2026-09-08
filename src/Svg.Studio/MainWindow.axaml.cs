@@ -89,6 +89,7 @@ public partial class MainWindow : Window
 
         ConfirmDiscard = AskDiscard;
         ConfirmRemove = message => Ask("Remove from the project", message, "Remove", "Cancel");
+        ConfirmApply = message => Ask("Apply the recipe to the files", message, "Apply", "Cancel");
         Announce = (title, message) => Ask(title, message, null, "Close");
         ShowOnDisk = Reveal;
 
@@ -1327,6 +1328,267 @@ public partial class MainWindow : Window
                + "which will be removed with it. This cannot be undone.";
     }
 
+    /// <summary>Every drawing under <paramref name="node"/>, whatever kind of node it is.</summary>
+    private static IEnumerable<SvgcProjectDrawing> Drawings(SvgcProjectNode node)
+        => node switch
+        {
+            SvgcProjectGroup group => group.Drawings,
+            SvgcProjectDrawing drawing => new[] { drawing },
+            _ => Enumerable.Empty<SvgcProjectDrawing>()
+        };
+
+    /// <summary>
+    /// Rewrites the drawings under <paramref name="node"/> into the expression format, in place.
+    /// </summary>
+    /// <remarks>
+    /// The conversion a build does on its way to code, kept: each file is read, put through the
+    /// recipe that covers it, and written back over itself. Every drawing takes its <em>own</em>
+    /// effective recipe, so a nested group naming one of its own is honoured rather than the outer
+    /// one — which is the whole reason to offer this on a group rather than per drawing.
+    ///
+    /// On the window and not on the settings pane that offers it, for the reason
+    /// <c>GroupPanel.RecipeOpened</c> gives about opening a recipe: the project's files are the
+    /// window's business. It also needs what only the window has — the tabs, to refuse while any of
+    /// this is unsaved and to re-read what changed underneath them.
+    ///
+    /// Public and taking the node, so everything but the button can be driven.
+    /// </remarks>
+    /// <returns>Whether anything was written.</returns>
+    public async Task<bool> ApplyRecipeAsync(SvgcProjectNode node)
+    {
+        if (node is null)
+        {
+            throw new ArgumentNullException(nameof(node));
+        }
+
+        if (_workspace is not { } workspace)
+        {
+            return false;
+        }
+
+        // One entry per file, not per row: a project routinely builds one drawing several times,
+        // and converting the same file twice would convert it and then refuse it.
+        var work = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var drawing in Drawings(node))
+        {
+            if (drawing.EffectiveResolvedRecipe is { } recipe)
+            {
+                work.TryAdd(drawing.ResolvedInput, recipe);
+            }
+        }
+
+        if (work.Count == 0)
+        {
+            await Announce("Nothing to apply", $"No drawing under {ProjectWorkspace.Label(node)} is built through a recipe.").ConfigureAwait(true);
+
+            return false;
+        }
+
+        if (Holding(work) is { } holding)
+        {
+            await Announce("There is unsaved work", holding).ConfigureAwait(true);
+
+            return false;
+        }
+
+        if (!await ConfirmApply(Applying(node, work.Count)).ConfigureAwait(true))
+        {
+            return false;
+        }
+
+        return await WriteAsync(workspace, node, work).ConfigureAwait(true);
+    }
+
+    /// <summary>Why the files cannot be written yet, or null when nothing is in the way.</summary>
+    /// <remarks>
+    /// Refused rather than read from the buffers or saved behind somebody's back. A tab holding
+    /// edits of its own is skipped by both <see cref="Reread"/> and <see cref="Rebuild"/>, so it
+    /// would go on showing the text from before the conversion and put it back on the next save —
+    /// undoing the whole thing quietly. The project itself counts too: the recipe settings are
+    /// cleared afterwards, and a pane with settings still pending would write its own back over
+    /// them.
+    /// </remarks>
+    private string? Holding(Dictionary<string, string> work)
+    {
+        var names = new List<string>();
+
+        foreach (var item in _tabs.Items.OfType<TabItem>())
+        {
+            var involved = item.Content switch
+            {
+                SvgViewer viewer => viewer.DocumentPath is { } path && work.ContainsKey(path),
+                RecipePanel recipe => work.Values.Contains(recipe.Path, StringComparer.Ordinal),
+                GroupPanel => true,
+                _ => false
+            };
+
+            if (involved && Unsaved(item) is { } name)
+            {
+                names.Add(name);
+            }
+        }
+
+        // Also the recipes themselves, which are unsaved from every tab at once and may be open in
+        // none of them.
+        foreach (var recipe in work.Values.Distinct(StringComparer.Ordinal))
+        {
+            if (_recipes.TryGetValue(recipe, out var open) && open.IsModified)
+            {
+                names.Add(Path.GetFileName(recipe));
+            }
+        }
+
+        var said = names.Distinct(StringComparer.Ordinal).OrderBy(name => name, StringComparer.Ordinal).ToList();
+
+        return said.Count == 0
+            ? null
+            : $"Save {string.Join(", ", said)} first. Applying a recipe writes over the drawings, and there is no undo.";
+    }
+
+    private static string Applying(SvgcProjectNode node, int files)
+        => $"{files} {(files == 1 ? "drawing" : "drawings")} under {ProjectWorkspace.Label(node)} "
+           + "will be written over with the recipe applied to them, and the recipe setting cleared. "
+           + "This cannot be undone.";
+
+    /// <summary>
+    /// Converts every drawing, and writes only once all of them have converted.
+    /// </summary>
+    /// <remarks>
+    /// The rule a build follows — say why it cannot be made before any of it is. One malformed
+    /// drawing leaving the set half converted is the failure worth engineering against, since the
+    /// half that was written no longer matches the recipe that is about to be cleared.
+    ///
+    /// Through <see cref="SvgRecipeRewriter"/> directly and not <see cref="Rewritten"/>, which
+    /// swallows a refusal and answers with the text unchanged: right for a canvas repainting per
+    /// keystroke, and for a permanent write it would silently save the unconverted file.
+    /// </remarks>
+    private async Task<bool> WriteAsync(ProjectWorkspace workspace, SvgcProjectNode node, Dictionary<string, string> work)
+    {
+        var converted = new Dictionary<string, string>(StringComparer.Ordinal);
+        var recipes = new Dictionary<string, SvgRecipe>(StringComparer.Ordinal);
+        var unmatched = new List<string>();
+
+        try
+        {
+            foreach (var (input, path) in work)
+            {
+                if (!recipes.TryGetValue(path, out var recipe))
+                {
+                    recipe = SvgRecipe.Load(path);
+                    recipes.Add(path, recipe);
+                }
+
+                var result = SvgRecipeRewriter.Apply(File.ReadAllText(input), recipe);
+
+                converted.Add(input, result.Svg);
+
+                foreach (var rule in result.UnmatchedRules)
+                {
+                    unmatched.Add($"warning: nothing in {Path.GetFileName(input)} matched '{rule.ValueText}'.");
+                }
+            }
+        }
+        catch (Exception failure) when (failure is SvgRecipeException or IOException or UnauthorizedAccessException)
+        {
+            await Announce("The recipe couldn't be applied", $"{failure.Message}\n\nNothing was written.").ConfigureAwait(true);
+
+            return false;
+        }
+
+        var written = new List<string>();
+
+        try
+        {
+            foreach (var (input, text) in converted)
+            {
+                // A file already saying this is left alone, so running it again touches nothing.
+                if (string.Equals(File.ReadAllText(input), text, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                SvgViewerDocument.Load(input).Write(text, input);
+                written.Add(input);
+            }
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            await Announce("The recipe couldn't be applied", failure.Message).ConfigureAwait(true);
+
+            return false;
+        }
+
+        Cleared(workspace, node);
+        Reread(written);
+
+        var said = written.Count == 0
+            ? "Every drawing was already in the expression format, so nothing was written."
+            : $"{written.Count} of {converted.Count} {(converted.Count == 1 ? "drawing was" : "drawings were")} written."
+              + (written.Count < converted.Count ? " The rest were already in the expression format." : string.Empty);
+
+        await Announce("Applied", string.Join("\n", new[] { said }.Concat(unmatched.Distinct(StringComparer.Ordinal)))).ConfigureAwait(true);
+
+        return written.Count > 0;
+    }
+
+    /// <summary>
+    /// Stops the nodes under <paramref name="node"/> naming a recipe, now their drawings hold it.
+    /// </summary>
+    /// <remarks>
+    /// Only the ones at or under what was applied. A recipe inherited from further up covers
+    /// drawings this did not touch, and clearing it there would take it away from them — harmless
+    /// to leave, since applying it again to a drawing that already holds its declarations now does
+    /// nothing.
+    /// </remarks>
+    private void Cleared(ProjectWorkspace workspace, SvgcProjectNode node)
+    {
+        var owners = Drawings(node)
+            .Select(drawing => drawing.OwnerOf("recipe"))
+            .Where(owner => owner is { } && owner.DescendsFrom(node))
+            .Distinct()
+            .ToList();
+
+        if (owners.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var owner in owners)
+        {
+            owner!.Recipe = null;
+        }
+
+        workspace.Save();
+    }
+
+    /// <summary>Marks every tab showing one of <paramref name="written"/> as needing reading again.</summary>
+    /// <remarks>
+    /// The path-taking half of <see cref="Reread(SvgViewer)"/>: these files changed under the tabs
+    /// rather than being saved from one. None of them can be holding edits, since that is what
+    /// <see cref="Holding"/> refused over.
+    /// </remarks>
+    private void Reread(IReadOnlyList<string> written)
+    {
+        if (written.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var item in _tabs.Items.OfType<TabItem>())
+        {
+            if (item.Content is SvgViewer viewer
+                && viewer.DocumentPath is { } path
+                && written.Contains(path, StringComparer.Ordinal))
+            {
+                _stale.Add(item);
+            }
+        }
+
+        Refill();
+        Rebuild();
+    }
+
     private async void OnProjectTreeKeyDown(object? sender, KeyEventArgs e)
     {
         if ((_projectTree.SelectedItem as TreeViewItem)?.Tag is not SvgcProjectNode node)
@@ -1421,6 +1683,7 @@ public partial class MainWindow : Window
 
             settings.ModifiedChanged += (_, _) => Mark(item);
             settings.RecipeOpened += (_, recipe) => ShowRecipe(recipe);
+            settings.RecipeApplyRequested += async (_, applied) => await ApplyRecipeAsync(applied);
 
             // Whichever colours panel the tab has by then: it is built before the drawing is read,
             // so it has nothing to survey until one arrives, and a drawing reopened at another size
@@ -1681,6 +1944,7 @@ public partial class MainWindow : Window
             case GroupPanel panel:
                 panel.ModifiedChanged += (_, _) => Mark(item);
                 panel.RecipeOpened += (_, recipe) => ShowRecipe(recipe);
+                panel.RecipeApplyRequested += async (_, applied) => await ApplyRecipeAsync(applied);
                 break;
 
             case RecipePanel recipe:
@@ -2469,6 +2733,15 @@ public partial class MainWindow : Window
     /// caller that only reads the message would have to pass values it ignores.
     /// </remarks>
     public Func<string, Task<bool>> ConfirmRemove { get; set; }
+
+    /// <summary>
+    /// How the window asks whether the drawings under a node may be written over.
+    /// </summary>
+    /// <remarks>
+    /// Its own for the reason <see cref="ConfirmRemove"/> is: the buttons say Apply and Cancel, and
+    /// what it is asking about is files rather than rows of the project.
+    /// </remarks>
+    public Func<string, Task<bool>> ConfirmApply { get; set; }
 
     /// <summary>
     /// How the window shows a file where it lives.

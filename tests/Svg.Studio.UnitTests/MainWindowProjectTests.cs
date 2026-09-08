@@ -709,6 +709,247 @@ public class MainWindowProjectTests : IDisposable
         </svgc>
         """;
 
+    // ---- writing a recipe into the drawings ------------------------------------------------------
+
+    /// <summary>Two groups, each with a recipe of its own, under one that names none.</summary>
+    private const string NestedRecipeProject = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+          <group namespace="Demo.Icons.All">
+            <group namespace="Demo.Icons.One" recipe="icons.recipe">
+              <svg input="home.svg" class="Home" />
+            </group>
+            <group namespace="Demo.Icons.Two" recipe="other.recipe">
+              <svg input="badge.svg" class="Badge" />
+            </group>
+          </group>
+        </svgc>
+        """;
+
+    private const string OtherRecipe = """
+        <recipe xmlns="https://svg.skia/expr/1.0">
+          <code>
+            <param name="shade" type="color" default="#0000ff" />
+          </code>
+          <replace color="#00ff00">shade</replace>
+        </recipe>
+        """;
+
+    /// <summary>The project node a tree row stands for, found by the label the row shows.</summary>
+    private static SvgcProjectNode Node(MainWindow window, string label)
+        => (SvgcProjectNode)Row(window, label).Tag!;
+
+    /// <summary>A window whose dialogs answer themselves, since a modal cannot be driven.</summary>
+    private static List<string> Willing(MainWindow window)
+    {
+        var said = new List<string>();
+
+        window.ConfirmApply = _ => Task.FromResult(true);
+        window.Announce = (_, message) => { said.Add(message); return Task.CompletedTask; };
+
+        return said;
+    }
+
+    [AvaloniaFact]
+    public async Task Applying_A_Recipe_Writes_It_Into_The_Drawings()
+    {
+        var home = Write("home.svg", Drawing);
+        var badge = Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+
+        Willing(window);
+
+        Assert.True(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
+        Dispatcher.UIThread.RunJobs();
+
+        // Both files hold the declarations and the expression now, and neither is the recipe's.
+        foreach (var path in new[] { home, badge })
+        {
+            var written = File.ReadAllText(path);
+
+            Assert.Contains("<e:code>", written);
+            Assert.Contains("name=\"hue\"", written);
+            Assert.Contains("fill=\"{{ tint }}\"", written);
+            Assert.DoesNotContain("#00ff00", written);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Applying_A_Recipe_Stops_The_Node_Naming_It()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+
+        var path = Write("icons.svgcproj", SharedRecipeProject);
+        var window = await Host(path);
+
+        Willing(window);
+
+        Assert.True(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
+        Dispatcher.UIThread.RunJobs();
+
+        // The drawings declare their own parameters now, so the project has no reason to name it —
+        // and naming it would put a build back through a conversion with nothing left to do.
+        Assert.DoesNotContain("recipe=", File.ReadAllText(path));
+    }
+
+    /// <summary>Each drawing takes the recipe nearest to it, not the one the command was pressed on.</summary>
+    [AvaloniaFact]
+    public async Task Applying_A_Recipe_Reaches_The_Recipes_Of_Groups_Below()
+    {
+        var home = Write("home.svg", Drawing);
+        var badge = Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+        Write("other.recipe", OtherRecipe);
+
+        var path = Write("icons.svgcproj", NestedRecipeProject);
+        var window = await Host(path);
+
+        Willing(window);
+
+        // The node pressed names no recipe at all; both of the ones below it are applied.
+        Assert.True(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.All")));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(home));
+        Assert.Contains("fill=\"{{ shade }}\"", File.ReadAllText(badge));
+
+        // Both settings are gone, since both nodes that named one sit under what was applied.
+        Assert.DoesNotContain("recipe=", File.ReadAllText(path));
+    }
+
+    /// <summary>The recipe is on the project, above the group the command is pressed on.</summary>
+    private const string InheritedRecipeProject = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+          <recipe>icons.recipe</recipe>
+          <group namespace="Demo.Icons.Both">
+            <svg input="home.svg" class="Home" />
+            <svg input="badge.svg" class="Badge" />
+          </group>
+        </svgc>
+        """;
+
+    /// <summary>
+    /// A recipe inherited from above the node is applied, and left named.
+    /// </summary>
+    /// <remarks>
+    /// It covers drawings this did not touch, so taking it away would take it from them too. Safe
+    /// to leave only because applying it again to a drawing that already holds its declarations
+    /// now does nothing — which is what the second half of this checks.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Applying_An_Inherited_Recipe_Leaves_It_Named_And_Is_Idempotent()
+    {
+        var home = Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+
+        var path = Write("icons.svgcproj", InheritedRecipeProject);
+        var window = await Host(path);
+
+        var said = Willing(window);
+
+        Assert.True(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(home));
+
+        // The project still names it, because it is the project's and not this group's.
+        Assert.Contains("icons.recipe", File.ReadAllText(path));
+
+        var was = File.ReadAllText(home);
+
+        said.Clear();
+
+        // So the command is still offered, and pressing it again goes all the way through the
+        // rewriter, finds every declaration already made and every value already an expression,
+        // and writes nothing.
+        Assert.False(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was, File.ReadAllText(home));
+        Assert.Contains(said, message => message.Contains("already in the expression format", StringComparison.Ordinal));
+    }
+
+    [AvaloniaFact]
+    public async Task Applying_A_Recipe_Named_Twice_Over_Writes_The_File_Once()
+    {
+        // A project builds one drawing more than once. Converting it per row would convert it and
+        // then meet its own output on the second pass.
+        Write("home.svg", Drawing);
+        Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", """
+            <svgc>
+              <namespace>Demo.Icons</namespace>
+              <group namespace="Demo.Icons.Both" recipe="icons.recipe">
+                <svg input="home.svg" class="Home" />
+                <svg input="home.svg" class="HomeAgain" />
+              </group>
+            </svgc>
+            """));
+
+        var said = Willing(window);
+
+        Assert.True(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains(said, message => message.Contains("1 of 1", StringComparison.Ordinal));
+    }
+
+    [AvaloniaFact]
+    public async Task Applying_A_Recipe_Is_Refused_While_Anything_Is_Unsaved()
+    {
+        var home = Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        var recipe = Write("icons.recipe", Recipe);
+
+        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+
+        var said = Willing(window);
+        var was = File.ReadAllText(home);
+
+        // A rule typed into the recipe and not saved. Reading the file would bake something else
+        // than what is on screen; reading the buffer would bake what no file says.
+        window.ShowRecipe(recipe).Workspace.Document.Insert(0, " ");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was, File.ReadAllText(home));
+        Assert.Contains(said, message => message.Contains("icons.recipe", StringComparison.Ordinal));
+    }
+
+    [AvaloniaFact]
+    public async Task Applying_A_Recipe_Offers_Itself_Where_A_Recipe_Reaches()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+        Write("icons.recipe", Recipe);
+        Write("other.recipe", OtherRecipe);
+
+        var window = await Host(Write("icons.svgcproj", NestedRecipeProject));
+
+        // The outer group names nothing itself, and still offers it: the groups under it do.
+        Assert.Contains("Apply…", RecipeButtons(await Group(window, 0)));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Group_Under_No_Recipe_Does_Not_Offer_To_Apply_One()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Pair));
+
+        Assert.DoesNotContain("Apply…", RecipeButtons(await Group(window, 0)));
+    }
+
     /// <summary>The declaration panel on a group's Parameters tab, which the tab must be on to hold.</summary>
     private static SvgViewerDeclarationPanel Declarations(GroupPanel panel)
     {
@@ -2407,7 +2648,10 @@ public class MainWindowProjectTests : IDisposable
         // Carried relative, so the project still builds anywhere it is cloned to.
         Assert.Equal("icons.recipe", panel.Shown("recipe"));
         Assert.True(panel.IsModified);
-        Assert.Equal(new[] { "✕" }, RecipeButtons(panel));
+
+        // Named, so the two ways to name one give way to writing it into the drawings and to
+        // dropping it again.
+        Assert.Equal(new[] { "Apply…", "✕" }, RecipeButtons(panel));
 
         panel.Save();
 
