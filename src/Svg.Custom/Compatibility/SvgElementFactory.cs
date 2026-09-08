@@ -172,8 +172,7 @@ namespace Svg
 
                         // Lifted out before the style system rejects it as malformed; a
                         // placeholder keeps the element painting for the expression to attach to.
-                        if (SvgExpressionAttributes.IsSupported(localName) &&
-                            SvgExpressionAttributes.TryUnwrap(reader.Value, out var inlineExpression))
+                        if (SvgExpressionAttributes.TryLift(localName, reader.Value, out var inlineExpression, out var inlinePlaceholder))
                         {
                             SvgExpressionAttributes.Lift(
                                 element.CustomAttributes,
@@ -189,7 +188,7 @@ namespace Svg
                             {
                                 element.AddStyle(
                                     localName,
-                                    SvgExpressionAttributes.PlaceholderFor(localName),
+                                    inlinePlaceholder,
                                     SvgElement.StyleSpecificity_PresAttribute);
                             }
 
@@ -227,14 +226,21 @@ namespace Svg
                             // The same lift as the presentation branch above, for the attributes
                             // that are not presentation attributes and so never reach it.
                             if (ns.Length == 0 &&
-                                SvgExpressionAttributes.IsSupported(localName) &&
-                                SvgExpressionAttributes.TryUnwrap(reader.Value, out var liftedExpression))
+                                SvgExpressionAttributes.TryLift(localName, reader.Value, out var liftedExpression, out var liftedPlaceholder))
                             {
                                 SvgExpressionAttributes.Lift(
                                     element.CustomAttributes,
                                     localName,
                                     liftedExpression,
                                     SvgElement.StyleSpecificity_PresAttribute);
+
+                                // The same choice the presentation branch makes: absent for one the
+                                // compile consumes, the stand-in otherwise, so the converter below
+                                // reads a well formed value instead of the braces.
+                                if (!SvgExpressionAttributes.IsResolvedBeforeRecording(localName))
+                                {
+                                    SetPropertyValue(element, ns, localName, liftedPlaceholder, document);
+                                }
 
                                 continue;
                             }
@@ -819,7 +825,22 @@ namespace Svg
                 // Expression code, not a value: unlifted braces make every converter refuse, which
                 // is true but reports a malformed number rather than an attribute taking no
                 // expression.
-                return SvgExpressionAttributes.WhyUnsupported(attributeName);
+                return SvgExpressionAttributes.WhyUnsupported(attributeName, attributeValue);
+            }
+
+            if (SvgExpressionAttributes.IsInArguments(attributeName) &&
+                SvgTransformExpression.Holds(attributeValue))
+            {
+                if (SvgExpressionAttributes.WhyUnsupported(attributeName, attributeValue) is { } stray)
+                {
+                    return stray;
+                }
+
+                // Judged as it will be parsed. Asking the converter about the braces reports a
+                // malformed number for a value that is well formed, while asking it about the
+                // stand-in still reports the faults that are real -- a rotate written with two
+                // arguments is one whether or not an expression drives them.
+                attributeValue = SvgTransformExpression.Parse(attributeValue).Placeholder;
             }
 
             if (IsEventDescriptorAttribute(element, attributeName) ||

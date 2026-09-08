@@ -147,6 +147,12 @@ public static class SvgRecipeRewriter
         // flood-color and lighting-color went unreplaced with nothing said.
         foreach (var name in SvgExpressionAttributes.Supported)
         {
+            // Not a value a rule can name -- see SvgRecipeValue.Names.
+            if (SvgExpressionAttributes.IsInArguments(name))
+            {
+                continue;
+            }
+
             // A 'style' declaration beats the presentation attribute, so rewriting the dead one
             // underneath would emit an expression that never paints.
             if (style.TryGetValue(name, out var styleValue))

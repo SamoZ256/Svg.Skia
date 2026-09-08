@@ -101,6 +101,51 @@ public class SvgSourceAttributesTests
     }
 
     [Fact]
+    public void An_Expression_In_A_Transform_Argument_Is_Not_A_Value()
+    {
+        // Judged as the parser will read it. Before the stand-in was substituted here, the transform
+        // converter met the braces and reported a malformed number.
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="dx" type="number" default="0" /></e:code></defs>
+              <rect transform="translate({{ dx }}, 0) rotate({{ dx }} 32 32)" />
+            </svg>
+            """;
+
+        Assert.Empty(SvgSourceDiagnostics.Analyse(source));
+    }
+
+    [Fact]
+    public void A_Transform_Whose_Arguments_Do_Not_Add_Up_Is_Still_Reported()
+    {
+        // The stand-in must not silence a structural fault: a rotate takes one argument or three,
+        // and whether an expression drives them makes no difference to that.
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="a" type="number" default="0" /></e:code></defs>
+              <rect transform="rotate({{ a }} {{ a }})" />
+            </svg>
+            """;
+
+        Assert.NotEmpty(SvgSourceDiagnostics.Analyse(source));
+    }
+
+    [Fact]
+    public void An_Expression_That_Is_Not_A_Whole_Transform_Argument_Says_So()
+    {
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="t" type="number" default="0" /></e:code></defs>
+              <rect transform="{{ t }}" />
+            </svg>
+            """;
+
+        var one = Assert.Single(SvgSourceDiagnostics.Analyse(source));
+
+        Assert.Contains("has to be the whole of one function argument", one.Message);
+    }
+
+    [Fact]
     public void An_Expression_In_An_Attribute_That_Takes_None_Says_So()
     {
         // Unlifted, so the braces stay and the converter refuses them — a true refusal for a

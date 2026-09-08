@@ -45,47 +45,53 @@ public static class SvgExpressionAttributes
     // is compiled again. True means the value is consumed while the drawing is being built -- a
     // typeface is resolved, text is measured with it, positions are baked -- so it is substituted
     // into the document before the compile and changing it costs one.
-    private static readonly Dictionary<string, (string Placeholder, ExprType Type, bool Inherited, bool BeforeRecording)> s_placeholders = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, (string Placeholder, ExprType Type, bool Inherited, bool BeforeRecording, bool InArguments)> s_placeholders = new(StringComparer.Ordinal)
     {
-        ["fill"] = ("#808080", ExprType.Color, true, false),
-        ["stroke"] = ("#808080", ExprType.Color, true, false),
-        ["stop-color"] = ("#808080", ExprType.Color, false, false),
-        ["flood-color"] = ("#808080", ExprType.Color, false, false),
-        ["lighting-color"] = ("#808080", ExprType.Color, false, false),
+        ["fill"] = ("#808080", ExprType.Color, true, false, false),
+        ["stroke"] = ("#808080", ExprType.Color, true, false, false),
+        ["stop-color"] = ("#808080", ExprType.Color, false, false, false),
+        ["flood-color"] = ("#808080", ExprType.Color, false, false, false),
+        ["lighting-color"] = ("#808080", ExprType.Color, false, false, false),
         // Not inherited: a group's opacity is applied to the group as a layer, and applying it
         // again per child would compound it.
-        ["opacity"] = ("1", ExprType.Number, false, false),
+        ["opacity"] = ("1", ExprType.Number, false, false, false),
         // Fully opaque, so the colour the expression scales is the one the author wrote.
-        ["fill-opacity"] = ("1", ExprType.Number, true, false),
-        ["stroke-opacity"] = ("1", ExprType.Number, true, false),
-        ["stop-opacity"] = ("1", ExprType.Number, false, false),
+        ["fill-opacity"] = ("1", ExprType.Number, true, false, false),
+        ["stroke-opacity"] = ("1", ExprType.Number, true, false, false),
+        ["stop-opacity"] = ("1", ExprType.Number, false, false, false),
         // A hidden element contributes no commands at all, so the placeholder has to be the
         // visible state or there would be nothing left to make conditional. For display that goes
         // further: a display:none container is not compiled at all, subtree included.
         //
         // Neither needs to inherit here: the conditional wraps everything the node contributes,
         // its subtree included, so a group's answer already covers its children.
-        ["visibility"] = ("visible", ExprType.Boolean, false, false),
-        ["display"] = ("inline", ExprType.Boolean, false, false),
+        ["visibility"] = ("visible", ExprType.Boolean, false, false, false),
+        ["display"] = ("inline", ExprType.Boolean, false, false, false),
 
         // Resolved before the drawing is recorded. These carry no placeholder and none is written:
         // the attribute is left absent, so a document whose expression will not evaluate draws the
         // way the same document without the attribute does. A stand-in would be worse than nothing
         // here -- an empty font-family is a value, and a value stops the inheritance a missing one
         // would have allowed.
-        ["font-family"] = ("", ExprType.String, true, true),
+        ["font-family"] = ("", ExprType.String, true, true, false),
         // A string, not a number: SVG takes `bold` and `lighter` as well as `700`, and a number
         // reaches the same place through the language's own conversion at the author's hand.
-        ["font-weight"] = ("", ExprType.String, true, true),
-        ["font-style"] = ("", ExprType.String, true, true),
-        ["text-anchor"] = ("", ExprType.String, true, true),
+        ["font-weight"] = ("", ExprType.String, true, true, false),
+        ["font-style"] = ("", ExprType.String, true, true, false),
+        ["text-anchor"] = ("", ExprType.String, true, true, false),
         // User units. A number carries no unit, so an expression cannot say `2em`; that is the
         // language's limit rather than this table's.
-        ["font-size"] = ("", ExprType.Number, true, true),
-        ["letter-spacing"] = ("", ExprType.Number, true, true),
-        ["word-spacing"] = ("", ExprType.Number, true, true),
+        ["font-size"] = ("", ExprType.Number, true, true, false),
+        ["letter-spacing"] = ("", ExprType.Number, true, true, false),
+        ["word-spacing"] = ("", ExprType.Number, true, true, false),
         // Not a presentation attribute and not inherited: it is one element's own measurement.
-        ["textLength"] = ("", ExprType.Number, false, true)
+        ["textLength"] = ("", ExprType.Number, false, true, false),
+
+        // The only attribute whose expressions drive its arguments rather than its value as a whole,
+        // so the stand-in is computed from what was written rather than read from the column above:
+        // an unbound scale has to read as 1 where an unbound translate reads as 0. The type is what
+        // one argument is; the attribute as a whole is not a number.
+        ["transform"] = ("", ExprType.Number, false, false, true)
     };
 
     /// <summary>The text of a <c>&lt;text&gt;</c> or a <c>&lt;tspan&gt;</c>, as a lifted expression.</summary>
@@ -118,6 +124,13 @@ public static class SvgExpressionAttributes
     public static bool IsResolvedBeforeRecording(string localName)
         => s_placeholders.TryGetValue(localName, out var supported) && supported.BeforeRecording;
 
+    /// <summary>
+    /// Whether the expressions written in <paramref name="localName"/> drive its arguments rather
+    /// than the whole of its value.
+    /// </summary>
+    public static bool IsInArguments(string localName)
+        => s_placeholders.TryGetValue(localName, out var supported) && supported.InArguments;
+
     /// <summary>The attributes an expression can drive.</summary>
     /// <remarks>
     /// Read off the table above rather than written out again, so adding a placeholder cannot leave
@@ -136,10 +149,22 @@ public static class SvgExpressionAttributes
     /// all. Being told which attributes do is the useful half.
     ///
     /// </remarks>
-    public static string? WhyUnsupported(string localName)
-        => IsSupported(localName)
-            ? null
-            : $"'{localName}' does not take an expression. The parser lifts {string.Join(", ", Supported)}, and reads a {Open} … {Close} written anywhere else as an ordinary value.";
+    public static string? WhyUnsupported(string localName, string? value = null)
+    {
+        if (!IsSupported(localName))
+        {
+            return $"'{localName}' does not take an expression. The parser lifts {string.Join(", ", Supported)}, and reads a {Open} … {Close} written anywhere else as an ordinary value.";
+        }
+
+        // Supported, and still doing nothing: the braces are somewhere inside the value that is not
+        // one whole argument, which is the rule one level down from the one above.
+        if (IsInArguments(localName) && value is { } && SvgTransformExpression.Parse(value).Stray.Count > 0)
+        {
+            return $"An expression in '{localName}' has to be the whole of one function argument, as in translate({Open} dx {Close} 0).";
+        }
+
+        return null;
+    }
 
     public static string KeyFor(string localName) => Namespace + ":" + localName;
 
@@ -253,6 +278,52 @@ public static class SvgExpressionAttributes
         => s_placeholders.TryGetValue(localName, out var supported) ? supported.Type : null;
 
     /// <summary>Returns true when <paramref name="value"/> is <c>{{ ... }}</c>, yielding the inside.</summary>
+    /// <summary>
+    /// The expression written in <paramref name="value"/>, and what the attribute holds instead of it.
+    /// </summary>
+    /// <remarks>
+    /// The three places that lift — a presentation attribute, an ordinary one, and a declaration in a
+    /// style attribute — each asked <see cref="TryUnwrap"/> and <see cref="PlaceholderFor"/> in the
+    /// same order, and each would have needed the argument case added to it. Asking here instead is
+    /// what keeps the two kinds from being spelled apart at one site and not another.
+    /// </remarks>
+    public static bool TryLift(string localName, string? value, out string expression, out string placeholder)
+    {
+        expression = string.Empty;
+        placeholder = string.Empty;
+
+        if (!IsSupported(localName))
+        {
+            return false;
+        }
+
+        if (IsInArguments(localName))
+        {
+            var written = SvgTransformExpression.Parse(value);
+
+            if (!written.Any)
+            {
+                return false;
+            }
+
+            // The whole value, braces and all. What drives the drawing is one expression per
+            // argument, and which argument each belongs to is the order the author wrote them in.
+            expression = value!;
+            placeholder = written.Placeholder;
+
+            return true;
+        }
+
+        if (!TryUnwrap(value, out expression))
+        {
+            return false;
+        }
+
+        placeholder = PlaceholderFor(localName);
+
+        return true;
+    }
+
     public static bool TryUnwrap(string? value, out string expression)
     {
         expression = string.Empty;
