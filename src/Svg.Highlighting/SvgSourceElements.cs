@@ -89,9 +89,55 @@ public static class SvgSourceElements
 
         var found = new Dictionary<string, SvgSourceElement>(StringComparer.Ordinal);
 
-        return Pair(file, drawn, string.Empty, new SvgExpressionDeclarations.Positions(source!), source!, found)
+        return Pair(file, drawn, string.Empty, string.Empty, new SvgExpressionDeclarations.Positions(source!), source!, found, null)
             ? found
             : Map(source);
+    }
+
+    /// <summary>
+    /// What each element of <paramref name="built"/> is addressed as in <paramref name="source"/>.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Map(string?, string?)"/> answers where an element is written; this answers what to
+    /// call it when writing back. An editor addresses the element it is changing, and the address it
+    /// was handed is the built document's — a recipe's injected block having shifted every index
+    /// after it.
+    ///
+    /// The same walk, and the same refusal: where the two are not one document with insertions, the
+    /// file's own addresses are given back rather than a guess.
+    /// </remarks>
+    public static IReadOnlyDictionary<string, string> Addresses(string? source, string? built)
+    {
+        var itself = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        if (built is null || string.Equals(source, built, StringComparison.Ordinal))
+        {
+            foreach (var key in Map(source).Keys)
+            {
+                itself[key] = key;
+            }
+
+            return itself;
+        }
+
+        if (Read(source) is not { } file || Read(built) is not { } drawn)
+        {
+            return Addresses(source, null);
+        }
+
+        var paired = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        return Pair(
+            file,
+            drawn,
+            string.Empty,
+            string.Empty,
+            new SvgExpressionDeclarations.Positions(source!),
+            source!,
+            new Dictionary<string, SvgSourceElement>(StringComparer.Ordinal),
+            paired)
+            ? paired
+            : Addresses(source, null);
     }
 
     /// <summary>
@@ -101,10 +147,12 @@ public static class SvgSourceElements
     private static bool Pair(
         XElement source,
         XElement built,
-        string addressKey,
+        string sourceKey,
+        string builtKey,
         SvgExpressionDeclarations.Positions positions,
         string text,
-        Dictionary<string, SvgSourceElement> found)
+        Dictionary<string, SvgSourceElement> found,
+        Dictionary<string, string>? paired)
     {
         if (source.Name != built.Name)
         {
@@ -113,7 +161,12 @@ public static class SvgSourceElements
 
         if (Place(source, positions, text) is { } placed)
         {
-            found[addressKey] = placed;
+            found[builtKey] = placed;
+        }
+
+        if (paired is { })
+        {
+            paired[builtKey] = sourceKey;
         }
 
         var mine = source.Elements().ToList();
@@ -130,11 +183,15 @@ public static class SvgSourceElements
                 continue;
             }
 
-            var child = addressKey.Length == 0
-                ? index.ToString(CultureInfo.InvariantCulture)
-                : addressKey + "/" + index.ToString(CultureInfo.InvariantCulture);
-
-            if (!Pair(mine[next], theirs[index], child, positions, text, found))
+            if (!Pair(
+                    mine[next],
+                    theirs[index],
+                    Child(sourceKey, next),
+                    Child(builtKey, index),
+                    positions,
+                    text,
+                    found,
+                    paired))
             {
                 return false;
             }
@@ -146,6 +203,16 @@ public static class SvgSourceElements
         // address from here on would be a guess.
         return next == mine.Count;
     }
+
+    /// <summary>One step down a path.</summary>
+    /// <remarks>
+    /// Invariant, because <c>SvgElementAddress.Key</c> is: the two have to spell the same path, and
+    /// the three walks here have to spell it the same way as each other.
+    /// </remarks>
+    private static string Child(string addressKey, int index)
+        => addressKey.Length == 0
+            ? index.ToString(CultureInfo.InvariantCulture)
+            : addressKey + "/" + index.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>The root of <paramref name="text"/>, or null where it will not parse.</summary>
     /// <remarks>
@@ -194,15 +261,7 @@ public static class SvgSourceElements
 
         foreach (var child in element.Elements())
         {
-            Walk(
-                child,
-                // Invariant, because SvgElementAddress.Key is: the two have to spell the same path.
-                addressKey.Length == 0
-                    ? index.ToString(CultureInfo.InvariantCulture)
-                    : addressKey + "/" + index.ToString(CultureInfo.InvariantCulture),
-                positions,
-                source,
-                found);
+            Walk(child, Child(addressKey, index), positions, source, found);
 
             index++;
         }
