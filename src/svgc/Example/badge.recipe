@@ -11,7 +11,7 @@
     <let name="alert"><![CDATA[hue < 100 ? #ff0000 : #ff6600]]></let>
   </code>
 
-  <!-- Every fill, stroke and stop-color equal to the colour, however it is spelled. -->
+  <!-- Every colour attribute equal to the colour, however it is spelled. -->
   <replace color="#3b82f6">primary</replace>
   <replace color="rgb(30,64,175)">deep</replace>
   <replace color="red">alert</replace>

@@ -10,7 +10,7 @@ using Svg.Expressions;
 namespace Svg.SourceEditing;
 
 /// <summary>
-/// Edits the colour rules of a recipe, as spans over its text.
+/// Edits the replacement rules of a recipe, as spans over its text.
 /// </summary>
 /// <remarks>
 /// The other half of what a recipe says. <see cref="SvgDeclarationEditor"/> already writes its
@@ -22,38 +22,48 @@ namespace Svg.SourceEditing;
 /// comments, its layout and the order somebody put it in, and a host applies the edits to the buffer
 /// it is already showing so they land on one undo stack.
 ///
-/// It knows nothing about colours. A colour has many spellings and only
+/// It knows nothing about what a rule names. A colour has many spellings and only
 /// <c>Svg.Expressions.Recipes</c> can say which of them are one colour; asking that here would mean
 /// a second answer to it, and referencing that package to borrow the first would pull a whole SVG
-/// parser into a text editor. So the caller decides which rule it means and passes the colour as
-/// that rule already writes it.
+/// parser into a text editor. So the caller decides which rule it means and passes the name and the
+/// value as that rule already writes them.
 /// </remarks>
 public static class SvgRecipeRuleEditor
 {
     private static readonly XNamespace Ns = SvgExpressionDeclarations.Namespace;
 
     /// <summary>
-    /// Writes what <paramref name="color"/> is painted with, adding the rule if there is none.
+    /// Writes what <paramref name="value"/> is replaced with, adding the rule if there is none.
     /// </summary>
-    /// <param name="color">
-    /// The colour exactly as the rule for it writes it, or as a new rule should. A caller holding a
+    /// <param name="name">
+    /// The attribute the rule is written on — <c>color</c>, <c>opacity</c> and so on. Which names
+    /// are meaningful is the recipe package's answer, not this one's.
+    /// </param>
+    /// <param name="value">
+    /// The value exactly as the rule for it writes it, or as a new rule should. A caller holding a
     /// parsed recipe has the first from the rule it matched by value; one adding a rule writes the
-    /// colour canonically. Passing a second spelling of a colour a rule already names would add a
+    /// value canonically. Passing a second spelling of a value a rule already names would add a
     /// rule the recipe then refuses to read.
     /// </param>
-    public static SvgSourceEditResult SetRule(string recipeText, string color, string expression)
+    public static SvgSourceEditResult SetRule(string recipeText, string name, string value, string expression)
     {
         if (recipeText is null)
         {
             throw new ArgumentNullException(nameof(recipeText));
         }
 
-        var text = (color ?? throw new ArgumentNullException(nameof(color))).Trim();
+        var rule = (name ?? throw new ArgumentNullException(nameof(name))).Trim();
+        var text = (value ?? throw new ArgumentNullException(nameof(value))).Trim();
         var written = (expression ?? throw new ArgumentNullException(nameof(expression))).Trim();
+
+        if (rule.Length == 0)
+        {
+            return SvgSourceEditResult.Refuse("A rule has to say what it replaces.");
+        }
 
         if (text.Length == 0)
         {
-            return SvgSourceEditResult.Refuse("A rule has to name a colour.");
+            return SvgSourceEditResult.Refuse("A rule has to name a value.");
         }
 
         if (written.Length == 0)
@@ -75,9 +85,9 @@ public static class SvgRecipeRuleEditor
 
         var rules = Rules(root!);
 
-        if (Rule(rules, text) is { } existing)
+        if (Rule(rules, rule, text) is { } existing)
         {
-            // The body alone, so the colour keeps the spelling it was written with and anything
+            // The body alone, so the value keeps the spelling it was written with and anything
             // else on the line — a comment saying what it is — stays where it is.
             if (SvgDeclarationEditor.Body(recipeText, existing, positions) is not { } body)
             {
@@ -91,28 +101,29 @@ public static class SvgRecipeRuleEditor
                 : SvgSourceEditResult.From(new[] { new SvgTextEdit(body.Start, body.Length, replaced) });
         }
 
-        return Add(recipeText, root!, rules, positions, text, written);
+        return Add(recipeText, root!, rules, positions, rule, text, written);
     }
 
-    /// <summary>Takes the rule for <paramref name="color"/> away, with the line it sits on.</summary>
-    public static SvgSourceEditResult RemoveRule(string recipeText, string color)
+    /// <summary>Takes the rule for <paramref name="value"/> away, with the line it sits on.</summary>
+    public static SvgSourceEditResult RemoveRule(string recipeText, string name, string value)
     {
         if (recipeText is null)
         {
             throw new ArgumentNullException(nameof(recipeText));
         }
 
-        var text = (color ?? throw new ArgumentNullException(nameof(color))).Trim();
+        var rule = (name ?? throw new ArgumentNullException(nameof(name))).Trim();
+        var text = (value ?? throw new ArgumentNullException(nameof(value))).Trim();
 
         if (!Open(recipeText, out var root, out var positions, out var refusal))
         {
             return SvgSourceEditResult.Refuse(refusal!);
         }
 
-        if (Rule(Rules(root!), text) is not { } existing)
+        if (Rule(Rules(root!), rule, text) is not { } existing)
         {
-            // Nothing to do rather than a refusal: a colour with no rule is the ordinary state of
-            // most colours, and clearing one twice is not a mistake worth a sentence.
+            // Nothing to do rather than a refusal: a value with no rule is the ordinary state of
+            // most values, and clearing one twice is not a mistake worth a sentence.
             return SvgSourceEditResult.Nothing;
         }
 
@@ -144,12 +155,13 @@ public static class SvgRecipeRuleEditor
         XElement root,
         List<XElement> rules,
         SvgExpressionDeclarations.Positions positions,
-        string color,
+        string name,
+        string value,
         string expression)
     {
         var newline = SvgDeclarationEditor.Newline(recipeText);
 
-        var element = $"<replace color=\"{SvgDeclarationEditor.EscapeText(color)}\">"
+        var element = $"<replace {name}=\"{SvgDeclarationEditor.EscapeText(value)}\">"
                       + SvgDeclarationEditor.EscapeText(expression)
                       + "</replace>";
 
@@ -186,9 +198,9 @@ public static class SvgRecipeRuleEditor
 
     private static List<XElement> Rules(XElement root) => root.Elements(Ns + "replace").ToList();
 
-    private static XElement? Rule(List<XElement> rules, string color)
+    private static XElement? Rule(List<XElement> rules, string name, string value)
         => rules.FirstOrDefault(
-            rule => string.Equals(((string?)rule.Attribute("color"))?.Trim(), color, StringComparison.Ordinal));
+            rule => string.Equals(((string?)rule.Attribute(name))?.Trim(), value, StringComparison.Ordinal));
 
     /// <summary>Reads the recipe, or says why there is nowhere to write.</summary>
     private static bool Open(

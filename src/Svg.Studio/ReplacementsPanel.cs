@@ -69,7 +69,7 @@ public sealed class ReplacementsPanel : UserControl
     /// <summary>Whether a rebuild was put off because somebody was typing in a row.</summary>
     private bool _waiting;
 
-    private IReadOnlyList<SvgRecipeSurveyColor> _colours = Array.Empty<SvgRecipeSurveyColor>();
+    private IReadOnlyList<SvgRecipeSurveyValue> _colours = Array.Empty<SvgRecipeSurveyValue>();
 
     public ReplacementsPanel(RecipeWorkspace recipe, Func<string> drawing, Func<ExprEvaluator?> values)
     {
@@ -128,7 +128,11 @@ public sealed class ReplacementsPanel : UserControl
             throw new ArgumentNullException(nameof(colour));
         }
 
-        return Splice(SvgRecipeRuleEditor.SetRule(Recipe.Text, Rule(colour)?.ColorText ?? colour, expression ?? string.Empty));
+        return Splice(SvgRecipeRuleEditor.SetRule(
+            Recipe.Text,
+            SvgRecipeValue.ColorName,
+            Rule(colour)?.ValueText ?? colour,
+            expression ?? string.Empty));
     }
 
     /// <summary>Takes back whatever paints <paramref name="colour"/>, leaving it as the drawing has it.</summary>
@@ -139,7 +143,8 @@ public sealed class ReplacementsPanel : UserControl
             throw new ArgumentNullException(nameof(colour));
         }
 
-        return Rule(colour) is { } rule && Splice(SvgRecipeRuleEditor.RemoveRule(Recipe.Text, rule.ColorText));
+        return Rule(colour) is { } rule
+               && Splice(SvgRecipeRuleEditor.RemoveRule(Recipe.Text, SvgRecipeValue.ColorName, rule.ValueText));
     }
 
     /// <summary>Reads the drawing and the recipe again, and says what the two come to.</summary>
@@ -158,7 +163,11 @@ public sealed class ReplacementsPanel : UserControl
 
         try
         {
-            _colours = SvgRecipeRewriter.Survey(_drawing());
+            // Colours only, until a row can say which kind it is: everything below checks what is
+            // typed as a colour, so an opacity offered here would be refused for being one.
+            _colours = SvgRecipeRewriter.Survey(_drawing())
+                .Where(value => value.Name == SvgRecipeValue.ColorName)
+                .ToList();
         }
         catch (SvgRecipeException)
         {
@@ -290,8 +299,9 @@ public sealed class ReplacementsPanel : UserControl
         // Rules this drawing gives nothing to. Not an error — one recipe usually covers a family,
         // and a rule is for whichever of them has the colour — but a rule that appeared to have
         // vanished would be worse than one shown as unused.
-        var elsewhere = (Recipe.Recipe?.ColorRules ?? Array.Empty<SvgColorRule>())
-            .Where(rule => !_colours.Any(colour => colour.Argb == rule.Argb))
+        var elsewhere = (Recipe.Recipe?.Rules ?? Array.Empty<SvgReplaceRule>())
+            .Where(rule => rule.Name == SvgRecipeValue.ColorName)
+            .Where(rule => !_colours.Any(colour => colour.Text == rule.Key))
             .ToList();
 
         if (elsewhere.Count == 0)
@@ -310,7 +320,7 @@ public sealed class ReplacementsPanel : UserControl
 
         foreach (var rule in elsewhere)
         {
-            _rows.Children.Add(Row(rule.ColorText, null));
+            _rows.Children.Add(Row(rule.ValueText, null));
         }
     }
 
@@ -500,9 +510,10 @@ public sealed class ReplacementsPanel : UserControl
     }
 
     /// <summary>The rule for <paramref name="colour"/>, matched by value rather than by spelling.</summary>
-    private SvgColorRule? Rule(string colour)
-        => Recipe.Recipe is { } recipe && SvgRecipeColor.TryParse(colour, out var argb)
-            ? recipe.ColorRules.FirstOrDefault(rule => rule.Argb == argb)
+    private SvgReplaceRule? Rule(string colour)
+        => Recipe.Recipe is { } recipe && SvgRecipeValue.TryKey(ExprType.Color, colour, out var key)
+            ? recipe.Rules.FirstOrDefault(
+                rule => rule.Name == SvgRecipeValue.ColorName && rule.Key == key)
             : null;
 
     /// <summary>Whether the caret is in one of this panel's boxes.</summary>

@@ -167,8 +167,8 @@ public partial class MainWindow : Window
         return string.Join(
             "\n",
             result.Matches.Select(match => match.Count == 0
-                ? $"{match.Rule.ColorText} → nothing in the drawing uses it"
-                : $"{match.Rule.ColorText} → {{{{ {match.Rule.Expression} }}}}  ×{match.Count}"));
+                ? $"{match.Rule.ValueText} → nothing in the drawing uses it"
+                : $"{match.Rule.ValueText} → {{{{ {match.Rule.Expression} }}}}  ×{match.Count}"));
     }
 
     // ---- parameter controls --------------------------------------------------------------------

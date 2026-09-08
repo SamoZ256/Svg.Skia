@@ -2397,7 +2397,7 @@ public class MainWindowProjectTests : IDisposable
         // applies as it stands rather than having to be finished before the drawing will load.
         var recipe = SvgRecipe.Parse(text);
 
-        Assert.Empty(recipe.ColorRules);
+        Assert.Empty(recipe.Rules);
         Assert.Equal(0, SvgRecipeRewriter.Apply(Drawing, recipe).TotalReplacements);
     }
 

@@ -1,4 +1,5 @@
-﻿using System.Linq;
+﻿using System;
+using System.Linq;
 using Xunit;
 
 namespace Svg.Expressions.Recipes.UnitTests;
@@ -76,34 +77,147 @@ public class SvgRecipeRewriterTests
         Assert.Equal("#3b82f6", Assert.Single(colours).Text);
     }
 
+    /// <summary>
+    /// The drawing the invariant below is held against: every attribute an expression can drive,
+    /// spread over attributes and style declarations, with values a rule must not claim mixed in.
+    /// </summary>
+    private const string Everything = """
+        <svg xmlns="http://www.w3.org/2000/svg">
+          <rect fill="#3b82f6" style="fill:#ff0000" opacity="0.5" />
+          <rect stroke="rgb(59,130,246)" fill-opacity="0.5" style="stroke-opacity:.5" />
+          <rect fill="none" stroke="{{ kept }}" display="none" visibility="hidden" />
+          <filter>
+            <feFlood flood-color="#3b82f6" />
+            <feDiffuseLighting lighting-color="red" />
+          </filter>
+          <linearGradient>
+            <stop stop-color="red" stop-opacity="0.25" />
+          </linearGradient>
+        </svg>
+        """;
+
     [Fact]
     public void Survey_ListsExactlyWhatARuleWouldClaim()
     {
-        // The two halves of one walk, held against each other: for every colour listed, a rule
+        // The two halves of one walk, held against each other: for every value listed, a rule
         // naming it replaces that many attributes and no others. A survey that counted the dead
         // attribute under a style declaration would say two here and the rewrite would say one.
-        const string Drawing = """
-            <svg xmlns="http://www.w3.org/2000/svg">
-              <rect fill="#3b82f6" style="fill:#ff0000" />
-              <rect stroke="rgb(59,130,246)" />
-              <rect fill="none" stroke="{{ kept }}" />
-            </svg>
-            """;
+        var values = SvgRecipeRewriter.Survey(Everything);
 
-        var colours = SvgRecipeRewriter.Survey(Drawing);
+        Assert.NotEmpty(values);
 
-        Assert.NotEmpty(colours);
-
-        foreach (var colour in colours)
+        foreach (var value in values)
         {
             var rule = $"""
                 <recipe xmlns="https://svg.skia/expr/1.0">
-                  <replace color="{colour.Text}">painted</replace>
+                  <replace {value.Name}="{value.Text}">painted</replace>
                 </recipe>
                 """;
 
-            Assert.Equal(colour.Count, Apply(Drawing, rule).TotalReplacements);
+            Assert.Equal(value.Count, Apply(Everything, rule).TotalReplacements);
         }
+    }
+
+    /// <summary>Every attribute the language lifts is reached, and each is named as its own rule.</summary>
+    /// <remarks>
+    /// The walk used to carry its own list of three attributes beside a table of eleven, so
+    /// flood-color and lighting-color went unsurveyed and unreplaced with nothing said. Reading the
+    /// table is what keeps the two from drifting again; this is what would notice if they did.
+    /// </remarks>
+    [Fact]
+    public void Survey_ReachesEveryAttributeAnExpressionCanDrive()
+    {
+        var values = SvgRecipeRewriter.Survey(Everything);
+
+        Assert.Equal(
+            new[] { "color", "display", "fill-opacity", "opacity", "stop-opacity", "stroke-opacity", "visibility" },
+            values.Select(value => value.Name).Distinct().OrderBy(name => name, StringComparer.Ordinal).ToArray());
+
+        // #3b82f6 on stroke (spelled rgb) and on flood-color: one rule, two places. The fill under
+        // a style declaration that overrides it is not one of them.
+        var blue = values.Single(value => value.Text == "#3b82f6");
+
+        Assert.Equal("color", blue.Name);
+        Assert.Equal(2, blue.Count);
+
+        // 'red' on lighting-color and stop-color, plus the winning style declaration. The old
+        // three-attribute walk reached neither of the first two.
+        Assert.Equal(3, values.Single(value => value.Text == "#ff0000").Count);
+    }
+
+    [Fact]
+    public void Apply_ReplacesAColourInFloodAndLighting()
+    {
+        var written = Apply("""
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <filter>
+                <feFlood flood-color="#3b82f6" />
+                <feDiffuseLighting lighting-color="#3b82f6" />
+              </filter>
+            </svg>
+            """).Svg;
+
+        Assert.Contains("flood-color=\"{{ primary }}\"", written);
+        Assert.Contains("lighting-color=\"{{ primary }}\"", written);
+    }
+
+    [Theory]
+    [InlineData("opacity", "0.5", "0.5")]
+    [InlineData("opacity", "0.5", ".5")]
+    [InlineData("opacity", "0.5", "0.50")]
+    [InlineData("stop-opacity", "0.25", "0.25")]
+    [InlineData("display", "none", "NONE")]
+    [InlineData("visibility", "hidden", "Hidden")]
+    public void Apply_ReplacesAValueThatIsNotAColour(string name, string ruleValue, string written)
+    {
+        var recipe = $"""
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace {name}="{ruleValue}">shown</replace>
+            </recipe>
+            """;
+
+        var result = Apply($"""<svg xmlns="http://www.w3.org/2000/svg"><rect {name}="{written}" /></svg>""", recipe);
+
+        Assert.Equal(1, result.TotalReplacements);
+        Assert.Contains($"{name}=\"{{{{ shown }}}}\"", result.Svg);
+    }
+
+    [Fact]
+    public void Apply_ReplacesAnOpacityWrittenAsAStyleDeclaration()
+    {
+        var recipe = """
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace opacity="0.5">fade</replace>
+            </recipe>
+            """;
+
+        var result = Apply("""<svg xmlns="http://www.w3.org/2000/svg"><rect style="opacity:.5" /></svg>""", recipe);
+
+        Assert.Equal(1, result.TotalReplacements);
+        Assert.Contains("style=\"opacity:{{ fade }}\"", result.Svg);
+    }
+
+    /// <summary>
+    /// One element carrying two of them in one style declaration. The flag saying the style was
+    /// rewritten used to be assigned rather than or-ed, which only three attributes and one write
+    /// per element kept from showing.
+    /// </summary>
+    [Fact]
+    public void Apply_ReplacesTwoDeclarationsInOneStyleAttribute()
+    {
+        var recipe = """
+            <recipe xmlns="https://svg.skia/expr/1.0">
+              <replace color="#ff0000">accent</replace>
+              <replace opacity="0.5">fade</replace>
+            </recipe>
+            """;
+
+        var result = Apply(
+            """<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill:#ff0000;opacity:0.5" /></svg>""",
+            recipe);
+
+        Assert.Equal(2, result.TotalReplacements);
+        Assert.Contains("style=\"fill:{{ accent }};opacity:{{ fade }}\"", result.Svg);
     }
 
     [Theory]
@@ -374,7 +488,7 @@ public class SvgRecipeRewriterTests
         var result = Apply("""<svg xmlns="http://www.w3.org/2000/svg"><rect fill="#123456" /></svg>""");
 
         var unmatched = Assert.Single(result.UnmatchedRules);
-        Assert.Equal("#3b82f6", unmatched.ColorText);
+        Assert.Equal("#3b82f6", unmatched.ValueText);
     }
 
     [Fact]

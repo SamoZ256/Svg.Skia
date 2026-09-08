@@ -11,21 +11,29 @@ using System.Xml.Linq;
 
 namespace Svg.Expressions.Recipes;
 
-/// <summary>A colour in the source document, and the expression that replaces every occurrence of it.</summary>
-public sealed class SvgColorRule
+/// <summary>A value in the source document, and the expression that replaces every occurrence of it.</summary>
+public sealed class SvgReplaceRule
 {
-    public SvgColorRule(string colorText, int argb, string expression)
+    public SvgReplaceRule(string name, string valueText, string key, ExprType type, string expression)
     {
-        ColorText = colorText;
-        Argb = argb;
+        Name = name;
+        ValueText = valueText;
+        Key = key;
+        Type = type;
         Expression = expression;
     }
 
-    /// <summary>The colour as the recipe spelled it, for diagnostics.</summary>
-    public string ColorText { get; }
+    /// <summary>What the rule names: an attribute, or <see cref="SvgRecipeValue.ColorName"/>.</summary>
+    public string Name { get; }
 
-    /// <summary>Normalised colour key. Matching is by value, not by spelling.</summary>
-    public int Argb { get; }
+    /// <summary>The value as the recipe spelled it, for diagnostics and for finding the rule in text.</summary>
+    public string ValueText { get; }
+
+    /// <summary>Normalised value key. Matching is by value, not by spelling.</summary>
+    public string Key { get; }
+
+    /// <summary>What the expression has to come to, which is what the attribute holds.</summary>
+    public ExprType Type { get; }
 
     /// <summary>Expression text, without the braces.</summary>
     public string Expression { get; }
@@ -41,11 +49,16 @@ public sealed class SvgColorRule
 ///       &lt;let name="accent"&gt;hsl(hue, 74%, 55%)&lt;/let&gt;
 ///     &lt;/code&gt;
 ///     &lt;replace color="#3b82f6"&gt;accent&lt;/replace&gt;
+///     &lt;replace opacity="0.5"&gt;fade&lt;/replace&gt;
 ///   &lt;/recipe&gt;
 /// </code>
 ///
 /// Written in the extension's own namespace, so the declaration block is exactly the block that
 /// ends up in the output: no second schema, and the text is copied rather than re-serialised.
+///
+/// A rule names <c>color</c>, or one of the non-colour attributes an expression can drive. See
+/// <see cref="SvgRecipeValue.ColorName"/> for why colours have a name of their own and the others
+/// do not.
 /// </summary>
 public sealed class SvgRecipe
 {
@@ -57,16 +70,16 @@ public sealed class SvgRecipe
 
     internal static readonly XNamespace Ns = Namespace;
 
-    private SvgRecipe(IReadOnlyList<XElement> declarations, IReadOnlyList<SvgColorRule> colorRules)
+    private SvgRecipe(IReadOnlyList<XElement> declarations, IReadOnlyList<SvgReplaceRule> rules)
     {
         Declarations = declarations;
-        ColorRules = colorRules;
+        Rules = rules;
     }
 
     /// <summary>The <c>param</c> and <c>let</c> elements, in document order, ready to be copied out.</summary>
     public IReadOnlyList<XElement> Declarations { get; }
 
-    public IReadOnlyList<SvgColorRule> ColorRules { get; }
+    public IReadOnlyList<SvgReplaceRule> Rules { get; }
 
     public static SvgRecipe Load(string path) => Parse(File.ReadAllText(path));
 
@@ -95,8 +108,8 @@ public sealed class SvgRecipe
         }
 
         var declarations = new List<XElement>();
-        var rules = new List<SvgColorRule>();
-        var byColor = new Dictionary<int, SvgColorRule>();
+        var rules = new List<SvgReplaceRule>();
+        var claimed = new Dictionary<(string Name, string Key), SvgReplaceRule>();
 
         foreach (var element in root.Elements())
         {
@@ -109,7 +122,7 @@ public sealed class SvgRecipe
                     break;
 
                 case "replace":
-                    AddColorRule(element, rules, byColor);
+                    AddRule(element, rules, claimed);
                     break;
 
                 default:
@@ -141,44 +154,95 @@ public sealed class SvgRecipe
         }
     }
 
-    private static void AddColorRule(XElement element, List<SvgColorRule> rules, Dictionary<int, SvgColorRule> byColor)
+    private static void AddRule(
+        XElement element,
+        List<SvgReplaceRule> rules,
+        Dictionary<(string Name, string Key), SvgReplaceRule> claimed)
     {
-        var colorText = ((string?)element.Attribute("color"))?.Trim();
+        var (name, valueText) = Named(element);
 
-        if (colorText is null || colorText.Length == 0)
-        {
-            throw new SvgRecipeException("<replace> is missing a color.");
-        }
+        var type = SvgRecipeValue.TypeFor(name)!.Value;
+        var written = $"<replace {name}=\"{valueText}\">";
 
-        var argb = SvgRecipeColor.Parse(colorText, $"The color of <replace color=\"{colorText}\">");
+        var key = SvgRecipeValue.Key(type, valueText, $"The value of {written}");
 
         var expression = NormalizeExpression(element.Value);
 
         if (expression.Length == 0)
         {
-            throw new SvgRecipeException($"<replace color=\"{colorText}\"> has no expression.");
+            throw new SvgRecipeException($"{written} has no expression.");
         }
 
         if (expression.IndexOf("}}", StringComparison.Ordinal) >= 0 ||
             expression.IndexOf("{{", StringComparison.Ordinal) >= 0)
         {
             throw new SvgRecipeException(
-                $"The expression for <replace color=\"{colorText}\"> must not contain braces; they are added when it is written out.");
+                $"The expression for {written} must not contain braces; they are added when it is written out.");
         }
 
-        var rule = new SvgColorRule(colorText, argb, expression);
+        var rule = new SvgReplaceRule(name, valueText, key, type, expression);
 
-        // Two rules for one colour cannot both apply, and whichever silently lost would be a
-        // painful thing to debug in the generated code.
-        if (byColor.TryGetValue(argb, out var existing))
+        // Two rules for one value cannot both apply, and whichever silently lost would be a
+        // painful thing to debug in the generated code. One name per kind is what keeps this to a
+        // single comparison: no rule can claim a value another rule also claims under a different
+        // name, so there is no precedence to settle here.
+        if (claimed.TryGetValue((name, key), out var existing))
         {
             throw new SvgRecipeException(
-                $"'{colorText}' and '{existing.ColorText}' are the same colour, so they cannot have different expressions.");
+                $"'{valueText}' and '{existing.ValueText}' are the same {SvgRecipeValue.Describe(type)}, so they cannot have different expressions.");
         }
 
-        byColor.Add(argb, rule);
+        claimed.Add((name, key), rule);
         rules.Add(rule);
     }
+
+    /// <summary>What one <c>&lt;replace&gt;</c> names, refusing anything a rule cannot replace.</summary>
+    /// <remarks>
+    /// The message names what can be replaced rather than only what cannot, because the useful half
+    /// of "stroke-width does not work here" is the list of what does — the same reasoning as
+    /// <see cref="SvgExpressionAttributes.WhyUnsupported"/>, said for a recipe instead of the parser.
+    /// </remarks>
+    private static (string Name, string Value) Named(XElement element)
+    {
+        (string Name, string Value)? found = null;
+
+        foreach (var attribute in element.Attributes())
+        {
+            if (attribute.IsNamespaceDeclaration)
+            {
+                continue;
+            }
+
+            var name = attribute.Name.LocalName;
+
+            if (SvgRecipeValue.TypeFor(name) is null)
+            {
+                // A colour attribute is the near miss worth answering directly: it is replaceable,
+                // just not under its own name, and 'color' already covers every one of them.
+                throw new SvgRecipeException(
+                    SvgExpressionAttributes.TypeFor(name) == ExprType.Color
+                        ? $"<replace> names '{name}' one attribute at a time. Use <replace {SvgRecipeValue.ColorName}=\"…\">, which claims every colour attribute at once."
+                        : $"<replace> cannot replace '{name}'. A rule names {Expected()}.");
+            }
+
+            if (found is { } already)
+            {
+                throw new SvgRecipeException(
+                    $"<replace> names both '{already.Name}' and '{name}', but a rule replaces one value.");
+            }
+
+            found = (name, attribute.Value.Trim());
+        }
+
+        if (found is not { } rule || rule.Value.Length == 0)
+        {
+            throw new SvgRecipeException($"<replace> is missing a value to replace. A rule names {Expected()}.");
+        }
+
+        return rule;
+    }
+
+    private static string Expected() => string.Join(", ", SvgRecipeValue.Names);
 
     private static void RequireRecipeNamespace(XElement element)
     {
