@@ -41,6 +41,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 {
     private readonly SvgViewerCanvas _canvas;
     private readonly SvgViewerDeclarationPanel _panel;
+
+    private readonly SvgViewerElementPanel _element;
+
+    /// <summary>How many panes the host had when the strip was last filled.</summary>
+    private int _hosted;
     private readonly Border _toolBar;
     private readonly Border _statusPanel;
     private readonly Border _panelHost;
@@ -169,9 +174,16 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementsButton.IsChecked = true;
         _elementsButton.IsCheckedChanged += (_, _) => ShowElementTree = _elementsButton.IsChecked == true;
 
+        // The drawing's own text, and its own buffer: an element's attribute belongs to the drawing.
+        // Not through Write, which hands an edit to DeclarationTarget — under a recipe that is the
+        // recipe, and a fill on a rect has no business being written there.
+        _element = new SvgViewerElementPanel(PaneSource, Declarations, Splice, Values);
+
         _elementTree.Selected += (_, node) =>
         {
             OutlineElement(node);
+
+            _element.Show(SourceAddress(node?.AddressKey));
 
             // Only where the text is already being read. Picking a row is about the drawing, and a
             // pane that threw itself open over it every time would be answering a question nobody
@@ -235,6 +247,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         UpdateZoomText();
         UpdateStatus();
         ShowSource = false;
+
+        // The strip exists from the start, not from a host setting a pane: the Element tab is the
+        // viewer's own, and a viewer nobody has given panes to still has elements to pick.
+        FillPanelHost();
     }
 
     /// <summary>Raised once a document has loaded and its parameters are built.</summary>
@@ -365,9 +381,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         // What was being looked at, so a strip that gains or loses a pane does not also change the
         // subject. Only by name: the pane it was is not always one of the panes it now is.
-        var looking = _panelHost.Child is TabControl showing && showing.SelectedItem is TabItem selected
+        //
+        // Except where the host had none and now has some. The viewer's own tabs are what a strip
+        // falls back to rather than what somebody chose, and keeping one selected would file a
+        // host's first pane behind them — a host sets one because it has something to say.
+        var looking = _hosted > 0 && _panelHost.Child is TabControl showing && showing.SelectedItem is TabItem selected
             ? selected.Header as string
             : null;
+
+        _hosted = _sidePanels.Count;
 
         // Emptied first, and the tabs with it: a control cannot be added to a second parent, and
         // the parameters panel is moving between the host and a tab inside it.
@@ -381,13 +403,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _panelHost.Child = null;
 
-        if (_sidePanels.Count == 0)
-        {
-            _panelHost.Child = _panel;
-
-            return;
-        }
-
+        // A strip even with no panes from the host: what the drawing declares and what the picked
+        // element is written with are two things, and the second has to be reachable. An embedder
+        // that had a bare parameters panel gains a strip of two.
         var tabs = new TabControl { Classes = { "panes" }, Padding = new Thickness(0) };
 
         foreach (var pane in _sidePanels)
@@ -396,6 +414,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
 
         tabs.Items.Add(new TabItem { Header = "Parameters", Content = _panel });
+        tabs.Items.Add(new TabItem { Header = "Element", Content = _element });
 
         if (looking is { }
             && tabs.Items.OfType<TabItem>().FirstOrDefault(item => Equals(item.Header, looking)) is { } again)
@@ -1080,6 +1099,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree.Show(_treeHost.IsVisible ? _document?.Svg.SourceDocument : null);
 
         OutlineElement(_elementTree.SelectedNode);
+
+        // The tree raises nothing while it restores a selection, so the panel would go on showing
+        // the text as it was before the keystroke that rebuilt it.
+        _element.Show(SourceAddress(_elementTree.SelectedNode?.AddressKey));
     }
 
     /// <summary>Drops what was known about the drawing that was open.</summary>
@@ -1147,6 +1170,44 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// placed in the file, since that is what the pane shows. The two are the same text unless a
     /// <see cref="Rewrite"/> is in play; a recipe's is what made them differ.
     /// </remarks>
+    /// <summary>What the tree calls an element, as the file it is written in calls it.</summary>
+    /// <remarks>
+    /// The tree is of the drawing that was built; the pane and the element panel are the file. A
+    /// rewrite that injects a block shifts every address after it, so the two disagree wherever one
+    /// is in play — and an edit aimed at the wrong address writes somebody else's attribute.
+    /// </remarks>
+    private string? SourceAddress(string? addressKey)
+    {
+        if (addressKey is null)
+        {
+            return null;
+        }
+
+        var source = PaneSource();
+
+        return SvgSourceElements.Addresses(source, _document?.Built(source)).TryGetValue(addressKey, out var mine)
+            ? mine
+            : null;
+    }
+
+    /// <summary>What the drawing's expressions come to now, for a readout, or null.</summary>
+    private ExprEvaluator? Values()
+    {
+        if (_document is not { } document)
+        {
+            return null;
+        }
+
+        try
+        {
+            return ExprEvaluator.Create(document.Declarations, BuildValues());
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
     private IReadOnlyDictionary<string, SvgSourceElement> SourceElements()
     {
         if (_sourceMapped)

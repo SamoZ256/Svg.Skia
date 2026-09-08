@@ -239,8 +239,11 @@ public class SvgViewerTests
 
         var host = window.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "DeclarationPanelHost");
 
-        // Nothing set, so the pane is what it always was: the declarations, with no strip over them.
-        Assert.IsType<SvgViewerDeclarationPanel>(host.Child);
+        // Nothing set by the host, and still a strip: the Element tab is the viewer's own, and a
+        // viewer nobody has given panes to still has elements to pick.
+        Assert.Equal(
+            new[] { "Parameters", "Element" },
+            Assert.IsType<TabControl>(host.Child).Items.OfType<TabItem>().Select(item => (string)item.Header!));
 
         var mine = new TextBlock { Text = "the host's own" };
 
@@ -251,7 +254,7 @@ public class SvgViewerTests
 
         // First, and so the one shown, rather than filed behind the parameters: a host sets one
         // because it has something to say.
-        Assert.Equal(new[] { "Project", "Parameters" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        Assert.Equal(new[] { "Project", "Parameters", "Element" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
         Assert.Equal(0, tabs.SelectedIndex);
         Assert.Same(mine, ((TabItem)tabs.Items[0]!).Content);
 
@@ -264,16 +267,18 @@ public class SvgViewerTests
         tabs = Assert.IsType<TabControl>(host.Child);
 
         Assert.Equal(
-            new[] { "Project", "Replacements", "Parameters" },
+            new[] { "Project", "Replacements", "Parameters", "Element" },
             tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
         Assert.Same(second, ((TabItem)tabs.Items[1]!).Content);
 
         viewer.SidePanels = System.Array.Empty<SvgViewerPane>();
         Dispatcher.UIThread.RunJobs();
 
-        // And back, with the declarations panel itself rather than a new one — it is the viewer's,
-        // and everything wired to it is still wired.
-        Assert.IsType<SvgViewerDeclarationPanel>(host.Child);
+        // And back to the viewer's own two, with the declarations panel itself rather than a new
+        // one — it is the viewer's, and everything wired to it is still wired.
+        tabs = Assert.IsType<TabControl>(host.Child);
+
+        Assert.Equal(new[] { "Parameters", "Element" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
         Assert.NotEmpty(viewer.Parameters!);
     }
 

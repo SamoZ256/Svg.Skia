@@ -62,6 +62,15 @@ public sealed class SvgViewerElementPanel : UserControl
 
     private readonly Func<string> _text;
 
+    /// <summary>Where the names an expression may use are declared.</summary>
+    /// <remarks>
+    /// Not always the text being edited. A drawing under a recipe is built with the recipe's
+    /// declarations injected into it, so <c>{{ tint }}</c> is a name in scope while the file itself
+    /// declares nothing — checking against the file would refuse every expression a recipe makes
+    /// available.
+    /// </remarks>
+    private readonly Func<string> _declarations;
+
     private readonly Func<SvgSourceEditResult, bool> _write;
 
     private readonly Func<ExprEvaluator?> _values;
@@ -75,9 +84,14 @@ public sealed class SvgViewerElementPanel : UserControl
 
     private string? _address;
 
-    public SvgViewerElementPanel(Func<string> text, Func<SvgSourceEditResult, bool> write, Func<ExprEvaluator?> values)
+    public SvgViewerElementPanel(
+        Func<string> text,
+        Func<string> declarations,
+        Func<SvgSourceEditResult, bool> write,
+        Func<ExprEvaluator?> values)
     {
         _text = text ?? throw new ArgumentNullException(nameof(text));
+        _declarations = declarations ?? throw new ArgumentNullException(nameof(declarations));
         _write = write ?? throw new ArgumentNullException(nameof(write));
         _values = values ?? throw new ArgumentNullException(nameof(values));
 
@@ -370,7 +384,7 @@ public sealed class SvgViewerElementPanel : UserControl
             return SvgExpressionAttributes.WhyUnsupported(name);
         }
 
-        var declarations = SvgExpressionDeclarations.Parse(_text(), out var diagnostics);
+        var declarations = SvgExpressionDeclarations.Parse(_declarations(), out var diagnostics);
 
         if (diagnostics.Count > 0)
         {

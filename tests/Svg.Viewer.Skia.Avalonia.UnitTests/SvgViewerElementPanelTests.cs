@@ -38,6 +38,7 @@ public class SvgViewerElementPanelTests
 
             Panel = new SvgViewerElementPanel(
                 () => Text,
+                () => Text,
                 result =>
                 {
                     Text = SvgTextEdit.ApplyAll(Text, result.Edits);
