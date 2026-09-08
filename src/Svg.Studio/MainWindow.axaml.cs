@@ -1467,7 +1467,7 @@ public partial class MainWindow : Window
     {
         var converted = new Dictionary<string, string>(StringComparer.Ordinal);
         var recipes = new Dictionary<string, SvgRecipe>(StringComparer.Ordinal);
-        var unmatched = new List<string>();
+        var unmatched = new Dictionary<string, List<string>>(StringComparer.Ordinal);
 
         try
         {
@@ -1483,10 +1483,14 @@ public partial class MainWindow : Window
 
                 converted.Add(input, result.Svg);
 
-                foreach (var rule in result.UnmatchedRules)
-                {
-                    unmatched.Add($"warning: nothing in {Path.GetFileName(input)} matched '{rule.ValueText}'.");
-                }
+                // Kept per file and reported only for the ones that changed. A drawing already
+                // converted matches nothing by definition, and saying so for every rule of every
+                // one of them would bury the drawing that really is missing a colour.
+                unmatched.Add(
+                    input,
+                    result.UnmatchedRules
+                        .Select(rule => $"warning: nothing in {Path.GetFileName(input)} matched '{rule.ValueText}'.")
+                        .ToList());
             }
         }
         catch (Exception failure) when (failure is SvgRecipeException or IOException or UnauthorizedAccessException)
@@ -1527,7 +1531,11 @@ public partial class MainWindow : Window
             : $"{written.Count} of {converted.Count} {(converted.Count == 1 ? "drawing was" : "drawings were")} written."
               + (written.Count < converted.Count ? " The rest were already in the expression format." : string.Empty);
 
-        await Announce("Applied", string.Join("\n", new[] { said }.Concat(unmatched.Distinct(StringComparer.Ordinal)))).ConfigureAwait(true);
+        var warnings = written
+            .SelectMany(input => unmatched.TryGetValue(input, out var lines) ? lines : Enumerable.Empty<string>())
+            .Distinct(StringComparer.Ordinal);
+
+        await Announce("Applied", string.Join("\n", new[] { said }.Concat(warnings))).ConfigureAwait(true);
 
         return written.Count > 0;
     }

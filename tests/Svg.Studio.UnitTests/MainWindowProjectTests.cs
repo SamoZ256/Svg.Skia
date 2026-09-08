@@ -873,6 +873,10 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.Equal(was, File.ReadAllText(home));
         Assert.Contains(said, message => message.Contains("already in the expression format", StringComparison.Ordinal));
+
+        // And no warnings. A drawing already converted matches no rule by definition, and saying so
+        // for every rule of every one of them would bury a drawing that really is missing a colour.
+        Assert.DoesNotContain(said, message => message.Contains("warning:", StringComparison.Ordinal));
     }
 
     [AvaloniaFact]
