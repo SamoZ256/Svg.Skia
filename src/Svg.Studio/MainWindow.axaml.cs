@@ -1425,10 +1425,10 @@ public partial class MainWindow : Window
             // Whichever colours panel the tab has by then: it is built before the drawing is read,
             // so it has nothing to survey until one arrives, and a drawing reopened at another size
             // brings its colours again.
-            viewer.DocumentOpened += (_, _) => Colours(viewer)?.Refresh();
+            viewer.DocumentOpened += (_, _) => Replacements(viewer)?.Refresh();
 
             // A readout is what a rule paints now, so it follows the slider being dragged.
-            viewer.ParameterValueChanged += (_, _) => Colours(viewer)?.Readouts();
+            viewer.ParameterValueChanged += (_, _) => Replacements(viewer)?.Readouts();
 
             viewer.SidePanels = new[] { new SvgViewerPane("Project", settings) };
         }
@@ -1481,11 +1481,11 @@ public partial class MainWindow : Window
         viewer.DeclarationTarget = workspace;
 
         // Kept where it is the same recipe, since it holds what somebody is halfway through typing.
-        var colours = Colours(viewer) is { } open && ReferenceEquals(open.Recipe, workspace)
+        var replacements = Replacements(viewer) is { } open && ReferenceEquals(open.Recipe, workspace)
             ? open
-            : new ColourPanel(workspace, () => viewer.Source, () => Values(viewer));
+            : new ReplacementsPanel(workspace, () => viewer.Source, () => Values(viewer));
 
-        panes.Add(new SvgViewerPane("Colours", colours));
+        panes.Add(new SvgViewerPane("Replacements", replacements));
 
         viewer.SidePanels = panes;
 
@@ -2625,9 +2625,9 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>The colours the drawing's recipe can paint, when one covers it.</summary>
-    private static ColourPanel? Colours(SvgViewer viewer)
-        => viewer.SidePanels.Select(pane => pane.Content).OfType<ColourPanel>().FirstOrDefault();
+    /// <summary>The rules the drawing's recipe can write for it, when one covers it.</summary>
+    private static ReplacementsPanel? Replacements(SvgViewer viewer)
+        => viewer.SidePanels.Select(pane => pane.Content).OfType<ReplacementsPanel>().FirstOrDefault();
 
     private static TextBlock Marker(TabItem item) => (TextBlock)((StackPanel)item.Header!).Children[0];
 

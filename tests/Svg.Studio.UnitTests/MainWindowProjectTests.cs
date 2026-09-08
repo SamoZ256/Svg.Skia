@@ -984,8 +984,8 @@ public class MainWindowProjectTests : IDisposable
         Assert.DoesNotContain("sweep", File.ReadAllText(home));
     }
 
-    /// <summary>The Colours tab's content, whatever it currently is.</summary>
-    private static object? Colours(GroupPanel panel)
+    /// <summary>The Replacements tab's content, whatever it currently is.</summary>
+    private static object? Replacements(GroupPanel panel)
     {
         var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
 
@@ -1007,7 +1007,7 @@ public class MainWindowProjectTests : IDisposable
 
         Pick(window, panel, 0);
 
-        var colours = Assert.IsType<ColourPanel>(Colours(panel));
+        var colours = Assert.IsType<ReplacementsPanel>(Replacements(panel));
 
         // The fixture paints one colour, and the recipe has a rule for it.
         Assert.Equal(new[] { "#00ff00" }, colours.Colours.ToArray());
@@ -1027,7 +1027,7 @@ public class MainWindowProjectTests : IDisposable
 
         Pick(window, panel, 0);
 
-        var said = Assert.IsType<TextBlock>(Colours(panel));
+        var said = Assert.IsType<TextBlock>(Replacements(panel));
 
         Assert.Contains("not built through a recipe", said.Text);
     }
@@ -2186,7 +2186,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(viewer.CommitLet(new SvgViewerLet(null) { Name = "deep", Expression = "hsl(hue + 5, 71%, 40%)" }));
         Dispatcher.UIThread.RunJobs();
 
-        var buffer = Colours(viewer).Recipe;
+        var buffer = Replacements(viewer).Recipe;
 
         Assert.Contains("""<let name="deep">hsl(hue + 5, 71%, 40%)</let>""", buffer.Text);
         Assert.True(buffer.IsModified);
@@ -2283,7 +2283,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.Null(viewer.DeclarationTarget);
 
         // The colours went with the recipe: there is nothing left to bind them to.
-        Assert.Empty(viewer.SidePanels.Select(pane => pane.Content).OfType<ColourPanel>());
+        Assert.Empty(viewer.SidePanels.Select(pane => pane.Content).OfType<ReplacementsPanel>());
     }
 
     /// <summary>The buttons on a panel's recipe row, by what they are labelled.</summary>
@@ -2590,8 +2590,8 @@ public class MainWindowProjectTests : IDisposable
         Assert.Null(Editor(window));
     }
 
-    private static ColourPanel Colours(SvgViewer viewer)
-        => viewer.SidePanels.Select(pane => pane.Content).OfType<ColourPanel>().Single();
+    private static ReplacementsPanel Replacements(SvgViewer viewer)
+        => viewer.SidePanels.Select(pane => pane.Content).OfType<ReplacementsPanel>().Single();
 
     /// <summary>A window with badge.svg open under the recipe, which is what the colours are for.</summary>
     private async Task<(MainWindow Window, SvgViewer Viewer)> Painting(string? drawing = null, string? recipe = null)
@@ -2610,14 +2610,14 @@ public class MainWindowProjectTests : IDisposable
         var (window, viewer) = await Painting();
 
         Assert.Equal(
-            new[] { "Project", "Colours", "Parameters" },
+            new[] { "Project", "Replacements", "Parameters" },
             viewer.GetVisualDescendants()
                 .OfType<TabControl>()
                 .Single(control => control.Classes.Contains("panes"))
                 .Items.OfType<TabItem>()
                 .Select(item => (string)item.Header!));
 
-        var colours = Colours(viewer);
+        var colours = Replacements(viewer);
 
         // The drawing's own colour, and what the recipe already says paints it.
         Assert.Equal(new[] { "#00ff00" }, colours.Colours);
@@ -2627,7 +2627,7 @@ public class MainWindowProjectTests : IDisposable
         await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Empty((await Settle(window, "home.svg")).SidePanels.Select(pane => pane.Content).OfType<ColourPanel>());
+        Assert.Empty((await Settle(window, "home.svg")).SidePanels.Select(pane => pane.Content).OfType<ReplacementsPanel>());
     }
 
     [AvaloniaFact]
@@ -2635,7 +2635,7 @@ public class MainWindowProjectTests : IDisposable
     {
         // A drawing with a colour the recipe says nothing about yet.
         var (window, viewer) = await Painting(Drawing.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
-        var colours = Colours(viewer);
+        var colours = Replacements(viewer);
         var recipe = Path.Combine(_directory, "icons.recipe");
 
         Assert.Equal(new[] { "#ff0000" }, colours.Colours);
@@ -2680,9 +2680,9 @@ public class MainWindowProjectTests : IDisposable
         panes.SelectedIndex = 1;
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal("Colours", (string)((TabItem)panes.SelectedItem!).Header!);
+        Assert.Equal("Replacements", (string)((TabItem)panes.SelectedItem!).Header!);
 
-        Assert.True(Colours(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
+        Assert.True(Replacements(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
 
         // The drawings under a recipe are read again when it settles, and rebuilding the strip over
         // somebody typing in it took them back to the first tab on every keystroke.
@@ -2694,7 +2694,7 @@ public class MainWindowProjectTests : IDisposable
 
         var strip = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
 
-        Assert.Equal("Colours", (string)((TabItem)strip.SelectedItem!).Header!);
+        Assert.Equal("Replacements", (string)((TabItem)strip.SelectedItem!).Header!);
     }
 
     [AvaloniaFact]
@@ -2710,7 +2710,7 @@ public class MainWindowProjectTests : IDisposable
         var buffer = editor.Document;
         var built = viewer.Document;
 
-        Assert.True(Colours(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
+        Assert.True(Replacements(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
 
         for (var attempt = 0; attempt < 200 && ReferenceEquals(viewer.Document, built); attempt++)
         {
@@ -2739,7 +2739,7 @@ public class MainWindowProjectTests : IDisposable
 
         // No recipe tab is open, and nothing makes you open one: this is the only thing holding the
         // work, so it is the thing that has to say so.
-        Assert.True(Colours(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
+        Assert.True(Replacements(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
         Dispatcher.UIThread.RunJobs();
 
         Assert.Contains("unsaved", Marker(tab).Classes);
@@ -2760,7 +2760,7 @@ public class MainWindowProjectTests : IDisposable
     {
         var (window, viewer) = await Painting();
 
-        Assert.True(Colours(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
+        Assert.True(Replacements(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
         Dispatcher.UIThread.RunJobs();
 
         // The tabs it was edited from go, and the buffer is left with nothing to speak for it.
@@ -2798,7 +2798,7 @@ public class MainWindowProjectTests : IDisposable
     public async Task Undo_On_A_Drawing_Tab_Reaches_The_Recipe_Behind_It()
     {
         var (window, viewer) = await Painting();
-        var colours = Colours(viewer);
+        var colours = Replacements(viewer);
         var was = colours.Recipe.Text;
 
         Assert.True(colours.Bind("#00ff00", "hsl(hue, 50%, 50%)"));
@@ -2819,7 +2819,7 @@ public class MainWindowProjectTests : IDisposable
     public async Task Undo_Takes_The_Drawings_Own_Text_Back_First()
     {
         var (window, viewer) = await Painting();
-        var colours = Colours(viewer);
+        var colours = Replacements(viewer);
 
         Assert.True(colours.Bind("#00ff00", "hsl(hue, 50%, 50%)"));
         Dispatcher.UIThread.RunJobs();
@@ -2845,7 +2845,7 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>The box, the readout beside it and the trouble under it, for one colour.</summary>
-    private static (TextBox Box, TextBlock Readout, TextBlock Trouble) Painted(ColourPanel colours, string colour)
+    private static (TextBox Box, TextBlock Readout, TextBlock Trouble) Painted(ReplacementsPanel colours, string colour)
     {
         var box = colours.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, colour));
         var row = (StackPanel)box.FindAncestorOfType<Grid>()!.Parent!;
@@ -2854,7 +2854,7 @@ public class MainWindowProjectTests : IDisposable
         return (box, blocks[blocks.Count - 2], blocks[blocks.Count - 1]);
     }
 
-    private static ColourPanel Showing(SvgViewer viewer)
+    private static ReplacementsPanel Showing(SvgViewer viewer)
     {
         viewer.GetVisualDescendants()
             .OfType<TabControl>()
@@ -2863,7 +2863,7 @@ public class MainWindowProjectTests : IDisposable
 
         Dispatcher.UIThread.RunJobs();
 
-        return Colours(viewer);
+        return Replacements(viewer);
     }
 
     [AvaloniaFact]
@@ -3027,7 +3027,7 @@ public class MainWindowProjectTests : IDisposable
 
         // The recipe behind the drawing, which is the case the tab's dot was widened for — and the
         // menu is drawn from the same answer, so it follows without being told separately.
-        Assert.True(Colours(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
+        Assert.True(Replacements(viewer).Bind("#00ff00", "hsl(hue, 50%, 50%)"));
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(save.IsEnabled);
@@ -3667,7 +3667,7 @@ public class MainWindowProjectTests : IDisposable
     public async Task A_Rule_That_This_Drawing_Has_No_Colour_For_Is_Still_Shown()
     {
         var (_, viewer) = await Painting(Drawing.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
-        var colours = Colours(viewer);
+        var colours = Replacements(viewer);
 
         // The recipe's rule is for #00ff00, which this drawing does not paint. One recipe covers a
         // family, so that is ordinary — but a rule that appeared to have vanished would not be.
@@ -3692,7 +3692,7 @@ public class MainWindowProjectTests : IDisposable
         // The recipe names the colour one way and the drawing another. Two spellings of one colour
         // must not become two rules, which the recipe then refuses to read at all.
         var (_, viewer) = await Painting(recipe: Recipe.Replace("#00ff00", "rgb(0, 255, 0)", StringComparison.Ordinal));
-        var colours = Colours(viewer);
+        var colours = Replacements(viewer);
 
         Assert.Equal(new[] { "#00ff00" }, colours.Colours);
         Assert.True(colours.Bind("#00ff00", "deep"));

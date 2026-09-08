@@ -20,7 +20,7 @@ using Svg.Viewer.Skia.Avalonia;
 namespace Svg.Studio;
 
 /// <summary>
-/// The colours one drawing paints with, and the expression a recipe gives each.
+/// The values one drawing uses that a recipe can replace, and the expression it gives each.
 /// </summary>
 /// <remarks>
 /// What a recipe is written for. Binding a colour used to mean reading it out of the SVG yourself
@@ -34,7 +34,7 @@ namespace Svg.Studio;
 /// Edits go into the recipe's buffer and nowhere near the drawing, which is the whole point: the
 /// drawing keeps the colours it was drawn with, and what they are painted as is the recipe's to say.
 /// </remarks>
-public sealed class ColourPanel : UserControl
+public sealed class ReplacementsPanel : UserControl
 {
     /// <summary>What a relative include is read against, which nothing here writes one of.</summary>
     private static readonly Uri Home = new("avares://Svg.Studio/");
@@ -71,7 +71,7 @@ public sealed class ColourPanel : UserControl
 
     private IReadOnlyList<SvgRecipeSurveyColor> _colours = Array.Empty<SvgRecipeSurveyColor>();
 
-    public ColourPanel(RecipeWorkspace recipe, Func<string> drawing, Func<ExprEvaluator?> values)
+    public ReplacementsPanel(RecipeWorkspace recipe, Func<string> drawing, Func<ExprEvaluator?> values)
     {
         Recipe = recipe ?? throw new ArgumentNullException(nameof(recipe));
         _drawing = drawing ?? throw new ArgumentNullException(nameof(drawing));
@@ -508,5 +508,5 @@ public sealed class ColourPanel : UserControl
     /// <summary>Whether the caret is in one of this panel's boxes.</summary>
     private bool Typing()
         => TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox box
-           && ReferenceEquals(box.FindAncestorOfType<ColourPanel>(), this);
+           && ReferenceEquals(box.FindAncestorOfType<ReplacementsPanel>(), this);
 }
