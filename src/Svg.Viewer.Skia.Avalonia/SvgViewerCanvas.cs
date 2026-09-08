@@ -163,6 +163,24 @@ public class SvgViewerCanvas : SKCanvasControl
         }
     }
 
+    /// <summary>Replaces the ring's path, leaving the pulse that announced it alone.</summary>
+    /// <remarks>
+    /// A bound value moves what the ring traces, and dragging a slider moves it many times a second:
+    /// going through <see cref="Highlight"/> would restart the pulse for every one of them and leave
+    /// it flashing for as long as the drag lasted.
+    /// </remarks>
+    public void Retrace(SKPath? highlight)
+    {
+        if (ReferenceEquals(_highlight, highlight))
+        {
+            return;
+        }
+
+        _highlight = highlight;
+
+        Publish();
+    }
+
     public bool ShowBounds
     {
         get => _showBounds;

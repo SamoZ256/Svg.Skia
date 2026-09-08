@@ -261,12 +261,18 @@ public static class SvgcProjectBuild
         // the new size the way the format defines rather than by a scale wrapped around it.
         SvgSceneSizing.Apply(svgDocument, assetLoader, SizeFor(item, settings.Size));
 
-        if (SvgSceneRuntime.CreateModel(svgDocument, assetLoader) is not { Commands: { } } picture)
+        // Compiled rather than modelled directly, because the refusal below is a question about the
+        // scene: which nodes open a layer and which carry a filter are answers compilation has and
+        // the document does not.
+        if (!SvgSceneRuntime.TryCompile(svgDocument, assetLoader, DrawAttributes.None, out var sceneDocument) ||
+            sceneDocument is null ||
+            sceneDocument.CreateModel() is not { Commands: { } } picture)
         {
             return null;
         }
 
-        if (SvgExpressionSubstitution.WhyNotGeneratable(svgDocument) is { } refusal)
+        if ((SvgSceneTransformAudit.WhyUnsound(sceneDocument) ??
+             SvgExpressionSubstitution.WhyNotGeneratable(svgDocument)) is { } refusal)
         {
             throw new SvgcProjectException($"{Path.GetFileName(item.Input)}: {refusal}");
         }

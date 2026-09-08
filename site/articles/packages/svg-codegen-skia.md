@@ -56,6 +56,14 @@ if (svg.Load("Assets/icon.svg") is not null && svg.Model is not null)
 
 This example uses `Svg.Skia` to create the intermediate model, but `Svg.CodeGen.Skia` itself only needs a `ShimSkiaSharp.SKPicture`.
 
+## Drawings that use expressions
+
+A drawing using the [expression extension](svg-expressions) generates: its parameters become C# parameters, and each expression is emitted as code that recomputes the value at call time rather than as the number it happened to have when the drawing was compiled.
+
+A driven `transform` is generated too. The picture records how the matrix was derived — `ShimSkiaSharp`'s `SymMatrix`, the transform functions and their arguments — so the emitted code rebuilds the matrix from the argument values instead of baking one, and the refusals are the same ones the renderer applies: a driven transform under a filter, under an ancestor that opens a layer, or written inside a `<clipPath>` is refused, because each of those was measured against the matrix as the drawing was compiled.
+
+What generation still refuses outright is the other kind of expression, the kind resolved **before** the drawing is recorded — element text, `font-family`, `font-size` and the rest of the text attributes. Generation bakes the picture with the text already measured and the glyphs already positioned, so a parameter driving one could never vary at run time; the document is refused rather than generated with a signature that offers something it cannot do.
+
 ## Why use this package instead of the source generator
 
 Choose `Svg.CodeGen.Skia` when generation is an explicit build step and you want control over:
@@ -79,3 +87,4 @@ Choose [Svg.SourceGenerator.Skia](svg-sourcegenerator-skia) when SVG files alrea
 - [Source Generator and svgc](../guides/source-generator-and-svgc)
 - [Svg.SourceGenerator.Skia](svg-sourcegenerator-skia)
 - [ShimSkiaSharp](shim-skiasharp)
+- [Svg.Expressions](svg-expressions)

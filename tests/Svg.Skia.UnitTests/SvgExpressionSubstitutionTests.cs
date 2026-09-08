@@ -260,8 +260,29 @@ public class SvgExpressionSubstitutionTests
         var ink = Ink(svg);
         Assert.NotNull(ink);
 
-        var pixel = bitmap.GetPixel(ink!.Value.MidX, ink.Value.MidY);
+        // Every pixel the text put down, rather than the one in the middle of the box. Where that
+        // midpoint falls depends on how the font spaces the word: on the runners whose fonts are not
+        // this machine's it landed between two letters of "Goodbye" and read white, failing a
+        // feature that works.
+        var inked = 0;
 
-        Assert.True(pixel.Red > pixel.Green && pixel.Red > pixel.Blue, $"{pixel} is not red");
+        for (var y = ink!.Value.Top; y <= ink.Value.Bottom; y++)
+        {
+            for (var x = ink.Value.Left; x <= ink.Value.Right; x++)
+            {
+                var pixel = bitmap.GetPixel(x, y);
+
+                if (pixel.Red > 200 && pixel.Green > 200 && pixel.Blue > 200)
+                {
+                    continue;
+                }
+
+                inked++;
+
+                Assert.True(pixel.Red > pixel.Green && pixel.Red > pixel.Blue, $"{pixel} is not red");
+            }
+        }
+
+        Assert.True(inked > 0, "the text drew nothing to be coloured");
     }
 }

@@ -246,7 +246,9 @@ public sealed class SvgViewerElementPanel : UserControl
         // What an expression here would have to come to, or that one would do nothing. The second is
         // worth saying up front: the braces are read as an ordinary value and nothing else says so.
         var says = SvgExpressionAttributes.TypeFor(name) is { } type
-            ? ExprFunctions.Describe(type) + (SvgExpressionAttributes.IsResolvedBeforeRecording(name) ? ", built in" : string.Empty)
+            ? ExprFunctions.Describe(type)
+              + (SvgExpressionAttributes.IsInArguments(name) ? " per argument" : string.Empty)
+              + (SvgExpressionAttributes.IsResolvedBeforeRecording(name) ? ", built in" : string.Empty)
             : "no expression";
 
         var kind = new TextBlock
@@ -358,7 +360,7 @@ public sealed class SvgViewerElementPanel : UserControl
         row.Trouble.Text = trouble;
         row.Trouble.IsVisible = trouble is { };
 
-        var readout = trouble is null ? Readout(written) : string.Empty;
+        var readout = trouble is null ? Readout(row.Name, written) : string.Empty;
 
         row.Readout.Text = readout;
         row.Readout.IsVisible = readout.Length > 0;
@@ -374,6 +376,29 @@ public sealed class SvgViewerElementPanel : UserControl
     /// </remarks>
     private string? Trouble(string name, string written)
     {
+        if (SvgExpressionAttributes.IsInArguments(name))
+        {
+            // Braces that are not one whole argument drive nothing, which the row has to say before
+            // the arguments it could read are judged.
+            if (SvgExpressionAttributes.WhyUnsupported(name, written) is { } stray)
+            {
+                return stray;
+            }
+
+            foreach (var function in SvgTransformExpression.Parse(written).Functions)
+            {
+                foreach (var argument in function.Arguments)
+                {
+                    if (argument.Expression is { } code && Checked(code, ExprType.Number) is { } fault)
+                    {
+                        return fault;
+                    }
+                }
+            }
+
+            return null;
+        }
+
         if (!SvgExpressionAttributes.TryUnwrap(written, out var expression))
         {
             return null;
@@ -384,6 +409,12 @@ public sealed class SvgViewerElementPanel : UserControl
             return SvgExpressionAttributes.WhyUnsupported(name);
         }
 
+        return Checked(expression, type);
+    }
+
+    /// <summary>What is wrong with one expression asked to come to <paramref name="type"/>, or null.</summary>
+    private string? Checked(string expression, ExprType type)
+    {
         var declarations = SvgExpressionDeclarations.Parse(_declarations(), out var diagnostics);
 
         if (diagnostics.Count > 0)
@@ -403,15 +434,32 @@ public sealed class SvgViewerElementPanel : UserControl
         }
     }
 
-    private string Readout(string written)
+    private string Readout(string name, string written)
     {
-        if (!SvgExpressionAttributes.TryUnwrap(written, out var expression) || _values() is not { } evaluator)
+        if (_values() is not { } evaluator)
         {
             return string.Empty;
         }
 
         try
         {
+            if (SvgExpressionAttributes.IsInArguments(name))
+            {
+                var arguments = SvgTransformExpression.Parse(written);
+
+                // The whole transform as it currently stands, since one argument's number says
+                // nothing about where the shape ends up.
+                return arguments.Any
+                    ? arguments.With(argument =>
+                        SvgViewerParameterFactory.Describe(evaluator.Evaluate(argument.Expression!)))
+                    : string.Empty;
+            }
+
+            if (!SvgExpressionAttributes.TryUnwrap(written, out var expression))
+            {
+                return string.Empty;
+            }
+
             var value = evaluator.Evaluate(expression);
 
             return $"{ExprFunctions.Describe(value.Type)}  {SvgViewerParameterFactory.Describe(value)}";

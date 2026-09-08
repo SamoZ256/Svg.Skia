@@ -39,9 +39,16 @@ public static class SvgRecipeValue
     public const string ColorName = "color";
 
     /// <summary>The names a rule can take, in the order a survey meets them.</summary>
+    /// <remarks>
+    /// An attribute whose expressions drive its arguments is left out: a rule names one whole value
+    /// and swaps it for one whole expression, and a transform has no single value to name. Offering
+    /// the name would advertise a rule no value could ever match.
+    /// </remarks>
     public static IReadOnlyList<string> Names { get; } =
         new[] { ColorName }
-            .Concat(SvgExpressionAttributes.Supported.Where(name => SvgExpressionAttributes.TypeFor(name) != ExprType.Color))
+            .Concat(SvgExpressionAttributes.Supported.Where(name =>
+                SvgExpressionAttributes.TypeFor(name) != ExprType.Color &&
+                !SvgExpressionAttributes.IsInArguments(name)))
             .ToList();
 
     /// <summary>What a rule called <paramref name="name"/> replaces, or null where nothing does.</summary>

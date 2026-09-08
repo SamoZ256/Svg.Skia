@@ -546,7 +546,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// offsetting before the canvas is given it.
     /// </remarks>
     private void OutlineElement(SvgViewerElementNode? node)
-        => _canvas.Highlight = node is null || _document is not { } open
+        => _canvas.Highlight = Outline(node);
+
+    /// <summary>Traces the selected element again, for a value that moved where it is drawn.</summary>
+    private void RetraceOutline() => _canvas.Retrace(Outline(_elementTree.SelectedNode));
+
+    private SkiaSharp.SKPath? Outline(SvgViewerElementNode? node)
+        => node is null || _document is not { } open
             ? null
             : SvgViewerOutline.Of(open.Svg, node.Element);
 
@@ -1016,6 +1022,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             ShowNote(Note());
             ShowFault(failure.Message);
         }
+
+        // A bound transform moves the scene the ring is traced from, so one left from before the
+        // value changed would sit where the element used to be.
+        RetraceOutline();
 
         // Swapped in place, so nothing about the control changed and the repaint must be asked for.
         _canvas.Publish();
@@ -1804,7 +1814,17 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        if (result.Edits.Count == 0 || _sourceEditor.Document is not { } document)
+        if (result.Edits.Count == 0)
+        {
+            return false;
+        }
+
+        // Filled first, because the edits were measured against PaneSource(), which reads the
+        // drawing's own text until the pane holds it. Splicing them into the pane's empty document
+        // threw ArgumentOutOfRangeException for every edit made before the source pane was opened.
+        EnsureSourceBuffer();
+
+        if (_sourceEditor.Document is not { } document)
         {
             return false;
         }

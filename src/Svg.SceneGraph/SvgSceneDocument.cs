@@ -6,8 +6,10 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using ShimSkiaSharp;
 using Svg;
+using Svg.Expressions;
 using Svg.Model;
 using Svg.Model.Services;
+using Svg.SceneGraph;
 
 namespace Svg.Skia;
 
@@ -78,6 +80,63 @@ public sealed class SvgSceneDocument
     internal ISvgAssetLoader AssetLoader { get; }
 
     internal DrawAttributes IgnoreAttributes { get; }
+
+    /// <summary>
+    /// Moves the transforms an expression drives to where <paramref name="evaluator"/> puts them.
+    /// </summary>
+    /// <remarks>
+    /// The recorded drawing is rewritten separately; this is the same answer for the other half of
+    /// the model, so hit testing, bounds and anything drawn around an element follow a bound value
+    /// without being told that expressions exist. Null puts the placeholders back.
+    /// </remarks>
+    /// <returns>Whether anything moved.</returns>
+    public bool ApplyExpressionTransforms(ExprEvaluator? evaluator)
+    {
+        var moved = false;
+
+        foreach (var node in Traverse())
+        {
+            if (node.SymbolicTransform is not { } symbolic)
+            {
+                continue;
+            }
+
+            var placed = Placed(symbolic, evaluator);
+
+            if (placed.Equals(node.Transform))
+            {
+                continue;
+            }
+
+            node.Transform = placed;
+            moved = true;
+        }
+
+        if (moved)
+        {
+            SvgSceneCompiler.RefreshTotalTransforms(Root);
+        }
+
+        return moved;
+    }
+
+    private static SKMatrix Placed(SymMatrix symbolic, ExprEvaluator? evaluator)
+    {
+        if (evaluator is null)
+        {
+            return symbolic.Placeholder;
+        }
+
+        try
+        {
+            return SvgSceneSymEvaluator.EvaluateMatrix(symbolic, evaluator);
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            // What is on screen when a value will not resolve is the drawing as it was compiled.
+            return symbolic.Placeholder;
+        }
+    }
 
     public IEnumerable<SvgSceneNode> Traverse()
     {

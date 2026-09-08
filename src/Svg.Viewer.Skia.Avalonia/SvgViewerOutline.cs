@@ -87,14 +87,19 @@ public static class SvgViewerOutline
             tracedAny |= Trace(child, model, outline);
         }
 
-        if (!tracedAny && node.TransformedBounds is { Width: > 0f, Height: > 0f } bounds)
+        if (tracedAny)
         {
-            outline.AddRect(model.ToSKRect(bounds));
+            return true;
+        }
+
+        if (node.TransformedBounds is { Width: > 0f, Height: > 0f } covered)
+        {
+            outline.AddRect(model.ToSKRect(covered));
 
             return true;
         }
 
-        return tracedAny;
+        return false;
     }
 
     /// <summary>

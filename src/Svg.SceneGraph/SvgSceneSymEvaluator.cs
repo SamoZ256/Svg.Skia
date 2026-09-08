@@ -63,6 +63,31 @@ internal static class SvgSceneSymEvaluator
         }
     }
 
+    /// <summary>The matrix a recorded transform makes of the values its arguments bind to.</summary>
+    /// <remarks>
+    /// Folded left to right by <c>PreConcat</c>, as <c>TransformsService.ToMatrix</c> folds an
+    /// <c>SvgTransformCollection</c>: the recorded functions are that same list in that same order,
+    /// so a bound picture agrees with the one the compiler folded from the stand-in values.
+    /// </remarks>
+    public static SKMatrix EvaluateMatrix(SymMatrix matrix, ExprEvaluator evaluator)
+    {
+        var total = SKMatrix.CreateIdentity();
+
+        foreach (var transform in matrix.Transforms)
+        {
+            var arguments = new float[transform.Arguments.Count];
+
+            for (var index = 0; index < arguments.Length; index++)
+            {
+                arguments[index] = Evaluate(transform.Arguments[index], ExprType.Number, evaluator).AsNumber;
+            }
+
+            total = total.PreConcat(SymMatrix.Apply(transform.Op, arguments));
+        }
+
+        return total;
+    }
+
     private static float Arithmetic(SymOp op, float left, float right)
         => op switch
         {

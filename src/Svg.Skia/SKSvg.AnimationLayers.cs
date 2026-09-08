@@ -812,9 +812,11 @@ public partial class SKSvg
         var recorder = new SKPictureRecorder();
         var canvas = recorder.BeginRecording(bounds);
 
-        if (!node.TotalTransform.IsIdentity)
+        var symbolicTotal = node.SymbolicTotalTransform;
+
+        if (!node.TotalTransform.IsIdentity || symbolicTotal is { })
         {
-            canvas.SetMatrix(node.TotalTransform);
+            canvas.SetMatrix(node.TotalTransform, symbolicTotal);
         }
 
         _ = SvgSceneRenderer.RenderNodeToCanvas(
@@ -851,9 +853,9 @@ public partial class SKSvg
             canvas.ClipRect(overflow, SKClipOperation.Intersect);
         }
 
-        if (!node.Transform.IsIdentity)
+        if (!node.Transform.IsIdentity || node.SymbolicTransform is { })
         {
-            canvas.SetMatrix(node.Transform);
+            canvas.SetMatrix(node.Transform, node.SymbolicTransform);
         }
 
         if (node.Clip is { } clip)

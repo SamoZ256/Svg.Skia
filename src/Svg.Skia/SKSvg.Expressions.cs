@@ -61,6 +61,14 @@ public partial class SKSvg
     /// </exception>
     public SkiaSharp.SKPicture? SetExpressionValues(IReadOnlyDictionary<string, ExprValue>? values)
     {
+        // Refused before anything is copied or evaluated, so a document whose transform cannot move
+        // leaves the rendering it already had, exactly as a failed evaluation does. Clearing is not
+        // a binding and stays allowed: going back to the placeholders is what such a document draws.
+        if (values is { } && WhyExpressionsNotBindable is { } refused)
+        {
+            throw new ExprException(refused, 0);
+        }
+
         // Copied, so a caller that keeps mutating its own dictionary cannot change what is being
         // rendered behind our back.
         var bound = CopyValues(values);
@@ -93,7 +101,34 @@ public partial class SKSvg
             }
         }
 
+        // The scene is the other half of the model: the drawing says where the ink goes, and the
+        // scene is what everything else asks where the element is.
+        if (_retainedSceneGraph is { } scene)
+        {
+            scene.ApplyExpressionTransforms(BoundExpressions());
+        }
+
         return RebuildFromModel();
+    }
+
+    /// <summary>The values bound, ready to evaluate with, or null while the placeholders stand.</summary>
+    internal ExprEvaluator? BoundExpressions()
+    {
+        var values = _expressionValues;
+
+        if (values is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return ExprEvaluator.Create(SourceDocument?.ExpressionDeclarations ?? SvgExpressionDeclarations.Empty, values);
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Binds by compiling again, for a document whose values a compile consumes.</summary>
@@ -126,6 +161,20 @@ public partial class SKSvg
             throw;
         }
     }
+
+    /// <summary>
+    /// Why this document's expressions cannot be bound, or null when they can.
+    /// </summary>
+    /// <remarks>
+    /// A host asks so it can grey a control out rather than catch the throw from
+    /// <see cref="SetExpressionValues"/>. Only a driven transform can answer anything here: the
+    /// other kinds are values in the recorded drawing, and nothing was measured against them.
+    ///
+    /// Reading this compiles the scene if nothing has yet, which a document driving only a colour
+    /// would not otherwise need.
+    /// </remarks>
+    public string? WhyExpressionsNotBindable
+        => SvgSceneTransformAudit.WhyUnsound(RetainedSceneGraph);
 
     /// <summary>Goes back to rendering the document's placeholders.</summary>
     public SkiaSharp.SKPicture? ClearExpressionValues() => SetExpressionValues(null);

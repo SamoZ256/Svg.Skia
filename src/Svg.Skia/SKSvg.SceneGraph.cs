@@ -63,6 +63,11 @@ public partial class SKSvg
             return false;
         }
 
+        // A fresh scene holds the stand-in for anything driven, so whatever is bound is put back
+        // before the scene is handed out -- otherwise a recompile would silently move an element
+        // back to where it was written.
+        compiledSceneDocument!.ApplyExpressionTransforms(BoundExpressions());
+
         lock (Sync)
         {
             _retainedSceneGraph = compiledSceneDocument;
@@ -365,6 +370,11 @@ public partial class SKSvg
             sceneDocument = null;
             return false;
         }
+
+        // A fresh scene holds the stand-in for anything driven, so whatever is bound is put back
+        // before the scene is handed out -- otherwise a recompile would silently move an element
+        // back to where it was written.
+        compiledSceneDocument!.ApplyExpressionTransforms(BoundExpressions());
 
         lock (Sync)
         {

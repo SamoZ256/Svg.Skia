@@ -351,6 +351,129 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
+    // A driven transform is the one expression that moves ink rather than colouring it, so a circle
+    // is no longer enough: the comparison has to be able to tell "turned" from "not turned".
+
+    [Fact]
+    public void A_Driven_Rotate_Reaches_The_Matrix()
+        => AssertExpressionsRenderTheSame(
+            "ExprRotate",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="angle" type="number" default="0" /></e:code></defs>
+              <rect x="6" y="10" width="12" height="4" transform="rotate({{ angle }} 12 12)" fill="#ff0000" />
+            </svg>
+            """,
+            new object?[] { 30f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="6" y="10" width="12" height="4" transform="rotate(30 12 12)" fill="#ff0000" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Driven_Translate_Reaches_The_Matrix()
+        => AssertExpressionsRenderTheSame(
+            "ExprTranslate",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="dx" type="number" default="0" /></e:code></defs>
+              <circle cx="8" cy="12" r="4" transform="translate({{ dx }}, 0)" fill="#ff0000" />
+            </svg>
+            """,
+            new object?[] { 5f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="8" cy="12" r="4" transform="translate(5, 0)" fill="#ff0000" />
+            </svg>
+            """);
+
+    /// <summary>Two functions in one attribute, one literal argument among the driven ones.</summary>
+    [Fact]
+    public void Two_Driven_Functions_Compose_In_The_Order_Written()
+        => AssertExpressionsRenderTheSame(
+            "ExprTransformPair",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code>
+                <e:param name="dx" type="number" default="0" />
+                <e:param name="angle" type="number" default="0" />
+              </e:code></defs>
+              <rect x="6" y="10" width="12" height="4" transform="translate({{ dx }}, 2) rotate({{ angle }} 12 12)" fill="#ff0000" />
+            </svg>
+            """,
+            new object?[] { 3f, 30f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="6" y="10" width="12" height="4" transform="translate(3, 2) rotate(30 12 12)" fill="#ff0000" />
+            </svg>
+            """);
+
+    /// <remarks>
+    /// Generated code assigns an absolute matrix rather than concatenating, so the ancestor has to
+    /// reach the emitted composition: emitting only the element's own function draws this at the
+    /// wrong scale while every single-element case above still passes.
+    /// </remarks>
+    [Fact]
+    public void A_Driven_Transform_Composes_With_What_It_Sits_Under()
+        => AssertExpressionsRenderTheSame(
+            "ExprTransformNested",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="dx" type="number" default="0" /></e:code></defs>
+              <g transform="translate(2, 3) scale(1.5)">
+                <circle cx="6" cy="6" r="3" transform="translate({{ dx }}, 0)" fill="#ff0000" />
+              </g>
+            </svg>
+            """,
+            new object?[] { 2f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(2, 3) scale(1.5)">
+                <circle cx="6" cy="6" r="3" transform="translate(2, 0)" fill="#ff0000" />
+              </g>
+            </svg>
+            """);
+
+    /// <remarks>
+    /// What an unbound argument reads as is pinned on the lift, in SvgTransformExpressionTests; what
+    /// this covers is the scale arm of the emitter, which no other case reaches.
+    /// </remarks>
+    [Fact]
+    public void A_Driven_Scale_Reaches_The_Matrix()
+        => AssertExpressionsRenderTheSame(
+            "ExprScale",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="s" type="number" default="1" /></e:code></defs>
+              <circle cx="6" cy="6" r="3" transform="scale({{ s }})" fill="#ff0000" />
+            </svg>
+            """,
+            new object?[] { 1.5f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="6" cy="6" r="3" transform="scale(1.5)" fill="#ff0000" />
+            </svg>
+            """);
+
+    /// <summary>The skew arm, whose degrees-to-tangent conversion is written on both sides.</summary>
+    [Fact]
+    public void A_Driven_Skew_Reaches_The_Matrix()
+        => AssertExpressionsRenderTheSame(
+            "ExprSkew",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="a" type="number" default="0" /></e:code></defs>
+              <rect x="4" y="8" width="10" height="6" transform="skewX({{ a }})" fill="#ff0000" />
+            </svg>
+            """,
+            new object?[] { 20f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="4" y="8" width="10" height="6" transform="skewX(20)" fill="#ff0000" />
+            </svg>
+            """);
+
     [Fact]
     public void A_Conditional_Expression_Value_Reaches_The_Paint()
         => AssertExpressionsRenderTheSame(

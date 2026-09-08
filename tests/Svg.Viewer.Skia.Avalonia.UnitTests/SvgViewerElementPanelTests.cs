@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.LogicalTree;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -63,6 +65,36 @@ public class SvgViewerElementPanelTests
 
             return window;
         }
+    }
+
+    /// <summary>
+    /// An edit made before the source pane has ever been opened.
+    /// </summary>
+    /// <remarks>
+    /// Through a real viewer rather than the harness above, because the harness applies edits to a
+    /// string of its own and so cannot see this: the panel measures an edit against the drawing's
+    /// own text, and the pane it is spliced into is empty until something fills it. Typing
+    /// rotate(90) into the transform row of an unopened drawing crashed Studio with
+    /// "0 &lt;= offset &lt;= 0 … Actual value was 355".
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task An_Attribute_Set_Before_The_Pane_Is_Opened_Reaches_The_Drawing()
+    {
+        var viewer = new SvgViewer();
+        var window = new Window { Width = 500, Height = 400, Background = Brushes.White, Content = viewer };
+
+        window.Show();
+        Assert.True(await viewer.LoadTextAsync(Drawing));
+        Dispatcher.UIThread.RunJobs();
+
+        // The panel is a tab's content, so it is a logical child before that tab is ever shown.
+        var panel = viewer.GetLogicalDescendants().OfType<SvgViewerElementPanel>().Single();
+
+        panel.Show("1/0");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(panel.Set("transform", "rotate(90)"));
+        Assert.Contains("transform=\"rotate(90)\"", viewer.Source);
     }
 
     [AvaloniaFact]

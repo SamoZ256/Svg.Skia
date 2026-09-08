@@ -167,7 +167,7 @@ internal sealed class SvgInlineStyleAttributeParser
         // expression written in the presentation attribute that it has been overruled.
         if (SvgExpressionAttributes.IsSupported(name))
         {
-            var lifted = SvgExpressionAttributes.TryUnwrap(value, out var expression);
+            var lifted = SvgExpressionAttributes.TryLift(name, value, out var expression, out var placeholder);
 
             SvgExpressionAttributes.Lift(
                 element.CustomAttributes,
@@ -179,7 +179,7 @@ internal sealed class SvgInlineStyleAttributeParser
             {
                 // The placeholder keeps the element painting, exactly as it does for an attribute:
                 // the style system is about to convert this value and would refuse the braces.
-                value = SvgExpressionAttributes.PlaceholderFor(name);
+                value = placeholder;
             }
         }
 

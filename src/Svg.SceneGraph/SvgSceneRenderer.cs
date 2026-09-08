@@ -180,9 +180,11 @@ public static class SvgSceneRenderer
             canvas.ClipRect(overflow, SKClipOperation.Intersect);
         }
 
-        if (enableTransform && !node.Transform.IsIdentity)
+        // A driven transform can bake to identity — translate({{ dx }}, 0) with dx unbound does —
+        // and skipping the command then leaves a rebind nothing to rewrite.
+        if (enableTransform && (!node.Transform.IsIdentity || node.SymbolicTransform is { }))
         {
-            canvas.SetMatrix(node.Transform);
+            canvas.SetMatrix(node.Transform, node.SymbolicTransform);
         }
 
         if (node.Clip is { } clip)
@@ -303,9 +305,9 @@ public static class SvgSceneRenderer
             canvas.ClipRect(overflow, SKClipOperation.Intersect);
         }
 
-        if (enableTransform && !node.Transform.IsIdentity)
+        if (enableTransform && (!node.Transform.IsIdentity || node.SymbolicTransform is { }))
         {
-            canvas.SetMatrix(node.Transform);
+            canvas.SetMatrix(node.Transform, node.SymbolicTransform);
         }
 
         if (node.Clip is { } clip)
@@ -809,7 +811,7 @@ public static class SvgSceneRenderer
         bool enableIsolation)
     {
         return node.Overflow is null &&
-               (!enableTransform || node.Transform.IsIdentity) &&
+               (!enableTransform || (node.Transform.IsIdentity && node.SymbolicTransform is null)) &&
                node.Clip is null &&
                (node.ClipPath is null || !enableClip) &&
                node.InnerClip is null &&
@@ -835,6 +837,8 @@ public static class SvgSceneRenderer
         if (until is not null ||
             !enableTransform ||
             node.Transform.IsIdentity ||
+            // Folded into the children's path points below, which a rebind could not undo.
+            node.SymbolicTransform is not null ||
             node.HasLocalVisuals ||
             node.Children.Count == 0 ||
             node.Overflow is not null ||
@@ -879,6 +883,7 @@ public static class SvgSceneRenderer
         }
 
         if (!child.IsRenderable ||
+            child.SymbolicTransform is not null ||
             child.LocalPath is null ||
             child.LocalFill is null ||
             child.LocalStroke is not null ||
