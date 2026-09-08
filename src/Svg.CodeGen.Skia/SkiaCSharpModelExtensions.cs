@@ -163,6 +163,50 @@ public static class SkiaCSharpModelExtensions
         return $"new SKMatrix({matrix.ScaleX.ToFloatString()}, {matrix.SkewX.ToFloatString()}, {matrix.TransX.ToFloatString()}, {matrix.SkewY.ToFloatString()}, {matrix.ScaleY.ToFloatString()}, {matrix.TransY.ToFloatString()}, {matrix.Persp0.ToFloatString()}, {matrix.Persp1.ToFloatString()}, {matrix.Persp2.ToFloatString()})";
     }
 
+    /// <summary>The functions a transform was built from, as the calls that fold them again.</summary>
+    /// <remarks>
+    /// Continuation lines are indented relative to column zero; the caller shifts them to where the
+    /// statement sits. Every argument goes through <see cref="SymCSharpEmitter"/> as a number, so a
+    /// driven one becomes the compiled expression and a literal one the float it always was.
+    /// </remarks>
+    public static string ToSKMatrix(this SymMatrix symbolic)
+    {
+        if (symbolic.Transforms.Count == 0)
+        {
+            return "SKMatrix.CreateIdentity()";
+        }
+
+        var sb = new StringBuilder(ToSKMatrix(symbolic.Transforms[0]));
+
+        for (var i = 1; i < symbolic.Transforms.Count; i++)
+        {
+            sb.AppendLine().Append("    .PreConcat(").Append(ToSKMatrix(symbolic.Transforms[i])).Append(')');
+        }
+
+        return sb.ToString();
+    }
+
+    private static string ToSKMatrix(SymTransform transform)
+    {
+        var arguments = transform.Arguments;
+
+        return transform.Op switch
+        {
+            // SVG writes a matrix down the columns, so b and c swap — the same reordering the
+            // SKMatrix overload above does when it prints an already folded matrix.
+            SymTransformOp.Matrix =>
+                $"new SKMatrix({ToNumber(arguments[0])}, {ToNumber(arguments[2])}, {ToNumber(arguments[4])}, {ToNumber(arguments[1])}, {ToNumber(arguments[3])}, {ToNumber(arguments[5])}, 0f, 0f, 1f)",
+            SymTransformOp.Translate => $"SKMatrix.CreateTranslation({ToNumber(arguments[0])}, {ToNumber(arguments[1])})",
+            SymTransformOp.Scale => $"SKMatrix.CreateScale({ToNumber(arguments[0])}, {ToNumber(arguments[1])})",
+            SymTransformOp.Rotate => $"SKMatrix.CreateRotationDegrees({ToNumber(arguments[0])}, {ToNumber(arguments[1])}, {ToNumber(arguments[2])})",
+            SymTransformOp.Skew =>
+                $"SKMatrix.CreateSkew({ExprHelpers.Tangent}({ToNumber(arguments[0])}), {ExprHelpers.Tangent}({ToNumber(arguments[1])}))",
+            _ => "SKMatrix.CreateIdentity()"
+        };
+    }
+
+    private static string ToNumber(SymNode node) => SymCSharpEmitter.Emit(node, ExprType.Number);
+
     public static void ToSKImage(this SKImage image, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
     {
         var counterImage = counter.Image;
@@ -1933,7 +1977,15 @@ public static class SkiaCSharpModelExtensions
                         // overload exists in 3 as well, and needs a local because an expression
                         // would be ambiguous between the two.
                         var counterMatrix = ++counter.Matrix;
-                        sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {setMatrixCanvasCommand.TotalMatrix.ToSKMatrix()};");
+
+                        // The recorder composed the symbolic total off the same save/restore stack
+                        // as the baked one, so the functions printed here are the whole matrix and
+                        // nothing tracks a running local.
+                        var matrix = setMatrixCanvasCommand.SymbolicTotal is { } symbolicTotal
+                            ? symbolicTotal.ToSKMatrix().Replace("\n", "\n" + indent)
+                            : setMatrixCanvasCommand.TotalMatrix.ToSKMatrix();
+
+                        sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {matrix};");
                         sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SetMatrix(in {counter.MatrixVarName}{counterMatrix});");
                         break;
                     }
