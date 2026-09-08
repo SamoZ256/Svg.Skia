@@ -2,12 +2,21 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Xml.Linq;
 using Svg.Expressions;
 
 namespace Svg.SourceEditing;
+
+/// <summary>One attribute of an element, as the file writes it.</summary>
+/// <remarks>
+/// <see cref="Value"/> is the text between the quotes with entities resolved, which is what an
+/// editor shows and what it compares against; the escaping back into markup is
+/// <see cref="SvgAttributeEditor.SetAttribute"/>'s.
+/// </remarks>
+public readonly record struct SvgSourceAttribute(string Name, string Value);
 
 /// <summary>
 /// Writes one attribute of one element as a span into the text it was read from.
@@ -29,6 +38,66 @@ namespace Svg.SourceEditing;
 /// </remarks>
 public static class SvgAttributeEditor
 {
+    /// <summary>Whether <paramref name="addressKey"/> names an element of <paramref name="svgText"/>.</summary>
+    /// <remarks>
+    /// Told apart from an element written with no attributes, which <see cref="Attributes"/> answers
+    /// for with an empty list either way.
+    /// </remarks>
+    public static bool Contains(string svgText, string addressKey)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        if (addressKey is null)
+        {
+            throw new ArgumentNullException(nameof(addressKey));
+        }
+
+        return SvgDeclarationEditor.Open(svgText, out var document, out _, out _, declarationsMustBeValid: false)
+               && Resolve(document!, addressKey) is { };
+    }
+
+    /// <summary>
+    /// The attributes the element at <paramref name="addressKey"/> is written with, in the order the
+    /// file writes them.
+    /// </summary>
+    /// <remarks>
+    /// Read from the text and not from a parsed drawing, because the text is what is being edited:
+    /// what is listed is what is there, in the order somebody wrote it, and an attribute holding
+    /// <c>{{ … }}</c> reads back as that rather than as the placeholder the parser substitutes for
+    /// it. <c>SvgElement.Attributes</c> could not answer this from outside the parser anyway.
+    ///
+    /// Namespace declarations are left out: they say what the document's prefixes mean and are not
+    /// attributes of the element in the sense anybody edits.
+    ///
+    /// Empty where the address names nothing, which is also what a document mid-typing looks like.
+    /// </remarks>
+    public static IReadOnlyList<SvgSourceAttribute> Attributes(string svgText, string addressKey)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        if (addressKey is null)
+        {
+            throw new ArgumentNullException(nameof(addressKey));
+        }
+
+        if (!SvgDeclarationEditor.Open(svgText, out var document, out _, out _, declarationsMustBeValid: false)
+            || Resolve(document!, addressKey) is not { } element)
+        {
+            return Array.Empty<SvgSourceAttribute>();
+        }
+
+        return element.Attributes()
+            .Where(attribute => !attribute.IsNamespaceDeclaration)
+            .Select(attribute => new SvgSourceAttribute(attribute.Name.LocalName, attribute.Value))
+            .ToList();
+    }
+
     /// <summary>
     /// Sets <paramref name="attributeName"/> on the element at <paramref name="addressKey"/>, or
     /// takes it away when <paramref name="value"/> is null.
