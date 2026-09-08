@@ -798,33 +798,6 @@ public partial class SKSvg
         return recorder.EndRecording();
     }
 
-    /// <summary>The composition behind a node's total transform, or null where none of it is driven.</summary>
-    /// <remarks>
-    /// Walked rather than stored: a node keeps only its own functions, and a layer records the total
-    /// as a delta from identity, so the fold has to run from the root the way SKCanvas runs it while
-    /// recording a whole drawing.
-    /// </remarks>
-    private static SymMatrix? SymbolicTotalOf(SvgSceneNode node)
-    {
-        var chain = new List<SvgSceneNode>();
-
-        for (var current = node; current is { }; current = current.Parent)
-        {
-            chain.Add(current);
-        }
-
-        SymMatrix? total = null;
-        var baked = SKMatrix.CreateIdentity();
-
-        for (var index = chain.Count - 1; index >= 0; index--)
-        {
-            total = SymMatrix.PreConcat(total, baked, chain[index].SymbolicTransform, chain[index].Transform);
-            baked = baked.PreConcat(chain[index].Transform);
-        }
-
-        return total;
-    }
-
     private static SKPicture? RecordOverlayNodeModel(
         SvgSceneDocument sceneDocument,
         SvgSceneNode node,
@@ -839,7 +812,7 @@ public partial class SKSvg
         var recorder = new SKPictureRecorder();
         var canvas = recorder.BeginRecording(bounds);
 
-        var symbolicTotal = SymbolicTotalOf(node);
+        var symbolicTotal = node.SymbolicTotalTransform;
 
         if (!node.TotalTransform.IsIdentity || symbolicTotal is { })
         {

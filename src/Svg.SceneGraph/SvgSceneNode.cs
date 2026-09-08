@@ -3,7 +3,9 @@ using System.Collections;
 using System.Collections.Generic;
 using ShimSkiaSharp;
 using Svg;
+using Svg.Expressions;
 using Svg.Model;
+using Svg.SceneGraph;
 using Svg.Model.Services;
 
 namespace Svg.Skia;
@@ -258,6 +260,62 @@ public sealed class SvgSceneNode : IReadOnlyList<SvgSceneNode>
     public SymMatrix? SymbolicTransform { get; internal set; }
 
     public SKMatrix TotalTransform { get; internal set; }
+
+    /// <summary>How <see cref="TotalTransform"/> was derived, where anything in it is driven.</summary>
+    /// <remarks>
+    /// Composed by walking up rather than stored, because a node keeps only its own functions and
+    /// the fold has to run from the root — the same one <c>SKCanvas</c> performs while recording.
+    /// </remarks>
+    public SymMatrix? SymbolicTotalTransform
+    {
+        get
+        {
+            var chain = new List<SvgSceneNode>();
+
+            for (var current = this; current is { }; current = current.Parent)
+            {
+                chain.Add(current);
+            }
+
+            SymMatrix? total = null;
+            var baked = SKMatrix.CreateIdentity();
+
+            for (var index = chain.Count - 1; index >= 0; index--)
+            {
+                total = SymMatrix.PreConcat(total, baked, chain[index].SymbolicTransform, chain[index].Transform);
+                baked = baked.PreConcat(chain[index].Transform);
+            }
+
+            return total;
+        }
+    }
+
+    /// <summary>
+    /// Where this node is drawn once <paramref name="evaluator"/>'s values are applied.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="TotalTransform"/> is what the drawing was compiled with, which is the stand-in
+    /// while a transform is driven — so anything that has to agree with what is on screen, rather
+    /// than with what was compiled, asks here.
+    /// </remarks>
+    public SKMatrix TotalTransformWith(ExprEvaluator? evaluator)
+    {
+        if (evaluator is null || SymbolicTotalTransform is not { } symbolic)
+        {
+            return TotalTransform;
+        }
+
+        try
+        {
+            return SvgSceneSymEvaluator.EvaluateMatrix(symbolic, evaluator);
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            // An outline is drawn over whatever is on screen, and what is on screen when a value
+            // will not resolve is the drawing as it was compiled.
+            return TotalTransform;
+        }
+    }
 
     public SKRect? Overflow
     {
