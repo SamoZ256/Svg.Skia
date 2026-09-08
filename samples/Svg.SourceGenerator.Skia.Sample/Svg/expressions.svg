@@ -7,6 +7,7 @@
       <e:param name="t" type="number" default="0" />
       <e:param name="amp" type="number" default="1" />
       <e:param name="bold" type="boolean" default="false" />
+      <e:param name="spin" type="number" default="0" min="0" max="360" step="1" />
 
       <e:let name="wave">(sin(t * tau) + 1) / 2 * amp</e:let>
       <e:let name="level">clamp(wave, 0, 1)</e:let>
@@ -31,6 +32,11 @@
   <rect x="100" y="10" width="80" height="80"
         color-interpolation="linearRGB"
         fill="{{ level gt 0.5 ? #ff8800 : hsla(120, 80%, 45%, 0.9) }}" />
+
+  <!-- exercises a driven transform: the value reaches the matrix rather than a paint, and the
+       generated Record() has to recompute it rather than bake it -->
+  <rect x="20" y="188" width="60" height="8" transform="rotate({{ spin }} 50 192)"
+        fill="{{ primary }}" />
 
   <!-- exercises a gradient stop expression, a stroke expression and group opacity -->
   <g opacity="{{ lerp(0.4, 1, level) }}">
