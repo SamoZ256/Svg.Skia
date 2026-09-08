@@ -1138,6 +1138,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <remarks>
     /// A second read of the whole file, so it is put off until somebody asks to be shown an
     /// element. A reader who never picks a row never pays for it.
+    ///
+    /// Keyed as the drawing that was built holds them, since that is where the rows come from, but
+    /// placed in the file, since that is what the pane shows. The two are the same text unless a
+    /// <see cref="Rewrite"/> is in play; a recipe's is what made them differ.
     /// </remarks>
     private IReadOnlyDictionary<string, SvgSourceElement> SourceElements()
     {
@@ -1146,8 +1150,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return _sourceElements;
         }
 
+        var source = PaneSource();
+
         _sourceMapped = true;
-        _sourceElements = SvgSourceElements.Map(PaneSource());
+        _sourceElements = SvgSourceElements.Map(source, _document?.Built(source));
 
         return _sourceElements;
     }

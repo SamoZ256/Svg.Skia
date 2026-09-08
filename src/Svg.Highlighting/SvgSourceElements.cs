@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Xml;
 using System.Xml.Linq;
 using Svg.Expressions;
@@ -49,29 +50,7 @@ public static class SvgSourceElements
             return found;
         }
 
-        XDocument document;
-
-        try
-        {
-            // The loader's own settings, as in SvgSourceAttributes: four W3C fixtures declare their
-            // shapes as entities in an internal subset, and ignoring the DTD would fail to read a
-            // file that opens perfectly.
-            using var reader = XmlReader.Create(
-                new StringReader(source!),
-                new XmlReaderSettings
-                {
-                    DtdProcessing = SvgDocument.DisableDtdProcessing ? DtdProcessing.Ignore : DtdProcessing.Parse,
-                    XmlResolver = new SvgDtdResolver(),
-                });
-
-            document = XDocument.Load(reader, LoadOptions.SetLineInfo);
-        }
-        catch (XmlException)
-        {
-            return found;
-        }
-
-        if (document.Root is not { } root)
+        if (Read(source) is not { } root)
         {
             return found;
         }
@@ -79,6 +58,124 @@ public static class SvgSourceElements
         Walk(root, string.Empty, new SvgExpressionDeclarations.Positions(source!), source!, found);
 
         return found;
+    }
+
+    /// <summary>
+    /// Every element of the document <paramref name="built"/> holds, placed in
+    /// <paramref name="source"/>.
+    /// </summary>
+    /// <remarks>
+    /// For a drawing shown as its file but drawn from something made of it — an svgc project
+    /// applying a recipe. The recipe injects a declarations block at the front, and an address is a
+    /// path of child indices, so every element after it answers to a different address in the two.
+    /// Mapping the file alone left every row of every drawing under a recipe finding nothing.
+    ///
+    /// A rewrite only inserts: it does not remove, rename or reorder. So the two are walked
+    /// together and a built element with no counterpart in the file is passed over. Anything else
+    /// they disagree about gives the plain map back rather than a guess — a lookup that misses
+    /// moves nothing, which is what this side is built to fail as.
+    /// </remarks>
+    public static IReadOnlyDictionary<string, SvgSourceElement> Map(string? source, string? built)
+    {
+        if (built is null || string.Equals(source, built, StringComparison.Ordinal))
+        {
+            return Map(source);
+        }
+
+        if (Read(source) is not { } file || Read(built) is not { } drawn)
+        {
+            return Map(source);
+        }
+
+        var found = new Dictionary<string, SvgSourceElement>(StringComparer.Ordinal);
+
+        return Pair(file, drawn, string.Empty, new SvgExpressionDeclarations.Positions(source!), source!, found)
+            ? found
+            : Map(source);
+    }
+
+    /// <summary>
+    /// Walks one element of the file beside the one it became, keyed as the built document has it.
+    /// </summary>
+    /// <returns>Whether every element of the file was accounted for.</returns>
+    private static bool Pair(
+        XElement source,
+        XElement built,
+        string addressKey,
+        SvgExpressionDeclarations.Positions positions,
+        string text,
+        Dictionary<string, SvgSourceElement> found)
+    {
+        if (source.Name != built.Name)
+        {
+            return false;
+        }
+
+        if (Place(source, positions, text) is { } placed)
+        {
+            found[addressKey] = placed;
+        }
+
+        var mine = source.Elements().ToList();
+        var theirs = built.Elements().ToList();
+
+        var next = 0;
+
+        for (var index = 0; index < theirs.Count && next < mine.Count; index++)
+        {
+            // Not in the file, so it is what the rewrite put there — the declarations block, which
+            // has no place to be shown and whose row rightly finds nothing.
+            if (theirs[index].Name != mine[next].Name)
+            {
+                continue;
+            }
+
+            var child = addressKey.Length == 0
+                ? index.ToString(CultureInfo.InvariantCulture)
+                : addressKey + "/" + index.ToString(CultureInfo.InvariantCulture);
+
+            if (!Pair(mine[next], theirs[index], child, positions, text, found))
+            {
+                return false;
+            }
+
+            next++;
+        }
+
+        // Anything left over means they are not the same document with insertions, and every
+        // address from here on would be a guess.
+        return next == mine.Count;
+    }
+
+    /// <summary>The root of <paramref name="text"/>, or null where it will not parse.</summary>
+    /// <remarks>
+    /// The loader's own settings, as in <see cref="SvgSourceAttributes"/>: four W3C fixtures declare
+    /// their shapes as entities in an internal subset, and ignoring the DTD would fail to read a
+    /// file that opens perfectly.
+    /// </remarks>
+    private static XElement? Read(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var reader = XmlReader.Create(
+                new StringReader(text!),
+                new XmlReaderSettings
+                {
+                    DtdProcessing = SvgDocument.DisableDtdProcessing ? DtdProcessing.Ignore : DtdProcessing.Parse,
+                    XmlResolver = new SvgDtdResolver(),
+                });
+
+            return XDocument.Load(reader, LoadOptions.SetLineInfo).Root;
+        }
+        catch (XmlException)
+        {
+            return null;
+        }
     }
 
     private static void Walk(

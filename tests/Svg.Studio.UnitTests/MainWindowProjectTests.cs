@@ -2775,6 +2775,35 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal("Replacements", (string)((TabItem)strip.SelectedItem!).Header!);
     }
 
+    /// <summary>
+    /// Clicking an element of a drawing built through a recipe still shows it in the text.
+    /// </summary>
+    /// <remarks>
+    /// The tree is built from the document the recipe makes, and the pane shows the file. A recipe
+    /// puts <c>&lt;defs&gt;&lt;e:code&gt;</c> at the front of the root, so every child after it is
+    /// one index further along than the file has it — and an address is a path of child indices.
+    /// Every row of every drawing under a recipe looked up nothing and moved the caret nowhere.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task An_Element_Of_A_Drawing_Under_A_Recipe_Is_Found_In_Its_Own_Text()
+    {
+        var (_, viewer) = await Painting();
+
+        viewer.ShowSource = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var editor = viewer.GetVisualDescendants().OfType<TextEditor>().Single(control => control.Name == "SourceEditor");
+
+        // The drawing is one rect. In the built document it is the second child, because the recipe
+        // injected a defs in front of it; in the file it is the first.
+        var rect = viewer.Elements.Root!.Children.Single(child => child.Element is SvgRectangle);
+
+        Assert.Equal("1", rect.AddressKey);
+
+        Assert.True(viewer.RevealInSource(rect));
+        Assert.Contains("<rect", editor.SelectedText);
+    }
+
     [AvaloniaFact]
     public async Task Editing_A_Recipe_Does_Not_Read_The_Drawing_Off_The_Disk_Again()
     {

@@ -151,6 +151,90 @@ public class SvgSourceElementsTests
         }
     }
 
+    /// <summary>
+    /// A drawing built from something made of it is keyed as the built document has it.
+    /// </summary>
+    /// <remarks>
+    /// A recipe puts the declarations at the front of the root, so the rect a tree of the built
+    /// document calls "1" is the one the file writes first. Keyed by the file's own path, every row
+    /// of every drawing under a recipe looked up nothing.
+    /// </remarks>
+    [Fact]
+    public void An_Injected_Block_Moves_The_Addresses_And_Not_The_Places()
+    {
+        const string source = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+              <rect width="24" height="24" fill="#00ff00" />
+            </svg>
+            """;
+
+        const string built = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs><e:code><e:param name="tint" type="color" /></e:code></defs>
+              <rect width="24" height="24" fill="{{ tint }}" />
+            </svg>
+            """;
+
+        var map = SvgSourceElements.Map(source, built);
+
+        // Where the built document has it...
+        Assert.True(map.ContainsKey("1"));
+
+        // ...and the span is the file's, which is what the pane shows and saves.
+        Assert.Equal("""<rect width="24" height="24" fill="#00ff00" />""", Written(source, map["1"]));
+
+        // The injected block is in neither the file nor this map: its row rightly finds nothing.
+        Assert.False(map.ContainsKey("0"));
+        Assert.Equal(2, map.Count);
+    }
+
+    [Fact]
+    public void A_Block_Injected_Into_An_Existing_Defs_Moves_Its_Siblings()
+    {
+        const string source = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <defs><linearGradient id="g" /></defs>
+              <rect width="24" height="24" />
+            </svg>
+            """;
+
+        const string built = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code /><linearGradient id="g" /></defs>
+              <rect width="24" height="24" />
+            </svg>
+            """;
+
+        var map = SvgSourceElements.Map(source, built);
+
+        // The gradient moved along inside the defs; the rect beside it did not move at all.
+        Assert.Equal("""<linearGradient id="g" />""", Written(source, map["0/1"]));
+        Assert.Equal("""<rect width="24" height="24" />""", Written(source, map["1"]));
+    }
+
+    [Fact]
+    public void Two_Documents_That_Are_Not_One_With_Insertions_Fall_Back_To_The_File()
+    {
+        // A guess about which element is which would scroll somebody confidently to the wrong line,
+        // which is the one failure this side is designed against.
+        const string source = """<svg xmlns="http://www.w3.org/2000/svg"><rect /><circle /></svg>""";
+        const string built = """<svg xmlns="http://www.w3.org/2000/svg"><rect /></svg>""";
+
+        var map = SvgSourceElements.Map(source, built);
+
+        Assert.Equal("<rect />", Written(source, map["0"]));
+        Assert.Equal("<circle />", Written(source, map["1"]));
+    }
+
+    [Fact]
+    public void No_Rewrite_Is_The_Text_Itself()
+    {
+        const string source = """<svg xmlns="http://www.w3.org/2000/svg"><rect /></svg>""";
+
+        Assert.Equal(SvgSourceElements.Map(source).Count, SvgSourceElements.Map(source, source).Count);
+        Assert.Equal(SvgSourceElements.Map(source).Count, SvgSourceElements.Map(source, null).Count);
+    }
+
     [Fact]
     public void A_Document_That_Will_Not_Parse_Places_Nothing()
     {
