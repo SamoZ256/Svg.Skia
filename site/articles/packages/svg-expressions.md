@@ -258,6 +258,14 @@ from under that measurement, so the expression is **refused** rather than bound:
   would be gone.
 - a transform written **inside a `<clipPath>`**, whose contents compile to geometry and are never
   recorded as commands, so there is no matrix left in the drawing to rewrite.
+- a transform on a **`<text>`** or **`<tspan>`**, whose matrix is folded into the glyph positions the
+  drawing records, and one on an element that also declares **`transform-origin`**, which wraps the
+  author's functions in translations computed from the value they had when the drawing was compiled.
+
+Those last two are the reason the rule is written as *either it moves or it is named*, rather than as
+a list: an element that carries a driven transform and was nonetheless compiled without one is
+refused whatever the reason, so a function or an argument count SVG does not allow is caught by the
+same sentence rather than binding silently to nothing.
 
 Three that look like they belong on that list and do not, which is the more useful half of the rule:
 
