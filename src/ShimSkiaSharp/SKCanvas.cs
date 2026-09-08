@@ -40,7 +40,7 @@ public abstract record CanvasCommand : IDeepCloneable<CanvasCommand>
                 RestoreCanvasCommand restoreCanvasCommand => new RestoreCanvasCommand(restoreCanvasCommand.Count),
                 SaveCanvasCommand saveCanvasCommand => new SaveCanvasCommand(saveCanvasCommand.Count),
                 SaveLayerCanvasCommand saveLayerCanvasCommand => new SaveLayerCanvasCommand(saveLayerCanvasCommand.Count, saveLayerCanvasCommand.Paint?.DeepClone(context), saveLayerCanvasCommand.Bounds),
-                SetMatrixCanvasCommand setMatrixCanvasCommand => new SetMatrixCanvasCommand(setMatrixCanvasCommand.DeltaMatrix, setMatrixCanvasCommand.TotalMatrix),
+                SetMatrixCanvasCommand setMatrixCanvasCommand => new SetMatrixCanvasCommand(setMatrixCanvasCommand.DeltaMatrix, setMatrixCanvasCommand.TotalMatrix, setMatrixCanvasCommand.SymbolicDelta, setMatrixCanvasCommand.SymbolicTotal),
                 BeginConditionalCanvasCommand beginConditionalCanvasCommand => new BeginConditionalCanvasCommand(beginConditionalCanvasCommand.Condition),
                 EndConditionalCanvasCommand => new EndConditionalCanvasCommand(),
                 _ => throw new NotSupportedException($"Unsupported {nameof(CanvasCommand)} type: {GetType().Name}.")
@@ -115,7 +115,14 @@ public record SaveCanvasCommand(int Count) : CanvasCommand;
 
 public record SaveLayerCanvasCommand(int Count, SKPaint? Paint = null, SKRect? Bounds = null) : CanvasCommand;
 
-public record SetMatrixCanvasCommand(SKMatrix DeltaMatrix, SKMatrix TotalMatrix) : CanvasCommand;
+// The symbolic pair is null unless a transform on this element, or on one above it, is driven by an
+// expression. Both are carried because the two back ends read different halves: a renderer concats
+// the delta, and generated code assigns the total.
+public record SetMatrixCanvasCommand(
+    SKMatrix DeltaMatrix,
+    SKMatrix TotalMatrix,
+    SymMatrix? SymbolicDelta = null,
+    SymMatrix? SymbolicTotal = null) : CanvasCommand;
 
 // Marks a range of commands that should only run when Condition holds. The model has no notion
 // of nesting, so the range is delimited by a matching End rather than by containment.
@@ -168,7 +175,7 @@ public class SKCanvas : ICloneable, IDeepCloneable<SKCanvas>
     }
 
     private int _saveCount;
-    private readonly Stack<SKMatrix> _totalMatrices = new();
+    private readonly Stack<MatrixFrame> _totalMatrices = new();
     private readonly Stack<CommandSourceState> _commandSources = new();
     private string? _commandSourceElementId;
     private string? _commandSourceElementAddress;
@@ -177,6 +184,23 @@ public class SKCanvas : ICloneable, IDeepCloneable<SKCanvas>
     public IList<CanvasCommand>? Commands { get; }
 
     public SKMatrix TotalMatrix { get; private set; }
+
+    /// <summary>How <see cref="TotalMatrix"/> was derived, or null while nothing driven is in scope.</summary>
+    public SymMatrix? SymbolicTotalMatrix { get; private set; }
+
+    // A struct rather than a tuple: this assembly still targets net461, where ValueTuple is absent.
+    private readonly struct MatrixFrame
+    {
+        public MatrixFrame(SKMatrix total, SymMatrix? symbolic)
+        {
+            Total = total;
+            Symbolic = symbolic;
+        }
+
+        public SKMatrix Total { get; }
+
+        public SymMatrix? Symbolic { get; }
+    }
 
     internal SKCanvas(IList<CanvasCommand> commands, SKMatrix totalMatrix)
     {
@@ -203,7 +227,8 @@ public class SKCanvas : ICloneable, IDeepCloneable<SKCanvas>
 
         var clone = new SKCanvas(commands, TotalMatrix)
         {
-            _saveCount = _saveCount
+            _saveCount = _saveCount,
+            SymbolicTotalMatrix = SymbolicTotalMatrix
         };
         context.Add(this, clone);
 
@@ -298,15 +323,27 @@ public class SKCanvas : ICloneable, IDeepCloneable<SKCanvas>
         AddCommand(new DrawTextOnPathCanvasCommand(text, path, hOffset, vOffset, paint, textAlign, font));
     }
 
-    public void SetMatrix(SKMatrix deltaMatrix)
+    public void SetMatrix(SKMatrix deltaMatrix) => SetMatrix(deltaMatrix, null);
+
+    /// <summary>Concatenates <paramref name="deltaMatrix"/>, carrying how it was derived.</summary>
+    /// <remarks>
+    /// The symbolic total is composed by the same rule as the baked one, and off the same stack, so
+    /// generated code — which assigns an absolute matrix rather than concatenating — can print the
+    /// composition instead of tracking a running local of its own.
+    /// </remarks>
+    public void SetMatrix(SKMatrix deltaMatrix, SymMatrix? symbolicDelta)
     {
+        var previousTotal = TotalMatrix;
+
         TotalMatrix = TotalMatrix.PreConcat(deltaMatrix);
-        AddCommand(new SetMatrixCanvasCommand(deltaMatrix, TotalMatrix));
+        SymbolicTotalMatrix = SymMatrix.PreConcat(SymbolicTotalMatrix, previousTotal, symbolicDelta, deltaMatrix);
+
+        AddCommand(new SetMatrixCanvasCommand(deltaMatrix, TotalMatrix, symbolicDelta, SymbolicTotalMatrix));
     }
 
     public int Save()
     {
-        _totalMatrices.Push(TotalMatrix);
+        _totalMatrices.Push(new MatrixFrame(TotalMatrix, SymbolicTotalMatrix));
         AddCommand(new SaveCanvasCommand(_saveCount));
         _saveCount++;
         return _saveCount;
@@ -314,7 +351,7 @@ public class SKCanvas : ICloneable, IDeepCloneable<SKCanvas>
 
     public int SaveLayer(SKPaint paint)
     {
-        _totalMatrices.Push(TotalMatrix);
+        _totalMatrices.Push(new MatrixFrame(TotalMatrix, SymbolicTotalMatrix));
         AddCommand(new SaveLayerCanvasCommand(_saveCount, paint));
         _saveCount++;
         return _saveCount;
@@ -322,7 +359,7 @@ public class SKCanvas : ICloneable, IDeepCloneable<SKCanvas>
 
     public int SaveLayer(SKRect bounds, SKPaint? paint)
     {
-        _totalMatrices.Push(TotalMatrix);
+        _totalMatrices.Push(new MatrixFrame(TotalMatrix, SymbolicTotalMatrix));
         AddCommand(new SaveLayerCanvasCommand(_saveCount, paint, bounds));
         _saveCount++;
         return _saveCount;
@@ -336,7 +373,9 @@ public class SKCanvas : ICloneable, IDeepCloneable<SKCanvas>
         }
         else
         {
-            TotalMatrix = _totalMatrices.Pop();
+            var restored = _totalMatrices.Pop();
+            TotalMatrix = restored.Total;
+            SymbolicTotalMatrix = restored.Symbolic;
             _saveCount--;
         }
 
