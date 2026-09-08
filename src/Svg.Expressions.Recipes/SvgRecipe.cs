@@ -255,6 +255,6 @@ public sealed class SvgRecipe
 
     // It ends up in an attribute, where any reader normalises a newline to a space, so folding it
     // here gives the same result and is visible in the file.
-    private static string NormalizeExpression(string? value)
+    internal static string NormalizeExpression(string? value)
         => value is null ? string.Empty : Regex.Replace(value.Trim(), @"\s+", " ");
 }

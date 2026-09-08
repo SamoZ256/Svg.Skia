@@ -24,23 +24,18 @@ public static class SvgRecipeRewriter
     {
         var (document, root) = Read(svgText);
 
-        // Running the tool over its own output would declare the parameters twice. It almost
-        // always means the output path was passed as the input, so it is worth stopping for.
-        // Only here: a document already in the expression format is exactly one worth surveying,
-        // to see which of its colours are still literal.
-        if (document.Descendants(SvgRecipe.Ns + "code").Any())
-        {
-            throw new SvgRecipeException(
-                "The document already has an <e:code> block, so it is already in the expression format. Apply the recipe to the original SVG instead.");
-        }
-
         var counts = new int[recipe.Rules.Count];
 
         Walk(root, (name, value) => TryMatch(name, value, recipe, counts, out var expression) ? expression : null);
 
-        if (recipe.Declarations.Count > 0)
+        // What the document does not already say. Replacing is idempotent on its own -- every write
+        // in Visit is gated on the value still being a literal -- so this is the only half that
+        // could not be run twice.
+        var missing = Missing(document, recipe.Declarations);
+
+        if (missing.Count > 0)
         {
-            InjectDeclarations(root, recipe.Declarations);
+            InjectDeclarations(root, missing);
         }
 
         var matches = recipe.Rules
@@ -224,6 +219,93 @@ public static class SvgRecipeRewriter
 
         return false;
     }
+
+    /// <summary>
+    /// The declarations <paramref name="document"/> does not already make, refusing one it makes
+    /// differently.
+    /// </summary>
+    /// <remarks>
+    /// Applying a recipe to its own output used to be refused outright, on the grounds that it
+    /// would declare the parameters twice. Only that half was ever the problem: several
+    /// <c>&lt;e:code&gt;</c> blocks merge in document order, so a second copy of <c>hue</c> makes a
+    /// document that reads as "'hue' is declared more than once" and no longer builds.
+    ///
+    /// So refuse the collision rather than the situation. A declaration already there word for word
+    /// is one this recipe put there, and skipping it is what makes applying a recipe twice do
+    /// nothing instead of failing — which a build re-run over its own output, and a conversion run
+    /// again over a set half of which was converted last week, both depend on.
+    ///
+    /// It also lets a drawing that declares parameters of its own take a recipe that collides with
+    /// none of them, which the old guard refused for no reason it could name.
+    /// </remarks>
+    private static List<XElement> Missing(XDocument document, IReadOnlyList<XElement> declarations)
+    {
+        var already = new Dictionary<string, XElement>(StringComparer.Ordinal);
+
+        foreach (var element in document.Descendants(SvgRecipe.Ns + "code").Elements())
+        {
+            // First wins. A document declaring one name twice is already one that will not read,
+            // and saying so is the declarations reader's job, not this one's.
+            if (Named(element) is { } declared && !already.ContainsKey(declared))
+            {
+                already.Add(declared, element);
+            }
+        }
+
+        var missing = new List<XElement>();
+
+        foreach (var declaration in declarations)
+        {
+            if (Named(declaration) is not { } name)
+            {
+                missing.Add(declaration);
+
+                continue;
+            }
+
+            if (!already.TryGetValue(name, out var standing))
+            {
+                missing.Add(declaration);
+
+                continue;
+            }
+
+            if (!Same(standing, declaration))
+            {
+                throw new SvgRecipeException(
+                    $"The document already declares '{name}', and differently. Apply the recipe to the original SVG instead.");
+            }
+        }
+
+        return missing;
+    }
+
+    private static string? Named(XElement declaration)
+    {
+        var name = ((string?)declaration.Attribute("name"))?.Trim();
+
+        return name is { Length: > 0 } ? name : null;
+    }
+
+    /// <summary>Whether two declarations say the same thing, whatever they are laid out like.</summary>
+    /// <remarks>
+    /// Compared rather than <c>DeepEquals</c>: a declaration copied into a document picks up the
+    /// indentation around it, and two that differ only in whitespace are the same declaration.
+    /// </remarks>
+    private static bool Same(XElement standing, XElement declaration)
+        => standing.Name == declaration.Name
+           && standing.Attributes().Count(attribute => !attribute.IsNamespaceDeclaration)
+              == declaration.Attributes().Count(attribute => !attribute.IsNamespaceDeclaration)
+           && declaration.Attributes()
+               .Where(attribute => !attribute.IsNamespaceDeclaration)
+               .All(attribute => string.Equals(
+                   ((string?)standing.Attribute(attribute.Name))?.Trim(),
+                   attribute.Value.Trim(),
+                   StringComparison.Ordinal))
+           && string.Equals(
+               SvgRecipe.NormalizeExpression(standing.Value),
+               SvgRecipe.NormalizeExpression(declaration.Value),
+               StringComparison.Ordinal);
 
     private static void InjectDeclarations(XElement root, IReadOnlyList<XElement> declarations)
     {
