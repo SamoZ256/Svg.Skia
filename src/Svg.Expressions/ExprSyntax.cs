@@ -45,6 +45,8 @@ internal sealed record ColorExpr(int Position, byte R, byte G, byte B, byte A) :
 
 internal sealed record BooleanExpr(int Position, bool Value) : ExprNode(Position);
 
+internal sealed record StringExpr(int Position, string Value) : ExprNode(Position);
+
 internal sealed record IdentifierExpr(int Position, string Name) : ExprNode(Position);
 
 internal sealed record UnaryExpr(int Position, ExprUnaryOp Op, ExprNode Operand) : ExprNode(Position);

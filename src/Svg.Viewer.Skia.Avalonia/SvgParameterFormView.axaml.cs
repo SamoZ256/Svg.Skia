@@ -187,7 +187,9 @@ public partial class SvgParameterFormView : UserControl
         {
             ExprType.Number => 0,
             ExprType.Color => 1,
-            _ => 2,
+            ExprType.Boolean => 2,
+            ExprType.String => 3,
+            _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}."),
         };
 
     private string Selected()

@@ -334,11 +334,11 @@ public static class SkiaCSharpCodeGen
 
         // Before the lets, since a let may reference the parameter and will have been compiled to
         // read this local.
-        var colourFallbacks = declarations.ColourFallbacks();
+        var computedDefaults = declarations.ComputedDefaults();
 
-        foreach (var (parameter, local, defaultCode) in colourFallbacks)
+        foreach (var (parameter, local, defaultCode, type) in computedDefaults)
         {
-            sb.AppendLine($"{indent}SKColor {local} = {parameter} ?? {defaultCode};");
+            sb.AppendLine($"{indent}{ExprCompiler.CSharpTypeOf(type)} {local} = {parameter} ?? {defaultCode};");
         }
 
         foreach (var (name, type, code) in lets)
@@ -346,7 +346,7 @@ public static class SkiaCSharpCodeGen
             sb.AppendLine($"{indent}{ExprCompiler.CSharpTypeOf(type)} {name} = {code};");
         }
 
-        if (lets.Count > 0 || colourFallbacks.Count > 0)
+        if (lets.Count > 0 || computedDefaults.Count > 0)
         {
             sb.AppendLine($"");
         }
@@ -470,11 +470,16 @@ public static class SkiaCSharpCodeGen
                 continue;
             }
 
-            // A colour default cannot be a C# argument default, so the parameter goes nullable and
-            // coalesces into a local. One without a default stays a required SKColor.
-            rendered.Add(parameter.Type == ExprType.Color
-                ? $"{type}? {parameter.Name} = null"
-                : $"{type} {parameter.Name} = {code}");
+            // A default that is not a C# compile-time constant arrives as null and coalesces into
+            // a local. A colour takes the `?`, being a value type; a string is already a reference
+            // and must not, or generated code would warn (CS8632) in a project with nullable
+            // annotations off.
+            rendered.Add(parameter.Type switch
+            {
+                ExprType.Color => $"{type}? {parameter.Name} = null",
+                ExprType.String => $"{type} {parameter.Name} = null",
+                _ => $"{type} {parameter.Name} = {code}"
+            });
         }
 
         return string.Join(", ", rendered);

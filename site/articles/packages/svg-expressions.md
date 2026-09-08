@@ -87,6 +87,7 @@ renderers ignore:
     <e:param name="hue"  type="number"  default="217" min="0" max="360" step="1" />
     <e:param name="tint" type="color"   />
     <e:param name="bold" type="boolean" default="false" />
+    <e:param name="theme" type="string" default="'dark'" />
 
     <e:let name="wave">(sin(t * tau) + 1) / 2</e:let>
     <e:let name="shade">mix(tint, #000000, wave)</e:let>
@@ -120,7 +121,7 @@ increment. All three are optional, and each is an expression like `default` is, 
 ```
 
 `min` and `max` are given together or not at all. `step` may stand alone, against the range of `0` to
-`1` a parameter has when it declares none. All three are for `number` only — a colour or boolean
+`1` a parameter has when it declares none. All three are for `number` only — any other type
 carrying one is an error, as is a `min` above its `max`, or a `step` of zero or less.
 
 They are **advice to a host, not a constraint on the value**. Nothing clamps: a value supplied at run
@@ -133,7 +134,13 @@ Names must be valid identifiers (letter or `_`, then letters, digits or `_`), mu
 built-in constant, function or operator word ([§3.3](#33-operators)), and must be unique across
 params and lets.
 
-## 2. Which attributes take an expression
+## 2. Where an expression can go
+
+There are two kinds, and which one an attribute is decides what it costs to change.
+
+**Resolved after the drawing is recorded.** The value survives into the compiled drawing, so binding
+a new one rewrites that drawing and nothing is compiled again. This is the cheap path: a slider drag
+stays smooth.
 
 | Attribute | Expression type | Effect |
 | --- | --- | --- |
@@ -149,9 +156,51 @@ params and lets.
 | `visibility` | boolean | `true` meaning visible. Wraps the element's drawing in a condition. |
 | `display` | boolean | `true` meaning displayed. Wraps the element and its subtree in a condition. |
 
+**Resolved before the drawing is recorded.** The value is consumed while the document is compiled —
+the typeface is chosen with it and the text measured against that — so it is substituted into the
+document first, and changing one compiles the drawing again.
+
+| Where | Expression type | Effect |
+| --- | --- | --- |
+| element text | string | The text of a `<text>`, `<tspan>` or `<textPath>`. |
+| `font-family` | string | The typeface the text is laid out with. |
+| `font-weight` | string | `bold`, `700`, and the rest of SVG's own spellings. |
+| `font-style` | string | `normal`, `italic`, `oblique`. |
+| `text-anchor` | string | `start`, `middle`, `end`. |
+| `font-size` | number | User units; a number carries no unit, so `2em` cannot be written this way. |
+| `letter-spacing` | number | User units. |
+| `word-spacing` | number | User units. |
+| `textLength` | number | The length the run is fitted to. |
+
+```xml
+<e:param name="label" type="string" default="'Save'" />
+<e:param name="face"  type="string" default="'Inter'" />
+
+<text x="100" y="40" text-anchor="middle" font-family="{{ face }}">{{ label }}</text>
+```
+
+An element's text is lifted whole or not at all: `{{ … }}` has to be the entire content, so
+`Total: {{ n }}` is literal text and `{{ 'Total: ' + n }}` is the way to say it. The language has `+`
+on strings for exactly this.
+
 Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d`, `transform`, `stroke-width` — is a
 literal. Braces written in one of those are read as an ordinary value and do nothing; a source view
 marks it.
+
+### What the second kind costs
+
+Two things, both worth knowing before reaching for it.
+
+**A compile, not a rewrite.** Measured on a 400-element drawing with 200 text runs: binding a colour
+takes 1.4 ms, binding the text takes 6.0 ms — about four times as much, and still inside a frame.
+Nothing throttles it, and a host that binds one per keystroke will not notice; a host driving one
+from a slider on a very large document might.
+
+**No generated code.** `svgc` and the source generator bake a picture at build time, with the text
+already measured and the glyph positions already numbers. A parameter driving one of these could
+never vary at run time, so a document using them is **refused** rather than generated with a
+signature that offers something it cannot do. Bind it at run time with `SKSvg.SetExpressionValues`,
+or write the value as a literal to generate from.
 
 A **pattern** fill is the one exception among the opacities: it paints into a picture of its own,
 where the alpha is baked into every command rather than sitting on one colour, so `fill-opacity`
@@ -179,9 +228,19 @@ would a literal.
 
 ### 3.1 Types
 
-`number` (single-precision float), `color` (RGBA, 8 bits per channel), `boolean`.
+`number` (single-precision float), `color` (RGBA, 8 bits per channel), `boolean`, `string`.
 
-There are no implicit conversions between them.
+There are no implicit conversions between them. In particular `+` never turns a number into text:
+between a string and anything else it is an error, not a conversion.
+
+A string reaches a drawing two ways ([§2](#2-where-an-expression-can-go)): as the text or the font
+of a `<text>`, and as the thing that chooses between values the other attributes take.
+
+```xml
+<e:param name="theme" type="string" default="'dark'" />
+<circle fill="{{ theme == 'dark' ? #ffffff : #101010 }}" />
+<text font-family="{{ theme == 'dark' ? 'Inter' : 'Georgia' }}">{{ theme }}</text>
+```
 
 ### 3.2 Literals
 
@@ -194,6 +253,14 @@ There are no implicit conversions between them.
 | `#ff8800` | color | 6 hex digits, RGB, alpha 255. |
 | `#ff880080` | color | 8 hex digits, RGBA. |
 | `true`, `false` | boolean | |
+| `'dark'`, `"dark"` | string | Either quote; the one that opened the literal closes it. |
+
+A string literal is closed by whichever quote opened it, and only that quote has to be escaped
+inside it. `'` is the spelling to prefer: an expression lives in a double-quoted XML attribute, where
+`'` needs no entity and `"` has to be written `&quot;`.
+
+The escapes are `\\`, `\'`, `\"`, `\n` and `\t`. Any other character after a backslash is an
+error rather than a passed-through backslash.
 
 `%` is **only** a suffix and never an operator. Use `mod(a, b)` for the remainder. This keeps `55%`
 unambiguous; writing `a % b` is a syntax error with a message saying so.
@@ -210,7 +277,8 @@ listed alongside:
 | 3 | `&&` | `and` | boolean | boolean |
 | 4 | `==` `!=` | `eq` `ne` | both operands the same type | boolean |
 | 5 | `<` `<=` `>` `>=` | `lt` `le` `gt` `ge` | number | boolean |
-| 6 | `+` `-` | | number | number |
+| 6 | `+` | | number, or two strings | number, or string |
+| 6 | `-` | | number | number |
 | 7 | `*` `/` | | number | number |
 | 8 | `-x` (unary) | | number | number |
 | 8 | `!x` | `not x` | boolean | boolean |
@@ -219,6 +287,9 @@ Parentheses group as usual.
 
 Arithmetic on colours is rejected — use `mix(a, b, t)` to blend. Ordering comparisons (`<`, `>`, …)
 are numbers only; `==` and `!=` work on any type provided both sides match.
+
+`+` is the one operator with two meanings: two numbers add, two strings join. A string with anything
+else is an error, because the alternative would make `+` a conversion.
 
 #### Escaping, and the word forms
 
@@ -276,6 +347,13 @@ Colour:
 | `mix(a, b, t)` | Per-channel linear blend including alpha. `t` clamped to 0..1. |
 | `withAlpha(c, a)` | Replaces alpha; `a` is 0..1, clamped. |
 
+String:
+
+| Signature | Notes |
+| --- | --- |
+| `upper(s)` `lower(s)` | **Invariant** case folding, so the answer does not vary with the machine. |
+| `len(s)` | Number of UTF-16 code units, as a **number** — which is how a string reaches the arithmetic. |
+
 Note the deliberate asymmetry: `rgb` takes 0..255 and `hsl` takes degrees plus fractions, matching
 CSS rather than being internally uniform.
 
@@ -290,7 +368,7 @@ comparison     := additive ( ( '<' | '<=' | '>' | '>=' | 'lt' | 'le' | 'gt' | 'g
 additive       := multiplicative ( ( '+' | '-' ) multiplicative )*
 multiplicative := unary ( ( '*' | '/' ) unary )*
 unary          := ( '-' | '!' | 'not' ) unary | primary
-primary        := number | color | 'true' | 'false'
+primary        := number | color | string | 'true' | 'false'
                 | identifier
                 | identifier '(' ( conditional ( ',' conditional )* )? ')'
                 | '(' conditional ')'

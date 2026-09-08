@@ -467,6 +467,8 @@ public static class SvgDocumentCompatibilityLoader
                             element.Nodes.Clear();
                         }
 
+                        LiftContentExpression(element);
+
                         if (element is SvgUnknownElement unknown &&
                             unknown.ElementName == "style" &&
                             SvgCssCompatibilityProcessor.ShouldApplyStyleElement(unknown))
@@ -730,6 +732,41 @@ public static class SvgDocumentCompatibilityLoader
     private static bool ShouldPreserveWhitespaceNode(SvgElement element, SvgElementFactory elementFactory)
     {
         return elementFactory.PreserveJavaScriptDomState || element is SvgTextBase;
+    }
+
+    /// <summary>Lifts a text element whose whole content is one expression.</summary>
+    /// <remarks>
+    /// The whole content rather than a scan for braces inside it. A run mixing literal text with an
+    /// expression would have to be lifted per content node, and the element has one place to keep a
+    /// lifted value; the language already says the same thing in one expression, since
+    /// <c>{{ 'Total: ' + n }}</c> is what <c>Total: {{ n }}</c> would have meant.
+    ///
+    /// Content having unwrapped is also what says the element has no children worth keeping: the
+    /// aggregate above concatenates every node, so anything beside the expression would have left
+    /// text on either side of it and the unwrap would have failed.
+    ///
+    /// Both Nodes and Content are written because different things read them -- the scene compiler
+    /// walks Nodes and never looks at Content, while GetXML and the JavaScript DOM read Content.
+    /// </remarks>
+    private static void LiftContentExpression(SvgElement element)
+    {
+        if (element is not SvgTextBase ||
+            !SvgExpressionAttributes.TryUnwrap(element.Content, out var expression))
+        {
+            return;
+        }
+
+        SvgExpressionAttributes.Lift(
+            element.CustomAttributes,
+            SvgExpressionAttributes.ContentName,
+            expression,
+            SvgElement.StyleSpecificity_PresAttribute);
+
+        // Empty, which is what the element would draw with no text in it. Substitution runs on every
+        // compile, so this is only ever seen where an expression will not evaluate.
+        element.Nodes.Clear();
+        element.Nodes.Add(new SvgContentNode { Content = string.Empty });
+        element.Content = string.Empty;
     }
 
     private static bool TryAggregateNodeContent(SvgElement element, out string content)

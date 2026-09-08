@@ -153,6 +153,38 @@ public sealed class SvgViewerColorParameter : SvgViewerParameter
     public override void ResetToDefault() => Color = _seed;
 }
 
+/// <summary>A <c>string</c> parameter.</summary>
+public sealed class SvgViewerStringParameter : SvgViewerParameter
+{
+    private readonly string _seed;
+    private string _value;
+
+    internal SvgViewerStringParameter(SvgExpressionParameter declaration, string seed)
+        : base(declaration)
+    {
+        _seed = seed;
+        _value = seed;
+    }
+
+    /// <remarks>
+    /// Never null, whatever a two-way binding to an emptied text box puts back: the value goes to
+    /// the evaluator, which has no null.
+    /// </remarks>
+    public string Value
+    {
+        get => _value;
+        set => Set(ref _value, value ?? string.Empty);
+    }
+
+    public override ExprValue ToExprValue() => ExprValue.String(_value);
+
+    public override string ToExpression() => SvgViewerParameterFactory.Describe(ToExprValue());
+
+    public override bool IsModified => !string.Equals(_value, _seed, StringComparison.Ordinal);
+
+    public override void ResetToDefault() => Value = _seed;
+}
+
 /// <summary>A <c>boolean</c> parameter.</summary>
 public sealed class SvgViewerBooleanParameter : SvgViewerParameter
 {

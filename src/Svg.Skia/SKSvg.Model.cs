@@ -1401,6 +1401,8 @@ public partial class SKSvg : IDisposable
     {
         DisableAnimationLayerCaching();
 
+        using var substituted = BeginExpressionSubstitution(svgDocument);
+
         if (!SvgSceneRuntime.TryCompile(svgDocument, AssetLoader, _ignoreAttributes, GetStandaloneViewport(), out var sceneDocument) ||
             sceneDocument is null)
         {

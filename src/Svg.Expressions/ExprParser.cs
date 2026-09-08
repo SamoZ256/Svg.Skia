@@ -15,7 +15,7 @@ namespace Svg.Expressions;
 //   additive    := multiplicative ( ('+' | '-') multiplicative )*
 //   multiplicative := unary ( ('*' | '/') unary )*
 //   unary       := ('-' | '!') unary | primary
-//   primary     := number | color | identifier | call | '(' conditional ')'
+//   primary     := number | color | string | identifier | call | '(' conditional ')'
 internal static class ExprParser
 {
     public static ExprNode Parse(string text)
@@ -197,6 +197,10 @@ internal static class ExprParser
                     (byte)((token.Color >> 16) & 0xFF),
                     (byte)((token.Color >> 8) & 0xFF),
                     (byte)(token.Color & 0xFF));
+
+            case ExprTokenKind.String:
+                index++;
+                return new StringExpr(token.Position, token.Value!);
 
             case ExprTokenKind.Identifier:
                 index++;

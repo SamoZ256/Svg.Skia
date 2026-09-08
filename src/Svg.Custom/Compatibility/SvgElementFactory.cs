@@ -181,10 +181,18 @@ namespace Svg
                                 inlineExpression,
                                 SvgElement.StyleSpecificity_PresAttribute);
 
-                            element.AddStyle(
-                                localName,
-                                SvgExpressionAttributes.PlaceholderFor(localName),
-                                SvgElement.StyleSpecificity_PresAttribute);
+                            // One resolved before the drawing is recorded is left absent instead:
+                            // substitution writes the real value in before every compile, and a
+                            // stand-in would only be seen where that fails -- where the element
+                            // should look as though the attribute had not been written.
+                            if (!SvgExpressionAttributes.IsResolvedBeforeRecording(localName))
+                            {
+                                element.AddStyle(
+                                    localName,
+                                    SvgExpressionAttributes.PlaceholderFor(localName),
+                                    SvgElement.StyleSpecificity_PresAttribute);
+                            }
+
                             continue;
                         }
 
@@ -216,6 +224,21 @@ namespace Svg
 
                         if (CanBindAttributeNamespace(ns))
                         {
+                            // The same lift as the presentation branch above, for the attributes
+                            // that are not presentation attributes and so never reach it.
+                            if (ns.Length == 0 &&
+                                SvgExpressionAttributes.IsSupported(localName) &&
+                                SvgExpressionAttributes.TryUnwrap(reader.Value, out var liftedExpression))
+                            {
+                                SvgExpressionAttributes.Lift(
+                                    element.CustomAttributes,
+                                    localName,
+                                    liftedExpression,
+                                    SvgElement.StyleSpecificity_PresAttribute);
+
+                                continue;
+                            }
+
                             SetPropertyValue(element, ns, localName, reader.Value, document);
                         }
                         else

@@ -21,6 +21,7 @@
       <SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#C586C0" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionNumberBrush" Color="#B5CEA8" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionColorBrush" Color="#4EC9B0" />
+      <SolidColorBrush x:Key="SvgViewerSourceExpressionStringBrush" Color="#CE9178" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionFunctionBrush" Color="#DCDCAA" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionConstantBrush" Color="#4FC1FF" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionKeywordBrush" Color="#C586C0" />
@@ -43,6 +44,7 @@
       <SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#A626A4" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionNumberBrush" Color="#098658" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionColorBrush" Color="#0E7C6B" />
+      <SolidColorBrush x:Key="SvgViewerSourceExpressionStringBrush" Color="#A31515" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionFunctionBrush" Color="#795E26" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionConstantBrush" Color="#0070C1" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionKeywordBrush" Color="#A626A4" />

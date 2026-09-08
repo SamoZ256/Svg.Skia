@@ -127,6 +127,24 @@
       </Grid>
     </DataTemplate>
 
+    <DataTemplate DataType="viewer:SvgViewerStringParameter">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
+        <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                PointerPressed="OnGripPressed"
+                ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+          <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+        <!-- Plain text, not the expression box: the row holds the value, not an expression for it. -->
+        <TextBox Grid.Column="2" Width="140" FontFamily="monospace"
+                 Text="{Binding Value, Mode=TwoWay}" />
+        <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
+                ToolTip.Tip="Edit this parameter" />
+        <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
+                ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
+      </Grid>
+    </DataTemplate>
+
     <DataTemplate DataType="viewer:SvgViewerColorParameter">
       <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
         <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"

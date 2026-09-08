@@ -38,7 +38,10 @@ public enum ExprFunction
     Hsl,
     Hsla,
     Mix,
-    WithAlpha
+    WithAlpha,
+    Upper,
+    Lower,
+    Len
 }
 
 /// <summary>What a function takes and returns. No spelling in any target language.</summary>
@@ -70,6 +73,7 @@ public static class ExprFunctions
 {
     private const ExprType N = ExprType.Number;
     private const ExprType C = ExprType.Color;
+    private const ExprType S = ExprType.String;
 
     private static readonly Dictionary<string, ExprType> s_constants = new(StringComparer.Ordinal)
     {
@@ -106,7 +110,12 @@ public static class ExprFunctions
         ["hsl"] = new(ExprFunction.Hsl, C, N, N, N),
         ["hsla"] = new(ExprFunction.Hsla, C, N, N, N, N),
         ["mix"] = new(ExprFunction.Mix, C, C, C, N),
-        ["withAlpha"] = new(ExprFunction.WithAlpha, C, C, N)
+        ["withAlpha"] = new(ExprFunction.WithAlpha, C, C, N),
+        ["upper"] = new(ExprFunction.Upper, S, S),
+        ["lower"] = new(ExprFunction.Lower, S, S),
+
+        // Returns a number, so a string can reach the arithmetic rather than being an island.
+        ["len"] = new(ExprFunction.Len, N, S)
     };
 
     /// <summary>Function names as authored. Diagnostics list these, not the enum.</summary>
@@ -139,7 +148,8 @@ public static class ExprFunctions
             "number" => ExprType.Number,
             "color" => ExprType.Color,
             "boolean" => ExprType.Boolean,
-            _ => throw new ExprException($"Unknown type '{text}'. Expected number, color or boolean.", position, part: part)
+            "string" => ExprType.String,
+            _ => throw new ExprException($"Unknown type '{text}'. Expected number, color, boolean or string.", position, part: part)
         };
 
     /// <summary>How a type is written in a document, which is the spelling <see cref="ParseType"/> takes.</summary>
@@ -154,7 +164,9 @@ public static class ExprFunctions
         {
             ExprType.Number => "number",
             ExprType.Color => "color",
-            _ => "boolean"
+            ExprType.Boolean => "boolean",
+            ExprType.String => "string",
+            _ => throw Unknown(type)
         };
 
     /// <summary>
@@ -170,7 +182,11 @@ public static class ExprFunctions
     {
         ExprType.Color => "A paint expression",
         ExprType.Boolean => "A visibility expression",
-        _ => "An opacity expression",
+        ExprType.Number => "An opacity expression",
+
+        // String falls here rather than being named: no attribute holds one, so no expression is
+        // ever asked to produce one, and there is no use to describe.
+        _ => throw Unknown(expected),
     };
 
     /// <summary>How a type is named in a diagnostic.</summary>
@@ -179,7 +195,9 @@ public static class ExprFunctions
         {
             ExprType.Number => "number",
             ExprType.Color => "colour",
-            _ => "boolean"
+            ExprType.Boolean => "boolean",
+            ExprType.String => "string",
+            _ => throw Unknown(type)
         };
 
     /// <summary>
@@ -187,6 +205,9 @@ public static class ExprFunctions
     /// the diagnostic that rejects an operand and in the C# a back end emits: two copies could
     /// drift, with byte-identical output riding on one and message text on the other.
     /// </summary>
+    private static Exception Unknown(ExprType type)
+        => new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.");
+
     public static string OperatorText(ExprBinaryOp op)
         => op switch
         {

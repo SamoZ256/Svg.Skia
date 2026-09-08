@@ -20,6 +20,9 @@ internal static class ExprHelpers
     public const string Hsla = "SvgHsla";
     public const string Mix = "SvgMix";
     public const string WithAlpha = "SvgWithAlpha";
+    public const string Upper = "SvgUpper";
+    public const string Lower = "SvgLower";
+    public const string Len = "SvgLen";
 
     // Ordered so generated output is stable.
     public static IReadOnlyList<KeyValuePair<string, string[]>> All { get; } = new List<KeyValuePair<string, string[]>>
@@ -120,6 +123,23 @@ internal static class ExprHelpers
         {
             $"private static SKColor {WithAlpha}(SKColor color, float a)",
             "    => color.WithAlpha((byte)Math.Round(Math.Clamp(a, 0f, 1f) * 255f));"
+        }),
+
+        // Invariant, or the generated code would fold a Turkish dotless i where the interpreter
+        // did not. Length is returned as a float because that is what a number is here.
+        new(Upper, new[]
+        {
+            $"private static string {Upper}(string value) => value.ToUpperInvariant();"
+        }),
+
+        new(Lower, new[]
+        {
+            $"private static string {Lower}(string value) => value.ToLowerInvariant();"
+        }),
+
+        new(Len, new[]
+        {
+            $"private static float {Len}(string value) => value.Length;"
         })
     };
 }

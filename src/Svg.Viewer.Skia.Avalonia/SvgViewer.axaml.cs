@@ -919,6 +919,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
                 boolean.Value = value.AsBoolean;
                 return true;
 
+            case SvgViewerStringParameter text when value.Type == ExprType.String:
+                text.Value = value.AsString;
+                return true;
+
             case SvgViewerColorParameter colour when value.Type == ExprType.Color:
                 colour.Color = global::Avalonia.Media.Color.FromArgb(value.Alpha, value.Red, value.Green, value.Blue);
                 return true;
@@ -2018,6 +2022,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         SvgSourceTokenKind.Expression => "SvgViewerSourceExpressionBrush",
         SvgSourceTokenKind.ExpressionNumber => "SvgViewerSourceExpressionNumberBrush",
         SvgSourceTokenKind.ExpressionColor => "SvgViewerSourceExpressionColorBrush",
+        SvgSourceTokenKind.ExpressionString => "SvgViewerSourceExpressionStringBrush",
         SvgSourceTokenKind.ExpressionFunction => "SvgViewerSourceExpressionFunctionBrush",
         SvgSourceTokenKind.ExpressionConstant => "SvgViewerSourceExpressionConstantBrush",
         SvgSourceTokenKind.ExpressionKeyword => "SvgViewerSourceExpressionKeywordBrush",

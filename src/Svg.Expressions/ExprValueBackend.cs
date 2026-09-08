@@ -21,6 +21,7 @@ internal static class ExprValueBackend
             TypedNumber number => ExprValue.Number((float)number.Value),
             TypedColor color => ExprValue.Color(color.R, color.G, color.B, color.A),
             TypedBoolean boolean => ExprValue.Boolean(boolean.Value),
+            TypedString text => ExprValue.String(text.Value),
             TypedSymbol symbol => Lookup(symbol, values),
             TypedConstant constant => EvaluateConstant(constant),
             TypedUnary unary => EvaluateUnary(unary, values),
@@ -82,7 +83,9 @@ internal static class ExprValueBackend
         switch (binary.Op)
         {
             case ExprBinaryOp.Add:
-                return ExprValue.Number(left.AsNumber + right.AsNumber);
+                return left.Type == ExprType.String
+                    ? ExprValue.String(left.AsString + right.AsString)
+                    : ExprValue.Number(left.AsNumber + right.AsNumber);
             case ExprBinaryOp.Subtract:
                 return ExprValue.Number(left.AsNumber - right.AsNumber);
             case ExprBinaryOp.Multiply:
@@ -116,7 +119,9 @@ internal static class ExprValueBackend
                               && left.Green == right.Green
                               && left.Blue == right.Blue
                               && left.Alpha == right.Alpha,
-            _ => left.AsBoolean == right.AsBoolean
+            ExprType.Boolean => left.AsBoolean == right.AsBoolean,
+            ExprType.String => string.Equals(left.AsString, right.AsString, StringComparison.Ordinal),
+            _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {left.Type}.")
         };
 
     private static ExprValue EvaluateConditional(
@@ -193,6 +198,15 @@ internal static class ExprValueBackend
                 return Mix(arguments[0], arguments[1], arguments[2].AsNumber);
             case ExprFunction.WithAlpha:
                 return arguments[0].WithAlpha(AlphaByte(arguments[1].AsNumber));
+
+            // Invariant, so the two back ends cannot disagree by the culture of the machine that
+            // ran them. The generated code spells it the same way.
+            case ExprFunction.Upper:
+                return ExprValue.String(arguments[0].AsString.ToUpperInvariant());
+            case ExprFunction.Lower:
+                return ExprValue.String(arguments[0].AsString.ToLowerInvariant());
+            case ExprFunction.Len:
+                return ExprValue.Number(arguments[0].AsString.Length);
 
             default:
                 throw new NotSupportedException($"Unsupported {nameof(ExprFunction)}: {call.Function}.");

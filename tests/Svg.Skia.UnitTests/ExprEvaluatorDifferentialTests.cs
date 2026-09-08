@@ -44,7 +44,9 @@ public class ExprEvaluatorDifferentialTests
         {
             ExprType.Number => Value.AsNumber,
             ExprType.Color => new SKColor(Value.Red, Value.Green, Value.Blue, Value.Alpha),
-            _ => Value.AsBoolean
+            ExprType.Boolean => Value.AsBoolean,
+            ExprType.String => Value.AsString,
+            _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {Value.Type}.")
         };
     }
 
@@ -54,6 +56,8 @@ public class ExprEvaluatorDifferentialTests
         => new(name, ExprValue.Color(r, g, b, a));
 
     private static Argument Boolean(string name, bool value) => new(name, ExprValue.Boolean(value));
+
+    private static Argument Text(string name, string value) => new(name, ExprValue.String(value));
 
     /// <summary>Compiles <paramref name="code"/> into a method and invokes it.</summary>
     /// <remarks>
@@ -166,9 +170,16 @@ public class ExprEvaluatorDifferentialTests
                     break;
                 }
 
-            default:
+            case ExprType.Boolean:
                 Assert.Equal((bool)compiled, evaluated.AsBoolean);
                 break;
+
+            case ExprType.String:
+                Assert.Equal((string)compiled, evaluated.AsString, StringComparer.Ordinal);
+                break;
+
+            default:
+                throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.");
         }
     }
 
@@ -302,7 +313,32 @@ public class ExprEvaluatorDifferentialTests
         AssertSameValue("hot ? #22c55e : #1e40af", Boolean("hot", true));
         AssertSameValue("hot ? #22c55e : #1e40af", Boolean("hot", false));
         AssertSameValue("hsl(hue, 0.74, 0.55)", Number("hue", 37.5f));
+        AssertSameValue("theme == 'dark'", Text("theme", "dark"));
+        AssertSameValue("theme == 'dark'", Text("theme", "light"));
+        AssertSameValue("theme != 'dark' ? #22c55e : #1e40af", Text("theme", "dark"));
+        AssertSameValue("on ? theme : 'plain'", Text("theme", "dark"), Boolean("on", true));
+        AssertSameValue("'icon-' + theme", Text("theme", "home"));
+        AssertSameValue("upper(theme)", Text("theme", "stra\u00dfe"));
+        AssertSameValue("lower(theme)", Text("theme", "STRASSE"));
+        AssertSameValue("len(theme) * 2", Text("theme", "home"));
+
+        // A case fold that differs by culture, which is why both back ends spell it invariant.
+        AssertSameValue("upper(theme)", Text("theme", "istanbul"));
+        AssertSameValue("lower(theme)", Text("theme", "ISTANBUL"));
     }
+
+    [Theory]
+    // Every escape the language has, so the C# literal the emitter writes has to mean the same
+    // thing as the value the lexer resolved.
+    [InlineData(@"'a\\b'")]
+    [InlineData(@"'a\nb'")]
+    [InlineData(@"'a\tb'")]
+    [InlineData(@"'it\'s'")]
+    [InlineData("'quote\"inside'")]
+    [InlineData("'caf\u00e9 \u2014 \u4e2d'")]
+    [InlineData("''")]
+    public void A_String_Expression_Evaluates_To_What_The_Generated_Code_Computes(string expression)
+        => AssertSameValue(expression);
 
     [Fact]
     public void Only_The_Taken_Branch_Of_A_Conditional_Is_Evaluated()

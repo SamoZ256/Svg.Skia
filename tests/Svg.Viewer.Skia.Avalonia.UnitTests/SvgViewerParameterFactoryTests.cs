@@ -176,6 +176,34 @@ public class SvgViewerParameterFactoryTests
     }
 
     [Fact]
+    public void A_String_Seeds_From_Its_Default_And_Otherwise_Is_Empty()
+    {
+        Assert.Equal("dark", Assert.IsType<SvgViewerStringParameter>(
+            SvgViewerParameterFactory.Create(Declare("""<e:param name="theme" type="string" default="'dark'" />"""))).Value);
+
+        Assert.Equal("ICON", Assert.IsType<SvgViewerStringParameter>(
+            SvgViewerParameterFactory.Create(Declare("""<e:param name="theme" type="string" default="upper('icon')" />"""))).Value);
+
+        Assert.Equal(string.Empty, Assert.IsType<SvgViewerStringParameter>(
+            SvgViewerParameterFactory.Create(Declare("""<e:param name="theme" type="string" />"""))).Value);
+    }
+
+    [Fact]
+    public void A_String_Is_Committed_As_A_Literal_The_Language_Reads_Back()
+    {
+        var row = Assert.IsType<SvgViewerStringParameter>(
+            SvgViewerParameterFactory.Create(Declare("""<e:param name="theme" type="string" default="'dark'" />""")));
+
+        row.Value = "it's a\\ b";
+
+        // The round trip that matters: what a commit writes has to declare the value it came from.
+        Assert.Equal(@"'it\'s a\\ b'", row.ToExpression());
+        Assert.Equal(
+            row.ToExprValue(),
+            ExprEvaluator.Create(SvgExpressionDeclarations.Empty, null).Evaluate(row.ToExpression()));
+    }
+
+    [Fact]
     public void A_Row_Reports_And_Resets_A_Change()
     {
         var row = Number("""<e:param name="t" type="number" default="0.25" />""");

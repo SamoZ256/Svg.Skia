@@ -266,6 +266,11 @@ public static class SvgcProjectBuild
             return null;
         }
 
+        if (SvgExpressionSubstitution.WhyNotGeneratable(svgDocument) is { } refusal)
+        {
+            throw new SvgcProjectException($"{Path.GetFileName(item.Input)}: {refusal}");
+        }
+
         var declarations = SvgExpressionDeclarations.Parse(svg);
 
         Warn(item.Input, declarations, log);

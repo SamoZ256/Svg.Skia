@@ -96,6 +96,11 @@ public static class SvgExport
             throw new InvalidOperationException(error);
         }
 
+        if (SvgExpressionSubstitution.WhyNotGeneratable(rebuilt.Svg.SourceDocument) is { } refusal)
+        {
+            throw new InvalidOperationException(refusal);
+        }
+
         if (rebuilt.Svg.Model is not { } picture)
         {
             throw new InvalidOperationException("The drawing compiled to nothing to generate from.");
