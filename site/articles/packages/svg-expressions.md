@@ -234,10 +234,12 @@ difference between drawing and not.
 
 Written on one element they nest, in either order, and the element draws only where both hold. What
 neither reaches is hit testing, which reads the placeholder: an element hidden by an expression
-alone still answers a hit. A driven transform is the same thing from the other side: hit testing,
-node bounds and the editor's selection handles read the placeholder matrix, so an element moved by a
-binding still answers and measures where it was compiled. The viewer's outline is the exception — it
-asks for the transform the bound values give, so a ring follows the element it is drawn around.
+alone still answers a hit.
+
+A driven transform does reach it. Binding moves the compiled scene as well as the recorded drawing,
+so an element turned by an expression answers, measures and is drawn around where it is turned to —
+hit testing, node bounds, the outline and the editor's selection handles all follow, because none of
+them is told about expressions at all: they read the scene, and the scene moved.
 
 The two compose in either direction: an opacity expression scales a literal colour, a colour
 expression is scaled by a literal opacity, and where both are expressions the alpha is scaled by

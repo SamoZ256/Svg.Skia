@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using ShimSkiaSharp;
 using Svg;
-using Svg.Expressions;
 using Svg.Model;
 using Svg.SceneGraph;
 using Svg.Model.Services;
@@ -287,33 +286,6 @@ public sealed class SvgSceneNode : IReadOnlyList<SvgSceneNode>
             }
 
             return total;
-        }
-    }
-
-    /// <summary>
-    /// Where this node is drawn once <paramref name="evaluator"/>'s values are applied.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="TotalTransform"/> is what the drawing was compiled with, which is the stand-in
-    /// while a transform is driven — so anything that has to agree with what is on screen, rather
-    /// than with what was compiled, asks here.
-    /// </remarks>
-    public SKMatrix TotalTransformWith(ExprEvaluator? evaluator)
-    {
-        if (evaluator is null || SymbolicTotalTransform is not { } symbolic)
-        {
-            return TotalTransform;
-        }
-
-        try
-        {
-            return SvgSceneSymEvaluator.EvaluateMatrix(symbolic, evaluator);
-        }
-        catch (Exception failure) when (failure is ExprException or ArgumentException)
-        {
-            // An outline is drawn over whatever is on screen, and what is on screen when a value
-            // will not resolve is the drawing as it was compiled.
-            return TotalTransform;
         }
     }
 

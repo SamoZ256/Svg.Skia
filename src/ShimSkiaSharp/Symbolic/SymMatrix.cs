@@ -131,6 +131,42 @@ public sealed record SymMatrix(IReadOnlyList<SymTransform> Transforms) : IDeepCl
         return new SymMatrix(folded);
     }
 
+    /// <summary>The matrix this folds to with nothing bound.</summary>
+    /// <remarks>
+    /// One where the slot scales and zero everywhere else, which is the rule the parser writes its
+    /// stand-in attribute with. The two are pinned to each other rather than trusted: the compiler
+    /// refuses to record a driven transform whose description does not reproduce, unbound, the
+    /// matrix it just baked.
+    /// </remarks>
+    public SKMatrix Placeholder
+    {
+        get
+        {
+            var folded = SKMatrix.CreateIdentity();
+
+            foreach (var transform in Transforms)
+            {
+                var arguments = new float[transform.Arguments.Count];
+
+                for (var index = 0; index < arguments.Length; index++)
+                {
+                    arguments[index] = transform.Arguments[index] is SymLit literal
+                        ? (float)literal.Value
+                        : Unbound(transform.Op, index);
+                }
+
+                folded = folded.PreConcat(Apply(transform.Op, arguments));
+            }
+
+            return folded;
+        }
+    }
+
+    private static float Unbound(SymTransformOp op, int index)
+        => (op == SymTransformOp.Scale && index < 2) || (op == SymTransformOp.Matrix && (index == 0 || index == 3))
+            ? 1f
+            : 0f;
+
     /// <summary>
     /// One side of a concatenation: its own functions, or the matrix it baked to.
     /// </summary>

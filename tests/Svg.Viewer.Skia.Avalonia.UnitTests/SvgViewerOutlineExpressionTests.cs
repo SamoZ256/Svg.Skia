@@ -88,6 +88,31 @@ public class SvgViewerOutlineExpressionTests
         Assert.Equal(still.Top, moved.Top, 3);
     }
 
+    /// <summary>
+    /// A hit answers where the element is drawn, not where it was written.
+    /// </summary>
+    /// <remarks>
+    /// The same fix as the ring and for the same reason: the scene is what everything other than the
+    /// recorded drawing asks, so binding moves it rather than leaving hit testing to be told about
+    /// expressions on its own.
+    /// </remarks>
+    [Fact]
+    public void A_Bound_Translation_Moves_What_Answers_A_Hit()
+    {
+        var svg = Load(Driven("translate({{ dx }}, 0)", """<e:param name="dx" type="number" default="0" />"""));
+
+        var bar = Bar(svg);
+
+        Assert.Contains(bar, svg.HitTestElements(new ShimSkiaSharp.SKPoint(20f, 50f)));
+        Assert.DoesNotContain(bar, svg.HitTestElements(new ShimSkiaSharp.SKPoint(85f, 50f)));
+
+        svg.SetExpressionValues(Values(("dx", ExprValue.Number(30f))));
+
+        // Moved 30 to the right: the far point is now inside it and the near one is not.
+        Assert.Contains(bar, svg.HitTestElements(new ShimSkiaSharp.SKPoint(85f, 50f)));
+        Assert.DoesNotContain(bar, svg.HitTestElements(new ShimSkiaSharp.SKPoint(20f, 50f)));
+    }
+
     /// <summary>Unbound, the ring is where the drawing was compiled — which is what it draws.</summary>
     [Fact]
     public void An_Unbound_Drawing_Is_Ringed_Where_It_Was_Compiled()

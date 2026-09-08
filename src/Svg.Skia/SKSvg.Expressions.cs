@@ -101,7 +101,34 @@ public partial class SKSvg
             }
         }
 
+        // The scene is the other half of the model: the drawing says where the ink goes, and the
+        // scene is what everything else asks where the element is.
+        if (_retainedSceneGraph is { } scene)
+        {
+            scene.ApplyExpressionTransforms(BoundExpressions());
+        }
+
         return RebuildFromModel();
+    }
+
+    /// <summary>The values bound, ready to evaluate with, or null while the placeholders stand.</summary>
+    internal ExprEvaluator? BoundExpressions()
+    {
+        var values = _expressionValues;
+
+        if (values is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return ExprEvaluator.Create(SourceDocument?.ExpressionDeclarations ?? SvgExpressionDeclarations.Empty, values);
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Binds by compiling again, for a document whose values a compile consumes.</summary>

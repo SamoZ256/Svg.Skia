@@ -1,9 +1,7 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
-using System;
 using Svg;
-using Svg.Expressions;
 using Svg.Skia;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -44,37 +42,13 @@ public static class SvgViewerOutline
         }
 
         var outline = new SkiaSharp.SKPath();
-        var bound = Bound(svg);
 
         foreach (var placed in scene)
         {
-            Trace(placed, svg.SkiaModel, bound, outline);
+            Trace(placed, svg.SkiaModel, outline);
         }
 
         return outline.IsEmpty ? null : outline;
-    }
-
-    /// <summary>What the drawing is currently bound to, or null while it draws its placeholders.</summary>
-    /// <remarks>
-    /// The scene holds the matrix the drawing was compiled with, which is the stand-in while a
-    /// transform is driven — so a ring around a rotated element would sit where it was written
-    /// rather than where it is.
-    /// </remarks>
-    private static ExprEvaluator? Bound(SKSvg svg)
-    {
-        if (svg.ExpressionValues is not { } values)
-        {
-            return null;
-        }
-
-        try
-        {
-            return ExprEvaluator.Create(svg.ExpressionDeclarations, values);
-        }
-        catch (Exception failure) when (failure is ExprException or ArgumentException)
-        {
-            return null;
-        }
     }
 
     /// <summary>
@@ -92,14 +66,14 @@ public static class SvgViewerOutline
     /// rather than an approximation of one.
     /// </remarks>
     /// <returns>Whether anything was added.</returns>
-    private static bool Trace(SvgSceneNode node, SkiaModel model, ExprEvaluator? bound, SkiaSharp.SKPath outline)
+    private static bool Trace(SvgSceneNode node, SkiaModel model, SkiaSharp.SKPath outline)
     {
         if (node.HitTestPath is { } geometry)
         {
             using var traced = model.ToSKPath(geometry);
             using var drawn = Drawn(node, traced, model);
 
-            var placement = model.ToSKMatrix(node.TotalTransformWith(bound));
+            var placement = model.ToSKMatrix(node.TotalTransform);
 
             outline.AddPath(drawn ?? traced, ref placement);
 
@@ -110,7 +84,7 @@ public static class SvgViewerOutline
 
         foreach (var child in node.Children)
         {
-            tracedAny |= Trace(child, model, bound, outline);
+            tracedAny |= Trace(child, model, outline);
         }
 
         if (tracedAny)
@@ -118,13 +92,7 @@ public static class SvgViewerOutline
             return true;
         }
 
-        // Mapped rather than read off the node where a value moved it, since TransformedBounds is
-        // where the drawing was compiled.
-        var covered = bound is { } && node.SymbolicTotalTransform is { }
-            ? node.TotalTransformWith(bound).MapRect(node.GeometryBounds)
-            : node.TransformedBounds;
-
-        if (covered is { Width: > 0f, Height: > 0f })
+        if (node.TransformedBounds is { Width: > 0f, Height: > 0f } covered)
         {
             outline.AddRect(model.ToSKRect(covered));
 

@@ -1781,11 +1781,12 @@ public static class SvgSceneCompiler
         }
 
         var own = TransformsService.ToMatrix(element.Transforms);
-        var rest = trailing ?? SKMatrix.Identity;
+        var composed = SymMatrix.PreConcat(symbolic, own, null, trailing ?? SKMatrix.Identity);
 
-        return baked.Equals(own.PreConcat(rest))
-            ? SymMatrix.PreConcat(symbolic, own, null, rest)
-            : null;
+        // The description has to reproduce, unbound, the matrix that was just baked. Anything that
+        // composes some other way -- and there is no list of them worth keeping -- leaves the
+        // element undriven, which the audit then refuses by name rather than drawing wrongly.
+        return composed is { } && composed.Placeholder.Equals(baked) ? composed : null;
     }
 
     private static SKRect CalculateDirectStructuralBounds(SvgSceneNode node)
@@ -1836,6 +1837,10 @@ public static class SvgSceneCompiler
             RefreshChildTotalTransforms(node);
         }
     }
+
+    /// <summary>Recomputes what every node's transform composes to, and what it then covers.</summary>
+    internal static void RefreshTotalTransforms(SvgSceneNode root)
+        => RefreshNodeTotalTransforms(root, root.Parent?.TotalTransform ?? SKMatrix.CreateIdentity());
 
     private static void RefreshChildTotalTransforms(SvgSceneNode node)
     {
