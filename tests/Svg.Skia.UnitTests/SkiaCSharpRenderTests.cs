@@ -435,21 +435,42 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
-    /// <summary>An unbound argument draws as its slot identity, not as zero.</summary>
+    /// <remarks>
+    /// What an unbound argument reads as is pinned on the lift, in SvgTransformExpressionTests; what
+    /// this covers is the scale arm of the emitter, which no other case reaches.
+    /// </remarks>
     [Fact]
-    public void A_Driven_Scale_Left_Unbound_Draws_At_Its_Authored_Size()
+    public void A_Driven_Scale_Reaches_The_Matrix()
         => AssertExpressionsRenderTheSame(
-            "ExprScaleUnbound",
+            "ExprScale",
             """
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
               <defs><e:code><e:param name="s" type="number" default="1" /></e:code></defs>
-              <circle cx="12" cy="12" r="6" transform="scale({{ s }})" fill="#ff0000" />
+              <circle cx="6" cy="6" r="3" transform="scale({{ s }})" fill="#ff0000" />
             </svg>
             """,
-            new object?[] { 1f },
+            new object?[] { 1.5f },
             """
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-              <circle cx="12" cy="12" r="6" fill="#ff0000" />
+              <circle cx="6" cy="6" r="3" transform="scale(1.5)" fill="#ff0000" />
+            </svg>
+            """);
+
+    /// <summary>The skew arm, whose degrees-to-tangent conversion is written on both sides.</summary>
+    [Fact]
+    public void A_Driven_Skew_Reaches_The_Matrix()
+        => AssertExpressionsRenderTheSame(
+            "ExprSkew",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="a" type="number" default="0" /></e:code></defs>
+              <rect x="4" y="8" width="10" height="6" transform="skewX({{ a }})" fill="#ff0000" />
+            </svg>
+            """,
+            new object?[] { 20f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="4" y="8" width="10" height="6" transform="skewX(20)" fill="#ff0000" />
             </svg>
             """);
 

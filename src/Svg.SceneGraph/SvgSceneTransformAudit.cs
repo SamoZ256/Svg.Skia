@@ -40,21 +40,20 @@ public static class SvgSceneTransformAudit
 
                 driven = true;
 
-                if (element.Parents.OfType<SvgClipPath>().Any())
+                if (element.ParentsAndSelf.OfType<SvgClipPath>().Any())
                 {
                     return Refusal(
                         element,
-                        "is inside a <clipPath>, whose contents are compiled to geometry rather than recorded, so a bound value has nothing left to move");
+                        "belongs to a <clipPath>, which is compiled to geometry rather than recorded, so a bound value has nothing left to move");
                 }
 
-                // Either a driven transform moves, or it is named here. Text, an element that also
-                // declares transform-origin, and a function or argument count the model has no case
-                // for all compile to a node still holding the stand-in, and would otherwise bind to
-                // nothing at all with nothing said.
-                if (sceneDocument.TryGetNode(element, out var compiled) &&
+                // Either a driven transform moves, or it is named here. An element that reached no
+                // node counts as not moving: a <use> gives a definition one, so what is left is
+                // geometry another compiler baked -- a clip path's, a textPath's target.
+                if (!sceneDocument.TryGetNode(element, out var compiled) ||
                     compiled is { SymbolicTransform: null })
                 {
-                    return Refusal(element, "was compiled without it -- <text>, an element that also declares transform-origin, and a function or argument count SVG does not allow all keep the value they were compiled with");
+                    return Refusal(element, "was compiled without it -- <text>, an element whose geometry another compiler baked, and a function or argument count SVG does not allow all keep the value they were compiled with");
                 }
             }
         }

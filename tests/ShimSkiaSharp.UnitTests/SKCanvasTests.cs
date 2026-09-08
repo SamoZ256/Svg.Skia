@@ -186,6 +186,38 @@ public class SymbolicMatrixTests
         Assert.Null(canvas.SymbolicTotalMatrix);
     }
 
+    /// <summary>
+    /// What follows a Restore still sits under what was driven above it.
+    /// </summary>
+    /// <remarks>
+    /// The null assertion above passes against a Restore that clears the field rather than popping
+    /// the frame, and against one that never pushed it. Only a second child, recorded after the
+    /// first has restored, tells those apart — and it shows up nowhere at run time, because a
+    /// renderer concatenates the delta and only generated code assigns the total.
+    /// </remarks>
+    [Fact]
+    public void What_Follows_A_Restore_Is_Still_Under_The_Driven_Ancestor()
+    {
+        var canvas = Canvas();
+
+        canvas.SetMatrix(
+            SKMatrix.CreateTranslation(0f, 0f),
+            Driven(SymTransformOp.Translate, SymNode.Source("dx"), SymNode.Zero));
+
+        canvas.Save();
+        canvas.SetMatrix(SKMatrix.CreateRotationDegrees(30f));
+        canvas.Restore();
+
+        canvas.SetMatrix(SKMatrix.CreateTranslation(4f, 0f));
+
+        var total = Recorded(canvas, 4).SymbolicTotal;
+
+        Assert.NotNull(total);
+        Assert.Contains(
+            total!.Transforms,
+            transform => transform.Op == SymTransformOp.Translate && !transform.IsLiteral);
+    }
+
     [Fact]
     public void A_Chain_Grows_With_Driven_Functions_And_Not_With_Depth()
     {

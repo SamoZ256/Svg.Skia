@@ -53,6 +53,21 @@ public class SvgSceneTransformAuditTests
         Assert.Null(Audit("<rect width=\"8\" height=\"8\" " + Driven + " />"));
     }
 
+    /// <summary>
+    /// A driven transform written in defs and drawn through a <c>&lt;use&gt;</c>.
+    /// </summary>
+    /// <remarks>
+    /// The bound against which the rule above is drawn: it refuses an element that reached no node,
+    /// and a definition reaches one through whatever uses it.
+    /// </remarks>
+    [Fact]
+    public void A_Used_Definition_Is_Allowed()
+    {
+        Assert.Null(Audit(
+            "<defs><g id=\"u\" " + Driven + "><rect width=\"8\" height=\"8\" /></g></defs>" +
+            "<use href=\"#u\" />"));
+    }
+
     [Fact]
     public void A_Filter_On_The_Element_Is_Refused()
     {
@@ -75,7 +90,33 @@ public class SvgSceneTransformAuditTests
     [Fact]
     public void A_Layer_Opened_Above_It_Is_Refused()
     {
-        Assert.NotNull(Audit("<g opacity=\"0.5\"><rect width=\"8\" height=\"8\" " + Driven + " /></g>"));
+        // Named, not merely refused: every other rule here would also answer non-null.
+        Assert.Contains("layer", Audit("<g opacity=\"0.5\"><rect width=\"8\" height=\"8\" " + Driven + " /></g>")!);
+    }
+
+    /// <summary>
+    /// The origin wraps the author's functions in translations no list of them can describe.
+    /// </summary>
+    /// <remarks>
+    /// ApplyTransformOrigin short-circuits on an identity transform, which is what a single driven
+    /// function stands in as, so this was accepted and then drawn about the wrong point.
+    /// </remarks>
+    [Fact]
+    public void A_Transform_Origin_On_The_Same_Element_Is_Refused()
+    {
+        Assert.NotNull(Audit(
+            "<rect width=\"8\" height=\"8\" transform-origin=\"32 32\" " + Driven + " />"));
+    }
+
+    /// <summary>A clipPath's own transform is baked into the clip, not recorded.</summary>
+    [Fact]
+    public void A_Transform_On_The_ClipPath_Itself_Is_Refused()
+    {
+        Assert.Contains(
+            "clipPath",
+            Audit(
+                "<defs><clipPath id=\"e\" " + Driven + "><rect width=\"32\" height=\"32\" /></clipPath></defs>" +
+                "<rect width=\"8\" height=\"8\" clip-path=\"url(#e)\" />")!);
     }
 
     [Fact]

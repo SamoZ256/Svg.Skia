@@ -246,6 +246,14 @@ internal static class TransformsService
             .PreConcat(SKMatrix.CreateTranslation(-origin.X, -origin.Y));
     }
 
+    /// <summary>Whether <paramref name="svgElement"/> asks to be transformed about a point.</summary>
+    /// <remarks>
+    /// Asked apart from <see cref="ApplyTransformOrigin"/> because that short-circuits on an identity
+    /// transform, and the stand-in a driven transform is compiled with is usually the identity.
+    /// </remarks>
+    internal static bool DeclaresTransformOrigin(SvgElement svgElement)
+        => TryGetDeclaredTransformOrigin(svgElement, out var declared) && !string.IsNullOrWhiteSpace(declared);
+
     private static bool TryResolveTransformOrigin(
         SvgElement svgElement,
         SKRect geometryBounds,
@@ -253,7 +261,17 @@ internal static class TransformsService
         out SKPoint origin)
     {
         origin = default;
-        string? rawOrigin;
+
+        if (!TryGetDeclaredTransformOrigin(svgElement, out var rawOrigin))
+        {
+            return false;
+        }
+
+        return TryResolveDeclaredTransformOrigin(svgElement, rawOrigin, geometryBounds, viewport, out origin);
+    }
+
+    private static bool TryGetDeclaredTransformOrigin(SvgElement svgElement, out string? rawOrigin)
+    {
         if (svgElement.TryGetOwnCascadedStyleDeclarationValue("transform-origin", out var declaredOrigin) &&
             !string.IsNullOrWhiteSpace(declaredOrigin))
         {
@@ -278,6 +296,18 @@ internal static class TransformsService
         {
             rawOrigin = null;
         }
+
+        return rawOrigin is { };
+    }
+
+    private static bool TryResolveDeclaredTransformOrigin(
+        SvgElement svgElement,
+        string? rawOrigin,
+        SKRect geometryBounds,
+        SKRect viewport,
+        out SKPoint origin)
+    {
+        origin = default;
 
         var originText = (rawOrigin ?? string.Empty).Trim();
         if (originText.Length == 0)
