@@ -381,6 +381,27 @@ back, and closing the project asks about it — including when the tab it was ed
 There is one buffer per open recipe, so the drawings under it follow it **as it is typed** rather
 than when it is saved — a tab you are not looking at is read again when you come back to it.
 
+**Apply…** beside it writes the recipe into the drawings and stops naming it. This is the conversion
+a build does on its way to code, kept: each `.svg` under the node is read, put through the recipe
+that covers it, and written back over itself, declarations and all. It goes down the tree, and each
+drawing takes **its own** recipe — a nested group naming one of its own is converted with that
+rather than with the outer one, which is why this is offered on a group rather than per drawing. The
+button is there when the node names a recipe or something under it does; one inherited from *above*
+is applied from the node that names it, since it covers drawings this node does not hold.
+
+It **refuses while anything involved is unsaved**, naming what to save. Reading the buffers would
+bake a rule no file says, and a tab holding edits of its own is skipped when files are re-read, so
+it would put the drawing back the way it was on the next ⌘S and undo the conversion without saying
+so. Everything is converted before anything is written, so a drawing that will not parse stops the
+whole thing rather than leaving half a set converted and the other half about to lose its recipe.
+There is no undo — the confirmation is what answers for that.
+
+Afterwards the drawings declare their own parameters, so the `recipe` setting is cleared from the
+node and from any group under it that named one. **Running it again is safe**: a recipe applied to a
+drawing that already holds its declarations replaces nothing and declares nothing, so a set half
+converted last week converts the rest and leaves the rest alone. That is also what makes an
+inherited recipe safe to leave named.
+
 A drawing under a recipe also gets a **Replacements** tab beside its Project and Parameters: every
 value the drawing uses that a rule could name, how much of the drawing each one is, and the expression
 the recipe gives it. A colour shows as a swatch and is one row however many attributes paint it;

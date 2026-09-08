@@ -321,6 +321,14 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     public event EventHandler<string>? RecipeOpened;
 
+    /// <summary>Raised when somebody asks for the recipe to be written into the drawings.</summary>
+    /// <remarks>
+    /// Said rather than done, for the reason <see cref="RecipeOpened"/> is said: writing over the
+    /// project's drawings is the window's business. It is also the only side that can refuse while
+    /// a tab is holding unsaved work, and the only one that can read the files again afterwards.
+    /// </remarks>
+    public event EventHandler<SvgcProjectNode>? RecipeApplyRequested;
+
     /// <summary>What a drawing's text goes through on its way to being drawn, or null to draw the file.</summary>
     /// <remarks>
     /// A hook rather than a recipe path, so the canvas draws what the drawing's own tab draws: the
@@ -1277,7 +1285,26 @@ public sealed class GroupPanel : UserControl
             };
 
             content.Children.Add(target);
-            content.Children.Add(Buttons(Command("✕", "Stop using this recipe. The file is left where it is.", RemoveRecipe)));
+            content.Children.Add(Buttons(
+                Apply(node),
+                Command("✕", "Stop using this recipe. The file is left where it is.", RemoveRecipe)));
+        }
+        else if (Bakeable(node))
+        {
+            content.Children.Add(new TextBlock
+            {
+                // Nothing of its own, but something under it: the drawings below answer to recipes
+                // named further down, and applying here is what reaches all of them at once.
+                Text = Inherited(node, "recipe") ?? "in the groups below",
+                Opacity = 0.55,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+
+            content.Children.Add(Buttons(
+                Apply(node),
+                Command("Add…", "Use a recipe that already exists.", async () => await ChooseRecipeAsync())));
         }
         else
         {
@@ -1307,6 +1334,37 @@ public sealed class GroupPanel : UserControl
             }
         };
     }
+
+    /// <summary>Whether a recipe named here or under here reaches a drawing.</summary>
+    /// <remarks>
+    /// Not just "does this node name one": a group naming nothing itself can hold two groups that
+    /// each name their own, and applying from the top is how both are reached at once.
+    ///
+    /// Named <em>here</em> is what the row says rather than what the file says, so a recipe dropped
+    /// and not saved yet does not go on offering to be written into the drawings. One inherited
+    /// from above is deliberately not counted: it covers drawings outside this node, and the place
+    /// to apply it is the node that names it.
+    /// </remarks>
+    private bool Bakeable(SvgcProjectNode node)
+        => Shown(node, "recipe") is { }
+           || Drawings(node).Any(drawing =>
+               drawing.OwnerOf("recipe") is { } owner
+               && !ReferenceEquals(owner, node)
+               && owner.DescendsFrom(node));
+
+    private static IEnumerable<SvgcProjectDrawing> Drawings(SvgcProjectNode node)
+        => node switch
+        {
+            SvgcProjectGroup group => group.Drawings,
+            SvgcProjectDrawing drawing => new[] { drawing },
+            _ => Enumerable.Empty<SvgcProjectDrawing>()
+        };
+
+    private Button Apply(SvgcProjectNode node)
+        => Command(
+            "Apply…",
+            "Write the recipe into the drawings under this node, and stop naming it.\nThis cannot be undone.",
+            () => RecipeApplyRequested?.Invoke(this, node));
 
     /// <summary>Where a recipe named by the project actually is.</summary>
     private string Resolved(string recipe)

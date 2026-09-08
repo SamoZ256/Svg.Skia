@@ -452,16 +452,79 @@ public class SvgRecipeRewriterTests
         Assert.Equal(0, result.TotalReplacements);
     }
 
+    /// <summary>
+    /// Applying a recipe to its own output does nothing, rather than failing.
+    /// </summary>
+    /// <remarks>
+    /// It used to be refused outright. Only the declarations were ever the problem — a second copy
+    /// of a name makes a document that reads as "declared more than once" — and replacing was
+    /// already idempotent, since a value written as an expression is no longer a literal to claim.
+    /// A build re-run over its own output, and a conversion run again over a set half of which was
+    /// converted already, both turn on this.
+    /// </remarks>
     [Fact]
-    public void Apply_RefusesADocumentThatIsAlreadyInTheExpressionFormat()
+    public void Apply_OverItsOwnOutputChangesNothing()
     {
-        // Almost always the output path passed as the input, which would declare the parameters
-        // a second time.
         var converted = Apply("""<svg xmlns="http://www.w3.org/2000/svg"><rect fill="#3b82f6" /></svg>""").Svg;
 
-        var ex = Assert.Throws<SvgRecipeException>(() => Apply(converted));
+        var again = Apply(converted);
 
-        Assert.Contains("already", ex.Message);
+        Assert.Equal(converted, again.Svg);
+        Assert.Equal(0, again.TotalReplacements);
+
+        // One block and one declaration of the name, which is what makes it still read.
+        Assert.Equal(1, Occurrences(again.Svg, "<e:code>"));
+        Assert.Equal(1, Occurrences(again.Svg, "name=\"hue\""));
+    }
+
+    [Fact]
+    public void Apply_RefusesADocumentThatDeclaresTheSameNameDifferently()
+    {
+        // The one case that was ever broken: two declarations of one name, which no reader accepts.
+        const string mine = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="hue" type="number" default="20" /></e:code></defs>
+              <rect fill="#3b82f6" />
+            </svg>
+            """;
+
+        var ex = Assert.Throws<SvgRecipeException>(() => Apply(mine));
+
+        Assert.Contains("'hue'", ex.Message);
+        Assert.Contains("differently", ex.Message);
+    }
+
+    /// <summary>A drawing with declarations of its own takes a recipe that collides with none.</summary>
+    [Fact]
+    public void Apply_AddsToDeclarationsTheDocumentAlreadyHas()
+    {
+        const string mine = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="fade" type="number" default="1" /></e:code></defs>
+              <rect fill="#3b82f6" fill-opacity="{{ fade }}" />
+            </svg>
+            """;
+
+        var result = Apply(mine);
+
+        Assert.Equal(1, result.TotalReplacements);
+        Assert.Contains("fill=\"{{ primary }}\"", result.Svg);
+
+        // Both names, and the one it arrived with is untouched.
+        Assert.Equal(1, Occurrences(result.Svg, "name=\"fade\""));
+        Assert.Equal(1, Occurrences(result.Svg, "name=\"hue\""));
+    }
+
+    private static int Occurrences(string text, string what)
+    {
+        var count = 0;
+
+        for (var at = text.IndexOf(what, StringComparison.Ordinal); at >= 0; at = text.IndexOf(what, at + 1, StringComparison.Ordinal))
+        {
+            count++;
+        }
+
+        return count;
     }
 
     [Fact]
