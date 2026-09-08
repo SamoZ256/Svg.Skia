@@ -8,6 +8,7 @@ using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 using Svg.CodeGen.Skia;
 using Svg.Expressions;
+using Svg.Model;
 using Svg.Model.Services;
 using Svg.Skia;
 
@@ -142,10 +143,14 @@ public class SvgSourceGenerator : IIncrementalGenerator
             var svgDocument = SvgService.FromSvg(svg!);
             if (svgDocument is { })
             {
-                var picture = SvgSceneRuntime.CreateModel(svgDocument, s_assetLoader);
+                // Compiled rather than modelled directly: the refusal below asks which nodes open a
+                // layer and which carry a filter, which only the compiled scene knows.
+                SvgSceneRuntime.TryCompile(svgDocument, s_assetLoader, DrawAttributes.None, out var sceneDocument);
+                var picture = sceneDocument?.CreateModel();
                 if (picture is { } && picture.Commands is { })
                 {
-                    if (Svg.SvgExpressionSubstitution.WhyNotGeneratable(svgDocument) is { } refusal)
+                    if ((SvgSceneTransformAudit.WhyUnsound(sceneDocument) ??
+                         Svg.SvgExpressionSubstitution.WhyNotGeneratable(svgDocument)) is { } refusal)
                     {
                         context.ReportDiagnostic(Diagnostic.Create(
                             s_notGeneratableDescriptor,

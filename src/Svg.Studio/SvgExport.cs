@@ -96,7 +96,8 @@ public static class SvgExport
             throw new InvalidOperationException(error);
         }
 
-        if (SvgExpressionSubstitution.WhyNotGeneratable(rebuilt.Svg.SourceDocument) is { } refusal)
+        if ((rebuilt.Svg.WhyExpressionsNotBindable ??
+             SvgExpressionSubstitution.WhyNotGeneratable(rebuilt.Svg.SourceDocument)) is { } refusal)
         {
             throw new InvalidOperationException(refusal);
         }
