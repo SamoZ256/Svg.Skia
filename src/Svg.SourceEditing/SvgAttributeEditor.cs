@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Xml;
 using System.Xml.Linq;
 using Svg.Expressions;
 
@@ -149,6 +150,104 @@ public static class SvgAttributeEditor
         return SvgDeclarationEditor.Write(svgText, element, positions, name, value) is { } edit
             ? SvgSourceEditResult.From(new[] { edit })
             : SvgSourceEditResult.Nothing;
+    }
+
+    /// <inheritdoc cref="Contains(string, string)"/>
+    public static bool Contains(SvgSourceDocument source, string addressKey)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (addressKey is null)
+        {
+            throw new ArgumentNullException(nameof(addressKey));
+        }
+
+        return Resolve(source.Document, addressKey) is { };
+    }
+
+    /// <inheritdoc cref="Attributes(string, string)"/>
+    public static IReadOnlyList<SvgSourceAttribute> Attributes(SvgSourceDocument source, string addressKey)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (addressKey is null)
+        {
+            throw new ArgumentNullException(nameof(addressKey));
+        }
+
+        return Resolve(source.Document, addressKey) is not { } element
+            ? Array.Empty<SvgSourceAttribute>()
+            : element.Attributes()
+                .Where(attribute => !attribute.IsNamespaceDeclaration)
+                .Select(attribute => new SvgSourceAttribute(attribute.Name.LocalName, attribute.Value))
+                .ToList();
+    }
+
+    /// <inheritdoc cref="SetAttribute(string, string, string, string?)"/>
+    /// <returns>The sentence refusing the edit, or null where it was made.</returns>
+    /// <remarks>
+    /// Writing the tree rather than the text it was read from. What the file looks like afterwards
+    /// is <see cref="SvgSourceDocument"/>'s to answer, and it writes the value over the old one
+    /// rather than the tag over the tag, so the layout somebody gave the element survives.
+    /// </remarks>
+    public static string? SetAttribute(
+        SvgSourceDocument source,
+        string addressKey,
+        string attributeName,
+        string? value)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (addressKey is null)
+        {
+            throw new ArgumentNullException(nameof(addressKey));
+        }
+
+        var name = (attributeName ?? throw new ArgumentNullException(nameof(attributeName))).Trim();
+
+        if (name.Length == 0)
+        {
+            return "An edit has to name an attribute.";
+        }
+
+        if (Resolve(source.Document, addressKey) is not { } element)
+        {
+            return "That element is no longer in the drawing.";
+        }
+
+        // A style declaration beats the presentation attribute under it, so writing the attribute
+        // would leave a document where the change paints nothing. Editing inside the declaration is
+        // another matter and not one this can reach.
+        if (Shadowed(element, name))
+        {
+            return $"'{name}' is set in this element's style attribute, which wins over the attribute. Change it there instead.";
+        }
+
+        try
+        {
+            element.SetAttributeValue(name, value);
+        }
+        catch (XmlException)
+        {
+            // Splicing text would have written this and left a document that no longer parses; the
+            // tree says no first, which is the one place this is stricter than the span it replaces.
+            return $"'{name}' is not a name an attribute can have.";
+        }
+        catch (ArgumentException)
+        {
+            return $"'{name}' is not a name an attribute can have.";
+        }
+
+        return null;
     }
 
     /// <summary>
