@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -11,6 +12,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using AvaloniaEdit;
 using SkiaSharp;
+using Svg.SourceEditing;
 using Svg.Expressions;
 using Xunit;
 
@@ -636,6 +638,145 @@ public class SvgViewerElementTreeTests
         Assert.Equal(
             """<rect x="0" y="0" width="24" height="24" fill="{{ tint }}" />""",
             Editor(viewer).SelectedText);
+    }
+
+    // ---- moving a row --------------------------------------------------------------------------
+
+    [AvaloniaFact]
+    public async Task A_Row_Dropped_Before_Another_Moves_There()
+    {
+        var (_, viewer) = await Host();
+
+        // The text is written after the rect; dropped before it, the two swap.
+        Assert.True(viewer.Elements.MoveRequested!("1/1", "1/0", SvgElementDrop.Before));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "svg", "defs", "code", "param", "g #wrap", "text", "rect" }, Rows(viewer));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Row_Dropped_Inside_A_Group_Moves_Into_It()
+    {
+        var (_, viewer) = await Host();
+
+        // The rect out of #wrap and into the defs' code block is refused; into #wrap from outside
+        // is the move worth pinning, so the text goes out first and then back in.
+        Assert.True(viewer.Elements.MoveRequested!("1/1", "1", SvgElementDrop.After));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "svg", "defs", "code", "param", "g #wrap", "rect", "text" }, Rows(viewer));
+
+        Assert.True(viewer.Elements.MoveRequested!("2", "1", SvgElementDrop.Inside));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "svg", "defs", "code", "param", "g #wrap", "rect", "text" }, Rows(viewer));
+        Assert.Equal("1/1", viewer.Elements.Root!.Flatten().Single(node => node.Label == "text").AddressKey);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Row_Cannot_Be_Dropped_Into_Its_Own_Branch()
+    {
+        var (_, viewer) = await Host();
+
+        var was = viewer.Source;
+
+        Assert.False(viewer.Elements.MoveRequested!("1", "1/0", SvgElementDrop.After));
+
+        Assert.Equal(was, viewer.Source);
+    }
+
+    [AvaloniaFact]
+    public async Task A_New_Group_Is_Written_Beside_The_Picked_Row()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.NewGroupRequested!("1", SvgElementDrop.After));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("<g>", viewer.Source);
+        Assert.Equal(new[] { "svg", "defs", "code", "param", "g #wrap", "rect", "text", "g" }, Rows(viewer));
+    }
+
+    /// <summary>
+    /// A drawing built from the file rather than being it — an svgc recipe.
+    /// </summary>
+    /// <remarks>
+    /// The tree lists the drawing, which is the rewritten document, and the pane edits the file. The
+    /// two spell different addresses, so a move that took the tree's own key wrote somewhere else in
+    /// the file — and the row that came back carried what the recipe had put into it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Move_Under_A_Recipe_Writes_The_File_And_Not_What_Was_Made_Of_It()
+    {
+        const string file = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect width="24" height="24" fill="#ff0000" />
+              <circle cx="12" cy="12" r="6" fill="#0000ff" />
+            </svg>
+            """;
+
+        var viewer = new SvgViewer
+        {
+            // What a recipe does: a block of declarations in front, and a literal turned into an
+            // expression that names one of them.
+            Rewrite = svgText => svgText
+                .Replace(
+                    """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">""",
+                    """
+                    <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+                      <defs><e:code><e:param name="tint" type="color" default="#ff0000" /></e:code></defs>
+                    """)
+                .Replace("fill=\"#ff0000\"", "fill=\"{{ tint }}\"")
+        };
+
+        var window = new Window { Width = 700, Height = 500, Background = Brushes.White, Content = viewer };
+
+        window.Show();
+        // From a path, because that is the load a rewrite reaches — and is how a project opens one.
+        var drawing = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".svg");
+
+        File.WriteAllText(drawing, file);
+
+        try
+        {
+            Assert.True(await viewer.LoadAsync(drawing));
+        }
+        finally
+        {
+            File.Delete(drawing);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+
+        // The tree lists the built drawing, so the recipe's own block is a row of it.
+        Assert.Equal(new[] { "svg", "defs", "code", "param", "rect", "circle" }, Rows(viewer));
+
+        Assert.True(viewer.Elements.MoveRequested!("2", "1", SvgElementDrop.Before));
+        Dispatcher.UIThread.RunJobs();
+
+        // The file's own two elements, swapped, with nothing the recipe writes anywhere in it.
+        Assert.Equal(
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="6" fill="#0000ff" />
+              <rect width="24" height="24" fill="#ff0000" />
+            </svg>
+            """,
+            viewer.Source);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Tree_Nobody_Wired_Moves_Nothing()
+    {
+        // A project group's tab shows this tree over a drawing it has no text to edit.
+        var tree = new SvgViewerElementTree();
+        var window = new Window { Width = 300, Height = 300, Content = tree };
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(tree.MoveRequested);
+        Assert.Null(tree.NewGroupRequested);
     }
 
     [AvaloniaFact]

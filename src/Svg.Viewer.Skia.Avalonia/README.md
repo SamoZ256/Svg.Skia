@@ -41,6 +41,8 @@ of these controls.
 | Pan | Drag with the left or middle button |
 | Fit | `Ctrl`/`Cmd` `0`, or the toolbar |
 | Actual size | `Ctrl`/`Cmd` `1`, or the toolbar |
+| Move an element | Drag its row in the element tree |
+| A new group | The element tree's own menu |
 | Undo, in the source pane | Whatever the platform calls it — `Ctrl`/`Cmd` `Z` |
 | Redo, in the source pane | `Ctrl`/`Cmd` `Shift` `Z`, or `Ctrl`/`Cmd` `Y` |
 

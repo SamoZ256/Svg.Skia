@@ -361,6 +361,46 @@ public sealed class SvgExpressionDeclarations
     /// the source editor need this too. A second copy would be a second set of answers about where a
     /// quote is.
     /// </remarks>
+    /// <summary>Where the start tag beginning at <paramref name="from"/> closes.</summary>
+    /// <remarks>
+    /// Scanned rather than searched for, because the only thing that can hide a <c>&gt;</c> inside a
+    /// start tag is an attribute value — and this language writes them: <c>{{ a &gt; b ? … }}</c> in a
+    /// fill is an ordinary drawing. A tag that never closes is a document that did not parse.
+    /// </remarks>
+    internal static int EndOfStartTag(string source, int from)
+    {
+        var quote = '\0';
+
+        for (var index = from; index < source.Length; index++)
+        {
+            var character = source[index];
+
+            if (quote != '\0')
+            {
+                if (character == quote)
+                {
+                    quote = '\0';
+                }
+
+                continue;
+            }
+
+            if (character is '"' or '\'')
+            {
+                quote = character;
+
+                continue;
+            }
+
+            if (character == '>')
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
     internal sealed class Positions
     {
         private readonly string _text;
@@ -509,7 +549,7 @@ public sealed class SvgExpressionDeclarations
             var name = At((IXmlLineInfo)element);
             var start = name > 0 && _text[name - 1] == '<' ? name - 1 : name;
 
-            var open = _text.IndexOf('>', name);
+            var open = EndOfStartTag(_text, name);
 
             if (open < 0)
             {
@@ -567,7 +607,7 @@ public sealed class SvgExpressionDeclarations
 
                 var past = Starts(at, "<!--") ? _text.IndexOf("-->", at, StringComparison.Ordinal) + 3
                     : Starts(at, "<![CDATA[") ? _text.IndexOf("]]>", at, StringComparison.Ordinal) + 3
-                    : _text.IndexOf('>', at) + 1;
+                    : EndOfStartTag(_text, at) + 1;
 
                 // Unterminated, and the arithmetic above turns the reader's -1 into a position at or
                 // behind where the search began — which is also what would loop here forever.
@@ -598,7 +638,7 @@ public sealed class SvgExpressionDeclarations
                 return -1;
             }
 
-            var open = _text.IndexOf('>', At((IXmlLineInfo)element));
+            var open = EndOfStartTag(_text, At((IXmlLineInfo)element));
 
             return open < 0 || _text[open - 1] == '/' ? -1 : open + 1;
         }

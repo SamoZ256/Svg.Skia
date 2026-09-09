@@ -278,50 +278,10 @@ public static class SvgSourceElements
             return null;
         }
 
-        var end = EndOfTag(source, name);
+        var end = SvgExpressionDeclarations.EndOfStartTag(source, name);
 
         return end < 0
             ? null
             : new SvgSourceElement(element.Name.LocalName, name - 1, end - name + 2);
-    }
-
-    /// <summary>Where the start tag beginning at <paramref name="from"/> closes.</summary>
-    /// <remarks>
-    /// Scanned rather than taken from the token list, because the only thing that can hide a
-    /// <c>&gt;</c> inside a start tag is an attribute value, and an entity arrives here still
-    /// written as <c>&amp;gt;</c>. A tag that never closes is a document that did not parse.
-    /// </remarks>
-    private static int EndOfTag(string source, int from)
-    {
-        var quote = '\0';
-
-        for (var index = from; index < source.Length; index++)
-        {
-            var character = source[index];
-
-            if (quote != '\0')
-            {
-                if (character == quote)
-                {
-                    quote = '\0';
-                }
-
-                continue;
-            }
-
-            if (character is '"' or '\'')
-            {
-                quote = character;
-
-                continue;
-            }
-
-            if (character == '>')
-            {
-                return index;
-            }
-        }
-
-        return -1;
     }
 }

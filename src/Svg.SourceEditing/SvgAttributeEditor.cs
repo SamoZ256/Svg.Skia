@@ -160,7 +160,9 @@ public static class SvgAttributeEditor
     /// <see cref="XContainer.Elements()"/> so a comment or a run of text takes no index, and the
     /// indexes are invariant.
     /// </remarks>
-    private static XElement? Resolve(XDocument document, string addressKey)
+    /// <summary>The element an address key names, or null where it names nothing.</summary>
+    /// <remarks>Internal because the key convention should have one reader, not one per editor.</remarks>
+    internal static XElement? Resolve(XDocument document, string addressKey)
     {
         if (document.Root is not { } root)
         {

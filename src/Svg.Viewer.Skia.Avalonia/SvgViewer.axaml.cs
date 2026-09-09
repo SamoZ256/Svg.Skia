@@ -179,6 +179,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // recipe, and a fill on a rect has no business being written there.
         _element = new SvgViewerElementPanel(PaneSource, Declarations, Splice, Values);
 
+        _elementTree.MoveRequested = MoveElement;
+        _elementTree.NewGroupRequested = NewGroup;
+
         _elementTree.Selected += (_, node) =>
         {
             OutlineElement(node);
@@ -545,6 +548,84 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// The drawing sits at the origin here, so what <see cref="SvgViewerOutline"/> traces needs no
     /// offsetting before the canvas is given it.
     /// </remarks>
+    /// <summary>Moves a row to where it was dropped, and follows it.</summary>
+    /// <remarks>
+    /// The rebuild is asked for rather than waited for. It is debounced by 200ms so that typing does
+    /// not recompile per keystroke, and a drop that let it run late would leave the row under the
+    /// pointer where it was until the timer caught up.
+    /// </remarks>
+    private bool MoveElement(string addressKey, string targetKey, SvgElementDrop where)
+    {
+        if (SourceAddress(addressKey) is not { } moved || SourceAddress(targetKey) is not { } target)
+        {
+            ShowNote(Unwritten);
+
+            return false;
+        }
+
+        return Rewritten(SvgElementEditor.Move(PaneSource(), moved, target, where), targetKey);
+    }
+
+    private bool NewGroup(string targetKey, SvgElementDrop where)
+    {
+        if (SourceAddress(targetKey) is not { } target)
+        {
+            ShowNote(Unwritten);
+
+            return false;
+        }
+
+        return Rewritten(SvgElementEditor.NewGroup(PaneSource(), target, where), targetKey);
+    }
+
+    /// <summary>
+    /// What a row cannot be edited by, where the drawing is not the file it came from.
+    /// </summary>
+    /// <remarks>
+    /// A drawing built through <see cref="Rewrite"/> — an svgc recipe — has rows its file has never
+    /// heard of, and the rest sit at addresses the file spells differently. The pane edits the file,
+    /// so a row is written by the address it has there and not by the one it has here.
+    /// </remarks>
+    private const string Unwritten = "That row is not written in this file, so it cannot be moved here.";
+
+    private bool Rewritten(SvgSourceEditResult result, string follow)
+    {
+        if (!Writable() || !Splice(result))
+        {
+            return false;
+        }
+
+        _rebuild.Stop();
+        RebuildFromSource();
+
+        // Where the row landed is not where it was, and the addresses after it have all shifted, so
+        // the row it went beside is what can still be pointed at.
+        _elementTree.TrySelect(follow);
+
+        return true;
+    }
+
+    /// <summary>Whether an edit can be written into the pane, saying why not where it cannot.</summary>
+    /// <remarks>
+    /// The buffer first: Splice writes into the editor's document, and until it has been filled that
+    /// is the empty one AvaloniaEdit starts with — the pane need never have been opened. A drawing
+    /// past the pane's limit is shown cut, and writing a span measured against the whole of it would
+    /// behead the file.
+    /// </remarks>
+    private bool Writable()
+    {
+        EnsureSourceBuffer();
+
+        if (!_sourceTruncated)
+        {
+            return true;
+        }
+
+        ShowNote("This drawing is too large to edit here.");
+
+        return false;
+    }
+
     private void OutlineElement(SvgViewerElementNode? node)
         => _canvas.Highlight = Outline(node);
 
