@@ -277,6 +277,45 @@ public class SvgSourceWorkspaceTests
     }
 
     [Fact]
+    public void A_Span_Edit_Lands_On_The_Same_Stack_As_A_Tree_One()
+    {
+        // What lets the editors that still produce spans share this history: the text is the tree's
+        // own serialisation, so rewriting it and reading it back loses nothing.
+        var workspace = Open();
+
+        Assert.Null(workspace.Commit("set fill", source => Fill(source, "red")));
+        Assert.Null(workspace.Commit(
+            "widen",
+            text => text.Replace("width='64'", "width='128'")));
+
+        Assert.Contains("width='128'", workspace.Text);
+        Assert.Contains("fill=\"red\"", workspace.Text);
+
+        // And the tree that comes back is the text, not the tree from before it.
+        Assert.Equal("128", workspace.Document.Document.Root!.Attribute("width")!.Value);
+
+        Assert.True(workspace.Undo());
+        Assert.Contains("width='64'", workspace.Text);
+        Assert.Contains("fill=\"red\"", workspace.Text);
+
+        Assert.True(workspace.Undo());
+        Assert.Equal(Source, workspace.Text);
+    }
+
+    [Fact]
+    public void A_Span_Edit_That_Would_Not_Read_Back_Is_Refused()
+    {
+        var workspace = Open();
+
+        Assert.StartsWith(
+            "The drawing is not well formed XML:",
+            workspace.Commit("break it", text => text.Replace("</svg>", string.Empty)));
+
+        Assert.Equal(Source, workspace.Text);
+        Assert.False(workspace.IsModified);
+    }
+
+    [Fact]
     public void A_Drawing_That_Cannot_Be_Read_Is_Refused_With_A_Sentence()
     {
         Assert.Null(SvgSourceWorkspace.Open("<svg><rect></svg>", out var refusal));

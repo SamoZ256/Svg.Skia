@@ -106,6 +106,9 @@ public sealed class SvgSourceWorkspace
     /// </param>
     /// <returns>The refusal, or null where the edit was made or would have changed nothing.</returns>
     public string? Commit(string label, Func<SvgSourceDocument, string?> edit)
+        => Commit(label, edit, null);
+
+    private string? Commit(string label, Func<SvgSourceDocument, string?> edit, Func<string, string>? rewrite)
     {
         if (label is null)
         {
@@ -141,6 +144,18 @@ public sealed class SvgSourceWorkspace
 
         var after = Document.ToText();
 
+        if (rewrite is { })
+        {
+            after = rewrite(after);
+
+            if (SvgSourceDocument.Read(after, out var unreadable) is null)
+            {
+                Adopt(before);
+
+                return unreadable;
+            }
+        }
+
         // Whatever the editor believed it did. Setting a value to the one already there is not a
         // step to take back, and must not mark the drawing as holding edits.
         if (string.Equals(after, before, StringComparison.Ordinal))
@@ -155,6 +170,12 @@ public sealed class SvgSourceWorkspace
         _states.Add(after);
         _labels.Add(label);
         _at++;
+
+        // The tree is the truth, so a rewrite that produced the text has to become one.
+        if (rewrite is { })
+        {
+            Adopt(after);
+        }
 
         if (_states.Count > Depth)
         {
@@ -171,6 +192,27 @@ public sealed class SvgSourceWorkspace
         Told(modified);
 
         return null;
+    }
+
+    /// <summary>
+    /// Runs one edit against the drawing's text and keeps it, or says why it could not be kept.
+    /// </summary>
+    /// <remarks>
+    /// The other medium, and it is sound here for the same reason undo is: <see cref="Text"/> is the
+    /// tree's own byte-faithful serialisation, so text rewritten and read back is the document the
+    /// rewrite described and nothing is lost on the way through. It is what lets the editors that
+    /// still produce spans -- the declarations, which may be written into a recipe instead and so
+    /// cannot be tree-only -- land on the same stack as the ones that write the tree.
+    /// </remarks>
+    /// <returns>The refusal, or null where the edit was made or would have changed nothing.</returns>
+    public string? Commit(string label, Func<string, string> rewrite)
+    {
+        if (rewrite is null)
+        {
+            throw new ArgumentNullException(nameof(rewrite));
+        }
+
+        return Commit(label, _ => null, rewrite);
     }
 
     /// <summary>Takes back the last gesture.</summary>
