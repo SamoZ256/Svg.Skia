@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
@@ -43,6 +44,9 @@ namespace Svg.SourceEditing;
 /// </remarks>
 public sealed class SvgSourceDocument
 {
+    /// <summary>A byte order mark, spelled rather than written, so this file stays text to a tool.</summary>
+    private const char Mark = '\uFEFF';
+
     private readonly string _prologue;
     private readonly string _epilogue;
     private readonly bool _carriageReturns;
@@ -79,7 +83,7 @@ public sealed class SvgSourceDocument
             throw new ArgumentNullException(nameof(svgText));
         }
 
-        var byteOrderMark = svgText.Length > 0 && svgText[0] == '﻿';
+        var byteOrderMark = svgText.Length > 0 && svgText[0] == Mark;
         var body = byteOrderMark ? svgText[1..] : svgText;
 
         XDocument document;
@@ -163,7 +167,7 @@ public sealed class SvgSourceDocument
 
         if (ByteOrderMark)
         {
-            builder.Append('﻿');
+            builder.Append(Mark);
         }
 
         builder.Append(_prologue);
@@ -221,7 +225,14 @@ public sealed class SvgSourceDocument
         var text = body[start..(open + 1)];
         var selfClosed = body[open - 1] == '/';
 
-        element.AddAnnotation(new Tag(text, Spelling(body, name), selfClosed, Tail(text, selfClosed), Said(element)));
+        element.AddAnnotation(new Tag(
+            text,
+            Spelling(body, name),
+            selfClosed,
+            Tail(text, selfClosed),
+            Named(element),
+            Valued(element),
+            Slots(text)));
     }
 
     /// <summary>
@@ -280,17 +291,107 @@ public sealed class SvgSourceDocument
         return body[from..end];
     }
 
-    /// <summary>What an element's name and attributes say, to notice when they stop saying it.</summary>
-    private static string[] Said(XElement element)
+    /// <summary>An element's name and its attributes' names, in the order they were written.</summary>
+    private static string[] Named(XElement element)
     {
-        var said = new List<string> { element.Name.ToString() };
+        var names = new List<string> { element.Name.ToString() };
 
         foreach (var attribute in element.Attributes())
         {
-            said.Add(attribute.Name + " " + attribute.Value);
+            names.Add(attribute.Name.ToString());
         }
 
-        return said.ToArray();
+        return names.ToArray();
+    }
+
+    /// <summary>What those attributes say, kept apart from their names so one value can change alone.</summary>
+    private static string[] Valued(XElement element)
+    {
+        var values = new List<string>();
+
+        foreach (var attribute in element.Attributes())
+        {
+            values.Add(attribute.Value);
+        }
+
+        return values.ToArray();
+    }
+
+    /// <summary>Where each attribute's value sits inside a start tag, and which quote holds it.</summary>
+    /// <remarks>
+    /// So that changing one value rewrites that value and not the tag around it. The root is the
+    /// likeliest tag in a drawing to be laid out by hand, one attribute to a line, and it is also
+    /// the one a resize writes to and the one the first parameter declares a namespace on.
+    /// </remarks>
+    private static Slot[] Slots(string tag)
+    {
+        var slots = new List<Slot>();
+        var index = 1;
+
+        while (index < tag.Length && tag[index] != '>' && tag[index] != '/' && !char.IsWhiteSpace(tag[index]))
+        {
+            index++;
+        }
+
+        while (index < tag.Length)
+        {
+            var run = index;
+
+            while (index < tag.Length && char.IsWhiteSpace(tag[index]))
+            {
+                index++;
+            }
+
+            if (index >= tag.Length || tag[index] == '>' || tag[index] == '/')
+            {
+                break;
+            }
+
+            while (index < tag.Length && tag[index] != '=' && !char.IsWhiteSpace(tag[index]))
+            {
+                index++;
+            }
+
+            while (index < tag.Length && char.IsWhiteSpace(tag[index]))
+            {
+                index++;
+            }
+
+            if (index >= tag.Length || tag[index] != '=')
+            {
+                break;
+            }
+
+            index++;
+
+            while (index < tag.Length && char.IsWhiteSpace(tag[index]))
+            {
+                index++;
+            }
+
+            if (index >= tag.Length || (tag[index] != '"' && tag[index] != '\''))
+            {
+                break;
+            }
+
+            var quote = tag[index++];
+            var start = index;
+
+            while (index < tag.Length && tag[index] != quote)
+            {
+                index++;
+            }
+
+            if (index >= tag.Length)
+            {
+                break;
+            }
+
+            slots.Add(new Slot(run, index + 1 - run, start, index - start, quote));
+            index++;
+        }
+
+        return slots.ToArray();
     }
 
     private static void Write(StringBuilder builder, XElement element)
@@ -298,15 +399,15 @@ public sealed class SvgSourceDocument
         var tag = element.Annotation<Tag>();
         var children = element.FirstNode is { };
 
-        // The tag it was read as is written back only while it would still say the same thing, and
-        // an element that closed itself cannot do so once something has been put inside it.
-        var kept = tag is { } known && known.Holds(element) && (!known.SelfClosed || !children);
+        // An element that closed itself cannot go on doing so once something has been put inside
+        // it, and then there is nothing of the tag left to keep.
+        var kept = tag is { } known && (!known.SelfClosed || !children) ? known.Written(element) : null;
 
-        if (kept)
+        if (kept is { })
         {
-            builder.Append(tag!.Text);
+            builder.Append(kept);
 
-            if (tag.SelfClosed)
+            if (tag!.SelfClosed)
             {
                 return;
             }
@@ -321,7 +422,7 @@ public sealed class SvgSourceDocument
             Write(builder, node);
         }
 
-        if (kept)
+        if (kept is { })
         {
             builder.Append("</").Append(tag!.Name).Append('>');
         }
@@ -413,7 +514,7 @@ public sealed class SvgSourceDocument
     /// attribute values are normalised to spaces. A <c>&gt;</c> is left alone -- it is only special
     /// where it closes a CDATA section, which is not here.
     /// </remarks>
-    private static void Value(StringBuilder builder, string value)
+    private static void Value(StringBuilder builder, string value, char quote = '"')
     {
         foreach (var character in value)
         {
@@ -421,7 +522,11 @@ public sealed class SvgSourceDocument
             {
                 '&' => "&amp;",
                 '<' => "&lt;",
-                '"' => "&quot;",
+
+                // Only the one holding it: a file that quoted with apostrophes may hold a " as
+                // itself, and escaping the other would be a change to a value nobody edited.
+                '"' when quote == '"' => "&quot;",
+                '\'' when quote == '\'' => "&apos;",
                 '\r' => "&#xD;",
                 '\n' => "&#xA;",
                 '\t' => "&#x9;",
@@ -473,17 +578,58 @@ public sealed class SvgSourceDocument
         public bool Holds(XText text) => string.Equals(text.Value, _said, StringComparison.Ordinal);
     }
 
+    /// <summary>One attribute inside a start tag: the whole of it, and the value within it.</summary>
+    /// <remarks>
+    /// Both, because the three things that happen to an attribute need different spans: a changed
+    /// value is written over <see cref="Start"/>, a removed attribute takes its leading whitespace
+    /// with it and so is cut at <see cref="RunStart"/>, and an added one is put before the close.
+    /// </remarks>
+    private readonly struct Slot
+    {
+        public Slot(int runStart, int runLength, int start, int length, char quote)
+        {
+            RunStart = runStart;
+            RunLength = runLength;
+            Start = start;
+            Length = length;
+            Quote = quote;
+        }
+
+        /// <summary>Where the attribute begins, counting the whitespace in front of its name.</summary>
+        public int RunStart { get; }
+
+        public int RunLength { get; }
+
+        /// <summary>Where its value begins, past the opening quote.</summary>
+        public int Start { get; }
+
+        public int Length { get; }
+
+        public char Quote { get; }
+    }
+
     private sealed class Tag
     {
-        private readonly string[] _said;
+        private readonly string[] _names;
+        private readonly string[] _values;
+        private readonly Slot[] _slots;
 
-        public Tag(string text, string name, bool selfClosed, string tail, string[] said)
+        public Tag(
+            string text,
+            string name,
+            bool selfClosed,
+            string tail,
+            string[] names,
+            string[] values,
+            Slot[] slots)
         {
             Text = text;
             Name = name;
             SelfClosed = selfClosed;
             Tail = tail;
-            _said = said;
+            _names = names;
+            _values = values;
+            _slots = slots;
         }
 
         /// <summary>The start tag exactly as the file wrote it.</summary>
@@ -497,19 +643,103 @@ public sealed class SvgSourceDocument
         /// <summary>How the file closed this tag, whitespace and all.</summary>
         public string Tail { get; }
 
-        /// <summary>Whether the element still says what this tag was read as saying.</summary>
-        public bool Holds(XElement element)
+        /// <summary>
+        /// The tag to write for this element, or null where it has to be written afresh.
+        /// </summary>
+        /// <remarks>
+        /// The bytes it was read as while it still says the same thing; otherwise those bytes with
+        /// the values written over, the attributes that went away cut out, and the ones that
+        /// arrived put in before the close. Without this, changing one number on a root written
+        /// across four lines would fold it onto one -- and declaring the namespace for the first
+        /// parameter a drawing ever gets does exactly that to exactly that tag.
+        /// </remarks>
+        public string? Written(XElement element)
         {
-            var said = Said(element);
+            var names = Named(element);
 
-            if (said.Length != _said.Length)
+            if (names[0] != _names[0])
+            {
+                return null;
+            }
+
+            var values = Valued(element);
+
+            if (Same(_names, names) && Same(_values, values))
+            {
+                return Text;
+            }
+
+            // One slot per attribute read, or the scan did not follow the tag and writing by
+            // position would put a value somewhere it does not belong.
+            if (_slots.Length != _values.Length)
+            {
+                return null;
+            }
+
+            var attributes = element.Attributes().ToList();
+            var taken = new int[_slots.Length];
+            var added = new List<int>();
+            var cursor = 0;
+
+            Array.Fill(taken, -1);
+
+            for (var index = 0; index < attributes.Count; index++)
+            {
+                var at = Array.IndexOf(_names, names[index + 1], cursor + 1) - 1;
+
+                if (at < 0)
+                {
+                    added.Add(index);
+                    continue;
+                }
+
+                taken[at] = index;
+                cursor = at;
+            }
+
+            var builder = new StringBuilder();
+            var written = 0;
+
+            for (var slot = 0; slot < _slots.Length; slot++)
+            {
+                var where = _slots[slot];
+                var index = taken[slot];
+
+                if (index < 0)
+                {
+                    // Gone: cut it out with the whitespace that led up to it.
+                    builder.Append(Text, written, where.RunStart - written);
+                    written = where.RunStart + where.RunLength;
+                    continue;
+                }
+
+                builder.Append(Text, written, where.Start - written);
+                Value(builder, values[index], where.Quote);
+                written = where.Start + where.Length;
+            }
+
+            builder.Append(Text, written, Text.Length - Tail.Length - written);
+
+            foreach (var index in added)
+            {
+                builder.Append(' ').Append(Name(attributes[index])).Append("=\"");
+                Value(builder, values[index]);
+                builder.Append('"');
+            }
+
+            return builder.Append(Tail).ToString();
+        }
+
+        private static bool Same(string[] left, string[] right)
+        {
+            if (left.Length != right.Length)
             {
                 return false;
             }
 
-            for (var index = 0; index < said.Length; index++)
+            for (var index = 0; index < left.Length; index++)
             {
-                if (!string.Equals(said[index], _said[index], StringComparison.Ordinal))
+                if (!string.Equals(left[index], right[index], StringComparison.Ordinal))
                 {
                     return false;
                 }

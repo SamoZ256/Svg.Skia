@@ -177,6 +177,84 @@ public class SvgSourceDocumentTests
     }
 
     [Fact]
+    public void Changing_One_Attribute_Leaves_The_Others_Where_They_Were_Written()
+    {
+        // The root is the likeliest tag in a file to be hand-wrapped, and the frame editor and the
+        // first parameter ever added both rewrite it. Regenerating the whole tag to change one
+        // value would fold four lines into one and turn the apostrophes into quotes.
+        const string source = """
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 width='64'
+                 height='64'
+                 viewBox="0 0 64 64">
+            </svg>
+            """;
+
+        var document = SvgSourceDocument.Read(source, out _)!;
+
+        document.Document.Root!.SetAttributeValue("width", "128");
+
+        var written = document.ToText();
+
+        Assert.Contains("width='128'", written);
+        Assert.Contains("\n     height='64'\n", written);
+        Assert.Contains("\n     viewBox=\"0 0 64 64\">", written);
+        Assert.Equal(source.Split('\n').Length, written.Split('\n').Length);
+    }
+
+    [Fact]
+    public void An_Attribute_Added_To_A_Wrapped_Tag_Goes_In_Beside_The_Others()
+    {
+        // Declaring the namespace is what the first parameter a drawing ever gets does, and it does
+        // it to the root -- the one tag most likely to have been laid out by hand.
+        const string source = """
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 width='64'
+                 height='64'>
+            </svg>
+            """;
+
+        var document = SvgSourceDocument.Read(source, out _)!;
+
+        document.Document.Root!.SetAttributeValue(XNamespace.Xmlns + "e", "https://svg.skia/expr/1.0");
+
+        var written = document.ToText();
+
+        Assert.Contains("\n     width='64'\n", written);
+        Assert.Contains("""height='64' xmlns:e="https://svg.skia/expr/1.0">""", written);
+        Assert.Equal(source.Split('\n').Length, written.Split('\n').Length);
+    }
+
+    [Fact]
+    public void An_Attribute_Removed_Takes_The_Space_In_Front_Of_It_With_It()
+    {
+        const string source = """<svg xmlns="http://www.w3.org/2000/svg"><rect fill='red' x="1" y="2" /></svg>""";
+
+        var document = SvgSourceDocument.Read(source, out _)!;
+        XNamespace svg = "http://www.w3.org/2000/svg";
+
+        document.Document.Root!.Element(svg + "rect")!.SetAttributeValue("x", null);
+
+        Assert.Contains("""<rect fill='red' y="2" />""", document.ToText());
+    }
+
+    [Fact]
+    public void A_Value_Spliced_Into_A_Tag_Is_Escaped_For_The_Quote_The_File_Used()
+    {
+        const string source = """<svg xmlns="http://www.w3.org/2000/svg"><rect fill='red' /></svg>""";
+
+        var document = SvgSourceDocument.Read(source, out _)!;
+        XNamespace svg = "http://www.w3.org/2000/svg";
+
+        document.Document.Root!.Element(svg + "rect")!.SetAttributeValue("fill", "a'b\"c");
+
+        var written = document.ToText();
+
+        Assert.Contains("fill='a&apos;b\"c'", written);
+        Assert.Equal("a'b\"c", SvgSourceDocument.Read(written, out _)!.Document.Root!.Element(svg + "rect")!.Attribute("fill")!.Value);
+    }
+
+    [Fact]
     public void An_Element_That_Gains_A_Child_Stops_Closing_Itself()
     {
         const string source = """<svg xmlns="http://www.w3.org/2000/svg"><g /></svg>""";
