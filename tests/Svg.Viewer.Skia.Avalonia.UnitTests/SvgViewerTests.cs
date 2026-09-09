@@ -862,35 +862,6 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
-    public async Task A_Drawing_Too_Large_To_Lay_Out_Is_Cut_Rather_Than_Shown_Whole()
-    {
-        var (window, viewer) = Host();
-
-        // Comfortably past whatever the pane is willing to hold.
-        var padding = new string(' ', 2_100_000);
-        var markup = $"""
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-              <rect width="24" height="24" fill="#00ff00" />{padding}
-            </svg>
-            """;
-
-        Assert.True(await viewer.LoadTextAsync(markup));
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var shown = PaneText(viewer);
-
-        Assert.True(shown.Length < markup.Length, "the whole drawing was handed to one text block");
-        Assert.Contains("more characters not shown", shown, StringComparison.Ordinal);
-
-        // The document still carries all of it; only the pane is cut.
-        Assert.Equal(markup, viewer.Document!.SourceText);
-
-        window.Close();
-    }
-
-    [AvaloniaFact]
     public void A_Drawing_Read_From_A_Stream_Carries_Its_Text_Too()
     {
         // The loader consumes the stream, so this is the case that has to buffer to keep the text.
@@ -1373,10 +1344,10 @@ public class SvgViewerTests
         window.Close();
     }
 
-    /// <summary>Types into the pane and waits for the rebuild the pause triggers.</summary>
+    /// <summary>Hands the viewer new text and lets what it set off run.</summary>
     private static async Task Type(SvgViewer viewer, string text)
     {
-        Pane(viewer).Document.Text = text;
+        viewer.SetSource(text);
         Dispatcher.UIThread.RunJobs();
 
         // Real time, because the debounce is a real timer: the point of it is that it waits.
@@ -1427,20 +1398,22 @@ public class SvgViewerTests
     [AvaloniaFact]
     public async Task Text_That_Will_Not_Parse_Keeps_The_Drawing_That_Is_Up()
     {
-        // The ordinary state of a document halfway through being typed. Losing the picture at every
-        // unbalanced bracket would make the pane unusable for the thing it is for.
+        // A tree is the truth now, and there is no tree in half-typed markup, so it is refused on
+        // the way in rather than held and failed over. The drawing is what must not be lost.
         var (window, viewer) = await HostLoaded();
 
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var before = viewer.Svg!.Picture;
+        var text = viewer.Source;
 
-        await Type(viewer, "<svg><rect ");
+        Assert.False(viewer.SetSource("<svg><rect "));
+        Dispatcher.UIThread.RunJobs();
 
-        // The pane took it and the rebuild was attempted; the drawing is what did not follow.
-        Assert.Equal("<svg><rect ", PaneText(viewer));
         Assert.Same(before, viewer.Svg!.Picture);
+        Assert.Equal(text, viewer.Source);
+        Assert.False(viewer.IsSourceModified);
 
         window.Close();
     }
@@ -1513,28 +1486,6 @@ public class SvgViewerTests
         }
 
         return bitmap.GetPixel(10, 10);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Drawing_Too_Large_To_Show_Whole_Cannot_Be_Edited()
-    {
-        // Editing a cut document and saving it would behead the file and write the note explaining
-        // the cut into it. There is no warning that makes that acceptable.
-        var (window, viewer) = Host();
-
-        // Past the pane's own backstop, which it does not expose and this must therefore restate.
-        var padding = new string(' ', 2_000_001);
-
-        Assert.True(await viewer.LoadTextAsync(
-            $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\" width=\"1\" height=\"1\"><!--{padding}--></svg>"));
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(Pane(viewer).IsReadOnly);
-        Assert.Contains("too large to edit", PaneText(viewer), StringComparison.Ordinal);
-
-        window.Close();
     }
 
     [AvaloniaFact]
@@ -1886,7 +1837,7 @@ public class SvgViewerTests
         => viewer.GetVisualDescendants().OfType<TextEditor>().First(c => c.Name == "SourceEditor");
 
     /// <summary>What the pane is showing, which is the whole document rather than the rows on screen.</summary>
-    private static string PaneText(SvgViewer viewer) => Pane(viewer).Text;
+    private static string PaneText(SvgViewer viewer) => viewer.Source;
 
     /// <summary>
     /// The coloured pieces of every line the editor has actually built.

@@ -58,8 +58,11 @@ public class SvgViewerUndoTests
     public async Task An_Edit_Can_Be_Taken_Back_And_Put_Again()
     {
         var (window, pane) = await Host();
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().Single();
 
-        pane.Document.Insert(pane.Document.TextLength, "<!-- typed -->");
+        // Through the drawing rather than into the pane, which shows the text and no longer holds
+        // it — but the gesture is still made while looking at the pane, which is what this is for.
+        Assert.True(viewer.SetSource(viewer.Source + "<!-- typed -->"));
         Dispatcher.UIThread.RunJobs();
 
         Assert.Contains("typed", pane.Text);
@@ -79,8 +82,9 @@ public class SvgViewerUndoTests
     public async Task Redo_Answers_To_Both_Of_Its_Gestures()
     {
         var (window, pane) = await Host();
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().Single();
 
-        pane.Document.Insert(pane.Document.TextLength, "<!-- typed -->");
+        Assert.True(viewer.SetSource(viewer.Source + "<!-- typed -->"));
         Dispatcher.UIThread.RunJobs();
 
         window.KeyPressQwerty(PhysicalKey.Z, Command);

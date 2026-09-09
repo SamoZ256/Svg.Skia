@@ -98,20 +98,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Whether that has been worked out, which costs a second read of the whole file.</summary>
     private bool _sourceMapped;
 
-    /// <summary>Whether the pane is showing less than the whole drawing, which it may not edit.</summary>
-    private bool _sourceTruncated;
-
-    /// <summary>Whether the text is being replaced rather than typed, so an edit is not a change.</summary>
-    private bool _sourceLoading;
-
     /// <summary>
-    /// Whether the editor is holding the open drawing, and is therefore the truth about it.
+    /// The open drawing, and everything that has been done to it.
     /// </summary>
     /// <remarks>
-    /// Not the same as being on screen: a parameter added from the panel fills the buffer without
-    /// opening the pane, and from that moment the document is modified and can be saved.
+    /// The truth. The pane shows what this says rather than holding it: a drawing is a tree here,
+    /// and the text is what that tree writes. Null while nothing is open, and while a drawing the
+    /// reader would not take is on screen — a picture that can be looked at and not edited.
     /// </remarks>
-    private bool _sourceBuffered;
+    private SvgSourceWorkspace? _workspace;
 
     /// <summary>What the modified flag last was, so the change can be raised rather than polled.</summary>
     private bool _sourceModified;
@@ -211,7 +206,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _sourceEditor.TextArea.TextView.BackgroundRenderers.Add(_sourceMarkers);
         _sourceEditor.TextArea.TextView.PointerHover += OnSourceHover;
         _sourceEditor.TextArea.TextView.PointerHoverStopped += (_, _) => HideSourceTip();
-        _sourceEditor.TextChanged += (_, _) => OnSourceEdited();
 
         _rebuild.Tick += (_, _) =>
         {
@@ -563,7 +557,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        return Rewritten(SvgElementEditor.Move(PaneSource(), moved, target, where), targetKey);
+        return Rewritten("move an element", source => SvgElementEditor.Move(source, moved, target, where), targetKey);
     }
 
     private bool NewGroup(string targetKey, SvgElementDrop where)
@@ -575,7 +569,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        return Rewritten(SvgElementEditor.NewGroup(PaneSource(), target, where), targetKey);
+        return Rewritten("add a group", source => SvgElementEditor.NewGroup(source, target, where), targetKey);
     }
 
     /// <summary>
@@ -588,15 +582,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private const string Unwritten = "That row is not written in this file, so it cannot be moved here.";
 
-    private bool Rewritten(SvgSourceEditResult result, string follow)
+    private bool Rewritten(string label, Func<SvgSourceDocument, string?> edit, string follow)
     {
-        if (!Writable() || !Splice(result))
+        if (!Writable() || !Commit(label, edit))
         {
             return false;
         }
-
-        _rebuild.Stop();
-        RebuildFromSource();
 
         // Where the row landed is not where it was, and the addresses after it have all shifted, so
         // the row it went beside is what can still be pointed at.
@@ -614,14 +605,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private bool Writable()
     {
-        EnsureSourceBuffer();
-
-        if (!_sourceTruncated)
+        if (_workspace is { })
         {
             return true;
         }
 
-        ShowNote("This drawing is too large to edit here.");
+        ShowNote(Unwritten);
 
         return false;
     }
@@ -770,13 +759,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     public IReadOnlyList<SvgSourceDiagnostic> SourceDiagnostics => Diagnostics();
 
-    /// <summary>The whole drawing as text, including the edits the pane is holding.</summary>
+    /// <summary>The whole drawing as text, edits and all.</summary>
     /// <remarks>
-    /// Not what the pane shows: a drawing past <see cref="SourceLimit"/> is shown cut and cannot be
-    /// edited, and handing out the cut would behead whatever it was written to.
+    /// What the tree writes rather than what the pane shows, which are the same thing until a
+    /// drawing arrives that the reader will not take — then the pane shows the file and this
+    /// answers with it, so a host saving one cannot behead it.
     /// </remarks>
-    public string Source
-        => _sourceBuffered && !_sourceTruncated ? _sourceEditor.Text : _document?.SourceText ?? string.Empty;
+    public string Source => PaneSource();
 
     /// <summary>The values currently bound, keyed by parameter name.</summary>
     public IReadOnlyDictionary<string, ExprValue> ParameterValues => BuildValues();
@@ -894,6 +883,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // rule the source pane rebuilds under.
         _document = document;
 
+        // The file's own text and not the built one: what is edited and saved is the file, and a
+        // recipe's rewrite is something the drawing goes through on its way to being drawn.
+        _workspace = document.SourceText is { } text ? SvgSourceWorkspace.Open(text, out _) : null;
+
         if (previous is { Path: { } was } && was == document.Path)
         {
             _canvas.Replace(document.Svg);
@@ -942,6 +935,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _document?.Dispose();
         _document = null;
+        _workspace = null;
 
         _rows = Array.Empty<SvgViewerParameter>();
         _panel.Parameters = null;
@@ -1161,13 +1155,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private void UpdateZoomText()
         => _zoomText.Text = (_canvas.Scale * 100d).ToString("0", CultureInfo.CurrentCulture) + "%";
 
-    /// <summary>How much of a drawing's text the pane will show.</summary>
-    /// <remarks>
-    /// A backstop on what is held, not on layout: the tokens for a drawing this size are tens of
-    /// megabytes.
-    /// </remarks>
-    internal const int SourceLimit = 2_000_000;
-
     private void UpdateSource()
     {
         ForgetSource();
@@ -1200,7 +1187,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private void ForgetSource()
     {
         _sourceStale = true;
-        _sourceBuffered = false;
         _sourceAnalysed = false;
         _sourceMapped = false;
         _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
@@ -1209,26 +1195,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _rebuild.Stop();
     }
 
-    /// <summary>The text everything else works from: the editor's once it is holding the drawing.</summary>
-    private string PaneSource() => _sourceBuffered ? _sourceEditor.Text : SourceText();
+    /// <summary>The drawing's text: what the tree writes, or the file's own until one is open.</summary>
+    private string PaneSource() => _workspace?.Text ?? _document?.SourceText ?? string.Empty;
 
-    /// <summary>The drawing's text, cut to what the pane will hold.</summary>
-    /// <remarks>
-    /// A cut is recorded because it makes the pane read-only: saving a truncated drawing would
-    /// behead the file and write the sentence below into it.
-    /// </remarks>
-    private string SourceText()
-    {
-        var source = _document?.SourceText;
-
-        _sourceTruncated = source is { Length: > SourceLimit };
-
-        return _sourceTruncated
-            ? source![..SourceLimit]
-              + $"{Environment.NewLine}{Environment.NewLine}… {source.Length - SourceLimit:N0} more characters not shown."
-              + $"{Environment.NewLine}This drawing is too large to edit here."
-            : source ?? string.Empty;
-    }
+    /// <inheritdoc cref="PaneSource"/>
+    private string SourceText() => PaneSource();
 
     /// <summary>
     /// What is wrong with the drawing, analysed at most once per document.
@@ -1330,27 +1301,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _sourceStale = false;
 
-        var text = SourceText();
-
         HideSourceTip();
 
-        // Replacing the document resets the caret, the scroll and the undo stack, so it happens on a
-        // load and never on an edit. TextChanged fires for this too, and the flag is what tells the
-        // two apart.
-        _sourceLoading = true;
-
-        try
-        {
-            _sourceEditor.Document = new TextDocument(text);
-            _sourceEditor.Document.UndoStack.MarkAsOriginalFile();
-        }
-        finally
-        {
-            _sourceLoading = false;
-        }
-
-        _sourceEditor.IsReadOnly = _document is null || _sourceTruncated;
-        _sourceBuffered = true;
+        // A whole new document rather than a splice, because nothing is edited here any more: the
+        // pane shows what the tree writes, and what it showed a moment ago is of no interest.
+        _sourceEditor.Document = new TextDocument(SourceText());
+        _sourceEditor.IsReadOnly = true;
 
         RaiseModified();
     }
@@ -1391,27 +1347,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         PaintSource();
     }
 
-    /// <summary>Taken as a keystroke: the analysis is stale, and the drawing follows in a moment.</summary>
-    private void OnSourceEdited()
-    {
-        if (_sourceLoading || !_sourceBuffered)
-        {
-            return;
-        }
-
-        _sourceAnalysed = false;
-        _sourceMapped = false;
-
-        // Posted rather than called: AvaloniaEdit raises TextChanged before its undo stack has
-        // taken the edit, so IsOriginalFile is still true at this point and the drawing reads as
-        // saved. Measured — the flag is true inside the handler and false by the time a posted
-        // call runs, so calling it here raised nothing and a host could never mark its tab.
-        Dispatcher.UIThread.Post(RaiseModified);
-
-        _rebuild.Stop();
-        _rebuild.Start();
-    }
-
     /// <summary>
     /// Builds the drawing again from the text in the pane.
     /// </summary>
@@ -1423,7 +1358,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         RefreshSource();
 
-        RebuildFrom(_sourceEditor.Text);
+        RebuildFrom(PaneSource());
     }
 
     /// <summary>
@@ -1495,9 +1430,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         UpdateElementTree();
     }
 
-    /// <summary>Whether the pane holds edits that are not on disk.</summary>
-    public bool IsSourceModified
-        => _sourceBuffered && _sourceEditor.Document is { } document && !document.UndoStack.IsOriginalFile;
+    /// <summary>Whether the drawing holds edits that are not on disk.</summary>
+    public bool IsSourceModified => _workspace is { IsModified: true };
 
     /// <summary>Raised when <see cref="IsSourceModified"/> changes, for a host that marks its chrome.</summary>
     public event EventHandler<bool>? SourceModifiedChanged;
@@ -1549,20 +1483,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        // Spelled out rather than left to Editable(), which answers yes at once when this viewer has
-        // a DeclarationTarget of its own and never reaches either of these.
-        //
-        // The buffer first: Splice writes into the editor's document, and until it has been filled
-        // that is the empty one AvaloniaEdit starts with — the pane need never have been opened.
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
-        {
-            ShowNote("This drawing is too large to edit here.");
-
-            return false;
-        }
-
         return Splice(SvgSourceEditResult.From(edits));
     }
 
@@ -1577,16 +1497,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return true;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
-        {
-            ShowNote("This drawing is too large to edit here.");
-
-            return false;
-        }
-
-        return true;
+        return Writable();
     }
 
     /// <summary>Puts a declaration edit wherever the declarations live.</summary>
@@ -1895,39 +1806,77 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        if (result.Edits.Count == 0)
+        return result.Edits.Count > 0
+               && Commit("edit the drawing", text => SvgTextEdit.ApplyAll(text, result.Edits));
+    }
+
+    /// <summary>Replaces the whole drawing with the text given, as one thing to take back.</summary>
+    /// <remarks>
+    /// The pane shows the drawing and no longer holds it, so this is how text arrives from outside:
+    /// a host reverting a file, or handing over what somebody edited elsewhere. It is an edit like
+    /// any other -- one entry on the same history, refused with the reader's own sentence where the
+    /// text will not read back, and the drawing left where it was when it will not.
+    /// </remarks>
+    /// <returns>Whether the drawing changed.</returns>
+    public bool SetSource(string svgText)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        return Commit("edit the source", (string _) => svgText);
+    }
+
+    /// <summary>Runs one edit against the drawing, shows what it did, and reports a refusal.</summary>
+    /// <remarks>
+    /// Every gesture comes through here, so every one of them is a single thing to take back and
+    /// the drawing is built again from what it now says. The label is the gesture's, because an
+    /// editor serves several and knows which of none.
+    /// </remarks>
+    private bool Commit(string label, Func<SvgSourceDocument, string?> edit)
+        => Kept(label, workspace => workspace.Commit(label, edit));
+
+    /// <inheritdoc cref="Commit(string, Func{SvgSourceDocument, string?})"/>
+    private bool Commit(string label, Func<string, string> rewrite)
+        => Kept(label, workspace => workspace.Commit(label, rewrite));
+
+    private bool Kept(string label, Func<SvgSourceWorkspace, string?> commit)
+    {
+        if (_workspace is not { } workspace)
+        {
+            ShowNote(Unwritten);
+
+            return false;
+        }
+
+        var was = workspace.Text;
+
+        if (commit(workspace) is { } refusal)
+        {
+            ShowNote(refusal);
+
+            return false;
+        }
+
+        // An edit that came to nothing is not a failure and is not worth a rebuild either.
+        if (string.Equals(workspace.Text, was, StringComparison.Ordinal))
         {
             return false;
         }
 
-        // Filled first, because the edits were measured against PaneSource(), which reads the
-        // drawing's own text until the pane holds it. Splicing them into the pane's empty document
-        // threw ArgumentOutOfRangeException for every edit made before the source pane was opened.
-        EnsureSourceBuffer();
-
-        if (_sourceEditor.Document is not { } document)
-        {
-            return false;
-        }
-
-        document.BeginUpdate();
-
-        try
-        {
-            // Back to front, so an earlier edit does not move the ones after it.
-            for (var index = result.Edits.Count - 1; index >= 0; index--)
-            {
-                var edit = result.Edits[index];
-
-                document.Replace(edit.Position, edit.Length, edit.Text);
-            }
-        }
-        finally
-        {
-            document.EndUpdate();
-        }
+        Shown();
 
         return true;
+    }
+
+    /// <summary>Shows what the drawing now says, and builds it again from that.</summary>
+    private void Shown()
+    {
+        UpdateSource();
+
+        _rebuild.Stop();
+        RebuildFromSource();
     }
 
     /// <summary>Asks what size the drawing should be, and resizes it to the answer.</summary>
@@ -1970,14 +1919,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
-        {
-            ShowNote("This drawing is too large to edit here.");
-
-            return false;
-        }
 
         return Splice(document.Resize(PaneSource(), request));
     }
@@ -1992,7 +1933,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <returns>Whether anything was written.</returns>
     public async Task<bool> SaveSourceAsync(string? path = null)
     {
-        if (_document is not { } document || !_sourceBuffered)
+        if (_document is not { } document || _workspace is not { } workspace)
         {
             return false;
         }
@@ -2007,7 +1948,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         try
         {
-            document.Write(_sourceEditor.Text, target!);
+            document.Write(workspace.Text, target!);
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
@@ -2015,7 +1956,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        _sourceEditor.Document.UndoStack.MarkAsOriginalFile();
+        workspace.MarkSaved();
         RaiseModified();
 
         return true;
@@ -2029,10 +1970,22 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// written.
     /// </remarks>
     /// <returns>Whether there was anything to take back.</returns>
-    public bool Undo() => _sourceBuffered && _sourceEditor.Undo();
+    public bool Undo() => Step(workspace => workspace.Undo());
 
     /// <inheritdoc cref="Undo"/>
-    public bool Redo() => _sourceBuffered && _sourceEditor.Redo();
+    public bool Redo() => Step(workspace => workspace.Redo());
+
+    private bool Step(Func<SvgSourceWorkspace, bool> step)
+    {
+        if (_workspace is not { } workspace || !step(workspace))
+        {
+            return false;
+        }
+
+        Shown();
+
+        return true;
+    }
 
     /// <summary>
     /// The platform is only there to ask once the control is in a window, so the pane's gestures
@@ -2049,11 +2002,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// Gives the pane the undo and redo gestures the platform uses.
     /// </summary>
     /// <remarks>
-    /// AvaloniaEdit binds the two commands and no keys to them — it registers CommandBindings for
-    /// ApplicationCommands.Undo and Redo and never asks the keymap for a gesture, which every other
-    /// command of its own does — so a pane in a plain host has an undo stack nothing can reach.
     /// Taken from the platform rather than written down, so this is Cmd+Z, Cmd+Shift+Z and Cmd+Y on
     /// macOS and the Control forms elsewhere, whatever the platform says those are.
+    ///
+    /// They reach the drawing's own history and not the pane's, which is empty: the pane shows what
+    /// the tree writes and is not somewhere edits are made. Somebody who presses undo while looking
+    /// at the text means the last thing they did, not the last thing that was typed here.
     /// </remarks>
     private void BindSourceHotkeys()
     {
@@ -2062,8 +2016,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        Bind(hotkeys.Undo, () => _sourceEditor.Undo());
-        Bind(hotkeys.Redo, () => _sourceEditor.Redo());
+        Bind(hotkeys.Undo, () => Undo());
+        Bind(hotkeys.Redo, () => Redo());
 
         void Bind(IEnumerable<KeyGesture> gestures, Action run)
         {

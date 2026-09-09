@@ -22,6 +22,9 @@ namespace Svg.Studio.UnitTests;
 /// </remarks>
 public class MainWindowUndoTests
 {
+    /// <summary>The drawing in the selected tab, which is what an edit is made to.</summary>
+    private static SvgViewer Viewer(Window window)
+        => window.GetVisualDescendants().OfType<SvgViewer>().First();
     private const string Drawing = """
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
           <defs><e:code><e:param name="hue" type="number" default="217" /></e:code></defs>
@@ -69,7 +72,7 @@ public class MainWindowUndoTests
     {
         var (window, pane) = await Host();
 
-        pane.Document.Insert(pane.Document.TextLength, "<!-- typed -->");
+        Viewer(window).SetSource(Viewer(window).Source + "<!-- typed -->");
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(window.Undo());
@@ -86,7 +89,7 @@ public class MainWindowUndoTests
         // a parameter; the drawing's stack must not answer for the box's.
         var (window, pane) = await Host();
 
-        pane.Document.Insert(pane.Document.TextLength, "<!-- typed -->");
+        Viewer(window).SetSource(Viewer(window).Source + "<!-- typed -->");
         Dispatcher.UIThread.RunJobs();
 
         // The bundled drawing declares parameters, so the panel is already showing value boxes.
