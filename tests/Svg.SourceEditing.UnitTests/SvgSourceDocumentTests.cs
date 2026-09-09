@@ -255,6 +255,44 @@ public class SvgSourceDocumentTests
     }
 
     [Fact]
+    public void A_Namespace_Nothing_Names_Is_Declared_Rather_Than_Dropped()
+    {
+        // Writing the local name alone would put the attribute in a different namespace from the
+        // one the tree holds it in: xlink:href written as href is a second attribute, not the same
+        // one, and the file would read back clean with nothing about it looking wrong.
+        const string source = """<svg xmlns="http://www.w3.org/2000/svg"><rect /></svg>""";
+
+        var document = SvgSourceDocument.Read(source, out _)!;
+        XNamespace svg = "http://www.w3.org/2000/svg";
+        XNamespace xlink = "http://www.w3.org/1999/xlink";
+
+        document.Document.Root!.Element(svg + "rect")!.SetAttributeValue(xlink + "href", "#a");
+
+        var written = document.ToText();
+        var back = SvgSourceDocument.Read(written, out _)!;
+        var rect = back.Document.Root!.Element(svg + "rect")!;
+
+        Assert.Equal("#a", rect.Attribute(xlink + "href")!.Value);
+        Assert.Null(rect.Attribute("href"));
+    }
+
+    [Fact]
+    public void An_Element_In_A_Namespace_Nothing_Names_Keeps_It_Too()
+    {
+        const string source = """<svg xmlns="http://www.w3.org/2000/svg"><g /></svg>""";
+
+        var document = SvgSourceDocument.Read(source, out _)!;
+        XNamespace svg = "http://www.w3.org/2000/svg";
+        XNamespace expr = "https://svg.skia/expr/1.0";
+
+        document.Document.Root!.Element(svg + "g")!.Add(new XElement(expr + "code"));
+
+        var back = SvgSourceDocument.Read(document.ToText(), out _)!;
+
+        Assert.Single(back.Document.Descendants(expr + "code"));
+    }
+
+    [Fact]
     public void An_Element_That_Gains_A_Child_Stops_Closing_Itself()
     {
         const string source = """<svg xmlns="http://www.w3.org/2000/svg"><g /></svg>""";

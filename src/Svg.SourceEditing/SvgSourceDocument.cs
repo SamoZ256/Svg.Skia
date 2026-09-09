@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -413,6 +414,7 @@ public sealed class SvgSourceDocument
         // An element that closed itself cannot go on doing so once something has been put inside
         // it, and then there is nothing of the tag left to keep.
         var kept = tag is { } known && (!known.SelfClosed || !children) ? known.Written(element) : null;
+        var invented = kept is { } ? null : Repairs(element);
 
         if (kept is { })
         {
@@ -425,7 +427,7 @@ public sealed class SvgSourceDocument
         }
         else
         {
-            Open(builder, element, children, tag);
+            Open(builder, element, children, tag, invented);
         }
 
         foreach (var node in element.Nodes())
@@ -439,7 +441,7 @@ public sealed class SvgSourceDocument
         }
         else if (children)
         {
-            builder.Append("</").Append(Name(element)).Append('>');
+            builder.Append("</").Append(Name(element, invented)).Append('>');
         }
     }
 
@@ -481,13 +483,29 @@ public sealed class SvgSourceDocument
         }
     }
 
-    private static void Open(StringBuilder builder, XElement element, bool children, Tag? tag)
+    private static void Open(
+        StringBuilder builder,
+        XElement element,
+        bool children,
+        Tag? tag,
+        IReadOnlyDictionary<string, string>? invented)
     {
-        builder.Append('<').Append(Name(element));
+        builder.Append('<').Append(Name(element, invented));
+
+        // Before the attributes, because the tag they are on is what they are being declared for.
+        if (invented is { })
+        {
+            foreach (var pair in invented)
+            {
+                builder.Append(" xmlns:").Append(pair.Value).Append("=\"");
+                Value(builder, pair.Key);
+                builder.Append('"');
+            }
+        }
 
         foreach (var attribute in element.Attributes())
         {
-            builder.Append(' ').Append(Name(attribute)).Append("=\"");
+            builder.Append(' ').Append(Name(attribute, invented)).Append("=\"");
             Value(builder, attribute.Value);
             builder.Append('"');
         }
@@ -498,14 +516,19 @@ public sealed class SvgSourceDocument
         builder.Append(tag is { } known && known.SelfClosed != children ? known.Tail : children ? ">" : " />");
     }
 
-    private static string Name(XElement element)
+    private static string Name(XElement element, IReadOnlyDictionary<string, string>? invented)
     {
+        if (invented is { } made && made.TryGetValue(element.Name.NamespaceName, out var repaired))
+        {
+            return repaired + ":" + element.Name.LocalName;
+        }
+
         var prefix = element.GetPrefixOfNamespace(element.Name.Namespace);
 
         return string.IsNullOrEmpty(prefix) ? element.Name.LocalName : prefix + ":" + element.Name.LocalName;
     }
 
-    private static string Name(XAttribute attribute)
+    private static string Name(XAttribute attribute, IReadOnlyDictionary<string, string>? invented)
     {
         if (attribute.Name.Namespace == XNamespace.Xmlns)
         {
@@ -517,9 +540,69 @@ public sealed class SvgSourceDocument
             return attribute.Name.LocalName;
         }
 
+        if (invented is { } made && made.TryGetValue(attribute.Name.NamespaceName, out var repaired))
+        {
+            return repaired + ":" + attribute.Name.LocalName;
+        }
+
         var prefix = attribute.Parent?.GetPrefixOfNamespace(attribute.Name.Namespace);
 
         return string.IsNullOrEmpty(prefix) ? attribute.Name.LocalName : prefix + ":" + attribute.Name.LocalName;
+    }
+
+    /// <summary>
+    /// Prefixes to declare on this tag for namespaces nothing in scope names, or null for the
+    /// ordinary case where there are none.
+    /// </summary>
+    /// <remarks>
+    /// Writing the local name alone would put the element or the attribute in a different namespace
+    /// from the one the tree holds it in — an xlink:href written as href is a second attribute, not
+    /// the same one — and the file would read back clean with nothing about it looking wrong. An
+    /// attribute never takes the default namespace, so only an element may go without a prefix.
+    /// </remarks>
+    private static Dictionary<string, string>? Repairs(XElement element)
+    {
+        Dictionary<string, string>? invented = null;
+
+        Consider(element.Name.Namespace, forAttribute: false);
+
+        foreach (var attribute in element.Attributes())
+        {
+            if (!attribute.IsNamespaceDeclaration)
+            {
+                Consider(attribute.Name.Namespace, forAttribute: true);
+            }
+        }
+
+        return invented;
+
+        void Consider(XNamespace namespaceName, bool forAttribute)
+        {
+            if (namespaceName == XNamespace.None
+                || element.GetPrefixOfNamespace(namespaceName) is { Length: > 0 }
+                || (!forAttribute && element.GetDefaultNamespace() == namespaceName))
+            {
+                return;
+            }
+
+            invented ??= new Dictionary<string, string>(StringComparer.Ordinal);
+
+            if (invented.ContainsKey(namespaceName.NamespaceName))
+            {
+                return;
+            }
+
+            var at = invented.Count + 1;
+            var prefix = "p" + at.ToString(CultureInfo.InvariantCulture);
+
+            while (element.GetNamespaceOfPrefix(prefix) is { } || invented.ContainsValue(prefix))
+            {
+                at++;
+                prefix = "p" + at.ToString(CultureInfo.InvariantCulture);
+            }
+
+            invented[namespaceName.NamespaceName] = prefix;
+        }
     }
 
     /// <remarks>
@@ -671,7 +754,9 @@ public sealed class SvgSourceDocument
         {
             var names = Named(element);
 
-            if (names[0] != _names[0])
+            // A tag read from the file cannot be given a namespace declaration it never had, so it
+            // is written afresh instead, where one can be put on it.
+            if (names[0] != _names[0] || Repairs(element) is { })
             {
                 return null;
             }
@@ -736,7 +821,7 @@ public sealed class SvgSourceDocument
 
             foreach (var index in added)
             {
-                builder.Append(' ').Append(Name(attributes[index])).Append("=\"");
+                builder.Append(' ').Append(Name(attributes[index], null)).Append("=\"");
                 Value(builder, values[index]);
                 builder.Append('"');
             }
