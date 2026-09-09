@@ -20,7 +20,6 @@ namespace Svg.Viewer.Skia.Avalonia;
 public sealed class SvgViewerElementNode : INotifyPropertyChanged
 {
     private readonly HashSet<string> _expanded;
-    private readonly HashSet<string> _selected;
 
     internal SvgViewerElementNode(
         SvgElement element,
@@ -28,8 +27,7 @@ public sealed class SvgViewerElementNode : INotifyPropertyChanged
         string label,
         string? id,
         IReadOnlyList<SvgViewerElementNode> children,
-        HashSet<string> expanded,
-        HashSet<string> selected)
+        HashSet<string> expanded)
     {
         Element = element;
         AddressKey = addressKey;
@@ -37,7 +35,6 @@ public sealed class SvgViewerElementNode : INotifyPropertyChanged
         Id = id;
         Children = children;
         _expanded = expanded;
-        _selected = selected;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -85,30 +82,6 @@ public sealed class SvgViewerElementNode : INotifyPropertyChanged
             }
 
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsExpanded)));
-        }
-    }
-
-    /// <summary>Whether the row is picked, held by address for the reason the open state is.</summary>
-    public bool IsSelected
-    {
-        get => _selected.Contains(AddressKey);
-        set
-        {
-            if (value == _selected.Contains(AddressKey))
-            {
-                return;
-            }
-
-            if (value)
-            {
-                _selected.Add(AddressKey);
-            }
-            else
-            {
-                _selected.Remove(AddressKey);
-            }
-
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
         }
     }
 

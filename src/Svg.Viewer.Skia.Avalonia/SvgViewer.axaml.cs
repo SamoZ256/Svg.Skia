@@ -179,13 +179,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // recipe, and a fill on a rect has no business being written there.
         _element = new SvgViewerElementPanel(PaneSource, Declarations, Splice, Values);
 
-        _elementTree.WrapRequested = Wrap;
-
         _elementTree.Selected += (_, node) =>
         {
-            OutlineElement();
+            OutlineElement(node);
 
-            ShowPickedAttributes();
+            _element.Show(SourceAddress(node?.AddressKey));
 
             // Only where the text is already being read. Picking a row is about the drawing, and a
             // pane that threw itself open over it every time would be answering a question nobody
@@ -547,80 +545,16 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// The drawing sits at the origin here, so what <see cref="SvgViewerOutline"/> traces needs no
     /// offsetting before the canvas is given it.
     /// </remarks>
-    /// <summary>Puts the picked rows in a new group, and picks the group.</summary>
-    /// <remarks>
-    /// The rebuild is asked for rather than waited for. It is debounced by 200ms so that typing does
-    /// not recompile per keystroke, and a command that let it run late would leave the tree showing
-    /// the rows as they were until the timer caught up.
-    /// </remarks>
-    private bool Wrap(IReadOnlyList<SvgViewerElementNode> picked)
-    {
-        if (!Writable())
-        {
-            return false;
-        }
+    private void OutlineElement(SvgViewerElementNode? node)
+        => _canvas.Highlight = Outline(node);
 
-        var keys = picked.Select(node => node.AddressKey).ToList();
+    /// <summary>Traces the selected element again, for a value that moved where it is drawn.</summary>
+    private void RetraceOutline() => _canvas.Retrace(Outline(_elementTree.SelectedNode));
 
-        if (!Splice(SvgElementEditor.Wrap(PaneSource(), keys)))
-        {
-            return false;
-        }
-
-        _rebuild.Stop();
-        RebuildFromSource();
-
-        // The group is written where the first of them was, so that is where it answers from.
-        if (_elementTree.TrySelect(keys[0]) && _elementTree.SelectedNode is { } group)
-        {
-            group.IsExpanded = true;
-        }
-
-        return true;
-    }
-
-    /// <summary>Shows the picked element's attributes, or steps aside where several are picked.</summary>
-    /// <remarks>
-    /// One panel writes one element, and showing the first of several would edit something the
-    /// reader did not mean. Its own "pick an element" note is the honest answer.
-    /// </remarks>
-    private void ShowPickedAttributes()
-        => _element.Show(_elementTree.SelectedNodes.Count == 1
-            ? SourceAddress(_elementTree.SelectedNode?.AddressKey)
-            : null);
-
-    private void OutlineElement() => _canvas.Highlight = Outline();
-
-    /// <summary>Traces what is picked again, for a value that moved where it is drawn.</summary>
-    private void RetraceOutline() => _canvas.Retrace(Outline());
-
-    /// <summary>Rings everything picked, as one path.</summary>
-    /// <remarks>
-    /// Every row rather than the last: what the ring is for here is showing what is about to be
-    /// grouped. The canvas takes one path holding every piece, which is what it already does for a
-    /// <c>&lt;use&gt;</c> drawn in several places.
-    /// </remarks>
-    private SkiaSharp.SKPath? Outline()
-    {
-        if (_document is not { } open)
-        {
-            return null;
-        }
-
-        var outline = new SkiaSharp.SKPath();
-
-        foreach (var node in _elementTree.SelectedNodes)
-        {
-            using var one = SvgViewerOutline.Of(open.Svg, node.Element);
-
-            if (one is { })
-            {
-                outline.AddPath(one);
-            }
-        }
-
-        return outline.IsEmpty ? null : outline;
-    }
+    private SkiaSharp.SKPath? Outline(SvgViewerElementNode? node)
+        => node is null || _document is not { } open
+            ? null
+            : SvgViewerOutline.Of(open.Svg, node.Element);
 
     /// <summary>
     /// Shows where <paramref name="node"/> is written, opening the source pane to do it.
@@ -1174,11 +1108,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         _elementTree.Show(_treeHost.IsVisible ? _document?.Svg.SourceDocument : null);
 
-        OutlineElement();
+        OutlineElement(_elementTree.SelectedNode);
 
         // The tree raises nothing while it restores a selection, so the panel would go on showing
         // the text as it was before the keystroke that rebuilt it.
-        ShowPickedAttributes();
+        _element.Show(SourceAddress(_elementTree.SelectedNode?.AddressKey));
     }
 
     /// <summary>Drops what was known about the drawing that was open.</summary>
@@ -1536,8 +1470,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         // Spelled out rather than left to Editable(), which answers yes at once when this viewer has
         // a DeclarationTarget of its own and never reaches either of these.
-        if (!Writable())
+        //
+        // The buffer first: Splice writes into the editor's document, and until it has been filled
+        // that is the empty one AvaloniaEdit starts with — the pane need never have been opened.
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
         {
+            ShowNote("This drawing is too large to edit here.");
+
             return false;
         }
 
@@ -1548,27 +1489,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private string Declarations() => DeclarationTarget?.Text ?? PaneSource();
 
     /// <summary>Whether there is anywhere to write a declaration, saying so when there is not.</summary>
-    /// <summary>Whether an edit can be written into the pane, saying why not where it cannot.</summary>
-    /// <remarks>
-    /// The buffer first: Splice writes into the editor's document, and until it has been filled that
-    /// is the empty one AvaloniaEdit starts with — the pane need never have been opened. A drawing
-    /// past the pane's limit is shown cut, and writing a span measured against the whole of it would
-    /// behead the file.
-    /// </remarks>
-    private bool Writable()
-    {
-        EnsureSourceBuffer();
-
-        if (!_sourceTruncated)
-        {
-            return true;
-        }
-
-        ShowNote("This drawing is too large to edit here.");
-
-        return false;
-    }
-
     private bool Editable()
     {
         if (DeclarationTarget is { })
@@ -1576,8 +1496,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return true;
         }
 
-        if (!Writable())
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
         {
+            ShowNote("This drawing is too large to edit here.");
+
             return false;
         }
 
@@ -1965,8 +1889,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        if (!Writable())
+        EnsureSourceBuffer();
+
+        if (_sourceTruncated)
         {
+            ShowNote("This drawing is too large to edit here.");
+
             return false;
         }
 

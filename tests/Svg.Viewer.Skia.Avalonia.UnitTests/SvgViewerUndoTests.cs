@@ -27,7 +27,6 @@ public class SvgViewerUndoTests
     private const string Drawing = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
           <rect width="24" height="24" fill="#3366cc" />
-          <circle cx="12" cy="12" r="6" fill="#ffffff" />
         </svg>
         """;
 
@@ -115,35 +114,5 @@ public class SvgViewerUndoTests
 
         Assert.Contains("width=\"24\"", pane.Text);
         Assert.DoesNotContain("width=\"48\"", pane.Text);
-    }
-
-    /// <summary>
-    /// Grouping is one step too, though it is several spans.
-    /// </summary>
-    /// <remarks>
-    /// A group cuts each row it moves and writes one tag around them, so it arrives as a handful of
-    /// edits; they go through one Replace batch, and taking it back has to undo the lot rather than
-    /// leave a drawing with a group half written into it.
-    /// </remarks>
-    [AvaloniaFact]
-    public async Task Grouping_Is_One_Step_To_Take_Back()
-    {
-        var (window, pane) = await Host();
-
-        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().Single();
-        var was = pane.Text;
-
-        Assert.True(viewer.Elements.TrySelect(new[] { "0", "1" }));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(viewer.Elements.Wrap());
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("<g>", pane.Text);
-
-        window.KeyPressQwerty(PhysicalKey.Z, Command);
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(was, pane.Text);
     }
 }

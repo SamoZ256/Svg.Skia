@@ -257,18 +257,6 @@ still only pans, and a click that lands on nothing changes nothing — the pane 
 drawing, and a click two pixels wide of a shape should not throw away the row and the place in the
 text somebody was reading.
 
-Several rows can be picked at once, with the platform's own modifiers, and picking several rings all
-of them. **`Ctrl`/`Cmd` `G`**, or the tree's context menu, puts them in a new `<g>` written into the
-drawing — a real element, so it survives saving and reloading and is the thing a transform or an
-opacity can then be put on. It arrives as one step to take back.
-
-Where the picked elements are not already neighbours they are moved together, to where the first of
-them was, which changes the order they paint in. What cannot be grouped is refused with a sentence
-rather than attempted: a drawing written on one line has no line to move, an element cannot be
-grouped with something inside it, and a pick that straddles a `<defs>`, a `<clipPath>` or a `<mask>`
-would have to take one of them out of the drawing or into it. The attribute panel steps aside while
-several are picked, because one panel writes one element.
-
 Three things are worth knowing before relying on it:
 
 - **Not everything can be ringed.** Anything that never reaches the drawing has no scene node at all

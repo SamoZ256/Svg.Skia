@@ -3,14 +3,10 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Globalization;
-using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
-using Avalonia.VisualTree;
 using Svg;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -46,16 +42,13 @@ public partial class SvgViewerElementTree : UserControl
     /// </remarks>
     private readonly HashSet<string> _matched = new(StringComparer.Ordinal);
 
-    /// <summary>What is picked, by address, for the reason <c>_expanded</c> is.</summary>
-    private readonly HashSet<string> _selected = new(StringComparer.Ordinal);
-
     private readonly Dictionary<string, SvgViewerElementNode> _byAddress = new(StringComparer.Ordinal);
 
     private SvgDocument? _document;
     private string _query = string.Empty;
     private SvgViewerElementNode? _root;
-    private Func<IReadOnlyList<SvgViewerElementNode>, bool>? _wrapRequested;
-    private string? _announced;
+    private string? _selectedAddress;
+    private bool _restoring;
 
     public SvgViewerElementTree()
     {
@@ -72,117 +65,23 @@ public partial class SvgViewerElementTree : UserControl
             Show(_document);
         };
 
-        _tree.SelectionChanged += (_, _) => Announce();
+        _tree.SelectionChanged += (_, _) =>
+        {
+            if (_restoring)
+            {
+                return;
+            }
+
+            _selectedAddress = SelectedNode?.AddressKey;
+
+            Selected?.Invoke(this, SelectedNode);
+        };
     }
 
     /// <summary>Raised when a row is selected, or with null when the selection is dropped.</summary>
     public event EventHandler<SvgViewerElementNode?>? Selected;
 
-    /// <summary>
-    /// Puts the picked rows in a group, for a host that has somewhere to write one.
-    /// </summary>
-    /// <remarks>
-    /// Wired rather than built in, and the menu appears only where it is: this control is also the
-    /// tree of a project group's tab, which shows a drawing it has no text to edit.
-    /// </remarks>
-    public Func<IReadOnlyList<SvgViewerElementNode>, bool>? WrapRequested
-    {
-        get => _wrapRequested;
-        set
-        {
-            _wrapRequested = value;
-
-            _tree.ContextMenu = value is null ? null : Menu();
-        }
-    }
-
-    private ContextMenu Menu()
-    {
-        var wrap = new MenuItem
-        {
-            Header = "Group into <g>",
-            InputGesture = new KeyGesture(Key.G, Command)
-        };
-
-        wrap.Click += (_, _) => Wrap();
-
-        var menu = new ContextMenu { ItemsSource = new[] { wrap } };
-
-        menu.Opening += (_, _) => wrap.IsEnabled = SelectedNodes.Count > 1;
-
-        return menu;
-    }
-
-    /// <summary>What this platform spells a command with — Ctrl here, Cmd on a Mac.</summary>
-    /// <remarks>
-    /// Asked of the platform rather than of the operating system, because the headless one used by
-    /// the tests names Control on every machine, and a gesture spelled from OperatingSystem could
-    /// not be pressed in a test.
-    /// </remarks>
-    private KeyModifiers Command
-        => this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control;
-
-    /// <summary>Puts the picked rows in a group, where the host has said how.</summary>
-    /// <returns>Whether anything was written.</returns>
-    public bool Wrap()
-    {
-        var picked = SelectedNodes;
-
-        return _wrapRequested is { } wrap && picked.Count > 1 && wrap(picked);
-    }
-
-    protected override void OnKeyDown(KeyEventArgs e)
-    {
-        if (e.Key == Key.G && e.KeyModifiers == Command && _wrapRequested is { })
-        {
-            _ = Wrap();
-
-            e.Handled = true;
-
-            return;
-        }
-
-        base.OnKeyDown(e);
-    }
-
-    /// <summary>
-    /// Tells anyone listening what is picked, where that is not what they were told last.
-    /// </summary>
-    /// <remarks>
-    /// Compared rather than guarded by a flag. The rows carry their own state back onto the
-    /// containers a rebuild makes, and that happens during layout rather than inside the rebuild —
-    /// so a guard around the rebuild misses it, and the pane would be told a selection was picked
-    /// on every keystroke and scroll the text out from under whoever was typing.
-    /// </remarks>
-    private void Announce()
-    {
-        var picked = SelectedNodes;
-        // Counted as well as named, because the root's address is the empty string and would
-        // otherwise read as nothing being picked at all.
-        var announcing = picked.Count + ":" + string.Join("|", picked.Select(node => node.AddressKey));
-
-        if (string.Equals(announcing, _announced, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        _announced = announcing;
-
-        Selected?.Invoke(this, picked.Count > 0 ? picked[0] : null);
-    }
-
-    /// <summary>Every picked row, in document order.</summary>
-    /// <remarks>
-    /// Read off the tree rather than off the control's own selection, which answers only for rows
-    /// whose container has been realised — and this tree is thrown away and built again on every
-    /// keystroke, so a row scrolled out of sight would drop out of a grouping.
-    /// </remarks>
-    public IReadOnlyList<SvgViewerElementNode> SelectedNodes
-        => _root is null
-            ? Array.Empty<SvgViewerElementNode>()
-            : _root.Flatten().Where(node => node.IsSelected).ToList();
-
-    public SvgViewerElementNode? SelectedNode => SelectedNodes.Count > 0 ? SelectedNodes[0] : null;
+    public SvgViewerElementNode? SelectedNode => _tree.SelectedItem as SvgViewerElementNode;
 
     /// <summary>The document's root row, or null when nothing is open.</summary>
     public SvgViewerElementNode? Root => _root;
@@ -222,17 +121,32 @@ public partial class SvgViewerElementTree : UserControl
             }
         }
 
-        // A row the filter is hiding is still picked; only one that has gone from the document stops
-        // being. The rows themselves carry the state back onto whatever containers the rebuilt tree
-        // makes, exactly as the open branches do.
-        if (!filtering)
+        _restoring = true;
+
+        try
         {
-            _selected.IntersectWith(_byAddress.Keys);
+            _tree.ItemsSource = _root is null ? null : new[] { _root };
+
+            if (_selectedAddress is { } address && _byAddress.TryGetValue(address, out var again))
+            {
+                _tree.SelectedItem = again;
+            }
+            else
+            {
+                _tree.SelectedItem = null;
+
+                // A row the filter is hiding is still the selected row; only one that has gone from
+                // the document stops being it.
+                if (!filtering)
+                {
+                    _selectedAddress = null;
+                }
+            }
         }
-
-        _tree.ItemsSource = _root is null ? null : new[] { _root };
-
-        Announce();
+        finally
+        {
+            _restoring = false;
+        }
     }
 
     /// <summary>What is typed in the filter box.</summary>
@@ -242,51 +156,18 @@ public partial class SvgViewerElementTree : UserControl
         set => _filter.Text = value ?? string.Empty;
     }
 
-    /// <summary>Selects the rows at <paramref name="addressKeys"/>, opening everything above them.</summary>
-    /// <returns>Whether every one of them is a row.</returns>
-    public bool TrySelect(IReadOnlyList<string> addressKeys)
-    {
-        if (addressKeys is null)
-        {
-            throw new ArgumentNullException(nameof(addressKeys));
-        }
-
-        var every = true;
-
-        foreach (var addressKey in addressKeys)
-        {
-            every &= TrySelect(addressKey, keep: true);
-        }
-
-        return every;
-    }
-
     /// <summary>Selects the row at <paramref name="addressKey"/>, opening everything above it.</summary>
     /// <returns>Whether there is a row there.</returns>
-    public bool TrySelect(string? addressKey) => TrySelect(addressKey, keep: false);
-
-    private bool TrySelect(string? addressKey, bool keep)
+    public bool TrySelect(string? addressKey)
     {
         if (addressKey is null || !_byAddress.TryGetValue(addressKey, out var node))
         {
             return false;
         }
 
-        if (!keep)
-        {
-            _selected.Clear();
-
-            foreach (var row in _byAddress.Values)
-            {
-                row.IsSelected = row.AddressKey == addressKey;
-            }
-        }
-
         Reveal(addressKey);
 
-        node.IsSelected = true;
-
-        Announce();
+        _tree.SelectedItem = node;
 
         // Posted, because a row inside a branch that was closed a line ago has no container to
         // scroll to until the tree has laid out again.
@@ -354,8 +235,7 @@ public partial class SvgViewerElementTree : UserControl
             label,
             id,
             children,
-            filtering ? _matched : _expanded,
-            _selected);
+            filtering ? _matched : _expanded);
 
         _byAddress[addressKey] = node;
 
