@@ -276,7 +276,7 @@ public static class SvgElementEditor
     /// The same answer <c>LeadingWhitespace</c> gives about the text, read off the tree instead.
     /// A CDATA section is a run of text to the type system and is not indentation to anybody.
     /// </remarks>
-    private static string Indent(XNode node)
+    internal static string Indent(XNode node)
     {
         if (node.PreviousNode is not XText text || node.PreviousNode is XCData)
         {
@@ -300,7 +300,7 @@ public static class SvgElementEditor
     /// One break and not the whole run, so a blank line somebody wrote above the element stays
     /// where they put it rather than closing up behind what was removed.
     /// </remarks>
-    private static void Cut(XElement element)
+    internal static void Cut(XElement element)
     {
         if (element.PreviousNode is XText text && element.PreviousNode is not XCData)
         {
@@ -322,7 +322,7 @@ public static class SvgElementEditor
     /// one before the tree sees it, so a carriage return written here would be escaped as
     /// <c>&amp;#xD;</c>, and the ones a file had are put back when it is written.
     /// </remarks>
-    private static void Put(XElement target, SvgElementDrop where, XElement placed, string indent)
+    internal static void Put(XElement target, SvgElementDrop where, XElement placed, string indent)
     {
         switch (where)
         {
@@ -354,6 +354,23 @@ public static class SvgElementEditor
         }
     }
 
+    /// <summary>Puts an element first inside a parent, on a line of its own.</summary>
+    /// <remarks>
+    /// What a declaration block needs and a drop does not: the &lt;e:code&gt; goes at the top of the
+    /// &lt;defs&gt; rather than beside a sibling somebody pointed at.
+    /// </remarks>
+    internal static void First(XElement parent, XElement placed, string indent)
+    {
+        if (parent.FirstNode is { } first)
+        {
+            first.AddBeforeSelf(new XText("\n" + indent), placed);
+        }
+        else
+        {
+            parent.Add(new XText("\n" + indent), placed, new XText("\n" + Indent(parent)));
+        }
+    }
+
     /// <summary>Writes a moved subtree at its new depth.</summary>
     /// <remarks>
     /// Only the runs of whitespace between its elements, so a newline inside an attribute value or
@@ -376,7 +393,7 @@ public static class SvgElementEditor
         }
     }
 
-    private static bool Blank(string value)
+    internal static bool Blank(string value)
     {
         foreach (var character in value)
         {

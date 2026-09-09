@@ -265,8 +265,8 @@ public class SvgSourceDocumentTests
         document.Document.Root!.Element(svg + "g")!.Add(new XElement(svg + "rect"));
 
         // The <g> is written afresh because it can no longer close itself, and the <rect> has no
-        // spelling in the file to keep.
-        Assert.Equal("""<svg xmlns="http://www.w3.org/2000/svg"><g><rect/></g></svg>""", document.ToText());
+        // spelling in the file to keep, so it takes the one the rest of the repository writes.
+        Assert.Equal("""<svg xmlns="http://www.w3.org/2000/svg"><g><rect /></g></svg>""", document.ToText());
     }
 
     [Fact]

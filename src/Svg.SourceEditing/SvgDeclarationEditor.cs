@@ -21,7 +21,7 @@ namespace Svg.SourceEditing;
 /// decides what is legal: a proposal goes through <see cref="SvgExpressionDeclarations.Builder"/>,
 /// and the result is read back before it is handed over.
 /// </remarks>
-public static class SvgDeclarationEditor
+public static partial class SvgDeclarationEditor
 {
     private static readonly XNamespace Ns = SvgExpressionDeclarations.Namespace;
 

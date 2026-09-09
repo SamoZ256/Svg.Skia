@@ -14,7 +14,7 @@ namespace Svg.SourceEditing;
 /// <c>{{ … }}</c> and every let naming the old one would stop resolving, and nothing about the
 /// document's shape would say why.
 /// </remarks>
-internal static class SvgDeclarationReferences
+internal static partial class SvgDeclarationReferences
 {
     private static readonly XNamespace Ns = SvgExpressionDeclarations.Namespace;
 

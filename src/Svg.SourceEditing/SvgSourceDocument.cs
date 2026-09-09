@@ -492,7 +492,10 @@ public sealed class SvgSourceDocument
             builder.Append('"');
         }
 
-        builder.Append(tag is { } known && known.SelfClosed != children ? known.Tail : children ? ">" : "/>");
+        // The close the file gave this tag, where it had one. An element nobody wrote before is
+        // closed the way the rest of the repository writes one, so a declaration added to a block
+        // looks like the declarations already in it.
+        builder.Append(tag is { } known && known.SelfClosed != children ? known.Tail : children ? ">" : " />");
     }
 
     private static string Name(XElement element)
