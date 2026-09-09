@@ -406,13 +406,28 @@ public sealed class SvgExpressionDeclarations
         private readonly string _text;
         private readonly List<int> _lines = new() { 0 };
 
+        /// <remarks>
+        /// XML makes a lone carriage return a line break, and so does the reader whose line numbers
+        /// this table is asked about. A table that counted only newlines would fall one line behind
+        /// from the first bare return onwards, and every offset it answered after that would be for
+        /// somewhere else in the document.
+        /// </remarks>
         public Positions(string text)
         {
             _text = text;
 
             for (var index = 0; index < text.Length; index++)
             {
-                if (text[index] == '\n')
+                if (text[index] == '\r')
+                {
+                    if (index + 1 < text.Length && text[index + 1] == '\n')
+                    {
+                        index++;
+                    }
+
+                    _lines.Add(index + 1);
+                }
+                else if (text[index] == '\n')
                 {
                     _lines.Add(index + 1);
                 }

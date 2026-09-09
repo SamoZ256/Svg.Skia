@@ -145,11 +145,19 @@ public sealed class SvgSourceDocument
         {
             Remember(element, body, positions);
 
-            foreach (var text in element.Nodes())
+            foreach (var node in element.Nodes())
             {
-                if (text is XText and not XCData)
+                switch (node)
                 {
-                    Remember((XText)text, body, positions);
+                    case XCData section:
+                        Remember(section, "<![CDATA[", "]]>", section.Value, body, positions);
+                        break;
+                    case XText text:
+                        Remember(text, body, positions);
+                        break;
+                    case XComment comment:
+                        Remember(comment, "<!--", "-->", comment.Value, body, positions);
+                        break;
                 }
             }
         }
@@ -165,7 +173,7 @@ public sealed class SvgSourceDocument
             byteOrderMark,
             prologue,
             epilogue,
-            body.Contains('\r'))
+            Crlf(body))
         {
             IndentUnit = SvgDeclarationEditor.IndentUnit(body),
         };
@@ -197,6 +205,35 @@ public sealed class SvgSourceDocument
         // with CRLF would otherwise come back written with LF -- every line of it changed to edit
         // one attribute. The tags carried over verbatim already hold theirs.
         return _carriageReturns ? Restore(text) : text;
+    }
+
+    /// <summary>Whether this file ends its lines the way Windows does.</summary>
+    /// <remarks>
+    /// Every newline being part of one, rather than merely there being a carriage return somewhere:
+    /// a file written with newlines that holds one return inside a run of text is not a file to
+    /// rewrite every line of, and asking the blunter question did exactly that.
+    /// </remarks>
+    private static bool Crlf(string body)
+    {
+        var newlines = 0;
+        var pairs = 0;
+
+        for (var index = 0; index < body.Length; index++)
+        {
+            if (body[index] != '\n')
+            {
+                continue;
+            }
+
+            newlines++;
+
+            if (index > 0 && body[index - 1] == '\r')
+            {
+                pairs++;
+            }
+        }
+
+        return newlines > 0 && newlines == pairs;
     }
 
     private static string Restore(string text)
@@ -288,6 +325,44 @@ public sealed class SvgSourceDocument
         }
 
         return text[at..];
+    }
+
+    /// <summary>
+    /// Keeps the bytes a comment or a section was written as, between its own delimiters.
+    /// </summary>
+    /// <remarks>
+    /// What is between them is line-normalised like anything else, so a carriage return the author
+    /// wrote there comes back as a newline and the file is changed by being read.
+    /// </remarks>
+    private static void Remember(
+        XNode node,
+        string opening,
+        string closing,
+        string value,
+        string body,
+        SvgExpressionDeclarations.Positions positions)
+    {
+        if (node is not IXmlLineInfo info || !info.HasLineInfo())
+        {
+            return;
+        }
+
+        var at = positions.At(info.LineNumber, info.LinePosition);
+        var start = body.LastIndexOf(opening, Math.Min(at, body.Length - 1), StringComparison.Ordinal);
+
+        if (start < 0)
+        {
+            return;
+        }
+
+        var end = body.IndexOf(closing, start + opening.Length, StringComparison.Ordinal);
+
+        if (end < 0)
+        {
+            return;
+        }
+
+        node.AddAnnotation(new Run(body[(start + opening.Length)..end], value));
     }
 
     /// <summary>The element's name as the file spells it, prefix and all, for its closing tag.</summary>
@@ -454,10 +529,10 @@ public sealed class SvgSourceDocument
                 break;
             // Before the text it derives from, or every section would be written as escaped text.
             case XCData data:
-                builder.Append("<![CDATA[").Append(data.Value).Append("]]>");
+                builder.Append("<![CDATA[").Append(Kept(data, data.Value)).Append("]]>");
                 break;
             case XText text:
-                if (text.Annotation<Run>() is { } run && run.Holds(text))
+                if (text.Annotation<Run>() is { } run && run.Holds(text.Value))
                 {
                     builder.Append(run.Text);
                 }
@@ -468,7 +543,7 @@ public sealed class SvgSourceDocument
 
                 break;
             case XComment comment:
-                builder.Append("<!--").Append(comment.Value).Append("-->");
+                builder.Append("<!--").Append(Kept(comment, comment.Value)).Append("-->");
                 break;
             case XProcessingInstruction instruction:
                 builder.Append("<?").Append(instruction.Target);
@@ -482,6 +557,10 @@ public sealed class SvgSourceDocument
                 break;
         }
     }
+
+    /// <summary>The bytes it was written as while it still says the same thing, or what it says.</summary>
+    private static string Kept(XNode node, string value)
+        => node.Annotation<Run>() is { } run && run.Holds(value) ? run.Text : value;
 
     private static void Open(
         StringBuilder builder,
@@ -672,7 +751,7 @@ public sealed class SvgSourceDocument
         /// <summary>The run exactly as the file wrote it, entities and all.</summary>
         public string Text { get; }
 
-        public bool Holds(XText text) => string.Equals(text.Value, _said, StringComparison.Ordinal);
+        public bool Holds(string value) => string.Equals(value, _said, StringComparison.Ordinal);
     }
 
     /// <summary>One attribute inside a start tag: the whole of it, and the value within it.</summary>

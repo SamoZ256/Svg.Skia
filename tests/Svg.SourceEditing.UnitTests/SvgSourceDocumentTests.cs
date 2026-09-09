@@ -118,6 +118,33 @@ public class SvgSourceDocumentTests
         Assert.Equal(source, Read(source));
     }
 
+    [Theory]
+    [InlineData("<svg xmlns=\"http://www.w3.org/2000/svg\">\r  <rect x=\"1\" />\r</svg>\r")]
+    [InlineData("<svg xmlns=\"http://www.w3.org/2000/svg\">\n  <desc>a\rb</desc>\n  <rect />\n</svg>\n")]
+    [InlineData("<svg xmlns=\"http://www.w3.org/2000/svg\">\r\n  <rect a=\"x\ry\" />\r\n</svg>\r\n")]
+    [InlineData("<svg xmlns=\"http://www.w3.org/2000/svg\">\n  <!-- a\rb -->\n  <rect />\n</svg>\n")]
+    public void A_Lone_Carriage_Return_Does_Not_Move_Everything_After_It(string source)
+    {
+        // XML makes a lone carriage return a line break and so does the reader, so a table that
+        // counted only newlines fell a line behind from the first one and every tag remembered
+        // after it came from somewhere else in the document. Nothing needed to be edited: the
+        // drawing was destroyed by being opened, and the corpus has no such file to notice with.
+        Assert.Equal(source, Read(source));
+    }
+
+    [Fact]
+    public void One_Carriage_Return_Does_Not_Make_A_File_Windows()
+    {
+        // Asking whether the file holds a return, rather than whether its lines end with one,
+        // rewrote every line of a newline file that happened to have one inside a run of text.
+        const string source = "<svg xmlns=\"http://www.w3.org/2000/svg\">\n  <desc>a\rb</desc>\n</svg>\n";
+
+        var written = Read(source);
+
+        Assert.Equal(source, written);
+        Assert.DoesNotContain("\r\n", written);
+    }
+
     [Fact]
     public void Attributes_Written_One_To_A_Line_Stay_That_Way()
     {
