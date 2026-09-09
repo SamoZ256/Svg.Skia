@@ -18,6 +18,8 @@
                Opacity="0.6" TextWrapping="Wrap" IsVisible="False"
                Text="No drawing is open." />
 
+    <Grid x:Name="DropHost">
+
     <TreeView x:Name="Tree" Background="Transparent" BorderThickness="0" Padding="2,0,2,8">
 
       <TreeView.Styles>
@@ -44,6 +46,17 @@
       </TreeView.ItemTemplate>
 
     </TreeView>
+
+    <!--
+      Where a dragged row would land. Over the tree rather than in it, so it takes no room in the
+      layout and cannot take the pointer: a line between two rows on the way past, and the outline
+      of a row when the drop would go inside it.
+    -->
+    <Border x:Name="DropLine" IsVisible="False" IsHitTestVisible="False"
+            HorizontalAlignment="Left" VerticalAlignment="Top"
+            BorderBrush="#4C9BE8" Background="#4C9BE8" />
+
+    </Grid>
 
   </DockPanel>
 

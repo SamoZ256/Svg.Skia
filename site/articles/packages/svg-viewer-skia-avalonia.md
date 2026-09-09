@@ -257,6 +257,17 @@ still only pans, and a click that lands on nothing changes nothing — the pane 
 drawing, and a click two pixels wide of a shape should not throw away the row and the place in the
 text somebody was reading.
 
+Rows are **dragged** the way a project's rows are: pick one up and a line shows where it will land —
+between two rows to go beside one, or an outline round a row to go inside it. Dropping writes the
+move into the drawing, so the element really is somewhere else afterwards, and the order it paints
+in changes with it. **New group** on the tree's own menu writes an empty `<g>` beside the picked row
+for things to be dragged into. Both arrive as one step to take back.
+
+What cannot be done is refused with a sentence rather than attempted: a row cannot land in its own
+branch, a drawing written on one line has no line to move, a tag that closes itself has no inside,
+and a drop that would carry an element across a `<defs>`, a `<clipPath>` or a `<mask>` would change
+what the drawing paints.
+
 Three things are worth knowing before relying on it:
 
 - **Not everything can be ringed.** Anything that never reaches the drawing has no scene node at all
