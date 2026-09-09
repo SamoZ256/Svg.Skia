@@ -5,9 +5,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Globalization;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Svg;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -51,6 +54,7 @@ public partial class SvgViewerElementTree : UserControl
     private SvgDocument? _document;
     private string _query = string.Empty;
     private SvgViewerElementNode? _root;
+    private Func<IReadOnlyList<SvgViewerElementNode>, bool>? _wrapRequested;
     private string? _announced;
 
     public SvgViewerElementTree()
@@ -73,6 +77,73 @@ public partial class SvgViewerElementTree : UserControl
 
     /// <summary>Raised when a row is selected, or with null when the selection is dropped.</summary>
     public event EventHandler<SvgViewerElementNode?>? Selected;
+
+    /// <summary>
+    /// Puts the picked rows in a group, for a host that has somewhere to write one.
+    /// </summary>
+    /// <remarks>
+    /// Wired rather than built in, and the menu appears only where it is: this control is also the
+    /// tree of a project group's tab, which shows a drawing it has no text to edit.
+    /// </remarks>
+    public Func<IReadOnlyList<SvgViewerElementNode>, bool>? WrapRequested
+    {
+        get => _wrapRequested;
+        set
+        {
+            _wrapRequested = value;
+
+            _tree.ContextMenu = value is null ? null : Menu();
+        }
+    }
+
+    private ContextMenu Menu()
+    {
+        var wrap = new MenuItem
+        {
+            Header = "Group into <g>",
+            InputGesture = new KeyGesture(Key.G, Command)
+        };
+
+        wrap.Click += (_, _) => Wrap();
+
+        var menu = new ContextMenu { ItemsSource = new[] { wrap } };
+
+        menu.Opening += (_, _) => wrap.IsEnabled = SelectedNodes.Count > 1;
+
+        return menu;
+    }
+
+    /// <summary>What this platform spells a command with — Ctrl here, Cmd on a Mac.</summary>
+    /// <remarks>
+    /// Asked of the platform rather than of the operating system, because the headless one used by
+    /// the tests names Control on every machine, and a gesture spelled from OperatingSystem could
+    /// not be pressed in a test.
+    /// </remarks>
+    private KeyModifiers Command
+        => this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control;
+
+    /// <summary>Puts the picked rows in a group, where the host has said how.</summary>
+    /// <returns>Whether anything was written.</returns>
+    public bool Wrap()
+    {
+        var picked = SelectedNodes;
+
+        return _wrapRequested is { } wrap && picked.Count > 1 && wrap(picked);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.Key == Key.G && e.KeyModifiers == Command && _wrapRequested is { })
+        {
+            _ = Wrap();
+
+            e.Handled = true;
+
+            return;
+        }
+
+        base.OnKeyDown(e);
+    }
 
     /// <summary>
     /// Tells anyone listening what is picked, where that is not what they were told last.

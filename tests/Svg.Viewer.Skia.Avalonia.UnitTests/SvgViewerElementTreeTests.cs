@@ -38,6 +38,13 @@ public class SvgViewerElementTreeTests
     private static SvgViewerElementPanel Panel(SvgViewer viewer)
         => viewer.GetLogicalDescendants().OfType<SvgViewerElementPanel>().Single();
 
+    private static string Note(SvgViewer viewer)
+    {
+        var note = viewer.GetVisualDescendants().OfType<TextBlock>().First(text => text.Name == "NoteText");
+
+        return note.IsVisible ? note.Text ?? string.Empty : string.Empty;
+    }
+
     private static async Task<(Window Window, SvgViewer Viewer)> Host(string markup = Markup)
     {
         var viewer = new SvgViewer();
@@ -751,6 +758,90 @@ public class SvgViewerElementTreeTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.Null(Panel(viewer).Shown("fill"));
+    }
+
+    // ---- putting them in a group ----------------------------------------------------------------
+
+    [AvaloniaFact]
+    public async Task Grouping_Two_Rows_Writes_A_Group_Into_The_Drawing()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Elements.Wrap());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("<g>", viewer.Source);
+        Assert.Equal(
+            new[] { "svg", "defs", "code", "param", "g #wrap", "g", "rect", "text" },
+            Rows(viewer));
+    }
+
+    [AvaloniaFact]
+    public async Task The_New_Group_Is_Picked_And_Open()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Elements.Wrap());
+        Dispatcher.UIThread.RunJobs();
+
+        var picked = Assert.Single(viewer.Elements.SelectedNodes);
+
+        Assert.Equal("g", picked.Label);
+        Assert.Equal("1/0", picked.AddressKey);
+        Assert.True(picked.IsExpanded);
+    }
+
+    [AvaloniaFact]
+    public async Task One_Row_Is_Not_A_Group()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        var was = viewer.Source;
+
+        Assert.False(viewer.Elements.Wrap());
+
+        Assert.Equal(was, viewer.Source);
+    }
+
+    /// <summary>The editor's own sentence, shown where the pane shows everything else.</summary>
+    [AvaloniaFact]
+    public async Task Rows_That_Cannot_Be_Grouped_Say_Why_And_Change_Nothing()
+    {
+        var (_, viewer) = await Host();
+
+        // The declarations block and a shape: one is not part of the drawing at all.
+        Assert.True(viewer.Elements.TrySelect(new[] { "0/0", "1/0" }));
+        Dispatcher.UIThread.RunJobs();
+
+        var was = viewer.Source;
+
+        Assert.False(viewer.Elements.Wrap());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was, viewer.Source);
+        Assert.False(string.IsNullOrEmpty(Note(viewer)));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Tree_Nobody_Wired_Offers_No_Grouping()
+    {
+        // A project group's tab shows this tree over a drawing it has no text to edit.
+        var tree = new SvgViewerElementTree();
+        var window = new Window { Width = 300, Height = 300, Content = tree };
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(tree.Wrap());
     }
 
     [AvaloniaFact]

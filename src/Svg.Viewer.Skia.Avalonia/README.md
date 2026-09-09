@@ -41,6 +41,7 @@ of these controls.
 | Pan | Drag with the left or middle button |
 | Fit | `Ctrl`/`Cmd` `0`, or the toolbar |
 | Actual size | `Ctrl`/`Cmd` `1`, or the toolbar |
+| Group the picked elements | `Ctrl`/`Cmd` `G` in the element tree, or its context menu |
 | Undo, in the source pane | Whatever the platform calls it — `Ctrl`/`Cmd` `Z` |
 | Redo, in the source pane | `Ctrl`/`Cmd` `Shift` `Z`, or `Ctrl`/`Cmd` `Y` |
 

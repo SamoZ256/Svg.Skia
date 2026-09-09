@@ -179,6 +179,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // recipe, and a fill on a rect has no business being written there.
         _element = new SvgViewerElementPanel(PaneSource, Declarations, Splice, Values);
 
+        _elementTree.WrapRequested = Wrap;
+
         _elementTree.Selected += (_, node) =>
         {
             OutlineElement();
@@ -545,6 +547,38 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// The drawing sits at the origin here, so what <see cref="SvgViewerOutline"/> traces needs no
     /// offsetting before the canvas is given it.
     /// </remarks>
+    /// <summary>Puts the picked rows in a new group, and picks the group.</summary>
+    /// <remarks>
+    /// The rebuild is asked for rather than waited for. It is debounced by 200ms so that typing does
+    /// not recompile per keystroke, and a command that let it run late would leave the tree showing
+    /// the rows as they were until the timer caught up.
+    /// </remarks>
+    private bool Wrap(IReadOnlyList<SvgViewerElementNode> picked)
+    {
+        if (!Writable())
+        {
+            return false;
+        }
+
+        var keys = picked.Select(node => node.AddressKey).ToList();
+
+        if (!Splice(SvgElementEditor.Wrap(PaneSource(), keys)))
+        {
+            return false;
+        }
+
+        _rebuild.Stop();
+        RebuildFromSource();
+
+        // The group is written where the first of them was, so that is where it answers from.
+        if (_elementTree.TrySelect(keys[0]) && _elementTree.SelectedNode is { } group)
+        {
+            group.IsExpanded = true;
+        }
+
+        return true;
+    }
+
     /// <summary>Shows the picked element's attributes, or steps aside where several are picked.</summary>
     /// <remarks>
     /// One panel writes one element, and showing the first of several would edit something the
@@ -1502,15 +1536,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         // Spelled out rather than left to Editable(), which answers yes at once when this viewer has
         // a DeclarationTarget of its own and never reaches either of these.
-        //
-        // The buffer first: Splice writes into the editor's document, and until it has been filled
-        // that is the empty one AvaloniaEdit starts with — the pane need never have been opened.
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Writable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
@@ -1521,6 +1548,27 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private string Declarations() => DeclarationTarget?.Text ?? PaneSource();
 
     /// <summary>Whether there is anywhere to write a declaration, saying so when there is not.</summary>
+    /// <summary>Whether an edit can be written into the pane, saying why not where it cannot.</summary>
+    /// <remarks>
+    /// The buffer first: Splice writes into the editor's document, and until it has been filled that
+    /// is the empty one AvaloniaEdit starts with — the pane need never have been opened. A drawing
+    /// past the pane's limit is shown cut, and writing a span measured against the whole of it would
+    /// behead the file.
+    /// </remarks>
+    private bool Writable()
+    {
+        EnsureSourceBuffer();
+
+        if (!_sourceTruncated)
+        {
+            return true;
+        }
+
+        ShowNote("This drawing is too large to edit here.");
+
+        return false;
+    }
+
     private bool Editable()
     {
         if (DeclarationTarget is { })
@@ -1528,12 +1576,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return true;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Writable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
@@ -1921,12 +1965,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        EnsureSourceBuffer();
-
-        if (_sourceTruncated)
+        if (!Writable())
         {
-            ShowNote("This drawing is too large to edit here.");
-
             return false;
         }
 
