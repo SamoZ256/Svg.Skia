@@ -149,6 +149,53 @@ public class SvgAttributeEditorDocumentTests
     }
 
     [Fact]
+    public void A_Prefixed_Attribute_Is_Named_By_Its_Prefix_And_Written_As_Itself()
+    {
+        // Reporting xlink:href as href is how an editor comes to write both: the panel shows the
+        // short name, the write finds nothing under it, and the drawing ends up pointing two ways.
+        const string svgText = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+              <use xlink:href="#a" x="1" />
+            </svg>
+            """;
+
+        var source = Read(svgText);
+
+        Assert.Equal(new[] { "xlink:href", "x" }, SvgAttributeEditor.Attributes(source, "0").Select(a => a.Name));
+        Assert.Null(SvgAttributeEditor.SetAttribute(source, "0", "xlink:href", "#b"));
+
+        var written = source.ToText();
+
+        Assert.Contains("""<use xlink:href="#b" x="1" />""", written);
+        Assert.DoesNotContain(" href=", written);
+    }
+
+    [Fact]
+    public void A_Prefix_The_Drawing_Does_Not_Declare_Is_Refused()
+    {
+        var source = Read();
+
+        Assert.Equal(
+            "This drawing does not say what 'bogus' stands for, so 'bogus:thing' cannot be written.",
+            SvgAttributeEditor.SetAttribute(source, "0", "bogus:thing", "1"));
+
+        Assert.Equal(Source, source.ToText());
+    }
+
+    [Theory]
+    [InlineData("xmlns")]
+    [InlineData("xmlns:e")]
+    public void A_Namespace_Declaration_Is_Not_Edited_Here(string name)
+    {
+        // Taking the root's xmlns away leaves every name under it standing for something else, and
+        // nothing about the file would look wrong.
+        var source = Read();
+
+        Assert.Equal("A namespace declaration is not something to edit here.", SvgAttributeEditor.SetAttribute(source, string.Empty, name, null));
+        Assert.Equal(Source, source.ToText());
+    }
+
+    [Fact]
     public void Setting_A_Value_To_The_One_It_Already_Has_Changes_Nothing()
     {
         var source = Read();

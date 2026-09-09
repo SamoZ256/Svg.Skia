@@ -185,7 +185,7 @@ public static class SvgAttributeEditor
             ? Array.Empty<SvgSourceAttribute>()
             : element.Attributes()
                 .Where(attribute => !attribute.IsNamespaceDeclaration)
-                .Select(attribute => new SvgSourceAttribute(attribute.Name.LocalName, attribute.Value))
+                .Select(attribute => new SvgSourceAttribute(Spelling(attribute), attribute.Value))
                 .ToList();
     }
 
@@ -219,6 +219,14 @@ public static class SvgAttributeEditor
             return "An edit has to name an attribute.";
         }
 
+        // Not an attribute of the element in the sense anybody edits, and taking one away would
+        // leave every name under it standing for something else -- a root written back without its
+        // xmlns reads as a different document, and nothing about it would look wrong.
+        if (name == "xmlns" || name.StartsWith("xmlns:", StringComparison.Ordinal))
+        {
+            return "A namespace declaration is not something to edit here.";
+        }
+
         if (Resolve(source.Document, addressKey) is not { } element)
         {
             return "That element is no longer in the drawing.";
@@ -232,9 +240,24 @@ public static class SvgAttributeEditor
             return $"'{name}' is set in this element's style attribute, which wins over the attribute. Change it there instead.";
         }
 
+        // A prefix stands for a namespace, and an attribute named for one is that attribute rather
+        // than a second one beside it: writing href on a <use> that has xlink:href would otherwise
+        // add a second href and leave the drawing pointing two ways at once.
+        var colon = name.IndexOf(':');
+
+        if (colon > 0 && element.GetNamespaceOfPrefix(name.Substring(0, colon)) is null)
+        {
+            return $"This drawing does not say what '{name.Substring(0, colon)}' stands for, so '{name}' cannot be written.";
+        }
+
         try
         {
-            element.SetAttributeValue(name, value);
+            // Inside, because naming the attribute is itself what rejects a name XML will not take.
+            var written = colon > 0
+                ? element.GetNamespaceOfPrefix(name.Substring(0, colon))! + name.Substring(colon + 1)
+                : XName.Get(name);
+
+            element.SetAttributeValue(written, value);
         }
         catch (XmlException)
         {
@@ -291,6 +314,23 @@ public static class SvgAttributeEditor
         }
 
         return at;
+    }
+
+    /// <summary>An attribute's name as the file spells it, prefix and all.</summary>
+    /// <remarks>
+    /// The prefix is part of the name and not decoration: <c>href</c> and <c>xlink:href</c> are two
+    /// attributes, and reporting the second as the first is how an editor comes to write both.
+    /// </remarks>
+    private static string Spelling(XAttribute attribute)
+    {
+        if (attribute.Name.Namespace == XNamespace.None)
+        {
+            return attribute.Name.LocalName;
+        }
+
+        var prefix = attribute.Parent?.GetPrefixOfNamespace(attribute.Name.Namespace);
+
+        return string.IsNullOrEmpty(prefix) ? attribute.Name.LocalName : prefix + ":" + attribute.Name.LocalName;
     }
 
     /// <summary>Whether a <c>style</c> declaration on the element overrides the attribute.</summary>
