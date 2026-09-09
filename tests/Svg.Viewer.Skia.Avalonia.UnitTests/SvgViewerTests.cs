@@ -1396,6 +1396,28 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
+    public async Task An_Edit_Marks_The_Drawing_Even_With_The_Pane_Shut()
+    {
+        // The mark used to be raised where the pane filled its buffer, which it does not do while
+        // it is closed — so an edit made from a panel changed the drawing and marked nothing, and
+        // a host would offer to close a tab holding unsaved work without asking.
+        var (window, viewer) = await HostLoaded();
+
+        Assert.False(viewer.ShowSource);
+
+        var told = 0;
+        viewer.SourceModifiedChanged += (_, _) => told++;
+
+        Assert.True(viewer.SetSource(viewer.Source + "<!-- edited -->"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.IsSourceModified);
+        Assert.Equal(1, told);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task Text_That_Will_Not_Parse_Keeps_The_Drawing_That_Is_Up()
     {
         // A tree is the truth now, and there is no tree in half-typed markup, so it is refused on

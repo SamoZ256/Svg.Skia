@@ -281,6 +281,7 @@ public sealed class SvgSourceDocument
             Tail(text, selfClosed),
             Named(element),
             Valued(element),
+            Spelled(element),
             Slots(text)));
     }
 
@@ -389,6 +390,26 @@ public sealed class SvgSourceDocument
         }
 
         return names.ToArray();
+    }
+
+    /// <summary>
+    /// How this tag spells its own name and its attributes' — prefixes and all — where it was read.
+    /// </summary>
+    /// <remarks>
+    /// A prefix means what the scope around it says it means. Move an element into a parent that
+    /// binds the same namespace to a different letter, or to none, and replaying the bytes it was
+    /// read as writes a prefix nothing declares: a file that cannot be read back at all.
+    /// </remarks>
+    private static string[] Spelled(XElement element)
+    {
+        var spelled = new List<string> { Name(element, null) };
+
+        foreach (var attribute in element.Attributes())
+        {
+            spelled.Add(Name(attribute, null));
+        }
+
+        return spelled.ToArray();
     }
 
     /// <summary>What those attributes say, kept apart from their names so one value can change alone.</summary>
@@ -576,7 +597,7 @@ public sealed class SvgSourceDocument
         {
             foreach (var pair in invented)
             {
-                builder.Append(" xmlns:").Append(pair.Value).Append("=\"");
+                builder.Append(pair.Value.Length == 0 ? " xmlns=\"" : " xmlns:" + pair.Value + "=\"");
                 Value(builder, pair.Key);
                 builder.Append('"');
             }
@@ -597,7 +618,10 @@ public sealed class SvgSourceDocument
 
     private static string Name(XElement element, IReadOnlyDictionary<string, string>? invented)
     {
-        if (invented is { } made && made.TryGetValue(element.Name.NamespaceName, out var repaired))
+        // An empty one is the declaration that says this name is in no namespace, not a prefix.
+        if (invented is { } made
+            && made.TryGetValue(element.Name.NamespaceName, out var repaired)
+            && repaired.Length > 0)
         {
             return repaired + ":" + element.Name.LocalName;
         }
@@ -657,8 +681,20 @@ public sealed class SvgSourceDocument
 
         void Consider(XNamespace namespaceName, bool forAttribute)
         {
-            if (namespaceName == XNamespace.None
-                || element.GetPrefixOfNamespace(namespaceName) is { Length: > 0 }
+            if (namespaceName == XNamespace.None)
+            {
+                // An attribute without a prefix is in no namespace already; an element without one
+                // joins whatever is in scope, so it has to say that it does not.
+                if (!forAttribute && element.GetDefaultNamespace() != XNamespace.None)
+                {
+                    invented ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                    invented[string.Empty] = string.Empty;
+                }
+
+                return;
+            }
+
+            if (element.GetPrefixOfNamespace(namespaceName) is { Length: > 0 }
                 || (!forAttribute && element.GetDefaultNamespace() == namespaceName))
             {
                 return;
@@ -788,6 +824,7 @@ public sealed class SvgSourceDocument
     {
         private readonly string[] _names;
         private readonly string[] _values;
+        private readonly string[] _spelled;
         private readonly Slot[] _slots;
 
         public Tag(
@@ -797,6 +834,7 @@ public sealed class SvgSourceDocument
             string tail,
             string[] names,
             string[] values,
+            string[] spelled,
             Slot[] slots)
         {
             Text = text;
@@ -805,6 +843,7 @@ public sealed class SvgSourceDocument
             Tail = tail;
             _names = names;
             _values = values;
+            _spelled = spelled;
             _slots = slots;
         }
 
@@ -834,8 +873,11 @@ public sealed class SvgSourceDocument
             var names = Named(element);
 
             // A tag read from the file cannot be given a namespace declaration it never had, so it
-            // is written afresh instead, where one can be put on it.
-            if (names[0] != _names[0] || Repairs(element) is { })
+            // is written afresh instead, where one can be put on it — and it cannot be replayed at
+            // all once the scope around it spells one of its names differently.
+            if (names[0] != _names[0]
+                || Repairs(element) is { }
+                || !string.Equals(_spelled[0], Name(element, null), StringComparison.Ordinal))
             {
                 return null;
             }
@@ -844,7 +886,9 @@ public sealed class SvgSourceDocument
 
             if (Same(_names, names) && Same(_values, values))
             {
-                return Text;
+                // Nothing it says has changed — but a prefix means what the scope around it says,
+                // and moving the element is enough to make these bytes name something else.
+                return Same(_spelled, Spelled(element)) ? Text : null;
             }
 
             // One slot per attribute read, or the scan did not follow the tag and writing by
@@ -873,6 +917,18 @@ public sealed class SvgSourceDocument
 
                 taken[at] = index;
                 cursor = at;
+            }
+
+            // Whole attributes come and go, so only the ones still here are checked, and each
+            // against the spelling it was read with: a prefix that has come to mean something else
+            // cannot be replayed, however little the value changed.
+            for (var slot = 0; slot < _slots.Length; slot++)
+            {
+                if (taken[slot] >= 0
+                    && !string.Equals(_spelled[slot + 1], Name(attributes[taken[slot]], null), StringComparison.Ordinal))
+                {
+                    return null;
+                }
             }
 
             var builder = new StringBuilder();

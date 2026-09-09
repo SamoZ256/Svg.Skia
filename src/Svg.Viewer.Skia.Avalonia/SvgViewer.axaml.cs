@@ -108,6 +108,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private SvgSourceWorkspace? _workspace;
 
+    /// <summary>Why the open drawing cannot be edited, where the reader would not take it.</summary>
+    /// <remarks>
+    /// Kept so a refusal says what is actually wrong. Answering with the sentence about a row that
+    /// is not written in this file told somebody to look at the recipe for a drawing that simply
+    /// declares its own entities.
+    /// </remarks>
+    private string? _unreadable;
+
     /// <summary>What the modified flag last was, so the change can be raised rather than polled.</summary>
     private bool _sourceModified;
 
@@ -610,7 +618,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return true;
         }
 
-        ShowNote(Unwritten);
+        ShowNote(_unreadable ?? Unwritten);
 
         return false;
     }
@@ -885,7 +893,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         // The file's own text and not the built one: what is edited and saved is the file, and a
         // recipe's rewrite is something the drawing goes through on its way to being drawn.
-        _workspace = document.SourceText is { } text ? SvgSourceWorkspace.Open(text, out _) : null;
+        _workspace = document.SourceText is { } text ? SvgSourceWorkspace.Open(text, out _unreadable) : null;
+
+        if (_workspace is { })
+        {
+            _unreadable = null;
+        }
 
         if (previous is { Path: { } was } && was == document.Path)
         {
@@ -1845,7 +1858,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         if (_workspace is not { } workspace)
         {
-            ShowNote(Unwritten);
+            ShowNote(_unreadable ?? Unwritten);
 
             return false;
         }
@@ -1874,6 +1887,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private void Shown()
     {
         UpdateSource();
+
+        // Here and not only where the pane fills itself, which it does not do while it is closed:
+        // an edit made from a panel with the pane shut still has to mark the tab.
+        RaiseModified();
 
         _rebuild.Stop();
         RebuildFromSource();
@@ -1933,7 +1950,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <returns>Whether anything was written.</returns>
     public async Task<bool> SaveSourceAsync(string? path = null)
     {
-        if (_document is not { } document || _workspace is not { } workspace)
+        if (_document is not { } document)
         {
             return false;
         }
@@ -1948,7 +1965,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         try
         {
-            document.Write(workspace.Text, target!);
+            // The tree's text where there is one, and the file's own where the reader would not
+            // take it: a drawing that cannot be edited can still be saved somewhere else.
+            document.Write(_workspace?.Text ?? document.SourceText ?? string.Empty, target!);
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
@@ -1956,7 +1975,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        workspace.MarkSaved();
+        _workspace?.MarkSaved();
         RaiseModified();
 
         return true;

@@ -320,6 +320,50 @@ public class SvgSourceDocumentTests
     }
 
     [Fact]
+    public void A_Moved_Element_Is_Spelled_For_The_Scope_It_Lands_In()
+    {
+        // A prefix means what the scope around it says. Replaying the bytes an element was read as,
+        // into a parent that binds the same namespace to a different letter, writes a prefix
+        // nothing declares — a file that cannot be read back at all.
+        const string source = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <g id="a" xmlns:p="http://example.org/x"><rect p:tag="1" /></g>
+              <g id="b" xmlns:q="http://example.org/x" />
+            </svg>
+            """;
+
+        var document = SvgSourceDocument.Read(source, out _)!;
+        XNamespace svg = "http://www.w3.org/2000/svg";
+        XNamespace other = "http://example.org/x";
+
+        var rect = document.Document.Descendants(svg + "rect").Single();
+
+        rect.Remove();
+        document.Document.Descendants(svg + "g").Single(g => (string?)g.Attribute("id") == "b").Add(rect);
+
+        var back = SvgSourceDocument.Read(document.ToText(), out var refusal);
+
+        Assert.Null(refusal);
+        Assert.Equal("1", back!.Document.Descendants(svg + "rect").Single().Attribute(other + "tag")!.Value);
+    }
+
+    [Fact]
+    public void An_Element_In_No_Namespace_Says_So_Under_One()
+    {
+        // Written with a bare name inside a default namespace it would silently join it.
+        const string source = """<svg xmlns="http://www.w3.org/2000/svg"><g /></svg>""";
+
+        var document = SvgSourceDocument.Read(source, out _)!;
+        XNamespace svg = "http://www.w3.org/2000/svg";
+
+        document.Document.Root!.Element(svg + "g")!.Add(new XElement("plain"));
+
+        var back = SvgSourceDocument.Read(document.ToText(), out _)!;
+
+        Assert.Single(back.Document.Descendants(), element => element.Name == (XName)"plain");
+    }
+
+    [Fact]
     public void An_Element_That_Gains_A_Child_Stops_Closing_Itself()
     {
         const string source = """<svg xmlns="http://www.w3.org/2000/svg"><g /></svg>""";

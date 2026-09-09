@@ -90,7 +90,10 @@ public sealed class SvgSourceWorkspace
     {
         var document = SvgSourceDocument.Read(svgText, out refusal);
 
-        return document is null ? null : new SvgSourceWorkspace(document, document.ToText());
+        // The text it was handed, not what the writer makes of it. They are the same for every
+        // drawing the writer accepts, and where they were ever to differ, saying the file is what
+        // is on disk when it is not is how an edit nobody made gets written.
+        return document is null ? null : new SvgSourceWorkspace(document, svgText);
     }
 
     /// <summary>
@@ -146,14 +149,17 @@ public sealed class SvgSourceWorkspace
 
         if (rewrite is { })
         {
-            after = rewrite(after);
-
-            if (SvgSourceDocument.Read(after, out var unreadable) is null)
+            if (!Adopt(rewrite(after), out var unreadable))
             {
                 Adopt(before);
 
                 return unreadable;
             }
+
+            // What the tree writes, and not the raw text the rewrite produced: the two are the same
+            // for anything the reader takes, and the state has to be what Document would write or
+            // an undo returns to a document the text does not describe.
+            after = Document.ToText();
         }
 
         // Whatever the editor believed it did. Setting a value to the one already there is not a
@@ -165,17 +171,18 @@ public sealed class SvgSourceWorkspace
 
         var modified = IsModified;
 
+        // (A) Anything ahead is dropped, and if the file was written at one of those it can never
+        // be reached again — so the drawing must not go on reporting itself as saved.
+        if (_saved > _at)
+        {
+            _saved = -1;
+        }
+
         _states.RemoveRange(_at + 1, _states.Count - _at - 1);
         _labels.RemoveRange(_at + 1, _labels.Count - _at - 1);
         _states.Add(after);
         _labels.Add(label);
         _at++;
-
-        // The tree is the truth, so a rewrite that produced the text has to become one.
-        if (rewrite is { })
-        {
-            Adopt(after);
-        }
 
         if (_states.Count > Depth)
         {
@@ -268,9 +275,11 @@ public sealed class SvgSourceWorkspace
     /// writer rather than anything a person did. Keeping the document there is then the least bad
     /// answer: an edit that would not go back is better than a drawing that has gone.
     /// </remarks>
-    private bool Adopt(string text)
+    private bool Adopt(string text) => Adopt(text, out _);
+
+    private bool Adopt(string text, out string? refusal)
     {
-        if (SvgSourceDocument.Read(text, out _) is not { } document)
+        if (SvgSourceDocument.Read(text, out refusal) is not { } document)
         {
             return false;
         }

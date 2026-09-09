@@ -214,6 +214,26 @@ public class SvgSourceWorkspaceTests
     }
 
     [Fact]
+    public void Editing_Over_Where_The_File_Was_Written_Does_Not_Read_As_Saved()
+    {
+        // Save, take it back, then edit: the state the file was written at has been dropped and can
+        // never be reached again, so reporting the drawing as saved would let somebody close it and
+        // lose the edit. The index alone cannot tell -- it lands on the same number.
+        var workspace = Open();
+
+        workspace.Commit("one", source => Fill(source, "red"));
+        workspace.MarkSaved();
+
+        Assert.False(workspace.IsModified);
+
+        workspace.Undo();
+        workspace.Commit("two", source => Fill(source, "blue"));
+
+        Assert.Contains("fill=\"blue\"", workspace.Text);
+        Assert.True(workspace.IsModified);
+    }
+
+    [Fact]
     public void A_Menu_Can_Name_What_It_Would_Take_Back()
     {
         var workspace = Open();
