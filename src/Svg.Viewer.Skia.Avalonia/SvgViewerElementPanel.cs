@@ -143,11 +143,7 @@ public sealed class SvgViewerElementPanel : UserControl
             return false;
         }
 
-        return Splice(SvgAttributeEditor.SetAttribute(
-            _text(),
-            address,
-            name,
-            written is { Length: > 0 } ? written : null));
+        return Write(address, name, written is { Length: > 0 } ? written : null);
     }
 
     /// <summary>Shows the element at <paramref name="addressKey"/>, or says nothing is picked.</summary>
@@ -179,9 +175,12 @@ public sealed class SvgViewerElementPanel : UserControl
             return;
         }
 
-        var written = SvgAttributeEditor.Attributes(_text(), address);
+        var open = Open();
+        var written = open is null
+            ? Array.Empty<SvgSourceAttribute>()
+            : SvgAttributeEditor.Attributes(open, address);
 
-        if (!SvgAttributeEditor.Contains(_text(), address))
+        if (open is null || !SvgAttributeEditor.Contains(open, address))
         {
             // In the drawing but not in the file: the declarations block a recipe injected is the
             // one of these anybody meets.
@@ -331,7 +330,9 @@ public sealed class SvgViewerElementPanel : UserControl
     private void Commit(TextBox box, string name)
     {
         var written = box.Text?.Trim() ?? string.Empty;
-        var was = SvgAttributeEditor.Attributes(_text(), _address ?? string.Empty)
+        var was = (Open() is { } open
+                ? SvgAttributeEditor.Attributes(open, _address ?? string.Empty)
+                : Array.Empty<SvgSourceAttribute>())
             .FirstOrDefault(attribute => string.Equals(attribute.Name, name, StringComparison.Ordinal));
 
         if (string.Equals(written, was.Value ?? string.Empty, StringComparison.Ordinal))
@@ -468,6 +469,44 @@ public sealed class SvgViewerElementPanel : UserControl
         {
             return string.Empty;
         }
+    }
+
+    /// <summary>The drawing as a tree, or null while its text will not read back.</summary>
+    private SvgSourceDocument? Open() => SvgSourceDocument.Read(_text(), out _);
+
+    /// <summary>
+    /// Writes one attribute of the element, through the tree rather than into the text.
+    /// </summary>
+    /// <remarks>
+    /// The tree because a prefix is part of an attribute's name: reading xlink:href back as href and
+    /// writing href is how a drawing comes to hold both, and the span half does exactly that. What
+    /// the host is handed is still text — one span standing for the whole document, since the two
+    /// hosts write into different things and only one of them has a tree to be given.
+    /// </remarks>
+    private bool Write(string address, string name, string? value)
+    {
+        var text = _text();
+
+        if (SvgSourceDocument.Read(text, out var unreadable) is not { } source)
+        {
+            Say(unreadable);
+
+            return false;
+        }
+
+        if (SvgAttributeEditor.SetAttribute(source, address, name, value) is { } refusal)
+        {
+            Say(refusal);
+
+            return false;
+        }
+
+        Say(null);
+
+        var written = source.ToText();
+
+        return string.Equals(written, text, StringComparison.Ordinal)
+               || _write(SvgSourceEditResult.From(new[] { new SvgTextEdit(0, text.Length, written) }));
     }
 
     private bool Splice(SvgSourceEditResult result)
