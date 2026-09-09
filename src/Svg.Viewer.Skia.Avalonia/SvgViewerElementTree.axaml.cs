@@ -228,6 +228,11 @@ public partial class SvgViewerElementTree : UserControl
 
         e.DragEffects = DragDropEffects.Move;
 
+        // Taken, or the viewer's own handler answers for it: that one is about files dropped on the
+        // drawing and turns away a drag carrying none — which is every drag of a row, so not one of
+        // them could be started at all.
+        e.Handled = true;
+
         // A row cannot land in its own branch, and the addresses say so: everything under a row
         // spells its address and then some.
         if (over.AddressKey.StartsWith(dragged.AddressKey, StringComparison.Ordinal))

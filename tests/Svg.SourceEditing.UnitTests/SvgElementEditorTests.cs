@@ -160,6 +160,45 @@ public class SvgElementEditorTests
             Apply(Drawing, SvgElementEditor.NewGroup(Drawing, "0", SvgElementDrop.After)));
     }
 
+    /// <summary>
+    /// Beside the drawing itself means inside it.
+    /// </summary>
+    /// <remarks>
+    /// The root has no siblings, so a group asked for next to it has nowhere to go — and refusing
+    /// was the answer until somebody picked the top row, which is the obvious row to pick.
+    /// </remarks>
+    [Fact]
+    public void A_Group_Beside_The_Drawing_Goes_In_It()
+    {
+        Assert.Equal(
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+              <!-- what it paints -->
+              <rect width="24" height="24" fill="#00ff00" />
+              <circle cx="12" cy="12" r="6" />
+              <line x1="0" y1="0" x2="24" y2="24" />
+              <g>
+              </g>
+            </svg>
+            """,
+            Apply(Drawing, SvgElementEditor.NewGroup(Drawing, "", SvgElementDrop.After)));
+    }
+
+    [Fact]
+    public void A_Row_Dropped_Beside_The_Drawing_Goes_In_It()
+    {
+        Assert.Equal(
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+              <!-- what it paints -->
+              <circle cx="12" cy="12" r="6" />
+              <line x1="0" y1="0" x2="24" y2="24" />
+              <rect width="24" height="24" fill="#00ff00" />
+            </svg>
+            """,
+            Apply(Drawing, SvgElementEditor.Move(Drawing, "0", "", SvgElementDrop.After)));
+    }
+
     [Fact]
     public void Two_Neighbours_Are_Wrapped_Where_They_Sit()
     {

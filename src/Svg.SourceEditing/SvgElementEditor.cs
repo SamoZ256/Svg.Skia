@@ -68,12 +68,12 @@ public static class SvgElementEditor
             return SvgSourceEditResult.Refuse($"<{moved.Name.LocalName}> cannot be put inside itself.");
         }
 
-        var into = where == SvgElementDrop.Inside ? target : target.Parent;
-
-        if (into is null)
+        if (target.Parent is null)
         {
-            return SvgSourceEditResult.Refuse("There is nowhere beside the drawing itself to put it.");
+            where = SvgElementDrop.Inside;
         }
+
+        var into = where == SvgElementDrop.Inside ? target : target.Parent!;
 
         if (Holds(into) is { } cannot)
         {
@@ -136,12 +136,14 @@ public static class SvgElementEditor
             return SvgSourceEditResult.Refuse("That is not in this drawing any more.");
         }
 
-        var into = where == SvgElementDrop.Inside ? target : target.Parent;
-
-        if (into is null)
+        // Beside the drawing itself means inside it: the root has no siblings, and asking for a
+        // group next to it is asking for one at the end of it.
+        if (target.Parent is null)
         {
-            return SvgSourceEditResult.Refuse("There is nowhere beside the drawing itself to put a group.");
+            where = SvgElementDrop.Inside;
         }
+
+        var into = where == SvgElementDrop.Inside ? target : target.Parent!;
 
         if (Holds(into) is { } cannot)
         {
@@ -177,17 +179,29 @@ public static class SvgElementEditor
     {
         refusal = null;
 
-        if (SvgDeclarationEditor.Line(svgText, target, positions) is not { } line)
+        var (start, _) = positions.Span(target);
+
+        if (start < 0)
         {
-            refusal = $"<{target.Name.LocalName}> shares its line with something else, so there is nothing to put anything beside. Put it on a line of its own first.";
+            refusal = $"<{target.Name.LocalName}> cannot be found in the document's own text.";
 
             return null;
         }
 
-        var at = SvgDeclarationEditor.LeadingWhitespace(svgText, line.Element.Start);
+        var at = SvgDeclarationEditor.LeadingWhitespace(svgText, start);
 
         if (where != SvgElementDrop.Inside)
         {
+            // Beside a row means beside the line carrying it, which one sharing its line has not got.
+            // Landing inside asks nothing of the line, which is why it is not asked for above: the
+            // root begins the file and so has no line break in front of it either.
+            if (SvgDeclarationEditor.Line(svgText, target, positions) is not { } line)
+            {
+                refusal = $"<{target.Name.LocalName}> shares its line with something else, so there is nothing to put anything beside. Put it on a line of its own first.";
+
+                return null;
+            }
+
             return (where == SvgElementDrop.Before ? line.Start : line.Start + line.Length, at);
         }
 
