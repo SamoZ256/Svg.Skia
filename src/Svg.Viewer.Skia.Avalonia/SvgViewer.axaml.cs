@@ -181,9 +181,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _elementTree.Selected += (_, node) =>
         {
-            OutlineElement(node);
+            OutlineElement();
 
-            _element.Show(SourceAddress(node?.AddressKey));
+            ShowPickedAttributes();
 
             // Only where the text is already being read. Picking a row is about the drawing, and a
             // pane that threw itself open over it every time would be answering a question nobody
@@ -545,16 +545,48 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// The drawing sits at the origin here, so what <see cref="SvgViewerOutline"/> traces needs no
     /// offsetting before the canvas is given it.
     /// </remarks>
-    private void OutlineElement(SvgViewerElementNode? node)
-        => _canvas.Highlight = Outline(node);
+    /// <summary>Shows the picked element's attributes, or steps aside where several are picked.</summary>
+    /// <remarks>
+    /// One panel writes one element, and showing the first of several would edit something the
+    /// reader did not mean. Its own "pick an element" note is the honest answer.
+    /// </remarks>
+    private void ShowPickedAttributes()
+        => _element.Show(_elementTree.SelectedNodes.Count == 1
+            ? SourceAddress(_elementTree.SelectedNode?.AddressKey)
+            : null);
 
-    /// <summary>Traces the selected element again, for a value that moved where it is drawn.</summary>
-    private void RetraceOutline() => _canvas.Retrace(Outline(_elementTree.SelectedNode));
+    private void OutlineElement() => _canvas.Highlight = Outline();
 
-    private SkiaSharp.SKPath? Outline(SvgViewerElementNode? node)
-        => node is null || _document is not { } open
-            ? null
-            : SvgViewerOutline.Of(open.Svg, node.Element);
+    /// <summary>Traces what is picked again, for a value that moved where it is drawn.</summary>
+    private void RetraceOutline() => _canvas.Retrace(Outline());
+
+    /// <summary>Rings everything picked, as one path.</summary>
+    /// <remarks>
+    /// Every row rather than the last: what the ring is for here is showing what is about to be
+    /// grouped. The canvas takes one path holding every piece, which is what it already does for a
+    /// <c>&lt;use&gt;</c> drawn in several places.
+    /// </remarks>
+    private SkiaSharp.SKPath? Outline()
+    {
+        if (_document is not { } open)
+        {
+            return null;
+        }
+
+        var outline = new SkiaSharp.SKPath();
+
+        foreach (var node in _elementTree.SelectedNodes)
+        {
+            using var one = SvgViewerOutline.Of(open.Svg, node.Element);
+
+            if (one is { })
+            {
+                outline.AddPath(one);
+            }
+        }
+
+        return outline.IsEmpty ? null : outline;
+    }
 
     /// <summary>
     /// Shows where <paramref name="node"/> is written, opening the source pane to do it.
@@ -1108,11 +1140,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         _elementTree.Show(_treeHost.IsVisible ? _document?.Svg.SourceDocument : null);
 
-        OutlineElement(_elementTree.SelectedNode);
+        OutlineElement();
 
         // The tree raises nothing while it restores a selection, so the panel would go on showing
         // the text as it was before the keystroke that rebuilt it.
-        _element.Show(SourceAddress(_elementTree.SelectedNode?.AddressKey));
+        ShowPickedAttributes();
     }
 
     /// <summary>Drops what was known about the drawing that was open.</summary>
