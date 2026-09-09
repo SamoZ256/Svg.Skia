@@ -21,8 +21,200 @@ namespace Svg.SourceEditing;
 /// <c>&lt;e:code&gt;</c> block and is long enough — but built from its helpers, which already know
 /// how to measure a whole element, take the line carrying it, and read a document's own indent.
 /// </remarks>
+/// <summary>Where a drop puts what is being moved.</summary>
+public enum SvgElementDrop
+{
+    Before,
+    After,
+    Inside
+}
+
 public static class SvgElementEditor
 {
+    /// <summary>Moves the element at <paramref name="addressKey"/> to where a drop puts it.</summary>
+    /// <remarks>
+    /// The line it is written on, moved whole and re-indented to its new depth, so what it carries
+    /// travels with it and nothing about how it was written changes.
+    /// </remarks>
+    public static SvgSourceEditResult Move(
+        string svgText,
+        string addressKey,
+        string targetKey,
+        SvgElementDrop where)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        if (!SvgDeclarationEditor.Open(svgText, out var document, out var positions, out var refusal, declarationsMustBeValid: false))
+        {
+            return SvgSourceEditResult.Refuse(refusal!);
+        }
+
+        if (SvgAttributeEditor.Resolve(document!, addressKey) is not { } moved ||
+            SvgAttributeEditor.Resolve(document!, targetKey) is not { } target)
+        {
+            return SvgSourceEditResult.Refuse("One of those is not in this drawing any more.");
+        }
+
+        if (moved.Parent is null)
+        {
+            return SvgSourceEditResult.Refuse("The drawing itself cannot be moved.");
+        }
+
+        if (ReferenceEquals(moved, target) || target.AncestorsAndSelf().Contains(moved))
+        {
+            return SvgSourceEditResult.Refuse($"<{moved.Name.LocalName}> cannot be put inside itself.");
+        }
+
+        var into = where == SvgElementDrop.Inside ? target : target.Parent;
+
+        if (into is null)
+        {
+            return SvgSourceEditResult.Refuse("There is nowhere beside the drawing itself to put it.");
+        }
+
+        if (Holds(into) is { } cannot)
+        {
+            return SvgSourceEditResult.Refuse(cannot);
+        }
+
+        if (!ReferenceEquals(Shelter(moved), Shelter(into.Elements().FirstOrDefault() ?? into)) &&
+            !ReferenceEquals(Shelter(moved), into.AncestorsAndSelf().FirstOrDefault(Kept)))
+        {
+            return SvgSourceEditResult.Refuse(
+                "That would move it across a <defs>, a <clipPath> or a <mask>, which changes what the drawing paints.");
+        }
+
+        if (SvgDeclarationEditor.Line(svgText, moved, positions) is not { } cut)
+        {
+            return SvgSourceEditResult.Refuse(
+                $"<{moved.Name.LocalName}> shares its line with something else, so there is no line to move. Put it on a line of its own first.");
+        }
+
+        if (Landing(svgText, target, positions, where, out var nowhere) is not { } landing)
+        {
+            return SvgSourceEditResult.Refuse(nowhere!);
+        }
+
+        if (landing.At > cut.Start && landing.At < cut.Start + cut.Length)
+        {
+            return SvgSourceEditResult.Nothing;
+        }
+
+        var newline = SvgDeclarationEditor.Newline(svgText);
+        var was = SvgDeclarationEditor.LeadingWhitespace(svgText, cut.Element.Start);
+        var written = svgText.Substring(cut.Element.Start, cut.Element.Length).Replace(newline + was, newline + landing.Indent);
+
+        var edits = new List<SvgTextEdit>
+        {
+            new(cut.Start, cut.Length, string.Empty),
+            new(landing.At, 0, newline + landing.Indent + written)
+        };
+
+        edits.Sort((left, right) => left.Position.CompareTo(right.Position));
+
+        return Verify(svgText, edits);
+    }
+
+    /// <summary>Writes an empty group where a drop puts it.</summary>
+    public static SvgSourceEditResult NewGroup(string svgText, string targetKey, SvgElementDrop where)
+    {
+        if (svgText is null)
+        {
+            throw new ArgumentNullException(nameof(svgText));
+        }
+
+        if (!SvgDeclarationEditor.Open(svgText, out var document, out var positions, out var refusal, declarationsMustBeValid: false))
+        {
+            return SvgSourceEditResult.Refuse(refusal!);
+        }
+
+        if (SvgAttributeEditor.Resolve(document!, targetKey) is not { } target)
+        {
+            return SvgSourceEditResult.Refuse("That is not in this drawing any more.");
+        }
+
+        var into = where == SvgElementDrop.Inside ? target : target.Parent;
+
+        if (into is null)
+        {
+            return SvgSourceEditResult.Refuse("There is nowhere beside the drawing itself to put a group.");
+        }
+
+        if (Holds(into) is { } cannot)
+        {
+            return SvgSourceEditResult.Refuse(cannot);
+        }
+
+        if (Landing(svgText, target, positions, where, out var nowhere) is not { } landing)
+        {
+            return SvgSourceEditResult.Refuse(nowhere!);
+        }
+
+        var newline = SvgDeclarationEditor.Newline(svgText);
+
+        return Verify(
+            svgText,
+            new List<SvgTextEdit>
+            {
+                new(landing.At, 0, newline + landing.Indent + "<g>" + newline + landing.Indent + "</g>")
+            });
+    }
+
+    /// <summary>Where a drop lands, and at what indentation.</summary>
+    /// <remarks>
+    /// Inside means last among the target's children, which is where the pointer says it goes: the
+    /// outline is drawn round the whole row rather than between two of them.
+    /// </remarks>
+    private static (int At, string Indent)? Landing(
+        string svgText,
+        XElement target,
+        SvgExpressionDeclarations.Positions positions,
+        SvgElementDrop where,
+        out string? refusal)
+    {
+        refusal = null;
+
+        if (SvgDeclarationEditor.Line(svgText, target, positions) is not { } line)
+        {
+            refusal = $"<{target.Name.LocalName}> shares its line with something else, so there is nothing to put anything beside. Put it on a line of its own first.";
+
+            return null;
+        }
+
+        var at = SvgDeclarationEditor.LeadingWhitespace(svgText, line.Element.Start);
+
+        if (where != SvgElementDrop.Inside)
+        {
+            return (where == SvgElementDrop.Before ? line.Start : line.Start + line.Length, at);
+        }
+
+        if (SvgDeclarationEditor.Body(svgText, target, positions) is not { } body)
+        {
+            refusal = $"<{target.Name.LocalName}> closes itself, so it has no inside to put anything in. Write it as a pair of tags first.";
+
+            return null;
+        }
+
+        // Back past the break and indent that carry the closing tag, so what lands goes after the
+        // last child rather than after the whitespace written to line </g> up.
+        var end = body.Start + body.Length;
+
+        while (end > body.Start && char.IsWhiteSpace(svgText[end - 1]))
+        {
+            end--;
+        }
+
+        return (end, at + SvgDeclarationEditor.IndentUnit(svgText));
+    }
+
+    private static bool Kept(XElement element)
+        => element.Name.LocalName is
+            "defs" or "clipPath" or "mask" or "marker" or "pattern" or "symbol" or
+            "linearGradient" or "radialGradient" or "filter";
+
     /// <summary>Wraps the elements at <paramref name="addressKeys"/> in a new group.</summary>
     /// <remarks>
     /// The group is written where the first of them sits, and the rest are moved to it. Where they
@@ -203,12 +395,7 @@ public static class SvgElementEditor
     /// but not one of each: the group would have to go one side of the line and would take the other
     /// element out of the drawing, or into it.
     /// </remarks>
-    private static XElement? Shelter(XElement element)
-        => element
-            .Ancestors()
-            .FirstOrDefault(ancestor => ancestor.Name.LocalName is
-                "defs" or "clipPath" or "mask" or "marker" or "pattern" or "symbol" or
-                "linearGradient" or "radialGradient" or "filter");
+    private static XElement? Shelter(XElement element) => element.Ancestors().FirstOrDefault(Kept);
 
     /// <summary>Why <paramref name="parent"/> cannot hold a group, or null where it can.</summary>
     /// <remarks>
