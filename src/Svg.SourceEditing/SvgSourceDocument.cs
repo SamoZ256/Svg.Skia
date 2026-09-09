@@ -71,6 +71,14 @@ public sealed class SvgSourceDocument
     /// <summary>Whether the file this was read from began with a byte order mark.</summary>
     public bool ByteOrderMark { get; }
 
+    /// <summary>One level of indentation, as this file writes one.</summary>
+    /// <remarks>
+    /// Measured from the text at the one moment there is still text to measure, by the rule that
+    /// already answers this for the span editors, so a file written with tabs goes on being written
+    /// with tabs whichever half writes it.
+    /// </remarks>
+    public string IndentUnit { get; private set; } = "  ";
+
     /// <summary>Reads a drawing, or refuses with a sentence saying why it could not be read.</summary>
     /// <remarks>
     /// A refusal rather than an exception, for the reason the rest of this assembly gives one: a
@@ -156,7 +164,10 @@ public sealed class SvgSourceDocument
             byteOrderMark,
             prologue,
             epilogue,
-            body.Contains('\r'));
+            body.Contains('\r'))
+        {
+            IndentUnit = SvgDeclarationEditor.IndentUnit(body),
+        };
     }
 
     /// <summary>The document as text: the file it was read from, plus whatever was changed in it.</summary>
