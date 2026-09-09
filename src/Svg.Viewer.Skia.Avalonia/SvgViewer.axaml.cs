@@ -555,10 +555,38 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// pointer where it was until the timer caught up.
     /// </remarks>
     private bool MoveElement(string addressKey, string targetKey, SvgElementDrop where)
-        => Rewritten(SvgElementEditor.Move(PaneSource(), addressKey, targetKey, where), targetKey);
+    {
+        if (SourceAddress(addressKey) is not { } moved || SourceAddress(targetKey) is not { } target)
+        {
+            ShowNote(Unwritten);
+
+            return false;
+        }
+
+        return Rewritten(SvgElementEditor.Move(PaneSource(), moved, target, where), targetKey);
+    }
 
     private bool NewGroup(string targetKey, SvgElementDrop where)
-        => Rewritten(SvgElementEditor.NewGroup(PaneSource(), targetKey, where), targetKey);
+    {
+        if (SourceAddress(targetKey) is not { } target)
+        {
+            ShowNote(Unwritten);
+
+            return false;
+        }
+
+        return Rewritten(SvgElementEditor.NewGroup(PaneSource(), target, where), targetKey);
+    }
+
+    /// <summary>
+    /// What a row cannot be edited by, where the drawing is not the file it came from.
+    /// </summary>
+    /// <remarks>
+    /// A drawing built through <see cref="Rewrite"/> — an svgc recipe — has rows its file has never
+    /// heard of, and the rest sit at addresses the file spells differently. The pane edits the file,
+    /// so a row is written by the address it has there and not by the one it has here.
+    /// </remarks>
+    private const string Unwritten = "That row is not written in this file, so it cannot be moved here.";
 
     private bool Rewritten(SvgSourceEditResult result, string follow)
     {
