@@ -52,9 +52,9 @@ await Viewer.LoadAsync("badge.svg");
 | `Close` | Releasing the open document when the viewer itself is discarded |
 | `Parameters` / `ParameterValues` | Reading what is declared and what is bound |
 | `TrySetParameterValue` / `ResetParameters` | Driving values from host UI |
-| `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` / `ShowSource` | Supplying your own chrome. `ShowDeclarationPanel` is the whole right-hand strip, element tree included |
+| `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` | Supplying your own chrome. `ShowDeclarationPanel` is the whole right-hand strip, element tree included |
 | `ShowElementTree` / `Elements` | The tree under the parameters — on by default; `Elements.Filter` is the box above it |
-| `SelectedElement` / `ElementSelected` / `RevealInSource` | Which element is picked, and showing one in the text — `RevealInSource` opens the source pane, which picking a row never does |
+| `SelectedElement` / `ElementSelected` | Which element is picked |
 | `ShowBounds` | Outlining the drawing's own edges — on by default, since an icon with transparent margins otherwise ends nowhere the eye can see |
 | `SidePanels` | Panels of your own beside the parameters: the right pane becomes a strip of tabs while there are any, yours first and so the first one it opens on, and holds the parameters alone again when there are none |
 | `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
@@ -76,19 +76,21 @@ Every row is seeded by *evaluating* the declared `default`, so `default="tau / 4
 
 A `default` that will not evaluate, or a range whose ends are the wrong way round, does not stop the
 parameter being offered: the drawing still renders and the value is still bindable, the row falls back
-to a placeholder and the default range. What is wrong with it is marked in the source pane, at the
-attribute it is wrong in — the panel does not repeat it.
+to a placeholder and the default range. What is wrong with it is said on the declaration panel, in
+place of the row it would have had — the drawing's status line does not repeat it.
 
 A drawing with mistakes in it says so from the moment it opens, in two places for two different
 things.
 
-**A note in the status bar** — *"6 errors, marked in the Source pane"* — for everything the pane
-already marks on the line that carries it. Errors and warnings are counted apart and worded apart
-(*"1 error and 1 warning"*), because a warning is something the drawing opened in spite of; a note
-that is only warnings is painted in the warning colour rather than the error one. The count and the pointer are all it gives, because the
-line is where the detail belongs. It sits beside the status rather than under it, so it takes no room
-and the viewer does not shift as it comes and goes while you edit. It is a standing statement, not a
-reaction: it does not wait for a control to be touched, and it does not change when one is.
+**A note in the status bar** — *"6 errors"* — for everything said in detail elsewhere. Errors and
+warnings are counted apart and worded apart (*"1 error and 1 warning"*), because a warning is
+something the drawing opened in spite of; a note that is only warnings is painted in the warning
+colour rather than the error one. The count is all it gives, because the row that carries the mistake
+is where the detail belongs: an expression is explained under the attribute row holding it in the
+Element panel, and a refused declaration in place of the parameter row it would have had. It sits
+beside the status rather than under it, so it takes no room and the viewer does not shift as it comes
+and goes while you edit. It is a standing statement, not a reaction: it does not wait for a control to
+be touched, and it does not change when one is.
 
 **A card over the drawing, frosting it**, for what has no line to be put on — chiefly a document
 that would not load at all, where there is no pane to mark because there is no drawing. In every one
@@ -124,9 +126,9 @@ refusal says how many uses there are, since a button that did nothing would say 
 
 Every box that holds an expression — a let's body, and a parameter's `default`, `min`, `max` and
 `step` — is coloured by what the language says each piece is, live as it is typed, from the same
-table the source pane paints with. `SvgExpressionPresenter` is what does it: a control theme puts it
+table everything else here paints an expression with. `SvgExpressionPresenter` is what does it: a control theme puts it
 in place of a `TextBox`'s own presenter, so the caret, the selection, composition and undo stay the
-box's. Selected text keeps its colours, as it does in the source pane.
+box's. Selected text keeps its colours, which is what a reader wants of an expression.
 
 A let has no form and no `⋯`: it is a name and an expression, so the row is the editor. `Add let…`
 leaves an empty row to type into, `Enter` or leaving the row writes it, `Escape` puts it back. What
@@ -150,38 +152,55 @@ every comment and every placeholder where the author left them.
 is. `SvgParameterFormView` is the form itself, a plain control, for a host that wants to ask its own
 way.
 
+## Saying what is wrong
+
+There used to be a **Source** toggle here, opening a read-only pane under the drawing that showed the
+document as it was read and drew a wavy underline under every mistake. It is gone. It made sense while
+the text was the truth; once the truth became a tree, the pane was a transcript of what that tree
+would write — a second account of the drawing that took 220px from the canvas, had to be re-coloured
+on every rebuild, and answered no question the element tree does not answer better.
+
+What it was really for was **where** a mistake is, and that moved to the rows the mistakes are about:
+
+- An expression is explained under the attribute row holding it, in the **Element** panel. The panel
+  already checked what a row said against the declarations in scope, so the sentence is the one the
+  analyser files against the span.
+- A declaration the reader refuses is said on the **parameter** panel, in place of the row it would
+  have had — a refused `<e:param>` produces no row, and "This drawing declares no parameters" about a
+  file that declares one was simply wrong.
+- The count is in the status bar, as before.
+
+`SourceDiagnostics` is the whole list, as ranges into `Source`, if you would rather show it your own
+way — a problems panel, a gutter, a report. Nothing about it changed: it is analysed on first ask
+rather than when anything is opened, so whether a drawing is at fault is knowable before anyone has
+picked a row. Each one carries `Start`, `Length`, `Severity` and `Message`; an element name this
+renderer does not know, or an id used twice, is a warning, since the drawing still opens either way.
+
+That covers the drawing's expressions and the `<e:code>` block alike: a name nothing declares, a range
+on a colour, a `min` above its `max`, a `default` that will not resolve.
+
+It covers the SVG as well. An attribute value the parser's own converter will not take —
+`width="abc"`, `stroke-miterlimit="20%"`, a unit this renderer does not implement — is reported where
+it is written, which is the one failure the library is least able to report for itself: the value is
+dropped, the property keeps its default, and the drawing renders wrong without a word. A declaration
+inside `style="…"` is reported the same way, and on the declaration rather than the whole attribute. So
+is `clip-path="url(#gone)"` — a reference to an id the drawing does not contain, which is the most
+ordinary way for a picture to come out wrong and, until now, the quietest. An expression written in an
+attribute that does not take one, `stroke-width="{%{{{ w }}}%}"`, is reported too, and says which
+attributes do — as is one written in an attribute that takes a *different* kind, such as a colour in
+`opacity`. What counts as a mistake is [Svg.Highlighting](svg-highlighting)'s answer, which is the
+language's own checker.
+
 ## Reading the drawing's text
 
-The **Source** toggle in the toolbar opens a pane under the drawing showing the document as it was
-read — comments, formatting and `{%{{{ … }}}%}` expressions exactly as their author wrote them. It is
-read-only; editing SVG is what `Svg.Editor.Skia.Avalonia` is for.
+`Source` is the whole drawing as the tree writes it — comments, formatting and `{%{{{ … }}}%}`
+expressions exactly as their author wrote them, with every unsaved edit in it. `SetSource` is how text
+arrives from outside: it is an edit like any other, one entry on the history, and text that will not
+read back is refused rather than held.
 
-It is coloured as XML, and — because no stock grammar knows the extension — `{%{{{ … }}}%}` placeholders
-and `<e:let>` bodies are coloured as the expression code they are, not as strings and prose. The
-splitting is [Svg.Highlighting](svg-highlighting), which draws nothing; the palette here is theme
-resources you can override:
-
-```xml
-<SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#C586C0" />
-```
-
-`…ElementBrush`, `…AttributeBrush`, `…ValueBrush`, `…CommentBrush`, `…PunctuationBrush`,
-`…TextBrush` and `…LineNumberBrush` cover the markup, and the expression language has its own:
-`…ExpressionNumberBrush`, `…ExpressionColorBrush`, `…ExpressionFunctionBrush`,
-`…ExpressionConstantBrush`, `…ExpressionKeywordBrush`, `…ExpressionOperatorBrush`,
-`…ExpressionPunctuationBrush` and `…ExpressionIdentifierBrush`.
-
-The pane is an [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit) editor over one document,
-so **a selection can cross a line** and the text can be taken away whole. You need nothing in your
-`App.axaml`: AvaloniaEdit supplies its own theme, and the viewer carries the style include regardless.
-
-**It shows the drawing; it is not where the drawing is edited.** The truth is a tree, and the text
-is what that tree writes, so the pane is read-only and always says exactly what the drawing says —
-the two cannot drift apart, and a row can never be revealed on the wrong line. `SetSource` is how
-text arrives from outside: it is an edit like any other, one entry on the history, and text that will
-not read back is refused rather than held. Undo and redo reach the drawing's history, so the gesture
-means the last thing you did rather than the last thing that was typed here. Find comes with the
-editor.
+Undo and redo are bound on the canvas, taken from the platform rather than written down, so the
+gestures reach the drawing's history while somebody is looking at the drawing and a parameter box
+keeps its own.
 
 `IsSourceModified` says whether there are edits not on disk and `SourceModifiedChanged` announces it;
 `SaveSourceAsync` writes them back, asking through `FileDialogService` when the drawing has no file
@@ -191,70 +210,32 @@ unsaved one it is holding. The control raises, the host decides, the same way op
 
 A save keeps the byte order mark the file arrived with, and nothing changes in a part of it you did
 not edit — the writer remembers the bytes of every tag it read and replays them, splicing only the
-values that changed. There is no longer a size at which a drawing becomes read-only: that limit
-existed because the pane had to hold the text, and it does not hold anything now.
+values that changed. There is no size at which a drawing becomes read-only: that limit existed
+because the pane had to hold the text, and there is no pane.
 
-There is no size at which colouring gives up, because only the lines on screen are ever coloured: a
-132KB drawing of 340 lines opens in 102ms. What that does not bound is a single enormous *line* — a
-minified drawing is the whole file on one — so a line is coloured for its first 250 pieces and the
-rest left plain, which takes that same 132KB minified to 217ms. Nothing is hidden either way; the
-uncoloured remainder is still there to read and select.
-
-Mistakes get a wavy underline where they are written, and hovering one shows its message.
-`…ErrorBrush` is the key for the mark, and `…WarningBrush` for the lighter one — an element name
-this renderer does not know, or an id used twice, is a warning, since the drawing still opens either
-way. `SourceDiagnostics` is the same list if you would rather show
-it your own way — a problems panel, a status line. That covers the drawing's
-expressions and the `<e:code>` block alike: a name nothing declares, a range on a colour, a `min`
-above its `max`, a `default` that will not resolve.
-
-It covers the SVG as well. An attribute value the parser's own converter will not take —
-`width="abc"`, `stroke-miterlimit="20%"`, a unit this renderer does not implement — is marked where it
-is written, which is the one failure the library is least able to report for itself: the value is
-dropped, the property keeps its default, and the drawing renders wrong without a word. A declaration
-inside `style="…"` is marked the same way, and on the declaration rather than the whole attribute. So
-is `clip-path="url(#gone)"` — a reference to an id the drawing does not contain, which is the most
-ordinary way for a picture to come out wrong and, until now, the quietest. An
-expression written in an attribute that does not take one, `stroke-width="{%{{{ w }}}%}"`, is marked
-too, and says which attributes do — as is one written in an attribute that takes a *different* kind,
-such as a colour in `opacity`. What counts as a mistake is
-[Svg.Highlighting](svg-highlighting)'s answer, which is the language's own checker — and a
-declaration that is wrong is marked on the attribute that is wrong, not summarised above the drawing.
-
-The text is `SvgViewerDocument.SourceText`, captured while loading, so it is what the picture was
-built from rather than whatever the file says later. A host that would rather show it its own way —
-a window, a docked tool panel — reads that property and leaves `ShowSource` off:
-
-```csharp
-var text = viewer.Document?.SourceText;
-```
-
-Drawings loaded from text or from a stream carry it too, so a viewer fed by a database or an archive
-shows source like any other. The pane holds at most 2,000,000 characters — a backstop on what is kept in
-memory rather than a layout limit — while `SourceText` itself is always whole.
+`SvgViewerDocument.SourceText` is the text captured while loading — what the picture was built from,
+rather than whatever the file says later, and unchanged by edits. Drawings loaded from text or from a
+stream carry it too, so a viewer fed by a database or an archive answers like any other.
 
 ## The element tree
 
 Under the parameters, in the same column, split by a splitter of its own. That column is the full
-height of the viewer: the source pane belongs to the drawing's column, so showing the text costs the
-canvas its height and costs the parameters and the tree nothing. It lists **every** element
+height of the viewer, and the drawing has the rest of it. It lists **every** element
 of the open drawing — `<defs>` and its contents, the `<e:code>` block, a `<title>` — because what is
 in a file is the question it answers, and half of that never reaches the canvas. On by default;
 `ShowElementTree = false` gives the height back and stops the work — a hidden tree holds nothing,
 because it is rebuilt every time typing pauses and that is 27ms at 4,000 elements.
 
-Picking a row rings the element on the drawing, and — only if the source pane is already open —
-selects the element's start tag in it. It never opens the pane: picking a row is about the drawing,
-and a pane throwing itself over it would be answering a question nobody asked. `RevealInSource` is
-the seam for a host that does mean to show the text, and that one does open it. The ring is the element's own **silhouette**, traced from the scene
+Picking a row rings the element on the drawing and fills the **Element** panel with the attributes
+the file writes it with. The ring is the element's own **silhouette**, traced from the scene
 geometry rather than drawn around its bounds — a circle rings as a circle, a stroked path rings round
 both edges of the stroke rather than down the middle of it, and a group rings as its parts rather
 than as the box containing them. It is one orange line, whose colour sweeps and settles over about
 two seconds when it appears — that is what finds it on a busy picture, and once settled it costs
 nothing. Clicking the drawing does the reverse and selects the row. A drag
-still only pans, and a click that lands on nothing changes nothing — the pane is read alongside the
-drawing, and a click two pixels wide of a shape should not throw away the row and the place in the
-text somebody was reading.
+still only pans, and a click that lands on nothing changes nothing — the tree is read alongside the
+drawing, and a click two pixels wide of a shape should not throw away the row somebody was looking
+at.
 
 Rows are **dragged** the way a project's rows are: pick one up and a line shows where it will land —
 between two rows to go beside one, or an outline round a row to go inside it. Dropping writes the
@@ -314,12 +295,11 @@ pair and the opposite choice — it rewrites the drawing's own text.
 `Rewrite` is the second such seam, and goes further: the drawing built is not the file at all. Studio
 sets it to a project's recipe, so what is on screen is the document `svgc` compiles — colours turned
 into expressions, and the recipe's parameters declared. Everything else still works from the file:
-the source pane shows it and a save writes it, and every rebuild goes back through the rewrite.
+`Source` is it and a save writes it, and every rebuild goes back through the rewrite.
 Because the declarations then belong to the recipe rather than to the drawing, a host sets
 `DeclarationTarget` to say where the parameter panel should write: the recipe is a different file
-with a text buffer of its own, which is why those commands still measure spans while the drawing's
-own editors write its tree. Left unset they go into the
-drawing, which is what a drawing declaring for itself wants — and what a recipe refuses to be
+held as a tree of its own, and `ISvgViewerDeclarationTarget` is the seam to it. Left unset the
+commands go into the drawing, which is what a drawing declaring for itself wants — and what a recipe refuses to be
 applied to. `Notice` is where a host says a rewrite could not be
 set up at all; it appears on the status line beside the viewer's own count of what is wrong.
 

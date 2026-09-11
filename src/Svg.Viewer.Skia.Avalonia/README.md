@@ -25,7 +25,7 @@ of these controls.
   `boolean` — seeded from each declared `default`.
 - **Resizes the drawing**, and leaves room around it, by rewriting the `width`, `height` and
   `viewBox` its root element declares — the same arithmetic svgc resizes by, written back as a text
-  edit, so the pane shows it and an undo takes it back.
+  edit, so the file says so and an undo takes it back.
 - **Declares a parameter**, from a form in the panel, by writing it into the drawing's own text.
 - **Declares and rewrites a let**, from a row edited in place, showing what each one evaluates to and
   taking a drag to reorder them.
@@ -43,12 +43,13 @@ of these controls.
 | Actual size | `Ctrl`/`Cmd` `1`, or the toolbar |
 | Move an element | Drag its row in the element tree |
 | A new group | The element tree's own menu |
-| Undo, in the source pane | Whatever the platform calls it — `Ctrl`/`Cmd` `Z` |
-| Redo, in the source pane | `Ctrl`/`Cmd` `Shift` `Z`, or `Ctrl`/`Cmd` `Y` |
+| Undo | Whatever the platform calls it — `Ctrl`/`Cmd` `Z` |
+| Redo | `Ctrl`/`Cmd` `Shift` `Z`, or `Ctrl`/`Cmd` `Y` |
 
-AvaloniaEdit binds the undo and redo *commands* and no keys to them, so the pane binds the
-platform's own gestures to them as it is attached; a host embedding `SvgViewer` gets them with it.
-They reach the pane only while the caret is in it, so a parameter box keeps its own.
+The gestures are taken from the platform rather than written down, and bound on the canvas as the
+viewer is attached; a host embedding `SvgViewer` gets them with it. On the canvas and not on the
+viewer, so they reach the drawing's history only while somebody is looking at the drawing — a
+parameter box and an expression box keep their own.
 
 A trackpad two finger scroll arrives as a wheel event with a fractional delta, so it zooms smoothly
 where a mouse notch steps by 1.2 — both land on the same curve. A trackpad **pinch** is a separate
@@ -82,7 +83,7 @@ refusal says how many uses there are, since a button that did nothing would say 
 
 Every box that holds an expression — a let's body, and a parameter's `default`, `min`, `max` and
 `step` — is coloured by what the language says each piece is, live as it is typed, from the same
-table the source pane paints with. It stays a real text box: only its presenter is replaced, so the
+table everything else here paints an expression with. It stays a real text box: only its presenter is replaced, so the
 caret, the selection, composition and undo are Avalonia's own.
 
 A let has no form and no `⋯`: it is a name and an expression, so the row is the editor. `Add let…`
@@ -98,15 +99,15 @@ what is declared above it and nothing below. A drag is held inside the positions
 there is nothing to refuse; `MoveLet` refuses anyway, since the document reads back perfectly well
 either way and only type checking can tell.
 
-All of them go through the source pane's text buffer rather than around it, which is what makes the undo
-stack the one history of the document: a parameter added from the panel and a line typed into the
-pane come off it in the order they were done. An addition that had to declare a namespace and open a
-block is three spans and **one** undo step.
+All of them go through the one tree the drawing is held as, which is what makes the undo stack the
+one history of the document: a parameter added from the panel, an attribute set from the element
+panel and a resize come off it in the order they were done. An addition that had to declare a
+namespace and open a block is **one** undo step.
 
-Neither needs the pane to be open. The buffer and the pane are separate, so an edit made with the
-pane closed still makes the document modified and still saves — and when the pane is opened, the
-change is there, spelled the way somebody would have typed it, with every comment and every
-`{{ … }}` placeholder in the file untouched.
+What the tree writes back is the file it read, byte for byte, apart from the lines the edit touched —
+every comment, every layout choice and every `{{ … }}` in the file untouched. The measurement is in
+[Svg.SourceEditing](../../site/articles/packages/svg-sourceediting.md): 2,980 of 2,988 real drawings
+round-trip byte-identical.
 
 Committing replaces an authored expression with the value it currently holds, so a
 `default="tau / 4"` becomes `default="1.5708"`. That is a real loss of what the author meant, which
@@ -124,7 +125,7 @@ icon with transparent margins otherwise ends nowhere the eye can see — and `Sv
 `SvgViewerDeclarationPanel` are usable on their own for a host that wants to supply its own. `SvgViewerDocument` and `SvgViewerParameterFactory` are plain classes with
 no UI, for a host that only wants the loading and seeding.
 
-Opening is the host's to offer: the toolbar zooms and shows the source, and `OpenAsync()` is the
+Opening is the host's to offer: the toolbar zooms and shows the elements, and `OpenAsync()` is the
 picker — `src/Svg.Studio` calls it from File → Open…. Replace `FileDialogService` to open files some
 other way; the default is the platform picker.
 

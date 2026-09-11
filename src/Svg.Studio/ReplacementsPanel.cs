@@ -203,7 +203,7 @@ public sealed class ReplacementsPanel : UserControl
         base.OnAttachedToVisualTree(e);
 
         // A tab's content leaves the tree when another tab is picked, so this is every time the
-        // pane is looked at — which is when a value typed into the source pane since should appear.
+        // pane is looked at — which is when a value the drawing has gained since should appear.
         Refresh();
     }
 

@@ -121,12 +121,12 @@ public sealed class SvgSourceLine
 public static class SvgSourceHighlighter
 {
     /// <summary>
-    /// Splits a drawing into lines, which is what the pane shows one of at a time.
+    /// Splits a drawing into lines, each carrying the tokens on it.
     /// </summary>
     /// <remarks>
     /// The cost was never the splitting — 7ms for 200,000 characters — but laying out one styled run
     /// per token: 130ms at 1,100 runs, 433ms at 4,500, 18 seconds at 45,000. A line at a time means a
-    /// consumer pays for the screenful.
+    /// consumer that shows part of a document pays for the part it shows.
     /// </remarks>
     public static IReadOnlyList<SvgSourceLine> Lines(string? source)
     {

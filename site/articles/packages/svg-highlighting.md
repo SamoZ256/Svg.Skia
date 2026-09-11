@@ -4,7 +4,7 @@ title: "Svg.Highlighting"
 
 # Svg.Highlighting
 
-`Svg.Highlighting` splits an SVG document into coloured pieces for a source view, and says what is wrong with it. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what `Svg.Viewer.Skia.Avalonia`'s source pane is built on.
+`Svg.Highlighting` splits an SVG document into coloured pieces for a source view, and says what is wrong with it. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what `Svg.Viewer.Skia.Avalonia` colours its expression boxes with, and what it asks for a drawing's mistakes.
 
 It depends on `Svg.Expressions` for the expression language's own lexer and checker, and on `Svg.Custom` for the SVG parser's own converters. Both are there so that what is coloured and what is called wrong are decided by the things that actually read a drawing, rather than by a second description of them.
 
@@ -67,7 +67,7 @@ than it sounds:
 | {%{`{{`, `}}`}%}, whitespace | `Expression` |
 
 A tokenizer written by hand here would have coloured the percent as an operator and the word forms
-as names. Reusing the lexer is what keeps the pane and the compiler saying the same thing.
+as names. Reusing the lexer is what keeps a view and the compiler saying the same thing.
 
 An expression the language refuses — a lone `=`, a half-typed call — colours as far as it read and
 leaves the remainder plain. Someone reading a file to find out why it will not compile is exactly

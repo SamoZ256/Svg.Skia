@@ -81,7 +81,7 @@ public class SvgExpressionPresenter : TextPresenter
     /// <remarks>
     /// Composition wins over colour while it lasts: the underline is what says which characters are
     /// not committed yet, and two sets of overlapping spans is not something to hand a layout.
-    /// Selected text keeps its colours — the source pane does the same, since AvaloniaEdit leaves its
+    /// Selected text keeps its colours, which is what a reader wants of an expression: the
     /// selection foreground unset, and the two panes showing one expression should agree.
     /// </remarks>
     private IReadOnlyList<ValueSpan<TextRunProperties>>? Spans(

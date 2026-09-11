@@ -23,7 +23,7 @@
     the host's palette and stays a few lines instead of a few hundred. What it deliberately leaves
     out: PasswordChar and RevealPassword, which an expression box has no use for, and
     SelectionForegroundBrush, which the presenter ignores on purpose — selected text keeps its
-    colours, as it does in the source pane.
+    colours, by the same table everything else in this package paints expressions with.
   -->
   <ControlTheme x:Key="SvgExpressionBox" TargetType="TextBox">
 

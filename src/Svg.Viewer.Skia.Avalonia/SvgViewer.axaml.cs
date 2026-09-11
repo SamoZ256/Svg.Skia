@@ -1815,7 +1815,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// On the canvas rather than on the viewer, so a gesture reaches these only while somebody is
     /// looking at the drawing: a parameter box and an expression box keep their own, which is what
     /// binding them a level up would take away. The canvas takes focus when it is clicked, so that
-    /// is the same "while you are in it" the source pane used to provide.
+    /// is the same "while you are in it" the source pane provided before it was removed.
     /// </remarks>
     private void BindSourceHotkeys()
     {
@@ -1864,7 +1864,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     /// <summary>The brush key a token kind is painted from.</summary>
     /// <remarks>
-    /// Public alongside <see cref="SvgViewerSourceColorizer"/>, and for the same reason: a host
+    /// Public because a host paints expressions of its own — Svg.Studio's recipe rules do: a host
     /// colouring its own source view has to reach the same brush for the same kind, or two panes in
     /// one window paint the same text differently.
     /// </remarks>

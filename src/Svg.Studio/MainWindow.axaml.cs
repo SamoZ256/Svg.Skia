@@ -1896,9 +1896,9 @@ public partial class MainWindow : Window
 
     /// <summary>The drawing as its recipe makes it, or as it is when the recipe will not have it.</summary>
     /// <remarks>
-    /// Never throws: this runs on every keystroke in the source pane and on every keystroke in the
-    /// recipe, and text either of them is halfway through is shown as it is rather than freezing the
-    /// picture where it was.
+    /// Never throws: this runs on every gesture in a drawing and on every gesture in the recipe,
+    /// and a recipe halfway through being given a rule is applied as it stands rather than freezing
+    /// the picture where it was.
     /// </remarks>
     private static string Rewritten(string svgText, RecipeWorkspace workspace)
     {
@@ -2032,7 +2032,7 @@ public partial class MainWindow : Window
     /// Reads the open drawings again as the project's settings now say to build them.
     /// </summary>
     /// <remarks>
-    /// A drawing with edits of its own in the source pane is left alone: reloading it would throw
+    /// A drawing with unsaved edits of its own is left alone: reloading it would throw
     /// them away, and following a setting is not worth that.
     /// </remarks>
     private void Rebuild()
@@ -3230,14 +3230,13 @@ public partial class MainWindow : Window
     /// Taking the path rather than asking for it, so everything but the panel can be driven, the
     /// same as <see cref="ExportAsync"/>.
     ///
-    /// The text is the viewer's <c>Source</c> rather than its SaveSourceAsync, which answers only
-    /// once the source pane has been opened — a drawing nobody has looked at the text of would have
-    /// been saved as nothing at all. Written through the document, so a file that came in with a
-    /// byte order mark keeps it.
+    /// The text is the viewer's <c>Source</c> rather than its SaveSourceAsync, which puts up a file
+    /// dialog of its own. Written through the document, so a file that came in with a byte order
+    /// mark keeps it.
     ///
     /// Reading it back is what makes this Save As and not save-a-copy: the tab takes the new file's
-    /// name and ⌘S writes there afterwards. It costs the pane's undo history, which is what saving
-    /// under a new name costs everywhere.
+    /// name and ⌘S writes there afterwards. It costs the drawing's undo history, which is what
+    /// saving under a new name costs everywhere.
     /// </remarks>
     public async Task<bool> SaveAsAsync(string target)
     {

@@ -733,7 +733,7 @@ public class SvgViewerElementTreeTests
     public async Task Hiding_The_Tree_Gives_Its_Height_Back()
     {
         // The row carries the height, so hiding the border alone would leave the parameters paying
-        // for a strip of nothing -- the same trap the source pane has.
+        // for a strip of nothing.
         var (window, viewer) = await Host();
 
         window.Measure(new global::Avalonia.Size(700, 500));

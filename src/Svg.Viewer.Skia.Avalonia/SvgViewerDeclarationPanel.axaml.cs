@@ -169,7 +169,7 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// <remarks>
     /// A refused declaration puts no row on the panel, so without this the panel said "This drawing
     /// declares no parameters" about a file that declares one and got it wrong. The sentence used to
-    /// be a squiggle in the source pane; this is the row it would have been nearest.
+    /// be a squiggle in the source pane; this is where that row would have been.
     /// </remarks>
     public string? Trouble
     {

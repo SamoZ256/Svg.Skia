@@ -15,7 +15,7 @@ using Xunit;
 namespace Svg.Studio.UnitTests;
 
 /// <summary>
-/// Searching what is open: the text in the source pane, and the rows in the project tree.
+/// Searching the rows in the project tree, which is the only text left in Studio to look through.
 /// </summary>
 /// <remarks>
 /// Two searches rather than one, because they answer different questions — where a string is in the
