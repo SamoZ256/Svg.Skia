@@ -28,7 +28,7 @@ namespace Svg.SourceEditing;
 /// parser into a text editor. So the caller decides which rule it means and passes the name and the
 /// value as that rule already writes them.
 /// </remarks>
-public static class SvgRecipeRuleEditor
+public static partial class SvgRecipeRuleEditor
 {
     private static readonly XNamespace Ns = SvgExpressionDeclarations.Namespace;
 
