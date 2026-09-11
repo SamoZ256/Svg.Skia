@@ -11,7 +11,6 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using AvaloniaEdit;
 using Svg.Expressions;
 using Xunit;
 
@@ -106,9 +105,6 @@ public class SvgViewerParameterEditingTests
         Dispatcher.UIThread.RunJobs();
     }
 
-    private static TextEditor Pane(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<TextEditor>().First(c => c.Name == "SourceEditor");
-
     private static TextBlock CommitLabel(SvgViewer viewer)
         => viewer.GetVisualDescendants().OfType<TextBlock>().First(c => c.Name == "CommitLabel");
 
@@ -130,7 +126,7 @@ public class SvgViewerParameterEditingTests
     }
 
     [AvaloniaFact]
-    public async Task It_Works_With_The_Source_Pane_Closed_And_Leaves_The_Document_Saveable()
+    public async Task An_Added_Parameter_Leaves_The_Document_Saveable()
     {
         var file = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".svg");
         await File.WriteAllTextAsync(file, Parametric).ConfigureAwait(true);
@@ -142,8 +138,6 @@ public class SvgViewerParameterEditingTests
             Assert.True(await viewer.LoadAsync(file));
             Dispatcher.UIThread.RunJobs();
 
-            // The pane has never been opened, which is the state a viewer spends most of its life in.
-            Assert.False(viewer.ShowSource);
             Assert.False(viewer.IsSourceModified);
 
             Assert.True(await viewer.AddParameterAsync());
@@ -170,7 +164,6 @@ public class SvgViewerParameterEditingTests
     {
         var (window, viewer) = await HostLoaded(Parametric, Radius());
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(await viewer.AddParameterAsync());
@@ -207,7 +200,6 @@ public class SvgViewerParameterEditingTests
     {
         var (window, viewer) = await HostLoaded(Grouped, Radius());
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(await viewer.AddParameterAsync());
@@ -227,7 +219,6 @@ public class SvgViewerParameterEditingTests
     {
         var (window, viewer) = await HostLoaded(Plain, Radius());
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var before = viewer.Source;
@@ -303,7 +294,6 @@ public class SvgViewerParameterEditingTests
     {
         var (window, viewer) = await HostLoaded(Parametric, Radius());
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         viewer.Canvas.ZoomIn();
@@ -327,7 +317,6 @@ public class SvgViewerParameterEditingTests
     {
         var (window, viewer) = await HostLoaded(Parametric, Radius());
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var fitted = viewer.Canvas.Scale;
@@ -349,7 +338,6 @@ public class SvgViewerParameterEditingTests
             Parametric,
             new SvgExpressionParameter("fade", ExprType.Number, "1", "0", "4", "0.5"));
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var row = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single();
@@ -373,7 +361,6 @@ public class SvgViewerParameterEditingTests
             Parametric,
             new SvgExpressionParameter("opacity", ExprType.Number, "1", "0", "1", null));
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var row = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single();
@@ -417,7 +404,6 @@ public class SvgViewerParameterEditingTests
             Parametric,
             new SvgExpressionParameter("opacity", ExprType.Number, "1", "0", "1", null));
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var before = viewer.Source;
@@ -511,7 +497,6 @@ public class SvgViewerParameterEditingTests
     {
         var (window, viewer) = await HostLoaded(Parametric);
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Value = 0.5d;
@@ -540,7 +525,6 @@ public class SvgViewerParameterEditingTests
         // ever and the panel keeps offering to commit what it just committed.
         var (window, viewer) = await HostLoaded(Parametric);
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Value = 0.37d;
@@ -580,7 +564,6 @@ public class SvgViewerParameterEditingTests
     {
         var (window, viewer) = await HostLoaded(Parametric);
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var before = viewer.Source;
@@ -618,7 +601,6 @@ public class SvgViewerParameterEditingTests
         // has no state to be in any more: the drawing cannot be put into one. So it asserts that.
         var (window, viewer) = await HostLoaded(Parametric, Radius());
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(viewer.SetSource(Parametric.Replace("</svg>", string.Empty)));
@@ -715,7 +697,6 @@ public class SvgViewerParameterEditingTests
     {
         var (window, viewer) = await HostLoaded(Parametric, Radius());
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         // `fade` is on the rect's opacity, `tint` on its fill, so neither can go. One that nothing
@@ -739,7 +720,6 @@ public class SvgViewerParameterEditingTests
     {
         var (window, viewer) = await HostLoaded(Parametric);
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var used = viewer.Parameters.Single(row => row.Name == "tint");

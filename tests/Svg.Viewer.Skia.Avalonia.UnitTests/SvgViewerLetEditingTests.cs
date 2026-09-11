@@ -9,7 +9,6 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using AvaloniaEdit;
 using Svg.Expressions;
 using Xunit;
 
@@ -80,9 +79,6 @@ public class SvgViewerLetEditingTests
         await Task.Delay(400).ConfigureAwait(true);
         Dispatcher.UIThread.RunJobs();
     }
-
-    private static TextEditor Pane(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<TextEditor>().First(c => c.Name == "SourceEditor");
 
     private static Button AddLetButton(SvgViewer viewer)
         => viewer.GetVisualDescendants().OfType<Button>().First(c => c.Name == "AddLetButton");
@@ -271,15 +267,14 @@ public class SvgViewerLetEditingTests
     {
         var (window, viewer) = await HostLoaded(Grouped);
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var row = Row(viewer, "deep");
 
         row.Expression = "mix(tint, #ffffff, 0.9)";
 
-        // Somebody typing in the pane, which rebuilds the drawing and every row with it.
-        Pane(viewer).Document.Insert(0, "<!-- a comment nobody asked about -->\n");
+        // Something else editing the drawing, which rebuilds it and every row with it.
+        Assert.True(viewer.SetSource("<!-- a comment nobody asked about -->\n" + viewer.Source));
 
         await Settle();
 
@@ -363,7 +358,6 @@ public class SvgViewerLetEditingTests
     {
         var (window, viewer) = await HostLoaded(Two);
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         // `a` is on the rect's opacity; `b` is named by nothing.
@@ -381,7 +375,6 @@ public class SvgViewerLetEditingTests
     {
         var (window, viewer) = await HostLoaded(Two);
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(viewer.RemoveLet(Row(viewer, "a")));
@@ -432,7 +425,6 @@ public class SvgViewerLetEditingTests
     {
         var (window, viewer) = await HostLoaded(Grouped);
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var row = Row(viewer, "deep");
@@ -463,7 +455,6 @@ public class SvgViewerLetEditingTests
     {
         var (window, viewer) = await HostLoaded(Grouped);
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         AddLetButton(viewer).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

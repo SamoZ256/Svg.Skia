@@ -73,7 +73,7 @@ public class SvgViewerParameterFactoryTests
     public void A_Malformed_Default_Is_Swallowed_Rather_Than_Thrown()
     {
         // The parameter still has to be offered: the document renders, and the value is bindable.
-        // What is wrong with the default is marked in the source pane, where the default is.
+        // What is wrong with the default is said on the declaration panel, where its row would be.
         var row = Number("""<e:param name="t" type="number" default="hsl(1, 2)" />""");
 
         Assert.Equal(0d, row.Value);
@@ -149,7 +149,7 @@ public class SvgViewerParameterFactoryTests
     [Fact]
     public void A_Range_That_Does_Not_Resolve_Falls_Back()
     {
-        // Reported in the source pane, at the min it is wrong in, rather than here.
+        // Reported on the declaration panel, in place of the row it would have had, rather than here.
         var row = Number("""<e:param name="t" type="number" min="1" max="0" />""");
 
         Assert.Equal(0d, row.Minimum);

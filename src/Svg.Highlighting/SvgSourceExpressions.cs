@@ -110,7 +110,7 @@ internal static class SvgSourceExpressions
     /// </summary>
     /// <remarks>
     /// On a refusal the prefix before the offending position is lexed instead. That attempt is
-    /// guarded too: a highlighter that threw would take out the pane, not just the expression.
+    /// guarded too: a highlighter that threw would take out the view, not just the expression.
     /// </remarks>
     private static IReadOnlyList<ExprToken> Read(string text)
     {

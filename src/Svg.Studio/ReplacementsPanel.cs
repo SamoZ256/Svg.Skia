@@ -33,6 +33,11 @@ namespace Svg.Studio;
 ///
 /// Edits go into the recipe's buffer and nowhere near the drawing, which is the whole point: the
 /// drawing keeps the values it was drawn with, and what stands in for them is the recipe's to say.
+///
+/// With no drawing behind it — the recipe's own tab — every rule is one of those, so the list is
+/// the recipe entire and a rule has to be started from nothing rather than found in a survey. That
+/// is the only difference, and it is why this is one panel and not two: a rule row is a value, an
+/// expression box and a readout wherever it is read.
 /// </remarks>
 public sealed class ReplacementsPanel : UserControl
 {
@@ -49,8 +54,8 @@ public sealed class ReplacementsPanel : UserControl
         IsVisible = false
     };
 
-    /// <summary>The drawing as it stands, which is the pane's text once it has been typed in.</summary>
-    private readonly Func<string> _drawing;
+    /// <summary>The drawing these rules are read against, or null on a recipe's own tab.</summary>
+    private readonly Func<string>? _drawing;
 
     /// <summary>
     /// What the drawing's expressions currently come to, or null while nothing can be worked out.
@@ -71,10 +76,14 @@ public sealed class ReplacementsPanel : UserControl
 
     private IReadOnlyList<SvgRecipeSurveyValue> _found = Array.Empty<SvgRecipeSurveyValue>();
 
-    public ReplacementsPanel(RecipeWorkspace recipe, Func<string> drawing, Func<ExprEvaluator?> values)
+    /// <param name="drawing">
+    /// The drawing to read the rules against, or null for the recipe on its own — where every rule
+    /// is listed and a new one is started from the row at the bottom.
+    /// </param>
+    public ReplacementsPanel(RecipeWorkspace recipe, Func<string>? drawing, Func<ExprEvaluator?> values)
     {
         Recipe = recipe ?? throw new ArgumentNullException(nameof(recipe));
-        _drawing = drawing ?? throw new ArgumentNullException(nameof(drawing));
+        _drawing = drawing;
         _values = values ?? throw new ArgumentNullException(nameof(values));
 
         // The expression box and the palette it paints by, carried here rather than left to the
@@ -173,14 +182,17 @@ public sealed class ReplacementsPanel : UserControl
 
         _waiting = false;
 
-        try
+        if (_drawing is { } text)
         {
-            _found = SvgRecipeRewriter.Survey(_drawing());
-        }
-        catch (SvgRecipeException)
-        {
-            // Halfway through being typed. The rows it had are better than none until it reads.
-            return;
+            try
+            {
+                _found = SvgRecipeRewriter.Survey(text());
+            }
+            catch (SvgRecipeException)
+            {
+                // Halfway through being typed. The rows it had are better than none until it reads.
+                return;
+            }
         }
 
         Show();
@@ -191,7 +203,7 @@ public sealed class ReplacementsPanel : UserControl
         base.OnAttachedToVisualTree(e);
 
         // A tab's content leaves the tree when another tab is picked, so this is every time the
-        // pane is looked at — which is when a value typed into the source pane since should appear.
+        // pane is looked at — which is when a value the drawing has gained since should appear.
         Refresh();
     }
 
@@ -291,7 +303,7 @@ public sealed class ReplacementsPanel : UserControl
         _shown.Clear();
         _rows.Children.Clear();
 
-        if (_found.Count == 0)
+        if (_found.Count == 0 && _drawing is { })
         {
             _rows.Children.Add(new TextBlock
             {
@@ -313,19 +325,19 @@ public sealed class ReplacementsPanel : UserControl
             .Where(rule => !_found.Any(value => value.Name == rule.Name && value.Text == rule.Key))
             .ToList();
 
-        if (elsewhere.Count == 0)
+        // A heading only where there is something above it to tell these apart from. On a recipe's
+        // own tab every rule is here and there is nothing for them to be "not in".
+        if (elsewhere.Count > 0 && _drawing is { })
         {
-            return;
+            _rows.Children.Add(new TextBlock
+            {
+                Text = "Not in this drawing",
+                FontWeight = FontWeight.SemiBold,
+                Opacity = 0.7,
+                FontSize = 11,
+                Margin = new Thickness(0, 8, 0, 0)
+            });
         }
-
-        _rows.Children.Add(new TextBlock
-        {
-            Text = "Not in this drawing",
-            FontWeight = FontWeight.SemiBold,
-            Opacity = 0.7,
-            FontSize = 11,
-            Margin = new Thickness(0, 8, 0, 0)
-        });
 
         foreach (var rule in elsewhere)
         {
@@ -333,9 +345,112 @@ public sealed class ReplacementsPanel : UserControl
             // go through — and counted as nothing, since this drawing gives it nothing.
             _rows.Children.Add(Row(new SvgRecipeSurveyValue(rule.Name, rule.ValueText, rule.Type, 0), null));
         }
+
+        if (_drawing is null)
+        {
+            if (elsewhere.Count == 0)
+            {
+                _rows.Children.Add(new TextBlock
+                {
+                    Text = "This recipe replaces nothing yet.",
+                    Opacity = 0.65,
+                    TextWrapping = TextWrapping.Wrap
+                });
+            }
+
+            _rows.Children.Add(Draft());
+        }
     }
 
     private static string Places(int count) => count == 1 ? "1 place" : $"{count} places";
+
+    /// <summary>
+    /// The row a rule is started from, for a recipe with no drawing to find values in.
+    /// </summary>
+    /// <remarks>
+    /// A rule is three things and a survey supplies two of them. Without one they have to be typed,
+    /// so this is what a row is minus the count: what it replaces, the value, and the expression.
+    /// Kept in line with the rows above it rather than put behind a dialog — a recipe is usually
+    /// given several rules at a sitting, and the list coming back with the new one in it is what
+    /// says it landed.
+    /// </remarks>
+    private Control Draft()
+    {
+        var names = new ComboBox
+        {
+            ItemsSource = SvgRecipeValue.Names,
+            SelectedIndex = 0,
+            FontSize = 12,
+            MinWidth = 110
+        };
+
+        var value = new TextBox { Watermark = "the value to replace", FontSize = 12 };
+        var expression = new TextBox { Watermark = "the expression to replace it with", FontSize = 12 };
+
+        if (this.TryFindResource("SvgExpressionBox", ActualThemeVariant, out var theme) && theme is ControlTheme box_)
+        {
+            expression.Theme = box_;
+        }
+
+        var add = new Button { Content = "Add", FontSize = 12, HorizontalAlignment = HorizontalAlignment.Right };
+
+        add.Click += (_, _) =>
+        {
+            var name = names.SelectedItem as string ?? SvgRecipeValue.ColorName;
+            var written = value.Text?.Trim() ?? string.Empty;
+            var says = expression.Text?.Trim() ?? string.Empty;
+
+            // Checked here as well as in the editor, because the editor answers for the rule and
+            // this answers for the expression: an expression of the wrong type writes a rule that
+            // reads and paints nothing.
+            if (says.Length > 0
+                && SvgRecipeValue.TypeFor(name) is { } type
+                && Trouble(says, type) is { } trouble)
+            {
+                Say(trouble);
+
+                return;
+            }
+
+            if (!Bind(name, written, says))
+            {
+                return;
+            }
+
+            // Emptied rather than left holding what was just written: the row the rule now has is
+            // above this one, and two copies of it on screen would read as two rules.
+            value.Text = string.Empty;
+            expression.Text = string.Empty;
+        };
+
+        var line = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Margin = new Thickness(0, 4, 0, 0) };
+
+        Grid.SetColumn(names, 0);
+        line.Children.Add(names);
+
+        Grid.SetColumn(value, 1);
+        value.Margin = new Thickness(8, 0, 0, 0);
+        line.Children.Add(value);
+
+        return new StackPanel
+        {
+            Spacing = 4,
+            Margin = new Thickness(0, 10, 0, 0),
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Replace something else",
+                    FontWeight = FontWeight.SemiBold,
+                    Opacity = 0.7,
+                    FontSize = 11
+                },
+                line,
+                expression,
+                add
+            }
+        };
+    }
 
     /// <summary>One value: what it is, how much of the drawing it is, and what replaces it.</summary>
     private Control Row(SvgRecipeSurveyValue value, string? places)

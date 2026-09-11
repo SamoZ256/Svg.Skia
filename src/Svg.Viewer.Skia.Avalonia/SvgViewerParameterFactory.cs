@@ -67,7 +67,7 @@ public static class SvgViewerParameterFactory
         }
         catch (Exception resolveError) when (resolveError is ExprException or ArgumentException)
         {
-            // Swallowed: the source pane already marks a bad range at the attribute it is in. The
+            // Swallowed: the declaration panel already says what the block was refused for. The
             // parameter is still offered, since the document renders.
             range = SvgExpressionRange.Default;
         }

@@ -168,14 +168,11 @@ public class MainWindowExportTests
 
     /// <summary>An edit that has not been saved is part of the drawing, and so part of the export.</summary>
     [AvaloniaFact]
-    public async Task Exporting_Writes_What_The_Pane_Is_Holding()
+    public async Task Exporting_Writes_What_The_Tree_Is_Holding()
     {
         var window = await Host();
         var viewer = Viewer(window);
         var target = Target(".svg");
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
 
         var edited = Drawing.Replace("#00ff00", "#ff0000");
 

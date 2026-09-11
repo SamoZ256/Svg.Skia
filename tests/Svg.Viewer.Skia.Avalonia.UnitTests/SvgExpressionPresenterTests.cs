@@ -105,7 +105,7 @@ public class SvgExpressionPresenterTests
         Dispatcher.UIThread.RunJobs();
 
         // The stock presenter repaints a selection in one brush. This one does not, because the
-        // source pane does not either -- AvaloniaEdit leaves its selection foreground unset -- and
+        // box leaves its selection foreground unset, so what is selected keeps its colours, and
         // one expression shown in two places should not be two colours.
         Assert.Equal(painted, Painted(Presenter(viewer)));
 

@@ -357,8 +357,8 @@ there is nothing to undo.
 
 A drawing under a `recipe` is shown **as the recipe makes it** — the values the recipe names already
 turned into expressions, and its parameters on the panel with sliders on them, which is the whole
-loop a recipe is written for. The file is untouched: the source pane shows, edits and saves the
-drawing itself, and `File → Export…` writes what the project builds, which is the document
+loop a recipe is written for. The file is untouched: the tab edits and saves the drawing itself,
+and `File → Export…` writes what the project builds, which is the document
 `--emit svg` produces. The parameter panel writes into the **recipe** there rather than into the
 drawing — the parameters are the recipe's, so adding one, editing one, reordering them or committing
 the values as defaults all go back to the file that declared them. Written into the drawing they
@@ -375,15 +375,40 @@ rules were both somebody else's opening line to read and delete before the file 
 The **Replacements** tab is where the drawing's own values are listed, so they no longer have to be
 read out of the files by hand either. A file already at that name is named rather than written over.
 With one named, the row is the file and a **✕** that stops using it — the file itself is left where
-it is. **Double-clicking the file opens it**, in a tab of its own: the recipe as text, coloured the
-way the source pane colours a drawing, with what the parser makes of it said underneath as it is
-typed. One recipe is usually named by several groups, so it opens once however many of them ask for it. A
+it is. **Double-clicking the file opens it**, in a tab of its own — described under
+[The recipe's own tab](#the-recipes-own-tab) below. One recipe is usually named by several groups, so
+it opens once however many of them ask for it. A
 drawing's tab answers for the recipe behind it as well as for itself: it takes the unsaved mark, ⌘S
 saves it, ⌘Z takes back the last edit made to it once the drawing's own text has nothing left to take
 back, and closing the project asks about it — including when the tab it was edited from has gone.
 
-There is one buffer per open recipe, so the drawings under it follow it **as it is typed** rather
+There is one buffer per open recipe, so the drawings under it follow it **as it is edited** rather
 than when it is saved — a tab you are not looking at is read again when you come back to it.
+
+#### The recipe's own tab
+
+It wears the shape of a drawing's tab, because a recipe is read the same way one is: the thing itself
+in the room, and what it is made of in the strip beside it.
+
+The canvas holds **the drawings this recipe paints** — every drawing in the project built through it,
+laid out the way a group's are and built the way the project builds them. A recipe has no ink of its
+own, and the only way to see what a rule does is to see it done, so a colour changed on the right
+moves the icons on the left.
+
+The strip splits in two. **Parameters and lets** above, the same panel a drawing's tab has, writing
+into the recipe's `<code>` block: add one, edit one, drag them into order, or commit the slider
+values as the declared defaults. **Replaces** below, in the slot a drawing's tab gives the element
+tree — both answer "what is this file made of". Every rule is listed with what it replaces and the
+expression that replaces it; emptying a box takes the rule away, and the row at the bottom starts a
+new one, since without a drawing to survey there is nothing to find the value in.
+
+It was a text editor until the tree became the truth. After that it was a read-only transcript of
+what the tree would write, which is a second account of a file that holds exactly two things and has
+a panel for each of them.
+
+Everything on it commits into the same workspace the drawings' own panes do, so a rule bound from a
+drawing's **Replacements** tab and a parameter added here are one history and come off it in the
+order they were made.
 
 **Apply…** beside it writes the recipe into the drawings and stops naming it. This is the conversion
 a build does on its way to code, kept: each `.svg` under the node is read, put through the recipe
@@ -421,7 +446,7 @@ rather than written as braces nobody reads. Anything else is the file's own valu
 answers for it as it always did.
 
 Rows come from the drawing's text rather than from the drawing, so what is listed is what is there —
-an attribute already holding an expression reads back as that, and the order matches the source pane.
+an attribute already holding an expression reads back as that, in the order somebody wrote them.
 An edit lands in the drawing whatever builds it: never in the recipe, which has nowhere to put one
 element's attribute. A value a `style` declaration overrides is refused, since the attribute under
 one paints nothing.

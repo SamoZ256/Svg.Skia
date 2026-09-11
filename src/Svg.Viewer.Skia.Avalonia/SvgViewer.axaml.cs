@@ -19,8 +19,6 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using AvaloniaEdit;
-using AvaloniaEdit.Document;
 using Svg.Expressions;
 using Svg.Highlighting;
 using Svg.Skia;
@@ -55,15 +53,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private readonly Grid _errorPanel;
     private readonly SelectableTextBlock _errorText;
     private readonly TextBlock _noteText;
-    private readonly Border _sourceHost;
-    private readonly GridSplitter _sourceSplitter;
-    private readonly TextEditor _sourceEditor;
-    private readonly SvgViewerSourceColorizer _sourceColorizer;
-    private readonly SvgViewerSourceMarkers _sourceMarkers;
-    private readonly ToggleButton _sourceButton;
     private readonly ToggleButton _boundsButton;
     private readonly Grid _body;
-    private readonly Grid _drawing;
     private readonly Grid _side;
     private readonly Border _treeHost;
     private readonly GridSplitter _treeSplitter;
@@ -73,17 +64,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private readonly SvgViewerDeclarationCommands _commands;
     private readonly ToggleButton _elementsButton;
 
-    /// <summary>What the source pane's row was last set to, so hiding it can be undone.</summary>
-    private GridLength _sourceHeight;
-
-    /// <summary>What the panel's column was last set to, for the same reason.</summary>
+    /// <summary>What the panel's column was last set to, so hiding it can be undone.</summary>
     private GridLength _panelWidth;
 
     /// <summary>What the element tree's row was last set to, for the same reason.</summary>
     private GridLength _treeHeight;
-
-    /// <summary>Whether the pane's text is stale — a document arrived, or the theme changed.</summary>
-    private bool _sourceStale = true;
 
     /// <summary>What is wrong with the drawing, for whatever a pointer comes to rest on.</summary>
     private IReadOnlyList<SvgSourceDiagnostic> _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
@@ -91,20 +76,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Whether the drawing has been analysed, which is not the same as being shown.</summary>
     private bool _sourceAnalysed;
 
-    /// <summary>Where each element is written, for the text the pane is holding.</summary>
-    private IReadOnlyDictionary<string, SvgSourceElement> _sourceElements =
-        new Dictionary<string, SvgSourceElement>(StringComparer.Ordinal);
-
-    /// <summary>Whether that has been worked out, which costs a second read of the whole file.</summary>
-    private bool _sourceMapped;
-
     /// <summary>
     /// The open drawing, and everything that has been done to it.
     /// </summary>
     /// <remarks>
-    /// The truth. The pane shows what this says rather than holding it: a drawing is a tree here,
-    /// and the text is what that tree writes. Null while nothing is open, and while a drawing the
-    /// reader would not take is on screen — a picture that can be looked at and not edited.
+    /// The truth: a drawing is a tree here, and its text is what that tree writes. Null while
+    /// nothing is open, and while a drawing the reader would not take is on screen — a picture that
+    /// can be looked at and not edited.
     /// </remarks>
     private SvgSourceWorkspace? _workspace;
 
@@ -148,20 +126,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _errorPanel = this.FindControl<Grid>("ErrorPanel")!;
         _errorText = this.FindControl<SelectableTextBlock>("ErrorText")!;
         _noteText = this.FindControl<TextBlock>("NoteText")!;
-        _sourceHost = this.FindControl<Border>("SourcePanelHost")!;
-        _sourceSplitter = this.FindControl<GridSplitter>("SourceSplitter")!;
-        _sourceEditor = this.FindControl<TextEditor>("SourceEditor")!;
-        _sourceButton = this.FindControl<ToggleButton>("SourceButton")!;
         _boundsButton = this.FindControl<ToggleButton>("BoundsButton")!;
         _body = this.FindControl<Grid>("Body")!;
-        _drawing = this.FindControl<Grid>("Drawing")!;
         _side = this.FindControl<Grid>("Side")!;
         _treeHost = this.FindControl<Border>("ElementTreeHost")!;
         _treeSplitter = this.FindControl<GridSplitter>("TreeSplitter")!;
         _elementTree = this.FindControl<SvgViewerElementTree>("PART_Elements")!;
         _elementsButton = this.FindControl<ToggleButton>("ElementsButton")!;
 
-        _sourceHeight = _drawing.RowDefinitions[2].Height;
         _panelWidth = _body.ColumnDefinitions[2].Width;
         _treeHeight = _side.RowDefinitions[2].Height;
 
@@ -171,8 +143,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         this.FindControl<Button>("ZoomInButton")!.Click += (_, _) => _canvas.ZoomIn();
         this.FindControl<Button>("ZoomOutButton")!.Click += (_, _) => _canvas.ZoomOut();
         this.FindControl<Button>("ResetParametersButton")!.Click += (_, _) => ResetParameters();
-
-        _sourceButton.IsCheckedChanged += (_, _) => ShowSource = _sourceButton.IsChecked == true;
 
         _elementsButton.IsChecked = true;
         _elementsButton.IsCheckedChanged += (_, _) => ShowElementTree = _elementsButton.IsChecked == true;
@@ -191,29 +161,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
             _element.Show(SourceAddress(node?.AddressKey));
 
-            // Only where the text is already being read. Picking a row is about the drawing, and a
-            // pane that threw itself open over it every time would be answering a question nobody
-            // asked. A host that does mean to show the text calls RevealInSource itself.
-            if (ShowSource)
-            {
-                RevealInSource(node);
-            }
-
             ElementSelected?.Invoke(this, node?.Element);
         };
 
         _boundsButton.IsChecked = ShowBounds;
         _boundsButton.IsCheckedChanged += (_, _) => ShowBounds = _boundsButton.IsChecked == true;
-
-        // The splitter colours, the marker draws, and both ask for a brush when they need one rather
-        // than being handed a palette, so a theme change is a repaint and not a rebuild.
-        _sourceColorizer = new SvgViewerSourceColorizer(SourceBrush);
-        _sourceMarkers = new SvgViewerSourceMarkers(ErrorBrush, WarningBrush);
-
-        _sourceEditor.TextArea.TextView.LineTransformers.Add(_sourceColorizer);
-        _sourceEditor.TextArea.TextView.BackgroundRenderers.Add(_sourceMarkers);
-        _sourceEditor.TextArea.TextView.PointerHover += OnSourceHover;
-        _sourceEditor.TextArea.TextView.PointerHoverStopped += (_, _) => HideSourceTip();
 
         _rebuild.Tick += (_, _) =>
         {
@@ -245,13 +197,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
 
-        // A repaint rather than a reload: rebuilding the document would send the reader back to the
-        // top of the file because the theme changed under them.
-        ActualThemeVariantChanged += (_, _) => PaintSource();
-
         UpdateZoomText();
         UpdateStatus();
-        ShowSource = false;
 
         // The strip exists from the start, not from a host setting a pane: the Element tab is the
         // viewer's own, and a viewer nobody has given panes to still has elements to pick.
@@ -285,7 +232,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <remarks>
     /// For a host that decides a drawing's size elsewhere — an svgc project, whose group says what
     /// its drawings are built at. Applied to the parsed document on every build, so it survives an
-    /// edit in the source pane; the file itself is never resized, which is what separates this from
+    /// edit; the file itself is never resized, which is what separates this from
     /// <c>Edit → Resize…</c>.
     /// </remarks>
     public SvgSizeRequest SizeRequest { get; set; } = SvgSizeRequest.None;
@@ -295,8 +242,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </summary>
     /// <remarks>
     /// For a host whose drawing is derived from its file — an svgc project applying a recipe, where
-    /// what is built is not what the file says. The pane still shows and saves the file itself, so
-    /// a document set up this way declares things its own text does not; where the panel's commands
+    /// what is built is not what the file says. <see cref="Source"/> is still the file itself, and
+    /// saving writes that, so a document set up this way declares things its own text does not;
+    /// where the panel's commands
     /// should write those is <see cref="DeclarationTarget"/>.
     ///
     /// Applies to a drawing loaded from a path, and to every rebuild of it. It takes effect on the
@@ -469,9 +417,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// Whether the drawing's elements are listed under the parameters.
     /// </summary>
     /// <remarks>
-    /// On, unlike <see cref="ShowSource"/>: what a drawing is made of is the question a viewer is
-    /// opened to answer, and a pane nobody finds answers nothing. A host that wants the height back
-    /// turns it off. Hidden with the whole column by <see cref="ShowDeclarationPanel"/>.
+    /// On by default: what a drawing is made of is the question a viewer is opened to answer, and a
+    /// pane nobody finds answers nothing. A host that wants the height back turns it off. Hidden
+    /// with the whole column by <see cref="ShowDeclarationPanel"/>.
     /// </remarks>
     public bool ShowElementTree
     {
@@ -483,8 +431,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
                 return;
             }
 
-            // The row carries the height, the way the source pane's does: hiding the border alone
-            // would leave the parameters paying for a strip of nothing.
+            // The row carries the height: hiding the border alone would leave the parameters
+            // paying for a strip of nothing.
             if (value)
             {
                 _side.RowDefinitions[2].Height = _treeHeight;
@@ -519,9 +467,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </summary>
     /// <remarks>
     /// A click that lands on nothing changes nothing. Clearing the selection is the design tool's
-    /// convention and it is the wrong one here: the pane exists to be read alongside the drawing,
-    /// and a click that missed by two pixels would throw away the row and the place in the text
-    /// somebody was looking at.
+    /// convention and it is the wrong one here: the tree exists to be read alongside the drawing,
+    /// and a click that missed by two pixels would throw away the row and the element panel with
+    /// it.
     ///
     /// What is picked is the element that was drawn, so clicking a shape placed by <c>&lt;use&gt;</c>
     /// selects the definition it was drawn from — which is where it is written, and the only row
@@ -585,8 +533,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </summary>
     /// <remarks>
     /// A drawing built through <see cref="Rewrite"/> — an svgc recipe — has rows its file has never
-    /// heard of, and the rest sit at addresses the file spells differently. The pane edits the file,
-    /// so a row is written by the address it has there and not by the one it has here.
+    /// heard of, and the rest sit at addresses the file spells differently. An edit goes to the
+    /// file, so a row is written by the address it has there and not by the one it has here.
     /// </remarks>
     private const string Unwritten = "That row is not written in this file, so it cannot be moved here.";
 
@@ -604,12 +552,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         return true;
     }
 
-    /// <summary>Whether an edit can be written into the pane, saying why not where it cannot.</summary>
+    /// <summary>Whether an edit can be written at all, saying why not where it cannot.</summary>
     /// <remarks>
-    /// The buffer first: Splice writes into the editor's document, and until it has been filled that
-    /// is the empty one AvaloniaEdit starts with — the pane need never have been opened. A drawing
-    /// past the pane's limit is shown cut, and writing a span measured against the whole of it would
-    /// behead the file.
+    /// There is no tree for a drawing the reader would not take, and the reason it refused is worth
+    /// more than the sentence about a row this file does not have.
     /// </remarks>
     private bool Writable()
     {
@@ -635,119 +581,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             : SvgViewerOutline.Of(open.Svg, node.Element);
 
     /// <summary>
-    /// Shows where <paramref name="node"/> is written, opening the source pane to do it.
-    /// </summary>
-    /// <remarks>
-    /// Opens the pane, because calling this is asking to be shown the text. Picking a row in the
-    /// tree does not call it unless the pane is already open.
-    ///
-    /// The name is checked before the caret moves. The text and the document are read separately and
-    /// nothing correlates them, so the one failure worth engineering against is scrolling somebody
-    /// confidently to the wrong line; not moving at all is a fine second best. It is also what
-    /// happens for a drawing too large for the pane to hold, which is shown cut and will not parse.
-    /// </remarks>
-    /// <returns>Whether the element could be placed in the text.</returns>
-    public bool RevealInSource(SvgViewerElementNode? node)
-    {
-        if (node is null || _document is null)
-        {
-            return false;
-        }
-
-        ShowSource = true;
-        EnsureSourceBuffer();
-
-        if (!SourceElements().TryGetValue(node.AddressKey, out var placed)
-            || !string.Equals(placed.Name, node.Label, StringComparison.Ordinal)
-            || _sourceEditor.Document is not { } text
-            || placed.Start + placed.Length > text.TextLength)
-        {
-            return false;
-        }
-
-        _sourceEditor.Select(placed.Start, placed.Length);
-
-        var at = text.GetLocation(placed.Start);
-
-        _sourceEditor.ScrollTo(at.Line, at.Column);
-
-        return true;
-    }
-
-    /// <summary>
-    /// Whether the drawing's text is shown under it.
-    /// </summary>
-    /// <remarks>
-    /// A pane rather than a window, because an embedder owns its windows and cannot place or
-    /// suppress one that opens unbidden.
-    /// </remarks>
-    public bool ShowSource
-    {
-        get => _sourceHost.IsVisible;
-        set
-        {
-            if (_sourceHost.IsVisible == value)
-            {
-                return;
-            }
-
-            // The row carries the height, so hiding the pane has to zero it or the drawing keeps
-            // paying for a strip it cannot see. What the splitter was dragged to comes back. The row
-            // is the drawing's column alone, so showing the text costs the canvas its height and
-            // costs the side panes nothing.
-            if (value)
-            {
-                _drawing.RowDefinitions[2].Height = _sourceHeight;
-            }
-            else
-            {
-                _sourceHeight = _drawing.RowDefinitions[2].Height;
-                _drawing.RowDefinitions[2].Height = new GridLength(0d);
-            }
-
-            _sourceHost.IsVisible = value;
-            _sourceSplitter.IsVisible = value;
-            _sourceButton.IsChecked = value;
-
-            RenderSource();
-        }
-    }
-
-    /// <summary>
-    /// Opens the source pane's own find box, over the text it is showing.
-    /// </summary>
-    /// <remarks>
-    /// AvaloniaEdit installs the box with the editor's template and styles it out of the theme the
-    /// pane already includes, so all there is to do is show it. The pane comes up first because the
-    /// buffer is only filled while it is visible — searching a closed pane would search nothing.
-    /// </remarks>
-    public void FindInSource()
-    {
-        ShowSource = true;
-
-        // The box comes with the editor's template, and a control in a pane that has never been
-        // open has never been measured and so has no template yet: without this the first search
-        // after opening the pane found nothing to open, and only a second one worked.
-        _sourceEditor.ApplyTemplate();
-
-        if (_sourceEditor.SearchPanel is { } panel)
-        {
-            panel.Open();
-
-            // The keystroke goes to the box rather than to the text under it, which is the whole
-            // point of asking for it.
-            panel.Reactivate();
-        }
-    }
-
-    /// <summary>
-    /// What is wrong with the open drawing, as ranges into <see cref="SvgViewerDocument.SourceText"/>.
-    /// </summary>
-    /// <remarks>
-    /// Analysed on first ask, not only when the pane opens: the error panel needs to know whether a
-    /// failed binding is the drawing's fault before anyone asks to read it.
-    /// </remarks>
-    /// <summary>
     /// A standing sentence from the host about the open drawing, said with the viewer's own.
     /// </summary>
     /// <remarks>
@@ -765,13 +598,20 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
     }
 
+    /// <summary>
+    /// What is wrong with the open drawing, as ranges into <see cref="Source"/>.
+    /// </summary>
+    /// <remarks>
+    /// Analysed on first ask and not on the edit: the error panel needs to know whether a failed
+    /// binding is the drawing's fault before anyone asks, and the element panel marks the attribute
+    /// each one lands on.
+    /// </remarks>
     public IReadOnlyList<SvgSourceDiagnostic> SourceDiagnostics => Diagnostics();
 
     /// <summary>The whole drawing as text, edits and all.</summary>
     /// <remarks>
-    /// What the tree writes rather than what the pane shows, which are the same thing until a
-    /// drawing arrives that the reader will not take — then the pane shows the file and this
-    /// answers with it, so a host saving one cannot behead it.
+    /// What the tree writes, or the file's own bytes where the reader would not take it — so a host
+    /// saving a drawing it cannot edit cannot behead it.
     /// </remarks>
     public string Source => PaneSource();
 
@@ -887,8 +727,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // The same drawing built again — a project resizing it, or a reopen — keeps the view it was
         // being looked at through. Assigning Svg starts over as if a file had been opened, which
         // threw away a zoom someone had set to look at the thing they were changing. Replace leaves
-        // a view that was adjusted by hand alone and refits one that was not, which is the same
-        // rule the source pane rebuilds under.
+        // a view that was adjusted by hand alone and refits one that was not.
         _document = document;
 
         // The file's own text and not the built one: what is edited and saved is the file, and a
@@ -995,6 +834,29 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // having nothing to say. The panel leaves identical rows alone, so this costs a comparison.
         _panel.Parameters = _rows;
         _panel.ShowLets(document.Declarations.Lets);
+        // Only where the panel has no row to show, which is the only time it shows the sentence:
+        // reading the declarations again is 1.3ms at 70KB and 14.6ms at 721KB, and a drawing whose
+        // parameters are fine would be paying that on every gesture for something nobody sees.
+        _panel.Trouble = _rows.Count == 0 ? DeclarationTrouble() : null;
+    }
+
+    /// <summary>
+    /// What the declarations reader refused, as one sentence, or null.
+    /// </summary>
+    /// <remarks>
+    /// Asked of the reader rather than sifted out of <see cref="SourceDiagnostics"/>: a diagnostic
+    /// is a range and a message, and deciding from a range whether it lands in the declarations
+    /// block is arithmetic that would be wrong the first time a block moved. The reader knows.
+    ///
+    /// The first of them. A block with three mistakes has three diagnostics and one line to say
+    /// them on, and the count on the status line is what says there are more. A refusal that leaves
+    /// other parameters standing has a row list to show and is not said here at all — the count is.
+    /// </remarks>
+    private string? DeclarationTrouble()
+    {
+        SvgExpressionDeclarations.Parse(Source, out var declared);
+
+        return declared.Count > 0 ? declared[0].Message : _document?.DeclarationError;
     }
 
     /// <summary>Whether a row already standing was built from this declaration.</summary>
@@ -1168,18 +1030,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private void UpdateZoomText()
         => _zoomText.Text = (_canvas.Scale * 100d).ToString("0", CultureInfo.CurrentCulture) + "%";
 
-    private void UpdateSource()
-    {
-        ForgetSource();
-        RenderSource();
-    }
+    private void UpdateSource() => ForgetSource();
 
-    /// <summary>Shows what the open drawing is made of, or empties the pane when nothing is open.</summary>
+    /// <summary>Shows what the open drawing is made of, or empties the tree when nothing is open.</summary>
     /// <remarks>
-    /// Nothing is built while the pane is closed, the way the source pane colours nothing while it
-    /// is: this runs on every rebuild, which is every time typing pauses, and it is 27ms at 4,000
-    /// elements on the UI thread. A host that turned the pane off should not be paying that. The
-    /// tree therefore holds nothing while it is hidden, and is filled again when it is shown.
+    /// Nothing is built while the tree is hidden: this runs on every rebuild and is 27ms at 4,000
+    /// elements on the UI thread. A host that turned the tree off should not be paying that. It
+    /// therefore holds nothing while it is hidden, and is filled again when it is shown.
     ///
     /// The ring is drawn again rather than left: a rebuild restores the selected row without raising
     /// anything, and the rectangles it was ringing belong to the scene the last document compiled.
@@ -1199,20 +1056,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Drops what was known about the drawing that was open.</summary>
     private void ForgetSource()
     {
-        _sourceStale = true;
         _sourceAnalysed = false;
-        _sourceMapped = false;
         _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
-        _sourceElements = new Dictionary<string, SvgSourceElement>(StringComparer.Ordinal);
 
         _rebuild.Stop();
     }
 
     /// <summary>The drawing's text: what the tree writes, or the file's own until one is open.</summary>
     private string PaneSource() => _workspace?.Text ?? _document?.SourceText ?? string.Empty;
-
-    /// <inheritdoc cref="PaneSource"/>
-    private string SourceText() => PaneSource();
 
     /// <summary>
     /// What is wrong with the drawing, analysed at most once per document.
@@ -1242,12 +1093,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// element. A reader who never picks a row never pays for it.
     ///
     /// Keyed as the drawing that was built holds them, since that is where the rows come from, but
-    /// placed in the file, since that is what the pane shows. The two are the same text unless a
-    /// <see cref="Rewrite"/> is in play; a recipe's is what made them differ.
+    /// placed in the file, since that is what an edit is written into. The two are the same text
+    /// unless a <see cref="Rewrite"/> is in play; a recipe's is what made them differ.
     /// </remarks>
     /// <summary>What the tree calls an element, as the file it is written in calls it.</summary>
     /// <remarks>
-    /// The tree is of the drawing that was built; the pane and the element panel are the file. A
+    /// The tree is of the drawing that was built; the element panel is of the file. A
     /// rewrite that injects a block shifts every address after it, so the two disagree wherever one
     /// is in play — and an edit aimed at the wrong address writes somebody else's attribute.
     /// </remarks>
@@ -1283,93 +1134,16 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
     }
 
-    private IReadOnlyDictionary<string, SvgSourceElement> SourceElements()
-    {
-        if (_sourceMapped)
-        {
-            return _sourceElements;
-        }
-
-        var source = PaneSource();
-
-        _sourceMapped = true;
-        _sourceElements = SvgSourceElements.Map(source, _document?.Built(source));
-
-        return _sourceElements;
-    }
-
     /// <summary>
-    /// Gives the editor the open drawing, if it does not have it already.
-    /// </summary>
-    /// <remarks>
-    /// Separate from painting the pane: showing it needs both, an edit from the panel needs only
-    /// this, and a drawing nobody opens or edits costs nothing.
-    /// </remarks>
-    private void EnsureSourceBuffer()
-    {
-        if (!_sourceStale)
-        {
-            return;
-        }
-
-        _sourceStale = false;
-
-        HideSourceTip();
-
-        // A whole new document rather than a splice, because nothing is edited here any more: the
-        // pane shows what the tree writes, and what it showed a moment ago is of no interest.
-        _sourceEditor.Document = new TextDocument(SourceText());
-        _sourceEditor.IsReadOnly = true;
-
-        RaiseModified();
-    }
-
-    /// <summary>
-    /// Fills the pane.
-    /// </summary>
-    /// <remarks>
-    /// Only when the pane is up, since the toggle starts off. It re-colours on every show, not only
-    /// the first, because the panel can have edited the buffer while the pane was closed.
-    /// </remarks>
-    private void RenderSource()
-    {
-        if (!_sourceHost.IsVisible)
-        {
-            return;
-        }
-
-        EnsureSourceBuffer();
-        RefreshSource();
-    }
-
-    /// <summary>Re-colours and re-marks what the pane is showing, without disturbing it.</summary>
-    /// <remarks>
-    /// Nothing to do while the pane is closed: an edit still rebuilds and still reports, and only
-    /// the colouring is worth putting off.
-    /// </remarks>
-    private void RefreshSource()
-    {
-        if (!_sourceHost.IsVisible)
-        {
-            return;
-        }
-
-        _sourceColorizer.Show(SvgSourceHighlighter.Lines(_sourceEditor.Text));
-        _sourceMarkers.Show(Diagnostics());
-
-        PaintSource();
-    }
-
-    /// <summary>
-    /// Builds the drawing again from the text in the pane.
+    /// Builds the drawing again from the text the tree writes.
     /// </summary>
     /// <remarks>
     /// Half-typed markup does not parse, so a refusal is the ordinary case: the picture stays up and
-    /// only the marks move, which is what the reader steers by until the drawing can follow.
+    /// only what is said about it moves, which is what the reader steers by until the drawing can
+    /// follow.
     /// </remarks>
     private void RebuildFromSource()
     {
-        RefreshSource();
 
         RebuildFrom(PaneSource());
     }
@@ -1380,9 +1154,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <remarks>
     /// For a host that has changed what the same text comes to rather than the text: a
     /// <see cref="Rewrite"/> whose recipe has been edited, or a new <see cref="SizeRequest"/>.
-    /// Quieter than opening the file again, which is what it replaced — the source pane keeps its
-    /// buffer, its caret and anything typed into it, the status line does not flash a load, and
-    /// nothing is read off the disk.
+    /// Quieter than opening the file again, which is what it replaced — the tree keeps every
+    /// unsaved edit and the history behind them, the status line does not flash a load, and nothing
+    /// is read off the disk.
     /// </remarks>
     /// <returns>Whether there was a drawing to build.</returns>
     public bool Rebuild()
@@ -1392,8 +1166,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        // Source and not the editor's own text, which is the truncated stand-in for a drawing too
-        // large to hold — building from that would behead the picture.
         RebuildFrom(Source);
 
         return true;
@@ -1550,9 +1322,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// Asks for a parameter and writes it where the declarations live.
     /// </summary>
     /// <remarks>
-    /// A splice, not a rewrite: the rest of the file is left as it was, comments included, and the
-    /// buffer changing is a keystroke as far as everything downstream is concerned. It does not need
-    /// the pane open — which is why the buffer and the pane are separate things.
+    /// One node written into the tree, not a rewrite: the rest of the file is left as it was,
+    /// comments included, and what the tree writes out afterwards differs by that one line.
     /// </remarks>
     /// <returns>Whether the drawing was changed.</returns>
     public async Task<bool> AddParameterAsync()
@@ -1783,8 +1554,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
         catch (Exception failure) when (failure is ExprException or ArgumentException)
         {
-            // Nothing resolves, which the rows and the pane already say between them. A stale
-            // readout would be a second, quieter account of the same trouble.
+            // Nothing resolves, which the rows already say. A stale readout would be a second,
+            // quieter account of the same trouble.
         }
 
         foreach (var row in _panel.Lets)
@@ -1817,7 +1588,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>Replaces the whole drawing with the text given, as one thing to take back.</summary>
     /// <remarks>
-    /// The pane shows the drawing and no longer holds it, so this is how text arrives from outside:
+    /// The tree is the drawing now, so this is how text arrives from outside:
     /// a host reverting a file, or handing over what somebody edited elsewhere. It is an edit like
     /// any other -- one entry on the same history, refused with the reader's own sentence where the
     /// text will not read back, and the drawing left where it was when it will not.
@@ -1905,8 +1676,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         UpdateSource();
 
-        // Here and not only where the pane fills itself, which it does not do while it is closed:
-        // an edit made from a panel with the pane shut still has to mark the tab.
+        // Every gesture, whichever panel made it: a host marks its tab from this and nothing else.
         RaiseModified();
 
         _rebuild.Stop();
@@ -1942,8 +1712,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// Resizes the drawing, by rewriting the frame its root element declares.
     /// </summary>
     /// <remarks>
-    /// An edit to the pane rather than to the picture, so it is the drawing that is a different size
-    /// and not the view of it: the text says so, saving writes it, and taking it back is an undo.
+    /// An edit to the drawing rather than to the picture, so it is the drawing that is a different
+    /// size and not the view of it: the text says so, saving writes it, and taking it back is an
+    /// undo.
     /// </remarks>
     /// <returns>Whether anything was rewritten.</returns>
     public bool Resize(SvgSizeRequest request)
@@ -1958,7 +1729,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     }
 
     /// <summary>
-    /// Writes the pane's text back to a file.
+    /// Writes the drawing's text back to a file.
     /// </summary>
     /// <remarks>
     /// A drawing loaded from text or a stream has no file, so it asks through the same service the
@@ -2000,8 +1771,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>Takes back the last edit to the drawing's text.</summary>
     /// <remarks>
-    /// For a host with a menu: the pane binds the platform's gestures itself, and a menu item wants
-    /// the same thing without one. The stack is the pane's, so this takes back typing, a committed
+    /// For a host with a menu: the canvas binds the platform's gestures itself, and a menu item
+    /// wants the same thing without one. The stack is the drawing's, so this takes back a committed
     /// declaration and a resize alike — and never a parameter value, which is bound rather than
     /// written.
     /// </remarks>
@@ -2024,8 +1795,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     }
 
     /// <summary>
-    /// The platform is only there to ask once the control is in a window, so the pane's gestures
-    /// are bound on the way in rather than in the constructor.
+    /// The platform is only there to ask once the control is in a window, so the gestures are bound
+    /// on the way in rather than in the constructor.
     /// </summary>
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
@@ -2035,19 +1806,20 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     }
 
     /// <summary>
-    /// Gives the pane the undo and redo gestures the platform uses.
+    /// Gives the drawing the undo and redo gestures the platform uses.
     /// </summary>
     /// <remarks>
     /// Taken from the platform rather than written down, so this is Cmd+Z, Cmd+Shift+Z and Cmd+Y on
     /// macOS and the Control forms elsewhere, whatever the platform says those are.
     ///
-    /// They reach the drawing's own history and not the pane's, which is empty: the pane shows what
-    /// the tree writes and is not somewhere edits are made. Somebody who presses undo while looking
-    /// at the text means the last thing they did, not the last thing that was typed here.
+    /// On the canvas rather than on the viewer, so a gesture reaches these only while somebody is
+    /// looking at the drawing: a parameter box and an expression box keep their own, which is what
+    /// binding them a level up would take away. The canvas takes focus when it is clicked, so that
+    /// is the same "while you are in it" the source pane provided before it was removed.
     /// </remarks>
     private void BindSourceHotkeys()
     {
-        if (_sourceEditor.KeyBindings.Count > 0 || this.GetPlatformSettings()?.HotkeyConfiguration is not { } hotkeys)
+        if (_canvas.KeyBindings.Count > 0 || this.GetPlatformSettings()?.HotkeyConfiguration is not { } hotkeys)
         {
             return;
         }
@@ -2059,9 +1831,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         {
             foreach (var gesture in gestures)
             {
-                // On the editor rather than on the viewer, so a gesture reaches the pane only while
-                // somebody is in it: a parameter box keeps its own.
-                _sourceEditor.KeyBindings.Add(new KeyBinding { Gesture = gesture, Command = new Run(run) });
+                _canvas.KeyBindings.Add(new KeyBinding { Gesture = gesture, Command = new Run(run) });
             }
         }
     }
@@ -2073,8 +1843,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         public Run(Action run) => _run = run;
 
-        // Nothing turns these off: an undo with nothing to undo is a no-op inside AvaloniaEdit, and
-        // a binding that came and went would be a second thing to keep in step with the stack.
+        // Nothing turns these off: an undo with nothing to undo is already a no-op, and a binding
+        // that came and went would be a second thing to keep in step with the stack.
         public event EventHandler? CanExecuteChanged
         {
             add { }
@@ -2086,81 +1856,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         public void Execute(object? parameter) => _run();
     }
 
-    /// <summary>Repaints the pane in the current theme, without disturbing what is on screen.</summary>
-    private void PaintSource()
-    {
-        if (!_sourceHost.IsVisible)
-        {
-            return;
-        }
-
-        _sourceEditor.Foreground = SourceBrush(SvgSourceTokenKind.Text);
-        _sourceEditor.LineNumbersForeground = Resource("SvgViewerSourceLineNumberBrush");
-
-        _sourceEditor.TextArea.TextView.Redraw();
-    }
-
-    /// <summary>Shows what is wrong with whatever the pointer came to rest on.</summary>
-    /// <remarks>
-    /// The token rather than the line it sits on. A line of markup is long, and a message about a
-    /// name is worth much less at the other end of one.
-    /// </remarks>
-    private void OnSourceHover(object? sender, PointerEventArgs e)
-    {
-        var view = _sourceEditor.TextArea.TextView;
-
-        if (_sourceDiagnostics.Count == 0 || _sourceEditor.Document is not { } document)
-        {
-            return;
-        }
-
-        if (view.GetPositionFloor(e.GetPosition(view) + view.ScrollOffset) is not { } position)
-        {
-            HideSourceTip();
-            return;
-        }
-
-        var offset = document.GetOffset(position.Location);
-
-        var messages = _sourceDiagnostics
-            .Where(d => d.Start <= offset && offset < d.Start + d.Length)
-            .Select(d => d.Message)
-            .ToList();
-
-        if (messages.Count == 0)
-        {
-            HideSourceTip();
-            return;
-        }
-
-        ToolTip.SetTip(_sourceEditor, string.Join("\n", messages));
-        ToolTip.SetIsOpen(_sourceEditor, true);
-
-        e.Handled = true;
-    }
-
-    private void HideSourceTip()
-    {
-        ToolTip.SetIsOpen(_sourceEditor, false);
-        ToolTip.SetTip(_sourceEditor, null);
-    }
-
-    private IBrush? ErrorBrush() => Resource("SvgViewerSourceErrorBrush");
-
-    private IBrush? WarningBrush() => Resource("SvgViewerSourceWarningBrush");
-
-    /// <summary>The brush for a kind of token.</summary>
-    private IBrush? SourceBrush(SvgSourceTokenKind kind) => Resource(SourceResourceKey(kind));
-
     /// <summary>What a piece of a document is painted with, by name.</summary>
     /// <remarks>
     /// Internal because <see cref="SvgExpressionPresenter"/> paints the same kinds in an editable box
-    /// beside the pane. One table, so a `tau` cannot be one colour in the source and another in the
+    /// in a box of its own. One table, so a `tau` cannot be one colour in one place and another in the
     /// row above it.
     /// </remarks>
     /// <summary>The brush key a token kind is painted from.</summary>
     /// <remarks>
-    /// Public alongside <see cref="SvgViewerSourceColorizer"/>, and for the same reason: a host
+    /// Public because a host paints expressions of its own — Svg.Studio's recipe rules do: a host
     /// colouring its own source view has to reach the same brush for the same kind, or two panes in
     /// one window paint the same text differently.
     /// </remarks>
@@ -2185,7 +1889,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     };
 
     /// <summary>
-    /// Every brush the pane paints with, by the one route.
+    /// Every brush this package paints with, by the one route.
     /// </summary>
     /// <remarks>
     /// A key is a string, so a rename that misses one paints nothing and says nothing — the line
@@ -2215,7 +1919,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </summary>
     /// <remarks>
     /// A standing statement, not a reaction: a drawing has its mistakes from the moment it opens.
-    /// A count and a pointer only, because the pane marks each one on the line that carries it.
+    /// A count only: each one is said where it lands, on the attribute row in the Element panel that
+    /// carries it, and repeating the sentence here would say it twice.
     /// </remarks>
     private string? Note()
     {
@@ -2255,10 +1960,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
                 ? Count(errors, "error")
                 : $"{Count(errors, "error")} and {Count(warnings, "warning")}";
 
-        var counted = $"{said}, marked in the Source pane";
+        var counted = said;
 
         // Both, on the one line there is. The host's comes first: it is about the drawing as a
-        // whole, and the count points at marks the reader can find without being told twice.
+        // whole, and the count is about the parts of it.
         return _notice is { } notice ? $"{notice} · {counted}" : counted;
     }
 
@@ -2281,7 +1986,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         ShowFault(Fault());
     }
 
-    /// <summary>Whether the pane already marks what this failure is about.</summary>
+    /// <summary>Whether the drawing is already marked with what this failure is about.</summary>
     private bool IsMarked(ExprException failure)
         => Diagnostics().Any(d => string.Equals(d.Message, failure.Message, StringComparison.Ordinal));
 
@@ -2328,8 +2033,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// Says what has no line to be said on, over the drawing it is about.
     /// </summary>
     /// <remarks>
-    /// What reaches here is what the pane cannot mark, and in every such case the drawing on screen
-    /// is not what the file says. Blurring it says so before the sentence is read.
+    /// What reaches here is what no row can be marked with, and in every such case the drawing on
+    /// screen is not what the file says. Blurring it says so before the sentence is read.
     /// </remarks>
     private void ShowFault(string? message)
     {

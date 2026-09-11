@@ -11,6 +11,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -42,6 +43,9 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
     /// <summary>Whether there is a drawing behind the rows, which null and empty tell apart.</summary>
     private bool _hasDocument;
+
+    /// <summary>What was wrong with the declarations, for a panel with no row to put it on.</summary>
+    private string? _trouble;
 
     /// <summary>The last edit handed to the document, so the same one is not handed over twice.</summary>
     /// <remarks>
@@ -135,7 +139,7 @@ public partial class SvgViewerDeclarationPanel : UserControl
                 // items would throw away whatever row someone is part-way through editing. Only the
                 // label moves, because rows being identical is not the same fact as whether there
                 // is a drawing behind them.
-                _emptyLabel.IsVisible = value is { Count: 0 };
+                ShowEmpty();
                 ShowActions();
                 return;
             }
@@ -153,9 +157,28 @@ public partial class SvgViewerDeclarationPanel : UserControl
                 _parameters.Add(parameter);
             }
 
-            _emptyLabel.IsVisible = value is { Count: 0 };
+            ShowEmpty();
 
             ShowActions();
+        }
+    }
+
+    /// <summary>
+    /// Why the drawing declares less than it was written to, or null.
+    /// </summary>
+    /// <remarks>
+    /// A refused declaration puts no row on the panel, so without this the panel said "This drawing
+    /// declares no parameters" about a file that declares one and got it wrong. The sentence used to
+    /// be a squiggle in the source pane; this is where that row would have been.
+    /// </remarks>
+    public string? Trouble
+    {
+        get => _trouble;
+        set
+        {
+            _trouble = string.IsNullOrEmpty(value) ? null : value;
+
+            ShowEmpty();
         }
     }
 
@@ -749,6 +772,27 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// the difference is the reason to commit, so with none there is nothing to say and nothing to
     /// press.
     /// </remarks>
+    /// <summary>
+    /// Says why the panel has no parameter rows: because the file declares none, or because what it
+    /// declares was refused.
+    /// </summary>
+    /// <remarks>
+    /// Shown only where there are no rows. A refusal takes the parameter it was about off the panel
+    /// and leaves the others, so a block with one bad declaration among three still lists two — and
+    /// the count on the status line is what says one is missing.
+    /// </remarks>
+    private void ShowEmpty()
+    {
+        _emptyLabel.IsVisible = _source is { Count: 0 };
+        _emptyLabel.Text = _trouble ?? "This drawing declares no parameters.";
+
+        _emptyLabel[!TextBlock.ForegroundProperty] = _trouble is { }
+            ? new DynamicResourceExtension("SvgViewerSourceErrorBrush")
+            : new DynamicResourceExtension("SvgViewerSourceTextBrush");
+
+        _emptyLabel.Opacity = _trouble is { } ? 1d : 0.6d;
+    }
+
     private void ShowActions()
     {
         var open = _hasDocument;

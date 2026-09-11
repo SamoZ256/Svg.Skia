@@ -914,7 +914,8 @@ public sealed class GroupPanel : UserControl
         // Only the ones that built: Spread lays out what it is given, so the two lists line up
         // index for index and that is what pairs a placement with the drawing it came from.
         var drawn = built.Where(drawn => drawn.Svg is { }).ToList();
-        var placements = Spread(drawn);
+        var placements = SvgViewerSpread.Of(
+            drawn.Select(one => new SvgViewerSpread.Item(one.Svg!, one.Size, Caption(one.Drawing))).ToList());
 
         for (var index = 0; index < placements.Count; index++)
         {
@@ -1036,80 +1037,6 @@ public sealed class GroupPanel : UserControl
             return new Drawn(drawing, null, default, failure.Message);
         }
     }
-
-    /// <summary>
-    /// Where each drawing goes: a grid as square as the count allows, every row standing on a line.
-    /// </summary>
-    /// <remarks>
-    /// A column is as wide as the widest thing in it, caption included — measured rather than
-    /// guessed, since a caption is usually wider than the icon it names and two that overlap say
-    /// less than either. Sizes are in drawing units throughout: the canvas is what turns them into
-    /// pixels, and it is the only thing that knows how big the pane is.
-    /// </remarks>
-    private static IReadOnlyList<SvgViewerPlacement> Spread(IReadOnlyList<Drawn> drawn)
-    {
-        if (drawn.Count == 0)
-        {
-            return Array.Empty<SvgViewerPlacement>();
-        }
-
-        var columns = (int)Math.Ceiling(Math.Sqrt(drawn.Count));
-        var rows = (int)Math.Ceiling(drawn.Count / (double)columns);
-
-        var largest = drawn.Max(one => Math.Max(one.Size.Width, one.Size.Height));
-        var label = Math.Max(largest * 0.05f, 1f);
-        var gap = label * 2f;
-
-        using var font = new SKFont(SKTypeface.Default, label);
-
-        var captions = drawn.Select(one => Caption(one.Drawing)).ToList();
-        var widths = new float[columns];
-        var heights = new float[rows];
-
-        for (var index = 0; index < drawn.Count; index++)
-        {
-            var wanted = Math.Max(drawn[index].Size.Width, Widest(font, captions[index]));
-
-            widths[index % columns] = Math.Max(widths[index % columns], wanted);
-            heights[index / columns] = Math.Max(heights[index / columns], drawn[index].Size.Height);
-        }
-
-        var placed = new List<SvgViewerPlacement>(drawn.Count);
-        var y = 0f;
-
-        for (var row = 0; row < rows; row++)
-        {
-            var x = 0f;
-
-            for (var column = 0; column < columns; column++)
-            {
-                var index = row * columns + column;
-
-                if (index < drawn.Count)
-                {
-                    // Centred across its column and standing on the row's floor, so the captions of
-                    // a row line up however differently sized the drawings above them are.
-                    placed.Add(new SvgViewerPlacement(
-                        drawn[index].Svg!,
-                        new SKPoint(
-                            x + (widths[column] - drawn[index].Size.Width) / 2f,
-                            y + heights[row] - drawn[index].Size.Height),
-                        captions[index],
-                        label));
-                }
-
-                x += widths[column] + gap;
-            }
-
-            // Two lines of caption under the row, and a gap before the next.
-            y += heights[row] + label * 3.4f + gap;
-        }
-
-        return placed;
-    }
-
-    private static float Widest(SKFont font, string caption)
-        => caption.Split('\n').Max(line => font.MeasureText(line));
 
     /// <summary>Lets go of the drawings, and of the documents that own them.</summary>
     /// <remarks>

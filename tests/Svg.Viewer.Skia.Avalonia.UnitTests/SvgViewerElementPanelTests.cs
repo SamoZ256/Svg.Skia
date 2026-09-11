@@ -78,7 +78,7 @@ public class SvgViewerElementPanelTests
     }
 
     /// <summary>
-    /// An edit made before the source pane has ever been opened.
+    /// An edit made before the panel has ever been shown.
     /// </summary>
     /// <remarks>
     /// Through a real viewer rather than the harness above, because the harness applies edits to a

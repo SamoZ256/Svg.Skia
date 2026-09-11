@@ -6,7 +6,6 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using AvaloniaEdit;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
@@ -16,7 +15,7 @@ namespace Svg.Studio.UnitTests;
 /// Edit → Undo and Redo.
 /// </summary>
 /// <remarks>
-/// The pane binds the same gestures itself, so what the menu adds is a place to find them and, on
+/// The canvas binds the same gestures itself, so what the menu adds is a place to find them and, on
 /// macOS, a key equivalent that arrives wherever the caret is — which is why these are about where
 /// the command lands rather than about the undo stack, whose behaviour is the viewer's.
 /// </remarks>
@@ -32,7 +31,7 @@ public class MainWindowUndoTests
         </svg>
         """;
 
-    private static async Task<(MainWindow Window, TextEditor Pane)> Host()
+    private static async Task<(MainWindow Window, SvgViewer Viewer)> Host()
     {
         var window = new MainWindow();
 
@@ -59,27 +58,22 @@ public class MainWindowUndoTests
 
         Assert.NotNull(viewer.Document);
 
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var pane = window.GetVisualDescendants().OfType<TextEditor>().First(editor => editor.Name == "SourceEditor");
-
-        return (window, pane);
+        return (window, viewer);
     }
 
     [AvaloniaFact]
     public async Task Undo_And_Redo_Reach_The_Drawing_In_The_Selected_Tab()
     {
-        var (window, pane) = await Host();
+        var (window, viewer) = await Host();
 
         Viewer(window).SetSource(Viewer(window).Source + "<!-- typed -->");
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(window.Undo());
-        Assert.DoesNotContain("typed", pane.Text);
+        Assert.DoesNotContain("typed", viewer.Source);
 
         Assert.True(window.Redo());
-        Assert.Contains("typed", pane.Text);
+        Assert.Contains("typed", viewer.Source);
     }
 
     [AvaloniaFact]
@@ -87,7 +81,7 @@ public class MainWindowUndoTests
     {
         // The menu's gesture is the window's on macOS, so it arrives even while somebody is editing
         // a parameter; the drawing's stack must not answer for the box's.
-        var (window, pane) = await Host();
+        var (window, viewer) = await Host();
 
         Viewer(window).SetSource(Viewer(window).Source + "<!-- typed -->");
         Dispatcher.UIThread.RunJobs();
@@ -103,7 +97,7 @@ public class MainWindowUndoTests
         Assert.True(window.Undo());
 
         // The drawing is untouched: the box was asked, and answered for itself.
-        Assert.Contains("typed", pane.Text);
+        Assert.Contains("typed", viewer.Source);
     }
 
     [AvaloniaFact]

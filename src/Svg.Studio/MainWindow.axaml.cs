@@ -1896,9 +1896,9 @@ public partial class MainWindow : Window
 
     /// <summary>The drawing as its recipe makes it, or as it is when the recipe will not have it.</summary>
     /// <remarks>
-    /// Never throws: this runs on every keystroke in the source pane and on every keystroke in the
-    /// recipe, and text either of them is halfway through is shown as it is rather than freezing the
-    /// picture where it was.
+    /// Never throws: this runs on every gesture in a drawing and on every gesture in the recipe,
+    /// and a recipe halfway through being given a rule is applied as it stands rather than freezing
+    /// the picture where it was.
     /// </remarks>
     private static string Rewritten(string svgText, RecipeWorkspace workspace)
     {
@@ -1959,12 +1959,28 @@ public partial class MainWindow : Window
             return null;
         }
 
-        var panel = new RecipePanel(opened);
+        var panel = new RecipePanel(opened, () => Painted(path), Built);
 
         AddNodeTab(panel, path, Path.GetFileName(path));
 
         return panel;
     }
+
+    /// <summary>
+    /// Every drawing in the project that is built through the recipe at <paramref name="path"/>.
+    /// </summary>
+    /// <remarks>
+    /// Asked again on every gesture rather than taken once: a recipe put on a group, or taken off
+    /// one, changes which drawings it paints without the recipe's own tab being told anything. One
+    /// row per drawing and not per file, because a project routinely builds one file several ways
+    /// and each of those is a square on the canvas.
+    /// </remarks>
+    private IReadOnlyList<SvgcProjectDrawing> Painted(string path)
+        => _workspace is not { } workspace
+            ? Array.Empty<SvgcProjectDrawing>()
+            : workspace.Document.Root.Drawings
+                .Where(drawing => string.Equals(drawing.EffectiveResolvedRecipe, path, StringComparison.Ordinal))
+                .ToList();
 
     /// <summary>A tab for something that is not a drawing, which the viewer's own tab does not fit.</summary>
     private void AddNodeTab(Control content, object tag, string name)
@@ -2016,7 +2032,7 @@ public partial class MainWindow : Window
     /// Reads the open drawings again as the project's settings now say to build them.
     /// </summary>
     /// <remarks>
-    /// A drawing with edits of its own in the source pane is left alone: reloading it would throw
+    /// A drawing with unsaved edits of its own is left alone: reloading it would throw
     /// them away, and following a setting is not worth that.
     /// </remarks>
     private void Rebuild()
@@ -2488,25 +2504,6 @@ public partial class MainWindow : Window
 
     private async void OnExport(object? sender, EventArgs e) => await ExportAsync();
 
-    private void OnFind(object? sender, EventArgs e) => Find();
-
-    /// <summary>Opens the find box of whichever editor the selected tab holds.</summary>
-    /// <remarks>
-    /// The recipe first, as <see cref="Undo"/> takes it: a recipe tab has no viewer, and a drawing's
-    /// tab has no editor but the source pane's.
-    /// </remarks>
-    public void Find()
-    {
-        if (Editing() is { } recipe)
-        {
-            recipe.Find();
-
-            return;
-        }
-
-        Selected()?.FindInSource();
-    }
-
     private void OnUndo(object? sender, EventArgs e) => Undo();
 
     private void OnRedo(object? sender, EventArgs e) => Redo();
@@ -2599,11 +2596,6 @@ public partial class MainWindow : Window
             saveAs.IsEnabled = Selected() is { Document: { } };
         }
 
-        if (Item(menu, "Find…") is { } find)
-        {
-            find.IsEnabled = Selected() is { Document: { } } || Editing() is { };
-        }
-
         // Both act on the project, and both did nothing at all when picked without one.
         foreach (var header in new[] { "Build", "Close" })
         {
@@ -2637,12 +2629,6 @@ public partial class MainWindow : Window
         if (Item(NativeMenu.GetMenu(this), "Save As…") is { } saveAs)
         {
             saveAs.Gesture = new KeyGesture(Key.S, command | KeyModifiers.Shift);
-        }
-
-        // Find is the platform's keymap's own gap too, and is written the same way.
-        if (Item(NativeMenu.GetMenu(this), "Find…") is { } find)
-        {
-            find.Gesture = new KeyGesture(Key.F, command);
         }
 
         void Show(string header, IReadOnlyList<KeyGesture> gestures)
@@ -3203,17 +3189,6 @@ public partial class MainWindow : Window
     {
         var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
 
-        // Taken here rather than left to the editor, which never sees the keystroke while the
-        // drawing has focus — and would have nothing to search until the source pane was opened.
-        if (e.Key == Key.F && e.KeyModifiers == command)
-        {
-            e.Handled = true;
-
-            Find();
-
-            return;
-        }
-
         if (e.Key != Key.S)
         {
             return;
@@ -3255,14 +3230,13 @@ public partial class MainWindow : Window
     /// Taking the path rather than asking for it, so everything but the panel can be driven, the
     /// same as <see cref="ExportAsync"/>.
     ///
-    /// The text is the viewer's <c>Source</c> rather than its SaveSourceAsync, which answers only
-    /// once the source pane has been opened — a drawing nobody has looked at the text of would have
-    /// been saved as nothing at all. Written through the document, so a file that came in with a
-    /// byte order mark keeps it.
+    /// The text is the viewer's <c>Source</c> rather than its SaveSourceAsync, which puts up a file
+    /// dialog of its own. Written through the document, so a file that came in with a byte order
+    /// mark keeps it.
     ///
     /// Reading it back is what makes this Save As and not save-a-copy: the tab takes the new file's
-    /// name and ⌘S writes there afterwards. It costs the pane's undo history, which is what saving
-    /// under a new name costs everywhere.
+    /// name and ⌘S writes there afterwards. It costs the drawing's undo history, which is what
+    /// saving under a new name costs everywhere.
     /// </remarks>
     public async Task<bool> SaveAsAsync(string target)
     {

@@ -9,7 +9,6 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using AvaloniaEdit;
 using Xunit;
 
 namespace Svg.Viewer.Skia.Avalonia.UnitTests;
@@ -18,9 +17,8 @@ namespace Svg.Viewer.Skia.Avalonia.UnitTests;
 /// Taking back an edit to the drawing's text.
 /// </summary>
 /// <remarks>
-/// AvaloniaEdit binds the undo and redo commands and no keys to them — it asks the keymap for a
-/// gesture for every other command it defines and never for these two — so a pane in a plain host
-/// has an undo stack that nothing can reach. These press the keys.
+/// The gestures are bound on the canvas, so they arrive while somebody is looking at the drawing
+/// and leave a parameter box's own undo alone. These press the keys.
 /// </remarks>
 public class SvgViewerUndoTests
 {
@@ -30,7 +28,7 @@ public class SvgViewerUndoTests
         </svg>
         """;
 
-    private static async Task<(Window Window, TextEditor Pane)> Host()
+    private static async Task<(Window Window, SvgViewer Viewer)> Host()
     {
         var viewer = new SvgViewer();
         var window = new Window { Width = 600, Height = 500, Background = Brushes.White, Content = viewer };
@@ -39,50 +37,43 @@ public class SvgViewerUndoTests
 
         Assert.True(await viewer.LoadTextAsync(Drawing));
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var pane = viewer.GetVisualDescendants().OfType<TextEditor>().First(editor => editor.Name == "SourceEditor");
-
-        pane.TextArea.Focus();
+        viewer.Canvas.Focus();
         Dispatcher.UIThread.RunJobs();
 
-        return (window, pane);
+        return (window, viewer);
     }
 
-    /// <summary>The gestures the headless platform names, which is what the pane binds.</summary>
+    /// <summary>The gestures the headless platform names, which is what the canvas binds.</summary>
     private static RawInputModifiers Command
         => RawInputModifiers.Control;
 
     [AvaloniaFact]
     public async Task An_Edit_Can_Be_Taken_Back_And_Put_Again()
     {
-        var (window, pane) = await Host();
-        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().Single();
+        var (window, viewer) = await Host();
 
-        // Through the drawing rather than into the pane, which shows the text and no longer holds
-        // it — but the gesture is still made while looking at the pane, which is what this is for.
         Assert.True(viewer.SetSource(viewer.Source + "<!-- typed -->"));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("typed", pane.Text);
+        Assert.Contains("typed", viewer.Source);
 
         window.KeyPressQwerty(PhysicalKey.Z, Command);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.DoesNotContain("typed", pane.Text);
+        Assert.DoesNotContain("typed", viewer.Source);
 
         window.KeyPressQwerty(PhysicalKey.Z, Command | RawInputModifiers.Shift);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("typed", pane.Text);
+        Assert.Contains("typed", viewer.Source);
     }
 
     [AvaloniaFact]
     public async Task Redo_Answers_To_Both_Of_Its_Gestures()
     {
-        var (window, pane) = await Host();
-        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().Single();
+        var (window, viewer) = await Host();
 
         Assert.True(viewer.SetSource(viewer.Source + "<!-- typed -->"));
         Dispatcher.UIThread.RunJobs();
@@ -90,13 +81,13 @@ public class SvgViewerUndoTests
         window.KeyPressQwerty(PhysicalKey.Z, Command);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.DoesNotContain("typed", pane.Text);
+        Assert.DoesNotContain("typed", viewer.Source);
 
-        // The platform names two, and a pane that bound only the first would leave the other dead.
+        // The platform names two, and binding only the first would leave the other dead.
         window.KeyPressQwerty(PhysicalKey.Y, Command);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("typed", pane.Text);
+        Assert.Contains("typed", viewer.Source);
     }
 
     [AvaloniaFact]
@@ -104,19 +95,18 @@ public class SvgViewerUndoTests
     {
         // The point of splicing spans rather than assigning the text: a resize arrives on the undo
         // stack as a step, not as a new document.
-        var (window, pane) = await Host();
+        var (window, viewer) = await Host();
 
-        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().Single();
 
         Assert.True(viewer.Resize(new global::Svg.Skia.SvgSizeRequest(48f, null, null)));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("width=\"48\"", pane.Text);
+        Assert.Contains("width=\"48\"", viewer.Source);
 
         window.KeyPressQwerty(PhysicalKey.Z, Command);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("width=\"24\"", pane.Text);
-        Assert.DoesNotContain("width=\"48\"", pane.Text);
+        Assert.Contains("width=\"24\"", viewer.Source);
+        Assert.DoesNotContain("width=\"48\"", viewer.Source);
     }
 }
