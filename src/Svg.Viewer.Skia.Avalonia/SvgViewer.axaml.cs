@@ -681,6 +681,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         ShowGizmo();
 
+        // The ring is traced from the scene, which the drag has just moved, so it has to be traced
+        // again or it stays behind on the shape's old silhouette while the shape leaves. Retrace
+        // rather than Highlight: the latter restarts the pulse, which at one frame per pointer move
+        // is a ring that flashes for as long as the drag lasts.
+        RetraceOutline();
+
         // The recorded picture was rewritten under the canvas, which is holding the same drawing it
         // was and so would otherwise go on painting the frame before the element moved.
         _canvas.Publish();
@@ -724,6 +730,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _gizmo.Cancel();
 
         ShowGizmo();
+        RetraceOutline();
         _canvas.Publish();
     }
 

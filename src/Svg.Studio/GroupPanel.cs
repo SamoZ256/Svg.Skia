@@ -1017,12 +1017,34 @@ public sealed class GroupPanel : UserControl
     /// drawings are arranged in, so the path is moved by the placement's offset on the way across.
     /// </remarks>
     private void Ring(SvgViewerPlacement placement, SKSvg svg, SvgElement element)
+        => _canvas.Highlight = Outline(placement, svg, element);
+
+    /// <summary>
+    /// Traces the ring again for an element that has moved under it.
+    /// </summary>
+    /// <remarks>
+    /// The ring comes off the scene, so a drag that moves the shape leaves it behind on the
+    /// silhouette the shape used to have. Retrace rather than <see cref="Ring"/>, which restarts the
+    /// pulse announcing a new selection: at one frame per pointer move that is a ring flashing for
+    /// as long as the drag lasts, about something nobody just picked.
+    /// </remarks>
+    private void Retrace()
+    {
+        if (_inspecting is { } inspecting
+            && inspecting.Built.Svg is { } svg
+            && _tree.SelectedNode?.Element is { } element)
+        {
+            _canvas.Retrace(Outline(inspecting.Placement, svg, element));
+        }
+    }
+
+    private static SKPath? Outline(SvgViewerPlacement placement, SKSvg svg, SvgElement element)
     {
         var outline = SvgViewerOutline.Of(svg, element);
 
         outline?.Transform(SKMatrix.CreateTranslation(placement.At.X, placement.At.Y));
 
-        _canvas.Highlight = outline;
+        return outline;
     }
 
     // ---- editing on the canvas ---------------------------------------------------------------
@@ -1139,6 +1161,7 @@ public sealed class GroupPanel : UserControl
         _gizmo.Drag(aimed);
 
         ShowGizmo();
+        Retrace();
         _canvas.Publish();
     }
 
@@ -1181,6 +1204,7 @@ public sealed class GroupPanel : UserControl
         _gizmo.Cancel();
 
         ShowGizmo();
+        Retrace();
         _canvas.Publish();
     }
 

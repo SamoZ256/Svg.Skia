@@ -456,6 +456,46 @@ public class SvgViewerGizmoTests
         Assert.Equal("translate(20, 10)", Written(viewer));
     }
 
+    /// <summary>
+    /// The ring round the element follows it while it is being dragged, rather than staying where
+    /// the element was.
+    /// </summary>
+    /// <remarks>
+    /// Mid-drag, before the button comes up: the commit rebuilds the drawing and traces the ring
+    /// again, so by the end it is right wherever it was during. What somebody watches is the middle.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Ring_Follows_The_Element_Through_A_Drag()
+    {
+        var (window, viewer) = await Host(Plain);
+
+        Select(window, viewer, 30f, 30f);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var before = viewer.Canvas.Highlight?.Bounds;
+
+        Assert.NotNull(before);
+
+        window.MouseDown(At(window, viewer, 30f, 30f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseMove(At(window, viewer, 50f, 40f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        var during = viewer.Canvas.Highlight?.Bounds;
+
+        Assert.NotNull(during);
+
+        // The shape moved by twenty and ten, so its silhouette did.
+        Assert.Equal(before!.Value.Left + 20f, during!.Value.Left, 3);
+        Assert.Equal(before.Value.Top + 10f, during.Value.Top, 3);
+
+        window.MouseUp(At(window, viewer, 50f, 40f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
     /// <summary>With the mode off the drawing pans as it always did, and nothing is written.</summary>
     [AvaloniaFact]
     public async Task A_Drag_Pans_While_The_Mode_Is_Off()
