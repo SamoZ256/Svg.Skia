@@ -1959,12 +1959,28 @@ public partial class MainWindow : Window
             return null;
         }
 
-        var panel = new RecipePanel(opened);
+        var panel = new RecipePanel(opened, () => Painted(path), Built);
 
         AddNodeTab(panel, path, Path.GetFileName(path));
 
         return panel;
     }
+
+    /// <summary>
+    /// Every drawing in the project that is built through the recipe at <paramref name="path"/>.
+    /// </summary>
+    /// <remarks>
+    /// Asked again on every gesture rather than taken once: a recipe put on a group, or taken off
+    /// one, changes which drawings it paints without the recipe's own tab being told anything. One
+    /// row per drawing and not per file, because a project routinely builds one file several ways
+    /// and each of those is a square on the canvas.
+    /// </remarks>
+    private IReadOnlyList<SvgcProjectDrawing> Painted(string path)
+        => _workspace is not { } workspace
+            ? Array.Empty<SvgcProjectDrawing>()
+            : workspace.Document.Root.Drawings
+                .Where(drawing => string.Equals(drawing.EffectiveResolvedRecipe, path, StringComparison.Ordinal))
+                .ToList();
 
     /// <summary>A tab for something that is not a drawing, which the viewer's own tab does not fit.</summary>
     private void AddNodeTab(Control content, object tag, string name)
@@ -2488,16 +2504,6 @@ public partial class MainWindow : Window
 
     private async void OnExport(object? sender, EventArgs e) => await ExportAsync();
 
-    private void OnFind(object? sender, EventArgs e) => Find();
-
-    /// <summary>Opens the find box of whichever editor the selected tab holds.</summary>
-    /// <remarks>
-    /// A recipe tab and nothing else. A drawing's tab used to have the source pane to search; with
-    /// the pane gone there is no text on it to look through, and the element tree is the thing that
-    /// answers "where is the rect" now.
-    /// </remarks>
-    public void Find() => Editing()?.Find();
-
     private void OnUndo(object? sender, EventArgs e) => Undo();
 
     private void OnRedo(object? sender, EventArgs e) => Redo();
@@ -2590,11 +2596,6 @@ public partial class MainWindow : Window
             saveAs.IsEnabled = Selected() is { Document: { } };
         }
 
-        if (Item(menu, "Find…") is { } find)
-        {
-            find.IsEnabled = Editing() is { };
-        }
-
         // Both act on the project, and both did nothing at all when picked without one.
         foreach (var header in new[] { "Build", "Close" })
         {
@@ -2628,12 +2629,6 @@ public partial class MainWindow : Window
         if (Item(NativeMenu.GetMenu(this), "Save As…") is { } saveAs)
         {
             saveAs.Gesture = new KeyGesture(Key.S, command | KeyModifiers.Shift);
-        }
-
-        // Find is the platform's keymap's own gap too, and is written the same way.
-        if (Item(NativeMenu.GetMenu(this), "Find…") is { } find)
-        {
-            find.Gesture = new KeyGesture(Key.F, command);
         }
 
         void Show(string header, IReadOnlyList<KeyGesture> gestures)
@@ -3193,17 +3188,6 @@ public partial class MainWindow : Window
     private async void OnKeyDown(object? sender, KeyEventArgs e)
     {
         var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
-
-        // Taken here rather than left to the editor, which never sees the keystroke unless somebody
-        // is already in it.
-        if (e.Key == Key.F && e.KeyModifiers == command)
-        {
-            e.Handled = true;
-
-            Find();
-
-            return;
-        }
 
         if (e.Key != Key.S)
         {

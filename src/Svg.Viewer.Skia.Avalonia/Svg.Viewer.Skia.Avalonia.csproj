@@ -34,9 +34,6 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Controls.ColorPicker" />
-    <!-- Only for SvgViewerSourceColorizer, which nothing in this package uses any more: Svg.Studio's
-         recipe tab is the last editor left. It goes with that tab. -->
-    <PackageReference Include="Avalonia.AvaloniaEdit" />
   </ItemGroup>
 
   <ItemGroup>

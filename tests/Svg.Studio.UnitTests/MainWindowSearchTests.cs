@@ -9,7 +9,6 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using AvaloniaEdit;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
@@ -83,9 +82,6 @@ public class MainWindowSearchTests : IDisposable
     private static SvgViewer Viewer(MainWindow window)
         => window.GetVisualDescendants().OfType<SvgViewer>().First();
 
-    private static TextEditor Editor(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<TextEditor>().First();
-
     private static TreeView Tree(MainWindow window) => window.FindControl<TreeView>("ProjectTree")!;
 
     private static TextBox Box(MainWindow window) => window.FindControl<TextBox>("ProjectSearch")!;
@@ -124,35 +120,7 @@ public class MainWindowSearchTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
-    // ---- finding in a recipe -------------------------------------------------------------------
-
     /// <summary>A recipe tab is the only thing left with text in it to search.</summary>
-    [AvaloniaFact]
-    public async Task Finding_In_A_Recipe_Opens_That_Editor()
-    {
-        var window = await Opened();
-        // A real recipe, because one that is not XML has no tree and so no tab to find in.
-        var recipe = window.ShowRecipe(Write("icons.recipe", "<recipe xmlns=\"https://svg.skia/expr/1.0\" />"))!;
-
-        Dispatcher.UIThread.RunJobs();
-
-        window.Find();
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(recipe.GetVisualDescendants().OfType<TextEditor>().Single().SearchPanel.IsOpened);
-    }
-
-    [AvaloniaFact]
-    public void Finding_With_Nothing_Open_Does_Nothing()
-    {
-        var window = new MainWindow();
-
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
-
-        window.Find();
-    }
-
     // ---- the project tree ----------------------------------------------------------------------
 
     [AvaloniaFact]

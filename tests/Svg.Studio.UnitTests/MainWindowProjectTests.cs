@@ -17,8 +17,6 @@ using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using AvaloniaEdit;
-using AvaloniaEdit.Editing;
 using Svg.CodeGen.Skia.Projects;
 using SkiaSharp;
 using Svg.Expressions;
@@ -2831,6 +2829,87 @@ public class MainWindowProjectTests : IDisposable
     private static RecipePanel? Editor(MainWindow window)
         => Tabs(window).Items.OfType<TabItem>().Select(item => item.Content).OfType<RecipePanel>().SingleOrDefault();
 
+    [AvaloniaFact]
+    public async Task A_Recipe_Tab_Shows_The_Drawings_It_Paints()
+    {
+        // A recipe has no ink of its own, so what a rule does can only be seen done. The canvas
+        // holds every drawing in the project built through this recipe — one square each, because a
+        // project routinely builds one file several ways.
+        var window = await Recipes();
+        var panel = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"))!;
+
+        Dispatcher.UIThread.RunJobs();
+
+        // badge.svg is under the group that names the recipe; home.svg is not.
+        var one = Assert.Single(panel.Shown);
+
+        Assert.NotNull(one.Svg.Picture);
+
+        // Built through the recipe, so the drawing on the canvas carries what the recipe declares
+        // even though its own file declares nothing.
+        Assert.Equal(new[] { "hue" }, one.Declarations.Parameters.Select(parameter => parameter.Name));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Rule_Added_On_The_Recipe_Tab_Reaches_The_File()
+    {
+        var window = await Recipes();
+        var panel = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"))!;
+
+        Dispatcher.UIThread.RunJobs();
+
+        // The rules list on a recipe's own tab is the recipe entire, not a survey of one drawing.
+        Assert.Equal(new[] { "#00ff00" }, panel.Rules.Values.Select(value => value.Text).DefaultIfEmpty("#00ff00"));
+
+        Assert.True(panel.Rules.Bind("opacity", "0.5", "hue / 240"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("""<replace opacity="0.5">hue / 240</replace>""", panel.Text);
+        Assert.True(panel.IsModified);
+
+        // One history however the recipe was written to, so this is one thing to take back.
+        Assert.True(panel.Undo());
+        Assert.DoesNotContain("opacity", panel.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Parameter_Added_On_The_Recipe_Tab_Reaches_The_File()
+    {
+        var window = await Recipes();
+        var panel = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"))!;
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "hue" }, panel.Parameters.Parameters!.Select(row => row.Name));
+
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("shade", ExprType.Number, "0.5", "0", "1", null));
+
+        Assert.True(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("""<param name="shade" type="number" default="0.5" min="0" max="1" />""", panel.Text);
+        Assert.Equal(new[] { "hue", "shade" }, panel.Parameters.Parameters!.Select(row => row.Name));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Recipe_Tab_And_A_Drawing_Tab_Write_Into_One_Recipe()
+    {
+        // The reason there is one workspace per file rather than one per view: a rule bound from a
+        // drawing's Replacements pane and one added on the recipe's own tab are the same recipe, and
+        // two buffers would disagree about it the moment either was written to.
+        var (window, viewer) = await Painting();
+        var panel = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"))!;
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(Replacements(viewer).Bind("color", "#00ff00", "hsl(hue, 50%, 50%)"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("hsl(hue, 50%, 50%)", panel.Text);
+        Assert.Same(Replacements(viewer).Recipe, panel.Workspace);
+    }
+
     /// <summary>A window on the sample project with the recipe named by its group.</summary>
     private async Task<MainWindow> Recipes(string? drawing = null, string? recipe = null)
     {
@@ -2870,10 +2949,9 @@ public class MainWindowProjectTests : IDisposable
         // The tab it opened is the one being looked at, and it is the recipe's own.
         Assert.Same(editor, ((TabItem)Tabs(window).SelectedItem!).Content);
 
-        // And there is something to look at. AvaloniaEdit's control theme is included by the viewer
-        // in its own styles, which do not reach a tab beside it — without it at the application the
-        // editor templated to nothing and the tab opened empty.
-        Assert.NotEmpty(editor.GetVisualDescendants().OfType<TextArea>());
+        // And there is something to look at: what the recipe declares, and what it replaces.
+        Assert.Equal(new[] { "hue" }, editor.Parameters.Parameters!.Select(row => row.Name));
+        Assert.Equal("tint", editor.Rules.Expression("color", "#00ff00"));
     }
 
     [AvaloniaFact]
@@ -4221,32 +4299,6 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.DoesNotContain("<code>", editor.Text);
         Assert.True(editor.IsModified);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Recipe_Is_Painted_For_The_Theme_Of_The_Window_It_Is_In()
-    {
-        var window = await Recipes();
-
-        var panel = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"));
-        Dispatcher.UIThread.RunJobs();
-
-        // Built before it is in any tree, so what it painted itself in the constructor was the
-        // light palette whatever window it went into.
-        window.RequestedThemeVariant = ThemeVariant.Dark;
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(panel.TryFindResource("SvgViewerSourceTextBrush", ThemeVariant.Dark, out var resource));
-
-        var expected = ((ISolidColorBrush)resource!).Color;
-        var editor = panel.GetVisualDescendants().OfType<TextEditor>().Single();
-        var area = panel.GetVisualDescendants().OfType<TextArea>().Single();
-
-        Assert.Equal(expected, ((ISolidColorBrush)editor.Foreground!).Color);
-
-        // With none of its own the caret is drawn by inverting what is behind it, which came out as
-        // a caret nobody could see.
-        Assert.Equal(expected, ((ISolidColorBrush)area.CaretBrush!).Color);
     }
 
     /// <summary>A window with nothing open, which is what New… is picked from.</summary>

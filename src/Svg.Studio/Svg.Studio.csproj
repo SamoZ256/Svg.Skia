@@ -21,8 +21,6 @@
   <Import Project="..\..\build\SkiaSharp.Avalonia.props" />
 
   <ItemGroup>
-    <!-- The recipe editor is a TextEditor of its own, beside the one the viewer holds for a drawing. -->
-    <PackageReference Include="Avalonia.AvaloniaEdit" />
   </ItemGroup>
 
   <ItemGroup>
