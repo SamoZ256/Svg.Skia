@@ -401,7 +401,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(SKColors.Lime, Centre(Picture(drawn[0])!));
         Assert.Equal(SKColors.Red, Centre(Picture(drawn[1])!));
 
-        window.ShowRecipe(recipe).Workspace.Document.Text = RedRecipe.Replace("\"0\"", "\"240\"");
+        window.ShowRecipe(recipe)!.SetText(RedRecipe.Replace("\"0\"", "\"240\""));
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(RedRecipe, File.ReadAllText(recipe));
@@ -922,7 +922,7 @@ public class MainWindowProjectTests : IDisposable
 
         // A rule typed into the recipe and not saved. Reading the file would bake something else
         // than what is on screen; reading the buffer would bake what no file says.
-        window.ShowRecipe(recipe).Workspace.Document.Insert(0, " ");
+        window.ShowRecipe(recipe)!.SetText(" " + window.ShowRecipe(recipe)!.Text);
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
@@ -1170,7 +1170,7 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         // Into the recipe's shared buffer, which is where a drawing under one keeps its parameters.
-        Assert.Contains("sweep", window.ShowRecipe(recipe).Workspace.Document.Text);
+        Assert.Contains("sweep", window.ShowRecipe(recipe)!.Text);
     }
 
     [AvaloniaFact]
@@ -2900,7 +2900,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(editor.IsModified);
         Assert.DoesNotContain("unsaved", Marker(item).Classes);
 
-        editor.Text = Recipe.Replace("hue", "tone", StringComparison.Ordinal);
+        editor.SetText(Recipe.Replace("hue", "tone", StringComparison.Ordinal));
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(editor.IsModified);
@@ -2938,18 +2938,18 @@ public class MainWindowProjectTests : IDisposable
 
         // Half a recipe is what one looks like while it is being written; taking the text back
         // between keystrokes would make it unwritable.
-        editor.Text = """
+        editor.SetText("""
             <recipe xmlns="https://svg.skia/expr/1.0">
               <replace color="#00ff00"></replace>
             </recipe>
-            """;
+            """);
 
         Dispatcher.UIThread.RunJobs();
 
         Assert.Contains("no expression", editor.Fault);
         Assert.Contains("<replace", editor.Text);
 
-        editor.Text = Recipe;
+        editor.SetText(Recipe);
         Dispatcher.UIThread.RunJobs();
 
         Assert.Null(editor.Fault);
@@ -2963,7 +2963,7 @@ public class MainWindowProjectTests : IDisposable
         var path = Path.Combine(_directory, "icons.recipe");
 
         // Several groups name one recipe, and a tab per namer would be two editors over one file.
-        Assert.Same(window.ShowRecipe(path), window.ShowRecipe(path));
+        Assert.Same(window.ShowRecipe(path)!, window.ShowRecipe(path)!);
         Assert.NotNull(Editor(window));
 
         Assert.True(await window.CloseProjectAsync());
@@ -4182,9 +4182,9 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
 
         var recipe = Path.Combine(_directory, "icons.recipe");
-        var editor = window.ShowRecipe(recipe);
+        var editor = window.ShowRecipe(recipe)!;
 
-        editor.Text = Recipe.Replace("hue", "tone", StringComparison.Ordinal);
+        editor.SetText(Recipe.Replace("hue", "tone", StringComparison.Ordinal));
         Dispatcher.UIThread.RunJobs();
 
         // Nothing is written. What the drawing is built through is the buffer, not the file.
@@ -4214,7 +4214,7 @@ public class MainWindowProjectTests : IDisposable
         var editor = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"));
         Dispatcher.UIThread.RunJobs();
 
-        editor.Text = "<recipe xmlns=\"https://svg.skia/expr/1.0\" />";
+        editor.SetText("<recipe xmlns=\"https://svg.skia/expr/1.0\" />");
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(editor.IsModified);

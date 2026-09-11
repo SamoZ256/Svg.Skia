@@ -87,7 +87,7 @@ public sealed class ReplacementsPanel : UserControl
 
         // Anything typed anywhere into the recipe changes what these rows say, including this
         // panel's own writes.
-        recipe.Document.TextChanged += (_, _) => Refresh();
+        recipe.Edited += (_, _) => Refresh();
 
         var panel = new DockPanel();
 

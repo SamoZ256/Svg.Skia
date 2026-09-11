@@ -4,8 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using Avalonia.Threading;
-using AvaloniaEdit.Document;
+using System.Text;
 using Svg.Expressions.Recipes;
 using Svg.SourceEditing;
 using Svg.Viewer.Skia.Avalonia;
@@ -13,92 +12,77 @@ using Svg.Viewer.Skia.Avalonia;
 namespace Svg.Studio;
 
 /// <summary>
-/// One open recipe: its text, and what the parser makes of it.
+/// One open recipe: its tree, and what the recipe reader makes of it.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The file the window is working on rather than one of the things it shows, the way
-/// <see cref="ProjectWorkspace"/> is. A recipe is edited from more than one place — as text in a tab
-/// of its own, and through the colours and parameters of a drawing under it — and two of those
-/// holding their own copy would disagree about what the file says the moment one of them was typed
-/// in. There is one buffer, and every view splices into it.
-///
-/// The buffer is AvaloniaEdit's own, so an edit made anywhere lands on the undo stack the editor
-/// shows and can be taken back there.
+/// <see cref="ProjectWorkspace"/> is. A recipe is edited from more than one place — through the
+/// colours and parameters of a drawing under it, and from its own tab — and two of those holding
+/// their own copy would disagree about what the file says the moment one of them was written to.
+/// There is one workspace, and every view commits into it.
+/// </para>
+/// <para>
+/// The tree is the truth and the text is what it writes, so the tab showing a recipe shows it
+/// rather than holding it. That is what makes a rule written from the colours pane and a parameter
+/// written from a drawing one thing to take back, and what makes the file come back off a save as
+/// the file it was, with the comments and the layout somebody gave it.
+/// </para>
+/// <para>
+/// There are two ways a recipe can be wrong and they are not the same gate. A file that is not well
+/// formed XML has no tree at all, and is refused by <see cref="Open"/> — a tab is not opened for it.
+/// A file that is well formed and not a recipe — a <c>&lt;defs&gt;</c> where none belongs, a rule
+/// with no expression — has a tree, opens, and says so through <see cref="Fault"/> while somebody
+/// puts it right from the panes.
+/// </para>
 /// </remarks>
 public sealed class RecipeWorkspace : ISvgViewerDeclarationTarget
 {
-    /// <summary>Waits for typing to stop before saying the recipe has changed.</summary>
-    /// <remarks>
-    /// Every drawing under a recipe is rebuilt when it changes, so a keystroke is far too often.
-    /// The same interval the viewer rebuilds a drawing from its source pane on.
-    /// </remarks>
-    private readonly DispatcherTimer _settle = new() { Interval = TimeSpan.FromMilliseconds(200d) };
+    private readonly SvgSourceWorkspace _workspace;
 
     /// <summary>Whether the parse below is out of date. Read again when somebody asks, not on the edit.</summary>
     /// <remarks>
-    /// Lazily, because both the tab showing the text and the window rebuilding the drawings ask
-    /// during the same keystroke: parsing where the change arrives would make one of them right and
-    /// the other a keystroke behind, depending on which subscribed first.
+    /// Lazily, because both the tab showing the recipe and the window rebuilding the drawings ask
+    /// during the same commit: parsing where the change arrives would make one of them right and the
+    /// other a gesture behind, depending on which subscribed first.
     /// </remarks>
     private bool _stale = true;
 
     private SvgRecipe? _recipe;
     private string? _fault;
-    private bool _modified;
 
-    public RecipeWorkspace(string path)
+    private RecipeWorkspace(string path, SvgSourceWorkspace workspace, bool byteOrderMark)
     {
-        Path = path ?? throw new ArgumentNullException(nameof(path));
+        Path = path;
+        ByteOrderMark = byteOrderMark;
+        _workspace = workspace;
 
-        string text;
-
-        try
-        {
-            text = File.ReadAllText(path);
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-        {
-            // Opened empty and saying why, rather than not opening: there is nowhere else to read
-            // the reason, and a recipe named by a project that is not there is worth seeing.
-            text = string.Empty;
-            _fault = failure.Message;
-            _stale = false;
-        }
-
-        Document = new TextDocument(text);
-        Document.UndoStack.MarkAsOriginalFile();
-
-        Document.TextChanged += (_, _) =>
+        _workspace.Changed += (_, _) =>
         {
             _stale = true;
 
-            // Posted, not called: AvaloniaEdit raises this before its undo stack has taken the edit,
-            // so the file still reads as unmodified here and a tab would never get its mark.
-            Dispatcher.UIThread.Post(Announce);
-
-            _settle.Stop();
-            _settle.Start();
-        };
-
-        _settle.Tick += (_, _) =>
-        {
-            _settle.Stop();
+            // One gesture, one rebuild. The timer this replaces waited for typing to stop, which is
+            // the right thing to wait for when a keystroke is the edit and the wrong one when a
+            // button somebody just pressed is.
             Edited?.Invoke(this, EventArgs.Empty);
         };
+
+        _workspace.ModifiedChanged += (_, modified) => ModifiedChanged?.Invoke(this, modified);
     }
 
-    /// <summary>The file this is the text of.</summary>
+    /// <summary>The file this is the recipe of.</summary>
     public string Path { get; }
 
-    /// <summary>The one buffer. Every view onto this recipe shows and edits this.</summary>
-    public TextDocument Document { get; }
+    /// <summary>Whether the file began with a byte order mark, so a save can put it back.</summary>
+    public bool ByteOrderMark { get; }
 
-    public string Text => Document.Text;
+    /// <summary>The recipe as text: what the tree writes.</summary>
+    public string Text => _workspace.Text;
 
-    /// <summary>Whether the text has edits that are not on disk.</summary>
-    public bool IsModified => !Document.UndoStack.IsOriginalFile;
+    /// <summary>Whether the recipe has edits that are not on disk.</summary>
+    public bool IsModified => _workspace.IsModified;
 
-    /// <summary>What the text comes to, or null when it would not read.</summary>
+    /// <summary>What the text comes to, or null when the recipe reader would not read it.</summary>
     public SvgRecipe? Recipe
     {
         get
@@ -110,12 +94,12 @@ public sealed class RecipeWorkspace : ISvgViewerDeclarationTarget
     }
 
     /// <summary>
-    /// Why the recipe would not read, or null.
+    /// Why the recipe reader would not read this, or null.
     /// </summary>
     /// <remarks>
-    /// Said rather than refused: half a recipe is what one looks like while it is being written, and
-    /// taking the text back between keystrokes would make it unwritable. The drawings under it go on
-    /// showing what the last readable version made of them.
+    /// Said rather than refused, because a recipe missing the thing it is about to be given is the
+    /// ordinary state of one being written from the panes: a parameter arrives before the rule that
+    /// names it. What is refused instead is text with no tree at all, which never gets this far.
     /// </remarks>
     public string? Fault
     {
@@ -127,20 +111,62 @@ public sealed class RecipeWorkspace : ISvgViewerDeclarationTarget
         }
     }
 
-    /// <summary>Raised once typing has stopped, for everything built from this recipe to follow.</summary>
+    /// <summary>Raised after a gesture, for everything built from this recipe to follow.</summary>
     public event EventHandler? Edited;
 
     /// <summary>Raised when <see cref="IsModified"/> changes, for a host that marks its tabs.</summary>
     public event EventHandler<bool>? ModifiedChanged;
 
+    /// <summary>Opens a recipe, or refuses with a sentence saying why it could not be.</summary>
+    /// <remarks>
+    /// A file that will not read has no tree to edit and nothing to show but itself, so it is not
+    /// opened and the reason is given to whoever asked. That is a change from holding it open and
+    /// empty with the reason under it: the cost is that a recipe broken by hand has to be put right
+    /// somewhere other than here.
+    /// </remarks>
+    public static RecipeWorkspace? Open(string path, out string? refusal)
+    {
+        if (path is null)
+        {
+            throw new ArgumentNullException(nameof(path));
+        }
+
+        string text;
+
+        try
+        {
+            text = File.ReadAllText(path);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            refusal = failure.Message;
+
+            return null;
+        }
+
+        if (SvgSourceWorkspace.Open(text, out refusal) is not { } workspace)
+        {
+            return null;
+        }
+
+        return new RecipeWorkspace(path, workspace, workspace.Document.ByteOrderMark);
+    }
+
     /// <summary>
-    /// Puts an edit into the buffer, wherever it was worked out.
+    /// Runs one edit against the recipe, or says why it could not be made.
     /// </summary>
     /// <remarks>
-    /// The one way in for everything structured: the colours pane writes a rule this way and the
-    /// viewer's parameter panel writes a declaration, and both land as one step on the stack the
-    /// text tab shows. Nothing here decides what an edit means — it is spans by the time it arrives.
+    /// The one way in for everything structured: the colours pane writes a rule this way and a
+    /// drawing's parameter panel writes a declaration, and both are one thing to take back.
     /// </remarks>
+    public string? Commit(string label, Func<SvgSourceDocument, string?> edit)
+        => _workspace.Commit(label, edit);
+
+    /// <inheritdoc cref="Commit(string, Func{SvgSourceDocument, string?})"/>
+    public string? Commit(string label, Func<string, string> rewrite)
+        => _workspace.Commit(label, rewrite);
+
+    /// <inheritdoc />
     public bool Apply(IReadOnlyList<SvgTextEdit> edits)
     {
         if (edits is null)
@@ -148,69 +174,30 @@ public sealed class RecipeWorkspace : ISvgViewerDeclarationTarget
             throw new ArgumentNullException(nameof(edits));
         }
 
-        if (edits.Count == 0)
-        {
-            return false;
-        }
-
-        Document.BeginUpdate();
-
-        try
-        {
-            // Back to front, so an earlier edit does not move the ones after it.
-            for (var index = edits.Count - 1; index >= 0; index--)
-            {
-                var edit = edits[index];
-
-                Document.Replace(edit.Position, edit.Length, edit.Text);
-            }
-        }
-        finally
-        {
-            Document.EndUpdate();
-        }
-
-        return true;
+        return edits.Count > 0
+               && _workspace.Commit("edit the recipe", text => SvgTextEdit.ApplyAll(text, edits)) is null;
     }
 
-    /// <summary>Takes back the last edit, or puts it back.</summary>
+    /// <summary>Takes back the last gesture, or puts it back.</summary>
     /// <remarks>
-    /// The stack the text tab shows, so an edit made from a drawing's panes and one typed into the
-    /// recipe are taken back the same way and in the order they were made.
+    /// One history however it was written, so a rule from the colours pane and a parameter from a
+    /// drawing are taken back in the order they were made.
     /// </remarks>
-    public bool Undo()
-    {
-        if (!Document.UndoStack.CanUndo)
-        {
-            return false;
-        }
-
-        Document.UndoStack.Undo();
-
-        return true;
-    }
+    public bool Undo() => _workspace.Undo();
 
     /// <inheritdoc cref="Undo"/>
-    public bool Redo()
-    {
-        if (!Document.UndoStack.CanRedo)
-        {
-            return false;
-        }
+    public bool Redo() => _workspace.Redo();
 
-        Document.UndoStack.Redo();
-
-        return true;
-    }
-
-    /// <summary>Writes the text to the file.</summary>
+    /// <summary>Writes the recipe to its file.</summary>
+    /// <remarks>
+    /// In the encoding it arrived in, so a byte order mark survives — which it did not before, since
+    /// the buffer was written out with a plain WriteAllText.
+    /// </remarks>
     public void Save()
     {
-        File.WriteAllText(Path, Document.Text);
+        File.WriteAllText(Path, _workspace.Text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: ByteOrderMark));
 
-        Document.UndoStack.MarkAsOriginalFile();
-
-        Announce();
+        _workspace.MarkSaved();
     }
 
     private void Parse()
@@ -224,9 +211,9 @@ public sealed class RecipeWorkspace : ISvgViewerDeclarationTarget
 
         try
         {
-            // The parser the build uses, not a second opinion about the format: a message here the
+            // The reader the build uses, not a second opinion about the format: a message here the
             // build did not agree with would be worse than no message at all.
-            _recipe = SvgRecipe.Parse(Document.Text);
+            _recipe = SvgRecipe.Parse(_workspace.Text);
             _fault = null;
         }
         catch (SvgRecipeException failure)
@@ -234,18 +221,5 @@ public sealed class RecipeWorkspace : ISvgViewerDeclarationTarget
             _recipe = null;
             _fault = failure.Message;
         }
-    }
-
-    private void Announce()
-    {
-        var modified = IsModified;
-
-        if (modified == _modified)
-        {
-            return;
-        }
-
-        _modified = modified;
-        ModifiedChanged?.Invoke(this, modified);
     }
 }

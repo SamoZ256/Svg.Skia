@@ -75,11 +75,14 @@ public sealed class RecipePanel : UserControl
 
         _editor.TextArea.TextView.LineTransformers.Add(_colorizer);
 
-        // The workspace's buffer, not one of its own. An edit made anywhere else in the window
-        // arrives here as a keystroke does, and is taken back on the stack this editor shows.
-        _editor.Document = workspace.Document;
-        _editor.TextChanged += (_, _) => Edited();
+        // A view of the recipe rather than where it is edited: the truth is the workspace's tree,
+        // and this shows what that writes. Replaced outright on every gesture, because nothing is
+        // being typed here and what it showed a moment ago is of no interest.
+        _editor.IsReadOnly = true;
 
+        Show();
+
+        workspace.Edited += (_, _) => Show();
         workspace.ModifiedChanged += (_, modified) => ModifiedChanged?.Invoke(this, modified);
 
         // A control does not know its theme until it is in a tree with one, and this is built before
@@ -99,6 +102,15 @@ public sealed class RecipePanel : UserControl
         Check();
     }
 
+    /// <summary>Shows what the recipe now says, and says what is wrong with it.</summary>
+    private void Show()
+    {
+        _editor.Document = new AvaloniaEdit.Document.TextDocument(Workspace.Text);
+
+        Colour();
+        Check();
+    }
+
     /// <summary>What a relative include is read against, which nothing here writes one of.</summary>
     private static readonly Uri Home = new("avares://Svg.Studio/");
 
@@ -108,17 +120,16 @@ public sealed class RecipePanel : UserControl
     /// <summary>The file this is showing.</summary>
     public string Path => Workspace.Path;
 
-    /// <summary>What the editor is holding, which is what a save would write.</summary>
+    /// <summary>The recipe as text: what the tree writes, which is what a save would put down.</summary>
+    public string Text => Workspace.Text;
+
+    /// <summary>Replaces the whole recipe, as one thing to take back.</summary>
     /// <remarks>
-    /// Set through the document rather than through the editor, because <c>TextEditor.Text</c>
-    /// clears the undo stack: written that way there was nothing to take back afterwards, which is
-    /// not what setting the text of an open file means.
+    /// How text arrives from outside now that the pane is a view: a host reverting a file, or a test
+    /// standing in for somebody who edited it elsewhere. Refused where it would not read back.
     /// </remarks>
-    public string Text
-    {
-        get => Workspace.Text;
-        set => Workspace.Document.Text = value ?? string.Empty;
-    }
+    public bool SetText(string recipeText)
+        => Workspace.Commit("edit the recipe", (string _) => recipeText ?? string.Empty) is null;
 
     /// <summary>Whether the text has edits that are not on disk.</summary>
     public bool IsModified => Workspace.IsModified;
@@ -134,10 +145,10 @@ public sealed class RecipePanel : UserControl
     /// The window asks rather than the editor answering the keystroke itself: a menu item's gesture
     /// belongs to the window, so Undo is taken there before AvaloniaEdit can see it.
     /// </remarks>
-    public bool Undo() => _editor.CanUndo && _editor.Undo();
+    public bool Undo() => Workspace.Undo();
 
     /// <inheritdoc cref="Undo"/>
-    public bool Redo() => _editor.CanRedo && _editor.Redo();
+    public bool Redo() => Workspace.Redo();
 
     /// <inheritdoc cref="Svg.Viewer.Skia.Avalonia.SvgViewer.FindInSource"/>
     /// <remarks>No pane to open first: here the editor is the tab.</remarks>
