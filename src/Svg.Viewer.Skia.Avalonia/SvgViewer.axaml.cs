@@ -834,6 +834,29 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // having nothing to say. The panel leaves identical rows alone, so this costs a comparison.
         _panel.Parameters = _rows;
         _panel.ShowLets(document.Declarations.Lets);
+        // Only where the panel has no row to show, which is the only time it shows the sentence:
+        // reading the declarations again is 1.3ms at 70KB and 14.6ms at 721KB, and a drawing whose
+        // parameters are fine would be paying that on every gesture for something nobody sees.
+        _panel.Trouble = _rows.Count == 0 ? DeclarationTrouble() : null;
+    }
+
+    /// <summary>
+    /// What the declarations reader refused, as one sentence, or null.
+    /// </summary>
+    /// <remarks>
+    /// Asked of the reader rather than sifted out of <see cref="SourceDiagnostics"/>: a diagnostic
+    /// is a range and a message, and deciding from a range whether it lands in the declarations
+    /// block is arithmetic that would be wrong the first time a block moved. The reader knows.
+    ///
+    /// The first of them. A block with three mistakes has three diagnostics and one line to say
+    /// them on, and the count on the status line is what says there are more. A refusal that leaves
+    /// other parameters standing has a row list to show and is not said here at all — the count is.
+    /// </remarks>
+    private string? DeclarationTrouble()
+    {
+        SvgExpressionDeclarations.Parse(Source, out var declared);
+
+        return declared.Count > 0 ? declared[0].Message : _document?.DeclarationError;
     }
 
     /// <summary>Whether a row already standing was built from this declaration.</summary>

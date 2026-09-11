@@ -11,6 +11,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
@@ -845,11 +846,81 @@ public class SvgViewerTests
 
         Dispatcher.UIThread.RunJobs();
 
-        // The mark is drawn rather than decorated, so what is asserted is where it is drawn: the
-        // span the pane holds, resolved against the text it is showing.
+        // A range into the drawing's own text, which is what a host keying anything to a position
+        // needs: the word and no more of it.
         var one = Assert.Single(viewer.SourceDiagnostics);
 
         Assert.Equal("tnit", viewer.Source.Substring(one.Start, one.Length));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Mistyped_Name_Is_Said_On_The_Attribute_Row_That_Holds_It()
+    {
+        // Where the squiggle used to be. The panel judges what a row says against the declarations
+        // in scope, so the sentence is the same one the analyser files against the span.
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync(Mistyped));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Elements.TrySelect("1"));
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = viewer.GetLogicalDescendants().OfType<SvgViewerElementPanel>().Single();
+
+        Assert.Equal("{{ tnit }}", panel.Shown("fill"));
+
+        var said = panel.GetLogicalDescendants().OfType<TextBlock>()
+            .Where(block => block.IsVisible && block.Text is { })
+            .Select(block => block.Text!)
+            .ToList();
+
+        Assert.Contains(said, text => text.Contains("tnit", StringComparison.Ordinal));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Refused_Declaration_Is_Said_Where_Its_Row_Would_Have_Been()
+    {
+        // "This drawing declares no parameters" was a lie about a file that declares one: the row is
+        // missing because the declaration was refused, and nothing said so once the pane went.
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync(BadlyDeclared));
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = viewer.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
+
+        Assert.Empty(viewer.Parameters);
+        Assert.NotNull(panel.Trouble);
+        Assert.Contains("min, max or step", panel.Trouble!, StringComparison.Ordinal);
+
+        var empty = panel.GetVisualDescendants().OfType<TextBlock>().Single(block => block.Name == "EmptyLabel");
+
+        Assert.True(empty.IsVisible);
+        Assert.Equal(panel.Trouble, empty.Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_That_Declares_Nothing_Still_Says_So_Plainly()
+    {
+        var (window, viewer) = Host();
+
+        Assert.True(await viewer.LoadTextAsync(Plain));
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = viewer.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
+
+        Assert.Null(panel.Trouble);
+
+        var empty = panel.GetVisualDescendants().OfType<TextBlock>().Single(block => block.Name == "EmptyLabel");
+
+        Assert.Equal("This drawing declares no parameters.", empty.Text);
 
         window.Close();
     }
