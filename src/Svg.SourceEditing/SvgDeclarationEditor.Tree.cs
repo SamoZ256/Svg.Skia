@@ -339,6 +339,18 @@ public static partial class SvgDeclarationEditor
             return existing;
         }
 
+        // A recipe holds its declarations directly. <defs> belongs to SVG, and writing one into a
+        // recipe makes a file the recipe reader refuses — after which every drawing built through
+        // that recipe silently stops following it, with nothing about either file looking wrong.
+        if (root.Name == Ns + "recipe")
+        {
+            var own = new XElement(Ns + "code");
+
+            SvgElementEditor.First(root, own, SvgElementEditor.Indent(root) + source.IndentUnit);
+
+            return own;
+        }
+
         var defs = root.Elements().FirstOrDefault(element => element.Name == root.Name.Namespace + "defs");
 
         if (defs is null)

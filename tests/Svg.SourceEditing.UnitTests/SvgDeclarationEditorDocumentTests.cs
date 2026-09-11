@@ -136,6 +136,33 @@ public class SvgDeclarationEditorDocumentTests
     }
 
     [Fact]
+    public void A_Recipe_Holds_Its_Declarations_Directly_And_Not_In_A_Defs()
+    {
+        // <defs> belongs to SVG. Writing one into a recipe makes a file the recipe parser refuses,
+        // and every drawing built through that recipe then silently stops following it — so this is
+        // the shape the span half has always written, and the tree half has to write it too.
+        var svgText = Svg("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <recipe xmlns="EXPR-NS">
+            </recipe>
+            """);
+
+        var source = Read(svgText);
+
+        Assert.Null(SvgDeclarationEditor.Add(source, Number("hue", "217")));
+
+        var written = source.ToText();
+
+        Assert.DoesNotContain("defs", written);
+        Assert.Equal("217", Declared(written, "hue").DefaultExpression);
+
+        // Directly under the root, which is what the recipe reader expects to find.
+        var root = SvgSourceDocument.Read(written, out _)!.Document.Root!;
+
+        Assert.Single(root.Elements(), element => element.Name.LocalName == "code");
+    }
+
+    [Fact]
     public void A_Drawing_Written_With_Tabs_Declares_With_Tabs()
     {
         const string svgText = "<svg xmlns=\"http://www.w3.org/2000/svg\">\n\t<rect />\n</svg>";
