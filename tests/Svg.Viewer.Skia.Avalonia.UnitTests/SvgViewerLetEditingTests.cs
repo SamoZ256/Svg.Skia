@@ -136,7 +136,7 @@ public class SvgViewerLetEditingTests
         Assert.Equal(new[] { "deep", "deeper" }, viewer.Lets.Select(let => let.Name).ToArray());
 
         // Below the let it names, in the drawing's own text.
-        Assert.Contains("""<e:let name="deeper">mix(deep, #000000, 0.5)</e:let>""", Pane(viewer).Text);
+        Assert.Contains("""<e:let name="deeper">mix(deep, #000000, 0.5)</e:let>""", viewer.Source);
 
         window.Close();
     }
@@ -157,7 +157,7 @@ public class SvgViewerLetEditingTests
         Assert.False(viewer.CommitLet(draft));
         await Settle();
 
-        Assert.DoesNotContain("unfinished", Pane(viewer).Text);
+        Assert.DoesNotContain("unfinished", viewer.Source);
         Assert.False(viewer.IsSourceModified);
 
         window.Close();
@@ -177,7 +177,7 @@ public class SvgViewerLetEditingTests
         Assert.True(viewer.CommitLet(row));
         await Settle();
 
-        var text = Pane(viewer).Text;
+        var text = viewer.Source;
 
         Assert.Contains("""<e:let name="shadow">""", text);
         Assert.Contains("{{ shadow }}", text);
@@ -198,7 +198,7 @@ public class SvgViewerLetEditingTests
         Assert.True(viewer.CommitLet(row));
         await Settle();
 
-        Assert.Contains("""<e:let name="deep">mix(tint, #ffffff, 0.5)</e:let>""", Pane(viewer).Text);
+        Assert.Contains("""<e:let name="deep">mix(tint, #ffffff, 0.5)</e:let>""", viewer.Source);
 
         // Read back from the drawing rather than from the row: what matters is that the picture was
         // rebuilt from the edited text.
@@ -371,7 +371,7 @@ public class SvgViewerLetEditingTests
         await Settle();
 
         Assert.Equal(new[] { "a" }, viewer.Lets.Select(let => let.Name).ToArray());
-        Assert.DoesNotContain("tau / 3", Pane(viewer).Text);
+        Assert.DoesNotContain("tau / 3", viewer.Source);
 
         window.Close();
     }
@@ -388,7 +388,7 @@ public class SvgViewerLetEditingTests
         await Settle();
 
         Assert.Contains(viewer.Lets, let => let.Name == "a");
-        Assert.Contains("{{ a }}", Pane(viewer).Text);
+        Assert.Contains("{{ a }}", viewer.Source);
         Assert.False(viewer.IsSourceModified);
 
         window.Close();
@@ -453,7 +453,7 @@ public class SvgViewerLetEditingTests
         await Settle();
 
         Assert.Equal(string.Empty, Note(viewer));
-        Assert.Contains("{{ shadow }}", Pane(viewer).Text);
+        Assert.Contains("{{ shadow }}", viewer.Source);
 
         window.Close();
     }

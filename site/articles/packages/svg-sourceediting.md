@@ -4,10 +4,10 @@ title: "Svg.SourceEditing"
 
 # Svg.SourceEditing
 
-`Svg.SourceEditing` changes what an SVG document declares by replacing spans of the document's own
-text. It adds a parameter to an `<e:code>` block, or writes what one of them says, and gives back the
-spans to replace rather than a rewritten file. It draws nothing and knows no UI framework; it is what
-`Svg.Viewer.Skia.Avalonia`'s parameter panel edits through.
+`Svg.SourceEditing` holds an SVG document as a tree that writes back as the file it was read from,
+and edits it. It adds a parameter to an `<e:code>` block, moves an element, writes an attribute — and
+what comes out is the file with the edit in it and nothing else changed. It draws nothing and knows
+no UI framework; it is what `Svg.Viewer.Skia.Avalonia` edits through.
 
 It depends on `Svg.Expressions` alone — for the declarations it edits, the rules it validates
 against, and the position map that says where in the text each of them was written.
@@ -23,7 +23,7 @@ dotnet add package Svg.SourceEditing
 - you want to add or change a parameter from a GUI and still show the file somebody wrote,
 - you are editing a document that a person also edits by hand, and the two have to be the same
   document,
-- you want an edit that lands on a text editor's undo stack rather than replacing its buffer.
+- you want one entry to take back per gesture, however many attributes or elements it moved.
 
 ## Main types
 
@@ -32,30 +32,59 @@ dotnet add package Svg.SourceEditing
 | `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `MoveParameter` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
 | `SvgRecipeRuleEditor` | `SetRule` and `RemoveRule` for an svgc recipe's replacement rules — the half of a recipe that is not declarations |
 | `SvgAttributeEditor` | `SetAttribute` on any element, named by its address, and `Attributes` to read what one is written with |
+| `SvgSourceDocument` | A drawing as a tree, `Read` from text and written back by `ToText` |
+| `SvgSourceWorkspace` | That drawing and its history: `Commit`, `Undo`, `Redo`, `IsModified`, `MarkSaved` |
+| `SvgElementEditor` | `Move` an element to where a drop puts it, and `NewGroup` to put things in |
 | `SvgTextEdit` | One span to replace, and `ApplyAll` for a caller holding only a string |
 | `SvgSourceEditResult` | The spans, or why nothing can be done |
 
-## Why spans and not a document
+Every editor has two halves: one that writes the tree and answers a refusal or null, and one that
+measures spans against text. The first is what a host with a document uses. The second remains
+because a drawing under an svgc recipe has its declarations written into the recipe instead, which is
+a different file with a text buffer of its own.
 
-The obvious way to do this is to parse the drawing, change the tree, and write it back. It works, and
-it is measurably wrong for a file somebody is looking at.
+## Why a tree, and why not the SVG one
 
-Feeding an eleven-line parametric drawing through `SvgDocument` and `Write` gives back a document
-that still renders identically — `#3c83f5` before and after, with `hue = 217` — because foreign
-attributes are keyed by namespace URI and read back into the key the pipeline uses. What it also
-does, to a file nobody asked to reformat:
+The obvious way to do this is to parse the drawing with the SVG reader, change the tree, and write it
+back. It renders identically — and it is measurably wrong for a file somebody is looking at.
 
-- **every comment is gone**, because the SVG reader's node switch has no case for them,
-- `fill="{{ primary }}"` becomes `style="fill:gray;"` and `e:fill="primary"`,
-- a `<!DOCTYPE>`, `version="1.1"`, `xmlns:xlink`, `xmlns:xml` and a comma-separated `viewBox` appear.
+- **Every comment is gone**, because the SVG reader's node switch has no case for them: a comment is
+  not dropped on the way out, it is never modelled.
+- `fill="{{ primary }}"` becomes `style="fill:gray;"` and `e:fill="primary"`.
+- A `<!DOCTYPE>`, `version="1.1"`, `xmlns:xlink`, `xmlns:xml` and a comma-separated `viewBox` appear.
 
-The drawing survives all of that. The file does not. So an edit here is a splice: everything outside
-the spans is untouched, byte for byte.
+So the tree is an `XDocument`. Comments are nodes, an attribute's value is the string it was written
+as — `{{ }}` and all — and the order somebody put the attributes in is the order they come back in.
 
-The same choice is what makes undo work. Handing a host a whole new document forces it to assign the
-text wholesale, which resets the caret, the scroll and the undo stack. A span goes through the
-editor's own replace, and a parameter added from a panel comes off the undo stack in the order it was
-done, among the lines that were typed by hand.
+That alone is not enough. Measured over the 2,988 drawings in the two suites, re-serialising an
+`XDocument` the ordinary way returned **28** of them unchanged. XML says nothing about the whitespace
+inside a start tag, so attributes written one to a line come back on one line and `<rect/>` comes back
+as `<rect />`; and a parser must fold CRLF to LF before the tree ever sees it, so every line of a file
+written on Windows changes.
+
+So a tag is remembered rather than regenerated. Each element keeps the bytes of the start tag it was
+read as, along with where each value sits inside it, and writes those bytes back — splicing a changed
+value over the old one, cutting a removed attribute out with the whitespace in front of it, and
+putting a new one in before the close. Runs of text are kept the same way, because a parser resolves
+`&gt;` to the character and says nothing about which of the two the file used.
+
+**2,980 of 2,988 come back byte for byte.** The eight that do not declare entities of their own,
+which a reader expands with no node left to write back; those are refused rather than mangled. The
+contract is that what it reads, it writes back exactly.
+
+## One thing to take back per gesture
+
+`SvgSourceWorkspace` is the history. A commit is the whole of what somebody did — a resize writes
+three attributes and is one thing to take back — and a step is reversed by reading the drawing's own
+text back.
+
+Reversing by snapshot is usually the wrong answer, and it is the right one here for two reasons.
+`ToText` is byte-faithful, so the text is a lossless record of the tree rather than an approximation
+of it: the annotations that carry the author's bytes are rebuilt from the author's bytes, which is
+why undo returns the file and not merely something that renders like it. And an edit needs the text
+it started from anyway — a declaration can only be checked against the language's rules after the
+tree has been changed, and one of those checks needs the state before it — so a refusal must already
+be able to put a half-made edit back. Rollback and undo are one mechanism instead of two.
 
 ## It decides nothing about what is legal
 

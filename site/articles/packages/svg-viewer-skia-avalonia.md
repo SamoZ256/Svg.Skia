@@ -140,15 +140,11 @@ what is declared above it and nothing below. A drag is held inside the positions
 there is nothing to refuse; `MoveLet` refuses anyway, since the document reads back perfectly well
 either way and only type checking can tell.
 
-All of them go through the source pane's text buffer rather than around it, so the undo stack is the one
-history of the document: a parameter added from the panel and a line typed into the pane come off it
-in the order they were done, and an addition that had to declare a namespace and open a block is
-three spans and one undo step.
-
-Neither needs the pane to be open — the buffer and the pane are separate things, so an edit made with
-the pane closed still marks the document modified and still saves. What the pane shows afterwards is
-the file as it was, with one line added: every comment and every placeholder where the author left
-them.
+All of them go through the drawing's own history, so there is one record of what was done: an
+addition that had to declare a namespace and open a block is one thing to take back, and so is a
+resize that wrote three attributes. Nothing needs the pane to be open, because the pane shows the
+drawing rather than holding it. What it shows afterwards is the file as it was, with one line added:
+every comment and every placeholder where the author left them.
 
 `ParameterDialogService` is how the form is asked for, replaceable for the reason `FileDialogService`
 is. `SvgParameterFormView` is the form itself, a plain control, for a host that wants to ask its own
@@ -179,11 +175,13 @@ The pane is an [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit) editor
 so **a selection can cross a line** and the text can be taken away whole. You need nothing in your
 `App.axaml`: AvaloniaEdit supplies its own theme, and the viewer carries the style include regardless.
 
-**It is editable.** Type, and the drawing follows a fifth of a second after you stop — the whole
-document is re-read each time, which costs about 43ms for a 132KB drawing, so nothing is incremental
-and nothing is stale. Half-typed markup does not parse, and that is the ordinary case: the picture
-you already have stays up while the marks move to what is now wrong. Undo, redo and find come with
-the editor.
+**It shows the drawing; it is not where the drawing is edited.** The truth is a tree, and the text
+is what that tree writes, so the pane is read-only and always says exactly what the drawing says —
+the two cannot drift apart, and a row can never be revealed on the wrong line. `SetSource` is how
+text arrives from outside: it is an edit like any other, one entry on the history, and text that will
+not read back is refused rather than held. Undo and redo reach the drawing's history, so the gesture
+means the last thing you did rather than the last thing that was typed here. Find comes with the
+editor.
 
 `IsSourceModified` says whether there are edits not on disk and `SourceModifiedChanged` announces it;
 `SaveSourceAsync` writes them back, asking through `FileDialogService` when the drawing has no file
@@ -191,9 +189,10 @@ of its own. In `src/Svg.Studio` that is Cmd/Ctrl+S, a dot on the tab, and a prom
 throws work away — closing a tab asks about that drawing, closing the window asks once about every
 unsaved one it is holding. The control raises, the host decides, the same way opening works.
 
-Two rules worth knowing. A drawing too large to show whole is **read-only**: the pane holds a cut
-copy, and saving that would behead the file. And a save keeps the byte order mark the file arrived
-with, so nothing changes in a part of it you did not edit.
+A save keeps the byte order mark the file arrived with, and nothing changes in a part of it you did
+not edit — the writer remembers the bytes of every tag it read and replays them, splicing only the
+values that changed. There is no longer a size at which a drawing becomes read-only: that limit
+existed because the pane had to hold the text, and it does not hold anything now.
 
 There is no size at which colouring gives up, because only the lines on screen are ever coloured: a
 132KB drawing of 340 lines opens in 102ms. What that does not bound is a single enormous *line* — a
@@ -276,8 +275,9 @@ Three things are worth knowing before relying on it:
   rather than an approximation of one.
 - **Not everything can be shown in the text.** The tree comes from the parsed document and the spans
   come from a second reading of the file (`SvgSourceElements`), and the two are checked against each
-  other by name before the caret moves. A disagreement, or a drawing too large for the pane to hold,
-  means nothing happens rather than a jump to the wrong line.
+  other by name before the caret moves. Under a recipe the drawing has rows its file has never heard
+  of, and those are the disagreement that remains; a half-typed document is no longer one of them,
+  since text that will not read back never becomes the drawing.
 - **A `<use>` has one row, not one per use.** What is listed is what is written. Picking the
   definition rings it everywhere it is drawn, and clicking any of those copies selects that one row.
 
@@ -314,10 +314,11 @@ pair and the opposite choice — it rewrites the drawing's own text.
 `Rewrite` is the second such seam, and goes further: the drawing built is not the file at all. Studio
 sets it to a project's recipe, so what is on screen is the document `svgc` compiles — colours turned
 into expressions, and the recipe's parameters declared. Everything else still works from the file:
-the source pane shows it, edits it and saves it, and every rebuild while somebody types goes back
-through the rewrite. Because the declarations then belong to the recipe rather than to the drawing,
-a host sets `DeclarationTarget` to say where the parameter panel should write: its commands all
-splice into a document's text, and the one they mean is the recipe's. Left unset they go into the
+the source pane shows it and a save writes it, and every rebuild goes back through the rewrite.
+Because the declarations then belong to the recipe rather than to the drawing, a host sets
+`DeclarationTarget` to say where the parameter panel should write: the recipe is a different file
+with a text buffer of its own, which is why those commands still measure spans while the drawing's
+own editors write its tree. Left unset they go into the
 drawing, which is what a drawing declaring for itself wants — and what a recipe refuses to be
 applied to. `Notice` is where a host says a rewrite could not be
 set up at all; it appears on the status line beside the viewer's own count of what is wrong.

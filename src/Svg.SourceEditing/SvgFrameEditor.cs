@@ -56,6 +56,44 @@ public static class SvgFrameEditor
         return edits.Count == 0 ? SvgSourceEditResult.Nothing : SvgSourceEditResult.From(edits);
     }
 
+    /// <inheritdoc cref="SetFrame(string, string?, string?, string?)"/>
+    /// <returns>The sentence refusing the resize, or null where it was made.</returns>
+    /// <remarks>
+    /// The root is the tag in a drawing most likely to have been laid out by hand, one attribute to
+    /// a line, and a resize writes three of its attributes at once — so this is the first place a
+    /// writer that regenerated a tag instead of writing over its values would be noticed.
+    /// </remarks>
+    public static string? SetFrame(SvgSourceDocument source, string? width, string? height, string? viewBox)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (source.Document.Root is not { } root)
+        {
+            return "This drawing has no root element to resize.";
+        }
+
+        // Null leaves the attribute alone, which is not the same as SetAttributeValue's null.
+        if (width is { })
+        {
+            root.SetAttributeValue("width", width);
+        }
+
+        if (height is { })
+        {
+            root.SetAttributeValue("height", height);
+        }
+
+        if (viewBox is { })
+        {
+            root.SetAttributeValue("viewBox", viewBox);
+        }
+
+        return null;
+    }
+
     private static void Write(
         string svgText,
         XElement root,

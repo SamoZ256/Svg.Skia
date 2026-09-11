@@ -261,4 +261,28 @@ public class SvgViewerElementPanelTests
 
         Assert.Contains("""<rect fill="#00ff00" />""", held.Text);
     }
+
+    [AvaloniaFact]
+    public void A_Prefixed_Attribute_Is_Written_As_Itself_Rather_Than_Twice()
+    {
+        // Reading xlink:href back as href and then writing href is how a drawing comes to hold
+        // both, pointing two ways at once, with the panel reporting that it worked.
+        const string drawing = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+              <use xlink:href="#a" x="1" />
+            </svg>
+            """;
+
+        var held = new Held(drawing);
+        var window = held.Show("0");
+
+        Assert.Contains("xlink:href", held.Panel.Attributes);
+
+        Assert.True(held.Panel.Set("xlink:href", "#b"));
+
+        Assert.Contains("""<use xlink:href="#b" x="1" />""", held.Text);
+        Assert.DoesNotContain(" href=", held.Text);
+
+        window.Close();
+    }
 }

@@ -179,7 +179,7 @@ public class MainWindowExportTests
 
         var edited = Drawing.Replace("#00ff00", "#ff0000");
 
-        window.GetVisualDescendants().OfType<AvaloniaEdit.TextEditor>().First().Document.Text = edited;
+        window.GetVisualDescendants().OfType<SvgViewer>().First().SetSource(edited);
         Dispatcher.UIThread.RunJobs();
 
         try

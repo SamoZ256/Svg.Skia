@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.Linq;
+using System.Text;
 using Xunit;
 
 namespace Svg.Highlighting.UnitTests;
@@ -221,5 +223,30 @@ public class SvgSourceHighlighterTests
 
             Assert.Equal(string.Concat(line.Tokens.Select(t => t.Text)), slice.TrimEnd('\r'));
         }
+    }
+
+    [Fact]
+    public void A_Large_Drawing_Is_Split_In_Time_Somebody_Would_Wait()
+    {
+        // Matching against source[open..] copied the whole of the rest of the document once per
+        // tag, which is quadratic and invisible on anything hand-written: 2MB took three and a half
+        // seconds and a 23MB drawing took nine minutes, on the thread drawing the window. The
+        // budget here is loose on purpose — what it catches is an order of magnitude, not a factor.
+        var drawing = new StringBuilder("<svg xmlns=\"http://www.w3.org/2000/svg\">\n");
+
+        for (var index = 0; index < 128_000; index++)
+        {
+            drawing.Append("  <rect x=\"").Append(index).Append("\" width=\"10\" fill=\"#c0392b\" />\n");
+        }
+
+        var source = drawing.Append("</svg>\n").ToString();
+        var clock = Stopwatch.StartNew();
+
+        var tokens = SvgSourceHighlighter.Tokenize(source);
+
+        Assert.NotEmpty(tokens);
+        Assert.True(
+            clock.Elapsed < TimeSpan.FromSeconds(20d),
+            $"Splitting {source.Length / 1024 / 1024}MB took {clock.Elapsed.TotalSeconds:F1}s, which is the shape of a quadratic scan.");
     }
 }

@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Xml;
 using System.Xml.Linq;
 using Svg.Expressions;
 
@@ -151,6 +152,127 @@ public static class SvgAttributeEditor
             : SvgSourceEditResult.Nothing;
     }
 
+    /// <inheritdoc cref="Contains(string, string)"/>
+    public static bool Contains(SvgSourceDocument source, string addressKey)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (addressKey is null)
+        {
+            throw new ArgumentNullException(nameof(addressKey));
+        }
+
+        return Resolve(source.Document, addressKey) is { };
+    }
+
+    /// <inheritdoc cref="Attributes(string, string)"/>
+    public static IReadOnlyList<SvgSourceAttribute> Attributes(SvgSourceDocument source, string addressKey)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (addressKey is null)
+        {
+            throw new ArgumentNullException(nameof(addressKey));
+        }
+
+        return Resolve(source.Document, addressKey) is not { } element
+            ? Array.Empty<SvgSourceAttribute>()
+            : element.Attributes()
+                .Where(attribute => !attribute.IsNamespaceDeclaration)
+                .Select(attribute => new SvgSourceAttribute(Spelling(attribute), attribute.Value))
+                .ToList();
+    }
+
+    /// <inheritdoc cref="SetAttribute(string, string, string, string?)"/>
+    /// <returns>The sentence refusing the edit, or null where it was made.</returns>
+    /// <remarks>
+    /// Writing the tree rather than the text it was read from. What the file looks like afterwards
+    /// is <see cref="SvgSourceDocument"/>'s to answer, and it writes the value over the old one
+    /// rather than the tag over the tag, so the layout somebody gave the element survives.
+    /// </remarks>
+    public static string? SetAttribute(
+        SvgSourceDocument source,
+        string addressKey,
+        string attributeName,
+        string? value)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (addressKey is null)
+        {
+            throw new ArgumentNullException(nameof(addressKey));
+        }
+
+        var name = (attributeName ?? throw new ArgumentNullException(nameof(attributeName))).Trim();
+
+        if (name.Length == 0)
+        {
+            return "An edit has to name an attribute.";
+        }
+
+        // Not an attribute of the element in the sense anybody edits, and taking one away would
+        // leave every name under it standing for something else -- a root written back without its
+        // xmlns reads as a different document, and nothing about it would look wrong.
+        if (name == "xmlns" || name.StartsWith("xmlns:", StringComparison.Ordinal))
+        {
+            return "A namespace declaration is not something to edit here.";
+        }
+
+        if (Resolve(source.Document, addressKey) is not { } element)
+        {
+            return "That element is no longer in the drawing.";
+        }
+
+        // A style declaration beats the presentation attribute under it, so writing the attribute
+        // would leave a document where the change paints nothing. Editing inside the declaration is
+        // another matter and not one this can reach.
+        if (Shadowed(element, name))
+        {
+            return $"'{name}' is set in this element's style attribute, which wins over the attribute. Change it there instead.";
+        }
+
+        // A prefix stands for a namespace, and an attribute named for one is that attribute rather
+        // than a second one beside it: writing href on a <use> that has xlink:href would otherwise
+        // add a second href and leave the drawing pointing two ways at once.
+        var colon = name.IndexOf(':');
+
+        if (colon > 0 && element.GetNamespaceOfPrefix(name.Substring(0, colon)) is null)
+        {
+            return $"This drawing does not say what '{name.Substring(0, colon)}' stands for, so '{name}' cannot be written.";
+        }
+
+        try
+        {
+            // Inside, because naming the attribute is itself what rejects a name XML will not take.
+            var written = colon > 0
+                ? element.GetNamespaceOfPrefix(name.Substring(0, colon))! + name.Substring(colon + 1)
+                : XName.Get(name);
+
+            element.SetAttributeValue(written, value);
+        }
+        catch (XmlException)
+        {
+            // Splicing text would have written this and left a document that no longer parses; the
+            // tree says no first, which is the one place this is stricter than the span it replaces.
+            return $"'{name}' is not a name an attribute can have.";
+        }
+        catch (ArgumentException)
+        {
+            return $"'{name}' is not a name an attribute can have.";
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// The element <paramref name="addressKey"/> names, or null where the document has no such path.
     /// </summary>
@@ -192,6 +314,23 @@ public static class SvgAttributeEditor
         }
 
         return at;
+    }
+
+    /// <summary>An attribute's name as the file spells it, prefix and all.</summary>
+    /// <remarks>
+    /// The prefix is part of the name and not decoration: <c>href</c> and <c>xlink:href</c> are two
+    /// attributes, and reporting the second as the first is how an editor comes to write both.
+    /// </remarks>
+    private static string Spelling(XAttribute attribute)
+    {
+        if (attribute.Name.Namespace == XNamespace.None)
+        {
+            return attribute.Name.LocalName;
+        }
+
+        var prefix = attribute.Parent?.GetPrefixOfNamespace(attribute.Name.Namespace);
+
+        return string.IsNullOrEmpty(prefix) ? attribute.Name.LocalName : prefix + ":" + attribute.Name.LocalName;
     }
 
     /// <summary>Whether a <c>style</c> declaration on the element overrides the attribute.</summary>

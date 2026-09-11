@@ -34,6 +34,9 @@ namespace Svg.Studio.UnitTests;
 /// </summary>
 public class MainWindowProjectTests : IDisposable
 {
+    /// <summary>The drawing in the selected tab, which is what an edit is made to.</summary>
+    private static SvgViewer Viewer(Window window)
+        => window.GetVisualDescendants().OfType<SvgViewer>().First();
     private const string Drawing = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
           <rect width="24" height="24" fill="#00ff00" />
@@ -1769,7 +1772,7 @@ public class MainWindowProjectTests : IDisposable
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        window.GetVisualDescendants().OfType<TextEditor>().First().Document.Text = Drawing + "<!-- edited -->";
+        window.GetVisualDescendants().OfType<SvgViewer>().First().SetSource(Drawing + "<!-- edited -->");
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(viewer.IsSourceModified, "the drawing was not made unsaved");
@@ -1982,8 +1985,7 @@ public class MainWindowProjectTests : IDisposable
         edited.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        window.GetVisualDescendants().OfType<TextEditor>().First().Document.Text =
-            Drawing.Replace("#00ff00", "#0000ff", StringComparison.Ordinal);
+        edited.SetSource(Drawing.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
         Dispatcher.UIThread.RunJobs();
 
         await window.SaveAsync();
@@ -3238,7 +3240,7 @@ public class MainWindowProjectTests : IDisposable
 
         var editor = viewer.GetVisualDescendants().OfType<TextEditor>().Single(control => control.Name == "SourceEditor");
 
-        editor.Document.Insert(0, "<!-- typed -->");
+        Viewer(window).SetSource("<!-- typed -->" + Viewer(window).Source);
         Dispatcher.UIThread.RunJobs();
 
         // The tab is named after the drawing, so the drawing goes first.

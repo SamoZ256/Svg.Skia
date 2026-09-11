@@ -107,7 +107,7 @@ public class SvgViewerElementTreeTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        Editor(viewer).Text = Markup.Replace("</g>", "  <circle cx=\"12\" cy=\"12\" r=\"4\" />\n  </g>");
+        viewer.SetSource(Markup.Replace("</g>", "  <circle cx=\"12\" cy=\"12\" r=\"4\" />\n  </g>"));
 
         Assert.True(viewer.Rebuild());
         Dispatcher.UIThread.RunJobs();
@@ -130,7 +130,7 @@ public class SvgViewerElementTreeTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        Editor(viewer).Text = Markup.Replace("width=\"24\" height=\"24\" fill", "width=\"20\" height=\"20\" fill");
+        viewer.SetSource(Markup.Replace("width=\"24\" height=\"24\" fill", "width=\"20\" height=\"20\" fill"));
 
         Assert.True(viewer.Rebuild());
         Dispatcher.UIThread.RunJobs();
@@ -150,7 +150,7 @@ public class SvgViewerElementTreeTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        Editor(viewer).Text = Markup.Replace("<text x=\"2\" y=\"20\">hi</text>", "");
+        viewer.SetSource(Markup.Replace("<text x=\"2\" y=\"20\">hi</text>", ""));
 
         Assert.True(viewer.Rebuild());
         Dispatcher.UIThread.RunJobs();
@@ -814,19 +814,20 @@ public class SvgViewerElementTreeTests
     [AvaloniaFact]
     public async Task A_Row_That_Cannot_Be_Placed_Moves_Nothing()
     {
-        // Half-typed markup does not parse, so the drawing and its tree are the last ones that did
-        // while the text is something else entirely. Scrolling somebody confidently to the wrong
-        // line is the failure worth engineering against; not moving is the second best.
+        // The failure this was engineering against cannot happen any more: the text and the tree
+        // were able to disagree while the pane held half-typed markup, and scrolling somebody
+        // confidently to the wrong line was the risk. Text that will not read back is now refused,
+        // so what the pane shows is always what the tree says.
         var (_, viewer) = await Host();
 
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        Editor(viewer).Text = "<svg><rect";
+        Assert.False(viewer.SetSource("<svg><rect"));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.False(viewer.RevealInSource(viewer.Elements.Root!.Children[1]));
-        Assert.Equal(string.Empty, Editor(viewer).SelectedText);
+        Assert.True(viewer.RevealInSource(viewer.Elements.Root!.Children[1]));
+        Assert.NotEqual(string.Empty, Editor(viewer).SelectedText);
     }
 
     [AvaloniaFact]

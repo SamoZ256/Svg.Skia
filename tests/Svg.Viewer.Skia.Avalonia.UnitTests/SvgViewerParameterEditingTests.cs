@@ -176,7 +176,7 @@ public class SvgViewerParameterEditingTests
         Assert.True(await viewer.AddParameterAsync());
         await Settle();
 
-        var text = Pane(viewer).Document.Text;
+        var text = viewer.Source;
 
         // The comment and the placeholders are what a regenerated document would have lost.
         Assert.Contains("<!-- the rectangle everything above is for -->", text);
@@ -213,7 +213,7 @@ public class SvgViewerParameterEditingTests
         Assert.True(await viewer.AddParameterAsync());
         await Settle();
 
-        var text = Pane(viewer).Document.Text;
+        var text = viewer.Source;
 
         Assert.True(
             text.IndexOf("name=\"radius\"", StringComparison.Ordinal) < text.IndexOf("<e:let", StringComparison.Ordinal),
@@ -230,17 +230,17 @@ public class SvgViewerParameterEditingTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var before = Pane(viewer).Document.Text;
+        var before = viewer.Source;
 
         Assert.True(await viewer.AddParameterAsync());
         await Settle();
 
         // Three spans went in — the namespace, the block and the declaration — and one undo takes
         // all of them out again.
-        Pane(viewer).Document.UndoStack.Undo();
+        viewer.Undo();
         await Settle();
 
-        Assert.Equal(before, Pane(viewer).Document.Text);
+        Assert.Equal(before, viewer.Source);
         Assert.Empty(viewer.Parameters);
 
         window.Close();
@@ -361,7 +361,7 @@ public class SvgViewerParameterEditingTests
 
         Assert.Equal(4d, edited.Maximum, 6);
         Assert.Equal(0.5d, edited.Step, 6);
-        Assert.Contains("max=\"4\"", Pane(viewer).Document.Text);
+        Assert.Contains("max=\"4\"", viewer.Source);
 
         window.Close();
     }
@@ -381,7 +381,7 @@ public class SvgViewerParameterEditingTests
         Assert.True(await viewer.EditParameterAsync(row));
         await Settle();
 
-        var text = Pane(viewer).Document.Text;
+        var text = viewer.Source;
 
         Assert.Contains("{{ opacity }}", text);
         Assert.DoesNotContain("fade", text);
@@ -420,16 +420,16 @@ public class SvgViewerParameterEditingTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var before = Pane(viewer).Document.Text;
+        var before = viewer.Source;
 
         Assert.True(await viewer.EditParameterAsync(viewer.Parameters.OfType<SvgViewerNumberParameter>().Single()));
         await Settle();
 
         // The declaration and the placeholder that names it moved together, and come back together.
-        Pane(viewer).Document.UndoStack.Undo();
+        viewer.Undo();
         await Settle();
 
-        Assert.Equal(before, Pane(viewer).Document.Text);
+        Assert.Equal(before, viewer.Source);
 
         window.Close();
     }
@@ -521,7 +521,7 @@ public class SvgViewerParameterEditingTests
         Assert.True(viewer.CommitParameterDefaults());
         await Settle();
 
-        var text = Pane(viewer).Document.Text;
+        var text = viewer.Source;
 
         Assert.Contains("default=\"0.5\"", text);
         Assert.Contains("default=\"#0000ff\"", text);
@@ -583,7 +583,7 @@ public class SvgViewerParameterEditingTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        var before = Pane(viewer).Document.Text;
+        var before = viewer.Source;
 
         viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Value = 0.5d;
         viewer.Parameters.OfType<SvgViewerColorParameter>().Single().Color = Color.FromRgb(0, 0, 255);
@@ -592,10 +592,10 @@ public class SvgViewerParameterEditingTests
         Assert.True(viewer.CommitParameterDefaults());
         await Settle();
 
-        Pane(viewer).Document.UndoStack.Undo();
+        viewer.Undo();
         await Settle();
 
-        Assert.Equal(before, Pane(viewer).Document.Text);
+        Assert.Equal(before, viewer.Source);
 
         window.Close();
     }
@@ -612,22 +612,23 @@ public class SvgViewerParameterEditingTests
     }
 
     [AvaloniaFact]
-    public async Task An_Edit_Is_Refused_While_The_Text_Will_Not_Parse()
+    public async Task Text_That_Will_Not_Read_Back_Never_Becomes_The_Drawing()
     {
+        // What this used to assert -- that an edit is refused while the document will not parse --
+        // has no state to be in any more: the drawing cannot be put into one. So it asserts that.
         var (window, viewer) = await HostLoaded(Parametric, Radius());
 
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        // What a drawing looks like halfway through being typed.
-        Pane(viewer).Document.Text = Parametric.Replace("</svg>", string.Empty);
+        Assert.False(viewer.SetSource(Parametric.Replace("</svg>", string.Empty)));
         await Settle();
 
-        var said = string.Empty;
-        viewer.ErrorRaised += (_, message) => said = message;
+        Assert.Equal(Parametric, viewer.Source);
+        Assert.False(viewer.IsSourceModified);
 
-        Assert.False(await viewer.AddParameterAsync());
-        Assert.NotEmpty(said);
+        // And an edit still works, because nothing was broken by the attempt.
+        Assert.True(await viewer.AddParameterAsync());
 
         window.Close();
     }
@@ -728,7 +729,7 @@ public class SvgViewerParameterEditingTests
         await Settle();
 
         Assert.DoesNotContain(viewer.Parameters, row => row.Name == "radius");
-        Assert.DoesNotContain("radius", Pane(viewer).Text);
+        Assert.DoesNotContain("radius", viewer.Source);
 
         window.Close();
     }
@@ -748,7 +749,7 @@ public class SvgViewerParameterEditingTests
 
         // Still there, and the pane still holds the placeholder that kept it.
         Assert.Contains(viewer.Parameters, row => row.Name == "tint");
-        Assert.Contains("{{ tint }}", Pane(viewer).Text);
+        Assert.Contains("{{ tint }}", viewer.Source);
         Assert.False(viewer.IsSourceModified);
 
         window.Close();

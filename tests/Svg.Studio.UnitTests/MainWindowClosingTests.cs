@@ -60,7 +60,7 @@ public class MainWindowClosingTests
         viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
-        window.GetVisualDescendants().OfType<TextEditor>().First().Document.Text = Drawing + "<!-- edited -->";
+        window.GetVisualDescendants().OfType<SvgViewer>().First().SetSource(Drawing + "<!-- edited -->");
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(viewer.IsSourceModified, "the drawing was not made unsaved");
