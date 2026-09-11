@@ -395,10 +395,35 @@ public sealed class SvgViewerGizmo
 
     // ---- the drawing -------------------------------------------------------------------------
 
-    /// <summary>Whether the element itself, rather than a handle, is under the point.</summary>
+    /// <summary>Whether the element, rather than a handle, is under the point.</summary>
+    /// <remarks>
+    /// What was hit or anything it is inside. The hit test answers with what was <em>drawn</em>, and
+    /// a container draws nothing of its own — so asking only whether the answer was the selected
+    /// element left a group scalable by its handles and unmovable by its body, the press falling
+    /// through to a pan. A group is dragged by its contents because there is nothing else of it to
+    /// take hold of.
+    ///
+    /// The walk is up the document rather than the scene, so it is the parents the file writes. An
+    /// element reached through <c>&lt;use&gt;</c> answers as the <c>&lt;use&gt;</c> itself, which is
+    /// what the hit test already resolves and what the tree already selects.
+    /// </remarks>
     private bool Covers(Shim.SKPoint at)
-        => _svg is { } svg && _element is { } element
-           && ReferenceEquals(svg.HitTestTopmostElement(at), element);
+    {
+        if (_svg is not { } svg || _element is null)
+        {
+            return false;
+        }
+
+        for (var hit = svg.HitTestTopmostElement(at); hit is { }; hit = hit.Parent)
+        {
+            if (ReferenceEquals(hit, _element))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Redraws the one element that moved.

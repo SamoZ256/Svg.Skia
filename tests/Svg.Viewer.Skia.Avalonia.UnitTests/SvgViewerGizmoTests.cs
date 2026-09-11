@@ -408,6 +408,54 @@ public class SvgViewerGizmoTests
         Assert.Equal("translate(-20, -20) scale(2)", Written(viewer));
     }
 
+    /// <summary>
+    /// A container is dragged by its contents, there being nothing else of it to take hold of.
+    /// </summary>
+    /// <remarks>
+    /// The hit test answers with what was drawn, which inside a group is never the group. Asking
+    /// only whether it answered with the selected element left a <c>&lt;g&gt;</c> scalable by its
+    /// handles and unmovable by its body, the press falling through to a pan.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Group_Is_Moved_By_Dragging_What_Is_Inside_It()
+    {
+        var (window, viewer) = await Host(Shapes);
+
+        SelectById(viewer, "group");
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        // On the rectangle the group holds, which is the only part of the group there is to press.
+        Drag(window, viewer, (30f, 30f), (50f, 40f));
+
+        Assert.Equal("translate(20, 10)", Written(viewer, "group"));
+    }
+
+    /// <summary>What a shape placed by <c>&lt;use&gt;</c> answers to, which is the use and not the
+    /// definition.</summary>
+    private const string Used = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <defs><rect id="shape" x="0" y="0" width="20" height="20" fill="#3366cc" /></defs>
+          <use id="box" href="#shape" x="20" y="20" />
+        </svg>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Use_Is_Moved_By_Dragging_What_It_Placed()
+    {
+        var (window, viewer) = await Host(Used);
+
+        SelectById(viewer, "box");
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(window, viewer, (30f, 30f), (50f, 40f));
+
+        Assert.Equal("translate(20, 10)", Written(viewer));
+    }
+
     /// <summary>With the mode off the drawing pans as it always did, and nothing is written.</summary>
     [AvaloniaFact]
     public async Task A_Drag_Pans_While_The_Mode_Is_Off()
