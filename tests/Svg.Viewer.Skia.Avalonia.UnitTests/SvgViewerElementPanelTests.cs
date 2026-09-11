@@ -41,12 +41,22 @@ public class SvgViewerElementPanelTests
             Panel = new SvgViewerElementPanel(
                 () => Text,
                 () => Text,
-                result =>
+                (label, edit) =>
                 {
-                    Text = SvgTextEdit.ApplyAll(Text, result.Edits);
+                    if (SvgSourceDocument.Read(Text, out var unreadable) is not { } source)
+                    {
+                        return unreadable;
+                    }
+
+                    if (edit(source) is { } refusal)
+                    {
+                        return refusal;
+                    }
+
+                    Text = source.ToText();
                     Panel!.Refresh();
 
-                    return true;
+                    return null;
                 },
                 () => ExprEvaluator.Create(SvgExpressionDeclarations.Parse(Text, out _)));
         }

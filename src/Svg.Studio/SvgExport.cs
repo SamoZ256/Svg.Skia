@@ -76,9 +76,14 @@ public static class SvgExport
             return source;
         }
 
-        var resized = document.Resize(source, size);
+        if (SvgSourceDocument.Read(source, out _) is not { } tree)
+        {
+            return source;
+        }
 
-        return resized.Succeeded ? SvgTextEdit.ApplyAll(source, resized.Edits) : source;
+        // The size it was asked for where the drawing can take it, and the size it has where it
+        // cannot: an export is not the place to report that.
+        return document.Resize(tree, size) is null ? tree.ToText() : source;
     }
 
     /// <summary>The C# that draws <paramref name="source"/>.</summary>

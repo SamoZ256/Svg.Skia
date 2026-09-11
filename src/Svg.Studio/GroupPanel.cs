@@ -632,28 +632,6 @@ public sealed class GroupPanel : UserControl
         }
     }
 
-    /// <summary>
-    /// Applies spans to a document, for the one panel that still produces them.
-    /// </summary>
-    /// <remarks>
-    /// The element panel works out its edit on a tree and hands it over as one span covering the
-    /// whole document, because the two hosts it serves write into different things. Reading that
-    /// back through the tree is what keeps it on the same history as everything else here.
-    /// </remarks>
-    private static string? Spliced(SvgSourceDocument source, IReadOnlyList<SvgTextEdit> edits)
-    {
-        var written = SvgTextEdit.ApplyAll(source.ToText(), edits);
-
-        if (SvgSourceDocument.Read(written, out var unreadable) is not { } rewritten)
-        {
-            return unreadable;
-        }
-
-        source.Document.Root?.ReplaceWith(rewritten.Document.Root!);
-
-        return null;
-    }
-
     /// <summary>Puts a declaration edit where the drawing keeps them, or says why it would not go.</summary>
     private bool Splice(string label, Func<SvgSourceDocument, string?> edit)
     {
@@ -815,11 +793,17 @@ public sealed class GroupPanel : UserControl
         var panel = new SvgViewerElementPanel(
             () => target.Text,
             () => declaring?.Text ?? target.Text,
-            result => result.Edits.Count > 0
-                      && target.Commit(
-                          "edit an element",
-                          source => Spliced(source, result.Edits)) is null
-                      && Written(),
+            (label, edit) =>
+            {
+                var refusal = target.Commit(label, edit);
+
+                if (refusal is null)
+                {
+                    Written();
+                }
+
+                return refusal;
+            },
             () => Evaluator(document));
 
         panel.Show(SvgSourceElements.Addresses(target.Text, document.Built(target.Text))

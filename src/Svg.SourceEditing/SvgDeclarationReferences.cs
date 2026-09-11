@@ -3,44 +3,28 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using System.Xml.Linq;
 using Svg.Expressions;
 
 namespace Svg.SourceEditing;
 
-/// <summary>Finds where a declared name is used, so renaming one can carry its uses with it.</summary>
+/// <summary>
+/// Finding, and rewriting, where a declared name is used.
+/// </summary>
 /// <remarks>
 /// Renaming only the declaration would leave a drawing that still parses and no longer draws: every
 /// <c>{{ … }}</c> and every let naming the old one would stop resolving, and nothing about the
 /// document's shape would say why.
+///
+/// An attribute's value on a tree has had its references resolved already, so there is no offset
+/// table to carry between the text somebody wrote and the expression the language reads. What is
+/// found is a count and, when a new name is given, a value rewritten.
 /// </remarks>
-internal static partial class SvgDeclarationReferences
+internal static class SvgDeclarationReferences
 {
     private static readonly XNamespace Ns = SvgExpressionDeclarations.Namespace;
-
-    /// <summary>Adds an edit for every use of <paramref name="from"/>, or explains why it cannot.</summary>
-    public static string? Rename(
-        string svgText,
-        XDocument document,
-        SvgExpressionDeclarations.Positions positions,
-        string from,
-        string to,
-        List<SvgTextEdit> edits)
-    {
-        var found = new List<(int Start, int Length)>();
-
-        if (Uses(svgText, document, positions, from, found) is { } bad)
-        {
-            return bad;
-        }
-
-        foreach (var (start, length) in found)
-        {
-            edits.Add(new SvgTextEdit(start, length, to));
-        }
-
-        return null;
-    }
 
     /// <summary>Whether what is between this element's tags is expression code rather than text.</summary>
     /// <remarks>
@@ -51,36 +35,33 @@ internal static partial class SvgDeclarationReferences
     /// </remarks>
     private static bool IsCode(XName name) => name == Ns + "let" || name == Ns + "replace";
 
-    /// <summary>Finds where <paramref name="name"/> is used, or explains why it cannot.</summary>
-    /// <remarks>
-    /// Only placeholders and element bodies the language reads as code are searched. A
-    /// <c>default</c>, <c>min</c>, <c>max</c> or <c>step</c> is an expression too, but the language
-    /// puts nothing a document declares in scope there, so no name in one can be a use of this.
-    /// Renaming rewrites what this finds and removing refuses over it, which is the same question
-    /// asked twice.
-    /// </remarks>
-    public static string? Uses(
-        string svgText,
-        XDocument document,
-        SvgExpressionDeclarations.Positions positions,
-        string name,
-        List<(int Start, int Length)> found)
+    /// <summary>
+    /// Counts every use of <paramref name="name"/>, rewriting each to <paramref name="to"/> where one
+    /// is given, or explains why they cannot be found.
+    /// </summary>
+    public static string? Walk(XDocument document, string name, string? to, out int count)
     {
+        var found = 0;
+
         foreach (var element in document.Descendants())
         {
-            foreach (var attribute in element.Attributes())
+            foreach (var attribute in element.Attributes().ToList())
             {
-                var start = positions.Value(attribute);
-                var end = positions.EndOfValue(attribute);
-
-                if (start < 0 || end < 0)
+                if (attribute.IsNamespaceDeclaration)
                 {
                     continue;
                 }
 
-                if (Placeholders(svgText, start, end, name, found) is { } bad)
+                if (Placeholders(attribute.Value, name, to, ref found, out var rewritten) is { } bad)
                 {
+                    count = found;
+
                     return bad;
+                }
+
+                if (to is { } && !string.Equals(rewritten, attribute.Value, StringComparison.Ordinal))
+                {
+                    attribute.Value = rewritten;
                 }
             }
 
@@ -89,69 +70,76 @@ internal static partial class SvgDeclarationReferences
                 continue;
             }
 
-            var body = positions.ContentStart(element);
+            // The whole of what is between the tags is the expression, braces and all left out.
+            var body = element.Value;
 
-            if (body < 0)
+            if (In(body, name, to, ref found, out var written) is { } trouble)
             {
-                continue;
-            }
+                count = found;
 
-            var close = svgText.IndexOf("</", body, StringComparison.Ordinal);
-
-            if (close >= 0 && In(svgText, body, close, name, found) is { } trouble)
-            {
                 return trouble;
             }
+
+            if (to is { } && !string.Equals(written, body, StringComparison.Ordinal))
+            {
+                element.Value = written;
+            }
         }
+
+        count = found;
 
         return null;
     }
 
-    private static string? Placeholders(
-        string svgText,
-        int start,
-        int end,
-        string name,
-        List<(int Start, int Length)> found)
+    /// <summary>Every <c>{{ … }}</c> in one value, and what each of them names.</summary>
+    private static string? Placeholders(string value, string name, string? to, ref int found, out string written)
     {
-        var at = start;
+        var builder = new StringBuilder();
+        var at = 0;
 
-        while (at < end)
+        while (true)
         {
-            var open = svgText.IndexOf("{{", at, StringComparison.Ordinal);
+            var open = value.IndexOf("{{", at, StringComparison.Ordinal);
 
-            if (open < 0 || open >= end)
+            if (open < 0)
             {
-                return null;
+                break;
             }
 
-            var close = svgText.IndexOf("}}", open + 2, StringComparison.Ordinal);
+            var close = value.IndexOf("}}", open + 2, StringComparison.Ordinal);
 
-            if (close < 0 || close > end)
+            if (close < 0)
             {
-                return null;
+                break;
             }
 
-            if (In(svgText, open + 2, close, name, found) is { } bad)
+            builder.Append(value, at, open + 2 - at);
+
+            if (In(value.Substring(open + 2, close - open - 2), name, to, ref found, out var inner) is { } bad)
             {
+                written = value;
+
                 return bad;
             }
 
-            at = close + 2;
+            builder.Append(inner);
+            at = close;
         }
+
+        written = builder.Append(value, at, value.Length - at).ToString();
 
         return null;
     }
 
-    /// <summary>Finds each identifier in one expression that names <paramref name="name"/>.</summary>
-    private static string? In(string svgText, int start, int end, string name, List<(int Start, int Length)> found)
+    /// <summary>Each identifier in one expression that names <paramref name="name"/>.</summary>
+    private static string? In(string text, string name, string? to, ref int found, out string written)
     {
-        if (end <= start)
+        written = text;
+
+        if (text.Length == 0)
         {
             return null;
         }
-
-        var (text, offsets) = ExprText.Decode(svgText, start, end);
 
         List<ExprToken> tokens;
 
@@ -166,6 +154,9 @@ internal static partial class SvgDeclarationReferences
             return $"'{text.Trim()}' cannot be read, so what it uses cannot be found: {bad.Message}";
         }
 
+        var builder = to is null ? null : new StringBuilder();
+        var at = 0;
+
         foreach (var token in tokens)
         {
             if (token.Kind != ExprTokenKind.Identifier || !string.Equals(token.Text, name, StringComparison.Ordinal))
@@ -173,10 +164,18 @@ internal static partial class SvgDeclarationReferences
                 continue;
             }
 
-            var at = offsets[token.Position];
-            var past = token.Position + name.Length < offsets.Length ? offsets[token.Position + name.Length] : end;
+            found++;
 
-            found.Add((at, past - at));
+            if (builder is { })
+            {
+                builder.Append(text, at, token.Position - at).Append(to);
+                at = token.Position + name.Length;
+            }
+        }
+
+        if (builder is { })
+        {
+            written = builder.Append(text, at, text.Length - at).ToString();
         }
 
         return null;

@@ -1,5 +1,6 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
 using System.Linq;
 using Svg.Expressions;
 using Xunit;
@@ -16,6 +17,33 @@ namespace Svg.SourceEditing.UnitTests;
 /// </remarks>
 public class SvgDeclarationEditorRemoveTests
 {
+
+    /// <summary>
+    /// What an edit came to: the text afterwards, or the sentence refusing it.
+    /// </summary>
+    /// <remarks>
+    /// These tests were written against an editor that answered with spans. What they assert is
+    /// what the document says afterwards and what it refuses, neither of which is about the medium,
+    /// so they are kept and this stands in for the shape they were written to.
+    /// </remarks>
+    private readonly record struct Edit(string? Refusal, string Text, bool Changed)
+    {
+        public bool Succeeded => Refusal is null;
+    }
+
+    private static Edit Run(string svgText, Func<SvgSourceDocument, string?> edit)
+    {
+        if (SvgSourceDocument.Read(svgText, out var unreadable) is not { } source)
+        {
+            return new Edit(unreadable, svgText, false);
+        }
+
+        var refusal = edit(source);
+
+        var written = refusal is null ? source.ToText() : svgText;
+
+        return new Edit(refusal, written, !string.Equals(written, svgText, StringComparison.Ordinal));
+    }
     private const string Ns = SvgExpressionDeclarations.Namespace;
 
     private const string Two = """
@@ -32,11 +60,11 @@ public class SvgDeclarationEditorRemoveTests
 
     private static string Source() => Two.Replace("EXPR-NS", Ns);
 
-    private static string Apply(string svgText, SvgSourceEditResult result)
+    private static string Apply(string svgText, Edit result)
     {
         Assert.True(result.Succeeded, result.Refusal);
 
-        return SvgTextEdit.ApplyAll(svgText, result.Edits);
+        return result.Text;
     }
 
     private static string[] Declared(string svgText)
@@ -47,7 +75,7 @@ public class SvgDeclarationEditorRemoveTests
     {
         var source = Source();
 
-        var edited = Apply(source, SvgDeclarationEditor.Remove(source, "spare"));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.Remove(source, "spare")));
 
         Assert.Equal(new[] { "hue" }, Declared(edited));
 
@@ -63,7 +91,7 @@ public class SvgDeclarationEditorRemoveTests
     {
         var source = Source();
 
-        var result = SvgDeclarationEditor.Remove(source, "hue");
+        var result = Run(source, source => SvgDeclarationEditor.Remove(source, "hue"));
 
         Assert.False(result.Succeeded);
         Assert.Contains("'hue'", result.Refusal);
@@ -86,7 +114,7 @@ public class SvgDeclarationEditorRemoveTests
 
         // The other half of what a use is. A let body names it as much as a placeholder does, and
         // nothing about the document's shape says so.
-        Assert.False(SvgDeclarationEditor.Remove(source, "hue").Succeeded);
+        Assert.False(Run(source, source => SvgDeclarationEditor.Remove(source, "hue")).Succeeded);
     }
 
     [Fact]
@@ -96,7 +124,7 @@ public class SvgDeclarationEditorRemoveTests
             """<rect width="10" height="10" fill="{{ hsl(hue, 1, 0.5) }}" />""",
             """<rect width="10" height="10" fill="{{ hsl(hue, 1, 0.5) }}" opacity="{{ hue / 360 }}" />""");
 
-        var result = SvgDeclarationEditor.Remove(source, "hue");
+        var result = Run(source, source => SvgDeclarationEditor.Remove(source, "hue"));
 
         Assert.False(result.Succeeded);
         Assert.Contains("2 times", result.Refusal);
@@ -117,7 +145,7 @@ public class SvgDeclarationEditorRemoveTests
             </svg>
             """;
 
-        Assert.Empty(Declared(Apply(source, SvgDeclarationEditor.Remove(source, "hue"))));
+        Assert.Empty(Declared(Apply(source, Run(source, source => SvgDeclarationEditor.Remove(source, "hue")))));
     }
 
     [Fact]
@@ -125,7 +153,7 @@ public class SvgDeclarationEditorRemoveTests
     {
         var source = Source();
 
-        Assert.False(SvgDeclarationEditor.Remove(source, "missing").Succeeded);
+        Assert.False(Run(source, source => SvgDeclarationEditor.Remove(source, "missing")).Succeeded);
     }
 
     [Fact]
@@ -145,7 +173,7 @@ public class SvgDeclarationEditorRemoveTests
             </svg>
             """;
 
-        var edited = Apply(source, SvgDeclarationEditor.Remove(source, "spare"));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.Remove(source, "spare")));
 
         Assert.Contains("<!-- the drawing this file is for -->", edited);
         Assert.Contains("<!-- what the tint was going to be -->", edited);
@@ -175,7 +203,7 @@ public class SvgDeclarationEditorRemoveTests
             </svg>
             """.Replace("EXPR-NS", Ns);
 
-        var edited = Apply(source, SvgDeclarationEditor.RemoveLet(source, "spare"));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.RemoveLet(source, "spare")));
 
         Assert.Equal(
             new[] { "half" },
@@ -199,7 +227,7 @@ public class SvgDeclarationEditorRemoveTests
             </svg>
             """;
 
-        var result = SvgDeclarationEditor.RemoveLet(source, "half");
+        var result = Run(source, source => SvgDeclarationEditor.RemoveLet(source, "half"));
 
         Assert.False(result.Succeeded);
         Assert.Contains("'half'", result.Refusal);
@@ -220,7 +248,7 @@ public class SvgDeclarationEditorRemoveTests
             </svg>
             """.Replace("EXPR-NS", Ns);
 
-        Assert.False(SvgDeclarationEditor.RemoveLet(source, "half").Succeeded);
+        Assert.False(Run(source, source => SvgDeclarationEditor.RemoveLet(source, "half")).Succeeded);
     }
 
     [Fact]
@@ -238,7 +266,7 @@ public class SvgDeclarationEditorRemoveTests
 
         // The two are separate lists in the same block, and a caller that mixes them up should be
         // told rather than have the other one taken away.
-        Assert.False(SvgDeclarationEditor.Remove(source, "quarter").Succeeded);
-        Assert.True(SvgDeclarationEditor.RemoveLet(source, "quarter").Succeeded);
+        Assert.False(Run(source, source => SvgDeclarationEditor.Remove(source, "quarter")).Succeeded);
+        Assert.True(Run(source, source => SvgDeclarationEditor.RemoveLet(source, "quarter")).Succeeded);
     }
 }

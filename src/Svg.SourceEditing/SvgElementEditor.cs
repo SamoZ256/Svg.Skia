@@ -271,66 +271,6 @@ public static class SvgElementEditor
 
         return true;
     }
-
-    /// <summary>Where a drop lands, and at what indentation.</summary>
-    /// <remarks>
-    /// Inside means last among the target's children, which is where the pointer says it goes: the
-    /// outline is drawn round the whole row rather than between two of them.
-    /// </remarks>
-    private static (int At, string Indent)? Landing(
-        string svgText,
-        XElement target,
-        SvgExpressionDeclarations.Positions positions,
-        SvgElementDrop where,
-        out string? refusal)
-    {
-        refusal = null;
-
-        var (start, _) = positions.Span(target);
-
-        if (start < 0)
-        {
-            refusal = $"<{target.Name.LocalName}> cannot be found in the document's own text.";
-
-            return null;
-        }
-
-        var at = SvgDeclarationEditor.LeadingWhitespace(svgText, start);
-
-        if (where != SvgElementDrop.Inside)
-        {
-            // Beside a row means beside the line carrying it, which one sharing its line has not got.
-            // Landing inside asks nothing of the line, which is why it is not asked for above: the
-            // root begins the file and so has no line break in front of it either.
-            if (SvgDeclarationEditor.Line(svgText, target, positions) is not { } line)
-            {
-                refusal = $"<{target.Name.LocalName}> shares its line with something else, so there is nothing to put anything beside. Put it on a line of its own first.";
-
-                return null;
-            }
-
-            return (where == SvgElementDrop.Before ? line.Start : line.Start + line.Length, at);
-        }
-
-        if (SvgDeclarationEditor.Body(svgText, target, positions) is not { } body)
-        {
-            refusal = $"<{target.Name.LocalName}> closes itself, so it has no inside to put anything in. Write it as a pair of tags first.";
-
-            return null;
-        }
-
-        // Back past the break and indent that carry the closing tag, so what lands goes after the
-        // last child rather than after the whitespace written to line </g> up.
-        var end = body.Start + body.Length;
-
-        while (end > body.Start && char.IsWhiteSpace(svgText[end - 1]))
-        {
-            end--;
-        }
-
-        return (end, at + SvgDeclarationEditor.IndentUnit(svgText));
-    }
-
     private static bool Kept(XElement element)
         => element.Name.LocalName is
             "defs" or "clipPath" or "mask" or "marker" or "pattern" or "symbol" or

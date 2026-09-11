@@ -10,25 +10,24 @@ using Svg.Expressions;
 namespace Svg.SourceEditing;
 
 /// <summary>
-/// Edits the replacement rules of a recipe, as spans over its text.
+/// The replacement rules of a recipe.
 /// </summary>
 /// <remarks>
-/// The other half of what a recipe says. <see cref="SvgDeclarationEditor"/> already writes its
-/// <c>&lt;param&gt;</c> and <c>&lt;let&gt;</c> — it finds declarations by namespace rather than by
-/// document shape, so a recipe's unprefixed <c>&lt;code&gt;</c> is the same block to it — and this
-/// writes the <c>&lt;replace&gt;</c> beside them.
-///
-/// Spans and not a rewritten document, for the reason everything here is: the file keeps its
-/// comments, its layout and the order somebody put it in, and a host applies the edits to the buffer
-/// it is already showing so they land on one undo stack.
-///
-/// It knows nothing about what a rule names. A colour has many spellings and only
-/// <c>Svg.Expressions.Recipes</c> can say which of them are one colour; asking that here would mean
-/// a second answer to it, and referencing that package to borrow the first would pull a whole SVG
-/// parser into a text editor. So the caller decides which rule it means and passes the name and the
-/// value as that rule already writes them.
+/// <para>
+/// Deliberately not built on <see cref="SvgDeclarationEditor"/>'s tree helpers, though they sit
+/// beside these and look like they would serve. That half refuses an edit outright while the
+/// declarations have anything wrong with them, and reads them back afterwards; a rule edit does
+/// neither on purpose, because a rule can be written into a recipe whose parameters are halfway
+/// through being typed, and making the two halves take turns is the thing the span version's own
+/// comment says it exists to avoid.
+/// </para>
+/// <para>
+/// It still knows nothing about what a rule names. A colour has many spellings and only
+/// <c>Svg.Expressions.Recipes</c> can say which of them are one colour, so the caller decides which
+/// rule it means and passes the name and the value as that rule already writes them.
+/// </para>
 /// </remarks>
-public static partial class SvgRecipeRuleEditor
+public static class SvgRecipeRuleEditor
 {
     private static readonly XNamespace Ns = SvgExpressionDeclarations.Namespace;
 
@@ -40,160 +39,113 @@ public static partial class SvgRecipeRuleEditor
     /// are meaningful is the recipe package's answer, not this one's.
     /// </param>
     /// <param name="value">
-    /// The value exactly as the rule for it writes it, or as a new rule should. A caller holding a
-    /// parsed recipe has the first from the rule it matched by value; one adding a rule writes the
-    /// value canonically. Passing a second spelling of a value a rule already names would add a
-    /// rule the recipe then refuses to read.
+    /// The value exactly as the rule for it writes it, or as a new rule should. Passing a second
+    /// spelling of a value a rule already names would add a rule the recipe then refuses to read.
     /// </param>
-    public static SvgSourceEditResult SetRule(string recipeText, string name, string value, string expression)
+    /// <returns>The sentence refusing it, or null where it was written.</returns>
+    public static string? SetRule(SvgSourceDocument source, string name, string value, string expression)
     {
-        if (recipeText is null)
+        if (source is null)
         {
-            throw new ArgumentNullException(nameof(recipeText));
+            throw new ArgumentNullException(nameof(source));
         }
 
-        var rule = (name ?? throw new ArgumentNullException(nameof(name))).Trim();
-        var text = (value ?? throw new ArgumentNullException(nameof(value))).Trim();
+        var attribute = (name ?? throw new ArgumentNullException(nameof(name))).Trim();
+        var replaced = (value ?? throw new ArgumentNullException(nameof(value))).Trim();
         var written = (expression ?? throw new ArgumentNullException(nameof(expression))).Trim();
 
-        if (rule.Length == 0)
+        if (attribute.Length == 0)
         {
-            return SvgSourceEditResult.Refuse("A rule has to say what it replaces.");
+            return "A rule has to say what it replaces.";
         }
 
-        if (text.Length == 0)
+        if (replaced.Length == 0)
         {
-            return SvgSourceEditResult.Refuse("A rule has to name a value.");
+            return "A rule has to name a value.";
         }
 
         if (written.Length == 0)
         {
-            return SvgSourceEditResult.Refuse("A rule with no expression paints nothing. Remove it instead.");
+            return "A rule with no expression paints nothing. Remove it instead.";
         }
 
         // The braces are the drawing's, not the recipe's — the rewrite adds them when it writes the
         // expression out — so a recipe carrying them would produce {{ {{ … }} }}.
         if (written.IndexOf("{{", StringComparison.Ordinal) >= 0 || written.IndexOf("}}", StringComparison.Ordinal) >= 0)
         {
-            return SvgSourceEditResult.Refuse("An expression here is written without braces; they are added when it is used.");
+            return "An expression here is written without braces; they are added when it is used.";
         }
 
-        if (!Open(recipeText, out var root, out var positions, out var refusal))
+        if (Root(source, out var root) is { } refusal)
         {
-            return SvgSourceEditResult.Refuse(refusal!);
+            return refusal;
         }
 
         var rules = Rules(root!);
 
-        if (Rule(rules, rule, text) is { } existing)
+        if (Rule(rules, attribute, replaced) is { } existing)
         {
-            // The body alone, so the value keeps the spelling it was written with and anything
-            // else on the line — a comment saying what it is — stays where it is.
-            if (SvgDeclarationEditor.Body(recipeText, existing, positions) is not { } body)
-            {
-                return SvgSourceEditResult.Refuse($"The rule for '{text}' has no expression to replace.");
-            }
+            // The body alone, so the value keeps the spelling it was written with and anything else
+            // on the line — a comment saying what it is — stays where it is. A rule that closed
+            // itself is opened into a pair by being given one, which the span half had to refuse.
+            existing.Value = written;
 
-            var replaced = SvgDeclarationEditor.EscapeText(written);
-
-            return string.Equals(recipeText.Substring(body.Start, body.Length), replaced, StringComparison.Ordinal)
-                ? SvgSourceEditResult.Nothing
-                : SvgSourceEditResult.From(new[] { new SvgTextEdit(body.Start, body.Length, replaced) });
+            return null;
         }
 
-        return Add(recipeText, root!, rules, positions, rule, text, written);
-    }
-
-    /// <summary>Takes the rule for <paramref name="value"/> away, with the line it sits on.</summary>
-    public static SvgSourceEditResult RemoveRule(string recipeText, string name, string value)
-    {
-        if (recipeText is null)
-        {
-            throw new ArgumentNullException(nameof(recipeText));
-        }
-
-        var rule = (name ?? throw new ArgumentNullException(nameof(name))).Trim();
-        var text = (value ?? throw new ArgumentNullException(nameof(value))).Trim();
-
-        if (!Open(recipeText, out var root, out var positions, out var refusal))
-        {
-            return SvgSourceEditResult.Refuse(refusal!);
-        }
-
-        if (Rule(Rules(root!), rule, text) is not { } existing)
-        {
-            // Nothing to do rather than a refusal: a value with no rule is the ordinary state of
-            // most values, and clearing one twice is not a mistake worth a sentence.
-            return SvgSourceEditResult.Nothing;
-        }
-
-        var line = SvgDeclarationEditor.Line(recipeText, existing, positions);
-
-        if (line is { } whole)
-        {
-            return SvgSourceEditResult.From(new[] { new SvgTextEdit(whole.Start, whole.Length, string.Empty) });
-        }
-
-        // Sharing its line with something else, so only the element goes and whatever it sat beside
-        // keeps its place.
-        var (start, length) = positions.Span(existing);
-
-        return start < 0
-            ? SvgSourceEditResult.Refuse($"The rule for '{text}' cannot be found in the text.")
-            : SvgSourceEditResult.From(new[] { new SvgTextEdit(start, length, string.Empty) });
-    }
-
-    /// <summary>Writes a rule that is not there yet, under whatever the recipe says last.</summary>
-    /// <remarks>
-    /// After the last rule where there is one, so the rules stay together and the file still reads
-    /// top to bottom as what is declared and then what it paints; otherwise after whatever the
-    /// recipe ends with, which is its <c>&lt;code&gt;</c>. Anchored on an element rather than on the
-    /// closing tag, so there is one shape to get right and no counting of where a tag ends.
-    /// </remarks>
-    private static SvgSourceEditResult Add(
-        string recipeText,
-        XElement root,
-        List<XElement> rules,
-        SvgExpressionDeclarations.Positions positions,
-        string name,
-        string value,
-        string expression)
-    {
-        var newline = SvgDeclarationEditor.Newline(recipeText);
-
-        var element = $"<replace {name}=\"{SvgDeclarationEditor.EscapeText(value)}\">"
-                      + SvgDeclarationEditor.EscapeText(expression)
-                      + "</replace>";
-
-        var anchor = rules.Count > 0 ? rules[rules.Count - 1] : root.Elements().LastOrDefault();
+        // After the last rule where there is one, so the rules stay together and the file still
+        // reads top to bottom as what is declared and then what it paints; otherwise after whatever
+        // the recipe ends with, which is its <code>.
+        var made = new XElement(Ns + "replace", new XAttribute(attribute, replaced), written);
+        var anchor = rules.Count > 0 ? rules[rules.Count - 1] : root!.Elements().LastOrDefault();
 
         if (anchor is null)
         {
             // A recipe with nothing in it yet. One level in from the root, since there is nothing
             // whose indentation to follow.
-            var at = positions.ContentStart(root);
-
-            return at < 0
-                ? SvgSourceEditResult.Refuse("The recipe cannot be found in the text.")
-                : SvgSourceEditResult.From(
-                    new[] { new SvgTextEdit(at, 0, newline + SvgDeclarationEditor.IndentUnit(recipeText) + element) });
+            SvgElementEditor.Put(
+                root!,
+                SvgElementDrop.Inside,
+                made,
+                SvgElementEditor.Indent(root!) + source.IndentUnit);
         }
-
-        var (start, length) = positions.Span(anchor);
-
-        if (start < 0)
+        else
         {
-            return SvgSourceEditResult.Refuse("The recipe cannot be found in the text.");
+            SvgElementEditor.Put(anchor, SvgElementDrop.After, made, SvgElementEditor.Indent(anchor));
         }
 
-        return SvgSourceEditResult.From(
-            new[]
-            {
-                new SvgTextEdit(
-                    start + length,
-                    0,
-                    newline + SvgDeclarationEditor.LeadingWhitespace(recipeText, start) + element)
-            });
+        return null;
+    }
+
+    /// <summary>Takes the rule for <paramref name="value"/> away, with the line it sits on.</summary>
+    /// <returns>The sentence refusing it, or null where it was taken away or was never there.</returns>
+    public static string? RemoveRule(SvgSourceDocument source, string name, string value)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        var attribute = (name ?? throw new ArgumentNullException(nameof(name))).Trim();
+        var replaced = (value ?? throw new ArgumentNullException(nameof(value))).Trim();
+
+        if (Root(source, out var root) is { } refusal)
+        {
+            return refusal;
+        }
+
+        if (Rule(Rules(root!), attribute, replaced) is not { } existing)
+        {
+            // Nothing to do rather than a refusal: a value with no rule is the ordinary state of
+            // most values, and clearing one twice is not a mistake worth a sentence.
+            return null;
+        }
+
+        // Takes the one line break carrying it, so a rule on a line of its own leaves no blank
+        // behind and one sharing a line leaves what it sat beside where it was.
+        SvgElementEditor.Cut(existing);
+
+        return null;
     }
 
     private static List<XElement> Rules(XElement root) => root.Elements(Ns + "replace").ToList();
@@ -202,31 +154,22 @@ public static partial class SvgRecipeRuleEditor
         => rules.FirstOrDefault(
             rule => string.Equals(((string?)rule.Attribute(name))?.Trim(), value, StringComparison.Ordinal));
 
-    /// <summary>Reads the recipe, or says why there is nowhere to write.</summary>
-    private static bool Open(
-        string recipeText,
-        out XElement? root,
-        out SvgExpressionDeclarations.Positions positions,
-        out string? refusal)
+    /// <summary>The recipe's root, or why this file is not one.</summary>
+    /// <remarks>
+    /// Nothing here says the text will not read: a document that would not has no tree, and was
+    /// refused before anybody got this far.
+    /// </remarks>
+    private static string? Root(SvgSourceDocument source, out XElement? root)
     {
         root = null;
 
-        // The declarations are not checked: a rule can be written into a recipe whose parameters are
-        // halfway through being typed, and refusing here would make the two halves take turns.
-        if (!SvgDeclarationEditor.Open(recipeText, out var document, out positions, out refusal, declarationsMustBeValid: false))
+        if (source.Document.Root is not { } found || found.Name != Ns + "recipe")
         {
-            return false;
-        }
-
-        if (document!.Root is not { } found || found.Name != Ns + "recipe")
-        {
-            refusal = $"This is not a recipe: the root is <{document.Root?.Name.LocalName ?? "nothing"}>.";
-
-            return false;
+            return $"This is not a recipe: the root is <{source.Document.Root?.Name.LocalName ?? "nothing"}>.";
         }
 
         root = found;
 
-        return true;
+        return null;
     }
 }

@@ -293,29 +293,29 @@ public sealed class SvgViewerDocument : IDisposable
     /// <remarks>
     /// The arithmetic is <see cref="SvgSceneSizing"/>'s, which is the same one svgc resizes by, and
     /// all it writes is the root's width, height and viewBox. So the request is applied to a
-    /// throwaway document and those three values are read back off it and written into the text as
-    /// spans — the author's formatting, attribute order and comments are none of a resize's
-    /// business, and regenerating the markup from the parsed tree would lose all three.
+    /// throwaway document and those three values are read back off it and written onto the root —
+    /// the author's formatting, attribute order and comments are none of a resize's business, and
+    /// the root is the tag in a drawing most likely to have been laid out by hand.
     /// </remarks>
-    /// <returns>What to edit, or why the drawing cannot be resized.</returns>
-    public SvgSourceEditResult Resize(string svgText, SvgSizeRequest request)
+    /// <returns>The sentence refusing it, or null where the drawing was resized.</returns>
+    public string? Resize(SvgSourceDocument source, SvgSizeRequest request)
     {
-        if (svgText is null)
+        if (source is null)
         {
-            throw new ArgumentNullException(nameof(svgText));
+            throw new ArgumentNullException(nameof(source));
         }
 
         if (request.IsEmpty)
         {
-            return SvgSourceEditResult.Nothing;
+            return null;
         }
 
         // Qualified, because Svg is also the property holding this document's picture.
-        var resized = global::Svg.Model.Services.SvgService.FromSvg(svgText);
+        var resized = global::Svg.Model.Services.SvgService.FromSvg(source.ToText());
 
         if (resized is null)
         {
-            return SvgSourceEditResult.Refuse("This drawing cannot be read as SVG yet, so there is no size to change.");
+            return "This drawing cannot be read as SVG yet, so there is no size to change.";
         }
 
         var before = resized.ViewBox;
@@ -328,13 +328,13 @@ public sealed class SvgViewerDocument : IDisposable
         {
             // Nothing to measure, or a request the sizing model refuses. Both are answers to give
             // back rather than faults: the caller asked for something this drawing cannot do.
-            return SvgSourceEditResult.Refuse(failure.Message);
+            return failure.Message;
         }
 
         var after = resized.ViewBox;
 
         return SvgFrameEditor.SetFrame(
-            svgText,
+            source,
             resized.Width.ToString(),
             resized.Height.ToString(),
             // Only where the resize decided one — it adds a viewBox to a document without one, and

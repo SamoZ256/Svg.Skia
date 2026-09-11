@@ -1,5 +1,6 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
 using System.Linq;
 using Svg.Expressions;
 using Xunit;
@@ -16,6 +17,33 @@ namespace Svg.SourceEditing.UnitTests;
 /// </remarks>
 public class SvgDeclarationEditorUpdateTests
 {
+
+    /// <summary>
+    /// What an edit came to: the text afterwards, or the sentence refusing it.
+    /// </summary>
+    /// <remarks>
+    /// These tests were written against an editor that answered with spans. What they assert is
+    /// what the document says afterwards and what it refuses, neither of which is about the medium,
+    /// so they are kept and this stands in for the shape they were written to.
+    /// </remarks>
+    private readonly record struct Edit(string? Refusal, string Text, bool Changed)
+    {
+        public bool Succeeded => Refusal is null;
+    }
+
+    private static Edit Run(string svgText, Func<SvgSourceDocument, string?> edit)
+    {
+        if (SvgSourceDocument.Read(svgText, out var unreadable) is not { } source)
+        {
+            return new Edit(unreadable, svgText, false);
+        }
+
+        var refusal = edit(source);
+
+        var written = refusal is null ? source.ToText() : svgText;
+
+        return new Edit(refusal, written, !string.Equals(written, svgText, StringComparison.Ordinal));
+    }
     private const string Ns = SvgExpressionDeclarations.Namespace;
 
     private const string Source = """
@@ -36,11 +64,11 @@ public class SvgDeclarationEditorUpdateTests
 
     private static string Document() => Source.Replace("EXPR-NS", Ns);
 
-    private static string Apply(string svgText, SvgSourceEditResult result)
+    private static string Apply(string svgText, Edit result)
     {
         Assert.True(result.Succeeded, result.Refusal);
 
-        return SvgTextEdit.ApplyAll(svgText, result.Edits);
+        return result.Text;
     }
 
     private static SvgExpressionParameter Declared(string svgText, string name)
@@ -55,7 +83,7 @@ public class SvgDeclarationEditorUpdateTests
 
         var edited = Apply(
             source,
-            SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("hue", ExprType.Number, "217", "10", "350", "5")));
+            Run(source, source => SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("hue", ExprType.Number, "217", "10", "350", "5"))));
 
         var declared = Declared(edited, "hue");
 
@@ -72,7 +100,7 @@ public class SvgDeclarationEditorUpdateTests
 
         var edited = Apply(
             source,
-            SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("hue", ExprType.Number, "217", null, null, null)));
+            Run(source, source => SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("hue", ExprType.Number, "217", null, null, null))));
 
         Assert.False(Declared(edited, "hue").HasRange);
         Assert.Contains("""<e:param name="hue" type="number" default="217" />""", edited);
@@ -83,13 +111,12 @@ public class SvgDeclarationEditorUpdateTests
     {
         var source = Document();
 
-        var result = SvgDeclarationEditor.Update(
-            source,
-            "hue",
-            new SvgExpressionParameter("hue", ExprType.Number, "217", "0", "360", null));
+        var result = Run(
+            source, source => SvgDeclarationEditor.Update(source, "hue",
+            new SvgExpressionParameter("hue", ExprType.Number, "217", "0", "360", null)));
 
         Assert.True(result.Succeeded);
-        Assert.Empty(result.Edits);
+        Assert.False(result.Changed);
     }
 
     // ---- renaming ----
@@ -101,7 +128,7 @@ public class SvgDeclarationEditorUpdateTests
 
         var edited = Apply(
             source,
-            SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("tone", ExprType.Number, "217", "0", "360", null)));
+            Run(source, source => SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("tone", ExprType.Number, "217", "0", "360", null))));
 
         Assert.Equal("217", Declared(edited, "tone").DefaultExpression);
 
@@ -122,7 +149,7 @@ public class SvgDeclarationEditorUpdateTests
 
         var edited = Apply(
             source,
-            SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("tone", ExprType.Number, "217", "0", "360", null)));
+            Run(source, source => SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("tone", ExprType.Number, "217", "0", "360", null))));
 
         Assert.Contains("hsl(tone + hue2, 71%, 40%)", edited);
         Assert.Contains("""<e:let name="hue2">""", edited);
@@ -137,7 +164,7 @@ public class SvgDeclarationEditorUpdateTests
 
         var edited = Apply(
             source,
-            SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("tone", ExprType.Number, "217", "0", "360", null)));
+            Run(source, source => SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("tone", ExprType.Number, "217", "0", "360", null))));
 
         Assert.Contains("hsl(tone * tau, 91%, 60%)", edited);
     }
@@ -146,7 +173,10 @@ public class SvgDeclarationEditorUpdateTests
     public void A_Name_Inside_An_Entity_Is_Not_A_Use_Of_It()
     {
         // 'amp' is a legal parameter name and &amp; is not a use of it. Searching the file's own
-        // characters would rename the entity and take the drawing's markup with it.
+        // characters would rename the entity and take the drawing's markup with it. On a tree the
+        // question cannot arise: what a let holds is the expression with its references resolved,
+        // so a rename reads the code and never the markup around it -- and the body is written back
+        // with the characters it means rather than the spellings the author reached for.
         var source = """
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="EXPR-NS" width="10" height="10">
               <defs>
@@ -161,9 +191,9 @@ public class SvgDeclarationEditorUpdateTests
 
         var edited = Apply(
             source,
-            SvgDeclarationEditor.Update(source, "amp", new SvgExpressionParameter("gain", ExprType.Number, "1")));
+            Run(source, source => SvgDeclarationEditor.Update(source, "amp", new SvgExpressionParameter("gain", ExprType.Number, "1"))));
 
-        Assert.Contains("gain &gt; 0.5 and gain &lt; 2", edited);
+        Assert.Contains("gain > 0.5 and gain &lt; 2", edited);
         Assert.Contains("{{ gain }}", edited);
         Assert.Equal("1", Declared(edited, "gain").DefaultExpression);
     }
@@ -173,10 +203,9 @@ public class SvgDeclarationEditorUpdateTests
     {
         var source = Document();
 
-        var result = SvgDeclarationEditor.Update(
-            source,
-            "hue",
-            new SvgExpressionParameter("fade", ExprType.Number, "217", "0", "360", null));
+        var result = Run(
+            source, source => SvgDeclarationEditor.Update(source, "hue",
+            new SvgExpressionParameter("fade", ExprType.Number, "217", "0", "360", null)));
 
         Assert.False(result.Succeeded);
     }
@@ -186,10 +215,9 @@ public class SvgDeclarationEditorUpdateTests
     {
         var source = Document();
 
-        var result = SvgDeclarationEditor.Update(
-            source,
-            "hue",
-            new SvgExpressionParameter("hue", ExprType.Number, "90", "0", "360", null));
+        var result = Run(
+            source, source => SvgDeclarationEditor.Update(source, "hue",
+            new SvgExpressionParameter("hue", ExprType.Number, "90", "0", "360", null)));
 
         Assert.True(result.Succeeded, result.Refusal);
         Assert.Equal("90", Declared(Apply(source, result), "hue").DefaultExpression);
@@ -201,7 +229,7 @@ public class SvgDeclarationEditorUpdateTests
         var source = Document();
 
         Assert.False(
-            SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("primary", ExprType.Number, "217", "0", "360", null))
+            Run(source, source => SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("primary", ExprType.Number, "217", "0", "360", null)))
                 .Succeeded);
     }
 
@@ -210,10 +238,10 @@ public class SvgDeclarationEditorUpdateTests
     {
         var source = Document();
 
-        var result = SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("hue", ExprType.Color, "#ff0000"));
+        var result = Run(source, source => SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("hue", ExprType.Color, "#ff0000")));
 
         Assert.False(result.Succeeded);
-        Assert.Empty(result.Edits);
+        Assert.False(result.Changed);
     }
 
     [Fact]
@@ -221,10 +249,10 @@ public class SvgDeclarationEditorUpdateTests
     {
         var source = Document();
 
-        var result = SvgDeclarationEditor.Set(source, "hue", SvgDeclarationPart.Name, "tone");
+        var result = Run(source, source => SvgDeclarationEditor.Set(source, "hue", SvgDeclarationPart.Name, "tone"));
 
         Assert.False(result.Succeeded);
-        Assert.Empty(result.Edits);
+        Assert.False(result.Changed);
     }
 
     [Fact]
@@ -233,7 +261,7 @@ public class SvgDeclarationEditorUpdateTests
         var source = Document();
 
         Assert.False(
-            SvgDeclarationEditor.Update(source, "nosuch", new SvgExpressionParameter("nosuch", ExprType.Number, "1")).Succeeded);
+            Run(source, source => SvgDeclarationEditor.Update(source, "nosuch", new SvgExpressionParameter("nosuch", ExprType.Number, "1"))).Succeeded);
     }
 
     [Fact]
@@ -243,7 +271,7 @@ public class SvgDeclarationEditorUpdateTests
 
         var edited = Apply(
             source,
-            SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("tone", ExprType.Number, "217", "0", "360", null)));
+            Run(source, source => SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("tone", ExprType.Number, "217", "0", "360", null))));
 
         Assert.Equal(source.Split('\n').Length, edited.Split('\n').Length);
         Assert.Contains("""<e:param name="fade" type="number" default="1" />""", edited);
