@@ -509,20 +509,6 @@ public sealed class SvgViewerElementPanel : UserControl
                || _write(SvgSourceEditResult.From(new[] { new SvgTextEdit(0, text.Length, written) }));
     }
 
-    private bool Splice(SvgSourceEditResult result)
-    {
-        if (!result.Succeeded)
-        {
-            Say(result.Refusal);
-
-            return false;
-        }
-
-        Say(null);
-
-        return result.Edits.Count == 0 || _write(result);
-    }
-
     private void Say(string? refusal)
     {
         Fault = refusal;
