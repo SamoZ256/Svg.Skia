@@ -38,6 +38,8 @@
                       ToolTip.Tip="Outline the drawing's own edges" />
         <ToggleButton x:Name="ElementsButton" Content="Elements"
                       ToolTip.Tip="Show what the drawing is made of" />
+        <ToggleButton x:Name="EditButton" Content="Edit"
+                      ToolTip.Tip="Drag the selected element to move it, its handles to scale it, and the stalk above to turn it" />
       </StackPanel>
     </Border>
 

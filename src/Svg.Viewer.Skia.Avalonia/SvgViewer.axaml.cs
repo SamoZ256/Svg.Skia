@@ -63,6 +63,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>What the panel's buttons do. Shared with any other host that shows one.</summary>
     private readonly SvgViewerDeclarationCommands _commands;
     private readonly ToggleButton _elementsButton;
+    private readonly ToggleButton _editButton;
+
+    /// <summary>Moving, turning and scaling the selected element by dragging it.</summary>
+    private readonly SvgViewerGizmo _gizmo = new();
 
     /// <summary>What the panel's column was last set to, so hiding it can be undone.</summary>
     private GridLength _panelWidth;
@@ -133,6 +137,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _treeSplitter = this.FindControl<GridSplitter>("TreeSplitter")!;
         _elementTree = this.FindControl<SvgViewerElementTree>("PART_Elements")!;
         _elementsButton = this.FindControl<ToggleButton>("ElementsButton")!;
+        _editButton = this.FindControl<ToggleButton>("EditButton")!;
 
         _panelWidth = _body.ColumnDefinitions[2].Width;
         _treeHeight = _side.RowDefinitions[2].Height;
@@ -158,6 +163,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree.Selected += (_, node) =>
         {
             OutlineElement(node);
+            TrackGizmo();
 
             _element.Show(SourceAddress(node?.AddressKey));
 
@@ -167,14 +173,34 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _boundsButton.IsChecked = ShowBounds;
         _boundsButton.IsCheckedChanged += (_, _) => ShowBounds = _boundsButton.IsChecked == true;
 
+        _editButton.IsCheckedChanged += (_, _) => IsEditing = _editButton.IsChecked == true;
+
         _rebuild.Tick += (_, _) =>
         {
             _rebuild.Stop();
             RebuildFromSource();
         };
 
-        _canvas.ViewChanged += (_, _) => UpdateZoomText();
+        _canvas.ViewChanged += (_, _) =>
+        {
+            UpdateZoomText();
+
+            // The handles are a fixed size on screen, so where they sit in the drawing moves with
+            // every zoom. Left alone they would drift off the corners they are for.
+            ShowGizmo();
+        };
+
         _canvas.Picked += (_, at) => PickElement(at);
+
+        _canvas.IsEditTarget = at =>
+            IsEditing
+            && _canvas.TryGetDrawingPoint(at, out var point)
+            && _gizmo.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale);
+
+        _canvas.EditBegun += (_, at) => BeginEdit(at);
+        _canvas.EditMoved += (_, at) => DragEdit(at);
+        _canvas.EditEnded += (_, _) => EndEdit();
+        _canvas.EditCancelled += (_, _) => CancelEdit();
         _panel.ValueChanged += (_, _) => RequestApply();
 
         // Fired and forgotten: a click is not something to await, and the two report what they did
@@ -291,6 +317,32 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         get => _statusPanel.IsVisible;
         set => _statusPanel.IsVisible = value;
+    }
+
+    /// <summary>
+    /// Whether the selected element can be dragged about rather than only looked at.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, and a mode rather than a gesture, because the drawing already answers to a
+    /// left drag by panning and the two cannot share it. What it acts on is whatever the element
+    /// tree has selected, so there is one selection and not a second one nobody asked for.
+    /// </remarks>
+    public bool IsEditing
+    {
+        get => _editButton.IsChecked == true;
+        set
+        {
+            _editButton.IsChecked = value;
+
+            if (!value)
+            {
+                // Rather than left in flight: the handles are about to go, and a drag with nothing
+                // drawing it is a shape that moves under a pointer nobody can see holding it.
+                CancelEdit();
+            }
+
+            TrackGizmo();
+        }
     }
 
     /// <summary>
@@ -568,6 +620,127 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         return false;
     }
+
+    // ---- editing on the drawing --------------------------------------------------------------
+
+    /// <summary>Puts the handles on whatever is selected, or takes them off.</summary>
+    private void TrackGizmo()
+    {
+        _gizmo.Track(
+            IsEditing ? _document?.Svg : null,
+            IsEditing ? _elementTree.SelectedNode?.Element : null);
+
+        ShowGizmo();
+    }
+
+    /// <summary>Hands the canvas the box as it now stands, at the scale it is now drawn at.</summary>
+    private void ShowGizmo() => _canvas.Gizmo = _gizmo.Box((float)_canvas.Scale);
+
+    /// <summary>
+    /// Takes hold of the element, having first settled whether the file would take the result.
+    /// </summary>
+    /// <remarks>
+    /// The refusals are asked for before the drag rather than after it. A gesture that follows the
+    /// pointer for half a second and then says the row cannot be written has already told somebody
+    /// the opposite of the truth, and taken their hand off the thing they were reaching for.
+    /// </remarks>
+    private void BeginEdit(Point at)
+    {
+        if (!_canvas.TryGetDrawingPoint(at, out var point) || !Writable())
+        {
+            return;
+        }
+
+        if (SourceAddress(_elementTree.SelectedNode?.AddressKey) is not { } address)
+        {
+            ShowNote(Unwritten);
+
+            return;
+        }
+
+        if (IsDriven(address))
+        {
+            ShowNote(Expressed);
+
+            return;
+        }
+
+        ShowNote(_gizmo.Begin(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale));
+
+        ShowGizmo();
+    }
+
+    private void DragEdit(Point at)
+    {
+        if (!_canvas.TryGetDrawingPoint(at, out var point))
+        {
+            return;
+        }
+
+        _gizmo.Drag(new ShimSkiaSharp.SKPoint(point.X, point.Y));
+
+        ShowGizmo();
+
+        // The recorded picture was rewritten under the canvas, which is holding the same drawing it
+        // was and so would otherwise go on painting the frame before the element moved.
+        _canvas.Publish();
+    }
+
+    /// <summary>
+    /// Writes where the element ended up, as one edit.
+    /// </summary>
+    /// <remarks>
+    /// Here and not on every frame: a drag is one thing somebody did, and a history with sixty
+    /// entries in it for one of them is a history nobody can walk back. The commit rebuilds the
+    /// drawing from its text, which throws away the element this was mutating in place — so what is
+    /// on screen afterwards is what the file says, not what the drag left behind.
+    /// </remarks>
+    private void EndEdit()
+    {
+        if (_gizmo.End() is not { } edit)
+        {
+            ShowGizmo();
+
+            return;
+        }
+
+        if (SourceAddress(_elementTree.SelectedNode?.AddressKey) is not { } address)
+        {
+            ShowNote(Unwritten);
+
+            return;
+        }
+
+        ShowNote(
+            Written(
+                edit.Label,
+                source => SvgAttributeEditor.SetAttribute(source, address, "transform", edit.Transform)));
+
+        ShowGizmo();
+    }
+
+    private void CancelEdit()
+    {
+        _gizmo.Cancel();
+
+        ShowGizmo();
+        _canvas.Publish();
+    }
+
+    /// <summary>Whether an expression writes the element's transform, in the text as it stands.</summary>
+    /// <remarks>
+    /// Read off the source rather than the compiled scene, because a document whose values have
+    /// never been bound draws its placeholders and carries no symbolic matrix to be found — and the
+    /// expression is still there in the file, waiting to be overwritten by a number.
+    /// </remarks>
+    private bool IsDriven(string address)
+        => SvgSourceDocument.Read(PaneSource(), out _) is { } source
+           && SvgAttributeEditor.Attributes(source, address).Any(
+               attribute => string.Equals(attribute.Name, "transform", StringComparison.Ordinal)
+                            && attribute.Value.Contains("{{", StringComparison.Ordinal));
+
+    private const string Expressed =
+        "That element's transform is written by an expression, so dragging it would overwrite what moves it.";
 
     private void OutlineElement(SvgViewerElementNode? node)
         => _canvas.Highlight = Outline(node);
@@ -1047,6 +1220,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree.Show(_treeHost.IsVisible ? _document?.Svg.SourceDocument : null);
 
         OutlineElement(_elementTree.SelectedNode);
+
+        // For the reason the ring is traced again: a rebuild compiles a new drawing, and the scene
+        // node the gizmo measured its box from belongs to the one before it.
+        TrackGizmo();
 
         // The tree raises nothing while it restores a selection, so the panel would go on showing
         // the text as it was before the keystroke that rebuilt it.
