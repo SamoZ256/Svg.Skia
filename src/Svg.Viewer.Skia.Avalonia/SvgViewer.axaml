@@ -1,18 +1,10 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia"
-             xmlns:edit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
              x:Class="Svg.Viewer.Skia.Avalonia.SvgViewer"
              DragDrop.AllowDrop="True">
 
   <UserControl.Styles>
-    <!--
-      Belt and braces. AvaloniaEdit 12 supplies its own control theme once a base theme is loaded
-      (measured as byte-identical frames with this include, without it, and with it on the
-      Application), so a host needs nothing. Only Fluent was tried, and one line here is cheaper
-      than a host on another theme finding an unstyled control.
-    -->
-    <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
 
     <!-- The side pane's tab strip, shared with any other host that grows one. -->
     <StyleInclude Source="avares://Svg.Viewer.Skia.Avalonia/SvgViewerPaneTabs.axaml" />
@@ -44,8 +36,6 @@
         <Button x:Name="ResetParametersButton" Content="Reset parameters" />
         <ToggleButton x:Name="BoundsButton" Content="Bounds"
                       ToolTip.Tip="Outline the drawing's own edges" />
-        <ToggleButton x:Name="SourceButton" Content="Source"
-                      ToolTip.Tip="Show the drawing's text" />
         <ToggleButton x:Name="ElementsButton" Content="Elements"
                       ToolTip.Tip="Show what the drawing is made of" />
       </StackPanel>
@@ -66,10 +56,9 @@
     </Border>
 
     <!--
-      The columns are the outer split, so the source pane belongs to the drawing's column and the
-      side panes keep the whole window height. The other way round — one row of columns above a
-      full-width source pane — took the text's height out of the parameters and the element tree as
-      well as out of the canvas, which is a strange price to pay for reading the file.
+      The width is the whole of this split now that the drawing's column holds only the drawing:
+      what the columns are still for is keeping the side strip at the window's full height, which a
+      row of columns above a full-width panel would not do.
 
       The width is on the column, not on the border in it. With Auto plus a Width="300" child, the
       splitter moved the column and the panel stayed 300 wide — so dragging it did nothing. Both
@@ -84,60 +73,36 @@
         <ColumnDefinition Width="340" MinWidth="260" />
       </Grid.ColumnDefinitions>
 
-      <!--
-        The drawing and its text. They are stacked rather than side by side because SVG lines are
-        long and the column beside them is a few hundred pixels at most.
-      -->
-      <Grid x:Name="Drawing" Grid.Column="0" RowDefinitions="*,6,220">
+      <Grid Grid.Column="0">
 
-        <Grid Grid.Row="0">
+        <viewer:SvgViewerCanvas x:Name="PART_Canvas" />
 
-          <viewer:SvgViewerCanvas x:Name="PART_Canvas" />
+        <!--
+          Over the drawing rather than under it, because what it says is that the drawing is not to
+          be trusted, and the blur behind it says the same thing without words. The grid has no
+          background of its own, so a pointer reaches the canvas everywhere except on the card —
+          the drawing can still be panned while it is being explained.
+        -->
+        <Grid x:Name="ErrorPanel" IsVisible="False">
 
           <!--
-            Over the drawing rather than under it, because what it says is that the drawing is not
-            to be trusted, and the blur behind it says the same thing without words. The grid has no
-            background of its own, so a pointer reaches the canvas everywhere except on the card —
-            the drawing can still be panned while it is being explained.
+            The frosting. A blur alone reads as a drawing out of focus; what says "there is
+            something in front of this" is the tint over it, so the pane is blur plus a wash and
+            not hit-testable, leaving the pointer to the canvas underneath.
           -->
-          <Grid x:Name="ErrorPanel" IsVisible="False">
+          <Border x:Name="FaultScrim" IsHitTestVisible="False"
+                  Background="{DynamicResource SvgViewerFaultScrimBrush}" />
 
-            <!--
-              The frosting. A blur alone reads as a drawing out of focus; what says "there is
-              something in front of this" is the tint over it, so the pane is blur plus a wash and
-              not hit-testable, leaving the pointer to the canvas underneath.
-            -->
-            <Border x:Name="FaultScrim" IsHitTestVisible="False"
-                    Background="{DynamicResource SvgViewerFaultScrimBrush}" />
-
-            <Border MaxWidth="520" Padding="16" CornerRadius="6"
-                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                    BorderThickness="1"
-                    Background="{DynamicResource SvgViewerFaultBackgroundBrush}"
-                    BorderBrush="{DynamicResource SvgViewerSourceErrorBrush}">
-              <SelectableTextBlock x:Name="ErrorText"
-                                   FontFamily="Cascadia Mono,Menlo,Consolas,DejaVu Sans Mono,monospace"
-                                   FontSize="11" TextWrapping="Wrap" />
-            </Border>
-          </Grid>
-
+          <Border MaxWidth="520" Padding="16" CornerRadius="6"
+                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                  BorderThickness="1"
+                  Background="{DynamicResource SvgViewerFaultBackgroundBrush}"
+                  BorderBrush="{DynamicResource SvgViewerSourceErrorBrush}">
+            <SelectableTextBlock x:Name="ErrorText"
+                                 FontFamily="Cascadia Mono,Menlo,Consolas,DejaVu Sans Mono,monospace"
+                                 FontSize="11" TextWrapping="Wrap" />
+          </Border>
         </Grid>
-
-        <GridSplitter x:Name="SourceSplitter" Grid.Row="1"
-                      ResizeDirection="Rows" Background="Transparent" />
-
-        <Border x:Name="SourcePanelHost" Grid.Row="2"
-                BorderThickness="0,1,0,0" BorderBrush="#20808080">
-        <edit:TextEditor x:Name="SourceEditor"
-                         IsReadOnly="True"
-                         ShowLineNumbers="True"
-                         WordWrap="False"
-                         FontFamily="Cascadia Mono,Menlo,Consolas,DejaVu Sans Mono,monospace"
-                         FontSize="12"
-                         Padding="8,6"
-                         HorizontalScrollBarVisibility="Auto"
-                         VerticalScrollBarVisibility="Auto" />
-        </Border>
 
       </Grid>
 

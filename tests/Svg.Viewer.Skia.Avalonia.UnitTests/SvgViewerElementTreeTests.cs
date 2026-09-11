@@ -10,7 +10,6 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using AvaloniaEdit;
 using SkiaSharp;
 using Svg.SourceEditing;
 using Svg.Expressions;
@@ -67,9 +66,6 @@ public class SvgViewerElementTreeTests
             ? root.Flatten().Select(node => node.ToString()).ToArray()
             : System.Array.Empty<string>();
 
-    private static TextEditor Editor(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<TextEditor>().First(c => c.Name == "SourceEditor");
-
     [AvaloniaFact]
     public async Task Every_Element_Is_Listed_In_Document_Order()
     {
@@ -104,7 +100,6 @@ public class SvgViewerElementTreeTests
         // keystroke, for as long as somebody kept typing.
         var (_, viewer) = await Host();
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         viewer.SetSource(Markup.Replace("</g>", "  <circle cx=\"12\" cy=\"12\" r=\"4\" />\n  </g>"));
@@ -127,7 +122,6 @@ public class SvgViewerElementTreeTests
 
         var before = viewer.Elements.SelectedNode.Element;
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         viewer.SetSource(Markup.Replace("width=\"24\" height=\"24\" fill", "width=\"20\" height=\"20\" fill"));
@@ -147,7 +141,6 @@ public class SvgViewerElementTreeTests
         Assert.True(viewer.Elements.TrySelect("1/1"));
         Assert.Equal("text", viewer.Elements.SelectedNode!.Label);
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         viewer.SetSource(Markup.Replace("<text x=\"2\" y=\"20\">hi</text>", ""));
@@ -586,60 +579,6 @@ public class SvgViewerElementTreeTests
         Assert.Null(viewer.Canvas.Highlight);
     }
 
-    // ---- showing the element in the text -------------------------------------------------------
-
-    [AvaloniaFact]
-    public async Task Selecting_A_Row_Selects_Its_Start_Tag_In_An_Open_Source_Pane()
-    {
-        var (_, viewer) = await Host();
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(viewer.Elements.TrySelect("1/0"));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(
-            """<rect x="0" y="0" width="24" height="24" fill="{{ tint }}" />""",
-            Editor(viewer).SelectedText);
-    }
-
-    [AvaloniaFact]
-    public async Task Selecting_A_Row_Does_Not_Open_The_Source_Pane()
-    {
-        // Picking a row is about the drawing. A pane throwing itself open over it every time would
-        // be answering a question nobody asked, and it takes the height from what is being looked at.
-        var (_, viewer) = await Host();
-
-        Assert.False(viewer.ShowSource);
-
-        Assert.True(viewer.Elements.TrySelect("1/0"));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.False(viewer.ShowSource);
-
-        // The ring is still the answer to which element it is; only the text stayed put.
-        Assert.NotNull(viewer.Canvas.Highlight);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Host_Asking_For_The_Text_Still_Gets_The_Pane()
-    {
-        // The seam a host calls deliberately, which is a direct request to be shown the text.
-        var (_, viewer) = await Host();
-
-        Assert.False(viewer.ShowSource);
-
-        Assert.True(viewer.Elements.TrySelect("1/0"));
-        Assert.True(viewer.RevealInSource(viewer.Elements.SelectedNode));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(viewer.ShowSource);
-        Assert.Equal(
-            """<rect x="0" y="0" width="24" height="24" fill="{{ tint }}" />""",
-            Editor(viewer).SelectedText);
-    }
-
     // ---- moving a row --------------------------------------------------------------------------
 
     [AvaloniaFact]
@@ -777,80 +716,6 @@ public class SvgViewerElementTreeTests
 
         Assert.Null(tree.MoveRequested);
         Assert.Null(tree.NewGroupRequested);
-    }
-
-    [AvaloniaFact]
-    public async Task The_Root_Row_Selects_The_Svg_Tag()
-    {
-        // The root's address is the empty string, which is easy to write off as "no address".
-        var (_, viewer) = await Host();
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(viewer.Elements.TrySelect(""));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.StartsWith("<svg xmlns=", Editor(viewer).SelectedText);
-        Assert.EndsWith("""height="24">""", Editor(viewer).SelectedText);
-    }
-
-    [AvaloniaFact]
-    public async Task An_Element_In_The_Declarations_Block_Is_Shown_Like_Any_Other()
-    {
-        var (_, viewer) = await Host();
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(viewer.Elements.TrySelect("0/0/0"));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(
-            """<e:param name="tint" type="color" default="#ff0000" />""",
-            Editor(viewer).SelectedText);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Row_That_Cannot_Be_Placed_Moves_Nothing()
-    {
-        // The failure this was engineering against cannot happen any more: the text and the tree
-        // were able to disagree while the pane held half-typed markup, and scrolling somebody
-        // confidently to the wrong line was the risk. Text that will not read back is now refused,
-        // so what the pane shows is always what the tree says.
-        var (_, viewer) = await Host();
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.False(viewer.SetSource("<svg><rect"));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(viewer.RevealInSource(viewer.Elements.Root!.Children[1]));
-        Assert.NotEqual(string.Empty, Editor(viewer).SelectedText);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Rebuild_Does_Not_Move_The_Source_View()
-    {
-        // Restoring the selection is not the reader picking something. A rebuild happens on every
-        // keystroke, and one that scrolled the pane would fight whoever was typing in it.
-        var (_, viewer) = await Host();
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(viewer.Elements.TrySelect("1/1"));
-        Dispatcher.UIThread.RunJobs();
-
-        Editor(viewer).CaretOffset = 0;
-        Editor(viewer).SelectionLength = 0;
-
-        Assert.True(viewer.Rebuild());
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(string.Empty, Editor(viewer).SelectedText);
-        Assert.Equal("text", viewer.Elements.SelectedNode!.Label);
     }
 
     [AvaloniaFact]

@@ -15,7 +15,6 @@ using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using AvaloniaEdit;
 using SkiaSharp;
 using Svg.Expressions;
 using Svg.Highlighting;
@@ -135,9 +134,6 @@ public class SvgViewerTests
     {
         var (window, viewer) = await HostLoaded(Plain);
 
-        // The pane has never been opened, so the editor is still holding the empty document it was
-        // born with. Writing into that instead of the drawing is the trap here.
-        Assert.False(viewer.ShowSource);
         Assert.False(viewer.IsSourceModified);
 
         var target = (ISvgViewerDeclarationTarget)viewer;
@@ -394,10 +390,9 @@ public class SvgViewerTests
             """));
         Dispatcher.UIThread.RunJobs();
 
-        // The count and where to look, not the compiler's words: those are marked on the line the
-        // range is written on, which is somewhere a status bar cannot point.
+        // The count and not the compiler's words: those are said where the mistake is, on the
+        // attribute row that carries it, which is somewhere a status bar cannot point.
         Assert.Contains(errors, m => m.Contains("1 error", StringComparison.Ordinal));
-        Assert.Contains(errors, m => m.Contains("Source pane", StringComparison.Ordinal));
         Assert.Contains(viewer.SourceDiagnostics, d => d.Message.Contains("cannot carry min, max or step", StringComparison.Ordinal));
 
         Assert.Empty(viewer.Parameters);
@@ -820,66 +815,6 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
-    public async Task The_Source_Pane_Shows_The_Drawing_As_It_Was_Read()
-    {
-        var (window, viewer) = await HostLoaded();
-
-        // Hidden until asked for: a viewer is for looking at the drawing.
-        Assert.False(viewer.ShowSource);
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        // The text the picture was built from, comments, formatting and expressions intact.
-        Assert.Equal(Parametric, PaneText(viewer));
-        Assert.Contains("{{ tint }}", PaneText(viewer), StringComparison.Ordinal);
-        Assert.True(Pane(viewer).Bounds.Height > 0d, "the pane is not laid out");
-
-        window.Close();
-    }
-
-    [AvaloniaFact]
-    public async Task Hiding_The_Source_Pane_Gives_Its_Room_Back_To_The_Drawing()
-    {
-        var (window, viewer) = await HostLoaded();
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var withSource = viewer.Canvas.Bounds.Height;
-
-        viewer.ShowSource = false;
-        Dispatcher.UIThread.RunJobs();
-
-        // Not merely invisible: a hidden pane whose row kept its height would leave a strip of
-        // nothing under the drawing.
-        Assert.True(
-            viewer.Canvas.Bounds.Height > withSource,
-            $"the drawing did not grow back: {withSource} -> {viewer.Canvas.Bounds.Height}");
-
-        window.Close();
-    }
-
-    [AvaloniaFact]
-    public async Task The_Toolbar_Toggle_And_The_Property_Follow_Each_Other()
-    {
-        var (window, viewer) = await HostLoaded();
-
-        var button = viewer.GetVisualDescendants().OfType<ToggleButton>()
-            .First(b => b.Name == "SourceButton");
-
-        button.IsChecked = true;
-        Dispatcher.UIThread.RunJobs();
-        Assert.True(viewer.ShowSource);
-
-        viewer.ShowSource = false;
-        Dispatcher.UIThread.RunJobs();
-        Assert.False(button.IsChecked);
-
-        window.Close();
-    }
-
-    [AvaloniaFact]
     public void A_Drawing_Read_From_A_Stream_Carries_Its_Text_Too()
     {
         // The loader consumes the stream, so this is the case that has to buffer to keep the text.
@@ -889,125 +824,6 @@ public class SvgViewerTests
 
         Assert.Equal(Parametric, document.SourceText);
     }
-
-    [AvaloniaFact]
-    public async Task The_Source_Pane_Colours_What_It_Shows()
-    {
-        var (window, viewer) = await HostLoaded();
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var runs = RealisedRuns(viewer);
-
-        var element = runs.First(r => r.Text == "rect").Brush;
-        var name = runs.First(r => r.Text == "tint").Brush;
-        var fence = runs.First(r => r.Text == "{{").Brush;
-
-        Assert.NotNull(element);
-        Assert.NotNull(name);
-        Assert.NotNull(fence);
-
-        // An element, a name inside an expression and the fence around it are three different
-        // things, and the pane paints them as three.
-        Assert.NotEqual(element, name);
-        Assert.NotEqual(name, fence);
-
-        window.Close();
-    }
-
-    [AvaloniaFact]
-    public async Task A_Drawing_Of_Any_Size_Is_Coloured_Because_Only_What_Shows_Is_Built()
-    {
-        // Colouring used to stop above 5,000 tokens, which 43% of this repository's samples exceed.
-        var (window, viewer) = Host();
-
-        var shapes = new StringBuilder();
-
-        for (var i = 0; i < 4_000; i++)
-        {
-            shapes.Append(CultureInfo.InvariantCulture, $"  <rect x=\"{i % 50}\" y=\"1\" width=\"1\" height=\"1\" fill=\"{{{{ tint }}}}\" />\n");
-        }
-
-        Assert.True(await viewer.LoadTextAsync(
-            $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 50 50\" width=\"50\" height=\"50\">\n{shapes}</svg>"));
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var lines = Pane(viewer).Document.LineCount;
-
-        Assert.True(lines > 4_000, $"only {lines} lines were prepared");
-
-        var built = Pane(viewer).TextArea.TextView.VisualLines.Count;
-
-        Assert.True(
-            built < 200,
-            $"{built} lines were built for a {lines}-line drawing; the editor is not virtualising");
-
-        // Still coloured: the lines that exist carry expression pieces, split into the language
-        // rather than left as one.
-        Assert.Contains(RealisedRuns(viewer), r => r.Text == "tint");
-        Assert.Contains(RealisedRuns(viewer), r => r.Text == "{{");
-
-        window.Close();
-    }
-
-    [AvaloniaFact]
-    public async Task A_Minified_Drawing_Colours_What_It_Can_And_Still_Shows_All_Of_It()
-    {
-        // A minified drawing is the whole file on one line: 132KB took 1.4s as a single row, 340ms
-        // once the row stopped colouring past its limit.
-        var (window, viewer) = Host();
-
-        var shapes = new StringBuilder();
-
-        for (var i = 0; i < 500; i++)
-        {
-            shapes.Append(CultureInfo.InvariantCulture, $"<rect x=\"{i % 50}\" y=\"1\" width=\"1\" height=\"1\" />");
-        }
-
-        var markup = $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 50 50\" width=\"50\" height=\"50\">{shapes}</svg>";
-
-        Assert.True(await viewer.LoadTextAsync(markup));
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        // The limit, plus the one piece the remainder is left as. That piece is not brushless — it
-        // takes the editor's own foreground — so it is counted here like any other.
-        var runs = RealisedRuns(viewer);
-
-        Assert.True(
-            runs.Count <= SvgSourceHighlighter.RowTokenLimit + 1,
-            $"the line was built from {runs.Count} pieces");
-
-        // Bounded, but nothing is missing: what is not coloured is still there to read.
-        Assert.Equal(markup, PaneText(viewer));
-    }
-
-    [AvaloniaFact]
-    public async Task The_Palette_Follows_The_Theme()
-    {
-        var (window, viewer) = await HostLoaded();
-
-        window.RequestedThemeVariant = ThemeVariant.Dark;
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var dark = RealisedRuns(viewer).First(r => r.Text == "rect").Brush;
-
-        window.RequestedThemeVariant = ThemeVariant.Light;
-        Dispatcher.UIThread.RunJobs();
-
-        var light = RealisedRuns(viewer).First(r => r.Text == "rect").Brush;
-
-        // A palette chosen for a dark background is unreadable on a white one.
-        Assert.NotEqual(dark?.ToString(), light?.ToString());
-
-        window.Close();
-    }
-
 
     private const string Mistyped = """
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
@@ -1021,23 +837,19 @@ public class SvgViewerTests
         """;
 
     [AvaloniaFact]
-    public async Task The_Pane_Underlines_The_Name_Nothing_Declares()
+    public async Task The_Name_Nothing_Declares_Is_Filed_Under_Where_It_Is_Written()
     {
         var (window, viewer) = Host();
 
         Assert.True(await viewer.LoadTextAsync(Mistyped));
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         // The mark is drawn rather than decorated, so what is asserted is where it is drawn: the
         // span the pane holds, resolved against the text it is showing.
         var one = Assert.Single(viewer.SourceDiagnostics);
 
-        Assert.Equal("tnit", PaneText(viewer).Substring(one.Start, one.Length));
-
-        // Something red is actually on screen, and only over that one word.
-        Assert.True(ErrorPixels(window, viewer) > 0, "nothing was marked");
+        Assert.Equal("tnit", viewer.Source.Substring(one.Start, one.Length));
 
         window.Close();
     }
@@ -1047,11 +859,9 @@ public class SvgViewerTests
     {
         var (window, viewer) = await HostLoaded();
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         Assert.Empty(viewer.SourceDiagnostics);
-        Assert.Equal(0, ErrorPixels(window, viewer));
 
         window.Close();
     }
@@ -1065,7 +875,6 @@ public class SvgViewerTests
 
         Assert.True(await viewer.LoadTextAsync(Mistyped));
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var one = Assert.Single(viewer.SourceDiagnostics);
@@ -1073,7 +882,7 @@ public class SvgViewerTests
         // The message names what is wrong, and the span it is filed under is that word and no more,
         // so a pointer resting anywhere on it finds this and a pointer beside it does not.
         Assert.Contains("tnit", one.Message, StringComparison.Ordinal);
-        Assert.Equal("tnit", PaneText(viewer).Substring(one.Start, one.Length));
+        Assert.Equal("tnit", viewer.Source.Substring(one.Start, one.Length));
 
         window.Close();
     }
@@ -1099,19 +908,16 @@ public class SvgViewerTests
 
         Assert.True(await viewer.LoadTextAsync(BadlyDeclared));
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var one = Assert.Single(viewer.SourceDiagnostics);
 
-        Assert.Equal("0", PaneText(viewer).Substring(one.Start, one.Length));
-        Assert.True(ErrorPixels(window, viewer) > 0, "nothing was marked");
-
+        Assert.Equal("0", viewer.Source.Substring(one.Start, one.Length));
         window.Close();
     }
 
     [AvaloniaFact]
-    public async Task A_Declaration_The_Pane_Marks_Does_Not_Bury_The_Drawing_In_Cascades()
+    public async Task A_Refused_Declaration_Does_Not_Bury_The_Drawing_In_Cascades()
     {
         // With the declaration refused its parameter is missing from the table, so every use of the
         // name it would have declared reads as undeclared. One mistake, one mark.
@@ -1119,7 +925,6 @@ public class SvgViewerTests
 
         Assert.True(await viewer.LoadTextAsync(BadlyDeclared));
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         Assert.Single(viewer.SourceDiagnostics);
@@ -1147,44 +952,11 @@ public class SvgViewerTests
 
         Assert.True(await viewer.LoadTextAsync(source));
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var one = Assert.Single(viewer.SourceDiagnostics);
 
-        Assert.Equal("clamp", PaneText(viewer).Substring(one.Start, one.Length));
-
-        window.Close();
-    }
-
-    [AvaloniaFact]
-    public async Task The_Source_Is_Shown_In_A_Monospaced_Font()
-    {
-        // The rows it replaced set no font at all and inherited the UI's, so a drawing's text was
-        // shown in a proportional face — which for markup means nothing lines up under anything.
-        var (window, viewer) = await HostLoaded();
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var editor = Pane(viewer);
-        var typeface = new Typeface(editor.FontFamily);
-
-        static double Width(Typeface typeface, double size, string text)
-            => new FormattedText(
-                text,
-                CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight,
-                typeface,
-                size,
-                Brushes.Black).Width;
-
-        var narrow = Width(typeface, editor.FontSize, "iiiiiiii");
-        var wide = Width(typeface, editor.FontSize, "mmmmmmmm");
-
-        Assert.True(
-            Math.Abs(narrow - wide) < 0.5d,
-            $"'{editor.FontFamily}' is not monospaced: eight i's are {narrow:F1}px and eight m's are {wide:F1}px");
+        Assert.Equal("clamp", viewer.Source.Substring(one.Start, one.Length));
 
         window.Close();
     }
@@ -1199,21 +971,20 @@ public class SvgViewerTests
         var errors = new List<string>();
         viewer.ErrorRaised += (_, message) => errors.Add(message);
 
-        // Deliberately without opening the pane: whether the drawing is at fault has to be knowable
-        // before anyone has asked to read it.
+        // Whether the drawing is at fault has to be knowable before anyone has picked an element
+        // to be shown it against.
         Assert.True(await viewer.LoadTextAsync(Mistyped));
         Dispatcher.UIThread.RunJobs();
 
         var opened = Assert.Single(errors.Distinct());
 
-        Assert.Contains("1 error", opened, StringComparison.Ordinal);
-        Assert.Contains("Source pane", opened, StringComparison.Ordinal);
+        Assert.Equal("1 error", opened);
 
         // A note, not a panel: it takes no room from the drawing and nothing is put over it.
         Assert.False(Overlay(viewer).IsVisible);
         Assert.Null(viewer.Canvas.Effect);
 
-        // Not the compiler's words a second time: those belong on the line that carries them.
+        // Not the compiler's words a second time: those belong on the row that carries them.
         Assert.DoesNotContain("tnit", opened, StringComparison.Ordinal);
         Assert.Contains(viewer.SourceDiagnostics, d => d.Message.Contains("tnit", StringComparison.Ordinal));
 
@@ -1289,7 +1060,7 @@ public class SvgViewerTests
         var one = Assert.Single(viewer.SourceDiagnostics);
 
         Assert.Equal(SvgSourceSeverity.Warning, one.Severity);
-        Assert.Equal("1 warning, marked in the Source pane", Note(viewer).Text);
+        Assert.Equal("1 warning", Note(viewer).Text);
 
         // And it is not put over the drawing either: the pane has a line to say it on.
         Assert.False(Overlay(viewer).IsVisible);
@@ -1310,7 +1081,7 @@ public class SvgViewerTests
             """));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal("1 error and 1 warning, marked in the Source pane", Note(viewer).Text);
+        Assert.Equal("1 error and 1 warning", Note(viewer).Text);
 
         window.Close();
     }
@@ -1374,11 +1145,10 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
-    public async Task Typing_In_The_Pane_Rebuilds_The_Drawing()
+    public async Task Setting_The_Source_Rebuilds_The_Drawing()
     {
         var (window, viewer) = await HostLoaded();
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var before = viewer.Svg!.Picture;
@@ -1392,11 +1162,10 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
-    public async Task Typing_Leaves_A_View_Somebody_Adjusted_Where_It_Was()
+    public async Task An_Edit_Leaves_A_View_Somebody_Adjusted_Where_It_Was()
     {
         var (window, viewer) = await HostLoaded();
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         viewer.Canvas.ZoomIn();
@@ -1414,14 +1183,12 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
-    public async Task An_Edit_Marks_The_Drawing_Even_With_The_Pane_Shut()
+    public async Task An_Edit_From_A_Panel_Marks_The_Drawing()
     {
         // The mark used to be raised where the pane filled its buffer, which it does not do while
         // it is closed — so an edit made from a panel changed the drawing and marked nothing, and
         // a host would offer to close a tab holding unsaved work without asking.
         var (window, viewer) = await HostLoaded();
-
-        Assert.False(viewer.ShowSource);
 
         var told = 0;
         viewer.SourceModifiedChanged += (_, _) => told++;
@@ -1442,7 +1209,6 @@ public class SvgViewerTests
         // the way in rather than held and failed over. The drawing is what must not be lost.
         var (window, viewer) = await HostLoaded();
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var before = viewer.Svg!.Picture;
@@ -1494,8 +1260,7 @@ public class SvgViewerTests
             var (window, viewer) = Host();
 
             Assert.True(await viewer.LoadAsync(path));
-            viewer.ShowSource = true;
-            Dispatcher.UIThread.RunJobs();
+                Dispatcher.UIThread.RunJobs();
 
             Assert.Equal(new SKColor(0xFF, 0, 0), Centre(viewer));
 
@@ -1529,7 +1294,7 @@ public class SvgViewerTests
     }
 
     [AvaloniaFact]
-    public async Task Saving_Writes_The_Pane_Back_And_Clears_The_Mark()
+    public async Task Saving_Writes_The_Tree_Back_And_Clears_The_Mark()
     {
         var path = Path.Combine(Path.GetTempPath(), "svg-save-" + Guid.NewGuid().ToString("N") + ".svg");
         File.WriteAllText(path, Parametric);
@@ -1539,8 +1304,7 @@ public class SvgViewerTests
             var (window, viewer) = Host();
 
             Assert.True(await viewer.LoadAsync(path));
-            viewer.ShowSource = true;
-            Dispatcher.UIThread.RunJobs();
+                Dispatcher.UIThread.RunJobs();
 
             Assert.False(viewer.IsSourceModified);
 
@@ -1672,7 +1436,6 @@ public class SvgViewerTests
         // IsOriginalFile from inside that handler still says "saved".
         var (window, viewer) = await HostLoaded();
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         var announced = new List<bool>();
@@ -1693,7 +1456,6 @@ public class SvgViewerTests
         // meant reopening a file and is constant while someone is typing one.
         var (window, viewer) = await HostLoaded();
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(viewer.TrySetParameterValue("tint", ExprValue.Color(0x11, 0x22, 0x33, 0xFF)));
@@ -1728,13 +1490,12 @@ public class SvgViewerTests
          """;
 
     [AvaloniaFact]
-    public async Task A_Step_Edited_In_The_Source_Reaches_The_Slider()
+    public async Task A_Step_Edited_In_The_Tree_Reaches_The_Slider()
     {
         // The guard carrying values across a reload compared names and types, and a step is
         // neither — so editing one changed everything but the slider.
         var (window, viewer) = await HostLoaded(Ranged("30"));
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(30d, viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Step);
@@ -1759,7 +1520,6 @@ public class SvgViewerTests
         // file's.
         var (window, viewer) = await HostLoaded(Ranged("5"));
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         await Type(viewer, Ranged("5", fallback: "90"));
@@ -1774,7 +1534,6 @@ public class SvgViewerTests
     {
         var (window, viewer) = await HostLoaded(Ranged("5"));
 
-        viewer.ShowSource = true;
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(viewer.TrySetParameterValue("hue", ExprValue.Number(45f)));
@@ -1787,130 +1546,13 @@ public class SvgViewerTests
         window.Close();
     }
 
-    [AvaloniaFact]
-    public async Task A_Selection_Can_Cross_A_Line()
-    {
-        // The reason the pane is an editor at all. A control per line could show a file and could
-        // colour it, but a reader could never take a piece of it away.
-        var (window, viewer) = await HostLoaded();
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var editor = Pane(viewer);
-        var second = editor.Document.GetLineByNumber(2);
-        var third = editor.Document.GetLineByNumber(3);
-
-        editor.Select(second.Offset, third.EndOffset - second.Offset);
-
-        Assert.Contains("\n", editor.SelectedText, StringComparison.Ordinal);
-        Assert.Contains(editor.Document.GetText(second), editor.SelectedText, StringComparison.Ordinal);
-        Assert.Contains(editor.Document.GetText(third), editor.SelectedText, StringComparison.Ordinal);
-
-        window.Close();
-    }
-
-    [AvaloniaFact]
-    public async Task A_Windows_Drawing_Splits_Into_The_Same_Lines_Twice()
-    {
-        // The highlighter and the editor's document both split lines, and a disagreement about a
-        // carriage return would put every colour one character out.
-        var (window, viewer) = Host();
-
-        var markup = Parametric.Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace("\n", "\r\n", StringComparison.Ordinal);
-
-        Assert.True(await viewer.LoadTextAsync(markup));
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var document = Pane(viewer).Document;
-        var lines = SvgSourceHighlighter.Lines(document.Text);
-
-        Assert.Contains("\r\n", document.Text, StringComparison.Ordinal);
-        Assert.Equal(document.LineCount, lines.Count);
-
-        for (var number = 1; number <= document.LineCount; number++)
-        {
-            Assert.Equal(document.GetLineByNumber(number).Offset, lines[number - 1].Start);
-        }
-
-        window.Close();
-    }
-
-    [AvaloniaFact]
-    public async Task Every_Brush_The_Pane_Asks_For_Is_There_To_Find()
-    {
-        // A brush key is a string, and the line numbers disappeared when a rename caught
-        // "SvgViewerSourceLineNumberBrush". Asked of the resources, so an unpainted key is checked too.
-        var (window, viewer) = Host();
-
-        Assert.True(await viewer.LoadTextAsync(Parametric));
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var keys = Enum.GetValues<SvgSourceTokenKind>()
-            .Select(kind => $"SvgViewerSource{kind}Brush")
-            .Concat(new[] { "SvgViewerSourceLineNumberBrush", "SvgViewerSourceErrorBrush", "SvgViewerSourceWarningBrush" })
-            .Distinct()
-            .ToList();
-
-        foreach (var variant in new[] { ThemeVariant.Dark, ThemeVariant.Light })
-        {
-            foreach (var key in keys)
-            {
-                Assert.True(
-                    viewer.TryFindResource(key, variant, out var brush) && brush is IBrush,
-                    $"{key} does not resolve in {variant}");
-            }
-        }
-
-        // And the pane really did paint with them.
-        Assert.All(RealisedRuns(viewer), r => Assert.NotNull(r.Brush));
-
-        window.Close();
-    }
-
-    private static TextEditor Pane(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<TextEditor>().First(c => c.Name == "SourceEditor");
-
-    /// <summary>What the pane is showing, which is the whole document rather than the rows on screen.</summary>
-    private static string PaneText(SvgViewer viewer) => viewer.Source;
-
     /// <summary>
-    /// The coloured pieces of every line the editor has actually built.
+    /// How much of the frame is painted in the error colour.
     /// </summary>
     /// <remarks>
-    /// A visual line is split into elements wherever the colouriser asked for a colour, so an
-    /// element is what a styled run used to be: a stretch of text and the brush it is drawn in.
-    /// </remarks>
-    private static List<(string Text, IBrush? Brush)> RealisedRuns(SvgViewer viewer)
-    {
-        var editor = Pane(viewer);
-        var runs = new List<(string, IBrush?)>();
-
-        foreach (var line in editor.TextArea.TextView.VisualLines)
-        {
-            foreach (var element in line.Elements)
-            {
-                var start = line.FirstDocumentLine.Offset + element.RelativeTextOffset;
-
-                runs.Add((editor.Document.GetText(start, element.DocumentLength), element.TextRunProperties.ForegroundBrush));
-            }
-        }
-
-        return runs;
-    }
-
-    /// <summary>
-    /// How much of the frame is painted in the error colour, which is what a squiggle is made of.
-    /// </summary>
-    /// <remarks>
-    /// A drawn mark cannot be asserted the way a TextDecoration could, so this asks the frame. The
-    /// error brush is a colour nothing else in the palette is close to, and the count is only ever
-    /// compared against zero.
+    /// Asks the frame rather than the tree, so it answers for anything drawn in that colour wherever
+    /// it is drawn. The error brush is a colour nothing else in the palette is close to, and the
+    /// count is only ever compared against zero.
     /// </remarks>
     private static int ErrorPixels(Window window, SvgViewer viewer)
     {
@@ -2011,36 +1653,6 @@ public class SvgViewerTests
 
         Assert.Equal(was.Value, column.Width.Value);
         Assert.True(column.MinWidth > 0d);
-
-        window.Close();
-    }
-
-    [AvaloniaFact]
-    public async Task Showing_The_Text_Costs_The_Drawing_Height_And_The_Side_Panes_None()
-    {
-        // The columns are the outer split for this reason. With one row of columns above a
-        // full-width source pane, reading the file took height from the parameters and the element
-        // tree as well as from the canvas, which is a strange price to pay for reading it.
-        var (window, viewer) = await HostLoaded();
-
-        window.Measure(new Size(700, 500));
-        window.Arrange(new Rect(0, 0, 700, 500));
-        Dispatcher.UIThread.RunJobs();
-
-        var side = viewer.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "Side");
-        var canvas = viewer.Canvas;
-
-        var sideWas = side.Bounds.Height;
-        var canvasWas = canvas.Bounds.Height;
-
-        viewer.ShowSource = true;
-
-        window.Measure(new Size(700, 500));
-        window.Arrange(new Rect(0, 0, 700, 500));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(sideWas, side.Bounds.Height);
-        Assert.True(canvas.Bounds.Height < canvasWas, $"{canvas.Bounds.Height} is not less than {canvasWas}");
 
         window.Close();
     }

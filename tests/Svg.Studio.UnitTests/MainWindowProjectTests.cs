@@ -1769,8 +1769,6 @@ public class MainWindowProjectTests : IDisposable
         Assert.DoesNotContain("unsaved", marker.Classes);
 
         var viewer = (SvgViewer)item.Content!;
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
 
         window.GetVisualDescendants().OfType<SvgViewer>().First().SetSource(Drawing + "<!-- edited -->");
         Dispatcher.UIThread.RunJobs();
@@ -1981,10 +1979,7 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.NotSame(first, second);
 
-        // Typed into and saved, in the tab that is on screen.
-        edited.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
+        // Edited and saved, in the tab that is on screen.
         edited.SetSource(Drawing.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
         Dispatcher.UIThread.RunJobs();
 
@@ -3080,32 +3075,32 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
-    /// Clicking an element of a drawing built through a recipe still shows it in the text.
+    /// Picking an element of a drawing built through a recipe reaches the element the file has.
     /// </summary>
     /// <remarks>
-    /// The tree is built from the document the recipe makes, and the pane shows the file. A recipe
+    /// The tree is built from the document the recipe makes, and the panel edits the file. A recipe
     /// puts <c>&lt;defs&gt;&lt;e:code&gt;</c> at the front of the root, so every child after it is
     /// one index further along than the file has it — and an address is a path of child indices.
-    /// Every row of every drawing under a recipe looked up nothing and moved the caret nowhere.
+    /// Every row of every drawing under a recipe looked up nothing.
     /// </remarks>
     [AvaloniaFact]
     public async Task An_Element_Of_A_Drawing_Under_A_Recipe_Is_Found_In_Its_Own_Text()
     {
         var (_, viewer) = await Painting();
 
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var editor = viewer.GetVisualDescendants().OfType<TextEditor>().Single(control => control.Name == "SourceEditor");
-
         // The drawing is one rect. In the built document it is the second child, because the recipe
         // injected a defs in front of it; in the file it is the first.
         var rect = viewer.Elements.Root!.Children.Single(child => child.Element is SvgRectangle);
 
         Assert.Equal("1", rect.AddressKey);
+        Assert.True(viewer.Elements.TrySelect(rect.AddressKey));
+        Dispatcher.UIThread.RunJobs();
 
-        Assert.True(viewer.RevealInSource(rect));
-        Assert.Contains("<rect", editor.SelectedText);
+        var panel = viewer.GetLogicalDescendants().OfType<SvgViewerElementPanel>().Single();
+
+        // The rect's own attributes, as the file writes them and not as the recipe rewrote them.
+        Assert.Contains("fill", panel.Attributes);
+        Assert.Equal("#00ff00", panel.Shown("fill"));
     }
 
     [AvaloniaFact]
@@ -3113,13 +3108,11 @@ public class MainWindowProjectTests : IDisposable
     {
         var (_, viewer) = await Painting();
 
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var editor = viewer.GetVisualDescendants().OfType<TextEditor>().Single(control => control.Name == "SourceEditor");
-
-        var buffer = editor.Document;
         var built = viewer.Document;
+
+        // The file says something the open tab does not. Whatever the rebuild shows afterwards says
+        // where it read the drawing from, and nothing else can tell a rebuild from a reload.
+        Write("badge.svg", Drawing.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
 
         Assert.True(Replacements(viewer).Bind("color", "#00ff00", "hsl(hue, 50%, 50%)"));
 
@@ -3132,10 +3125,11 @@ public class MainWindowProjectTests : IDisposable
         // The drawing was built again — a recipe decides what its colours come to.
         Assert.NotSame(built, viewer.Document);
 
-        // From the text the pane was already holding. Reading the file for it dropped this buffer,
-        // and with it the caret, the scroll and anything typed into the pane, on every keystroke
-        // somebody made in the recipe.
-        Assert.Same(buffer, editor.Document);
+        // From the text the tree was already holding, not from the file. Reading the file again
+        // dropped that tree and with it every unsaved edit and the whole history behind them, on
+        // every keystroke somebody made in the recipe.
+        Assert.Contains("#00ff00", viewer.Source);
+        Assert.DoesNotContain("#0000ff", viewer.Source);
     }
 
     [AvaloniaFact]
@@ -3234,11 +3228,6 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(colours.Bind("color", "#00ff00", "hsl(hue, 50%, 50%)"));
         Dispatcher.UIThread.RunJobs();
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
-
-        var editor = viewer.GetVisualDescendants().OfType<TextEditor>().Single(control => control.Name == "SourceEditor");
 
         Viewer(window).SetSource("<!-- typed -->" + Viewer(window).Source);
         Dispatcher.UIThread.RunJobs();

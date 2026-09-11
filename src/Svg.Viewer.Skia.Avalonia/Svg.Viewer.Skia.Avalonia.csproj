@@ -34,7 +34,8 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Controls.ColorPicker" />
-    <!-- The source pane is a text editor: selection across lines, squiggles, and one day editing. -->
+    <!-- Only for SvgViewerSourceColorizer, which nothing in this package uses any more: Svg.Studio's
+         recipe tab is the last editor left. It goes with that tab. -->
     <PackageReference Include="Avalonia.AvaloniaEdit" />
   </ItemGroup>
 

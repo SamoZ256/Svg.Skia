@@ -2492,20 +2492,11 @@ public partial class MainWindow : Window
 
     /// <summary>Opens the find box of whichever editor the selected tab holds.</summary>
     /// <remarks>
-    /// The recipe first, as <see cref="Undo"/> takes it: a recipe tab has no viewer, and a drawing's
-    /// tab has no editor but the source pane's.
+    /// A recipe tab and nothing else. A drawing's tab used to have the source pane to search; with
+    /// the pane gone there is no text on it to look through, and the element tree is the thing that
+    /// answers "where is the rect" now.
     /// </remarks>
-    public void Find()
-    {
-        if (Editing() is { } recipe)
-        {
-            recipe.Find();
-
-            return;
-        }
-
-        Selected()?.FindInSource();
-    }
+    public void Find() => Editing()?.Find();
 
     private void OnUndo(object? sender, EventArgs e) => Undo();
 
@@ -2601,7 +2592,7 @@ public partial class MainWindow : Window
 
         if (Item(menu, "Find…") is { } find)
         {
-            find.IsEnabled = Selected() is { Document: { } } || Editing() is { };
+            find.IsEnabled = Editing() is { };
         }
 
         // Both act on the project, and both did nothing at all when picked without one.
@@ -3203,8 +3194,8 @@ public partial class MainWindow : Window
     {
         var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
 
-        // Taken here rather than left to the editor, which never sees the keystroke while the
-        // drawing has focus — and would have nothing to search until the source pane was opened.
+        // Taken here rather than left to the editor, which never sees the keystroke unless somebody
+        // is already in it.
         if (e.Key == Key.F && e.KeyModifiers == command)
         {
             e.Handled = true;

@@ -124,27 +124,11 @@ public class MainWindowSearchTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
-    // ---- the source pane -----------------------------------------------------------------------
+    // ---- finding in a recipe -------------------------------------------------------------------
 
+    /// <summary>A recipe tab is the only thing left with text in it to search.</summary>
     [AvaloniaFact]
-    public async Task Finding_Opens_The_Pane_And_Its_Box()
-    {
-        var window = await Host(Write("home.svg", Drawing));
-        var viewer = Viewer(window);
-
-        // The pane starts closed, and a search over a closed pane would search an empty buffer.
-        Assert.False(viewer.ShowSource);
-
-        window.Find();
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(viewer.ShowSource);
-        Assert.True(Editor(viewer).SearchPanel.IsOpened);
-    }
-
-    /// <summary>The tab being looked at owns the keystroke, as Undo does.</summary>
-    [AvaloniaFact]
-    public async Task Finding_In_A_Recipe_Opens_That_Editor_Rather_Than_The_Drawing()
+    public async Task Finding_In_A_Recipe_Opens_That_Editor()
     {
         var window = await Opened();
         // A real recipe, because one that is not XML has no tree and so no tab to find in.

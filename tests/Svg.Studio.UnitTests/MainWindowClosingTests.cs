@@ -7,7 +7,6 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using AvaloniaEdit;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
@@ -52,13 +51,10 @@ public class MainWindowClosingTests
         return (window, asked);
     }
 
-    /// <summary>Types into the open drawing's pane, which is what makes it unsaved.</summary>
+    /// <summary>Edits the open drawing, which is what makes it unsaved.</summary>
     private static void Edit(MainWindow window)
     {
         var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
-
-        viewer.ShowSource = true;
-        Dispatcher.UIThread.RunJobs();
 
         window.GetVisualDescendants().OfType<SvgViewer>().First().SetSource(Drawing + "<!-- edited -->");
         Dispatcher.UIThread.RunJobs();
