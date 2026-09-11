@@ -147,7 +147,8 @@ public class MainWindowSearchTests : IDisposable
     public async Task Finding_In_A_Recipe_Opens_That_Editor_Rather_Than_The_Drawing()
     {
         var window = await Opened();
-        var recipe = window.ShowRecipe(Write("icons.recipe", "# nothing in particular"));
+        // A real recipe, because one that is not XML has no tree and so no tab to find in.
+        var recipe = window.ShowRecipe(Write("icons.recipe", "<recipe xmlns=\"https://svg.skia/expr/1.0\" />"))!;
 
         Dispatcher.UIThread.RunJobs();
 

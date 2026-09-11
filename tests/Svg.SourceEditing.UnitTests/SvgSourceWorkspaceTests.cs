@@ -328,7 +328,7 @@ public class SvgSourceWorkspaceTests
         var workspace = Open();
 
         Assert.StartsWith(
-            "The drawing is not well formed XML:",
+            "This file is not well formed XML:",
             workspace.Commit("break it", text => text.Replace("</svg>", string.Empty)));
 
         Assert.Equal(Source, workspace.Text);
@@ -339,6 +339,6 @@ public class SvgSourceWorkspaceTests
     public void A_Drawing_That_Cannot_Be_Read_Is_Refused_With_A_Sentence()
     {
         Assert.Null(SvgSourceWorkspace.Open("<svg><rect></svg>", out var refusal));
-        Assert.StartsWith("The drawing is not well formed XML:", refusal);
+        Assert.StartsWith("This file is not well formed XML:", refusal);
     }
 }

@@ -14,9 +14,9 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// What the declaration panel's buttons do, for whatever is hosting it.
 /// </summary>
 /// <remarks>
-/// Every one of them is a call into <see cref="SvgDeclarationEditor"/> — text in, edits out — over
-/// the text the declarations live in. What differs between hosts is only where that text is and what
-/// applying the edits means, so both are handed in and the commands themselves are host-agnostic.
+/// Every one of them is a call into <see cref="SvgDeclarationEditor"/> over the document the
+/// declarations live in. What differs between hosts is only which document that is and what
+/// committing to it means, so both are handed in and the commands themselves are host-agnostic.
 ///
 /// Here rather than in <see cref="SvgViewer"/> because the viewer is no longer the only thing that
 /// shows a panel: a project group's tab shows the parameters of the recipe its drawings are built
@@ -26,14 +26,14 @@ namespace Svg.Viewer.Skia.Avalonia;
 public sealed class SvgViewerDeclarationCommands
 {
     private readonly Func<string> _text;
-    private readonly Func<SvgSourceEditResult, bool> _write;
+    private readonly Func<string, Func<SvgSourceDocument, string?>, bool> _write;
     private readonly Func<IReadOnlyList<SvgViewerParameter>> _rows;
     private readonly Func<ISvgViewerParameterDialogService> _dialogs;
 
     /// <param name="text">The document the declarations are in, as it currently stands.</param>
     /// <param name="write">
-    /// What to do with the edits a command comes to, and where a refusal is reported. It answers
-    /// whether the document changed.
+    /// What to do with the edit a command comes to, and where a refusal is reported. It is handed
+    /// what the person did, for a menu to name, and answers whether the document changed.
     /// </param>
     /// <param name="rows">
     /// The rows on show. They are what a name has to avoid clashing with and what a commit reads;
@@ -45,7 +45,7 @@ public sealed class SvgViewerDeclarationCommands
     /// </param>
     public SvgViewerDeclarationCommands(
         Func<string> text,
-        Func<SvgSourceEditResult, bool> write,
+        Func<string, Func<SvgSourceDocument, string?>, bool> write,
         Func<IReadOnlyList<SvgViewerParameter>> rows,
         Func<ISvgViewerParameterDialogService> dialogs)
     {
@@ -64,7 +64,7 @@ public sealed class SvgViewerDeclarationCommands
             .AskAsync(owner, taken)
             .ConfigureAwait(true);
 
-        return parameter is { } declared && _write(SvgDeclarationEditor.Add(_text(), declared));
+        return parameter is { } declared && _write($"add {declared.Name}", source => SvgDeclarationEditor.Add(source, declared));
     }
 
     /// <summary>Asks what one parameter should declare, and writes the answer.</summary>
@@ -86,7 +86,7 @@ public sealed class SvgViewerDeclarationCommands
             .ConfigureAwait(true);
 
         return replacement is { } wanted
-            && _write(SvgDeclarationEditor.Update(_text(), parameter.Name, wanted));
+            && _write($"change {parameter.Name}", source => SvgDeclarationEditor.Update(source, parameter.Name, wanted));
     }
 
     /// <summary>Takes one parameter out.</summary>
@@ -97,7 +97,7 @@ public sealed class SvgViewerDeclarationCommands
             throw new ArgumentNullException(nameof(parameter));
         }
 
-        return _write(SvgDeclarationEditor.Remove(_text(), parameter.Name));
+        return _write($"remove {parameter.Name}", source => SvgDeclarationEditor.Remove(source, parameter.Name));
     }
 
     /// <summary>Writes every value somebody chose in as the declared default.</summary>
@@ -114,7 +114,7 @@ public sealed class SvgViewerDeclarationCommands
             changed[row.Name] = row.ToExpression();
         }
 
-        return changed.Count > 0 && _write(SvgDeclarationEditor.SetDefaults(_text(), changed));
+        return changed.Count > 0 && _write("keep these values", source => SvgDeclarationEditor.SetDefaults(source, changed));
     }
 
     /// <summary>Writes what a let row says, declaring it if it is not there yet.</summary>
@@ -128,10 +128,9 @@ public sealed class SvgViewerDeclarationCommands
         var name = let.Name.Trim();
         var expression = let.Expression.Trim();
 
-        return _write(
-            let.Declaration is { } declared
-                ? SvgDeclarationEditor.UpdateLet(_text(), declared.Name, name, expression)
-                : SvgDeclarationEditor.AddLet(_text(), name, expression));
+        return let.Declaration is { } declared
+            ? _write($"change {declared.Name}", source => SvgDeclarationEditor.UpdateLet(source, declared.Name, name, expression))
+            : _write($"add {name}", source => SvgDeclarationEditor.AddLet(source, name, expression));
     }
 
     /// <summary>Moves a let to <paramref name="to"/> among the lets.</summary>
@@ -143,7 +142,7 @@ public sealed class SvgViewerDeclarationCommands
         }
 
         return let.Declaration is { } declared
-               && _write(SvgDeclarationEditor.MoveLet(_text(), declared.Name, to));
+               && _write($"move {declared.Name}", source => SvgDeclarationEditor.MoveLet(source, declared.Name, to));
     }
 
     /// <summary>Takes one let out.</summary>
@@ -155,7 +154,7 @@ public sealed class SvgViewerDeclarationCommands
         }
 
         return let.Declaration is { } declared
-               && _write(SvgDeclarationEditor.RemoveLet(_text(), declared.Name));
+               && _write($"remove {declared.Name}", source => SvgDeclarationEditor.RemoveLet(source, declared.Name));
     }
 
     /// <summary>Moves a parameter to <paramref name="to"/> among the parameters.</summary>
@@ -166,6 +165,6 @@ public sealed class SvgViewerDeclarationCommands
             throw new ArgumentNullException(nameof(parameter));
         }
 
-        return _write(SvgDeclarationEditor.MoveParameter(_text(), parameter.Name, to));
+        return _write($"move {parameter.Name}", source => SvgDeclarationEditor.MoveParameter(source, parameter.Name, to));
     }
 }

@@ -396,7 +396,7 @@ public class SvgSourceDocumentTests
     public void A_Drawing_That_Is_Not_Well_Formed_Is_Refused_With_A_Sentence()
     {
         Assert.Null(SvgSourceDocument.Read("<svg><rect></svg>", out var refusal));
-        Assert.StartsWith("The drawing is not well formed XML:", refusal);
+        Assert.StartsWith("This file is not well formed XML:", refusal);
     }
 
     [Fact]

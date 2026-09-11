@@ -633,21 +633,27 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>Puts a declaration edit where the drawing keeps them, or says why it would not go.</summary>
-    private bool Splice(SvgSourceEditResult result)
+    private bool Splice(string label, Func<SvgSourceDocument, string?> edit)
     {
         if (_target is not { } target)
         {
+            Says("There is nowhere to write this drawing's declarations.");
+
             return false;
         }
 
-        if (!result.Succeeded)
+        var was = target.Text;
+
+        if (target.Commit(label, edit) is { } refusal)
         {
-            Says(result.Refusal);
+            Says(refusal);
 
             return false;
         }
 
-        if (result.Edits.Count == 0 || !target.Apply(result.Edits))
+        Says(null);
+
+        if (string.Equals(target.Text, was, StringComparison.Ordinal))
         {
             return false;
         }
@@ -787,7 +793,17 @@ public sealed class GroupPanel : UserControl
         var panel = new SvgViewerElementPanel(
             () => target.Text,
             () => declaring?.Text ?? target.Text,
-            result => target.Apply(result.Edits) && Written(),
+            (label, edit) =>
+            {
+                var refusal = target.Commit(label, edit);
+
+                if (refusal is null)
+                {
+                    Written();
+                }
+
+                return refusal;
+            },
             () => Evaluator(document));
 
         panel.Show(SvgSourceElements.Addresses(target.Text, document.Built(target.Text))

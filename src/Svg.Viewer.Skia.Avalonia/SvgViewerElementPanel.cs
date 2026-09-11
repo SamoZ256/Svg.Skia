@@ -71,7 +71,7 @@ public sealed class SvgViewerElementPanel : UserControl
     /// </remarks>
     private readonly Func<string> _declarations;
 
-    private readonly Func<SvgSourceEditResult, bool> _write;
+    private readonly Func<string, Func<SvgSourceDocument, string?>, string?> _write;
 
     private readonly Func<ExprEvaluator?> _values;
 
@@ -87,7 +87,7 @@ public sealed class SvgViewerElementPanel : UserControl
     public SvgViewerElementPanel(
         Func<string> text,
         Func<string> declarations,
-        Func<SvgSourceEditResult, bool> write,
+        Func<string, Func<SvgSourceDocument, string?>, string?> write,
         Func<ExprEvaluator?> values)
     {
         _text = text ?? throw new ArgumentNullException(nameof(text));
@@ -475,52 +475,22 @@ public sealed class SvgViewerElementPanel : UserControl
     private SvgSourceDocument? Open() => SvgSourceDocument.Read(_text(), out _);
 
     /// <summary>
-    /// Writes one attribute of the element, through the tree rather than into the text.
+    /// Writes one attribute of the element, through whatever is holding the drawing.
     /// </summary>
     /// <remarks>
-    /// The tree because a prefix is part of an attribute's name: reading xlink:href back as href and
-    /// writing href is how a drawing comes to hold both, and the span half does exactly that. What
-    /// the host is handed is still text — one span standing for the whole document, since the two
-    /// hosts write into different things and only one of them has a tree to be given.
+    /// The host is handed the edit rather than the text it comes to, because the two hosts this
+    /// panel serves keep their drawing in different places and only they know where. A prefix is
+    /// part of an attribute's name, so this is the one path that can tell xlink:href from href.
     /// </remarks>
     private bool Write(string address, string name, string? value)
     {
-        var text = _text();
+        var refusal = _write(
+            value is null ? $"remove {name}" : $"set {name}",
+            source => SvgAttributeEditor.SetAttribute(source, address, name, value));
 
-        if (SvgSourceDocument.Read(text, out var unreadable) is not { } source)
-        {
-            Say(unreadable);
+        Say(refusal);
 
-            return false;
-        }
-
-        if (SvgAttributeEditor.SetAttribute(source, address, name, value) is { } refusal)
-        {
-            Say(refusal);
-
-            return false;
-        }
-
-        Say(null);
-
-        var written = source.ToText();
-
-        return string.Equals(written, text, StringComparison.Ordinal)
-               || _write(SvgSourceEditResult.From(new[] { new SvgTextEdit(0, text.Length, written) }));
-    }
-
-    private bool Splice(SvgSourceEditResult result)
-    {
-        if (!result.Succeeded)
-        {
-            Say(result.Refusal);
-
-            return false;
-        }
-
-        Say(null);
-
-        return result.Edits.Count == 0 || _write(result);
+        return refusal is null;
     }
 
     private void Say(string? refusal)

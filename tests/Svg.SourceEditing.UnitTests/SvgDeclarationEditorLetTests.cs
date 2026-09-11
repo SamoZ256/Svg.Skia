@@ -1,5 +1,6 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
 using System.Linq;
 using Svg.Expressions;
 using Xunit;
@@ -17,14 +18,41 @@ namespace Svg.SourceEditing.UnitTests;
 /// </remarks>
 public class SvgDeclarationEditorLetTests
 {
+
+    /// <summary>
+    /// What an edit came to: the text afterwards, or the sentence refusing it.
+    /// </summary>
+    /// <remarks>
+    /// These tests were written against an editor that answered with spans. What they assert is
+    /// what the document says afterwards and what it refuses, neither of which is about the medium,
+    /// so they are kept and this stands in for the shape they were written to.
+    /// </remarks>
+    private readonly record struct Edit(string? Refusal, string Text, bool Changed)
+    {
+        public bool Succeeded => Refusal is null;
+    }
+
+    private static Edit Run(string svgText, Func<SvgSourceDocument, string?> edit)
+    {
+        if (SvgSourceDocument.Read(svgText, out var unreadable) is not { } source)
+        {
+            return new Edit(unreadable, svgText, false);
+        }
+
+        var refusal = edit(source);
+
+        var written = refusal is null ? source.ToText() : svgText;
+
+        return new Edit(refusal, written, !string.Equals(written, svgText, StringComparison.Ordinal));
+    }
     private const string Ns = SvgExpressionDeclarations.Namespace;
 
     /// <summary>The document after the edit, which must have been allowed.</summary>
-    private static string Apply(string svgText, SvgSourceEditResult result)
+    private static string Apply(string svgText, Edit result)
     {
         Assert.True(result.Succeeded, result.Refusal);
 
-        return SvgTextEdit.ApplyAll(svgText, result.Edits);
+        return result.Text;
     }
 
     private static SvgExpressionLet Declared(string svgText, string name)
@@ -49,7 +77,7 @@ public class SvgDeclarationEditorLetTests
             </svg>
             """;
 
-        var edited = Apply(source, SvgDeclarationEditor.AddLet(source, "quarter", "half / 2"));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.AddLet(source, "quarter", "half / 2")));
 
         Assert.Equal("half / 2", Declared(edited, "quarter").Expression);
         Assert.Equal(new[] { "half", "quarter" }, Order(edited));
@@ -75,7 +103,7 @@ public class SvgDeclarationEditorLetTests
             </svg>
             """;
 
-        var edited = Apply(source, SvgDeclarationEditor.AddLet(source, "half", "hue / 2"));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.AddLet(source, "half", "hue / 2")));
 
         Assert.Contains("""
                   <e:param name="hue" type="number" default="217" />
@@ -92,7 +120,7 @@ public class SvgDeclarationEditorLetTests
             </svg>
             """;
 
-        var edited = Apply(source, SvgDeclarationEditor.AddLet(source, "third", "tau / 3"));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.AddLet(source, "third", "tau / 3")));
 
         Assert.Equal("tau / 3", Declared(edited, "third").Expression);
         Assert.Contains($"xmlns:e=\"{Ns}\"", edited);
@@ -115,7 +143,7 @@ public class SvgDeclarationEditorLetTests
             </svg>
             """;
 
-        var result = SvgDeclarationEditor.AddLet(source, "half", "saturation / 2");
+        var result = Run(source, source => SvgDeclarationEditor.AddLet(source, "half", "saturation / 2"));
 
         Assert.False(result.Succeeded);
         Assert.Contains("half", result.Refusal);
@@ -134,7 +162,7 @@ public class SvgDeclarationEditorLetTests
             </svg>
             """;
 
-        Assert.False(SvgDeclarationEditor.AddLet(source, "hue", "1").Succeeded);
+        Assert.False(Run(source, source => SvgDeclarationEditor.AddLet(source, "hue", "1")).Succeeded);
     }
 
     [Fact]
@@ -150,7 +178,7 @@ public class SvgDeclarationEditorLetTests
             </svg>
             """;
 
-        var edited = Apply(source, SvgDeclarationEditor.AddLet(source, "early", "t < 0.5"));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.AddLet(source, "early", "t < 0.5")));
 
         // Escaped in the file, because a bare < opens a tag; read back as what was typed.
         Assert.Contains("t &lt; 0.5", edited);
@@ -158,7 +186,7 @@ public class SvgDeclarationEditorLetTests
 
         // The other three of the attribute set are legal here and would be noise: somebody typing
         // `t > 0.5` should see `t > 0.5` in the pane.
-        var greater = Apply(edited, SvgDeclarationEditor.AddLet(edited, "late", "t > 0.5"));
+        var greater = Apply(edited, Run(edited, source => SvgDeclarationEditor.AddLet(source, "late", "t > 0.5")));
 
         Assert.Contains("t > 0.5", greater);
     }
@@ -181,7 +209,7 @@ public class SvgDeclarationEditorLetTests
             </svg>
             """.Replace("EXPR-NS", Ns);
 
-        var edited = Apply(source, SvgDeclarationEditor.UpdateLet(source, "half", "half", "hue / 3"));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.UpdateLet(source, "half", "half", "hue / 3")));
 
         Assert.Equal("hue / 3", Declared(edited, "half").Expression);
         Assert.Contains("<!-- what the drawing is really tinted by -->", edited);
@@ -204,7 +232,7 @@ public class SvgDeclarationEditorLetTests
             </svg>
             """.Replace("EXPR-NS", Ns);
 
-        var edited = Apply(source, SvgDeclarationEditor.UpdateLet(source, "half", "midpoint", "hue / 2"));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.UpdateLet(source, "half", "midpoint", "hue / 2")));
 
         Assert.Equal(new[] { "midpoint", "tint" }, Order(edited));
 
@@ -229,7 +257,7 @@ public class SvgDeclarationEditorLetTests
             </svg>
             """;
 
-        var result = SvgDeclarationEditor.UpdateLet(source, "half", "half", "quarter * 2");
+        var result = Run(source, source => SvgDeclarationEditor.UpdateLet(source, "half", "half", "quarter * 2"));
 
         Assert.False(result.Succeeded);
         Assert.Contains("half", result.Refusal);
@@ -248,7 +276,7 @@ public class SvgDeclarationEditorLetTests
             </svg>
             """;
 
-        Assert.False(SvgDeclarationEditor.UpdateLet(source, "half", "half", "1").Succeeded);
+        Assert.False(Run(source, source => SvgDeclarationEditor.UpdateLet(source, "half", "half", "1")).Succeeded);
     }
 
     // ---- reordering ----
@@ -271,7 +299,7 @@ public class SvgDeclarationEditorLetTests
     {
         var source = Three.Replace("EXPR-NS", Ns);
 
-        var edited = Apply(source, SvgDeclarationEditor.MoveLet(source, "c", 1));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.MoveLet(source, "c", 1)));
 
         Assert.Equal(new[] { "a", "c", "b" }, Order(edited));
 
@@ -288,7 +316,7 @@ public class SvgDeclarationEditorLetTests
     {
         var source = Three.Replace("EXPR-NS", Ns);
 
-        var edited = Apply(source, SvgDeclarationEditor.MoveLet(source, "c", 0));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.MoveLet(source, "c", 0)));
 
         Assert.Equal(new[] { "c", "a", "b" }, Order(edited));
 
@@ -304,25 +332,30 @@ public class SvgDeclarationEditorLetTests
     {
         var source = Three.Replace("EXPR-NS", Ns).Replace("""<e:let name="b">tau / 4</e:let>""", """<e:let name="b">a * 2</e:let>""");
 
-        var result = SvgDeclarationEditor.MoveLet(source, "b", 0);
+        var result = Run(source, source => SvgDeclarationEditor.MoveLet(source, "b", 0));
 
         Assert.False(result.Succeeded);
         Assert.Contains("'b'", result.Refusal);
     }
 
     [Fact]
-    public void A_Let_Sharing_Its_Line_Is_Refused_Rather_Than_Cut_Out_Of_It()
+    public void A_Let_Sharing_Its_Line_Can_Be_Moved_Off_It()
     {
+        // This used to be refused, because there was no line to cut the let out of. A tree has no
+        // lines to share, so a block written on one is now something that can be reordered.
         var source = $"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
               <defs><e:code><e:let name="a">tau / 4</e:let><e:let name="b">tau / 8</e:let></e:code></defs>
             </svg>
             """;
 
-        var result = SvgDeclarationEditor.MoveLet(source, "b", 0);
+        var result = Run(source, source => SvgDeclarationEditor.MoveLet(source, "b", 0));
 
-        Assert.False(result.Succeeded);
-        Assert.Contains("line", result.Refusal);
+        Assert.True(result.Succeeded, result.Refusal);
+
+        var lets = SvgExpressionDeclarations.Parse(result.Text, out _).Lets;
+
+        Assert.Equal(new[] { "b", "a" }, lets.Select(let => let.Name));
     }
 
     [Fact]
@@ -330,10 +363,10 @@ public class SvgDeclarationEditorLetTests
     {
         var source = Three.Replace("EXPR-NS", Ns);
 
-        var result = SvgDeclarationEditor.MoveLet(source, "b", 1);
+        var result = Run(source, source => SvgDeclarationEditor.MoveLet(source, "b", 1));
 
         Assert.True(result.Succeeded);
-        Assert.Empty(result.Edits);
+        Assert.False(result.Changed);
     }
 
     // ---- what the reordering check may and may not refuse ----
@@ -354,7 +387,7 @@ public class SvgDeclarationEditorLetTests
             </svg>
             """;
 
-        var edited = Apply(source, SvgDeclarationEditor.Add(source, new SvgExpressionParameter("radius", ExprType.Number, "40")));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.Add(source, new SvgExpressionParameter("radius", ExprType.Number, "40"))));
 
         Assert.Contains("radius", edited);
         Assert.Contains("saturation / 2", edited);
@@ -382,7 +415,7 @@ public class SvgDeclarationEditorLetTests
     {
         var source = Mixed.Replace("EXPR-NS", Ns);
 
-        var edited = Apply(source, SvgDeclarationEditor.MoveParameter(source, "tint", 1));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.MoveParameter(source, "tint", 1)));
 
         Assert.Equal(new[] { "size", "tint", "hue" }, Parameters(edited));
     }
@@ -395,7 +428,7 @@ public class SvgDeclarationEditorLetTests
         // The C# generator needs the ones with defaults last and says so when it is run --
         // SkiaCSharpCodeGenExpressionTests holds that. It is a rule of that back end and not of
         // this language, so a document is not stopped from saying it.
-        var edited = Apply(source, SvgDeclarationEditor.MoveParameter(source, "size", 2));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.MoveParameter(source, "size", 2)));
 
         Assert.Equal(new[] { "hue", "tint", "size" }, Parameters(edited));
     }
@@ -416,7 +449,7 @@ public class SvgDeclarationEditorLetTests
             </svg>
             """.Replace("EXPR-NS", Ns);
 
-        var edited = Apply(source, SvgDeclarationEditor.MoveParameter(source, "tint", 0));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.MoveParameter(source, "tint", 0)));
 
         Assert.Equal(new[] { "tint", "hue" }, Parameters(edited));
         Assert.Equal(new[] { "half" }, Order(edited));

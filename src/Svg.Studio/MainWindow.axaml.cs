@@ -69,6 +69,17 @@ public partial class MainWindow : Window
     /// <summary>The recipes this project has opened, by file. One buffer each, however many ask.</summary>
     private readonly Dictionary<string, RecipeWorkspace> _recipes = new(StringComparer.Ordinal);
 
+    /// <summary>Why a recipe could not be opened, or null where it could.</summary>
+    public string? Unreadable(string path)
+        => path is { } && _unreadable.TryGetValue(path, out var why) ? why : null;
+
+    /// <summary>Why a recipe named by the project could not be opened, by path.</summary>
+    /// <remarks>
+    /// A recipe with no tree is not held open and empty the way it used to be, so the reason has
+    /// nowhere else to live: this is what the drawings under it put on their status line.
+    /// </remarks>
+    private readonly Dictionary<string, string> _unreadable = new(StringComparer.Ordinal);
+
     private TabItem? _pressed;
     private Point _pressedAt;
     private double _grabbedAt;
@@ -1787,14 +1798,23 @@ public partial class MainWindow : Window
     /// One buffer per file however many drawings name it, so a rule typed once is seen by all of
     /// them and there is one answer to whether the recipe has unsaved work.
     /// </remarks>
-    private RecipeWorkspace Opened(string path)
+    private RecipeWorkspace? Opened(string path)
     {
         if (_recipes.TryGetValue(path, out var open))
         {
             return open;
         }
 
-        var workspace = new RecipeWorkspace(path);
+        // A recipe that will not read has no tree to edit and nothing to show but itself, so no
+        // buffer is made for it. What names it goes on building unrewritten, and says why.
+        if (RecipeWorkspace.Open(path, out var refusal) is not { } workspace)
+        {
+            _unreadable[path] = refusal ?? "This recipe could not be read.";
+
+            return null;
+        }
+
+        _unreadable.Remove(path);
 
         workspace.Edited += (_, _) => Rebuild();
 
@@ -1841,7 +1861,9 @@ public partial class MainWindow : Window
     /// and anything else put there would be invisible to all three.
     /// </remarks>
     private ISvgViewerDeclarationTarget? DeclarationsOf(SvgcProjectDrawing drawing)
-        => drawing.EffectiveResolvedRecipe is { } recipe ? Opened(recipe) : DrawingOf(drawing);
+        => drawing.EffectiveResolvedRecipe is { } recipe
+            ? Opened(recipe) as ISvgViewerDeclarationTarget
+            : DrawingOf(drawing);
 
     /// <summary>
     /// Where a drawing's own text is written, whatever builds it.
@@ -1904,7 +1926,9 @@ public partial class MainWindow : Window
     /// marked for it.
     /// </remarks>
     private string Built(SvgcProjectDrawing drawing, string svgText)
-        => drawing.EffectiveResolvedRecipe is { } recipe ? Rewritten(svgText, Opened(recipe)) : svgText;
+        => drawing.EffectiveResolvedRecipe is { } recipe && Opened(recipe) is { } workspace
+            ? Rewritten(svgText, workspace)
+            : svgText;
 
     /// <summary>
     /// Brings a recipe forward, in a tab of its own.
@@ -1914,7 +1938,7 @@ public partial class MainWindow : Window
     /// namer would be several editors over one file disagreeing about what is in it. Public for the
     /// reason <see cref="ShowAsync"/> is — it is the way in without a pointer.
     /// </remarks>
-    public RecipePanel ShowRecipe(string path)
+    public RecipePanel? ShowRecipe(string path)
     {
         if (path is null)
         {
@@ -1928,7 +1952,14 @@ public partial class MainWindow : Window
             return (RecipePanel)open.Content!;
         }
 
-        var panel = new RecipePanel(Opened(path));
+        // A recipe with no tree has no tab. Whoever asked learns why from Unreadable, which the
+        // drawings under it are already putting on their status line.
+        if (Opened(path) is not { } opened)
+        {
+            return null;
+        }
+
+        var panel = new RecipePanel(opened);
 
         AddNodeTab(panel, path, Path.GetFileName(path));
 

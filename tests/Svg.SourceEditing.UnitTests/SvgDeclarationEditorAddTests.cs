@@ -1,5 +1,6 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
 using System.Linq;
 using Svg.Expressions;
 using Svg.SourceEditing;
@@ -24,6 +25,33 @@ namespace Svg.SourceEditing.UnitTests;
 /// </remarks>
 public class SvgDeclarationEditorAddTests
 {
+
+    /// <summary>
+    /// What an edit came to: the text afterwards, or the sentence refusing it.
+    /// </summary>
+    /// <remarks>
+    /// These tests were written against an editor that answered with spans. What they assert is
+    /// what the document says afterwards and what it refuses, neither of which is about the medium,
+    /// so they are kept and this stands in for the shape they were written to.
+    /// </remarks>
+    private readonly record struct Edit(string? Refusal, string Text, bool Changed)
+    {
+        public bool Succeeded => Refusal is null;
+    }
+
+    private static Edit Run(string svgText, Func<SvgSourceDocument, string?> edit)
+    {
+        if (SvgSourceDocument.Read(svgText, out var unreadable) is not { } source)
+        {
+            return new Edit(unreadable, svgText, false);
+        }
+
+        var refusal = edit(source);
+
+        var written = refusal is null ? source.ToText() : svgText;
+
+        return new Edit(refusal, written, !string.Equals(written, svgText, StringComparison.Ordinal));
+    }
     private const string Ns = SvgExpressionDeclarations.Namespace;
 
     private static SvgExpressionParameter Number(string name = "radius", string? @default = "40")
@@ -32,11 +60,11 @@ public class SvgDeclarationEditorAddTests
     /// <summary>The document after the edit, which must have been allowed.</summary>
     private static string Add(string svgText, SvgExpressionParameter parameter)
     {
-        var result = SvgDeclarationEditor.Add(svgText, parameter);
+        var result = Run(svgText, source => SvgDeclarationEditor.Add(source, parameter));
 
         Assert.True(result.Succeeded, result.Refusal);
 
-        return SvgTextEdit.ApplyAll(svgText, result.Edits);
+        return result.Text;
     }
 
     private static SvgExpressionParameter Declared(string svgText, string name)
@@ -371,7 +399,7 @@ public class SvgDeclarationEditorAddTests
             </svg>
             """;
 
-        Assert.False(SvgDeclarationEditor.Add(source, Number("hue")).Succeeded);
+        Assert.False(Run(source, source => SvgDeclarationEditor.Add(source, Number("hue"))).Succeeded);
     }
 
     [Fact]
@@ -383,7 +411,7 @@ public class SvgDeclarationEditorAddTests
             </svg>
             """;
 
-        Assert.False(SvgDeclarationEditor.Add(source, Number("primary")).Succeeded);
+        Assert.False(Run(source, source => SvgDeclarationEditor.Add(source, Number("primary"))).Succeeded);
     }
 
     [Theory]
@@ -398,7 +426,7 @@ public class SvgDeclarationEditorAddTests
             </svg>
             """;
 
-        Assert.False(SvgDeclarationEditor.Add(source, Number(name)).Succeeded);
+        Assert.False(Run(source, source => SvgDeclarationEditor.Add(source, Number(name))).Succeeded);
     }
 
     [Fact]
@@ -410,9 +438,8 @@ public class SvgDeclarationEditorAddTests
             </svg>
             """;
 
-        var result = SvgDeclarationEditor.Add(
-            source,
-            new SvgExpressionParameter("hue", ExprType.Number, "217", "0", null, null));
+        var result = Run(
+            source, source => SvgDeclarationEditor.Add(source, new SvgExpressionParameter("hue", ExprType.Number, "217", "0", null, null)));
 
         Assert.False(result.Succeeded);
     }
@@ -426,9 +453,8 @@ public class SvgDeclarationEditorAddTests
             </svg>
             """;
 
-        var result = SvgDeclarationEditor.Add(
-            source,
-            new SvgExpressionParameter("on", ExprType.Boolean, "true", "0", "1", null));
+        var result = Run(
+            source, source => SvgDeclarationEditor.Add(source, new SvgExpressionParameter("on", ExprType.Boolean, "true", "0", "1", null)));
 
         Assert.False(result.Succeeded);
     }
@@ -443,11 +469,11 @@ public class SvgDeclarationEditorAddTests
               <defs><e:code></e:code>
             """;
 
-        var result = SvgDeclarationEditor.Add(source, Number());
+        var result = Run(source, source => SvgDeclarationEditor.Add(source, Number()));
 
         Assert.False(result.Succeeded);
         Assert.NotNull(result.Refusal);
-        Assert.Empty(result.Edits);
+        Assert.False(result.Changed);
     }
 
     [Fact]
@@ -459,6 +485,6 @@ public class SvgDeclarationEditorAddTests
             </svg>
             """;
 
-        Assert.False(SvgDeclarationEditor.Add(source, Number()).Succeeded);
+        Assert.False(Run(source, source => SvgDeclarationEditor.Add(source, Number())).Succeeded);
     }
 }

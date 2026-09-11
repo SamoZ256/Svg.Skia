@@ -180,7 +180,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // The drawing's own text, and its own buffer: an element's attribute belongs to the drawing.
         // Not through Write, which hands an edit to DeclarationTarget — under a recipe that is the
         // recipe, and a fill on a rect has no business being written there.
-        _element = new SvgViewerElementPanel(PaneSource, Declarations, Splice, Values);
+        _element = new SvgViewerElementPanel(PaneSource, Declarations, Written, Values);
 
         _elementTree.MoveRequested = MoveElement;
         _elementTree.NewGroupRequested = NewGroup;
@@ -1483,20 +1483,27 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// rather than in the file underneath it — with undo, the unsaved mark, and a save that waits
     /// to be asked for.
     ///
-    /// Explicit, because <c>Text</c> and <c>Apply</c> are poor names on a viewer and good ones on a
-    /// target: a caller that wants these has the interface in its hand already.
+    /// Explicit, because <c>Text</c> and <c>Commit</c> are poor names on a viewer and good ones on
+    /// a target: a caller that wants these has the interface in its hand already.
     /// </remarks>
     string ISvgViewerDeclarationTarget.Text => Source;
 
     /// <inheritdoc />
-    bool ISvgViewerDeclarationTarget.Apply(IReadOnlyList<SvgTextEdit> edits)
+    string? ISvgViewerDeclarationTarget.Commit(string label, Func<SvgSourceDocument, string?> edit)
     {
-        if (edits is null || edits.Count == 0 || _document is null)
+        if (_workspace is not { } workspace)
         {
-            return false;
+            return _unreadable ?? Unwritten;
         }
 
-        return Splice(SvgSourceEditResult.From(edits));
+        var refusal = workspace.Commit(label, edit);
+
+        if (refusal is null)
+        {
+            Shown();
+        }
+
+        return refusal;
     }
 
     /// <summary>The text the declaration commands read.</summary>
@@ -1516,23 +1523,27 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Puts a declaration edit wherever the declarations live.</summary>
     /// <remarks>
     /// The refusal is reported here either way, so a host supplying a target has one thing to do
-    /// with the edits and nothing to say about them.
+    /// with an edit and nothing to say about it.
     /// </remarks>
-    private bool Write(SvgSourceEditResult result)
+    private bool Write(string label, Func<SvgSourceDocument, string?> edit)
     {
         if (DeclarationTarget is not { } target)
         {
-            return Splice(result);
+            return Commit(label, edit);
         }
 
-        if (!result.Succeeded)
+        var was = target.Text;
+
+        if (target.Commit(label, edit) is { } refusal)
         {
-            ShowNote(result.Refusal);
+            ShowNote(refusal);
 
             return false;
         }
 
-        return result.Edits.Count > 0 && target.Apply(result.Edits);
+        // The target is a different document, so nothing here has changed and nothing rebuilds; the
+        // host watching that document is what brings the drawings round to it.
+        return !string.Equals(target.Text, was, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1804,25 +1815,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
     }
 
-    /// <summary>Puts an edit through the text buffer, as one thing that can be taken back.</summary>
-    /// <remarks>
-    /// Through the buffer rather than around it, so the undo stack is the one history of the
-    /// document. Grouped, because an insertion that declared a namespace and opened a block is three
-    /// spans and one decision.
-    /// </remarks>
-    private bool Splice(SvgSourceEditResult result)
-    {
-        if (!result.Succeeded)
-        {
-            ShowNote(result.Refusal);
-
-            return false;
-        }
-
-        return result.Edits.Count > 0
-               && Commit("edit the drawing", text => SvgTextEdit.ApplyAll(text, result.Edits));
-    }
-
     /// <summary>Replaces the whole drawing with the text given, as one thing to take back.</summary>
     /// <remarks>
     /// The pane shows the drawing and no longer holds it, so this is how text arrives from outside:
@@ -1839,6 +1831,31 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
 
         return Commit("edit the source", (string _) => svgText);
+    }
+
+    /// <summary>
+    /// Runs one edit against the drawing and answers why it could not be made.
+    /// </summary>
+    /// <remarks>
+    /// For a pane that reports a refusal itself rather than through the status line: the element
+    /// panel says what is wrong beside the row it is wrong about.
+    /// </remarks>
+    private string? Written(string label, Func<SvgSourceDocument, string?> edit)
+    {
+        if (_workspace is not { } workspace)
+        {
+            return _unreadable ?? Unwritten;
+        }
+
+        var was = workspace.Text;
+        var refusal = workspace.Commit(label, edit);
+
+        if (refusal is null && !string.Equals(workspace.Text, was, StringComparison.Ordinal))
+        {
+            Shown();
+        }
+
+        return refusal;
     }
 
     /// <summary>Runs one edit against the drawing, shows what it did, and reports a refusal.</summary>
@@ -1937,7 +1954,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
 
 
-        return Splice(document.Resize(PaneSource(), request));
+        return Commit("resize", source => document.Resize(source, request));
     }
 
     /// <summary>

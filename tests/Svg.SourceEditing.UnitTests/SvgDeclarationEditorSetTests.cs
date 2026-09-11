@@ -1,6 +1,7 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System.Collections.Generic;
+using System;
 using System.Linq;
 using Svg.Expressions;
 using Xunit;
@@ -17,6 +18,33 @@ namespace Svg.SourceEditing.UnitTests;
 /// </remarks>
 public class SvgDeclarationEditorSetTests
 {
+
+    /// <summary>
+    /// What an edit came to: the text afterwards, or the sentence refusing it.
+    /// </summary>
+    /// <remarks>
+    /// These tests were written against an editor that answered with spans. What they assert is
+    /// what the document says afterwards and what it refuses, neither of which is about the medium,
+    /// so they are kept and this stands in for the shape they were written to.
+    /// </remarks>
+    private readonly record struct Edit(string? Refusal, string Text, bool Changed)
+    {
+        public bool Succeeded => Refusal is null;
+    }
+
+    private static Edit Run(string svgText, Func<SvgSourceDocument, string?> edit)
+    {
+        if (SvgSourceDocument.Read(svgText, out var unreadable) is not { } source)
+        {
+            return new Edit(unreadable, svgText, false);
+        }
+
+        var refusal = edit(source);
+
+        var written = refusal is null ? source.ToText() : svgText;
+
+        return new Edit(refusal, written, !string.Equals(written, svgText, StringComparison.Ordinal));
+    }
     private const string Ns = SvgExpressionDeclarations.Namespace;
 
     private const string Three = """
@@ -33,11 +61,11 @@ public class SvgDeclarationEditorSetTests
 
     private static string Source() => Three.Replace("EXPR-NS", Ns);
 
-    private static string Apply(string svgText, SvgSourceEditResult result)
+    private static string Apply(string svgText, Edit result)
     {
         Assert.True(result.Succeeded, result.Refusal);
 
-        return SvgTextEdit.ApplyAll(svgText, result.Edits);
+        return result.Text;
     }
 
     private static SvgExpressionParameter Declared(string svgText, string name)
@@ -48,7 +76,7 @@ public class SvgDeclarationEditorSetTests
     {
         var source = Source();
 
-        var edited = Apply(source, SvgDeclarationEditor.Set(source, "hue", SvgDeclarationPart.Default, "90"));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.Set(source, "hue", SvgDeclarationPart.Default, "90")));
 
         Assert.Equal("90", Declared(edited, "hue").DefaultExpression);
 
@@ -61,35 +89,19 @@ public class SvgDeclarationEditorSetTests
     {
         var source = Source();
 
-        var result = SvgDeclarationEditor.SetDefaults(source, new Dictionary<string, string>
+        var result = Run(source, source => SvgDeclarationEditor.SetDefaults(source, new Dictionary<string, string>
         {
             ["hue"] = "90",
             ["tint"] = "#ff0000",
             ["badge"] = "false",
-        });
+        }));
 
         var edited = Apply(source, result);
 
-        Assert.Equal(3, result.Edits.Count);
+        Assert.True(result.Changed);
         Assert.Equal("90", Declared(edited, "hue").DefaultExpression);
         Assert.Equal("#ff0000", Declared(edited, "tint").DefaultExpression);
         Assert.Equal("false", Declared(edited, "badge").DefaultExpression);
-    }
-
-    [Fact]
-    public void The_Edits_Come_Back_In_The_Order_The_Document_Reads()
-    {
-        var source = Source();
-
-        // Handed over backwards, because a panel iterating its rows has no reason to be in order.
-        var result = SvgDeclarationEditor.SetDefaults(source, new Dictionary<string, string>
-        {
-            ["badge"] = "false",
-            ["hue"] = "90",
-        });
-
-        Assert.True(result.Succeeded, result.Refusal);
-        Assert.Equal(result.Edits.OrderBy(edit => edit.Position), result.Edits);
     }
 
     [Fact]
@@ -97,10 +109,10 @@ public class SvgDeclarationEditorSetTests
     {
         var source = Source();
 
-        var result = SvgDeclarationEditor.Set(source, "hue", SvgDeclarationPart.Default, "217");
+        var result = Run(source, source => SvgDeclarationEditor.Set(source, "hue", SvgDeclarationPart.Default, "217"));
 
         Assert.True(result.Succeeded);
-        Assert.Empty(result.Edits);
+        Assert.False(result.Changed);
     }
 
     [Fact]
@@ -108,7 +120,7 @@ public class SvgDeclarationEditorSetTests
     {
         var source = Source();
 
-        var edited = Apply(source, SvgDeclarationEditor.Set(source, "hue", SvgDeclarationPart.Step, "15"));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.Set(source, "hue", SvgDeclarationPart.Step, "15")));
 
         Assert.Equal("15", Declared(edited, "hue").StepExpression);
     }
@@ -118,7 +130,7 @@ public class SvgDeclarationEditorSetTests
     {
         var source = Source();
 
-        var edited = Apply(source, SvgDeclarationEditor.Set(source, "badge", SvgDeclarationPart.Default, null));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.Set(source, "badge", SvgDeclarationPart.Default, null)));
 
         Assert.Null(Declared(edited, "badge").DefaultExpression);
 
@@ -135,10 +147,10 @@ public class SvgDeclarationEditorSetTests
         // min and max are a pair, so taking one away leaves a declaration the language refuses. That
         // verdict is the reader's, not this one's — the edit is refused rather than applied and the
         // document left in that state.
-        var result = SvgDeclarationEditor.Set(source, "hue", SvgDeclarationPart.Min, null);
+        var result = Run(source, source => SvgDeclarationEditor.Set(source, "hue", SvgDeclarationPart.Min, null));
 
         Assert.False(result.Succeeded);
-        Assert.Empty(result.Edits);
+        Assert.False(result.Changed);
     }
 
     [Fact]
@@ -146,7 +158,7 @@ public class SvgDeclarationEditorSetTests
     {
         var source = Source();
 
-        var edited = Apply(source, SvgDeclarationEditor.Set(source, "tint", SvgDeclarationPart.Default, "\"#fff\""));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.Set(source, "tint", SvgDeclarationPart.Default, "\"#fff\"")));
 
         Assert.Equal("\"#fff\"", Declared(edited, "tint").DefaultExpression);
     }
@@ -156,10 +168,10 @@ public class SvgDeclarationEditorSetTests
     {
         var source = Source();
 
-        var result = SvgDeclarationEditor.Set(source, "nosuch", SvgDeclarationPart.Default, "1");
+        var result = Run(source, source => SvgDeclarationEditor.Set(source, "nosuch", SvgDeclarationPart.Default, "1"));
 
         Assert.False(result.Succeeded);
-        Assert.Empty(result.Edits);
+        Assert.False(result.Changed);
     }
 
     [Fact]
@@ -169,7 +181,7 @@ public class SvgDeclarationEditorSetTests
         // loss of what they meant, and the reason a host says so before doing it.
         var source = Source().Replace("default=\"217\"", "default=\"tau * 30\"");
 
-        var edited = Apply(source, SvgDeclarationEditor.Set(source, "hue", SvgDeclarationPart.Default, "188.5"));
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.Set(source, "hue", SvgDeclarationPart.Default, "188.5")));
 
         Assert.Equal("188.5", Declared(edited, "hue").DefaultExpression);
     }
