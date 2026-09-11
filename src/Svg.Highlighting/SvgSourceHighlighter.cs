@@ -242,18 +242,23 @@ public static class SvgSourceHighlighter
 
             AddBody(tokens, source, index, open, let, sites);
 
-            index = source[open..] switch
-            {
-                var rest when rest.StartsWith("<!--", StringComparison.Ordinal) => Fenced(tokens, source, open, "-->"),
-                var rest when rest.StartsWith("<![CDATA[", StringComparison.Ordinal) => Fenced(tokens, source, open, "]]>"),
-                var rest when rest.StartsWith("<?", StringComparison.Ordinal) => Fenced(tokens, source, open, "?>"),
-                var rest when rest.StartsWith("<!", StringComparison.Ordinal) => Fenced(tokens, source, open, ">"),
-                _ => Tag(tokens, source, open, ref element, sites),
-            };
+            // Matched in place. Taking source[open..] to match against copied the whole of the rest
+            // of the document, once for every tag in it, which is the difference between colouring
+            // a 2MB drawing in 90ms and in three and a half seconds.
+            index =
+                Opens(source, open, "<!--") ? Fenced(tokens, source, open, "-->")
+                : Opens(source, open, "<![CDATA[") ? Fenced(tokens, source, open, "]]>")
+                : Opens(source, open, "<?") ? Fenced(tokens, source, open, "?>")
+                : Opens(source, open, "<!") ? Fenced(tokens, source, open, ">")
+                : Tag(tokens, source, open, ref element, sites);
         }
 
         return tokens;
     }
+
+    /// <summary>Whether <paramref name="source"/> reads <paramref name="what"/> at that point.</summary>
+    private static bool Opens(string source, int at, string what)
+        => at + what.Length <= source.Length && string.CompareOrdinal(source, at, what, 0, what.Length) == 0;
 
     /// <summary>Adds text between tags, as code when the element it belongs to is a let.</summary>
     private static void AddBody(
