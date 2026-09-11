@@ -17,6 +17,12 @@ asking. Do not stop to confirm each step.
 
 Stop at the first thing that looks wrong. Never force, never `-D`, never merge past a red build.
 
+**Do not wait for CI.** The gates that decide this are the ones `/push` already ran here — the build
+and the suite, on the code in front of me. Merge on those, say in the report which checks were still
+pending, and carry on. "Never merge past a red build" is about a check that has *already* gone red;
+one that has not finished yet is not a red build, and sitting on it costs turns and tells nobody
+anything. Wait only when I say to wait.
+
 1. **Get a pull request to merge, and the branch it is going into.**
 
    **`$1` is a branch name:** run `/pr $1`. It checks where I am, checks `gh`, runs `/push` — the

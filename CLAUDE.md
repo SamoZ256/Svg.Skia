@@ -39,7 +39,7 @@ with `git submodule update --init --recursive`.
 
 ```sh
 dotnet build Svg.Skia.slnx -c Release
-dotnet test  Svg.Skia.slnx -c Release                          # ~4800 tests, about a minute
+dotnet test  Svg.Skia.slnx -c Release                          # ~5100 tests, about a minute
 dotnet test tests/Svg.Skia.UnitTests/Svg.Skia.UnitTests.csproj -c Release \
   -f net10.0 --filter "FullyQualifiedName~W3CTestSuiteTests"   # one project, one subset
 dotnet format Svg.Skia.slnx --no-restore --include <changed .cs files>   # or just: the format skill
@@ -87,8 +87,7 @@ ShimSkiaSharp.SKPicture   flat list of CanvasCommand — the renderer-independen
   a zero threshold. Add a case there when emitting anything new, or an emitter change can be green
   across thousands of tests and still draw the wrong picture.
 - **The expression extension** (`{{ … }}` in attributes) spans `Svg.Custom`, `ShimSkiaSharp/Symbolic`,
-  `Svg.SceneGraph`, `src/Svg.Expressions` and `Svg.CodeGen.Skia/Expressions`; `src/Svg.Highlighting`
-  colours and diagnoses it for a source view.
+  `Svg.SceneGraph`, `src/Svg.Expressions`, `Svg.CodeGen.Skia/Expressions` and `src/Svg.Highlighting`.
 
 ## Known state
 
