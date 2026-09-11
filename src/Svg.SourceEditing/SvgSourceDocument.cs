@@ -80,10 +80,13 @@ public sealed class SvgSourceDocument
     /// </remarks>
     public string IndentUnit { get; private set; } = "  ";
 
-    /// <summary>Reads a drawing, or refuses with a sentence saying why it could not be read.</summary>
+    /// <summary>Reads a file, or refuses with a sentence saying why it could not be read.</summary>
     /// <remarks>
     /// A refusal rather than an exception, for the reason the rest of this assembly gives one: a
     /// document that is not well formed is something a person can act on, not a fault in the caller.
+    ///
+    /// The sentences say "file" and not "drawing" because a recipe is held this way too, and being
+    /// told that a drawing declares entities of its own, about a recipe, is no help to anybody.
     /// </remarks>
     public static SvgSourceDocument? Read(string svgText, out string? refusal)
     {
@@ -116,14 +119,14 @@ public sealed class SvgSourceDocument
         }
         catch (XmlException ex)
         {
-            refusal = $"The drawing is not well formed XML: {ex.Message}";
+            refusal = $"This file is not well formed XML: {ex.Message}";
 
             return null;
         }
 
         if (document.Root is not { } root)
         {
-            refusal = "The drawing has no root element.";
+            refusal = "This file has no root element.";
 
             return null;
         }
@@ -134,7 +137,7 @@ public sealed class SvgSourceDocument
         if (document.DocumentType?.InternalSubset is { } subset
             && subset.Contains("<!ENTITY", StringComparison.OrdinalIgnoreCase))
         {
-            refusal = "The drawing declares entities of its own, which cannot be written back as they were written.";
+            refusal = "This file declares entities of its own, which cannot be written back as they were written.";
 
             return null;
         }
