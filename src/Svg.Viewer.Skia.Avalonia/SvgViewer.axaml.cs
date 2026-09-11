@@ -1483,20 +1483,27 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// rather than in the file underneath it — with undo, the unsaved mark, and a save that waits
     /// to be asked for.
     ///
-    /// Explicit, because <c>Text</c> and <c>Apply</c> are poor names on a viewer and good ones on a
-    /// target: a caller that wants these has the interface in its hand already.
+    /// Explicit, because <c>Text</c> and <c>Commit</c> are poor names on a viewer and good ones on
+    /// a target: a caller that wants these has the interface in its hand already.
     /// </remarks>
     string ISvgViewerDeclarationTarget.Text => Source;
 
     /// <inheritdoc />
-    bool ISvgViewerDeclarationTarget.Apply(IReadOnlyList<SvgTextEdit> edits)
+    string? ISvgViewerDeclarationTarget.Commit(string label, Func<SvgSourceDocument, string?> edit)
     {
-        if (edits is null || edits.Count == 0 || _document is null)
+        if (_workspace is not { } workspace)
         {
-            return false;
+            return _unreadable ?? Unwritten;
         }
 
-        return Splice(SvgSourceEditResult.From(edits));
+        var refusal = workspace.Commit(label, edit);
+
+        if (refusal is null)
+        {
+            Shown();
+        }
+
+        return refusal;
     }
 
     /// <summary>The text the declaration commands read.</summary>
@@ -1516,23 +1523,27 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Puts a declaration edit wherever the declarations live.</summary>
     /// <remarks>
     /// The refusal is reported here either way, so a host supplying a target has one thing to do
-    /// with the edits and nothing to say about them.
+    /// with an edit and nothing to say about it.
     /// </remarks>
-    private bool Write(SvgSourceEditResult result)
+    private bool Write(string label, Func<SvgSourceDocument, string?> edit)
     {
         if (DeclarationTarget is not { } target)
         {
-            return Splice(result);
+            return Commit(label, edit);
         }
 
-        if (!result.Succeeded)
+        var was = target.Text;
+
+        if (target.Commit(label, edit) is { } refusal)
         {
-            ShowNote(result.Refusal);
+            ShowNote(refusal);
 
             return false;
         }
 
-        return result.Edits.Count > 0 && target.Apply(result.Edits);
+        // The target is a different document, so nothing here has changed and nothing rebuilds; the
+        // host watching that document is what brings the drawings round to it.
+        return !string.Equals(target.Text, was, StringComparison.Ordinal);
     }
 
     /// <summary>

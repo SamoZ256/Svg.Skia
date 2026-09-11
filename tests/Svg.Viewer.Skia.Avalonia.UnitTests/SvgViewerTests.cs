@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -143,9 +144,16 @@ public class SvgViewerTests
 
         Assert.Equal(Plain, target.Text);
 
-        Assert.True(target.Apply(new[] { new SvgTextEdit(0, 0, "<!-- written -->\n") }));
+        Assert.Null(target.Commit("write a comment", source =>
+        {
+            // Inside the root. What sits outside it is carried across as the bytes it was read as,
+            // so that is not where a declaration target writes.
+            source.Document.Root!.AddFirst(new XText("\n  "), new XComment(" written "));
 
-        Assert.StartsWith("<!-- written -->", viewer.Source);
+            return null;
+        }));
+
+        Assert.Contains("<!-- written -->", viewer.Source);
         Assert.Contains("<rect", viewer.Source);
 
         // Into the buffer, so it is somebody's to save and somebody's to take back.
@@ -163,11 +171,21 @@ public class SvgViewerTests
 
         public string Text { get; private set; }
 
-        public bool Apply(IReadOnlyList<SvgTextEdit> edits)
+        public string? Commit(string label, Func<SvgSourceDocument, string?> edit)
         {
-            Text = SvgTextEdit.ApplyAll(Text, edits);
+            if (SvgSourceDocument.Read(Text, out var unreadable) is not { } source)
+            {
+                return unreadable;
+            }
 
-            return true;
+            if (edit(source) is { } refusal)
+            {
+                return refusal;
+            }
+
+            Text = source.ToText();
+
+            return null;
         }
     }
 

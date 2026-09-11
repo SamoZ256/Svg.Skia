@@ -152,9 +152,8 @@ public sealed class RecipeWorkspace : ISvgViewerDeclarationTarget
         return new RecipeWorkspace(path, workspace, workspace.Document.ByteOrderMark);
     }
 
-    /// <summary>
-    /// Runs one edit against the recipe, or says why it could not be made.
-    /// </summary>
+    /// <inheritdoc />
+    /// <remarks>
     /// <remarks>
     /// The one way in for everything structured: the colours pane writes a rule this way and a
     /// drawing's parameter panel writes a declaration, and both are one thing to take back.
@@ -165,18 +164,6 @@ public sealed class RecipeWorkspace : ISvgViewerDeclarationTarget
     /// <inheritdoc cref="Commit(string, Func{SvgSourceDocument, string?})"/>
     public string? Commit(string label, Func<string, string> rewrite)
         => _workspace.Commit(label, rewrite);
-
-    /// <inheritdoc />
-    public bool Apply(IReadOnlyList<SvgTextEdit> edits)
-    {
-        if (edits is null)
-        {
-            throw new ArgumentNullException(nameof(edits));
-        }
-
-        return edits.Count > 0
-               && _workspace.Commit("edit the recipe", text => SvgTextEdit.ApplyAll(text, edits)) is null;
-    }
 
     /// <summary>Takes back the last gesture, or puts it back.</summary>
     /// <remarks>

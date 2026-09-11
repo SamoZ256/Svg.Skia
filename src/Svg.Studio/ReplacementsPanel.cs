@@ -133,11 +133,11 @@ public sealed class ReplacementsPanel : UserControl
             throw new ArgumentNullException(nameof(value));
         }
 
-        return Splice(SvgRecipeRuleEditor.SetRule(
-            Recipe.Text,
-            name,
-            Rule(name, value)?.ValueText ?? value,
-            expression ?? string.Empty));
+        var written = Rule(name, value)?.ValueText ?? value;
+
+        return Splice(
+            $"bind {written}",
+            source => SvgRecipeRuleEditor.SetRule(source, name, written, expression ?? string.Empty));
     }
 
     /// <summary>Takes back whatever replaces <paramref name="value"/>, leaving it as the drawing has it.</summary>
@@ -154,7 +154,9 @@ public sealed class ReplacementsPanel : UserControl
         }
 
         return Rule(name, value) is { } rule
-               && Splice(SvgRecipeRuleEditor.RemoveRule(Recipe.Text, name, rule.ValueText));
+               && Splice(
+                   $"unbind {rule.ValueText}",
+                   source => SvgRecipeRuleEditor.RemoveRule(source, name, rule.ValueText));
     }
 
     /// <summary>Reads the drawing and the recipe again, and says what the two come to.</summary>
@@ -503,20 +505,18 @@ public sealed class ReplacementsPanel : UserControl
         }
     }
 
-    private bool Splice(SvgSourceEditResult result)
+    private bool Splice(string label, Func<SvgSourceDocument, string?> edit)
     {
-        if (!result.Succeeded)
+        // Through the workspace, which is also where the parameter panel's edits land: one way into
+        // the recipe means one answer to what it says and one history to take it back on.
+        if (Recipe.Commit(label, edit) is { } refusal)
         {
-            Say(result.Refusal);
+            Say(refusal);
 
             return false;
         }
 
         Say(null);
-
-        // Through the workspace, which is also where the parameter panel's edits land: one way into
-        // the buffer means one answer to what the recipe says and one stack to take it back on.
-        Recipe.Apply(result.Edits);
 
         return true;
     }

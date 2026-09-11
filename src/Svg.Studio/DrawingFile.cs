@@ -2,7 +2,6 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
-using System.Collections.Generic;
 using Svg.SourceEditing;
 using Svg.Viewer.Skia.Avalonia;
 
@@ -41,23 +40,38 @@ public sealed class DrawingFile : ISvgViewerDeclarationTarget
     public string Text => _text;
 
     /// <inheritdoc />
-    public bool Apply(IReadOnlyList<SvgTextEdit> edits)
+    /// <remarks>
+    /// The tree is read afresh for each edit rather than held: there is no history here to keep one
+    /// consistent with, and a document kept across writes would be one more thing that could come to
+    /// disagree with the file it was read from.
+    /// </remarks>
+    public string? Commit(string label, Func<SvgSourceDocument, string?> edit)
     {
-        if (edits is null || edits.Count == 0)
+        if (edit is null)
         {
-            return false;
+            throw new ArgumentNullException(nameof(edit));
         }
 
-        var written = SvgTextEdit.ApplyAll(_text, edits);
+        if (SvgSourceDocument.Read(_text, out var unreadable) is not { } source)
+        {
+            return unreadable;
+        }
+
+        if (edit(source) is { } refusal)
+        {
+            return refusal;
+        }
+
+        var written = source.ToText();
 
         if (string.Equals(written, _text, StringComparison.Ordinal))
         {
-            return false;
+            return null;
         }
 
         _document.Write(written, _path);
         _text = written;
 
-        return true;
+        return null;
     }
 }
