@@ -16,21 +16,30 @@ internal sealed class PaintCodeSvgWriter
     private readonly PaintCodeCanvas _canvas;
     private readonly ICollection<PaintCodeImportNote> _notes;
     private readonly PaintCodeDeclarations _declarations;
+    private readonly PaintCodeSymbols _symbols;
     private readonly PaintCodeCode _code;
     private readonly Dictionary<string, int> _identifiers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _symbolIdentifiers = new(StringComparer.Ordinal);
+    private readonly List<string> _expanding = new();
     private readonly List<XElement> _definitions = new();
+    private IReadOnlyDictionary<string, string>? _overrides;
     private int _layers;
 
-    private PaintCodeSvgWriter(PaintCodeCanvas canvas, PaintCodeDeclarations declarations, ICollection<PaintCodeImportNote> notes)
+    private PaintCodeSvgWriter(PaintCodeCanvas canvas, PaintCodeDeclarations declarations, PaintCodeSymbols symbols, ICollection<PaintCodeImportNote> notes)
     {
         _canvas = canvas;
         _declarations = declarations;
+        _symbols = symbols;
         _notes = notes;
         _code = new PaintCodeCode(declarations);
     }
 
-    internal static XDocument Write(PaintCodeCanvas canvas, PaintCodeDeclarations declarations, ICollection<PaintCodeImportNote> notes)
-        => new PaintCodeSvgWriter(canvas, declarations, notes).Document();
+    internal static XDocument Write(
+        PaintCodeCanvas canvas,
+        PaintCodeDeclarations declarations,
+        PaintCodeSymbols symbols,
+        ICollection<PaintCodeImportNote> notes)
+        => new PaintCodeSvgWriter(canvas, declarations, symbols, notes).Document();
 
     private XDocument Document()
     {
@@ -153,12 +162,143 @@ internal sealed class PaintCodeSvgWriter
         return element;
     }
 
+    /// <summary>
+    /// A symbol instance: a <c>&lt;use&gt;</c> of the target's tree, written into this drawing's own
+    /// defs once per distinct set of the values it is given.
+    /// </summary>
+    /// <remarks>
+    /// A use cannot pass anything, so an instance that rebinds one of the target's variables cannot
+    /// share a copy with one that does not: what is shared is keyed by the target and by what it is
+    /// given. Most instances give nothing -- they name the same variables the target already reads --
+    /// and those all share one.
+    ///
+    /// The copy is written into this file rather than referenced across files. A use that crossed one
+    /// would be an external reference, which svgc cannot follow: it compiles one drawing at a time.
+    /// </remarks>
     private XElement? Symbol(PaintCodeSymbolItem symbol)
     {
-        Note(PaintCodeImportSeverity.Dropped, symbol.Name, "symbol", $"'{symbol.TargetName}' is not written yet.");
+        if (_symbols.Find(symbol) is not { } target)
+        {
+            Note(PaintCodeImportSeverity.Dropped, symbol.Name, "symbol", $"'{symbol.TargetName}' names a canvas this document does not hold.");
 
-        return null;
+            return null;
+        }
+
+        var given = Given(symbol);
+        var key = target.Identifier + "(" + string.Join(",", Ordered(given)) + ")";
+
+        if (!_symbolIdentifiers.TryGetValue(key, out var identifier))
+        {
+            identifier = Expand(target, given, key);
+        }
+
+        var element = new XElement(Svg + "use", new XAttribute("href", "#" + identifier));
+        Frame(element, symbol, forGroup: false, Fit(symbol, target));
+
+        // PaintCode clips a symbol to the box it was placed in, so anything the target draws outside
+        // its own canvas is cut off rather than spilling into this drawing.
+        element.SetAttributeValue("clip-path", $"url(#{identifier}-clip)");
+
+        return element;
     }
+
+    private string Expand(PaintCodeCanvas target, IReadOnlyDictionary<string, string> given, string key)
+    {
+        if (_expanding.Contains(target.Identifier))
+        {
+            throw new PaintCodeException(
+                $"The symbol '{target.Name}' contains itself, through {string.Join(" -> ", _expanding)}.");
+        }
+
+        var identifier = Identifier("sym-" + PaintCodeSlug.Of(target.Name));
+        var outer = _overrides;
+        var layers = _layers;
+
+        _expanding.Add(target.Identifier);
+        _overrides = given.Count == 0 ? null : given;
+
+        // The target's own tree stands on its own: a layer the caller opened is above the use, not
+        // above the copy, and the copy is written once for every caller.
+        _layers = 0;
+
+        var children = new List<XElement>();
+
+        foreach (var child in target.Root.Children)
+        {
+            if (Item(child) is { } converted)
+            {
+                children.Add(converted);
+            }
+        }
+
+        _layers = layers;
+        _overrides = outer;
+        _expanding.RemoveAt(_expanding.Count - 1);
+
+        _symbolIdentifiers[key] = identifier;
+        _definitions.Add(new XElement(Svg + "g", new XAttribute("id", identifier), children));
+        _definitions.Add(new XElement(
+            Svg + "clipPath",
+            new XAttribute("id", identifier + "-clip"),
+            new XElement(
+                Svg + "rect",
+                new XAttribute("width", Number(target.Bounds.Width)),
+                new XAttribute("height", Number(target.Bounds.Height)))));
+
+        return identifier;
+    }
+
+    /// <summary>What this instance rebinds, leaving out the names it simply passes along.</summary>
+    private IReadOnlyDictionary<string, string> Given(PaintCodeSymbolItem symbol)
+    {
+        var given = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var binding in symbol.Bindings)
+        {
+            if (!binding.Key.StartsWith(Virtual, StringComparison.Ordinal) || binding.Value.Expression is not { } source)
+            {
+                continue;
+            }
+
+            var name = PaintCodeSlug.Identifier(binding.Key.Substring(Virtual.Length));
+
+            if (!PaintCodeExpressionTranslator.TryTranslate(source, _declarations, out var expression, out var refusal, _overrides))
+            {
+                Note(PaintCodeImportSeverity.Dropped, symbol.Name, binding.Key, refusal + ", so the symbol reads the value the drawing already has.");
+
+                continue;
+            }
+
+            // Passing a name along to itself is the same as passing nothing, and saying so is what
+            // lets 1848 of the sample's 2098 bindings share one copy of what they point at.
+            if (expression != name)
+            {
+                given[name] = expression;
+                _code.Use(expression);
+            }
+        }
+
+        return given;
+    }
+
+    private const string Virtual = "VIRTUAL__";
+
+    private static IEnumerable<string> Ordered(IReadOnlyDictionary<string, string> given)
+    {
+        var names = new List<string>(given.Keys);
+        names.Sort(StringComparer.Ordinal);
+
+        foreach (var name in names)
+        {
+            yield return name + "=" + given[name];
+        }
+    }
+
+    /// <summary>How much the target has to be scaled to fill the box the instance was placed in.</summary>
+    private static PaintCodePoint Fit(PaintCodeSymbolItem symbol, PaintCodeCanvas target)
+        => new(
+            target.Bounds.Width == 0 ? 1 : symbol.Frame.Width / target.Bounds.Width,
+            target.Bounds.Height == 0 ? 1 : symbol.Frame.Height / target.Bounds.Height);
 
     private XElement Element(PaintCodeShape shape)
     {
@@ -308,6 +448,11 @@ internal sealed class PaintCodeSvgWriter
 
         var name = PaintCodeSlug.Identifier(color.Name);
 
+        if (_overrides is { } overrides && overrides.TryGetValue(name, out var given))
+        {
+            return given;
+        }
+
         return _declarations.ByName.TryGetValue(name, out var declaration) &&
                declaration.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local
             ? name
@@ -342,7 +487,7 @@ internal sealed class PaintCodeSvgWriter
     private static bool Opens(PaintCodeGroup group)
         => group.Frame.Alpha < 1 || group.Bindings.ContainsKey("alpha");
 
-    private void Frame(XElement element, PaintCodeItem item, bool forGroup)
+    private void Frame(XElement element, PaintCodeItem item, bool forGroup, PaintCodePoint? fit = null)
     {
         var frame = item.Frame;
 
@@ -362,15 +507,16 @@ internal sealed class PaintCodeSvgWriter
             element.SetAttributeValue("display", "none");
         }
 
-        Transform(element, item, forGroup);
+        Transform(element, item, forGroup, fit);
     }
 
-    private void Transform(XElement element, PaintCodeItem item, bool forGroup)
+    private void Transform(XElement element, PaintCodeItem item, bool forGroup, PaintCodePoint? fit)
     {
         var frame = item.Frame;
         var turned = frame.Rotation != 0 || item.Bindings.ContainsKey("displayRotation");
         var scaled = frame.ScaleX != 1 || frame.ScaleY != 1 ||
-                     item.Bindings.ContainsKey("displayScaleX") || item.Bindings.ContainsKey("displayScaleY");
+                     item.Bindings.ContainsKey("displayScaleX") || item.Bindings.ContainsKey("displayScaleY") ||
+                     (fit is { } size && (size.X != 1 || size.Y != 1));
         var moved = item.Bindings.ContainsKey("displayAnchorX") || item.Bindings.ContainsKey("displayAnchorY");
 
         if (forGroup && !turned && !scaled && !moved)
@@ -400,9 +546,9 @@ internal sealed class PaintCodeSvgWriter
         if (scaled)
         {
             transform.Append(" scale(")
-                .Append(Argument(item, "displayScaleX", frame.ScaleX, item.Name))
+                .Append(Argument(item, "displayScaleX", frame.ScaleX * (fit?.X ?? 1), item.Name))
                 .Append(',')
-                .Append(Argument(item, "displayScaleY", frame.ScaleY, item.Name))
+                .Append(Argument(item, "displayScaleY", frame.ScaleY * (fit?.Y ?? 1), item.Name))
                 .Append(')');
         }
 
@@ -462,7 +608,7 @@ internal sealed class PaintCodeSvgWriter
             return null;
         }
 
-        if (!PaintCodeExpressionTranslator.TryTranslate(source, _declarations, out var expression, out var refusal))
+        if (!PaintCodeExpressionTranslator.TryTranslate(source, _declarations, out var expression, out var refusal, _overrides))
         {
             Note(PaintCodeImportSeverity.Dropped, name, property, refusal + ", so the drawing's own value is written.");
 

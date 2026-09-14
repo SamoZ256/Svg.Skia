@@ -158,7 +158,7 @@ public class PaintCodeSvgWriterTests
         var document = PaintCodeDocument.Parse(SampleDocument.Bytes());
         var canvas = document.Canvases.Single();
 
-        return PaintCodeSvgWriter.Write(canvas, PaintCodeDeclarations.Of(document), new List<PaintCodeImportNote>());
+        return PaintCodeSvgWriter.Write(canvas, PaintCodeDeclarations.Of(document), PaintCodeSymbols.Of(document), new List<PaintCodeImportNote>());
     }
 
     private static XElement Element(string name) => Elements(name).First();
@@ -210,7 +210,7 @@ public class PaintCodeSvgWriterTests
             false,
             new PaintCodeGroup("Root", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { (PaintCodeItem)shape }, null));
 
-        return PaintCodeSvgWriter.Write(canvas, PaintCodeDeclarations.Of(PaintCodeDocument.Parse(ScopeDocument.Bytes())), new List<PaintCodeImportNote>()).Root!.Elements().Last();
+        return PaintCodeSvgWriter.Write(canvas, PaintCodeDeclarations.Of(Scope()), PaintCodeSymbols.Of(Scope()), new List<PaintCodeImportNote>()).Root!.Elements().Last();
     }
 
     private static XElement Rectangle(double radius, PaintCodeShapeKind kind)
@@ -244,6 +244,8 @@ public class PaintCodeSvgWriterTests
             null,
             PaintCodeShapeMetrics.Default);
 
+    private static PaintCodeDocument Scope() => PaintCodeDocument.Parse(ScopeDocument.Bytes());
+
     private static PaintCodeFrame Identity() => new(0, 0, 0, 0, default, 0, 1, 1, 1, false, true);
 
     private static PaintCodeShape Driven(string property, string expression, double value, double anchorY = 0, double rotation = 0)
@@ -273,6 +275,6 @@ public class PaintCodeSvgWriterTests
     {
         var canvas = new PaintCodeCanvas("canvas", "canvas", new PaintCodeRect(0, 0, 30, 30), true, false, new PaintCodeGroup("Canvas", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { (PaintCodeItem)root }, null));
 
-        return PaintCodeSvgWriter.Write(canvas, PaintCodeDeclarations.Of(PaintCodeDocument.Parse(ScopeDocument.Bytes())), notes);
+        return PaintCodeSvgWriter.Write(canvas, PaintCodeDeclarations.Of(Scope()), PaintCodeSymbols.Of(Scope()), notes);
     }
 }

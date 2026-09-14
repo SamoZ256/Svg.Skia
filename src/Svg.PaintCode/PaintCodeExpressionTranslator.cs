@@ -140,7 +140,7 @@ internal sealed class PaintCodeExpressionTranslator
                     return null;
                 }
 
-                left = target == "mod" ? $"mod({left}, {right})" : $"{left} {target} {right}";
+                left = Combine(left, target, right);
                 matched = true;
 
                 break;
@@ -154,6 +154,23 @@ internal sealed class PaintCodeExpressionTranslator
 
         return left;
     }
+
+    /// <summary>
+    /// Two operands and what joins them, with the joins that do nothing left out.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode writes "angle + 0" where it means "angle" -- it is how its editor spells a property
+    /// that simply follows a variable. Keeping the addition would make 54 symbol instances look like
+    /// they rebind something, and each would be copied instead of shared.
+    /// </remarks>
+    private static string Combine(string left, string target, string right)
+        => target switch
+        {
+            "mod" => $"mod({left}, {right})",
+            "+" or "-" when right == "0" => left,
+            "*" or "/" when right == "1" => left,
+            _ => $"{left} {target} {right}"
+        };
 
     private string? Unary()
     {
