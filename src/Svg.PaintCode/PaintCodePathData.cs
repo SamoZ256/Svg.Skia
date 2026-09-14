@@ -45,9 +45,17 @@ internal static class PaintCodePathData
                 (metrics.TopLeftRounded && metrics.TopRightRounded && metrics.BottomLeftRounded && metrics.BottomRightRounded));
     }
 
-    /// <summary>Whether the shape is a whole ellipse rather than an arc of one.</summary>
+    /// <summary>
+    /// Whether the shape is a whole ellipse rather than an arc of one.
+    /// </summary>
+    /// <remarks>
+    /// A whole one is written with no sweep at all rather than with a full turn: 670 of the sample's
+    /// 718 ovals are start 0, end 0, and reading that as an arc draws nothing.
+    /// </remarks>
     internal static bool IsWholeEllipse(PaintCodeShape shape)
-        => shape.Kind is PaintCodeShapeKind.Oval && Math.Abs(shape.Metrics.StartAngle - shape.Metrics.EndAngle) >= 360;
+        => shape.Kind is PaintCodeShapeKind.Oval && IsWhole(shape.Metrics.StartAngle - shape.Metrics.EndAngle);
+
+    private static bool IsWhole(double sweep) => sweep == 0 || Math.Abs(sweep) >= 360;
 
     private static string? Bezier(PaintCodeShape shape)
     {
@@ -163,7 +171,7 @@ internal static class PaintCodePathData
             return string.Empty;
         }
 
-        if (Math.Abs(sweep) >= 360)
+        if (IsWhole(sweep))
         {
             return Ellipse(centerX, centerY, radiusX, radiusY);
         }

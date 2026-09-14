@@ -15,12 +15,14 @@ public sealed class PaintCodeDocument
         string name,
         IReadOnlyList<PaintCodeDesk> desks,
         IReadOnlyList<PaintCodeVariable> variables,
-        IReadOnlyList<PaintCodeLibraryColor> colors)
+        IReadOnlyList<PaintCodeLibraryColor> colors,
+        IReadOnlyList<PaintCodeGradient> gradients)
     {
         Name = name;
         Desks = desks;
         Variables = variables;
         Colors = colors;
+        Gradients = gradients;
     }
 
     public string Name { get; }
@@ -32,6 +34,9 @@ public sealed class PaintCodeDocument
 
     /// <summary>The library's named colours, which its expressions refer to by name.</summary>
     public IReadOnlyList<PaintCodeLibraryColor> Colors { get; }
+
+    /// <summary>The library's named gradients, which its expressions also refer to by name.</summary>
+    public IReadOnlyList<PaintCodeGradient> Gradients { get; }
 
     public IEnumerable<PaintCodeCanvas> Canvases
     {
@@ -241,7 +246,10 @@ public sealed class PaintCodeShape : PaintCodeItem
         PaintCodeStroke strokeStyle,
         bool isEvenOdd,
         PaintCodeText? text,
-        PaintCodeShapeMetrics metrics)
+        PaintCodeShapeMetrics metrics,
+        bool isRadialFill = false,
+        double fillGradientAngle = -90,
+        int blendMode = 0)
         : base(name, frame, bindings)
     {
         Kind = kind;
@@ -252,6 +260,9 @@ public sealed class PaintCodeShape : PaintCodeItem
         IsEvenOdd = isEvenOdd;
         Text = text;
         Metrics = metrics;
+        IsRadialFill = isRadialFill;
+        FillGradientAngle = fillGradientAngle;
+        BlendMode = blendMode;
     }
 
     public PaintCodeShapeKind Kind { get; }
@@ -271,6 +282,14 @@ public sealed class PaintCodeShape : PaintCodeItem
 
     /// <summary>The numbers the shape's own kind needs: corner radius, angles, sides.</summary>
     public PaintCodeShapeMetrics Metrics { get; }
+
+    public bool IsRadialFill { get; }
+
+    /// <summary>The angle PaintCode lays a linear gradient along, measured in its own y-up space.</summary>
+    public double FillGradientAngle { get; }
+
+    /// <summary>PaintCode's own blend mode, where 0 is the ordinary one.</summary>
+    public int BlendMode { get; }
 }
 
 public sealed class PaintCodeSymbolItem : PaintCodeItem
@@ -470,7 +489,9 @@ public sealed class PaintCodeText
         double fontSize,
         PaintCodeColor? color,
         int horizontalAlignment,
-        int verticalAlignment)
+        int verticalAlignment,
+        double insetHorizontal,
+        double insetVertical)
     {
         Value = value;
         FontFamily = fontFamily;
@@ -479,6 +500,8 @@ public sealed class PaintCodeText
         Color = color;
         HorizontalAlignment = horizontalAlignment;
         VerticalAlignment = verticalAlignment;
+        InsetHorizontal = insetHorizontal;
+        InsetVertical = insetVertical;
     }
 
     public string Value { get; }
@@ -494,6 +517,10 @@ public sealed class PaintCodeText
     public int HorizontalAlignment { get; }
 
     public int VerticalAlignment { get; }
+
+    public double InsetHorizontal { get; }
+
+    public double InsetVertical { get; }
 }
 
 /// <summary>The per-kind numbers: a corner radius, an oval's sweep, a star's or polygon's sides.</summary>

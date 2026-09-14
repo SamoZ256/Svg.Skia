@@ -49,7 +49,7 @@ internal static class PaintCodeReader
 
         var library = top["library"];
 
-        return new PaintCodeDocument(name, desks, Variables(library), Colors(library));
+        return new PaintCodeDocument(name, desks, Variables(library), Colors(library), Gradients(library));
     }
 
     private static PaintCodeDesk Desk(PaintCodeNode node)
@@ -160,7 +160,10 @@ internal static class PaintCodeReader
             Stroke(node),
             (int)node["windingRule"].NumberOr(0) == 1,
             text.Length == 0 ? null : Text(node, text),
-            Metrics(node, kind));
+            Metrics(node, kind),
+            node["isFillGradientRadial"].FlagOr(false),
+            node["fillGradientAngle"].NumberOr(-90),
+            (int)node["blendMode"].NumberOr(0));
     }
 
     private static PaintCodeFrame Frame(PaintCodeNode node)
@@ -237,7 +240,9 @@ internal static class PaintCodeReader
             node["fontSize"].NumberOr(12),
             node["fontColor"].ClassName is "PPColor" ? Color(node["fontColor"]) : null,
             (int)node["horizontalAlignment"].NumberOr(0),
-            (int)node["verticalAlignment"].NumberOr(0));
+            (int)node["verticalAlignment"].NumberOr(0),
+            node["textInsetHorizontal"].NumberOr(0),
+            node["textInsetVertical"].NumberOr(0));
     }
 
     private static PaintCodeShapeMetrics Metrics(PaintCodeNode node, PaintCodeShapeKind kind)
@@ -253,7 +258,7 @@ internal static class PaintCodeReader
             PaintCodeShapeKind.Oval => new PaintCodeShapeMetrics(
                 0, true, true, true, true,
                 node["startAngle"].NumberOr(0),
-                node["endAngle"].NumberOr(360),
+                node["endAngle"].NumberOr(0),
                 node["isClosed"].FlagOr(true),
                 0, 0),
             PaintCodeShapeKind.Star or PaintCodeShapeKind.Polygon => new PaintCodeShapeMetrics(
@@ -425,6 +430,21 @@ internal static class PaintCodeReader
         }
 
         return colors;
+    }
+
+    private static IReadOnlyList<PaintCodeGradient> Gradients(PaintCodeNode library)
+    {
+        var gradients = new List<PaintCodeGradient>();
+
+        foreach (var gradient in library["gradients"].Items)
+        {
+            if (Gradient(gradient) is { } value)
+            {
+                gradients.Add(value);
+            }
+        }
+
+        return gradients;
     }
 
     private static IReadOnlyList<PaintCodeVariable> Variables(PaintCodeNode library)

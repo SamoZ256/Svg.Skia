@@ -144,11 +144,15 @@ internal sealed class PaintCodeSvgWriter
         Geometry(element, shape);
         Fill(element, shape);
         Stroke(element, shape);
-        Frame(element, shape, forGroup: false);
 
-        if (shape.Text is { } text)
+        var written = shape.Text is { } text ? WithText(element, shape, text) : element;
+        Frame(written, shape, forGroup: false);
+
+        // One shape in the sample. Named rather than guessed at: PaintCode's own numbering is not
+        // SVG's, and a blend mode that is nearly right is worse than one that is reported.
+        if (shape.BlendMode != 0)
         {
-            Note(PaintCodeImportSeverity.Dropped, shape.Name, "text", $"'{text.Value}' is not written yet.");
+            Note(PaintCodeImportSeverity.Dropped, shape.Name, "blendMode", $"PaintCode's blend mode {shape.BlendMode} has no name here, so the shape is drawn over what is under it.");
         }
 
         foreach (var property in new[] { "strokeWidth", "startAngle", "endAngle" })
@@ -159,7 +163,96 @@ internal sealed class PaintCodeSvgWriter
             }
         }
 
-        return element;
+        return written;
+    }
+
+    /// <summary>
+    /// The shape and the text it carries, or the text alone where the shape paints nothing.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode lays text out itself, measuring the run and centring it in the shape's box; SVG
+    /// places it from one point and an anchor. The two agree on where the box is and not on where
+    /// the glyphs sit inside it, so every one of these is reported.
+    /// </remarks>
+    private XElement WithText(XElement element, PaintCodeShape shape, PaintCodeText text)
+    {
+        var box = PaintCodePathData.Box(shape);
+        var run = new XElement(Svg + "text");
+        var anchor = text.HorizontalAlignment switch
+        {
+            1 => "middle",
+            2 => "end",
+            _ => "start"
+        };
+
+        run.SetAttributeValue("x", Number(anchor switch
+        {
+            "middle" => box.X + box.Width / 2,
+            "end" => box.X + box.Width - text.InsetHorizontal,
+            _ => box.X + text.InsetHorizontal
+        }));
+
+        run.SetAttributeValue("y", Number(box.Y + box.Height / 2));
+        run.SetAttributeValue("font-family", text.FontFamily);
+        run.SetAttributeValue("font-size", Number(text.FontSize));
+
+        if (text.FontFace.IndexOf("Bold", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            run.SetAttributeValue("font-weight", "bold");
+        }
+
+        if (text.FontFace.IndexOf("Italic", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            run.SetAttributeValue("font-style", "italic");
+        }
+
+        if (anchor != "start")
+        {
+            run.SetAttributeValue("text-anchor", anchor);
+        }
+
+        run.SetAttributeValue("dominant-baseline", "central");
+
+        if (text.Color is { } color)
+        {
+            if (!Bind(run, "fill", shape, "fontColor") && Named(color) is { } name)
+            {
+                run.SetAttributeValue("fill", Braces(name));
+                _code.Use(name);
+            }
+            else if (run.Attribute("fill") is null)
+            {
+                run.SetAttributeValue("fill", Hex(color));
+                Opacity(run, "fill-opacity", color.Alpha);
+            }
+        }
+
+        if (shape.Bindings.TryGetValue("text", out var binding) && binding.Expression is { } source)
+        {
+            if (PaintCodeExpressionTranslator.TryTranslate(source, _declarations, out var expression, out var refusal, _overrides))
+            {
+                run.Add(Braces(expression));
+                _code.Use(expression);
+            }
+            else
+            {
+                Note(PaintCodeImportSeverity.Dropped, shape.Name, "text", refusal + ", so the words the drawing had are written.");
+                run.Add(text.Value);
+            }
+        }
+        else
+        {
+            run.Add(text.Value);
+        }
+
+        Note(PaintCodeImportSeverity.Approximated, shape.Name, "text", "the run is placed from the shape's box rather than measured the way PaintCode measures it.");
+
+        if (element.Attribute("fill")?.Value == "none" && element.Attribute("stroke") is null)
+        {
+            return run;
+        }
+
+        return new XElement(Svg + "g", element, run);
     }
 
     /// <summary>
@@ -359,9 +452,7 @@ internal sealed class PaintCodeSvgWriter
                 break;
 
             case PaintCodePaintKind.Gradient when shape.Fill.Gradient is { } gradient:
-                var first = gradient.Stops.Count > 0 ? gradient.Stops[0].Color : null;
-                element.SetAttributeValue("fill", first is { } ? Hex(first) : "none");
-                Note(PaintCodeImportSeverity.Approximated, shape.Name, "fill", $"the gradient '{gradient.Name}' is drawn as its first stop.");
+                element.SetAttributeValue("fill", $"url(#{Gradient(shape, gradient)})");
 
                 break;
 
@@ -436,6 +527,109 @@ internal sealed class PaintCodeSvgWriter
 
         element.SetAttributeValue(attribute, Hex(color));
         Opacity(element, attribute + "-opacity", color.Alpha);
+    }
+
+    /// <summary>
+    /// A gradient in this drawing's defs, laid across the shape it fills.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode puts a gradient on a shape by an angle rather than by two points, and works the
+    /// points out from the shape itself; measured against its own generated code, an angle on one of
+    /// the axes lays the gradient across the shape's box exactly, and one off them does not — the
+    /// shape's own middle is not its box's. Those are reported.
+    ///
+    /// The stops, not the gradient, are what an expression drives: the format has no gradient type
+    /// and parameterises one through its stop colours instead.
+    /// </remarks>
+    private string Gradient(PaintCodeShape shape, PaintCodeGradient gradient)
+    {
+        var identifier = Identifier(PaintCodeSlug.Of(gradient.Name.Length > 0 ? gradient.Name : shape.Name + "-fill"));
+        var radial = shape.Fill.Kind is PaintCodePaintKind.Gradient && shape.IsRadialFill;
+        var angle = shape.FillGradientAngle;
+        var stops = Stops(shape, gradient);
+        var element = new XElement(
+            Svg + (radial ? "radialGradient" : "linearGradient"),
+            new XAttribute("id", identifier),
+            new XAttribute("gradientUnits", "objectBoundingBox"));
+
+        if (radial)
+        {
+            element.SetAttributeValue("cx", "0.5");
+            element.SetAttributeValue("cy", "0.5");
+            element.SetAttributeValue("r", "0.5");
+            Note(PaintCodeImportSeverity.Approximated, shape.Name, "fill", $"the radial gradient '{gradient.Name}' is laid over the shape's box rather than where PaintCode centres it.");
+        }
+        else
+        {
+            // The angle points the way PaintCode measures it, which the flip turns over.
+            var radians = -angle * Math.PI / 180;
+            var dx = Math.Cos(radians) / 2;
+            var dy = Math.Sin(radians) / 2;
+
+            element.SetAttributeValue("x1", Number(0.5 - dx));
+            element.SetAttributeValue("y1", Number(0.5 - dy));
+            element.SetAttributeValue("x2", Number(0.5 + dx));
+            element.SetAttributeValue("y2", Number(0.5 + dy));
+
+            if (Math.Abs(angle % 90) > 0.001)
+            {
+                Note(PaintCodeImportSeverity.Approximated, shape.Name, "fill", $"the gradient '{gradient.Name}' runs at {Number(angle)} degrees, which is laid across the shape's box rather than where PaintCode puts it.");
+            }
+        }
+
+        foreach (var stop in stops)
+        {
+            element.Add(stop);
+        }
+
+        _definitions.Add(element);
+
+        return identifier;
+    }
+
+    private IEnumerable<XElement> Stops(PaintCodeShape shape, PaintCodeGradient gradient)
+    {
+        var driven = shape.Bindings.TryGetValue("fill", out var binding) && binding.Expression is { } source &&
+                     _declarations.TryStops(source, _overrides, out var expressions, out var refusal)
+            ? expressions
+            : null;
+
+        if (driven is null && shape.Bindings.TryGetValue("fill", out var unbound) && unbound.Expression is { } text)
+        {
+            _declarations.TryStops(text, _overrides, out _, out var why);
+            Note(PaintCodeImportSeverity.Dropped, shape.Name, "fill", $"the gradient is not driven: {why}.");
+        }
+
+        for (var index = 0; index < gradient.Stops.Count; index++)
+        {
+            var stop = gradient.Stops[index];
+            var element = new XElement(
+                Svg + "stop",
+                new XAttribute("offset", Number(stop.Location)));
+
+            if (driven is { } bound && index < bound.Count)
+            {
+                element.SetAttributeValue("stop-color", Braces(bound[index]));
+                _code.Use(bound[index]);
+            }
+            else
+            {
+                var colour = _declarations.Stop(stop.Color);
+
+                if (colour.StartsWith("#", StringComparison.Ordinal))
+                {
+                    element.SetAttributeValue("stop-color", Hex(stop.Color));
+                    Opacity(element, "stop-opacity", stop.Color.Alpha);
+                }
+                else
+                {
+                    element.SetAttributeValue("stop-color", Braces(colour));
+                    _code.Use(colour);
+                }
+            }
+
+            yield return element;
+        }
     }
 
     /// <summary>The declaration this colour is, where the library names it and a drawing can reach it.</summary>

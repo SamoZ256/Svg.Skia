@@ -16,6 +16,8 @@ internal sealed class PaintCodeDeclarations
 {
     private readonly Dictionary<string, PaintCodeDeclaration> _byName = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PaintCodeRect> _rects = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PaintCodeGradient> _gradients = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _gradientExpressions = new(StringComparer.Ordinal);
 
     private PaintCodeDeclarations()
     {
@@ -26,6 +28,11 @@ internal sealed class PaintCodeDeclarations
     internal static PaintCodeDeclarations Of(PaintCodeDocument document)
     {
         var declarations = new PaintCodeDeclarations();
+
+        foreach (var gradient in document.Gradients)
+        {
+            declarations._gradients[PaintCodeSlug.Identifier(gradient.Name)] = gradient;
+        }
 
         foreach (var color in document.Colors)
         {
@@ -39,6 +46,22 @@ internal sealed class PaintCodeDeclarations
                 declarations._rects[PaintCodeSlug.Identifier(variable.Name)] = rect;
 
                 continue;
+            }
+
+            // A gradient-valued variable cannot be declared, since the format has no gradient type,
+            // but its expression is still what chooses between the gradients a stop reads.
+            if (variable.Kind is PaintCodeValueKind.Gradient)
+            {
+                var name = PaintCodeSlug.Identifier(variable.Name);
+
+                if (variable.Expression is { } chooses)
+                {
+                    declarations._gradientExpressions[name] = chooses;
+                }
+                else if (variable.Value.Gradient is { } value)
+                {
+                    declarations._gradients[name] = value;
+                }
             }
 
             declarations.Add(Variable(variable));
@@ -98,6 +121,170 @@ internal sealed class PaintCodeDeclarations
                 _byName[name] = PaintCodeDeclaration.Unusable(name, declaration.Refusal ?? "it could not be translated");
             }
         }
+    }
+
+    /// <summary>The gradient a name stands for, where the library names one.</summary>
+    internal PaintCodeGradient? Gradient(string name)
+        => _gradients.TryGetValue(name, out var gradient) ? gradient : null;
+
+    /// <summary>
+    /// The colour each stop of <paramref name="source"/> takes, where the expression chooses between
+    /// gradients.
+    /// </summary>
+    /// <remarks>
+    /// The expression format has no gradient, and says so: a gradient is parameterised through its
+    /// own stop colours instead. So the one expression is translated once per stop, in a scope where
+    /// every gradient name stands for that stop's colour — which only works where the gradients being
+    /// chosen between have the same number of stops, since no expression can vary that.
+    /// </remarks>
+    internal bool TryStops(string source, IReadOnlyDictionary<string, string>? overrides, out IReadOnlyList<string> stops, out string refusal)
+    {
+        stops = System.Array.Empty<string>();
+        refusal = string.Empty;
+
+        var reachable = new Dictionary<string, PaintCodeGradient>(StringComparer.Ordinal);
+
+        if (!Reach(source, reachable, new HashSet<string>(StringComparer.Ordinal), ref refusal))
+        {
+            return false;
+        }
+
+        if (reachable.Count == 0)
+        {
+            refusal = "it names no gradient this document holds";
+
+            return false;
+        }
+
+        var count = -1;
+
+        foreach (var gradient in reachable.Values)
+        {
+            if (count < 0)
+            {
+                count = gradient.Stops.Count;
+
+                continue;
+            }
+
+            if (gradient.Stops.Count != count)
+            {
+                refusal = $"'{gradient.Name}' has {gradient.Stops.Count} stops where another has {count}, and no expression can vary that";
+
+                return false;
+            }
+        }
+
+        var written = new List<string>(count);
+
+        for (var index = 0; index < count; index++)
+        {
+            var scope = new Dictionary<string, string>(StringComparer.Ordinal);
+
+            if (overrides is { })
+            {
+                foreach (var given in overrides)
+                {
+                    scope[given.Key] = given.Value;
+                }
+            }
+
+            foreach (var gradient in reachable)
+            {
+                scope[gradient.Key] = Stop(gradient.Value.Stops[index].Color);
+            }
+
+            // Deepest first, so a variable built from another has what it names already in the scope.
+            foreach (var name in Ordered())
+            {
+                if (scope.ContainsKey(name) ||
+                    !PaintCodeExpressionTranslator.TryTranslate(_gradientExpressions[name], this, out var chosen, out refusal, scope))
+                {
+                    continue;
+                }
+
+                scope[name] = chosen;
+            }
+
+            if (!PaintCodeExpressionTranslator.TryTranslate(source, this, out var expression, out refusal, scope))
+            {
+                return false;
+            }
+
+            written.Add(expression);
+        }
+
+        stops = written;
+
+        return true;
+    }
+
+    /// <summary>Every gradient an expression can end up reading, through as many variables as it takes.</summary>
+    private bool Reach(string source, Dictionary<string, PaintCodeGradient> found, HashSet<string> seen, ref string refusal)
+    {
+        foreach (var name in Names(source))
+        {
+            if (_gradients.TryGetValue(name, out var gradient))
+            {
+                found[name] = gradient;
+
+                continue;
+            }
+
+            if (!_gradientExpressions.TryGetValue(name, out var chooses) || !seen.Add(name))
+            {
+                continue;
+            }
+
+            if (!Reach(chooses, found, seen, ref refusal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Gradient variables, the ones built from others last.</summary>
+    private IEnumerable<string> Ordered()
+    {
+        var names = new List<string>(_gradientExpressions.Keys);
+        var written = new HashSet<string>(StringComparer.Ordinal);
+        var order = new List<string>();
+
+        void Write(string name)
+        {
+            if (!_gradientExpressions.TryGetValue(name, out var body) || !written.Add(name))
+            {
+                return;
+            }
+
+            foreach (var needed in Names(body))
+            {
+                Write(needed);
+            }
+
+            order.Add(name);
+        }
+
+        foreach (var name in names)
+        {
+            Write(name);
+        }
+
+        return order;
+    }
+
+    /// <summary>A stop's colour as the name a drawing can bind, or as the bytes it simply is.</summary>
+    internal string Stop(PaintCodeColor color)
+    {
+        var name = PaintCodeSlug.Identifier(color.Name);
+
+        return color.Name.Length > 0 &&
+               _byName.TryGetValue(name, out var declaration) &&
+               declaration.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local
+            ? name
+            : Literal(color);
     }
 
     /// <summary>The names a translated expression reads, so what it needs can be declared with it.</summary>

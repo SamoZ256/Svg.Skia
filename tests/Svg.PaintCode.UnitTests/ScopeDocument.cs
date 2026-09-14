@@ -15,6 +15,7 @@ internal static class ScopeDocument
         var library = archive.Object(
             "PPLibrary",
             ("colors", archive.Array(Color(archive, "navy", "0 0 0.2352941176 1"))),
+            ("gradients", archive.Array(Gradient(archive, "warm"))),
             ("variables", archive.Array(
                 Input(archive, "a", 4, archive.Value(true)),
                 Input(archive, "b", 4, archive.Value(true)),
@@ -27,6 +28,18 @@ internal static class ScopeDocument
 
         return archive.ToBytes(("styleKitName", archive.Text("Scope")), ("library", library));
     }
+
+    private static int Gradient(KeyedArchiveBuilder archive, string name)
+        => archive.Object(
+            "PPGradient",
+            new[]
+            {
+                ("name", archive.Text(name)),
+                ("colorSteps", archive.Array(
+                    archive.Object("PPGradientColor", new[] { ("color", Color(archive, string.Empty, "1 0 0 1")) }, ("location", 0d), ("interRatio", 0.5d)),
+                    archive.Object("PPGradientColor", new[] { ("color", Color(archive, string.Empty, "0 0 1 1")) }, ("location", 1d), ("interRatio", 0.5d))))
+            },
+            ("usage", 0));
 
     private static int Color(KeyedArchiveBuilder archive, string name, string components)
         => archive.Object(

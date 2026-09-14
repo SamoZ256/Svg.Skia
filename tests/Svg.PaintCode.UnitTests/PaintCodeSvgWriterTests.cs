@@ -102,12 +102,71 @@ public class PaintCodeSvgWriterTests
         Assert.Equal("M2,0L7,0A2 2 0 0 1 9,2L9,14L0,14L0,2A2 2 0 0 1 2,0Z", PaintCodePathData.For(shape));
     }
 
-    [Fact]
-    public void A_Whole_Oval_Keeps_Svgs_Own_Element()
+    [Theory]
+    // A whole oval is written with no sweep at all rather than with a full turn, and reading the
+    // first of those as an arc draws nothing: 670 of the sample's 718 ovals say it that way.
+    [InlineData(0, 0)]
+    [InlineData(0, 360)]
+    [InlineData(90, -270)]
+    public void A_Whole_Oval_Keeps_Svgs_Own_Element(double start, double end)
     {
-        var shape = Box(PaintCodeShapeKind.Oval, new PaintCodeShapeMetrics(0, true, true, true, true, 0, 360, true, 0, 0));
+        var shape = Box(PaintCodeShapeKind.Oval, new PaintCodeShapeMetrics(0, true, true, true, true, start, end, true, 0, 0));
 
         Assert.True(PaintCodePathData.IsWholeEllipse(shape));
+    }
+
+    [Fact]
+    public void A_Gradient_Fill_Becomes_A_Gradient_Laid_Along_The_Angle_It_Was_Given()
+    {
+        var document = PaintCodeDocument.Parse(ScopeDocument.Bytes());
+        var element = WriteTree(Only(Filled(Gradient(), -90)), new List<PaintCodeImportNote>());
+        var gradient = element.Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal("0.5", gradient.Attribute("x1")!.Value);
+        Assert.Equal("0", gradient.Attribute("y1")!.Value);
+        Assert.Equal("0.5", gradient.Attribute("x2")!.Value);
+        Assert.Equal("1", gradient.Attribute("y2")!.Value);
+        Assert.Equal(new[] { "#ff0000", "#0000ff" }, gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
+        Assert.Equal($"url(#{gradient.Attribute("id")!.Value})", element.Descendants().First(one => one.Name.LocalName == "path").Attribute("fill")!.Value);
+    }
+
+    [Fact]
+    public void A_Gradient_An_Expression_Chooses_Drives_Each_Of_Its_Stops()
+    {
+        var shape = Filled(Gradient(), -90, "state ? warm : warm");
+        var gradient = WriteTree(Only(shape), new List<PaintCodeImportNote>())
+            .Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal(
+            new[] { "{{ state ? #ff0000ff : #ff0000ff }}", "{{ state ? #0000ffff : #0000ffff }}" },
+            gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
+    }
+
+    [Fact]
+    public void A_Shape_Carrying_Words_Is_Written_As_A_Run_Placed_In_Its_Box()
+    {
+        var text = new PaintCodeText("3", "Inter", "Bold", 7, null, 2, 0, 0, 0);
+        var shape = new PaintCodeShape(
+            "Text",
+            PaintCodeShapeKind.Rectangle,
+            new PaintCodeFrame(0, -9, 9, 9, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            null,
+            PaintCodePaint.None,
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            text,
+            PaintCodeShapeMetrics.Default);
+
+        var run = WriteTree(Only(shape), new List<PaintCodeImportNote>()).Descendants().First(one => one.Name.LocalName == "text");
+
+        Assert.Equal("9", run.Attribute("x")!.Value);
+        Assert.Equal("4.5", run.Attribute("y")!.Value);
+        Assert.Equal("end", run.Attribute("text-anchor")!.Value);
+        Assert.Equal("central", run.Attribute("dominant-baseline")!.Value);
+        Assert.Equal("bold", run.Attribute("font-weight")!.Value);
+        Assert.Equal("3", run.Value);
     }
 
     // The one arc the conversion was checked against: PaintCode's own C# turns these two angles into
@@ -245,6 +304,36 @@ public class PaintCodeSvgWriterTests
             PaintCodeShapeMetrics.Default);
 
     private static PaintCodeDocument Scope() => PaintCodeDocument.Parse(ScopeDocument.Bytes());
+
+    private static PaintCodeGradient Gradient()
+        => new(
+            "warm",
+            new[]
+            {
+                new PaintCodeGradientStop(new PaintCodeColor(string.Empty, 255, 0, 0, 1), 0, 0.5, false),
+                new PaintCodeGradientStop(new PaintCodeColor(string.Empty, 0, 0, 255, 1), 1, 0.5, false)
+            });
+
+    private static PaintCodeShape Filled(PaintCodeGradient gradient, double angle, string? expression = null)
+        => new(
+            "Filled",
+            PaintCodeShapeKind.Bezier,
+            Identity(),
+            expression is { }
+                ? new Dictionary<string, PaintCodeBinding> { ["fill"] = new(expression, PaintCodeValueKind.Gradient, null, null, null, null, gradient, null) }
+                : new Dictionary<string, PaintCodeBinding>(),
+            new PaintCodePath(new[] { new PaintCodeContour(new[] { new PaintCodePathPoint(default, default, default) }, false) }),
+            new PaintCodePaint(PaintCodePaintKind.Gradient, null, gradient),
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            null,
+            PaintCodeShapeMetrics.Default,
+            false,
+            angle);
+
+    private static PaintCodeGroup Only(PaintCodeItem item)
+        => new("Root", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { item }, null);
 
     private static PaintCodeFrame Identity() => new(0, 0, 0, 0, default, 0, 1, 1, 1, false, true);
 
