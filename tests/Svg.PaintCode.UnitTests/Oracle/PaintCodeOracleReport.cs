@@ -65,10 +65,23 @@ public class PaintCodeOracleReport
                     values[switches[bit]] = ExprValue.Boolean(((combination >> bit) & 1) == 1);
                 }
 
-                using var ours = PaintCodeOracle.Ours(svg, values);
-                using var theirs = PaintCodeOracle.Theirs(drawing.Method, values, ours.Width / PaintCodeOracle.Scale, ours.Height / PaintCodeOracle.Scale);
+                double difference;
 
-                var difference = PaintCodeOracle.Difference(ours, theirs);
+                try
+                {
+                    using var ours = PaintCodeOracle.Ours(svg, values);
+                    using var theirs = PaintCodeOracle.Theirs(drawing.Method, values, ours.Width / PaintCodeOracle.Scale, ours.Height / PaintCodeOracle.Scale);
+
+                    difference = PaintCodeOracle.Difference(ours, theirs);
+                }
+                catch (Exception e)
+                {
+                    // A drawing that will not bind is the worst outcome there is, and reporting it
+                    // beside the measurements beats stopping the run on the first one.
+                    worst = double.PositiveInfinity;
+                    where = $"{PaintCodeOracle.Describe(switches, combination)}: {e.GetType().Name} {e.Message}".Replace(",", ";");
+                    break;
+                }
 
                 if (combination == 0)
                 {

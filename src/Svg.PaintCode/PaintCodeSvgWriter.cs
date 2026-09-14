@@ -422,12 +422,37 @@ internal sealed class PaintCodeSvgWriter
                 continue;
             }
 
+            // A colour is stored as the library colour it was set from, name and all, so one named
+            // after a variable is a reference to that variable rather than a value -- which is why
+            // PaintCode's own code hands whiteColor_ along by name while pinning the booleans beside
+            // it to constants. Pinning the literal instead would freeze the symbol at whatever the
+            // caller's colours happened to default to.
+            // ...and only where that variable is one the drawing can actually name. A library colour
+            // nobody marked as used is a constant, which PaintCode bakes too -- drawSymboloverlayadd
+            // takes no colorBlue, it draws the colour.
+            if (value.Value.Color is { } colour && colour.Name.Length > 0
+                && PaintCodeSlug.Identifier(colour.Name) is { } referenced
+                && _declarations.ByName.TryGetValue(referenced, out var target)
+                && target.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local)
+            {
+                if (referenced != name)
+                {
+                    given[name] = referenced;
+                    _code.Use(referenced);
+                }
+
+                continue;
+            }
+
             var literal = PaintCodeDeclarations.Literal(value.Value, type);
 
-            // Only where it differs from what the name already means: a value equal to the default
-            // changes nothing, and treating it as a rebinding would give every instance a copy of
-            // its own rather than sharing one.
-            if (literal is { } && literal != declaration.Body)
+            // Everything else is a value the instance pins. A parameter's body is its default rather
+            // than its value, so pin it even where the two read alike: the caller can still be drawn
+            // with anything, and the symbol is no longer following it. Reading those as the same
+            // thing drew fence-state's lock in the caller's theme -- PaintCode pins isLight to false
+            // there, and false is also isLight's default, so the pin was discarded. Only a local
+            // already fixed to that same text really does mean the same thing.
+            if (literal is { } && (declaration.Kind is PaintCodeDeclarationKind.Parameter || literal != declaration.Body))
             {
                 given[name] = literal;
             }
