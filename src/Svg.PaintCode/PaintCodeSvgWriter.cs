@@ -126,6 +126,11 @@ internal sealed class PaintCodeSvgWriter
             var identifier = Identifier(clip.Name + "-clip");
             var path = new XElement(Svg + "path");
             Geometry(path, clip);
+
+            // The clip shape is placed like any other shape. Transform rather than Frame: a clip has
+            // no opacity and cannot be hidden, and copying those over would suppress the clip
+            // wherever the shape it was drawn from is marked invisible.
+            Transform(path, clip, forGroup: false, null);
             _definitions.Add(new XElement(Svg + "clipPath", new XAttribute("id", identifier), path));
             element.SetAttributeValue("clip-path", $"url(#{identifier})");
         }
@@ -279,10 +284,11 @@ internal sealed class PaintCodeSvgWriter
 
         var given = Given(symbol);
         var key = target.Identifier + "(" + string.Join(",", Ordered(given)) + ")";
+        var scope = Closure(given);
 
         if (!_symbolIdentifiers.TryGetValue(key, out var identifier))
         {
-            identifier = Expand(target, given, key);
+            identifier = Expand(target, scope, key);
         }
 
         var element = new XElement(Svg + "use", new XAttribute("href", "#" + identifier));
@@ -341,10 +347,90 @@ internal sealed class PaintCodeSvgWriter
         return identifier;
     }
 
-    /// <summary>What this instance rebinds, leaving out the names it simply passes along.</summary>
+    /// <summary>
+    /// Everything the target reads differently because of what it was given.
+    /// </summary>
+    /// <remarks>
+    /// Rebinding a variable rebinds every local built from it, and every local built from those. A
+    /// copy that named the document's own local would read the caller's value of the very variable
+    /// the instance replaced -- which is how a circle icon drew its glyph in the colour of the circle
+    /// behind it.
+    /// </remarks>
+    private IReadOnlyDictionary<string, string> Closure(IReadOnlyDictionary<string, string> given)
+    {
+        if (given.Count == 0)
+        {
+            return given;
+        }
+
+        var scope = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var entry in given)
+        {
+            scope[entry.Key] = entry.Value;
+        }
+
+        foreach (var name in _declarations.Locals())
+        {
+            if (scope.ContainsKey(name) ||
+                _declarations.ByName[name] is not { Source: { } source } local ||
+                !Reads(local.Body, scope))
+            {
+                continue;
+            }
+
+            if (PaintCodeExpressionTranslator.TryTranslate(source, _declarations, out var expression, out _, scope))
+            {
+                scope[name] = expression;
+            }
+        }
+
+        return scope;
+    }
+
+    private static bool Reads(string? body, IReadOnlyDictionary<string, string> scope)
+    {
+        foreach (var name in PaintCodeDeclarations.Names(body ?? string.Empty))
+        {
+            if (scope.ContainsKey(name))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>What this instance gives its target, leaving out what it simply passes along.</summary>
     private IReadOnlyDictionary<string, string> Given(PaintCodeSymbolItem symbol)
     {
         var given = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        // A plain value first, so an expression written on the same name wins over it.
+        foreach (var value in symbol.Values)
+        {
+            if (!value.Key.StartsWith(Virtual, StringComparison.Ordinal) || symbol.Bindings.ContainsKey(value.Key))
+            {
+                continue;
+            }
+
+            var name = PaintCodeSlug.Identifier(value.Key.Substring(Virtual.Length));
+
+            if (!_declarations.ByName.TryGetValue(name, out var declaration) || declaration.Type is not { } type)
+            {
+                continue;
+            }
+
+            var literal = PaintCodeDeclarations.Literal(value.Value, type);
+
+            // Only where it differs from what the name already means: a value equal to the default
+            // changes nothing, and treating it as a rebinding would give every instance a copy of
+            // its own rather than sharing one.
+            if (literal is { } && literal != declaration.Body)
+            {
+                given[name] = literal;
+            }
+        }
 
         foreach (var binding in symbol.Bindings)
         {
@@ -681,7 +767,9 @@ internal sealed class PaintCodeSvgWriter
         }
     }
 
-    /// <summary>Whether this group is drawn into a layer of its own, which a driven transform cannot cross.</summary>
+    /// <summary>
+    /// Whether this group is drawn into a layer of its own, which a driven transform cannot cross.
+    /// </summary>
     private static bool Opens(PaintCodeGroup group)
         => group.Frame.Alpha < 1 || group.Bindings.ContainsKey("alpha");
 
@@ -714,19 +802,14 @@ internal sealed class PaintCodeSvgWriter
         var turned = frame.Rotation != 0 || item.Bindings.ContainsKey("displayRotation");
         var scaled = frame.ScaleX != 1 || frame.ScaleY != 1 ||
                      item.Bindings.ContainsKey("displayScaleX") || item.Bindings.ContainsKey("displayScaleY") ||
-                     (fit is { } size && (size.X != 1 || size.Y != 1));
-        var moved = item.Bindings.ContainsKey("displayAnchorX") || item.Bindings.ContainsKey("displayAnchorY");
-
-        if (forGroup && !turned && !scaled && !moved)
-        {
-            return;
-        }
+                     (fit is { } fitScale && (fitScale.X != 1 || fitScale.Y != 1));
 
         var transform = new StringBuilder();
         var x = frame.Anchor.X;
         var y = -frame.Anchor.Y;
 
-        if (x != 0 || y != 0 || turned || scaled || moved)
+        if (x != 0 || y != 0 || turned || scaled ||
+            item.Bindings.ContainsKey("displayAnchorX") || item.Bindings.ContainsKey("displayAnchorY"))
         {
             transform.Append("translate(")
                 .Append(Argument(item, "displayAnchorX", x, item.Name))
@@ -741,13 +824,31 @@ internal sealed class PaintCodeSvgWriter
             transform.Append(" rotate(").Append(Angle(item, frame.Rotation)).Append(')');
         }
 
-        if (scaled)
+        if (frame.ScaleX != 1 || frame.ScaleY != 1 ||
+            item.Bindings.ContainsKey("displayScaleX") || item.Bindings.ContainsKey("displayScaleY"))
         {
             transform.Append(" scale(")
-                .Append(Argument(item, "displayScaleX", frame.ScaleX * (fit?.X ?? 1), item.Name))
+                .Append(Argument(item, "displayScaleX", frame.ScaleX, item.Name))
                 .Append(',')
-                .Append(Argument(item, "displayScaleY", frame.ScaleY * (fit?.Y ?? 1), item.Name))
+                .Append(Argument(item, "displayScaleY", frame.ScaleY, item.Name))
                 .Append(')');
+        }
+
+        // A shape carries its box offset in its own path data, so only a use needs it written out —
+        // and it goes after the turn, because the turn is about the anchor and not about the box.
+        if (fit is { } fitted)
+        {
+            var box = new PaintCodePoint(frame.X, -(frame.Y + frame.Height));
+
+            if (box.X != 0 || box.Y != 0)
+            {
+                transform.Append(" translate(").Append(Number(box.X)).Append(',').Append(Number(box.Y)).Append(')');
+            }
+
+            if (fitted.X != 1 || fitted.Y != 1)
+            {
+                transform.Append(" scale(").Append(Number(fitted.X)).Append(',').Append(Number(fitted.Y)).Append(')');
+            }
         }
 
         if (transform.Length > 0)
@@ -772,7 +873,7 @@ internal sealed class PaintCodeSvgWriter
             return Number(value);
         }
 
-        var offset = value - (item.Bindings[property].Number ?? value);
+        var offset = value - Produced(expression, item, property, name);
 
         return offset == 0 ? Braces(expression) : Braces($"{expression} + {Number(offset)}");
     }
@@ -784,9 +885,31 @@ internal sealed class PaintCodeSvgWriter
             return Number(-rotation);
         }
 
-        var offset = rotation - (item.Bindings["displayRotation"].Number ?? rotation);
+        // Worked out in PaintCode's own space and turned over afterwards, since that is the space
+        // both the angle and the number stored beside it are measured in.
+        var offset = rotation - Produced(expression, item, "displayRotation", item.Name);
 
         return Braces(offset == 0 ? $"-({expression})" : $"-(({expression}) + {Number(offset)})");
+    }
+
+    /// <summary>
+    /// What the expression itself comes to, which is what the offset is measured from.
+    /// </summary>
+    /// <remarks>
+    /// Falls back to the property's own number, which makes the offset nought: an expression that
+    /// will not evaluate here is one the document could not evaluate either, and leaving the drawing
+    /// where it was beats moving it by a number nobody worked out.
+    /// </remarks>
+    private double Produced(string expression, PaintCodeItem item, string property, string name)
+    {
+        if (_declarations.TryValue(expression, out var produced))
+        {
+            return produced;
+        }
+
+        Note(PaintCodeImportSeverity.Approximated, name, property, "the expression could not be evaluated here, so it drives the drawing from where it already was.");
+
+        return item.Bindings[property].Number ?? 0;
     }
 
     /// <summary>The translated expression driving <paramref name="property"/>, or null where none can.</summary>

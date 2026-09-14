@@ -314,7 +314,7 @@ internal sealed class PaintCodeExpressionTranslator
 
         if (_overrides is { } overrides && overrides.TryGetValue(name, out var substituted))
         {
-            return substituted;
+            return Bracketed(substituted);
         }
 
         if (!_declarations.ByName.TryGetValue(name, out var declaration))
@@ -329,6 +329,28 @@ internal sealed class PaintCodeExpressionTranslator
             _ when Reserved.Contains(name) => Refuse($"'{name}' is a word the expression language reserves"),
             _ => name
         };
+    }
+
+    /// <summary>
+    /// A substituted expression, in brackets unless it is a single thing.
+    /// </summary>
+    /// <remarks>
+    /// What is put in stands where a name stood, and a name binds tighter than anything. Splicing
+    /// "state ? not isLight : isLight" in raw where "isLight" was re-associates the conditional it
+    /// lands in: "isLight ? white : black" becomes "state ? not isLight : (isLight ? white : black)",
+    /// which is a different drawing and, here, one that does not even type check.
+    /// </remarks>
+    private static string Bracketed(string expression)
+    {
+        foreach (var character in expression)
+        {
+            if (!char.IsLetterOrDigit(character) && character != '_' && character != '.' && character != '#')
+            {
+                return "(" + expression + ")";
+            }
+        }
+
+        return expression;
     }
 
     private string? Member(string name)

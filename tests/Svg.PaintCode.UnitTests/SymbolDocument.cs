@@ -24,7 +24,8 @@ internal static class SymbolDocument
         var host = Canvas(archive, "host", archive.Array(
             Symbol(archive, "Plain", "badge", archive.Dictionary(("VIRTUAL__isLight", Expression(archive, "isLight", 4, archive.Value(false))))),
             Symbol(archive, "Flipped", "badge", archive.Dictionary(("VIRTUAL__isLight", Expression(archive, "isNotLight", 4, archive.Value(true))))),
-            Symbol(archive, "Missing", "nowhere", archive.Dictionary())));
+            Symbol(archive, "Missing", "nowhere", archive.Dictionary()),
+            Moved(archive)));
 
         // A canvas that holds a symbol of itself, for the test that says so rather than recursing.
         var looping = cycle
@@ -85,7 +86,30 @@ internal static class SymbolDocument
                     ("name", archive.Text(target)),
                     ("identifier", archive.Text(target))))
             },
-            ("anchorX", 0d), ("anchorY", -15d), ("width", 15d), ("height", 15d), ("alpha", 1d), ("visibilityMode", 1));
+            ("anchorX", 0d), ("anchorY", -15d), ("x", 0d), ("y", -15d), ("width", 15d), ("height", 15d),
+            ("alpha", 1d), ("visibilityMode", 1), ("isKeepingAnchorAtDefaultPosition", true));
+
+    /// <summary>
+    /// An instance whose anchor was dragged off the corner of its box, so x and y carry the rest.
+    /// </summary>
+    /// <remarks>
+    /// 221 of the sample document's 761 instances are like this, and a use has no path data to carry
+    /// the offset in the way a shape does.
+    /// </remarks>
+    private static int Moved(KeyedArchiveBuilder archive)
+        => archive.Object(
+            "PPSymbol",
+            new[]
+            {
+                ("name", archive.Text("Moved")),
+                ("propertyValueProviders", archive.Dictionary()),
+                ("symbolProviderID", archive.Object(
+                    "PPSymbolProviderID",
+                    ("name", archive.Text("badge")),
+                    ("identifier", archive.Text("badge"))))
+            },
+            ("anchorX", 20d), ("anchorY", -25d), ("x", -5d), ("y", -10d), ("width", 15d), ("height", 15d),
+            ("alpha", 1d), ("visibilityMode", 1), ("isKeepingAnchorAtDefaultPosition", false));
 
     private static int Color(KeyedArchiveBuilder archive, string name, string components)
         => archive.Object(

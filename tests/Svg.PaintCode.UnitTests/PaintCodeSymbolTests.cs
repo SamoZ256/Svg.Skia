@@ -14,7 +14,7 @@ public class PaintCodeSymbolTests
     {
         var uses = Host().Descendants().Where(element => element.Name.LocalName == "use").ToList();
 
-        Assert.Equal(2, uses.Count);
+        Assert.Equal(3, uses.Count);
         Assert.NotEqual(uses[0].Attribute("href")!.Value, uses[1].Attribute("href")!.Value);
     }
 
@@ -43,6 +43,18 @@ public class PaintCodeSymbolTests
 
         Assert.Contains("{{ isLight ? colorPurple : colorPurple }}", fills);
         Assert.Contains("{{ isNotLight ? colorPurple : colorPurple }}", fills);
+    }
+
+    // Verified against PaintCode's own generated code, which writes the box as an SKRect and clips
+    // and translates to its corner: the anchor is only where a turn pivots.
+    [Fact]
+    public void An_Instance_Whose_Anchor_Was_Moved_Is_Placed_At_Its_Box_Corner()
+    {
+        var use = Host().Descendants()
+            .Where(element => element.Name.LocalName == "use")
+            .Last();
+
+        Assert.Equal("translate(20,25) translate(-5,-5) scale(0.5,0.5)", use.Attribute("transform")!.Value);
     }
 
     [Fact]

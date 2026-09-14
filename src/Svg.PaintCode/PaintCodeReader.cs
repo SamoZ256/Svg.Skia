@@ -142,7 +142,8 @@ internal static class PaintCodeReader
             Frame(node),
             Bindings(node),
             provider["identifier"].Text ?? string.Empty,
-            provider["name"].Text ?? string.Empty);
+            provider["name"].Text ?? string.Empty,
+            Values(node["virtualProperties"]));
     }
 
     private static PaintCodeShape Shape(PaintCodeNode node, PaintCodeShapeKind kind)
@@ -264,7 +265,7 @@ internal static class PaintCodeReader
             PaintCodeShapeKind.Star or PaintCodeShapeKind.Polygon => new PaintCodeShapeMetrics(
                 0, true, true, true, true, 0, 360, true,
                 (int)node["numberOfSides"].NumberOr(3),
-                node["innerRadiusPercentage"].NumberOr(0.5)),
+                node["innerRadiusPercentage"].NumberOr(50)),
             _ => PaintCodeShapeMetrics.Default
         };
 
@@ -380,6 +381,50 @@ internal static class PaintCodeReader
     }
 
     private static readonly Dictionary<string, PaintCodeBinding> EmptyBindings = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The values a symbol instance hands its target, whose kinds are read from the values
+    /// themselves: unlike a value provider, nothing here says what type it is.
+    /// </summary>
+    private static IReadOnlyDictionary<string, PaintCodeBinding> Values(PaintCodeNode node)
+    {
+        var entries = node.Entries;
+
+        if (entries.Count == 0)
+        {
+            return EmptyBindings;
+        }
+
+        var values = new Dictionary<string, PaintCodeBinding>(entries.Count, StringComparer.Ordinal);
+
+        foreach (var entry in entries)
+        {
+            var value = entry.Value;
+
+            if (value.ClassName is "PPColor" && Color(value) is { } color)
+            {
+                values[entry.Key] = new PaintCodeBinding(null, PaintCodeValueKind.Color, null, null, null, color, null, null);
+            }
+            else if (value.ClassName is "PPGradient" && Gradient(value) is { } gradient)
+            {
+                values[entry.Key] = new PaintCodeBinding(null, PaintCodeValueKind.Gradient, null, null, null, null, gradient, null);
+            }
+            else if (value.IsBoolean && value.Flag is { } flag)
+            {
+                values[entry.Key] = new PaintCodeBinding(null, PaintCodeValueKind.Boolean, null, flag, null, null, null, null);
+            }
+            else if (value.Number is { } number)
+            {
+                values[entry.Key] = new PaintCodeBinding(null, PaintCodeValueKind.Number, number, null, null, null, null, null);
+            }
+            else if (value.Text is { } text)
+            {
+                values[entry.Key] = new PaintCodeBinding(null, PaintCodeValueKind.String, null, null, text, null, null, null);
+            }
+        }
+
+        return values;
+    }
 
     private static PaintCodeBinding Binding(PaintCodeNode node)
     {

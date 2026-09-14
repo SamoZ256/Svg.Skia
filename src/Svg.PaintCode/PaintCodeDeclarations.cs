@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Svg.Expressions;
 
 namespace Svg.PaintCode;
 
@@ -19,8 +20,66 @@ internal sealed class PaintCodeDeclarations
     private readonly Dictionary<string, PaintCodeGradient> _gradients = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _gradientExpressions = new(StringComparer.Ordinal);
 
+    private SvgExpressionDeclarations? _resolved;
+    private ExprEvaluator? _evaluator;
+
     private PaintCodeDeclarations()
     {
+    }
+
+    /// <summary>
+    /// What <paramref name="expression"/> comes to with every parameter left at its default.
+    /// </summary>
+    /// <remarks>
+    /// A driven transform needs this. PaintCode stores, beside the expression, the number the
+    /// property was set to -- not the number the expression produced -- and writes the difference
+    /// between the two into its own generated code as a constant. Working that difference out means
+    /// evaluating the expression the way the document would on opening.
+    /// </remarks>
+    internal bool TryValue(string expression, out double value)
+    {
+        value = 0;
+
+        try
+        {
+            _evaluator ??= ExprEvaluator.Create(Resolved());
+            value = _evaluator.Evaluate(expression).AsNumber;
+
+            return true;
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private SvgExpressionDeclarations Resolved()
+    {
+        if (_resolved is { })
+        {
+            return _resolved;
+        }
+
+        var builder = new SvgExpressionDeclarations.Builder();
+
+        foreach (var declaration in _byName.Values)
+        {
+            if (declaration.Kind is PaintCodeDeclarationKind.Parameter)
+            {
+                builder.AddParameter(declaration.Name, declaration.Type, declaration.Body);
+            }
+        }
+
+        // In dependency order, since a let may only name what is declared above it.
+        foreach (var name in Locals())
+        {
+            if (_byName[name].Body is { } body)
+            {
+                builder.AddLet(name, body);
+            }
+        }
+
+        return _resolved = builder.Build();
     }
 
     internal IReadOnlyDictionary<string, PaintCodeDeclaration> ByName => _byName;
@@ -97,7 +156,8 @@ internal sealed class PaintCodeDeclarations
 
                 if (PaintCodeExpressionTranslator.TryTranslate(declaration.Body ?? string.Empty, this, out var expression, out var refusal))
                 {
-                    _byName[name] = PaintCodeDeclaration.Local(name, expression, declaration.Type ?? "number");
+                    _byName[name] = PaintCodeDeclaration.Local(name, expression, declaration.Type ?? "number")
+                        .From(declaration.Body);
                     changed = true;
 
                     continue;
@@ -121,6 +181,43 @@ internal sealed class PaintCodeDeclarations
                 _byName[name] = PaintCodeDeclaration.Unusable(name, declaration.Refusal ?? "it could not be translated");
             }
         }
+    }
+
+    /// <summary>
+    /// The locals, each after everything it is built from.
+    /// </summary>
+    /// <remarks>
+    /// The order a symbol's scope has to be built in: a local that reads a rebound variable is itself
+    /// rebound, and one built from that local is rebound in turn.
+    /// </remarks>
+    internal IEnumerable<string> Locals()
+    {
+        var written = new HashSet<string>(StringComparer.Ordinal);
+        var order = new List<string>();
+
+        void Write(string name)
+        {
+            if (!_byName.TryGetValue(name, out var declaration) ||
+                declaration.Kind is not PaintCodeDeclarationKind.Local ||
+                !written.Add(name))
+            {
+                return;
+            }
+
+            foreach (var needed in Names(declaration.Body ?? string.Empty))
+            {
+                Write(needed);
+            }
+
+            order.Add(name);
+        }
+
+        foreach (var name in new List<string>(_byName.Keys))
+        {
+            Write(name);
+        }
+
+        return order;
     }
 
     /// <summary>The gradient a name stands for, where the library names one.</summary>
@@ -302,6 +399,19 @@ internal sealed class PaintCodeDeclarations
                 }
 
                 at++;
+
+                continue;
+            }
+
+            // A colour literal's digits start with a letter often enough to read as a name.
+            if (expression[at] == '#')
+            {
+                at++;
+
+                while (at < expression.Length && Uri.IsHexDigit(expression[at]))
+                {
+                    at++;
+                }
 
                 continue;
             }
@@ -500,6 +610,16 @@ internal sealed class PaintCodeDeclaration
     internal string? Refusal { get; private set; }
 
     internal void Refuse(string reason) => Refusal = reason;
+
+    /// <summary>PaintCode's own text for a local, kept so it can be translated again in a symbol's scope.</summary>
+    internal string? Source { get; private set; }
+
+    internal PaintCodeDeclaration From(string? source)
+    {
+        Source = source;
+
+        return this;
+    }
 
     internal bool IsApproximate { get; private set; }
 

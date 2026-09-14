@@ -299,16 +299,30 @@ public sealed class PaintCodeSymbolItem : PaintCodeItem
         PaintCodeFrame frame,
         IReadOnlyDictionary<string, PaintCodeBinding> bindings,
         string targetIdentifier,
-        string targetName)
+        string targetName,
+        IReadOnlyDictionary<string, PaintCodeBinding> values)
         : base(name, frame, bindings)
     {
         TargetIdentifier = targetIdentifier;
         TargetName = targetName;
+        Values = values;
     }
 
     public string TargetIdentifier { get; }
 
     public string TargetName { get; }
+
+    /// <summary>
+    /// The value this instance gives each of the target's variables, keyed by PaintCode's own
+    /// VIRTUAL__ name.
+    /// </summary>
+    /// <remarks>
+    /// The other half of <see cref="PaintCodeItem.Bindings"/>: a variable an expression drives is in
+    /// there, and one given a plain value is in here. PaintCode's own generated code passes both --
+    /// a circle icon hands its symbol state: true and accent: false as literals, and reading only
+    /// the expressions leaves the symbol drawing with the caller's values instead.
+    /// </remarks>
+    public IReadOnlyDictionary<string, PaintCodeBinding> Values { get; }
 }
 
 public sealed class PaintCodePath
@@ -526,7 +540,7 @@ public sealed class PaintCodeText
 /// <summary>The per-kind numbers: a corner radius, an oval's sweep, a star's or polygon's sides.</summary>
 public sealed class PaintCodeShapeMetrics
 {
-    internal static readonly PaintCodeShapeMetrics Default = new(0, true, true, true, true, 0, 360, true, 0, 0);
+    internal static readonly PaintCodeShapeMetrics Default = new(0, true, true, true, true, 0, 0, true, 0, 50);
 
     internal PaintCodeShapeMetrics(
         double cornerRadius,
@@ -570,6 +584,7 @@ public sealed class PaintCodeShapeMetrics
 
     public int Sides { get; }
 
+    /// <summary>How far in the inner vertices of a star sit, as a percentage of the outer radius.</summary>
     public double InnerRadiusPercentage { get; }
 }
 

@@ -1,6 +1,7 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Xml.Linq;
 using Xunit;
@@ -225,10 +226,18 @@ public class PaintCodeSvgWriterTests
     private static System.Collections.Generic.IEnumerable<XElement> Elements(string name)
         => Written().Descendants().Where(element => element.Name.LocalName == name);
 
+    /// <summary>
+    /// The constant PaintCode writes beside a driven transform, which is the difference between the
+    /// number the drawing had and the number the expression comes to with the document's own values.
+    /// </summary>
+    /// <remarks>
+    /// x defaults to 1 in the scope these are written against, so an item sitting at 7 is driven by
+    /// "x + 6" — which is the shape of the constant in PaintCode's own generated code.
+    /// </remarks>
     [Fact]
     public void A_Transform_An_Expression_Drives_Adds_Back_What_The_Item_Sits_In()
     {
-        var element = Bound("displayAnchorY", "x", 1, anchorY: -7);
+        var element = Bound("displayAnchorY", "x", 7, anchorY: -7);
 
         Assert.Equal("translate(0,{{ x + 6 }})", element.Attribute("transform")!.Value);
     }
@@ -236,9 +245,58 @@ public class PaintCodeSvgWriterTests
     [Fact]
     public void A_Driven_Turn_Turns_The_Other_Way_Like_A_Written_One()
     {
-        var element = Bound("displayRotation", "x", -1080, rotation: -1080);
+        // A turn of one degree driven by an expression that comes to one: nothing to add back.
+        var element = Bound("displayRotation", "x", 1, rotation: 1);
 
         Assert.Equal("translate(0,0) rotate({{ -(x) }})", element.Attribute("transform")!.Value);
+    }
+
+    [Fact]
+    public void A_Group_Places_Its_Children_Whether_Or_Not_It_Turns_Them()
+    {
+        // The rule this replaced dropped an untransformed group's anchor entirely, which moved every
+        // shape under 322 of the sample's 375 groups.
+        var shape = Box(PaintCodeShapeKind.Rectangle, PaintCodeShapeMetrics.Default);
+        var group = new PaintCodeGroup(
+            "Inner",
+            new PaintCodeFrame(0, 0, 0, 0, new PaintCodePoint(3, -4), 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            new[] { (PaintCodeItem)shape },
+            null);
+
+        var element = WriteTree(Only(group), new List<PaintCodeImportNote>())
+            .Descendants().Single(one => one.Name.LocalName == "g" && one.Attribute("id")?.Value == "inner");
+
+        Assert.Equal("translate(3,4)", element.Attribute("transform")!.Value);
+    }
+
+    [Fact]
+    public void A_Clip_Shape_Is_Placed_Where_The_Shape_It_Was_Drawn_From_Is()
+    {
+        var clip = new PaintCodeShape(
+            "Window",
+            PaintCodeShapeKind.Rectangle,
+            new PaintCodeFrame(0, -20, 20, 20, new PaintCodePoint(-9.95, 9.54), 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            null,
+            PaintCodePaint.None,
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            null,
+            PaintCodeShapeMetrics.Default);
+
+        var group = new PaintCodeGroup(
+            "Clipped",
+            Identity(),
+            new Dictionary<string, PaintCodeBinding>(),
+            new[] { (PaintCodeItem)Box(PaintCodeShapeKind.Rectangle, PaintCodeShapeMetrics.Default) },
+            clip);
+
+        var path = WriteTree(Only(group), new List<PaintCodeImportNote>())
+            .Descendants().First(one => one.Name.LocalName == "clipPath").Elements().Single();
+
+        Assert.Equal("translate(-9.95,-9.54)", path.Attribute("transform")!.Value);
     }
 
     [Fact]

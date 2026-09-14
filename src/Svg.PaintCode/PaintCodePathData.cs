@@ -214,7 +214,9 @@ internal static class PaintCodePathData
 
         for (var index = 0; index < points * 2; index++)
         {
-            var scale = index % 2 == 0 ? 1d : Math.Max(0, metrics.InnerRadiusPercentage);
+            // A percentage, not a fraction: the sample's stars carry 37 to 52, and reading one as a
+            // multiplier puts the inner vertices forty times beyond the tips.
+            var scale = index % 2 == 0 ? 1d : Math.Max(0, metrics.InnerRadiusPercentage / 100);
 
             data.Append(index == 0 ? 'M' : 'L').Append(Pair(OnEllipse(
                 box.X + box.Width / 2,

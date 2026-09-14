@@ -132,6 +132,13 @@ internal readonly struct PaintCodeNode
             _ => null
         };
 
+    /// <summary>Whether the value is a boolean rather than a number that reads as one.</summary>
+    /// <remarks>
+    /// <see cref="Number"/> answers for a boolean too, so anything deciding a type from the value
+    /// alone -- the values a symbol hands its target, which carry no type tag -- has to ask this first.
+    /// </remarks>
+    internal bool IsBoolean => _value is bool;
+
     internal bool? Flag
         => _value switch
         {
