@@ -31,8 +31,24 @@ public class PaintCodeSvgWriterTests
     }
 
     [Fact]
-    public void A_Fill_Is_Written_As_The_Bytes_PaintCode_Emits()
-        => Assert.Equal("#5f00c9", Element("path").Attribute("fill")!.Value);
+    public void A_Fill_An_Expression_Drives_Is_Written_In_Braces()
+        => Assert.Equal("{{ state ? colorPurple : colorPurple }}", Element("path").Attribute("fill")!.Value);
+
+    [Fact]
+    public void A_Fill_Nothing_Drives_Is_The_Library_Colour_Where_The_Library_Names_One()
+        => Assert.Equal("{{ colorPurple }}", Elements("path").Last().Attribute("fill")!.Value);
+
+    [Fact]
+    public void The_Block_Declares_What_The_Drawing_Reaches_And_Nothing_Else()
+    {
+        var code = Written().Descendants(PaintCodeCode.Namespace + "param");
+
+        Assert.Equal(new[] { "colorPurple", "state" }, code.Select(element => element.Attribute("name")!.Value).OrderBy(name => name));
+    }
+
+    [Fact]
+    public void A_Bound_Drawing_Declares_The_Expression_Namespace()
+        => Assert.Equal(PaintCodeCode.Namespace.NamespaceName, Written().Root!.Attribute(XNamespace.Xmlns + "e")!.Value);
 
     [Fact]
     public void A_Shape_With_No_Stroke_Says_So_By_Saying_Nothing()
@@ -139,13 +155,50 @@ public class PaintCodeSvgWriterTests
 
     private static XDocument Written()
     {
-        var canvas = PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single();
+        var document = PaintCodeDocument.Parse(SampleDocument.Bytes());
+        var canvas = document.Canvases.Single();
 
-        return PaintCodeSvgWriter.Write(canvas, new List<PaintCodeImportNote>());
+        return PaintCodeSvgWriter.Write(canvas, PaintCodeDeclarations.Of(document), new List<PaintCodeImportNote>());
     }
 
-    private static XElement Element(string name)
-        => Written().Descendants().First(element => element.Name.LocalName == name);
+    private static XElement Element(string name) => Elements(name).First();
+
+    private static System.Collections.Generic.IEnumerable<XElement> Elements(string name)
+        => Written().Descendants().Where(element => element.Name.LocalName == name);
+
+    [Fact]
+    public void A_Transform_An_Expression_Drives_Adds_Back_What_The_Item_Sits_In()
+    {
+        var element = Bound("displayAnchorY", "x", 1, anchorY: -7);
+
+        Assert.Equal("translate(0,{{ x + 6 }})", element.Attribute("transform")!.Value);
+    }
+
+    [Fact]
+    public void A_Driven_Turn_Turns_The_Other_Way_Like_A_Written_One()
+    {
+        var element = Bound("displayRotation", "x", -1080, rotation: -1080);
+
+        Assert.Equal("translate(0,0) rotate({{ -(x) }})", element.Attribute("transform")!.Value);
+    }
+
+    [Fact]
+    public void A_Driven_Transform_Inside_A_Layer_Is_Written_As_The_Number_It_Had()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var shape = Driven("displayAnchorY", "x", 1, anchorY: -7);
+        var group = new PaintCodeGroup(
+            "Faded",
+            new PaintCodeFrame(0, 0, 0, 0, default, 0, 1, 1, 0.5, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            new[] { (PaintCodeItem)shape },
+            null);
+
+        var element = WriteTree(group, notes).Descendants().First(item => item.Name.LocalName == "path");
+
+        Assert.Equal("translate(0,7)", element.Attribute("transform")!.Value);
+        Assert.Contains(notes, note => note.Property == "displayAnchorY" && note.Message.Contains("layer"));
+    }
 
     private static XElement Write(PaintCodeShape shape)
     {
@@ -157,7 +210,7 @@ public class PaintCodeSvgWriterTests
             false,
             new PaintCodeGroup("Root", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { (PaintCodeItem)shape }, null));
 
-        return PaintCodeSvgWriter.Write(canvas, new List<PaintCodeImportNote>()).Root!.Elements().First();
+        return PaintCodeSvgWriter.Write(canvas, PaintCodeDeclarations.Of(PaintCodeDocument.Parse(ScopeDocument.Bytes())), new List<PaintCodeImportNote>()).Root!.Elements().Last();
     }
 
     private static XElement Rectangle(double radius, PaintCodeShapeKind kind)
@@ -192,4 +245,34 @@ public class PaintCodeSvgWriterTests
             PaintCodeShapeMetrics.Default);
 
     private static PaintCodeFrame Identity() => new(0, 0, 0, 0, default, 0, 1, 1, 1, false, true);
+
+    private static PaintCodeShape Driven(string property, string expression, double value, double anchorY = 0, double rotation = 0)
+        => new(
+            "Driven",
+            PaintCodeShapeKind.Bezier,
+            new PaintCodeFrame(0, 0, 0, 0, new PaintCodePoint(0, anchorY), rotation, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>
+            {
+                [property] = new(expression, PaintCodeValueKind.Number, value, null, null, null, null, null)
+            },
+            new PaintCodePath(new[] { new PaintCodeContour(new[] { new PaintCodePathPoint(default, default, default) }, false) }),
+            PaintCodePaint.None,
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            null,
+            PaintCodeShapeMetrics.Default);
+
+    private static XElement Bound(string property, string expression, double value, double anchorY = 0, double rotation = 0)
+        => WriteTree(
+                new PaintCodeGroup("Root", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { (PaintCodeItem)Driven(property, expression, value, anchorY, rotation) }, null),
+                new List<PaintCodeImportNote>())
+            .Descendants().First(item => item.Name.LocalName == "path");
+
+    private static XDocument WriteTree(PaintCodeGroup root, List<PaintCodeImportNote> notes)
+    {
+        var canvas = new PaintCodeCanvas("canvas", "canvas", new PaintCodeRect(0, 0, 30, 30), true, false, new PaintCodeGroup("Canvas", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { (PaintCodeItem)root }, null));
+
+        return PaintCodeSvgWriter.Write(canvas, PaintCodeDeclarations.Of(PaintCodeDocument.Parse(ScopeDocument.Bytes())), notes);
+    }
 }

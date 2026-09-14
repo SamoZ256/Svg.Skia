@@ -77,6 +77,10 @@ public class PaintCodeSampleTests
                 using var svg = new Svg.Skia.SKSvg();
 
                 Assert.True(svg.Load(file) is { }, file);
+
+                // Binding with no values supplied makes every parameter fall back to its default and
+                // every expression type check, which is the half that loading on its own never reaches.
+                Assert.True(svg.SetExpressionValues(new Dictionary<string, Svg.Expressions.ExprValue>()) is { }, file);
             }
         }
         finally

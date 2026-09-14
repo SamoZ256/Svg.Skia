@@ -36,6 +36,7 @@ public static class PaintCodeImport
         }
 
         var notes = new List<PaintCodeImportNote>();
+        var declarations = PaintCodeDeclarations.Of(document);
         var files = new List<string>();
         var project = options.ProjectPath is { } path
             ? SvgcProjectDocument.Empty(Path.GetDirectoryName(Path.GetFullPath(path)) ?? options.Directory)
@@ -63,7 +64,7 @@ public static class PaintCodeImport
                 var name = Unique(taken, PaintCodeSlug.Of(canvas.Name));
                 var file = Path.Combine(folder, name + ".svg");
                 Directory.CreateDirectory(folder);
-                Write(PaintCodeSvgWriter.Write(canvas, notes), file);
+                Write(PaintCodeSvgWriter.Write(canvas, declarations, notes), file);
                 files.Add(file);
 
                 if (project is null)

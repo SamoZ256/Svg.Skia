@@ -47,7 +47,9 @@ internal static class PaintCodeReader
             desks.Add(Desk(desk));
         }
 
-        return new PaintCodeDocument(name, desks, Variables(top["library"]));
+        var library = top["library"];
+
+        return new PaintCodeDocument(name, desks, Variables(library), Colors(library));
     }
 
     private static PaintCodeDesk Desk(PaintCodeNode node)
@@ -400,6 +402,31 @@ internal static class PaintCodeReader
             kind is PaintCodeValueKind.Rect ? value.Rect : null);
     }
 
+    private static IReadOnlyList<PaintCodeLibraryColor> Colors(PaintCodeNode library)
+    {
+        var colors = new List<PaintCodeLibraryColor>();
+
+        foreach (var color in library["colors"].Items)
+        {
+            if (Color(color) is not { } value)
+            {
+                continue;
+            }
+
+            var derived = color["isDerived"].FlagOr(false);
+            var parent = derived ? color["parentColor"]["name"].Text : null;
+            var alpha = derived && (int)color["operation"].NumberOr(0) == OperationAlpha
+                ? color["operationAmount"].Number
+                : null;
+
+            // usage 1 is what PaintCode itself takes as a parameter of the drawing: the five colours
+            // marked it in the sample are exactly the five its generated methods ask for.
+            colors.Add(new PaintCodeLibraryColor(value.Name, value, (int)color["usage"].NumberOr(0) == 1, parent, alpha));
+        }
+
+        return colors;
+    }
+
     private static IReadOnlyList<PaintCodeVariable> Variables(PaintCodeNode library)
     {
         var variables = new List<PaintCodeVariable>();
@@ -415,6 +442,7 @@ internal static class PaintCodeReader
                 Binding(provider).Kind,
                 (int)variable["kind"].NumberOr(0) == KindDerived ? provider["expression"].Text : null,
                 Binding(provider),
+                (int)variable["usage"].NumberOr(0) == 1,
                 bounded ? limit["min"].Number : null,
                 bounded ? limit["max"].Number : null));
         }

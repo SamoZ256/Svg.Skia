@@ -14,11 +14,13 @@ public sealed class PaintCodeDocument
     internal PaintCodeDocument(
         string name,
         IReadOnlyList<PaintCodeDesk> desks,
-        IReadOnlyList<PaintCodeVariable> variables)
+        IReadOnlyList<PaintCodeVariable> variables,
+        IReadOnlyList<PaintCodeLibraryColor> colors)
     {
         Name = name;
         Desks = desks;
         Variables = variables;
+        Colors = colors;
     }
 
     public string Name { get; }
@@ -27,6 +29,9 @@ public sealed class PaintCodeDocument
 
     /// <summary>The library's variables, in declaration order.</summary>
     public IReadOnlyList<PaintCodeVariable> Variables { get; }
+
+    /// <summary>The library's named colours, which its expressions refer to by name.</summary>
+    public IReadOnlyList<PaintCodeLibraryColor> Colors { get; }
 
     public IEnumerable<PaintCodeCanvas> Canvases
     {
@@ -45,6 +50,32 @@ public sealed class PaintCodeDocument
     public static PaintCodeDocument Load(string path) => PaintCodeReader.Load(path);
 
     public static PaintCodeDocument Parse(byte[] bytes) => PaintCodeReader.Parse(bytes);
+}
+
+/// <summary>A colour the library names, and how a drawing gets at it.</summary>
+public sealed class PaintCodeLibraryColor
+{
+    internal PaintCodeLibraryColor(string name, PaintCodeColor value, bool isParameter, string? parentName, double? alpha)
+    {
+        Name = name;
+        Value = value;
+        IsParameter = isParameter;
+        ParentName = parentName;
+        Alpha = alpha;
+    }
+
+    public string Name { get; }
+
+    public PaintCodeColor Value { get; }
+
+    /// <summary>Whether a drawing takes this colour from its caller rather than holding it.</summary>
+    public bool IsParameter { get; }
+
+    /// <summary>The colour this one is derived from, or null where it stands alone.</summary>
+    public string? ParentName { get; }
+
+    /// <summary>The alpha a derived colour replaces its parent's with, where that is the derivation.</summary>
+    public double? Alpha { get; }
 }
 
 public sealed class PaintCodeDesk
@@ -534,6 +565,7 @@ public sealed class PaintCodeVariable
         PaintCodeValueKind kind,
         string? expression,
         PaintCodeBinding value,
+        bool isParameter,
         double? minimum,
         double? maximum)
     {
@@ -541,6 +573,7 @@ public sealed class PaintCodeVariable
         Kind = kind;
         Expression = expression;
         Value = value;
+        IsParameter = isParameter;
         Minimum = minimum;
         Maximum = maximum;
     }
@@ -554,6 +587,9 @@ public sealed class PaintCodeVariable
 
     /// <summary>Its value as the document was saved, which becomes the parameter's default.</summary>
     public PaintCodeBinding Value { get; }
+
+    /// <summary>Whether a drawing takes this value from its caller rather than holding it.</summary>
+    public bool IsParameter { get; }
 
     public double? Minimum { get; }
 

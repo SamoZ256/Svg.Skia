@@ -48,9 +48,24 @@ internal static class SampleDocument
             },
             ("anchorX", 3.0844d), ("anchorY", -3.6379d), ("windingRule", 1), ("alpha", 1d), ("visibilityMode", 1));
 
+        // A second shape, filled with the library's own colour and driven by nothing, so a test can
+        // tell a bound fill from one that is simply a name.
+        var plain = archive.Object(
+            "PPBezier",
+            new[]
+            {
+                ("name", archive.Text("Bezier 2")),
+                ("path", archive.Object(
+                    "PPPath",
+                    ("contours", archive.Array(archive.Array(second))),
+                    ("contoursClosedStatus", archive.Array(archive.Value(false))))),
+                ("fill", purple)
+            },
+            ("anchorX", 0d), ("anchorY", 0d), ("alpha", 1d), ("visibilityMode", 1));
+
         var group = archive.Object(
             "PPGroup",
-            new[] { ("name", archive.Text("Canvas Group")), ("shapesAndGroups", archive.Array(bezier)) },
+            new[] { ("name", archive.Text("Canvas Group")), ("shapesAndGroups", archive.Array(bezier, plain)) },
             ("alpha", 1d), ("visibilityMode", 1));
 
         var canvas = archive.Object(
@@ -60,7 +75,7 @@ internal static class SampleDocument
 
         var desk = archive.Object("PPDesk", ("name", archive.Text("Overlays")), ("canvases", archive.Array(canvas)));
 
-        var library = archive.Object("PPLibrary", ("variables", archive.Array(
+        var library = archive.Object("PPLibrary", ("colors", archive.Array(purple)), ("variables", archive.Array(
             Variable(archive, "state", 0, Constant(archive, 4, archive.Value(true))),
             Variable(archive, "level", 2, Constant(archive, 2, archive.Value(1d), Interval(archive, 0, 1))),
             Variable(archive, "off", 13, Expression(archive, "!state", 4, archive.Value(false))),
@@ -83,7 +98,7 @@ internal static class SampleDocument
                     new[] { ("NSComponents", archive.Data(Encoding.ASCII.GetBytes(components))) },
                     ("NSColorSpace", 1)))
             },
-            ("isDerived", false), ("operation", 0));
+            ("isDerived", false), ("operation", 0), ("usage", 1));
 
     private static int Interval(KeyedArchiveBuilder archive, double minimum, double maximum)
         => archive.Object("PPLimitInterval", System.Array.Empty<(string, int)>(), ("min", minimum), ("max", maximum));
@@ -104,5 +119,5 @@ internal static class SampleDocument
         => archive.Object(
             "PPVariable",
             new[] { ("name", archive.Text(name)), ("valueProvider", provider) },
-            ("kind", kind));
+            ("kind", kind), ("usage", kind == 13 ? 0 : 1));
 }

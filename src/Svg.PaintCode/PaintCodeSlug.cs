@@ -39,6 +39,33 @@ internal static class PaintCodeSlug
         return builder.Length == 0 ? "item" : builder.ToString();
     }
 
+    /// <summary>
+    /// The name as an expression may spell it: letters, digits and underscores only.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode lets a variable be called "level-17" and then writes "level17" in the expressions
+    /// that use it, so a name and the identifier standing for it are two different strings.
+    /// </remarks>
+    internal static string Identifier(string name)
+    {
+        var builder = new StringBuilder(name.Length);
+
+        foreach (var character in name)
+        {
+            if (char.IsLetterOrDigit(character) || character == '_')
+            {
+                builder.Append(character);
+            }
+        }
+
+        if (builder.Length == 0)
+        {
+            return "value";
+        }
+
+        return char.IsDigit(builder[0]) ? "_" + builder : builder.ToString();
+    }
+
     /// <summary>The same name as an identifier C# will take: PascalCase, and never starting with a digit.</summary>
     internal static string Pascal(string name)
     {

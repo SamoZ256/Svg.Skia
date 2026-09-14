@@ -29,7 +29,7 @@ public class PaintCodeReaderTests
     public void A_Bezier_Keeps_Its_Points_And_Their_Control_Offsets()
     {
         var canvas = PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single();
-        var shape = Assert.IsType<PaintCodeShape>(canvas.Root.Children.Single());
+        var shape = Assert.IsType<PaintCodeShape>(canvas.Root.Children.First());
         var contour = Assert.Single(shape.Path!.Contours);
 
         Assert.Equal(PaintCodeShapeKind.Bezier, shape.Kind);
@@ -44,7 +44,7 @@ public class PaintCodeReaderTests
     [Fact]
     public void An_Anchor_Is_Read_As_The_Shapes_Position_In_Canvas_Space()
     {
-        var shape = (PaintCodeShape)PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single().Root.Children.Single();
+        var shape = (PaintCodeShape)PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single().Root.Children.First();
 
         Assert.Equal(3.0844d, shape.Frame.Anchor.X);
         Assert.Equal(-3.6379d, shape.Frame.Anchor.Y);
@@ -52,12 +52,12 @@ public class PaintCodeReaderTests
 
     [Fact]
     public void A_Winding_Rule_Of_One_Is_Even_Odd()
-        => Assert.True(((PaintCodeShape)PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single().Root.Children.Single()).IsEvenOdd);
+        => Assert.True(((PaintCodeShape)PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single().Root.Children.First()).IsEvenOdd);
 
     [Fact]
     public void A_Colour_Is_Read_From_Its_Components_As_The_Bytes_PaintCode_Emits()
     {
-        var shape = (PaintCodeShape)PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single().Root.Children.Single();
+        var shape = (PaintCodeShape)PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single().Root.Children.First();
         var color = Assert.IsType<PaintCodeColor>(shape.Fill.Color);
 
         Assert.Equal(PaintCodePaintKind.Color, shape.Fill.Kind);
@@ -96,7 +96,7 @@ public class PaintCodeReaderTests
     [Fact]
     public void A_Bound_Property_Keeps_The_Expression_That_Drives_It()
     {
-        var shape = (PaintCodeShape)PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single().Root.Children.Single();
+        var shape = (PaintCodeShape)PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single().Root.Children.First();
 
         Assert.Equal("state ? colorPurple : colorPurple", shape.Bindings["fill"].Expression);
     }

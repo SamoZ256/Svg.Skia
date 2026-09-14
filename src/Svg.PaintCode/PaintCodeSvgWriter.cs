@@ -15,17 +15,22 @@ internal sealed class PaintCodeSvgWriter
 
     private readonly PaintCodeCanvas _canvas;
     private readonly ICollection<PaintCodeImportNote> _notes;
+    private readonly PaintCodeDeclarations _declarations;
+    private readonly PaintCodeCode _code;
     private readonly Dictionary<string, int> _identifiers = new(StringComparer.Ordinal);
     private readonly List<XElement> _definitions = new();
+    private int _layers;
 
-    private PaintCodeSvgWriter(PaintCodeCanvas canvas, ICollection<PaintCodeImportNote> notes)
+    private PaintCodeSvgWriter(PaintCodeCanvas canvas, PaintCodeDeclarations declarations, ICollection<PaintCodeImportNote> notes)
     {
         _canvas = canvas;
+        _declarations = declarations;
         _notes = notes;
+        _code = new PaintCodeCode(declarations);
     }
 
-    internal static XDocument Write(PaintCodeCanvas canvas, ICollection<PaintCodeImportNote> notes)
-        => new PaintCodeSvgWriter(canvas, notes).Document();
+    internal static XDocument Write(PaintCodeCanvas canvas, PaintCodeDeclarations declarations, ICollection<PaintCodeImportNote> notes)
+        => new PaintCodeSvgWriter(canvas, declarations, notes).Document();
 
     private XDocument Document()
     {
@@ -51,9 +56,21 @@ internal sealed class PaintCodeSvgWriter
             }
         }
 
-        if (_definitions.Count > 0)
+        // The block goes in <defs> with everything else a drawing declares, and is written after the
+        // tree because only walking it says which names the drawing actually reaches.
+        var code = _code.Element();
+
+        if (_definitions.Count > 0 || code is { })
         {
-            root.Add(new XElement(Svg + "defs", _definitions));
+            var definitions = new XElement(Svg + "defs", _definitions);
+
+            if (code is { })
+            {
+                root.SetAttributeValue(XNamespace.Xmlns + "e", PaintCodeCode.Namespace.NamespaceName);
+                definitions.Add(code);
+            }
+
+            root.Add(definitions);
         }
 
         root.Add(children);
@@ -73,6 +90,9 @@ internal sealed class PaintCodeSvgWriter
     private XElement? Group(PaintCodeGroup group)
     {
         var children = new List<XElement>();
+        var opens = Opens(group);
+
+        _layers += opens ? 1 : 0;
 
         foreach (var child in group.Children)
         {
@@ -81,6 +101,8 @@ internal sealed class PaintCodeSvgWriter
                 children.Add(converted);
             }
         }
+
+        _layers -= opens ? 1 : 0;
 
         if (children.Count == 0)
         {
@@ -101,7 +123,7 @@ internal sealed class PaintCodeSvgWriter
 
         // A group's own anchor is part of the geometry only when it has something to turn or scale
         // around: PaintCode stores the children of an untransformed group in the space above it.
-        Frame(element, group.Frame, forGroup: true);
+        Frame(element, group, forGroup: true);
 
         return element;
     }
@@ -113,11 +135,19 @@ internal sealed class PaintCodeSvgWriter
         Geometry(element, shape);
         Fill(element, shape);
         Stroke(element, shape);
-        Frame(element, shape.Frame, forGroup: false);
+        Frame(element, shape, forGroup: false);
 
         if (shape.Text is { } text)
         {
             Note(PaintCodeImportSeverity.Dropped, shape.Name, "text", $"'{text.Value}' is not written yet.");
+        }
+
+        foreach (var property in new[] { "strokeWidth", "startAngle", "endAngle" })
+        {
+            if (shape.Bindings.ContainsKey(property))
+            {
+                Note(PaintCodeImportSeverity.Dropped, shape.Name, property, "the expression format keeps this value literal, so the drawing's own is written.");
+            }
         }
 
         return element;
@@ -184,8 +214,7 @@ internal sealed class PaintCodeSvgWriter
         switch (shape.Fill.Kind)
         {
             case PaintCodePaintKind.Color when shape.Fill.Color is { } color:
-                element.SetAttributeValue("fill", Hex(color));
-                Opacity(element, "fill-opacity", color.Alpha);
+                Paint(element, "fill", shape, "fill", color);
 
                 break;
 
@@ -211,8 +240,7 @@ internal sealed class PaintCodeSvgWriter
         }
 
         var style = shape.StrokeStyle;
-        element.SetAttributeValue("stroke", Hex(color));
-        Opacity(element, "stroke-opacity", color.Alpha);
+        Paint(element, "stroke", shape, "strokeColor", color);
         element.SetAttributeValue("stroke-width", Number(style.Width));
 
         if (Cap(style.Cap) is { } cap)
@@ -243,6 +271,49 @@ internal sealed class PaintCodeSvgWriter
         }
     }
 
+    /// <summary>
+    /// A colour attribute: what drives it, the library colour it is, or the bytes themselves.
+    /// </summary>
+    /// <remarks>
+    /// Only the last of the three carries a separate opacity. The other two are expressions of type
+    /// colour, whose alpha is already in the value they produce — writing one beside them would
+    /// apply it twice.
+    /// </remarks>
+    private void Paint(XElement element, string attribute, PaintCodeShape shape, string property, PaintCodeColor color)
+    {
+        if (Bind(element, attribute, shape, property))
+        {
+            return;
+        }
+
+        if (Named(color) is { } name)
+        {
+            element.SetAttributeValue(attribute, Braces(name));
+            _code.Use(name);
+
+            return;
+        }
+
+        element.SetAttributeValue(attribute, Hex(color));
+        Opacity(element, attribute + "-opacity", color.Alpha);
+    }
+
+    /// <summary>The declaration this colour is, where the library names it and a drawing can reach it.</summary>
+    private string? Named(PaintCodeColor color)
+    {
+        if (color.Name.Length == 0)
+        {
+            return null;
+        }
+
+        var name = PaintCodeSlug.Identifier(color.Name);
+
+        return _declarations.ByName.TryGetValue(name, out var declaration) &&
+               declaration.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local
+            ? name
+            : null;
+    }
+
     private static string? Cap(int cap)
         => cap switch
         {
@@ -267,22 +338,42 @@ internal sealed class PaintCodeSvgWriter
         }
     }
 
-    private static void Frame(XElement element, PaintCodeFrame frame, bool forGroup)
+    /// <summary>Whether this group is drawn into a layer of its own, which a driven transform cannot cross.</summary>
+    private static bool Opens(PaintCodeGroup group)
+        => group.Frame.Alpha < 1 || group.Bindings.ContainsKey("alpha");
+
+    private void Frame(XElement element, PaintCodeItem item, bool forGroup)
     {
-        if (frame.Alpha < 1)
+        var frame = item.Frame;
+
+        if (!Bind(element, "opacity", item, "alpha") && frame.Alpha < 1)
         {
             element.SetAttributeValue("opacity", Number(frame.Alpha));
         }
 
-        if (frame.IsHidden || !frame.IsVisible)
+        // display rather than visibility: a hidden PaintCode item contributes no drawing at all,
+        // which is what display means and what visibility does not.
+        if (frame.IsHidden)
+        {
+            element.SetAttributeValue("display", "none");
+        }
+        else if (!Bind(element, "display", item, "visibilityMode") && !frame.IsVisible)
         {
             element.SetAttributeValue("display", "none");
         }
 
-        var turned = frame.Rotation != 0;
-        var scaled = frame.ScaleX != 1 || frame.ScaleY != 1;
+        Transform(element, item, forGroup);
+    }
 
-        if (forGroup && !turned && !scaled)
+    private void Transform(XElement element, PaintCodeItem item, bool forGroup)
+    {
+        var frame = item.Frame;
+        var turned = frame.Rotation != 0 || item.Bindings.ContainsKey("displayRotation");
+        var scaled = frame.ScaleX != 1 || frame.ScaleY != 1 ||
+                     item.Bindings.ContainsKey("displayScaleX") || item.Bindings.ContainsKey("displayScaleY");
+        var moved = item.Bindings.ContainsKey("displayAnchorX") || item.Bindings.ContainsKey("displayAnchorY");
+
+        if (forGroup && !turned && !scaled && !moved)
         {
             return;
         }
@@ -291,20 +382,28 @@ internal sealed class PaintCodeSvgWriter
         var x = frame.Anchor.X;
         var y = -frame.Anchor.Y;
 
-        if (x != 0 || y != 0 || turned || scaled)
+        if (x != 0 || y != 0 || turned || scaled || moved)
         {
-            transform.Append("translate(").Append(Number(x)).Append(',').Append(Number(y)).Append(')');
+            transform.Append("translate(")
+                .Append(Argument(item, "displayAnchorX", x, item.Name))
+                .Append(',')
+                .Append(Argument(item, "displayAnchorY", y, item.Name))
+                .Append(')');
         }
 
         // The flip turns the drawing over, and an angle measured in it with it.
         if (turned)
         {
-            transform.Append(" rotate(").Append(Number(-frame.Rotation)).Append(')');
+            transform.Append(" rotate(").Append(Angle(item, frame.Rotation)).Append(')');
         }
 
         if (scaled)
         {
-            transform.Append(" scale(").Append(Number(frame.ScaleX)).Append(',').Append(Number(frame.ScaleY)).Append(')');
+            transform.Append(" scale(")
+                .Append(Argument(item, "displayScaleX", frame.ScaleX, item.Name))
+                .Append(',')
+                .Append(Argument(item, "displayScaleY", frame.ScaleY, item.Name))
+                .Append(')');
         }
 
         if (transform.Length > 0)
@@ -312,6 +411,83 @@ internal sealed class PaintCodeSvgWriter
             element.SetAttributeValue("transform", transform.ToString());
         }
     }
+
+    /// <summary>
+    /// One argument of a transform: the drawing's own number, or the expression driving it.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode's display properties are measured from whatever the item sits in, and the value the
+    /// file was saved with says how far that is: the difference between the number this drawing needs
+    /// and the number the expression produced is a constant, and adding it back is what PaintCode's
+    /// own generated code does.
+    /// </remarks>
+    private string Argument(PaintCodeItem item, string property, double value, string name)
+    {
+        if (Expression(item, property, name) is not { } expression)
+        {
+            return Number(value);
+        }
+
+        var offset = value - (item.Bindings[property].Number ?? value);
+
+        return offset == 0 ? Braces(expression) : Braces($"{expression} + {Number(offset)}");
+    }
+
+    private string Angle(PaintCodeItem item, double rotation)
+    {
+        if (Expression(item, "displayRotation", item.Name) is not { } expression)
+        {
+            return Number(-rotation);
+        }
+
+        var offset = rotation - (item.Bindings["displayRotation"].Number ?? rotation);
+
+        return Braces(offset == 0 ? $"-({expression})" : $"-(({expression}) + {Number(offset)})");
+    }
+
+    /// <summary>The translated expression driving <paramref name="property"/>, or null where none can.</summary>
+    private string? Expression(PaintCodeItem item, string property, string name)
+    {
+        if (!item.Bindings.TryGetValue(property, out var binding) || binding.Expression is not { } source)
+        {
+            return null;
+        }
+
+        // A transform is rewritten in the recorded drawing, and a layer's bounds were measured from
+        // where its children were when it was recorded -- so under one, the number is written instead.
+        if (_layers > 0 && property.StartsWith("display", StringComparison.Ordinal))
+        {
+            Note(PaintCodeImportSeverity.Dropped, name, property, "a transform cannot be driven inside a group that draws into a layer, so the drawing's own value is written.");
+
+            return null;
+        }
+
+        if (!PaintCodeExpressionTranslator.TryTranslate(source, _declarations, out var expression, out var refusal))
+        {
+            Note(PaintCodeImportSeverity.Dropped, name, property, refusal + ", so the drawing's own value is written.");
+
+            return null;
+        }
+
+        _code.Use(expression);
+
+        return expression;
+    }
+
+    /// <summary>Binds <paramref name="attribute"/> to what drives <paramref name="property"/>.</summary>
+    private bool Bind(XElement element, string attribute, PaintCodeItem item, string property)
+    {
+        if (Expression(item, property, item.Name) is not { } expression)
+        {
+            return false;
+        }
+
+        element.SetAttributeValue(attribute, Braces(expression));
+
+        return true;
+    }
+
+    private static string Braces(string expression) => "{{ " + expression + " }}";
 
     private static string Hex(PaintCodeColor color)
         => string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}", color.Red, color.Green, color.Blue);
