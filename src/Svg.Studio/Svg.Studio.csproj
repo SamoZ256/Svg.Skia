@@ -29,6 +29,8 @@
     <ProjectReference Include="..\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" />
     <!-- Opening a .svgcproj reads it with the same parser svgc builds from. -->
     <ProjectReference Include="..\Svg.CodeGen.Skia.Projects\Svg.CodeGen.Skia.Projects.csproj" />
+    <!-- Importing a .pcvd writes the drawings and the project that File → Open then reads. -->
+    <ProjectReference Include="..\Svg.PaintCode\Svg.PaintCode.csproj" />
   </ItemGroup>
 
 </Project>

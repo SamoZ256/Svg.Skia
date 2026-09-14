@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -20,6 +21,7 @@ using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
 using Svg.Expressions.Recipes;
+using Svg.PaintCode;
 using Svg.Skia;
 using Svg.Viewer.Skia.Avalonia;
 
@@ -251,6 +253,14 @@ public partial class MainWindow : Window
                 continue;
             }
 
+            // A dropped document is unambiguous in a way a menu command is not: there is nowhere to
+            // ask where it should go, so it goes beside itself, the way a pasted drawing does.
+            if (IsPaintCode(path))
+            {
+                await ImportPaintCodeAsync(path, Beside(path)).ConfigureAwait(true);
+                continue;
+            }
+
             var viewer = source is { Document: null } ? source : AddTab();
 
             if (await viewer.LoadAsync(path).ConfigureAwait(true))
@@ -306,6 +316,10 @@ public partial class MainWindow : Window
     /// <summary>Whether a path names an svgc project rather than a drawing.</summary>
     private static bool IsProject(string path)
         => Path.GetExtension(path).Equals(".svgcproj", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether a path names a PaintCode document, which an import reads.</summary>
+    private static bool IsPaintCode(string path)
+        => Path.GetExtension(path).Equals(".pcvd", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether a path names a drawing — what the project is a list of.</summary>
     /// <remarks>The two extensions the picker offers when a drawing is being added to one.</remarks>
@@ -370,6 +384,120 @@ public partial class MainWindow : Window
         }
 
         await OpenProjectAsync(path).ConfigureAwait(true);
+    }
+
+    private async void OnImportPaintCode(object? sender, EventArgs e) => await ImportPaintCodeAsync();
+
+    /// <summary>Asks for a PaintCode document and somewhere to put it, and imports it there.</summary>
+    private async Task ImportPaintCodeAsync()
+    {
+        if (StorageProvider is not { CanOpen: true })
+        {
+            return;
+        }
+
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import PaintCode",
+            AllowMultiple = false,
+            FileTypeFilter = new[] { StudioFileDialogService.PaintCode }
+        }).ConfigureAwait(true);
+
+        if (files.Count == 0 || files[0].TryGetLocalPath() is not { } source)
+        {
+            return;
+        }
+
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Where the drawings go",
+            AllowMultiple = false
+        }).ConfigureAwait(true);
+
+        if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } directory)
+        {
+            return;
+        }
+
+        await ImportPaintCodeAsync(source, Path.Combine(directory, Path.GetFileNameWithoutExtension(source))).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Converts <paramref name="source"/> into drawings and a project under
+    /// <paramref name="directory"/>, and opens what it wrote.
+    /// </summary>
+    /// <remarks>
+    /// Taking the paths rather than asking for them, so everything but the two pickers can be driven.
+    /// </remarks>
+    public async Task<bool> ImportPaintCodeAsync(string source, string directory)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (directory is null)
+        {
+            throw new ArgumentNullException(nameof(directory));
+        }
+
+        var options = new PaintCodeImportOptions(directory)
+        {
+            ProjectPath = Path.Combine(directory, Path.GetFileNameWithoutExtension(source) + ".svgcproj")
+        };
+
+        PaintCodeImportResult result;
+
+        try
+        {
+            // Off the UI thread: the document this was written for is 16 MB and a thousand drawings.
+            result = await Task.Run(() => PaintCodeImport.Run(source, options)).ConfigureAwait(true);
+        }
+        catch (Exception failure) when (failure is PaintCodeException or IOException or UnauthorizedAccessException)
+        {
+            await Announce("The document couldn't be imported", failure.Message).ConfigureAwait(true);
+
+            return false;
+        }
+
+        await OpenProjectAsync(result.ProjectPath!).ConfigureAwait(true);
+
+        // Only when something could not be carried across. The project opening on what was written
+        // is the rest of the answer, and a dialog saying so would be one click for nothing.
+        if (result.Notes.Count > 0)
+        {
+            await Announce("Imported", Said(result)).ConfigureAwait(true);
+        }
+
+        return true;
+    }
+
+    private static string Said(PaintCodeImportResult result)
+    {
+        var wrote = $"{result.Files.Count} drawing{(result.Files.Count == 1 ? string.Empty : "s")}.";
+        var lines = result.Notes.Take(Listed).Select(note => note.ToString()).ToList();
+
+        if (result.Notes.Count > Listed)
+        {
+            lines.Add($"and {result.Notes.Count - Listed} more.");
+        }
+
+        return string.Join(Environment.NewLine, lines.Prepend($"{wrote} {result.Notes.Count} could not be carried across:"));
+    }
+
+    /// <summary>Where an import writes when nobody was asked: a folder beside the document.</summary>
+    private static string Beside(string source)
+    {
+        var directory = Path.GetDirectoryName(Path.GetFullPath(source)) ?? ".";
+        var name = Path.GetFileNameWithoutExtension(source);
+        var candidate = Path.Combine(directory, name);
+
+        for (var index = 2; Directory.Exists(candidate); index++)
+        {
+            candidate = Path.Combine(directory, name + "-" + index.ToString(CultureInfo.InvariantCulture));
+        }
+
+        return candidate;
     }
 
     /// <summary>
@@ -3101,8 +3229,17 @@ public partial class MainWindow : Window
         /// </remarks>
         private static readonly FilePickerFileType OpenableFileType = new("Drawings and projects")
         {
-            Patterns = new[] { "*.svg", "*.svgz", "*.svgcproj" },
+            Patterns = new[] { "*.svg", "*.svgz", "*.svgcproj", "*.pcvd" },
             MimeTypes = new[] { "image/svg+xml", "application/gzip", "application/xml" }
+        };
+
+        /// <remarks>
+        /// No Apple type identifier, for the reason the projects below carry none: the machine reads
+        /// a <c>.pcvd</c> as whatever claimed the extension, and it conforms to nothing.
+        /// </remarks>
+        internal static readonly FilePickerFileType PaintCode = new("PaintCode Documents")
+        {
+            Patterns = new[] { "*.pcvd" }
         };
 
         /// <remarks>
