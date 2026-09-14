@@ -130,14 +130,15 @@ internal sealed class PaintCodeSvgWriter
             // The clip shape is placed like any other shape. Transform rather than Frame: a clip has
             // no opacity and cannot be hidden, and copying those over would suppress the clip
             // wherever the shape it was drawn from is marked invisible.
-            Transform(path, clip, forGroup: false, null);
+            Transform(path, clip, null);
             _definitions.Add(new XElement(Svg + "clipPath", new XAttribute("id", identifier), path));
             element.SetAttributeValue("clip-path", $"url(#{identifier})");
         }
 
-        // A group's own anchor is part of the geometry only when it has something to turn or scale
-        // around: PaintCode stores the children of an untransformed group in the space above it.
-        Frame(element, group, forGroup: true);
+        // Only the canvas's own root group is exempt from carrying its anchor: that anchor is
+        // (0, canvas height) rather than a position, and Document() and Expand() walk Root.Children
+        // without ever reaching it. Every group below it stores its children relative to its own.
+        Frame(element, group);
 
         return element;
     }
@@ -151,7 +152,7 @@ internal sealed class PaintCodeSvgWriter
         Stroke(element, shape);
 
         var written = shape.Text is { } text ? WithText(element, shape, text) : element;
-        Frame(written, shape, forGroup: false);
+        Frame(written, shape);
 
         // One shape in the sample. Named rather than guessed at: PaintCode's own numbering is not
         // SVG's, and a blend mode that is nearly right is worse than one that is reported.
@@ -292,7 +293,7 @@ internal sealed class PaintCodeSvgWriter
         }
 
         var element = new XElement(Svg + "use", new XAttribute("href", "#" + identifier));
-        Frame(element, symbol, forGroup: false, Fit(symbol, target));
+        Frame(element, symbol, Fit(symbol, target));
 
         // PaintCode clips a symbol to the box it was placed in, so anything the target draws outside
         // its own canvas is cut off rather than spilling into this drawing.
@@ -773,7 +774,7 @@ internal sealed class PaintCodeSvgWriter
     private static bool Opens(PaintCodeGroup group)
         => group.Frame.Alpha < 1 || group.Bindings.ContainsKey("alpha");
 
-    private void Frame(XElement element, PaintCodeItem item, bool forGroup, PaintCodePoint? fit = null)
+    private void Frame(XElement element, PaintCodeItem item, PaintCodePoint? fit = null)
     {
         var frame = item.Frame;
 
@@ -793,10 +794,10 @@ internal sealed class PaintCodeSvgWriter
             element.SetAttributeValue("display", "none");
         }
 
-        Transform(element, item, forGroup, fit);
+        Transform(element, item, fit);
     }
 
-    private void Transform(XElement element, PaintCodeItem item, bool forGroup, PaintCodePoint? fit)
+    private void Transform(XElement element, PaintCodeItem item, PaintCodePoint? fit)
     {
         var frame = item.Frame;
         var turned = frame.Rotation != 0 || item.Bindings.ContainsKey("displayRotation");
@@ -840,7 +841,9 @@ internal sealed class PaintCodeSvgWriter
         {
             var box = new PaintCodePoint(frame.X, -(frame.Y + frame.Height));
 
-            if (box.X != 0 || box.Y != 0)
+            // Against what would be written rather than against zero: sixteen instances carry a
+            // corner a hundredth of a millionth of a unit off it, and a translate of nought is noise.
+            if (Number(box.X) != "0" || Number(box.Y) != "0")
             {
                 transform.Append(" translate(").Append(Number(box.X)).Append(',').Append(Number(box.Y)).Append(')');
             }
@@ -873,9 +876,16 @@ internal sealed class PaintCodeSvgWriter
             return Number(value);
         }
 
-        var offset = value - Produced(expression, item, property, name);
+        if (Produced(expression, item, property, name) is not { } produced)
+        {
+            return Number(value);
+        }
 
-        return offset == 0 ? Braces(expression) : Braces($"{expression} + {Number(offset)}");
+        // Rounded before it is compared: the subtrahend comes from a float-backed evaluator, so a
+        // constant that writes as nought is nought, and adding it would say something it does not mean.
+        var offset = Number(value - produced);
+
+        return offset == "0" ? Braces(expression) : Braces($"{expression} + {offset}");
     }
 
     private string Angle(PaintCodeItem item, double rotation)
@@ -885,31 +895,35 @@ internal sealed class PaintCodeSvgWriter
             return Number(-rotation);
         }
 
+        if (Produced(expression, item, "displayRotation", item.Name) is not { } produced)
+        {
+            return Number(-rotation);
+        }
+
         // Worked out in PaintCode's own space and turned over afterwards, since that is the space
         // both the angle and the number stored beside it are measured in.
-        var offset = rotation - Produced(expression, item, "displayRotation", item.Name);
+        var offset = Number(rotation - produced);
 
-        return Braces(offset == 0 ? $"-({expression})" : $"-(({expression}) + {Number(offset)})");
+        return Braces(offset == "0" ? $"-({expression})" : $"-(({expression}) + {offset})");
     }
 
     /// <summary>
     /// What the expression itself comes to, which is what the offset is measured from.
     /// </summary>
     /// <remarks>
-    /// Falls back to the property's own number, which makes the offset nought: an expression that
-    /// will not evaluate here is one the document could not evaluate either, and leaving the drawing
-    /// where it was beats moving it by a number nobody worked out.
+    /// Null where it cannot be worked out, and the caller then writes the number the drawing had:
+    /// driving it by a constant nobody could compute would move it somewhere nothing chose.
     /// </remarks>
-    private double Produced(string expression, PaintCodeItem item, string property, string name)
+    private double? Produced(string expression, PaintCodeItem item, string property, string name)
     {
         if (_declarations.TryValue(expression, out var produced))
         {
             return produced;
         }
 
-        Note(PaintCodeImportSeverity.Approximated, name, property, "the expression could not be evaluated here, so it drives the drawing from where it already was.");
+        Note(PaintCodeImportSeverity.Dropped, name, property, "the expression's own value could not be worked out, so the drawing's own value is written.");
 
-        return item.Bindings[property].Number ?? 0;
+        return null;
     }
 
     /// <summary>The translated expression driving <paramref name="property"/>, or null where none can.</summary>
