@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Xunit;
 using Xunit.Abstractions;
@@ -55,6 +56,33 @@ public class PaintCodeSampleTests
         var names = document.Canvases.Select(canvas => canvas.Name).ToList();
 
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [SampleFact]
+    public void Every_Canvas_Converts_To_A_Drawing_Svg_Can_Build()
+    {
+        var document = PaintCodeDocument.Load(SampleFactAttribute.Path!);
+        var directory = Directory.CreateTempSubdirectory("paintcode");
+
+        try
+        {
+            var result = PaintCodeImport.Run(document, new PaintCodeImportOptions(directory.FullName) { IncludeSymbolOnlyCanvases = true });
+
+            _output.WriteLine($"{result.Files.Count} drawings, {result.Notes.Count} notes");
+
+            Assert.Equal(1014, result.Files.Count);
+
+            foreach (var file in result.Files)
+            {
+                using var svg = new Svg.Skia.SKSvg();
+
+                Assert.True(svg.Load(file) is { }, file);
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
     }
 
     private sealed class Census

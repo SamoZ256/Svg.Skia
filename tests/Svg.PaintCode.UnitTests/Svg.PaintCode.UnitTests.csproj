@@ -13,6 +13,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Svg.PaintCode\Svg.PaintCode.csproj" />
+    <!-- Every drawing an import writes is built here, so "an import always opens" is a test. -->
+    <ProjectReference Include="..\..\src\Svg.Skia\Svg.Skia.csproj" />
   </ItemGroup>
 
 </Project>

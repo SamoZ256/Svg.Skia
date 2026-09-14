@@ -1,7 +1,6 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System.Linq;
-using System.Text;
 using Xunit;
 
 namespace Svg.PaintCode.UnitTests;
@@ -11,7 +10,7 @@ public class PaintCodeReaderTests
     [Fact]
     public void A_Document_Comes_Back_With_Its_Desks_And_Canvases()
     {
-        var document = PaintCodeDocument.Parse(Sample());
+        var document = PaintCodeDocument.Parse(SampleDocument.Bytes());
         var desk = Assert.Single(document.Desks);
         var canvas = Assert.Single(desk.Canvases);
 
@@ -29,7 +28,7 @@ public class PaintCodeReaderTests
     [Fact]
     public void A_Bezier_Keeps_Its_Points_And_Their_Control_Offsets()
     {
-        var canvas = PaintCodeDocument.Parse(Sample()).Canvases.Single();
+        var canvas = PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single();
         var shape = Assert.IsType<PaintCodeShape>(canvas.Root.Children.Single());
         var contour = Assert.Single(shape.Path!.Contours);
 
@@ -45,7 +44,7 @@ public class PaintCodeReaderTests
     [Fact]
     public void An_Anchor_Is_Read_As_The_Shapes_Position_In_Canvas_Space()
     {
-        var shape = (PaintCodeShape)PaintCodeDocument.Parse(Sample()).Canvases.Single().Root.Children.Single();
+        var shape = (PaintCodeShape)PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single().Root.Children.Single();
 
         Assert.Equal(3.0844d, shape.Frame.Anchor.X);
         Assert.Equal(-3.6379d, shape.Frame.Anchor.Y);
@@ -53,12 +52,12 @@ public class PaintCodeReaderTests
 
     [Fact]
     public void A_Winding_Rule_Of_One_Is_Even_Odd()
-        => Assert.True(((PaintCodeShape)PaintCodeDocument.Parse(Sample()).Canvases.Single().Root.Children.Single()).IsEvenOdd);
+        => Assert.True(((PaintCodeShape)PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single().Root.Children.Single()).IsEvenOdd);
 
     [Fact]
     public void A_Colour_Is_Read_From_Its_Components_As_The_Bytes_PaintCode_Emits()
     {
-        var shape = (PaintCodeShape)PaintCodeDocument.Parse(Sample()).Canvases.Single().Root.Children.Single();
+        var shape = (PaintCodeShape)PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single().Root.Children.Single();
         var color = Assert.IsType<PaintCodeColor>(shape.Fill.Color);
 
         Assert.Equal(PaintCodePaintKind.Color, shape.Fill.Kind);
@@ -72,7 +71,7 @@ public class PaintCodeReaderTests
     [Fact]
     public void A_Derived_Colour_Takes_Its_Parents_Channels_And_The_Operations_Alpha()
     {
-        var color = PaintCodeDocument.Parse(Sample()).Variables.Single(variable => variable.Name == "purple70").Value.Color!;
+        var color = PaintCodeDocument.Parse(SampleDocument.Bytes()).Variables.Single(variable => variable.Name == "purple70").Value.Color!;
 
         Assert.Equal(95, color.Red);
         Assert.Equal(201, color.Blue);
@@ -83,7 +82,7 @@ public class PaintCodeReaderTests
     [Fact]
     public void An_Input_Variable_Carries_Its_Value_And_A_Derived_One_Its_Expression()
     {
-        var variables = PaintCodeDocument.Parse(Sample()).Variables;
+        var variables = PaintCodeDocument.Parse(SampleDocument.Bytes()).Variables;
         var state = variables.Single(variable => variable.Name == "state");
         var off = variables.Single(variable => variable.Name == "off");
 
@@ -97,7 +96,7 @@ public class PaintCodeReaderTests
     [Fact]
     public void A_Bound_Property_Keeps_The_Expression_That_Drives_It()
     {
-        var shape = (PaintCodeShape)PaintCodeDocument.Parse(Sample()).Canvases.Single().Root.Children.Single();
+        var shape = (PaintCodeShape)PaintCodeDocument.Parse(SampleDocument.Bytes()).Canvases.Single().Root.Children.Single();
 
         Assert.Equal("state ? colorPurple : colorPurple", shape.Bindings["fill"].Expression);
     }
@@ -105,108 +104,9 @@ public class PaintCodeReaderTests
     [Fact]
     public void A_Range_On_A_Variable_Becomes_Its_Bounds()
     {
-        var level = PaintCodeDocument.Parse(Sample()).Variables.Single(variable => variable.Name == "level");
+        var level = PaintCodeDocument.Parse(SampleDocument.Bytes()).Variables.Single(variable => variable.Name == "level");
 
         Assert.Equal(0d, level.Minimum);
         Assert.Equal(1d, level.Maximum);
     }
-
-    // One desk, one canvas, one two-point bezier filled with a bound colour, and the four variables
-    // the assertions above read. The numbers are the ones verified against PaintCode's own output.
-    private static byte[] Sample()
-    {
-        var archive = new KeyedArchiveBuilder();
-
-        var purple = Color(archive, "colorPurple", "0.3725490196 0.0 0.7882352941 1");
-        var purple70 = archive.Object(
-            "PPColor",
-            new[] { ("name", archive.Text("purple70")), ("parentColor", purple) },
-            ("isDerived", true), ("operation", 2), ("operationAmount", 0.7d));
-
-        var point = archive.Object(
-            "PPPathPoint",
-            ("position", archive.Text("{9.8047, -1.5499}")),
-            ("enteringControlPoint", archive.Text("{-2.6863, -4.9265}")),
-            ("exitingControlPoint", archive.Text("{0.521, 0.9554}")));
-
-        var second = archive.Object(
-            "PPPathPoint",
-            ("position", archive.Text("{12.4152, 0}")),
-            ("enteringControlPoint", archive.Text("{-1.0882, 0}")),
-            ("exitingControlPoint", archive.Text("{1.0882, 0}")));
-
-        var path = archive.Object(
-            "PPPath",
-            ("contours", archive.Array(archive.Array(point, second))),
-            ("contoursClosedStatus", archive.Array(archive.Value(true))));
-
-        var bezier = archive.Object(
-            "PPBezier",
-            new[]
-            {
-                ("name", archive.Text("Bezier")),
-                ("path", path),
-                ("fill", purple),
-                ("propertyValueProviders", archive.Dictionary(
-                    ("fill", Expression(archive, "state ? colorPurple : colorPurple", 5, purple))))
-            },
-            ("anchorX", 3.0844d), ("anchorY", -3.6379d), ("windingRule", 1), ("alpha", 1d), ("visibilityMode", 1));
-
-        var group = archive.Object(
-            "PPGroup",
-            new[] { ("name", archive.Text("Canvas Group")), ("shapesAndGroups", archive.Array(bezier)) },
-            ("alpha", 1d), ("visibilityMode", 1));
-
-        var canvas = archive.Object(
-            "PPCanvas",
-            new[] { ("name", archive.Text("overlay-error")), ("bounds", archive.Text("{{0, 0}, {30, 30}}")), ("rootGroup", group) },
-            ("isExported", true), ("isAvailableAsSymbol", true));
-
-        var desk = archive.Object("PPDesk", ("name", archive.Text("Overlays")), ("canvases", archive.Array(canvas)));
-
-        var library = archive.Object("PPLibrary", ("variables", archive.Array(
-            Variable(archive, "state", 0, Constant(archive, 4, archive.Value(true))),
-            Variable(archive, "level", 2, Constant(archive, 2, archive.Value(1d), Interval(archive, 0, 1))),
-            Variable(archive, "off", 13, Expression(archive, "!state", 4, archive.Value(false))),
-            Variable(archive, "purple70", 13, Expression(archive, "withAlpha(colorPurple, 0.7)", 5, purple70)))));
-
-        return archive.ToBytes(
-            ("styleKitName", archive.Text("Icons")),
-            ("desks", archive.Array(desk)),
-            ("library", library));
-    }
-
-    private static int Color(KeyedArchiveBuilder archive, string name, string components)
-        => archive.Object(
-            "PPColor",
-            new[]
-            {
-                ("name", archive.Text(name)),
-                ("basicNSColor", archive.Object(
-                    "NSColor",
-                    new[] { ("NSComponents", archive.Data(Encoding.ASCII.GetBytes(components))) },
-                    ("NSColorSpace", 1)))
-            },
-            ("isDerived", false), ("operation", 0));
-
-    private static int Interval(KeyedArchiveBuilder archive, double minimum, double maximum)
-        => archive.Object("PPLimitInterval", System.Array.Empty<(string, int)>(), ("min", minimum), ("max", maximum));
-
-    private static int Constant(KeyedArchiveBuilder archive, int type, int value, int? limit = null)
-        => archive.Object(
-            "PPValueProviderConstant",
-            limit is { } bounded ? new[] { ("value", value), ("limit", bounded) } : new[] { ("value", value) },
-            ("type", type));
-
-    private static int Expression(KeyedArchiveBuilder archive, string expression, int type, int value)
-        => archive.Object(
-            "PPValueProviderExpression",
-            new[] { ("expression", archive.Text(expression)), ("value", value) },
-            ("type", type));
-
-    private static int Variable(KeyedArchiveBuilder archive, string name, int kind, int provider)
-        => archive.Object(
-            "PPVariable",
-            new[] { ("name", archive.Text(name)), ("valueProvider", provider) },
-            ("kind", kind));
 }
