@@ -50,7 +50,10 @@ internal sealed class PaintCodeExpressionTranslator
         ["sqrt"] = "sqrt",
         ["min"] = "min",
         ["max"] = "max",
-        ["pow"] = "pow"
+        ["pow"] = "pow",
+
+        // PaintCode's own name for the only crossing from a number to the words of a label.
+        ["stringFromNumber"] = "str"
     };
 
     internal static bool TryTranslate(

@@ -7,7 +7,7 @@ using Xunit;
 namespace Svg.Skia.UnitTests;
 
 /// <summary>
-/// Where a driven transform is refused, and — just as important — where it is not.
+/// Where a driven transform or stroke width is refused, and — just as important — where it is not.
 /// </summary>
 /// <remarks>
 /// A refusal drawn too widely takes the feature down with it, and one drawn too narrowly draws the
@@ -40,6 +40,40 @@ public class SvgSceneTransformAuditTests
     }
 
     private const string Driven = "transform=\"rotate({{ a }} 32 32)\"";
+
+    private const string Stroked = "stroke=\"#000000\" stroke-width=\"{{ a }}\"";
+
+    [Fact]
+    public void A_Driven_Stroke_Width_On_Its_Own_Is_Allowed()
+    {
+        Assert.Null(Audit("<rect width=\"8\" height=\"8\" " + Stroked + " />"));
+    }
+
+    [Fact]
+    public void A_Driven_Stroke_Width_Inside_A_Layer_Is_Refused()
+    {
+        // The layer's bounds were unioned from where the rect painted, stroke included, and
+        // SaveLayer clips to them — so a wider stroke would be cut at the edge it was compiled with.
+        Assert.Contains(
+            "the layer opened by",
+            Audit("<g opacity=\"0.5\"><rect width=\"8\" height=\"8\" " + Stroked + " /></g>"));
+    }
+
+    [Fact]
+    public void A_Driven_Stroke_Width_Under_A_Filter_Is_Refused()
+    {
+        Assert.Contains(
+            "a filter on",
+            Audit("<g filter=\"url(#f)\"><rect width=\"8\" height=\"8\" " + Stroked + " /></g>"));
+    }
+
+    [Fact]
+    public void A_Driven_Stroke_Width_Inside_A_Clip_Path_Is_Allowed()
+    {
+        // Unlike a transform: a clip travels with the element rather than staying where it was, and
+        // a stroke is a value on the recorded paint wherever it was compiled.
+        Assert.Null(Audit("<g clip-path=\"url(#c)\"><rect width=\"8\" height=\"8\" " + Stroked + " /></g>"));
+    }
 
     [Fact]
     public void A_Drawing_That_Drives_Nothing_Is_Not_Audited()

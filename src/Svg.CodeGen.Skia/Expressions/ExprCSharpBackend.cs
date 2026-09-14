@@ -44,7 +44,8 @@ internal static class ExprCSharpBackend
         [ExprFunction.WithAlpha] = ExprHelpers.WithAlpha,
         [ExprFunction.Upper] = ExprHelpers.Upper,
         [ExprFunction.Lower] = ExprHelpers.Lower,
-        [ExprFunction.Len] = ExprHelpers.Len
+        [ExprFunction.Len] = ExprHelpers.Len,
+        [ExprFunction.Str] = ExprHelpers.Str
         // Mod is absent on purpose: no BCL function has the semantics, so it is emitted inline. It
         // used to be MathF.IEEERemainder here, which is a different operation.
     };

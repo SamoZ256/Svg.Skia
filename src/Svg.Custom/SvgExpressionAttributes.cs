@@ -58,6 +58,9 @@ public static class SvgExpressionAttributes
         // Fully opaque, so the colour the expression scales is the one the author wrote.
         ["fill-opacity"] = ("1", ExprType.Number, true, false, false),
         ["stroke-opacity"] = ("1", ExprType.Number, true, false, false),
+        // One unit, which is SVG's own default, so a document whose expression will not evaluate
+        // strokes the way the same document without the attribute does.
+        ["stroke-width"] = ("1", ExprType.Number, true, false, false),
         ["stop-opacity"] = ("1", ExprType.Number, false, false, false),
         // A hidden element contributes no commands at all, so the placeholder has to be the
         // visible state or there would be nothing left to make conditional. For display that goes

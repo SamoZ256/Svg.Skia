@@ -23,6 +23,7 @@ internal static class ExprHelpers
     public const string Upper = "SvgUpper";
     public const string Lower = "SvgLower";
     public const string Len = "SvgLen";
+    public const string Str = "SvgStr";
     public const string Tangent = "SvgTangent";
 
     // Ordered so generated output is stable.
@@ -141,6 +142,11 @@ internal static class ExprHelpers
         new(Len, new[]
         {
             $"private static float {Len}(string value) => value.Length;"
+        }),
+
+        new(Str, new[]
+        {
+            $"private static string {Str}(float value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);"
         }),
 
         // Character for character what ShimSkiaSharp.SymMatrix.Tangent computes, including the

@@ -330,11 +330,13 @@ public static class SvgSceneExpressionEvaluator
             var shader = RewriteShader(paint.Shader);
             var colorFilter = RewriteColorFilter(paint.ColorFilter);
             var imageFilter = RewriteImageFilter(paint.ImageFilter);
+            var strokeWidth = RewriteStrokeWidth(paint);
 
             if (color.Equals(paint.Color)
                 && ReferenceEquals(shader, paint.Shader)
                 && ReferenceEquals(colorFilter, paint.ColorFilter)
-                && ReferenceEquals(imageFilter, paint.ImageFilter))
+                && ReferenceEquals(imageFilter, paint.ImageFilter)
+                && strokeWidth.Equals(paint.StrokeWidth))
             {
                 return paint;
             }
@@ -346,11 +348,22 @@ public static class SvgSceneExpressionEvaluator
             clone.Shader = shader;
             clone.ColorFilter = colorFilter;
             clone.ImageFilter = imageFilter;
+            clone.StrokeWidth = strokeWidth;
+
+            // Cleared for the reason a resolved colour drops its own: the value is now the answer,
+            // and a second binding evaluates from the model this one left rather than from a stale
+            // expression beside it.
+            clone.StrokeWidthExpression = null;
 
             _rewritten[paint] = clone;
 
             return clone;
         }
+
+        private float RewriteStrokeWidth(SKPaint paint)
+            => paint.StrokeWidthExpression is { } expression
+                ? SvgSceneSymEvaluator.Evaluate(expression, ExprType.Number, _evaluator).AsNumber
+                : paint.StrokeWidth;
 
         private SKColor? RewriteColor(SKColor? color)
             => color is { } value ? RewriteColor(value) : color;

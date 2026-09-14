@@ -32,6 +32,11 @@ public class PaintCodeExpressionTranslatorTests
     [InlineData("-x * 360", "-x * 360")]
     [InlineData("x ? true : false", "x ? true : false")]
     [InlineData("',' + s", "',' + s")]
+    // PaintCode's own name for the only crossing from a number to the words of a label.
+    [InlineData("stringFromNumber(x * 100)", "str(x * 100)")]
+    // The joins that do nothing, which is how its editor spells a property that follows a variable.
+    [InlineData("x + 0", "x")]
+    [InlineData("x * 1", "x")]
     public void An_Expression_Is_Rewritten_Into_One_The_Extension_Reads(string source, string expected)
     {
         Assert.True(PaintCodeExpressionTranslator.TryTranslate(source, Scope(), out var expression, out var refusal), refusal);
@@ -39,8 +44,8 @@ public class PaintCodeExpressionTranslatorTests
     }
 
     [Theory]
-    // The four the sample document actually runs into, each refused by name rather than guessed at.
-    [InlineData("stringFromNumber(x)", "stringFromNumber")]
+    // Each refused by name rather than guessed at.
+    [InlineData("hypot(x, y)", "hypot")]
     [InlineData("bound.size.height", "reads part of a value")]
     [InlineData("nowhere", "is not a name this document declares")]
     [InlineData("x +", "a value was expected")]

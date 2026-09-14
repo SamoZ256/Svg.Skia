@@ -363,9 +363,11 @@ public class ExprCompilerTests
         Assert.Equal("SvgUpper(theme)", Code("upper(theme)"));
         Assert.Equal("SvgLower(theme)", Code("lower(theme)"));
         Assert.Equal("SvgLen(theme)", Code("len(theme)"));
+        Assert.Equal("SvgStr(t)", Code("str(t)"));
 
         Assert.Equal(ExprType.String, Type("upper(theme)"));
         Assert.Equal(ExprType.Number, Type("len(theme)"));
+        Assert.Equal(ExprType.String, Type("str(t)"));
     }
 
     [Fact]

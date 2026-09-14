@@ -165,6 +165,7 @@ stays smooth.
 | `opacity` | number | Group opacity. |
 | `fill-opacity` | number | Scales the fill's alpha, whether the fill is a literal, an expression or a gradient. |
 | `stroke-opacity` | number | Scales the stroke's alpha. |
+| `stroke-width` | number | The stroke's width in user units. Refused where a driven transform is, and for the same reason: a stroke that grows paints outside bounds something already measured. |
 | `stop-opacity` | number | Scales one gradient stop's alpha. |
 | `visibility` | boolean | `true` meaning visible. Wraps the element's drawing in a condition. |
 | `display` | boolean | `true` meaning displayed. Wraps the element and its subtree in a condition. |
@@ -197,7 +198,7 @@ An element's text is lifted whole or not at all: `{{ … }}` has to be the entir
 `Total: {{ n }}` is literal text and `{{ 'Total: ' + n }}` is the way to say it. The language has `+`
 on strings for exactly this.
 
-Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d`, `stroke-width` — is a literal.
+Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d` — is a literal.
 Braces written in one of those are read as an ordinary value and do nothing; a source view marks it.
 
 Position through `x` or `cx` stays literal because those are consumed into the path the drawing
@@ -246,7 +247,7 @@ expression is scaled by a literal opacity, and where both are expressions the al
 whatever the number one yields. `color-interpolation="linearRGB"` converts the result, exactly as it
 would a literal.
 
-### Where a driven transform is refused
+### Where a driven transform or stroke width is refused
 
 A recorded matrix can be rewritten because nothing downstream measured it. Where something *was*
 measured against it while the drawing was compiled, binding another value would move the element out
@@ -268,6 +269,12 @@ Those last two are the reason the rule is written as *either it moves or it is n
 a list: an element that carries a driven transform and was nonetheless compiled without one is
 refused whatever the reason, so a function or an argument count SVG does not allow is caught by the
 same sentence rather than binding silently to nothing.
+
+A driven **`stroke-width`** answers the first two of those — a filter, and an ancestor that opens a
+layer — for the same reason: a stroke that grows paints outside bounds that were unioned from where
+it painted when the drawing was compiled, and `SaveLayer`'s bounds are a hard clip. It answers none
+of the rest, because unlike a transform it is a value on the recorded paint wherever it was compiled
+and there is nothing for it to have been folded into.
 
 Three that look like they belong on that list and do not, which is the more useful half of the rule:
 
@@ -407,9 +414,14 @@ String:
 | --- | --- |
 | `upper(s)` `lower(s)` | **Invariant** case folding, so the answer does not vary with the machine. |
 | `len(s)` | Number of UTF-16 code units, as a **number** — which is how a string reaches the arithmetic. |
+| `str(x)` | A **number** as text, invariant and shortest round-trip — which is how a number reaches the words. A whole number reads as one: `str(100)` is `'100'`, not `'100.0'`. |
 
 Note the deliberate asymmetry: `rgb` takes 0..255 and `hsl` takes degrees plus fractions, matching
 CSS rather than being internally uniform.
+
+`len` and `str` are the only two crossings between a number and a string, and they are functions
+rather than conversions for the reason [§3.3](#33-operators) gives: `+` would otherwise have a third
+meaning, and `'total: ' + n` would silently be text where it was meant to be an error.
 
 ### 3.6 Grammar
 

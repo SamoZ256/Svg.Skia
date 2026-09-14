@@ -35,6 +35,8 @@ internal static class SvgSceneExpressions
 
     internal const string StopOpacity = "stop-opacity";
 
+    internal const string StrokeWidth = "stroke-width";
+
     internal const string Visibility = "visibility";
 
     internal const string Display = "display";

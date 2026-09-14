@@ -153,20 +153,20 @@ public class SvgSourceAttributesTests
         var source = """
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
               <defs><e:code><e:param name="w" type="number" default="4" /></e:code></defs>
-              <rect stroke-width="{{ w }}" />
+              <rect stroke-dasharray="{{ w }}" />
             </svg>
             """;
 
         var one = Assert.Single(SvgSourceDiagnostics.Analyse(source));
 
-        Assert.StartsWith("'stroke-width' does not take an expression.", one.Message);
+        Assert.StartsWith("'stroke-dasharray' does not take an expression.", one.Message);
 
         // Which ones do, rather than in which order: the list is read off the extension's own table
         // of placeholders, and what that enumerates in is not worth pinning.
         foreach (var supported in new[]
                  {
                      "fill", "stroke", "stop-color", "flood-color", "lighting-color",
-                     "opacity", "fill-opacity", "stroke-opacity", "stop-opacity",
+                     "opacity", "fill-opacity", "stroke-opacity", "stop-opacity", "stroke-width",
                      "visibility", "display"
                  })
         {

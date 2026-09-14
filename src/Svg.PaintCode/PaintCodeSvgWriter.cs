@@ -155,7 +155,7 @@ internal sealed class PaintCodeSvgWriter
             Note(PaintCodeImportSeverity.Dropped, shape.Name, "blendMode", $"PaintCode's blend mode {shape.BlendMode} has no name here, so the shape is drawn over what is under it.");
         }
 
-        foreach (var property in new[] { "strokeWidth", "startAngle", "endAngle" })
+        foreach (var property in new[] { "startAngle", "endAngle" })
         {
             if (shape.Bindings.ContainsKey(property))
             {
@@ -472,7 +472,11 @@ internal sealed class PaintCodeSvgWriter
 
         var style = shape.StrokeStyle;
         Paint(element, "stroke", shape, "strokeColor", color);
-        element.SetAttributeValue("stroke-width", Number(style.Width));
+
+        if (!Bind(element, "stroke-width", shape, "strokeWidth"))
+        {
+            element.SetAttributeValue("stroke-width", Number(style.Width));
+        }
 
         if (Cap(style.Cap) is { } cap)
         {
@@ -793,11 +797,12 @@ internal sealed class PaintCodeSvgWriter
             return null;
         }
 
-        // A transform is rewritten in the recorded drawing, and a layer's bounds were measured from
-        // where its children were when it was recorded -- so under one, the number is written instead.
-        if (_layers > 0 && property.StartsWith("display", StringComparison.Ordinal))
+        // A layer's bounds were unioned from where its children painted when the drawing was
+        // recorded, and it clips to them -- so neither a move nor a wider stroke can cross one, and
+        // under one the number is written instead.
+        if (_layers > 0 && (property.StartsWith("display", StringComparison.Ordinal) || property == "strokeWidth"))
         {
-            Note(PaintCodeImportSeverity.Dropped, name, property, "a transform cannot be driven inside a group that draws into a layer, so the drawing's own value is written.");
+            Note(PaintCodeImportSeverity.Dropped, name, property, "this cannot be driven inside a group that draws into a layer, so the drawing's own value is written.");
 
             return null;
         }
