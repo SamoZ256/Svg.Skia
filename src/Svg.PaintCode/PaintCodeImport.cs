@@ -6,6 +6,7 @@ using System.IO;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
+using Svg.CodeGen.Skia.Projects;
 
 namespace Svg.PaintCode;
 
@@ -36,11 +37,21 @@ public static class PaintCodeImport
 
         var notes = new List<PaintCodeImportNote>();
         var files = new List<string>();
+        var project = options.ProjectPath is { } path
+            ? SvgcProjectDocument.Empty(Path.GetDirectoryName(Path.GetFullPath(path)) ?? options.Directory)
+            : null;
+
+        if (project is { })
+        {
+            project.Root.Namespace = options.Namespace ?? PaintCodeSlug.Pascal(document.Name);
+        }
 
         foreach (var desk in document.Desks)
         {
-            var folder = Path.Combine(options.Directory, PaintCodeSlug.Of(desk.Name));
+            var slug = PaintCodeSlug.Of(desk.Name);
+            var folder = Path.Combine(options.Directory, slug);
             var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            SvgcProjectGroup? group = null;
 
             foreach (var canvas in desk.Canvases)
             {
@@ -49,14 +60,37 @@ public static class PaintCodeImport
                     continue;
                 }
 
-                var file = Path.Combine(folder, Unique(taken, PaintCodeSlug.Of(canvas.Name)) + ".svg");
+                var name = Unique(taken, PaintCodeSlug.Of(canvas.Name));
+                var file = Path.Combine(folder, name + ".svg");
                 Directory.CreateDirectory(folder);
                 Write(PaintCodeSvgWriter.Write(canvas, notes), file);
                 files.Add(file);
+
+                if (project is null)
+                {
+                    continue;
+                }
+
+                // A desk is only a group once something is in it: an empty one would generate a
+                // namespace with nothing in it and show in Studio as a row that opens on nothing.
+                group ??= Group(project, PaintCodeSlug.Pascal(desk.Name));
+
+                var drawing = group.AddDrawing(slug + "/" + name + ".svg", group.Children.Count);
+                drawing.Class = PaintCodeSlug.Pascal(canvas.Name);
+
+                // A drawing needs somewhere for its C# to go, or the build stops on the first row.
+                // Beside the drawing is the answer that needs no decision; a project meant to fold
+                // into one file says so afterwards, by naming a singleFile and clearing these.
+                drawing.Output = slug + "/" + name + ".cs";
             }
         }
 
-        return new PaintCodeImportResult(null, files, notes);
+        if (project is { } written)
+        {
+            written.Save(options.ProjectPath!);
+        }
+
+        return new PaintCodeImportResult(options.ProjectPath, files, notes);
     }
 
     /// <summary>The drawing as text: two-space indent, no declaration, a newline at the end.</summary>
@@ -79,6 +113,14 @@ public static class PaintCodeImport
         document.Save(writer);
         writer.Flush();
         File.AppendAllText(path, Environment.NewLine);
+    }
+
+    private static SvgcProjectGroup Group(SvgcProjectDocument project, string name)
+    {
+        var group = project.Root.AddGroup(project.Root.Children.Count);
+        group.Namespace = project.Root.Namespace is { } root ? root + "." + name : name;
+
+        return group;
     }
 
     private static string Unique(HashSet<string> taken, string name)

@@ -319,16 +319,6 @@ public partial class MainWindow : Window
     /// <summary>The open project, for a test to read. Null while none is open.</summary>
     public ProjectWorkspace? Workspace => _workspace;
 
-    /// <summary>
-    /// What a new project holds: nothing, on the two lines a first drawing is written between.
-    /// </summary>
-    /// <remarks>
-    /// No namespace, because the build already defaults one and a guess written into the file would
-    /// have to be found and corrected rather than simply typed. Empty rather than a template with a
-    /// drawing in it: the input would name a file that is not there, and the project would not open.
-    /// </remarks>
-    private const string Skeleton = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<svgc>\n</svgc>\n";
-
     private async void OnNewProject(object? sender, EventArgs e) => await NewProjectAsync();
 
     /// <summary>Asks where to write a project, writes it, and opens it.</summary>
@@ -370,7 +360,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                File.WriteAllText(path, Skeleton);
+                SvgcProjectDocument.Empty(Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty).Save(path);
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {

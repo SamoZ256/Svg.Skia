@@ -38,4 +38,31 @@ internal static class PaintCodeSlug
 
         return builder.Length == 0 ? "item" : builder.ToString();
     }
+
+    /// <summary>The same name as an identifier C# will take: PascalCase, and never starting with a digit.</summary>
+    internal static string Pascal(string name)
+    {
+        var builder = new StringBuilder(name.Length);
+        var capitalise = true;
+
+        foreach (var character in name)
+        {
+            if (!char.IsLetterOrDigit(character))
+            {
+                capitalise = true;
+
+                continue;
+            }
+
+            builder.Append(capitalise ? char.ToUpperInvariant(character) : character);
+            capitalise = false;
+        }
+
+        if (builder.Length == 0)
+        {
+            return "Item";
+        }
+
+        return char.IsDigit(builder[0]) ? "_" + builder : builder.ToString();
+    }
 }

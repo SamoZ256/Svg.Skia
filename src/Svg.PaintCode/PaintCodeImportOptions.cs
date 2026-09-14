@@ -21,4 +21,10 @@ public sealed class PaintCodeImportOptions
     /// symbol reaches the drawings that use it whether or not it is written out itself.
     /// </remarks>
     public bool IncludeSymbolOnlyCanvases { get; set; }
+
+    /// <summary>Where the svgc project is written, or null to write none.</summary>
+    public string? ProjectPath { get; set; }
+
+    /// <summary>The namespace the project's generated code sits in; each desk adds its own below it.</summary>
+    public string? Namespace { get; set; }
 }
