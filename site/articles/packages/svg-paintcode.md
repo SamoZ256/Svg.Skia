@@ -78,6 +78,39 @@ renders wrong, and what was lost is a list rather than a surprise.
 - **A blend mode.** PaintCode's numbering is not SVG's, and one that is nearly right is worse than
   one that is reported.
 
+## How it is verified
+
+PaintCode generates drawing code as well as documents, so the same `.pcvd` can be drawn twice — once
+through this conversion, once through PaintCode's own generated output — and the two compared as
+pixels. `tests/Svg.PaintCode.UnitTests/Oracle` does that for every canvas, at every combination of
+the booleans PaintCode varies it on.
+
+That comparison needs the document and the generated code, neither of which belongs in this
+repository, so it runs only where they are:
+
+```bash
+PaintCodeResourcesDir=/path/to/generated \
+SVG_PAINTCODE_SAMPLE=/path/to/Icons.pcvd \
+  dotnet test tests/Svg.PaintCode.UnitTests/Svg.PaintCode.UnitTests.csproj -c Release
+```
+
+`PaintCodeResourcesDir` is what compiles the comparison in at all. Unset — which is what continuous
+integration does — the suite builds and runs without it, and a dozen drawings committed with the
+raster PaintCode produced for them are compared instead, on every platform.
+
+**The conversion is not yet at parity, and the suite does not claim it is.** Measured against the
+1014-canvas sample, 698 of the 997 canvases that can be compared draw differently from PaintCode by
+more than antialiasing accounts for. 498 of those are right at their defaults and wrong once a
+parameter moves — 457 of them when `isLight` is true — which is why checking defaults alone had
+shown the conversion as sound. So each canvas is pinned at what it currently measures, in
+`TestAssets/Oracle/parity.csv`: a canvas that gets worse fails, and the file doubles as the list of
+what is left to fix. Numbers there above 0.004 are gaps, not allowances; closing one means
+re-running the report and committing the smaller number.
+
+Seventeen canvases draw text and are excluded by name. PaintCode asks for four SF-UI-Display faces
+by filename, they are not beside its generated code, and its own lookup falls back to whatever family
+the system lists first without reporting it — so there is nothing stable to compare against.
+
 ## Related docs
 
 - [Svg.Expressions](svg-expressions) — the format the parameters are written in

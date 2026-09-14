@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" xmlns:e="https://svg.skia/expr/1.0">
+  <defs>
+    <e:code>
+      <e:param name="colorPurple" type="color" default="#fc2f67ff" />
+      <e:param name="enabled" type="boolean" default="true" />
+      <e:param name="state" type="boolean" default="true" />
+      <e:param name="isLight" type="boolean" default="false" />
+      <e:param name="whiteColor_" type="color" default="#ffffffff" />
+      <e:param name="blackColor_" type="color" default="#1f2123ff" />
+      <e:let name="whiteColor30">withAlpha(whiteColor_, 0.3)</e:let>
+      <e:let name="blackColor30">withAlpha(blackColor_, 0.3)</e:let>
+      <e:let name="stateWhiteColor">(enabled and state) ? not isLight ? whiteColor_ : blackColor_ : not isLight ? whiteColor30 : blackColor30</e:let>
+    </e:code>
+  </defs>
+  <path id="bezier" d="M9.8047,1.5499C10.3257,0.5945 11.327,0 12.4152,0C13.5034,0 14.5047,0.5945 15.0257,1.5499C17.712,6.4764 21.8619,14.0868 24.4676,18.8654C24.9699,19.7866 24.9495,20.9045 24.4138,21.8068C23.8781,22.7091 22.9064,23.2621 21.8571,23.2622C16.5645,23.2622 8.2659,23.2622 2.9733,23.2622C1.924,23.2621 0.9523,22.7091 0.4166,21.8068C-0.1191,20.9045 -0.1395,19.7866 0.3628,18.8654C2.9685,14.0868 7.1184,6.4764 9.8047,1.5499Z" fill-rule="evenodd" fill="{{ colorPurple }}" transform="translate(3.0845,3.6379)" />
+  <path id="bezier-2" d="M0,0L3.7258,0L3.3743,11.2341L0.2812,11.2341ZM0.2109,12.8499L3.5149,12.8499L3.5149,16.3125L0.2109,16.3125Z" fill="{{ stateWhiteColor }}" transform="translate(13.5558,8.1553)" />
+</svg>

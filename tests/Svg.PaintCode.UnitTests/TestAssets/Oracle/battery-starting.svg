@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" xmlns:e="https://svg.skia/expr/1.0">
+  <defs>
+    <g id="sym-symbol-battery">
+      <path id="bezier" d="M0,2.758L0,1.0299C0,0.4611 0.4611,0 1.0298,0L3.9792,0C4.548,0 5.0091,0.4611 5.0091,1.0299L5.0091,2.758Z" fill="{{ stateBlackColor }}" display="none" transform="translate(12.546,3.9348)" />
+      <path id="bezier-3" d="M2.3241,19.2718C1.801,19.2718 1.3765,18.8451 1.3765,18.322L1.3765,2.324C1.3765,1.801 1.801,1.3765 2.3241,1.3765L8.1148,1.3765C8.6379,1.3765 9.0623,1.801 9.0623,2.324L9.0623,18.322C9.0623,18.8451 8.6379,19.2718 8.1148,19.2718ZM10.4389,18.322L10.4389,2.324C10.4389,1.0416 9.395,0 8.1148,0L2.3241,0C1.0438,0 0,1.0416 0,2.324L0,18.322C0,19.6045 1.0438,20.6483 2.3241,20.6483L8.1148,20.6483C9.395,20.6483 10.4389,19.6045 10.4389,18.322Z" fill="{{ stateBlackColor }}" display="none" transform="translate(10.1548,5.1829)" />
+      <rect id="rectangle" x="0" y="0" width="9" height="19" rx="2" fill="none" stroke="{{ stateBlackColor }}" stroke-width="1" stroke-miterlimit="10" transform="translate(10.5,6)" />
+      <path id="rectangle-2" d="M1.0659,0L2.9769,0A1.0659 1.0659 0 0 1 4.0428,1.0659L4.0428,2.1318L0,2.1318L0,1.0659A1.0659 1.0659 0 0 1 1.0659,0Z" fill="{{ stateBlackColor }}" transform="translate(13.0004,3.9858)" />
+    </g>
+    <clipPath id="sym-symbol-battery-clip">
+      <rect width="30" height="30" />
+    </clipPath>
+    <e:code>
+      <e:param name="enabled" type="boolean" default="true" />
+      <e:param name="state" type="boolean" default="true" />
+      <e:param name="isLight" type="boolean" default="false" />
+      <e:param name="whiteColor_" type="color" default="#ffffffff" />
+      <e:param name="blackColor_" type="color" default="#1f2123ff" />
+      <e:param name="accent" type="boolean" default="true" />
+      <e:param name="accentColorOn" type="color" default="#fb3e72ff" />
+      <e:let name="whiteColor30">withAlpha(whiteColor_, 0.3)</e:let>
+      <e:let name="blackColor30">withAlpha(blackColor_, 0.3)</e:let>
+      <e:let name="stateBlackColor">(enabled and state) ? isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30</e:let>
+      <e:let name="stateAccentColor">(enabled and state) ? accent ? accentColorOn : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30</e:let>
+    </e:code>
+  </defs>
+  <use href="#sym-symbol-battery" clip-path="url(#sym-symbol-battery-clip)" />
+  <path id="bezier-2" d="M5.3915,11.7009L5.3915,0L0,11.7009Z" fill="{{ stateAccentColor }}" transform="translate(12.6292,11.5321)" />
+</svg>

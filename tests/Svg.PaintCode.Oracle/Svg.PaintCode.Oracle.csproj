@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Compiles PaintCode's own generated drawing code, so the import can be diffed against the thing it
+    was converted from. Deliberately absent from Svg.Skia.slnx: the sources it compiles live outside
+    the repository and exist only on a machine that has the PaintCode resources, so nothing in the
+    solution may depend on it. Set PaintCodeResourcesDir to that directory to switch it on.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <IsPackable>False</IsPackable>
+    <Nullable>disable</Nullable>
+    <!--
+      124k lines of generated, nullable-oblivious C# transliterated from Java. Scoped to this project
+      precisely so it cannot silence a warning in code anybody here writes.
+    -->
+    <NoWarn>$(NoWarn);CS0108;CS0164;CS0168;CS0219;CS0618;CS8073;CS8632</NoWarn>
+  </PropertyGroup>
+
+  <Import Project="..\..\build\SkiaSharp.props" />
+
+  <ItemGroup Condition="'$(PaintCodeResourcesDir)' != '' And Exists('$(PaintCodeResourcesDir)')">
+    <Compile Include="$(PaintCodeResourcesDir)\PaintCodeClasses.cs" Link="PaintCodeClasses.cs" />
+    <Compile Include="$(PaintCodeResourcesDir)\VectorIconsResource.cs" Link="VectorIconsResource.cs" />
+  </ItemGroup>
+
+</Project>
