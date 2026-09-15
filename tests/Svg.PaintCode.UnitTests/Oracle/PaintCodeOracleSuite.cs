@@ -53,96 +53,6 @@ internal sealed class PaintCodeOracleSuite
     /// <summary>Drawing methods claimed by more than one canvas.</summary>
     internal IReadOnlyList<string> Shared { get; }
 
-    /// <summary>
-    /// Canvases whose cause the importer's own notes cannot tell you, because it is not about the
-    /// conversion at all.
-    /// </summary>
-    /// <remarks>
-    /// Each of these draws something the archive plainly holds and PaintCode's generated code has no
-    /// trace of -- not in the SkiaSharp it was transliterated to, and not in the Android export that
-    /// was transliterated from, so it is PaintCode's own export that is short rather than anything
-    /// in between. The document was edited after the code was generated, and the drawing being
-    /// compared against is the older one. A regenerated VectorIconsResource.cs closes all of these
-    /// on its own; nothing here is the converter's to fix.
-    ///
-    /// The two pendantLights draw an Oval 3, the first child of their canvas group, isHidden false
-    /// and visibilityMode 1, carrying no binding at all. Both carry a driven sweep as well and
-    /// pendantLight-level is 0.09 worse at level 0 for it, but pendantLight-state measures the same
-    /// 0.526 at every setting, which is the disc alone.
-    ///
-    /// presence-state draws a 29x29 disc filling almost the whole canvas, between its OffGroup and
-    /// its OnGroup, where the generated method goes straight from one to the other and its cache
-    /// declares no path for it. Taking that one element out of the emitted drawing takes it from
-    /// 0.7037 to 0.0227, so it is the whole of the difference.
-    ///
-    /// septic2-tank-level says it twice over: a Group the archive gates on 'accent' that the
-    /// generated code draws unconditionally, and a Group 3 the archive anchors four units below
-    /// where the generated code translates it. The x of that same translate agrees exactly, which is
-    /// what rules out our reading the anchor wrongly.
-    /// </remarks>
-    private static readonly IReadOnlyDictionary<string, string> s_regardless = new Dictionary<string, string>(StringComparer.Ordinal)
-    {
-        ["pendantlight-level"] = "StaleOracle",
-        ["pendantlight-state"] = "StaleOracle",
-        ["presence-state"] = "StaleOracle",
-        ["septic2-tank-level"] = "StaleOracle",
-
-        // A different complaint about the same reference, and the commonest one on this list. Each
-        // of these matches to about 0.001 the moment the emitted drawing is rounded to two decimals
-        // the way PaintCode2Skia rounded its own -- symbol-hardware from 0.0520 to 0.0013,
-        // symbol-updates from 0.0323 to 0.0009. So the geometry agrees exactly and only the
-        // precision does not.
-        //
-        // What makes these the ones it shows on: a group scale, where the rounding is a ratio rather
-        // than an offset and so grows with distance from the group's origin. symbol-hardware is
-        // scaled 0.7428 and the reference says 0.74, which by the far end of a 26-unit shape is
-        // four tenths of a pixel -- and they are drawn in opaque white, where the comparison weighs
-        // an edge some six times what it weighs the same edge in the dimmed dark these measure at
-        // their defaults.
-        //
-        // Emitting two decimals ourselves would close them and would be the wrong thing: the
-        // drawing being compared against is the approximate one.
-        ["symbol-hardware"] = "OracleRounding",
-        ["symbol-permissions"] = "OracleRounding",
-        ["symbol-pb-monitor-large"] = "OracleRounding",
-        ["symbol-mylocation"] = "OracleRounding",
-        ["symbol-allusers"] = "OracleRounding",
-        ["symbol-variables"] = "OracleRounding",
-        ["symbol-logout"] = "OracleRounding",
-        ["symbol-addlocation"] = "OracleRounding",
-        ["symbol-updates"] = "OracleRounding",
-
-        // Rounding and a moved group, stacked: the reference's group y and every path coordinate in
-        // it round from the archive's, and its x does not -- 6.93 against 6.985869, where rounding
-        // would give 6.99. Writing PaintCode's own transform takes it from 0.0510 to 0.0010, and
-        // each half alone leaves about half of that, so it is both.
-        ["symbol-myprofile"] = "StaleOracle",
-
-        // PaintCode clips without antialiasing -- SkiaSharp's ClipPath defaults to it -- and SVG has
-        // no way to ask for a hard clip without aliasing the shapes inside as well. The whole of the
-        // difference is one pixel of coverage around the clip boundary: masking that boundary takes
-        // donotdisturb from 0.0347 to 0.0031, and lightbulb-empty-2 falls to 0.0084 with
-        // shape-rendering=crispEdges, which is the nearest SVG lever and trades one error for
-        // another.
-        ["donotdisturb"] = "AliasedClip",
-        ["lightbulb-empty-2"] = "AliasedClip",
-        ["filter-remaining"] = "AliasedClip",
-
-        // The derived colour chain -- saturation, then shadow, then an alpha -- is worked out at
-        // import, so it follows the canvas rather than the caller that hands the symbol a different
-        // colour to derive from. Substituting what PaintCode's own runtime computes per setting
-        // takes it from 0.0865 to 0.0031. Closing it means the expression format learning to say a
-        // saturation and a shadow, which is wider than this package.
-        ["sr-alarm-2"] = "DerivedColour",
-
-        // Not the converter being wrong but the reference being coarser. A radial gradient here runs
-        // between two circles and SVG says exactly that; PaintCode's runtime cannot, and collapses
-        // it to one circle at the start centre with the end radius, remapping the stops. Matching
-        // that would mean drawing the document less faithfully to agree with a shim, so it is
-        // recorded rather than chased -- 0.0309 as emitted against 0.0067 if we imitated it.
-        ["scene-on"] = "ReferenceRadial"
-    };
-
     /// <summary>What a note is about, in the vocabulary the exception table uses.</summary>
     private static string Cause(PaintCodeImportNote note)
         => note.Severity is PaintCodeImportSeverity.Missing ? "MissingCanvas"
@@ -185,7 +95,10 @@ internal sealed class PaintCodeOracleSuite
         // than only a number.
         var causes = result.Notes
             .GroupBy(note => PaintCodeSlug.Of(note.Canvas), StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.Select(Cause).OrderBy(Rank).First(), StringComparer.Ordinal);
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(note => Rank(Cause(note))).First(),
+                StringComparer.Ordinal);
 
         var defaults = new Dictionary<string, ExprValue>(StringComparer.Ordinal);
         var drawings = new List<PaintCodeDrawing>(result.Files.Count);
@@ -228,9 +141,11 @@ internal sealed class PaintCodeOracleSuite
                 method,
                 text.Contains("<text", StringComparison.Ordinal),
                 noted.Contains(slug),
-                s_regardless.TryGetValue(slug, out var known) ? known
-                    : causes.TryGetValue(slug, out var cause) ? cause
-                    : null));
+                causes.TryGetValue(slug, out var note) ? Cause(note) : null,
+
+                // The importer's own words for it, which is the best first sentence anybody is going
+                // to write about a canvas nobody has looked at yet.
+                causes.TryGetValue(slug, out var said) ? said.Message : null));
         }
 
         var shared = claimed
@@ -245,5 +160,6 @@ internal sealed class PaintCodeOracleSuite
 
 /// <summary>One imported drawing, and the PaintCode method that draws the same canvas.</summary>
 /// <param name="Cause">The kind of the worst thing the importer said about it, or null if it said nothing.</param>
-internal sealed record PaintCodeDrawing(string Slug, string Path, MethodInfo Method, bool HasText, bool Noted, string? Cause);
+/// <param name="Why">What the importer said, in its own words, or null for the same reason.</param>
+internal sealed record PaintCodeDrawing(string Slug, string Path, MethodInfo Method, bool HasText, bool Noted, string? Cause, string? Why);
 #endif

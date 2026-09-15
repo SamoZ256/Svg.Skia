@@ -83,7 +83,14 @@ public class PaintCodeOracleTests
     {
         var suite = PaintCodeOracleSuite.Instance;
         var known = new HashSet<string>(suite.Drawings.Select(d => d.Slug), StringComparer.Ordinal);
-        var counted = PaintCodeOracleBaseline.Excepted.Values
+        if (PaintCodeOracleBaseline.Excepted is not { } listed)
+        {
+            _output.WriteLine("No exceptions.csv for this document yet; run the report and commit what it writes.");
+
+            return;
+        }
+
+        var counted = listed.Values
             .GroupBy(e => e.Cause, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
 
@@ -93,7 +100,7 @@ public class PaintCodeOracleTests
         }
 
         // A canvas that no longer exists cannot be excepted, so a rename cannot carry a gap with it.
-        Assert.Empty(PaintCodeOracleBaseline.Excepted.Keys.Where(slug => !known.Contains(slug)));
+        Assert.Empty(listed.Keys.Where(slug => !known.Contains(slug)));
 
         Assert.Equal(
             new Dictionary<string, int>(StringComparer.Ordinal)
@@ -176,7 +183,16 @@ public class PaintCodeOracleTests
             return;
         }
 
-        var excepted = PaintCodeOracleBaseline.Excepted.TryGetValue(slug, out var exception) ? exception : null;
+        if (PaintCodeOracleBaseline.Excepted is not { } listed)
+        {
+            // Nothing has been measured for this document yet, and failing once per canvas would
+            // say less than saying so once.
+            Assert.Fail("This document has no exceptions.csv. Run PaintCodeOracleReport with SVG_PAINTCODE_ORACLE_REPORT set and commit what it writes.");
+
+            return;
+        }
+
+        var excepted = listed.TryGetValue(slug, out var exception) ? exception : null;
         var allowed = excepted?.Measured ?? PaintCodeOracleBaseline.Bound;
 
         using var svg = PaintCodeOracle.Load(drawing.Path);

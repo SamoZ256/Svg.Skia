@@ -126,17 +126,25 @@ public class PaintCodeOracleReport
         File.WriteAllText(Path.Combine(directory, "paintcode-oracle (Actual).csv"), csv.ToString());
 
         // And the exception table itself, ready to replace the committed one: every canvas past the
-        // bound, with the cause the importer's own notes give it, or Unexplained where they say
-        // nothing. Written beside the measurements rather than into TestAssets, so replacing the
-        // committed list is a deliberate copy and shows up as a diff worth reading.
-        var exceptions = new StringBuilder("canvas,cause,measured").AppendLine();
+        // bound, with what is already known about it kept and only the measurement refreshed.
+        // Written beside the measurements rather than into TestAssets, so replacing the committed
+        // list is a deliberate copy and shows up as a diff worth reading.
+        //
+        // Keeping the cause and the sentence beside it is what lets a classification be made once.
+        // A canvas somebody has looked at holds its answer here rather than in a table in the test
+        // assembly, and regenerating no longer throws that answer away.
+        var exceptions = new StringBuilder("canvas,cause,measured,why").AppendLine();
 
         foreach (var row in rows.Where(r => r.Worst > PaintCodeOracleBaseline.Bound).OrderBy(r => r.Slug, StringComparer.Ordinal))
         {
+            var known = PaintCodeOracleBaseline.Excepted?.TryGetValue(row.Slug, out var already) == true ? already : null;
             var drawing = PaintCodeOracleSuite.Instance.Drawings.First(d => d.Slug == row.Slug);
-            var cause = row.Text ? "TextMetrics" : drawing.Cause ?? "Unexplained";
+            var cause = known?.Cause ?? (row.Text ? "TextMetrics" : drawing.Cause ?? "Unexplained");
+            var why = known?.Why ?? drawing.Why ?? "not looked at yet";
 
-            exceptions.AppendLine($"{row.Slug},{cause},{Math.Ceiling(row.Worst * 10000) / 10000:F4}");
+            exceptions.Append(row.Slug).Append(',').Append(cause).Append(',')
+                .Append((Math.Ceiling(row.Worst * 10000) / 10000).ToString("F4", CultureInfo.InvariantCulture)).Append(',')
+                .AppendLine(PaintCodeCsv.Field(why));
         }
 
         File.WriteAllText(Path.Combine(directory, "paintcode-exceptions (Actual).csv"), exceptions.ToString());

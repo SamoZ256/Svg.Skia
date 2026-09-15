@@ -4,11 +4,13 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace Svg.PaintCode.UnitTests.Oracle;
 
 /// <summary>Why one canvas does not draw what PaintCode draws, and how far off it is.</summary>
-internal sealed record PaintCodeException(string Canvas, string Cause, double Measured);
+/// <param name="Why">The evidence, in a sentence: what was found, and what it was worth.</param>
+internal sealed record PaintCodeException(string Canvas, string Cause, double Measured, string Why);
 
 /// <summary>
 /// The canvases that do not meet the bound, each with the reason it does not.
@@ -41,12 +43,22 @@ internal static class PaintCodeOracleBaseline
     /// </remarks>
     internal const double Bound = 0.03;
 
-    internal static IReadOnlyDictionary<string, PaintCodeException> Excepted { get; } = Read();
+    /// <summary>The list, or null where this document has none yet.</summary>
+    internal static IReadOnlyDictionary<string, PaintCodeException>? Excepted { get; } = Read();
 
-    private static IReadOnlyDictionary<string, PaintCodeException> Read()
+    private static IReadOnlyDictionary<string, PaintCodeException>? Read()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "TestAssets", "Oracle", "exceptions.csv");
         var excepted = new Dictionary<string, PaintCodeException>(StringComparer.Ordinal);
+
+        // A document nobody has measured yet has no list, which is not the same as having an empty
+        // one: the comparison stands aside and asks for the report rather than failing once per
+        // canvas. Told apart by Exists rather than by Count, so an empty list still means "nothing
+        // is excepted" and holds every canvas to the bound.
+        if (!File.Exists(path))
+        {
+            return null;
+        }
 
         foreach (var line in File.ReadAllLines(path).Skip(1))
         {
@@ -55,17 +67,76 @@ internal static class PaintCodeOracleBaseline
                 continue;
             }
 
-            var parts = line.Split(',');
+            var parts = PaintCodeCsv.Fields(line);
 
-            if (parts.Length != 3 || parts[1].Length == 0)
+            if (parts.Count != 4 || parts[1].Length == 0 || parts[3].Length == 0)
             {
-                throw new InvalidOperationException($"'{line}' has no cause: an exception has to say why it is one.");
+                throw new InvalidOperationException(
+                    $"'{line}' does not both name a cause and say what was found. An exception that explains nothing is a number nobody can act on.");
             }
 
-            excepted[parts[0]] = new PaintCodeException(parts[0], parts[1], double.Parse(parts[2], CultureInfo.InvariantCulture));
+            excepted[parts[0]] = new PaintCodeException(parts[0], parts[1], double.Parse(parts[2], CultureInfo.InvariantCulture), parts[3]);
         }
 
         return excepted;
     }
+}
+
+/// <summary>Enough CSV for a field that has to hold a sentence.</summary>
+/// <remarks>
+/// These files are written and read only here, so this is the comma-and-quote rule and nothing else:
+/// a field holding a comma or a quote is wrapped, and a quote inside one is doubled.
+/// </remarks>
+internal static class PaintCodeCsv
+{
+    internal static IReadOnlyList<string> Fields(string line)
+    {
+        var fields = new List<string>();
+        var field = new StringBuilder();
+        var quoted = false;
+
+        for (var at = 0; at < line.Length; at++)
+        {
+            if (quoted)
+            {
+                if (line[at] != '"')
+                {
+                    field.Append(line[at]);
+                }
+                else if (at + 1 < line.Length && line[at + 1] == '"')
+                {
+                    field.Append('"');
+                    at++;
+                }
+                else
+                {
+                    quoted = false;
+                }
+
+                continue;
+            }
+
+            if (line[at] == '"' && field.Length == 0)
+            {
+                quoted = true;
+            }
+            else if (line[at] == ',')
+            {
+                fields.Add(field.ToString());
+                field.Clear();
+            }
+            else
+            {
+                field.Append(line[at]);
+            }
+        }
+
+        fields.Add(field.ToString());
+
+        return fields;
+    }
+
+    internal static string Field(string value)
+        => value.IndexOfAny(new[] { ',', '"', '\n' }) < 0 ? value : '"' + value.Replace("\"", "\"\"") + '"';
 }
 #endif
