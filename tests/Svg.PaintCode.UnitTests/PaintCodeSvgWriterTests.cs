@@ -131,6 +131,30 @@ public class PaintCodeSvgWriterTests
         Assert.Equal($"url(#{gradient.Attribute("id")!.Value})", element.Descendants().First(one => one.Name.LocalName == "path").Attribute("fill")!.Value);
     }
 
+    /// <summary>
+    /// A gradient laid by dragging its ends runs between them, not down the shape.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode records that as type 2 and draws it from the two handles, leaving the angle beside
+    /// them at the default nobody turned. Reading the angle instead laid 27 of the sample's gradients
+    /// top to bottom, and the note about laying one across the box was really describing this.
+    ///
+    /// The handles are offsets from the shape's own middle in PaintCode's y-up space. A box 20 wide
+    /// and 10 tall has its middle at (10, 5) once the drawing is turned over, so a handle 6 to the
+    /// left and 4 above it lands at (4, 1).
+    /// </remarks>
+    [Fact]
+    public void A_Gradient_Laid_By_Its_Ends_Runs_Between_Them()
+    {
+        var box = new PaintCodeFrame(0, -10, 20, 10, default, 0, 1, 1, 1, false, true);
+        var shape = Filled(Gradient(), -90, ends: (new PaintCodePoint(-6, 4), new PaintCodePoint(6, -4)), frame: box);
+        var gradient = WriteTree(Only(shape), new List<PaintCodeImportNote>())
+            .Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal("userSpaceOnUse", gradient.Attribute("gradientUnits")!.Value);
+        Assert.Equal(new[] { "4", "1", "16", "9" }, new[] { "x1", "y1", "x2", "y2" }.Select(name => gradient.Attribute(name)!.Value));
+    }
+
     [Fact]
     public void A_Gradient_An_Expression_Chooses_Drives_Each_Of_Its_Stops()
     {
@@ -411,11 +435,11 @@ public class PaintCodeSvgWriterTests
                 new PaintCodeGradientStop(new PaintCodeColor(string.Empty, 0, 0, 255, 1), 1, 0.5, false)
             });
 
-    private static PaintCodeShape Filled(PaintCodeGradient gradient, double angle, string? expression = null)
+    private static PaintCodeShape Filled(PaintCodeGradient gradient, double angle, string? expression = null, (PaintCodePoint Start, PaintCodePoint End)? ends = null, PaintCodeFrame? frame = null)
         => new(
             "Filled",
             PaintCodeShapeKind.Bezier,
-            Identity(),
+            frame ?? Identity(),
             expression is { }
                 ? new Dictionary<string, PaintCodeBinding> { ["fill"] = new(expression, PaintCodeValueKind.Gradient, null, null, null, null, gradient, null) }
                 : new Dictionary<string, PaintCodeBinding>(),
@@ -427,7 +451,8 @@ public class PaintCodeSvgWriterTests
             null,
             PaintCodeShapeMetrics.Default,
             false,
-            angle);
+            angle,
+            ends);
 
     private static PaintCodeGroup Only(PaintCodeItem item)
         => new("Root", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { item }, null);

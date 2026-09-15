@@ -66,7 +66,15 @@ public class PaintCodeSliceTests
 
         // A symbol instance that pins a number driving a transform — a tank a twentieth full, which
         // drew full while the offset was measured against the caller instead of the canvas.
-        Row("tank-empty", 0.02)
+        Row("tank-empty", 0.02),
+
+        // A gradient laid by dragging its two ends rather than by turning a dial, which was being
+        // read off the angle beside them and drawn top to bottom.
+        Row("symbol-grafana", 0.04),
+
+        // A library colour desaturated and then shadowed before it is given an alpha — two
+        // operations that were passing the parent's own hue straight through.
+        Row("ok-state", 0.02)
     };
 
     internal static IReadOnlyList<string> Slice { get; } = new[]
@@ -74,7 +82,7 @@ public class PaintCodeSliceTests
         "symbol-overlay-error", "symbol-notstarred", "symbol-starred", "starofdavid-state",
         "battery-starting", "symbol-forceupstart", "ventilation", "symbol-housewithventilation",
         "circle-housewithventilation", "circle-heatpump", "10colors", "symbol-daikin",
-        "symbol-saturation-level", "convector", "tank-empty"
+        "symbol-saturation-level", "convector", "tank-empty", "symbol-grafana", "ok-state"
     };
 
     private static object[] Row(string slug, double threshold) => new object[] { slug, threshold };

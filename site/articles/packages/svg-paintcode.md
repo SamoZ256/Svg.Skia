@@ -57,6 +57,8 @@ dropping a `.pcvd` on the window imports it beside itself.
 | `alpha`, `visibilityMode` | `opacity`, `display` |
 | The display position, rotation and scale | One argument each of `transform` |
 | A gradient chosen by an expression | One `<linearGradient>`, with the expression on every `stop-color` |
+| A gradient laid by dragging its two ends | The same two points, in `userSpaceOnUse` |
+| A library colour desaturated or shadowed | The shade PaintCode derives, worked out at import |
 
 PaintCode is y-up and SVG is y-down, so everything is turned over on the way: a point at `(x, y)`
 is written at `(x, -y)`, and an angle with it.
@@ -71,8 +73,13 @@ renders wrong, and what was lost is a list rather than a surprise.
   are literal in the expression format.
 - **Text built from a number.** PaintCode's `stringFromNumber` has no equivalent, so the words the
   drawing had are written.
-- **A gradient laid at an angle off the axes.** PaintCode places one from the shape's own middle,
-  which is not its box's; the conversion lays it across the box.
+- **A gradient turned to an angle off the axes.** PaintCode places one from the shape's own middle,
+  which is not its box's; the conversion lays it across the box. Only where the gradient was turned
+  by a dial — one laid by dragging its two ends carries them, and those are written exactly.
+- **A library colour derived by an operation with no equivalent.** Alpha, saturation and shadow are
+  carried; anything else keeps the colour it came from and is reported. A derived colour is also
+  worked out at import rather than followed live, so a symbol handed a different colour to derive
+  from draws the shade the canvas was saved with.
 - **A driven transform inside a group that draws into a layer.** The layer's bounds were measured
   from where its children were, so the number is written instead — the same rule the format states.
 - **A blend mode.** PaintCode's numbering is not SVG's, and one that is nearly right is worse than
@@ -100,8 +107,8 @@ integration does — the suite builds and runs without it, and a dozen drawings 
 raster PaintCode produced for them are compared instead, on every platform.
 
 **The conversion is not yet at parity, and the suite does not claim it is.** Measured against the
-1014-canvas sample, 376 canvases match; 396 are within a hairline of it (0.004–0.01), 182 differ in
-visible detail, and 60 are plainly wrong. Most of the drift only appears once a parameter leaves its
+1014-canvas sample, 385 canvases match; 414 are within a hairline of it (0.004–0.01), 185 differ in
+visible detail, and 30 are plainly wrong. Most of the drift only appears once a parameter leaves its
 default, which is why checking defaults alone had shown the conversion as sound.
 
 So each canvas is pinned at what it currently measures, in `TestAssets/Oracle/parity.csv`: a canvas

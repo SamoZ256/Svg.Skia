@@ -10,8 +10,8 @@ access-pin,0.0079
 access-pincard,0.0052
 access-repeated,0.0098
 action,0.0052
-air-flow,0.0161
-air-flow-level,0.0161
+air-flow,0.0150
+air-flow-level,0.0150
 airpurification-state,0.0075
 alarm,0.0040
 alarm-state,0.0040
@@ -23,7 +23,7 @@ atmosphericpressure,0.0055
 automatic,0.0105
 automatic-ventilation-state,0.0061
 automaticventilation,0.0083
-away-state,0.1085
+away-state,0.0043
 awning,0.0040
 awning-even,0.0040
 awning-odd,0.0040
@@ -231,7 +231,7 @@ detail-mix-valve-dynamic-level,0.0424
 detail-mix-valve-hot-level,0.0424
 detail-setpoint-level,0.0077
 detail-slide-level,0.0096
-detail-thermostat-level-angle,0.0426
+detail-thermostat-level-angle,0.0300
 deviceunknown,0.0040
 dinner-state,0.0100
 donotdisturb,0.0348
@@ -242,7 +242,7 @@ electricity,0.0052
 electricmeter-group,0.0060
 electricmeter-impulse,0.0053
 electricmeter-switch,0.0069
-emergency-state,0.0501
+emergency-state,0.0040
 error-state,0.0080
 fan-state,0.0132
 fan3-step,0.0064
@@ -355,7 +355,7 @@ number18-state,0.0078
 number19-state,0.0081
 number20-state,0.0106
 numbers-state,0.0087
-ok-state,0.1320
+ok-state,0.0040
 openclosegaragedoor,0.0105
 openpool,0.0048
 orientationlight-level,0.0068
@@ -444,16 +444,16 @@ rain-state,0.0040
 raingaugeimpulse,0.0053
 rect-minus,0.0040
 rect-plus,0.0040
-redcross-state,0.0983
+redcross-state,0.0088
 reorder,0.0040
-scene-off,0.0156
+scene-off,0.0040
 scene-off-2,0.0040
 scene-on,0.0497
 scene-on-2,0.0040
 scene-state,0.0515
-scene0of9,0.0094
-scene1of9,0.0133
-scene5of9,0.0231
+scene0of9,0.0040
+scene1of9,0.0101
+scene5of9,0.0223
 scene9of9,0.0300
 septic-tank-empty,0.0097
 septic-tank-full,0.0063
@@ -473,7 +473,7 @@ smartruleunknown,0.0040
 splitunit-state,0.0119
 sr-access,0.0040
 sr-alarm,0.0073
-sr-alarm-2,0.0708
+sr-alarm-2,0.0866
 sr-alarm-simple,0.0040
 sr-alarm-trigger,0.0053
 sr-blinds-1button,0.0040
@@ -539,7 +539,7 @@ symbol-analogclock,0.0040
 symbol-android-os,0.0040
 symbol-angle,0.0073
 symbol-app-settings,0.0056
-symbol-apple-music,0.0675
+symbol-apple-music,0.0139
 symbol-arrow-down,0.0040
 symbol-assigneduser,0.0105
 symbol-atmosphericpressure,0.0040
@@ -636,7 +636,7 @@ symbol-emergency,0.0040
 symbol-empty,0.0040
 symbol-entrance,0.0040
 symbol-error,0.0042
-symbol-excel,0.0127
+symbol-excel,0.0103
 symbol-expand,0.0040
 symbol-export,0.0040
 symbol-exposedevices,0.0052
@@ -664,8 +664,8 @@ symbol-fullscreen-open,0.0180
 symbol-gamecontroller,0.0058
 symbol-garagegate,0.0040
 symbol-gas-unit-price,0.0066
-symbol-grafana,0.0866
-symbol-grandstream,0.0174
+symbol-grafana,0.0210
+symbol-grandstream,0.0111
 symbol-gym,0.0040
 symbol-hanger,0.0040
 symbol-hardware,0.0520
@@ -688,7 +688,7 @@ symbol-identify,0.0040
 symbol-impulse,0.0040
 symbol-information,0.0040
 symbol-integrationprotocol,0.0040
-symbol-integromat,0.0484
+symbol-integromat,0.0053
 symbol-ip-scanner,0.0040
 symbol-irrigation,0.0040
 symbol-irrigation-citrus,0.0057
@@ -721,7 +721,7 @@ symbol-loudspeaker-empty,0.0040
 symbol-m,0.0091
 symbol-mac-os,0.0073
 symbol-mac-os-2,0.0070
-symbol-make,0.0484
+symbol-make,0.0053
 symbol-message,0.0040
 symbol-metering,0.0094
 symbol-microphone,0.0048
@@ -789,7 +789,7 @@ symbol-performlongpress,0.0040
 symbol-performtrippleclick,0.0040
 symbol-permissions,0.0489
 symbol-ph,0.0084
-symbol-philipshue,0.0932
+symbol-philipshue,0.0206
 symbol-photo,0.0213
 symbol-photovoltaicpanel,0.0079
 symbol-pin,0.0040
@@ -982,7 +982,7 @@ tariff-low,0.0066
 temperature-temperature,0.0040
 thermostat-temperature-level,0.2024
 thermostatdetailed-temperature-temperature2-level,0.2343
-thermostatsquare-temperature-level,0.0975
+thermostatsquare-temperature-level,0.0864
 tilt-state,0.0144
 tv-state,0.0058
 vacation-state,0.0040

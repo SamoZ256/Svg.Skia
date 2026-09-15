@@ -675,6 +675,22 @@ internal sealed class PaintCodeSvgWriter
             element.SetAttributeValue("r", "0.5");
             Note(PaintCodeImportSeverity.Approximated, shape.Name, "fill", $"the radial gradient '{gradient.Name}' is laid over the shape's box rather than where PaintCode centres it.");
         }
+        else if (shape.FillGradientEnds is { } ends)
+        {
+            // Laid by its two ends rather than by an angle, so the ends are where it goes: they are
+            // offsets from the shape's own middle, which is what PaintCode works its own two points
+            // out from, and in its own space, so the flip turns them over. Said in the shape's own
+            // coordinates rather than across its box -- the box is only the shape's extent, and
+            // these run past it as often as not.
+            var box = PaintCodePathData.Box(shape);
+            var middle = new PaintCodePoint(box.X + (box.Width / 2), box.Y + (box.Height / 2));
+
+            element.SetAttributeValue("gradientUnits", "userSpaceOnUse");
+            element.SetAttributeValue("x1", Number(middle.X + ends.Start.X));
+            element.SetAttributeValue("y1", Number(middle.Y - ends.Start.Y));
+            element.SetAttributeValue("x2", Number(middle.X + ends.End.X));
+            element.SetAttributeValue("y2", Number(middle.Y - ends.End.Y));
+        }
         else
         {
             // The angle points the way PaintCode measures it, which the flip turns over.

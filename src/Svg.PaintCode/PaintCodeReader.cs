@@ -22,8 +22,13 @@ internal static class PaintCodeReader
     // A variable whose value comes from an expression rather than from the caller.
     private const int KindDerived = 13;
 
-    // PPColor.operation, for a colour derived from another. Only the alpha one has an equivalent.
+    // PPColor.operation, for a colour derived from another. Read off PaintCode's own generated code,
+    // which writes the chain out: accentColorGray is colorByChangingSaturation(accentColorOn, 0.2),
+    // accentColorGrayShadow is colorByApplyingShadow of that, and accentColorOff an alpha over it.
+    // Those three are the only operations the sample's 29 derived colours use.
+    private const int OperationShadow = 1;
     private const int OperationAlpha = 2;
+    private const int OperationSaturation = 3;
 
     internal static PaintCodeDocument Load(string path)
     {
@@ -164,8 +169,22 @@ internal static class PaintCodeReader
             Metrics(node, kind),
             node["isFillGradientRadial"].FlagOr(false),
             node["fillGradientAngle"].NumberOr(-90),
+            Ends(node),
             (int)node["blendMode"].NumberOr(0));
     }
+
+    // PPShape.fillGradientType, where a gradient laid by dragging its two ends is 2. The angle is
+    // still written beside it and is still the default nobody turned, so reading that instead drew
+    // every one of these top to bottom.
+    private const int GradientBetweenEnds = 2;
+
+    /// <summary>The two handles a dragged gradient was laid by, or null where it was laid by angle.</summary>
+    private static (PaintCodePoint Start, PaintCodePoint End)? Ends(PaintCodeNode node)
+        => (int)node["fillGradientType"].NumberOr(0) == GradientBetweenEnds &&
+           node["fillGradientStartCenter"].Point is { } start &&
+           node["fillGradientEndCenter"].Point is { } end
+            ? (start, end)
+            : null;
 
     private static PaintCodeFrame Frame(PaintCodeNode node)
         => new(
@@ -296,10 +315,20 @@ internal static class PaintCodeReader
         var operation = (int)node["operation"].NumberOr(0);
         var amount = node["operationAmount"].NumberOr(1);
 
-        return operation == OperationAlpha
-            ? new PaintCodeColor(name, parent.Red, parent.Green, parent.Blue, amount, parent.IsApproximate)
-            : new PaintCodeColor(name, parent.Red, parent.Green, parent.Blue, parent.Alpha, true);
+        return operation switch
+        {
+            OperationAlpha => new PaintCodeColor(name, parent.Red, parent.Green, parent.Blue, amount, parent.IsApproximate),
+            OperationShadow => Named(PaintCodeColorOperations.Shadow(parent, amount), name),
+            OperationSaturation => Named(PaintCodeColorOperations.Saturation(parent, amount), name),
+
+            // Anything else keeps the parent's own colour and says so, rather than guessing at a
+            // shade: a colour that is nearly right is the one mistake nobody looks for.
+            _ => new PaintCodeColor(name, parent.Red, parent.Green, parent.Blue, parent.Alpha, true)
+        };
     }
+
+    private static PaintCodeColor Named(PaintCodeColor colour, string name)
+        => new(name, colour.Red, colour.Green, colour.Blue, colour.Alpha, colour.IsApproximate);
 
     // NSComponents holds the colour in its own colour space as ASCII floats. Every drawing colour in
     // the sample document is space 1 (sRGB), where those floats are exactly the bytes PaintCode's own

@@ -249,6 +249,7 @@ public sealed class PaintCodeShape : PaintCodeItem
         PaintCodeShapeMetrics metrics,
         bool isRadialFill = false,
         double fillGradientAngle = -90,
+        (PaintCodePoint Start, PaintCodePoint End)? fillGradientEnds = null,
         int blendMode = 0)
         : base(name, frame, bindings)
     {
@@ -262,6 +263,7 @@ public sealed class PaintCodeShape : PaintCodeItem
         Metrics = metrics;
         IsRadialFill = isRadialFill;
         FillGradientAngle = fillGradientAngle;
+        FillGradientEnds = fillGradientEnds;
         BlendMode = blendMode;
     }
 
@@ -286,7 +288,18 @@ public sealed class PaintCodeShape : PaintCodeItem
     public bool IsRadialFill { get; }
 
     /// <summary>The angle PaintCode lays a linear gradient along, measured in its own y-up space.</summary>
+    /// <remarks>Ignored where <see cref="FillGradientEnds"/> is set: the handles say it exactly.</remarks>
     public double FillGradientAngle { get; }
+
+    /// <summary>
+    /// Where PaintCode's own two gradient handles sit, as offsets from the shape's middle.
+    /// </summary>
+    /// <remarks>
+    /// Null unless the gradient was laid by dragging its ends rather than by turning a dial, which
+    /// is what PaintCode records as type 2 and what it then draws from, leaving the angle at the
+    /// default nobody moved. Measured in its own y-up space, like every other point here.
+    /// </remarks>
+    public (PaintCodePoint Start, PaintCodePoint End)? FillGradientEnds { get; }
 
     /// <summary>PaintCode's own blend mode, where 0 is the ordinary one.</summary>
     public int BlendMode { get; }
