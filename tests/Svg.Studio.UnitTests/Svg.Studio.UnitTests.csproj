@@ -22,6 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="TestAssets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Avalonia.Headless.XUnit" />
     <!-- Named rather than left transitive: making a tab dirty means typing into the pane's editor. -->
   </ItemGroup>

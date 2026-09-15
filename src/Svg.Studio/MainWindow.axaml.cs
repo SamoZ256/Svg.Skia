@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -20,6 +21,7 @@ using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
 using Svg.Expressions.Recipes;
+using Svg.PaintCode;
 using Svg.Skia;
 using Svg.Viewer.Skia.Avalonia;
 
@@ -251,6 +253,14 @@ public partial class MainWindow : Window
                 continue;
             }
 
+            // A dropped document is unambiguous in a way a menu command is not: there is nowhere to
+            // ask where it should go, so it goes beside itself, the way a pasted drawing does.
+            if (IsPaintCode(path))
+            {
+                await ImportPaintCodeAsync(path, Beside(path)).ConfigureAwait(true);
+                continue;
+            }
+
             var viewer = source is { Document: null } ? source : AddTab();
 
             if (await viewer.LoadAsync(path).ConfigureAwait(true))
@@ -307,6 +317,10 @@ public partial class MainWindow : Window
     private static bool IsProject(string path)
         => Path.GetExtension(path).Equals(".svgcproj", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Whether a path names a PaintCode document, which an import reads.</summary>
+    private static bool IsPaintCode(string path)
+        => Path.GetExtension(path).Equals(".pcvd", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Whether a path names a drawing — what the project is a list of.</summary>
     /// <remarks>The two extensions the picker offers when a drawing is being added to one.</remarks>
     private static bool IsDrawing(string path)
@@ -318,16 +332,6 @@ public partial class MainWindow : Window
 
     /// <summary>The open project, for a test to read. Null while none is open.</summary>
     public ProjectWorkspace? Workspace => _workspace;
-
-    /// <summary>
-    /// What a new project holds: nothing, on the two lines a first drawing is written between.
-    /// </summary>
-    /// <remarks>
-    /// No namespace, because the build already defaults one and a guess written into the file would
-    /// have to be found and corrected rather than simply typed. Empty rather than a template with a
-    /// drawing in it: the input would name a file that is not there, and the project would not open.
-    /// </remarks>
-    private const string Skeleton = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<svgc>\n</svgc>\n";
 
     private async void OnNewProject(object? sender, EventArgs e) => await NewProjectAsync();
 
@@ -370,7 +374,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                File.WriteAllText(path, Skeleton);
+                SvgcProjectDocument.Empty(Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty).Save(path);
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
@@ -380,6 +384,132 @@ public partial class MainWindow : Window
         }
 
         await OpenProjectAsync(path).ConfigureAwait(true);
+    }
+
+    private async void OnImportPaintCode(object? sender, EventArgs e) => await ImportPaintCodeAsync();
+
+    /// <summary>Asks for a PaintCode document and somewhere to put it, and imports it there.</summary>
+    private async Task ImportPaintCodeAsync()
+    {
+        if (StorageProvider is not { CanOpen: true })
+        {
+            return;
+        }
+
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import PaintCode",
+            AllowMultiple = false,
+            FileTypeFilter = new[] { StudioFileDialogService.PaintCode }
+        }).ConfigureAwait(true);
+
+        if (files.Count == 0 || files[0].TryGetLocalPath() is not { } source)
+        {
+            return;
+        }
+
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Where the drawings go",
+            AllowMultiple = false
+        }).ConfigureAwait(true);
+
+        if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } directory)
+        {
+            return;
+        }
+
+        await ImportPaintCodeAsync(source, Path.Combine(directory, Path.GetFileNameWithoutExtension(source))).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Converts <paramref name="source"/> into drawings and a project under
+    /// <paramref name="directory"/>, and opens what it wrote.
+    /// </summary>
+    /// <remarks>
+    /// Taking the paths rather than asking for them, so everything but the two pickers can be driven.
+    /// </remarks>
+    public async Task<bool> ImportPaintCodeAsync(string source, string directory)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (directory is null)
+        {
+            throw new ArgumentNullException(nameof(directory));
+        }
+
+        var options = new PaintCodeImportOptions(directory)
+        {
+            ProjectPath = Path.Combine(directory, Path.GetFileNameWithoutExtension(source) + ".svgcproj")
+        };
+
+        PaintCodeImportResult result;
+
+        try
+        {
+            // Off the UI thread: the document this was written for is 16 MB and a thousand drawings.
+            result = await Task.Run(() => PaintCodeImport.Run(source, options)).ConfigureAwait(true);
+        }
+        catch (Exception failure) when (failure is PaintCodeException or IOException or UnauthorizedAccessException)
+        {
+            await Announce("The document couldn't be imported", failure.Message).ConfigureAwait(true);
+
+            return false;
+        }
+
+        await OpenProjectAsync(result.ProjectPath!).ConfigureAwait(true);
+
+        // Only when something could not be carried across. The project opening on what was written
+        // is the rest of the answer, and a dialog saying so would be one click for nothing.
+        if (result.Notes.Count > 0)
+        {
+            await Announce("Imported", Said(result)).ConfigureAwait(true);
+        }
+
+        return true;
+    }
+
+    private static string Said(PaintCodeImportResult result)
+    {
+        var wrote = $"{result.Files.Count} drawing{(result.Files.Count == 1 ? string.Empty : "s")}.";
+        var missing = result.Notes.Where(note => note.Severity is PaintCodeImportSeverity.Missing).ToList();
+        var rest = result.Notes.Where(note => note.Severity is not PaintCodeImportSeverity.Missing).ToList();
+        var lines = new List<string> { $"{wrote} {result.Notes.Count} could not be carried across:" };
+
+        // First, and never trimmed away: this is the document asking for a canvas it does not have,
+        // which is the one thing in here to take back to PaintCode rather than to this converter.
+        if (missing.Count > 0)
+        {
+            lines.Add($"{missing.Count} the document itself is missing:");
+            lines.AddRange(missing.Select(note => "  " + note));
+        }
+
+        lines.AddRange(rest.Take(Listed).Select(note => note.ToString()));
+
+        if (rest.Count > Listed)
+        {
+            lines.Add($"and {rest.Count - Listed} more.");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    /// <summary>Where an import writes when nobody was asked: a folder beside the document.</summary>
+    private static string Beside(string source)
+    {
+        var directory = Path.GetDirectoryName(Path.GetFullPath(source)) ?? ".";
+        var name = Path.GetFileNameWithoutExtension(source);
+        var candidate = Path.Combine(directory, name);
+
+        for (var index = 2; Directory.Exists(candidate); index++)
+        {
+            candidate = Path.Combine(directory, name + "-" + index.ToString(CultureInfo.InvariantCulture));
+        }
+
+        return candidate;
     }
 
     /// <summary>
@@ -582,6 +712,10 @@ public partial class MainWindow : Window
             // And nothing is left held from a project that is no longer open, which would otherwise
             // be pasted into the next one as a row of a document it does not belong to.
             _held = null;
+
+            // Nor anything open in it, which would otherwise hold the closed document's nodes alive
+            // for as long as the window is.
+            _expanded.Clear();
         }
     }
 
@@ -599,17 +733,50 @@ public partial class MainWindow : Window
 
         _projectTree.Items.Clear();
         _projectTree.Items.Add(Branch(workspace.Document.Root, selected));
+
+        // A row that was just added, pasted or moved can land inside a group the reader left folded,
+        // and a selection nobody can see is no selection at all. Only when this rebuild is about that
+        // row: rebuilding for anything else must not reopen what was deliberately folded.
+        if (select is { })
+        {
+            Reveal(select);
+        }
     }
 
-    /// <summary>One node and everything under it, expanded, since a project is a handful of rows.</summary>
+    /// <summary>One node and everything under it, folded unless the reader opened it.</summary>
+    /// <remarks>
+    /// Folded rather than open: a project is usually a handful of rows, but it does not have to be
+    /// — an imported PaintCode document is ten groups holding 1014 drawings, and opening all of it
+    /// buried the ten rows anybody would start from. The root is the exception, because folding the
+    /// only row that is always there would leave the pane showing one word.
+    /// </remarks>
     private TreeViewItem Branch(SvgcProjectNode node, object? selected)
     {
         var item = new TreeViewItem
         {
             Header = ProjectWorkspace.Label(node),
             Tag = node,
-            IsExpanded = true,
+            IsExpanded = node is SvgcProjectRoot || _expanded.Contains(node),
             IsSelected = ReferenceEquals(node, selected)
+        };
+
+        // PropertyChanged rather than the Expanded and Collapsed events, which bubble: a nested row
+        // opening raises them on every group above it too, and each would record itself as opened.
+        item.PropertyChanged += (_, changed) =>
+        {
+            if (changed.Property != TreeViewItem.IsExpandedProperty)
+            {
+                return;
+            }
+
+            if (item.IsExpanded)
+            {
+                _expanded.Add(node);
+            }
+            else
+            {
+                _expanded.Remove(node);
+            }
         };
 
         // Tapped, not DoubleTapped: TreeViewItem takes a double tap on its header to fold the node
@@ -1038,6 +1205,15 @@ public partial class MainWindow : Window
 
     /// <summary>Whether the press that is finishing was a drag, so the tap it raises opens nothing.</summary>
     private bool _rowDragged;
+
+    /// <summary>The groups the reader has opened, so a rebuild puts them back as they were.</summary>
+    /// <remarks>
+    /// The rows are built afresh after every edit, and the tree opens folded — so without this,
+    /// adding a drawing would shut every group the reader had just opened to find the place to add
+    /// it. Held by node rather than by name because two groups can be called the same thing, and the
+    /// document's nodes are the same objects across a rebuild: only the rows are new.
+    /// </remarks>
+    private readonly HashSet<SvgcProjectNode> _expanded = new();
 
     /// <summary>The row waiting to be pasted, and whether taking it was a cut rather than a copy.</summary>
     /// <remarks>
@@ -2124,6 +2300,12 @@ public partial class MainWindow : Window
 
         var row = path[path.Count - 1];
 
+        // The rows above were only just opened, and a TreeViewItem inside a group that has never
+        // been open has no container in the tree yet — so selecting it would be selecting something
+        // the TreeView cannot see, and the selection would come back null. Laying out first is what
+        // gives the row a container to select.
+        _projectTree.UpdateLayout();
+
         _projectTree.SelectedItem = row;
 
         // Opened is not the same as in sight: a long project scrolls.
@@ -3111,8 +3293,17 @@ public partial class MainWindow : Window
         /// </remarks>
         private static readonly FilePickerFileType OpenableFileType = new("Drawings and projects")
         {
-            Patterns = new[] { "*.svg", "*.svgz", "*.svgcproj" },
+            Patterns = new[] { "*.svg", "*.svgz", "*.svgcproj", "*.pcvd" },
             MimeTypes = new[] { "image/svg+xml", "application/gzip", "application/xml" }
+        };
+
+        /// <remarks>
+        /// No Apple type identifier, for the reason the projects below carry none: the machine reads
+        /// a <c>.pcvd</c> as whatever claimed the extension, and it conforms to nothing.
+        /// </remarks>
+        internal static readonly FilePickerFileType PaintCode = new("PaintCode Documents")
+        {
+            Patterns = new[] { "*.pcvd" }
         };
 
         /// <remarks>

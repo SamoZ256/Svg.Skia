@@ -41,7 +41,8 @@ public enum ExprFunction
     WithAlpha,
     Upper,
     Lower,
-    Len
+    Len,
+    Str
 }
 
 /// <summary>What a function takes and returns. No spelling in any target language.</summary>
@@ -115,7 +116,11 @@ public static class ExprFunctions
         ["lower"] = new(ExprFunction.Lower, S, S),
 
         // Returns a number, so a string can reach the arithmetic rather than being an island.
-        ["len"] = new(ExprFunction.Len, N, S)
+        ["len"] = new(ExprFunction.Len, N, S),
+
+        // The other direction, and the only one: + never converts, so this is how a number reaches
+        // the text of a <text> element.
+        ["str"] = new(ExprFunction.Str, S, N)
     };
 
     /// <summary>Function names as authored. Diagnostics list these, not the enum.</summary>

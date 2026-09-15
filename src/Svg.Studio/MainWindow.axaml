@@ -176,6 +176,11 @@
                 <NativeMenu />
               </NativeMenuItem.Menu>
             </NativeMenuItem>
+            <!--
+              Not on Open: opening a file puts one drawing in a tab, and this writes a folder of
+              them, so it needs somewhere to put them as well as something to read.
+            -->
+            <NativeMenuItem Header="Import PaintCode…" Click="OnImportPaintCode" />
             <NativeMenuItemSeparator />
             <!--
               The command was a keystroke and nothing else: Ctrl+S worked and no part of the window

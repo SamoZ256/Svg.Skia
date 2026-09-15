@@ -1,0 +1,308 @@
+// Copyright (c) Wiesław Šoltés. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
+using System.Globalization;
+using System.Text;
+
+namespace Svg.PaintCode;
+
+/// <summary>
+/// Turns a shape into SVG path data, in the shape's own space: the y-flip is applied here, and the
+/// anchor is not, because the element carries it as a <c>translate</c>.
+/// </summary>
+/// <remarks>
+/// Everything PaintCode stores is y-up, so a point at <c>(x, y)</c> is written at <c>(x, -y)</c>.
+/// Verified point by point, control points included, against the C# PaintCode itself generates.
+/// </remarks>
+internal static class PaintCodePathData
+{
+    internal static string? For(PaintCodeShape shape)
+        => shape.Kind switch
+        {
+            PaintCodeShapeKind.Bezier => Bezier(shape),
+            PaintCodeShapeKind.Rectangle or PaintCodeShapeKind.RoundedRectangle => Rectangle(shape),
+            PaintCodeShapeKind.Oval => Oval(shape),
+            PaintCodeShapeKind.Star => Star(shape),
+            PaintCodeShapeKind.Polygon => Polygon(shape),
+            _ => null
+        };
+
+    /// <summary>The shape's box in SVG coordinates, relative to the shape's own origin.</summary>
+    internal static PaintCodeRect Box(PaintCodeShape shape)
+    {
+        var frame = shape.Frame;
+
+        return new PaintCodeRect(frame.X, -(frame.Y + frame.Height), frame.Width, frame.Height);
+    }
+
+    /// <summary>Whether the shape is a plain rectangle, which SVG has an element for.</summary>
+    internal static bool IsPlainRectangle(PaintCodeShape shape)
+    {
+        var metrics = shape.Metrics;
+
+        return shape.Kind is PaintCodeShapeKind.Rectangle or PaintCodeShapeKind.RoundedRectangle &&
+               (metrics.CornerRadius <= 0 ||
+                (metrics.TopLeftRounded && metrics.TopRightRounded && metrics.BottomLeftRounded && metrics.BottomRightRounded));
+    }
+
+    /// <summary>
+    /// Whether the shape is a whole ellipse rather than an arc of one.
+    /// </summary>
+    /// <remarks>
+    /// A whole one is written with no sweep at all rather than with a full turn: 670 of the sample's
+    /// 718 ovals are start 0, end 0, and reading that as an arc draws nothing.
+    /// </remarks>
+    internal static bool IsWholeEllipse(PaintCodeShape shape)
+        => shape.Kind is PaintCodeShapeKind.Oval &&
+           (shape.Metrics.StartAngle == shape.Metrics.EndAngle || Turn(shape.Metrics) >= 360);
+
+    /// <summary>
+    /// How far round the arc goes, the way PaintCode works it out.
+    /// </summary>
+    /// <remarks>
+    /// Its own generated code writes the sweep as
+    /// <c>(start - end) + (end > start ? 360 * ceil((end - start) / 360) : 0)</c>, so an end past the
+    /// start is brought round by as many whole turns as it takes rather than by exactly one. Adding
+    /// a single turn is right for every sweep inside one and wrong beyond it: powerButton-state is
+    /// start -290 end 110, which is -400, and one turn leaves -40 where PaintCode has 320. Reading
+    /// the size of it instead -- anything past a turn is whole -- drew that one as a closed ring
+    /// with the gap at the top filled in, and large-switch with it.
+    /// </remarks>
+    private static double Turn(PaintCodeShapeMetrics metrics)
+    {
+        var sweep = metrics.StartAngle - metrics.EndAngle;
+
+        return metrics.EndAngle > metrics.StartAngle
+            ? sweep + (360 * Math.Ceiling((metrics.EndAngle - metrics.StartAngle) / 360))
+            : sweep;
+    }
+
+    private static string? Bezier(PaintCodeShape shape)
+    {
+        if (shape.Path is not { } path)
+        {
+            return null;
+        }
+
+        var data = new StringBuilder();
+
+        foreach (var contour in path.Contours)
+        {
+            if (contour.Points.Count == 0)
+            {
+                continue;
+            }
+
+            var points = contour.Points;
+            data.Append('M').Append(Pair(Flip(points[0].Position)));
+
+            for (var index = 1; index < points.Count; index++)
+            {
+                Segment(data, points[index - 1], points[index]);
+            }
+
+            // A closed contour still needs its last segment drawn where that segment curves; where it
+            // is straight, Z is the line back and writing one as well would draw it twice.
+            if (contour.IsClosed)
+            {
+                var last = points[points.Count - 1];
+
+                if (!IsZero(last.Exiting) || !IsZero(points[0].Entering))
+                {
+                    Segment(data, last, points[0]);
+                }
+
+                data.Append('Z');
+            }
+        }
+
+        return data.Length == 0 ? null : data.ToString();
+    }
+
+    // A control point is stored as an offset from the point it belongs to. Where both offsets are
+    // zero the segment is a straight line, which SVG says in a third of the characters.
+    private static void Segment(StringBuilder data, PaintCodePathPoint from, PaintCodePathPoint to)
+    {
+        if (IsZero(from.Exiting) && IsZero(to.Entering))
+        {
+            data.Append('L').Append(Pair(Flip(to.Position)));
+
+            return;
+        }
+
+        data.Append('C')
+            .Append(Pair(Flip(Add(from.Position, from.Exiting)))).Append(' ')
+            .Append(Pair(Flip(Add(to.Position, to.Entering)))).Append(' ')
+            .Append(Pair(Flip(to.Position)));
+    }
+
+    private static string Rectangle(PaintCodeShape shape)
+    {
+        var box = Box(shape);
+        var metrics = shape.Metrics;
+        var radius = Math.Max(0, Math.Min(metrics.CornerRadius, Math.Min(box.Width, box.Height) / 2));
+        var left = box.X;
+        var top = box.Y;
+        var right = box.X + box.Width;
+        var bottom = box.Y + box.Height;
+
+        // The flip turns PaintCode's box upside down, and its corner flags with it: what it calls the
+        // top corners are the ones at the larger y, which after the flip are this box's top corners.
+        var topLeft = metrics.TopLeftRounded ? radius : 0;
+        var topRight = metrics.TopRightRounded ? radius : 0;
+        var bottomRight = metrics.BottomRightRounded ? radius : 0;
+        var bottomLeft = metrics.BottomLeftRounded ? radius : 0;
+        var data = new StringBuilder();
+
+        data.Append('M').Append(Pair(new PaintCodePoint(left + topLeft, top)));
+        Side(data, right - topRight, top, topRight, right, top + topRight);
+        Side(data, right, bottom - bottomRight, bottomRight, right - bottomRight, bottom);
+        Side(data, left + bottomLeft, bottom, bottomLeft, left, bottom - bottomLeft);
+        Side(data, left, top + topLeft, topLeft, left + topLeft, top);
+
+        return data.Append('Z').ToString();
+    }
+
+    private static void Side(StringBuilder data, double x, double y, double radius, double cornerX, double cornerY)
+    {
+        data.Append('L').Append(Pair(new PaintCodePoint(x, y)));
+
+        if (radius > 0)
+        {
+            data.Append('A').Append(Number(radius)).Append(' ').Append(Number(radius))
+                .Append(" 0 0 1 ").Append(Pair(new PaintCodePoint(cornerX, cornerY)));
+        }
+    }
+
+    // PaintCode measures an oval's sweep anticlockwise from the positive x axis in its own y-up
+    // space, so in SVG's y-down space the same arc runs from -start to -end, turning clockwise.
+    private static string Oval(PaintCodeShape shape)
+    {
+        var box = Box(shape);
+        var metrics = shape.Metrics;
+        var radiusX = box.Width / 2;
+        var radiusY = box.Height / 2;
+        var centerX = box.X + radiusX;
+        var centerY = box.Y + radiusY;
+        var turn = Turn(metrics);
+
+        if (radiusX <= 0 || radiusY <= 0)
+        {
+            return string.Empty;
+        }
+
+        if (metrics.StartAngle == metrics.EndAngle || turn >= 360)
+        {
+            return Ellipse(centerX, centerY, radiusX, radiusY);
+        }
+
+        // A sweep that comes round to nothing draws nothing, which is not the same as drawing the
+        // whole of it: thermostat-temperature-level asks for start -450 end 270, and PaintCode's own
+        // sum brings that to nought.
+        if (turn <= 0)
+        {
+            return string.Empty;
+        }
+
+        // PaintCode turns one way and never takes the short route, so the sweep is always positive
+        // and always clockwise once the drawing is turned over. Reading the sign of start - end as
+        // the direction instead drew the complement of every arc that ran more than half a turn --
+        // the same two ends, the other way round, and 36 of the sample's canvases wrong by it.
+        var start = OnEllipse(centerX, centerY, radiusX, radiusY, -metrics.StartAngle);
+        var end = OnEllipse(centerX, centerY, radiusX, radiusY, -metrics.EndAngle);
+        var data = new StringBuilder();
+
+        data.Append('M').Append(Pair(start))
+            .Append('A').Append(Number(radiusX)).Append(' ').Append(Number(radiusY)).Append(" 0 ")
+            .Append(turn > 180 ? '1' : '0').Append(" 1 ")
+            .Append(Pair(end));
+
+        // Through the middle, not straight back: PaintCode closes an arc with LineTo(MidX, MidY),
+        // which is a wedge rather than the segment a bare Z cuts off. The two enclose the same area
+        // at exactly half a turn, where the chord is a diameter, and nowhere else.
+        if (metrics.IsClosed)
+        {
+            data.Append('L').Append(Pair(new PaintCodePoint(centerX, centerY))).Append('Z');
+        }
+
+        return data.ToString();
+    }
+
+    // Two arcs, because one of 360 degrees starts and ends at the same point and draws nothing.
+    private static string Ellipse(double centerX, double centerY, double radiusX, double radiusY)
+        => new StringBuilder()
+            .Append('M').Append(Pair(new PaintCodePoint(centerX - radiusX, centerY)))
+            .Append('A').Append(Number(radiusX)).Append(' ').Append(Number(radiusY)).Append(" 0 1 0 ")
+            .Append(Pair(new PaintCodePoint(centerX + radiusX, centerY)))
+            .Append('A').Append(Number(radiusX)).Append(' ').Append(Number(radiusY)).Append(" 0 1 0 ")
+            .Append(Pair(new PaintCodePoint(centerX - radiusX, centerY)))
+            .Append('Z')
+            .ToString();
+
+    private static string Star(PaintCodeShape shape)
+    {
+        var box = Box(shape);
+        var metrics = shape.Metrics;
+        var points = Math.Max(3, metrics.Sides);
+        var data = new StringBuilder();
+
+        for (var index = 0; index < points * 2; index++)
+        {
+            // A percentage, not a fraction: the sample's stars carry 37 to 52, and reading one as a
+            // multiplier puts the inner vertices forty times beyond the tips.
+            var scale = index % 2 == 0 ? 1d : Math.Max(0, metrics.InnerRadiusPercentage / 100);
+
+            data.Append(index == 0 ? 'M' : 'L').Append(Pair(OnEllipse(
+                box.X + box.Width / 2,
+                box.Y + box.Height / 2,
+                box.Width / 2 * scale,
+                box.Height / 2 * scale,
+                -90 + index * 180d / points)));
+        }
+
+        return data.Append('Z').ToString();
+    }
+
+    private static string Polygon(PaintCodeShape shape)
+    {
+        var box = Box(shape);
+        var sides = Math.Max(3, shape.Metrics.Sides);
+        var data = new StringBuilder();
+
+        for (var index = 0; index < sides; index++)
+        {
+            data.Append(index == 0 ? 'M' : 'L').Append(Pair(OnEllipse(
+                box.X + box.Width / 2,
+                box.Y + box.Height / 2,
+                box.Width / 2,
+                box.Height / 2,
+                -90 + index * 360d / sides)));
+        }
+
+        return data.Append('Z').ToString();
+    }
+
+    private static PaintCodePoint OnEllipse(double centerX, double centerY, double radiusX, double radiusY, double degrees)
+    {
+        var radians = degrees * Math.PI / 180;
+
+        return new PaintCodePoint(centerX + radiusX * Math.Cos(radians), centerY + radiusY * Math.Sin(radians));
+    }
+
+    private static PaintCodePoint Flip(PaintCodePoint point) => new(point.X, -point.Y);
+
+    private static PaintCodePoint Add(PaintCodePoint point, PaintCodePoint offset)
+        => new(point.X + offset.X, point.Y + offset.Y);
+
+    private static bool IsZero(PaintCodePoint point) => point.X == 0 && point.Y == 0;
+
+    private static string Pair(PaintCodePoint point) => Number(point.X) + "," + Number(point.Y);
+
+    internal static string Number(double value)
+    {
+        var rounded = Math.Round(value, 4, MidpointRounding.AwayFromZero);
+
+        // Negative zero prints as "-0", a needless difference between two identical drawings.
+        return (rounded == 0 ? 0 : rounded).ToString("0.####", CultureInfo.InvariantCulture);
+    }
+}

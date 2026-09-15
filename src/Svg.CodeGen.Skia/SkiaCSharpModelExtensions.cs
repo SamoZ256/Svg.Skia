@@ -1502,7 +1502,11 @@ public static class SkiaCSharpModelExtensions
             sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.IsAntialias = {paint.IsAntialias.ToBoolString()};");
         }
 
-        if (paint.StrokeWidth != 0f)
+        if (paint.StrokeWidthExpression is { } strokeWidth)
+        {
+            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeWidth = {SymCSharpEmitter.Emit(strokeWidth, ExprType.Number)};");
+        }
+        else if (paint.StrokeWidth != 0f)
         {
             sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeWidth = {paint.StrokeWidth.ToFloatString()};");
         }

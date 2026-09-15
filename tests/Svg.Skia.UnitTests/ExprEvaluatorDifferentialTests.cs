@@ -322,6 +322,12 @@ public class ExprEvaluatorDifferentialTests
         AssertSameValue("lower(theme)", Text("theme", "STRASSE"));
         AssertSameValue("len(theme) * 2", Text("theme", "home"));
 
+        // A whole number has to read as one on both sides, with no point and no trailing zero.
+        AssertSameValue("str(t)", Number("t", 100f));
+        AssertSameValue("str(t)", Number("t", 7.5f));
+        AssertSameValue("str(t)", Number("t", -30f));
+        AssertSameValue("'step ' + str(t)", Number("t", 3f));
+
         // A case fold that differs by culture, which is why both back ends spell it invariant.
         AssertSameValue("upper(theme)", Text("theme", "istanbul"));
         AssertSameValue("lower(theme)", Text("theme", "ISTANBUL"));

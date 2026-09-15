@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" xmlns:e="https://svg.skia/expr/1.0">
+  <defs>
+    <e:code>
+      <e:param name="whiteColor_" type="color" default="#ffffffff" />
+      <e:param name="blackColor_" type="color" default="#1f2123ff" />
+    </e:code>
+  </defs>
+  <g id="clipboard-23-pdf-group" transform="translate(1.3209,0.5326)">
+    <rect id="rectangle" x="0" y="0" width="27.55" height="29.2" fill="{{ whiteColor_ }}" opacity="0.1" display="none" />
+    <path id="bezier" d="M24.2506,0L0,0L0,22.9319Z" fill-rule="evenodd" fill="#4bcad5" transform="translate(1.0394,5.5581)" />
+    <path id="bezier-2" d="M12.2898,0L0,0L0,11.6214Z" fill-rule="evenodd" fill="{{ blackColor_ }}" transform="translate(1.0394,5.5581)" />
+    <path id="bezier-3" d="M1.6593,3.785L2.6022,0L0.9427,0L0,3.785Z" fill-rule="evenodd" fill="#1496d9" transform="translate(11.0324,0.911)" />
+    <path id="bezier-4" d="M1.6592,3.785L2.6021,0L0.9427,0L0,3.785Z" fill-rule="evenodd" fill="#1496d9" transform="translate(18.5552,0.911)" />
+    <path id="bezier-5" d="M2.7801,0L0.943,0L0,3.785L1.1586,3.785L1.7029,1.5865L2.4456,3.785L4.2714,3.785L5.2143,0L4.0464,0L3.5024,2.186Z" fill-rule="evenodd" fill="#1496d9" transform="translate(21.0255,0.911)" />
+    <path id="bezier-6" d="M5.3494,0L3.6219,0L2.2373,1.2155L2.5402,0L0.9425,0L0,3.785L1.5972,3.785L1.907,2.5413L2.7366,3.785L4.6746,3.785L3.263,1.83Z" fill-rule="evenodd" fill="#1496d9" transform="translate(13.4472,0.911)" />
+    <path id="bezier-7" d="M5.1328,1.6051C5.1328,3.2477 3.6531,3.785 3.0464,3.785L0,3.785L0.9428,0L3.1206,0C4.6189,0 5.1328,0.7806 5.1328,1.6051ZM2.3962,2.948C3.1641,2.948 3.5046,2.2485 3.5046,1.5865C3.5046,0.9243 2.9286,0.9181 2.7369,0.9181C2.545,0.9181 2.2833,0.9318 2.2833,0.9318L1.7855,2.9297C1.7855,2.9297 2.1426,2.948 2.3962,2.948Z" fill-rule="evenodd" fill="#1496d9" transform="translate(1.0394,0.911)" />
+    <path id="bezier-8" d="M2.1598,0L0,3.785L1.1309,3.785L1.4598,3.1936L2.9823,3.1936L3.0858,3.785L4.6878,3.785L4.0286,0ZM2.0017,2.2192L2.6183,1.111L2.812,2.2192Z" fill-rule="evenodd" fill="#1496d9" transform="translate(5.825,0.911)" />
+  </g>
+</svg>

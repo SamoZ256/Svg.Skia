@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="6" height="6" viewBox="0 0 6 6" xmlns:e="https://svg.skia/expr/1.0">
+  <defs>
+    <radialGradient id="gradientshine" gradientUnits="userSpaceOnUse" cx="2.9083" cy="3.028" r="2.9419" fx="1.6782" fy="1.6598" fr="0.4187">
+      <stop offset="0.0073" stop-color="{{ ((enabled and state) ? accent ? #ffee3eff : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30) }}" />
+      <stop offset="0.5037" stop-color="{{ ((enabled and state) ? accent ? #ffe23dff : isLight ? #ffffffff : #1f2123d9 : isLight ? #ffffff4d : #1f212333) }}" />
+      <stop offset="1" stop-color="{{ ((enabled and state) ? accent ? #ffd73cff : isLight ? whiteColor_ : blackColor70 : isLight ? whiteColor30 : blackColor10) }}" />
+    </radialGradient>
+    <e:code>
+      <e:param name="enabled" type="boolean" default="true" />
+      <e:param name="state" type="boolean" default="true" />
+      <e:param name="accent" type="boolean" default="true" />
+      <e:param name="isLight" type="boolean" default="false" />
+      <e:param name="whiteColor_" type="color" default="#ffffffff" />
+      <e:param name="blackColor_" type="color" default="#1f2123ff" />
+      <e:let name="whiteColor30">withAlpha(whiteColor_, 0.3)</e:let>
+      <e:let name="blackColor30">withAlpha(blackColor_, 0.3)</e:let>
+      <e:let name="blackColor70">withAlpha(blackColor_, 0.7)</e:let>
+      <e:let name="blackColor10">withAlpha(blackColor_, 0.1)</e:let>
+    </e:code>
+  </defs>
+  <ellipse id="oval-13" cx="3" cy="3" rx="3" ry="3" fill="url(#gradientshine)" transform="translate(0,-0.0154)" />
+</svg>

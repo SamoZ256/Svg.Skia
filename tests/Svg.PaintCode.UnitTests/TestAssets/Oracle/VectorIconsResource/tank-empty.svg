@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" xmlns:e="https://svg.skia/expr/1.0">
+  <defs>
+    <clipPath id="rectangle-2-clip">
+      <path d="M0,0L12,0L12,20L0,20L0,0Z" />
+    </clipPath>
+    <g id="sym-tank-level">
+      <rect id="rectangle" x="0" y="0" width="14" height="22" fill="none" stroke="{{ stateBlackColor }}" stroke-width="0.6" stroke-miterlimit="10" transform="translate(7.9568,3.9927)" />
+      <g id="group" clip-path="url(#rectangle-2-clip)" transform="translate(9,5.0189)">
+        <g id="group-3" transform="translate(-4,{{ (-0.05 * 20 + 18.3) + 1.7362 }})">
+          <rect id="rectangle-3" x="0" y="0" width="20" height="20" fill="{{ stateAccentColor }}" transform="translate(0,0)" />
+          <ellipse id="oval" cx="1.4063" cy="1.4063" rx="1.4063" ry="1.4063" fill="#ffffff" fill-opacity="0.3" transform="translate(10.0909,4.0622) rotate(-90)" />
+          <ellipse id="oval-2" cx="1.2266" cy="1.2266" rx="1.2266" ry="1.2266" fill="#ffffff" fill-opacity="0.3" transform="translate(12.2226,8.2481) rotate(-90)" />
+          <ellipse id="oval-4" cx="0.7171" cy="0.7171" rx="0.7171" ry="0.7171" fill="#ffffff" fill-opacity="0.3" transform="translate(10.3139,6.2017) rotate(-90)" />
+          <ellipse id="oval-5" cx="0.9979" cy="0.9979" rx="0.9979" ry="0.9979" fill="#ffffff" fill-opacity="0.3" transform="translate(13.484,5.0975) rotate(-90)" />
+          <ellipse id="oval-6" cx="0.5776" cy="0.5776" rx="0.5776" ry="0.5776" fill="#ffffff" fill-opacity="0.3" transform="translate(13.9981,9.9865) rotate(-90)" />
+        </g>
+      </g>
+      <rect id="rectangle-4" x="0" y="0" width="12.0399" height="1" fill="{{ stateBlackColor }}" transform="translate(9.0067,2.7186)" />
+      <rect id="full" x="0" y="0" width="12" height="1" fill="{{ statePurpleColor }}" display="{{ (0.05 == 1) }}" transform="translate(9,5)" />
+      <path id="bezier-2" d="M0,0.001C0,0.001 1.9665,0.001 1.9665,0.001" fill="none" stroke="{{ stateBlackColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(7.8472,5.2511)" />
+      <path id="bezier-3" d="M0,0.001C0,0.001 1.9665,0.001 1.9665,0.001" fill="none" stroke="{{ stateBlackColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(7.8472,7.2511)" />
+      <path id="bezier-4" d="M0,0.001C0,0.001 1.9665,0.001 1.9665,0.001" fill="none" stroke="{{ stateBlackColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(7.8472,9.2511)" />
+      <path id="bezier-5" d="M0,0.001C0,0.001 1.9665,0.001 1.9665,0.001" fill="none" stroke="{{ stateBlackColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(7.8472,11.2511)" />
+      <path id="bezier-6" d="M0,0.001C0,0.001 1.9665,0.001 1.9665,0.001" fill="none" stroke="{{ stateBlackColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(7.8472,13.2511)" />
+      <path id="bezier-8" d="M0,0.001C0,0.001 1.9665,0.001 1.9665,0.001" fill="none" stroke="{{ stateBlackColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(7.8472,15.2511)" />
+      <path id="bezier-9" d="M0,0.001C0,0.001 1.9665,0.001 1.9665,0.001" fill="none" stroke="{{ stateBlackColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(7.8472,17.2511)" />
+      <path id="bezier-10" d="M0,0.001C0,0.001 1.9665,0.001 1.9665,0.001" fill="none" stroke="{{ stateBlackColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(7.8472,19.2511)" />
+      <path id="bezier-11" d="M0,0.001C0,0.001 1.9665,0.001 1.9665,0.001" fill="none" stroke="{{ stateBlackColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(7.8472,21.2511)" />
+      <path id="bezier-12" d="M0,0.001C0,0.001 1.9665,0.001 1.9665,0.001" fill="none" stroke="{{ stateBlackColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(7.8472,23.2511)" />
+    </g>
+    <clipPath id="sym-tank-level-clip">
+      <rect width="30" height="30" />
+    </clipPath>
+    <e:code>
+      <e:param name="enabled" type="boolean" default="true" />
+      <e:param name="state" type="boolean" default="true" />
+      <e:param name="isLight" type="boolean" default="false" />
+      <e:param name="whiteColor_" type="color" default="#ffffffff" />
+      <e:param name="blackColor_" type="color" default="#1f2123ff" />
+      <e:param name="accent" type="boolean" default="true" />
+      <e:param name="accentColorOn" type="color" default="#fb3e72ff" />
+      <e:param name="colorPurple" type="color" default="#fc2f67ff" />
+      <e:let name="whiteColor30">withAlpha(whiteColor_, 0.3)</e:let>
+      <e:let name="blackColor30">withAlpha(blackColor_, 0.3)</e:let>
+      <e:let name="stateBlackColor">(enabled and state) ? isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30</e:let>
+      <e:let name="stateAccentColor">(enabled and state) ? accent ? accentColorOn : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30</e:let>
+      <e:let name="whiteColor70">withAlpha(whiteColor_, 0.7)</e:let>
+      <e:let name="blackColor70">withAlpha(blackColor_, 0.7)</e:let>
+      <e:let name="statePurpleColor">(enabled and state) ? accent ? colorPurple : isLight ? whiteColor70 : blackColor70 : isLight ? whiteColor30 : blackColor30</e:let>
+    </e:code>
+  </defs>
+  <use href="#sym-tank-level" clip-path="url(#sym-tank-level-clip)" />
+</svg>

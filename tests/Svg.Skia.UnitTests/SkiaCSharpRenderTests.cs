@@ -642,6 +642,44 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void A_Stroke_Width_Expression_Value_Reaches_The_Paint()
+        => AssertExpressionsRenderTheSame(
+            "ExprStrokeWidth",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="weight" type="number" default="1" /></e:code></defs>
+              <circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="{{ weight }}" />
+            </svg>
+            """,
+            new object?[] { 4f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="4" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Stroke_Width_Expression_Is_Inherited_The_Way_A_Written_One_Is()
+        => AssertExpressionsRenderTheSame(
+            "ExprStrokeWidthInherited",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="weight" type="number" default="1" /></e:code></defs>
+              <g stroke="#b45309" fill="none" stroke-width="{{ weight * 2 }}">
+                <circle cx="12" cy="12" r="8" />
+              </g>
+            </svg>
+            """,
+            new object?[] { 1.5f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g stroke="#b45309" fill="none" stroke-width="3">
+                <circle cx="12" cy="12" r="8" />
+              </g>
+            </svg>
+            """);
+
+    [Fact]
     public void A_False_Visibility_Expression_Draws_Nothing()
         // The conditional becomes `if (shown)`, so the subtree has to disappear from the drawing
         // rather than merely be painted differently.

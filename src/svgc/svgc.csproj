@@ -31,6 +31,7 @@
     <ProjectReference Include="..\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" />
     <ProjectReference Include="..\Svg.CodeGen.Skia.Projects\Svg.CodeGen.Skia.Projects.csproj" />
     <ProjectReference Include="..\Svg.Expressions.Recipes\Svg.Expressions.Recipes.csproj" />
+    <ProjectReference Include="..\Svg.PaintCode\Svg.PaintCode.csproj" />
     <ProjectReference Include="..\Svg.Model\Svg.Model.csproj" />
     <ProjectReference Include="..\Svg.SceneGraph\Svg.SceneGraph.csproj" />
   </ItemGroup>

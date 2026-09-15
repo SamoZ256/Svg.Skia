@@ -8,6 +8,7 @@ using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
 using Svg.Expressions.Recipes;
+using Svg.PaintCode;
 using Svg.Skia;
 
 namespace svgc;
@@ -60,6 +61,48 @@ class Program
 
 
 
+    /// <summary>Converts a PaintCode document beside itself, and names the project it wrote.</summary>
+    static string Import(string path, string? namespaceName)
+    {
+        var directory = System.IO.Path.Combine(
+            System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path)) ?? ".",
+            System.IO.Path.GetFileNameWithoutExtension(path));
+
+        var options = new PaintCodeImportOptions(directory)
+        {
+            ProjectPath = System.IO.Path.Combine(directory, System.IO.Path.GetFileNameWithoutExtension(path) + ".svgcproj"),
+            Namespace = namespaceName
+        };
+
+        var result = PaintCodeImport.Run(path, options);
+        Log($"Imported: {result.Files.Count} drawings into {options.ProjectPath}");
+
+        // What the document itself is missing comes first and is never capped away: it is the only
+        // thing here the converter cannot ever fix, and it is short.
+        foreach (var note in result.Notes.Where(note => note.Severity is PaintCodeImportSeverity.Missing))
+        {
+            Log($"missing: {note}");
+        }
+
+        // The rest is capped the way a compiler caps its diagnostics: a document of any size can
+        // produce thousands of these, and a wall of them buries the build output that follows.
+        const int shown = 20;
+
+        var rest = result.Notes.Where(note => note.Severity is not PaintCodeImportSeverity.Missing).ToList();
+
+        foreach (var note in rest.Take(shown))
+        {
+            Log($"note: {note}");
+        }
+
+        if (rest.Count > shown)
+        {
+            Log($"note: and {rest.Count - shown} more.");
+        }
+
+        return options.ProjectPath!;
+    }
+
     static async Task<int> Main(string[] args)
     {
         var rootCommand = new RootCommand
@@ -87,6 +130,12 @@ class Program
             Argument = new Argument<System.IO.FileInfo?>(getDefaultValue: () => null)
         };
         rootCommand.AddOption(optionProjectFile);
+
+        var optionPaintCode = new Option(new[] { "--paintcode" }, "The relative or absolute path to a PaintCode document to import, into a folder and project beside it")
+        {
+            Argument = new Argument<System.IO.FileInfo?>(getDefaultValue: () => null)
+        };
+        rootCommand.AddOption(optionPaintCode);
 
         var optionRecipeFile = new Option(new[] { "--recipeFile", "-r" }, "The relative or absolute path to a recipe applied to the input before generating")
         {
@@ -179,8 +228,14 @@ class Program
         {
             try
             {
-                var project = settings.ProjectFile is { } projectFile
-                    ? SvgcProject.Load(projectFile.FullName)
+                // An import is a build of the project it just wrote, so the flag names the source and
+                // everything else on the command line goes on meaning what it already meant.
+                var projectPath = settings.PaintCode is { } paintCode
+                    ? Import(paintCode.FullName, settings.Namespace)
+                    : settings.ProjectFile?.FullName;
+
+                var project = projectPath is { }
+                    ? SvgcProject.Load(projectPath)
                     : null;
 
                 // A flag beats the project file, which beats the built-in default — the ordinary

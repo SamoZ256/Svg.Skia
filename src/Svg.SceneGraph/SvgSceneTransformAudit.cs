@@ -7,7 +7,8 @@ using System.Linq;
 namespace Svg.Skia;
 
 /// <summary>
-/// Whether a driven transform can be bound at all, or was measured against while it was baked.
+/// Whether a driven transform or stroke width can be bound at all, or was measured against while it
+/// was baked.
 /// </summary>
 /// <remarks>
 /// Asked of the compiled scene rather than the document, because every question here is one
@@ -16,7 +17,7 @@ namespace Svg.Skia;
 /// </remarks>
 public static class SvgSceneTransformAudit
 {
-    /// <summary>Why a driven transform here cannot be bound, or null when every one of them can.</summary>
+    /// <summary>Why a driven value here cannot be bound, or null when every one of them can.</summary>
     public static string? WhyUnsound(SvgSceneDocument? sceneDocument)
     {
         if (sceneDocument is null)
@@ -58,6 +59,23 @@ public static class SvgSceneTransformAudit
             }
         }
 
+        // A stroke that grows is measured against the same two things a move is: a layer clips to
+        // bounds that were unioned from where its children painted, and a filter's region was taken
+        // from them. Unlike a transform it reaches the drawing wherever it is compiled, so this half
+        // asks only what it sits under.
+        foreach (var element in Driven(sceneDocument, SvgSceneExpressions.StrokeWidth))
+        {
+            if (!sceneDocument.TryGetNode(element, out var compiled))
+            {
+                continue;
+            }
+
+            if (Enclosure(compiled) is { } enclosure)
+            {
+                return Refusal(element, $"strokes inside {enclosure}, whose bounds were measured from what it was compiled with");
+            }
+        }
+
         if (!driven)
         {
             return null;
@@ -69,6 +87,7 @@ public static class SvgSceneTransformAudit
             {
                 continue;
             }
+
 
             // The filter region, the blur radius it decomposes, and the inverse the renderer records
             // as a delta are all taken from the total transform as it was compiled.
@@ -100,6 +119,47 @@ public static class SvgSceneTransformAudit
         }
 
         return null;
+    }
+
+    /// <summary>The elements carrying an expression on <paramref name="localName"/>.</summary>
+    private static IEnumerable<SvgElement> Driven(SvgSceneDocument sceneDocument, string localName)
+    {
+        if (sceneDocument.SourceDocument is not { } document)
+        {
+            yield break;
+        }
+
+        foreach (var element in document.Descendants())
+        {
+            if (SvgExpressionAttributes.Lifted(element.CustomAttributes, localName) is { })
+            {
+                yield return element;
+            }
+        }
+    }
+
+    /// <summary>What this node is drawn inside that took its measurements before it was bound.</summary>
+    private static string? Enclosure(SvgSceneNode node)
+    {
+        if (node.Filter is { })
+        {
+            return "a filter on the same element";
+        }
+
+        for (var ancestor = node.Parent; ancestor is { }; ancestor = ancestor.Parent)
+        {
+            if (ancestor.Filter is { })
+            {
+                return $"a filter on {Describe(ancestor)}";
+            }
+
+            if (Layers(ancestor))
+            {
+                return $"the layer opened by {Describe(ancestor)}";
+            }
+        }
+
+        return Filtered(node) is { } filtered ? $"a filter on {Describe(filtered)}, below it" : null;
     }
 
     private static bool Layers(SvgSceneNode node)

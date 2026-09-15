@@ -84,6 +84,45 @@ public class SKSvgExpressionsTests
 
     private static (byte R, byte G, byte B, byte A) Channels(byte r, byte g, byte b, byte a) => (r, g, b, a);
 
+    private const string HiddenInsideATransformedGroup = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="on" type="boolean" default="true" />
+              <e:let name="off">not on</e:let>
+            </e:code>
+          </defs>
+          <g transform="translate(5,5)">
+            <rect x="0" y="0" width="4" height="4" fill="#0000ff" display="{{ off }}" />
+          </g>
+        </svg>
+        """;
+
+    /// <summary>
+    /// A driven <c>display</c> on the only child of a group that carries nothing but a transform.
+    /// </summary>
+    /// <remarks>
+    /// That shape reaches a fast path in <c>SvgSceneRenderer</c> which folds such a child straight
+    /// into the parent's canvas as one transformed path, and it used to fold the conditional away
+    /// with it: the rect drew whatever the expression said. Nothing caught it, because the child is
+    /// still recorded, still the right colour, and still in the right place — only never hidden.
+    ///
+    /// Groups that carry a bare transform are what every generator emits, so this is worth a row of
+    /// its own rather than trusting the fast path's own list of what disqualifies a child.
+    /// </remarks>
+    [Theory]
+    [InlineData(true, 0)]
+    [InlineData(false, 1)]
+    public void A_Driven_Display_Survives_The_Transform_Only_Fast_Path(bool on, int drawn)
+    {
+        using var svg = Load(HiddenInsideATransformedGroup);
+
+        svg.SetExpressionValues(Values(("on", ExprValue.Boolean(on))));
+
+        Assert.NotNull(svg.Model);
+        Assert.Equal(drawn, svg.Model!.Commands!.OfType<DrawPathCanvasCommand>().Count());
+    }
+
     [Fact]
     public void Loading_A_Document_With_A_Required_Parameter_Still_Renders()
     {

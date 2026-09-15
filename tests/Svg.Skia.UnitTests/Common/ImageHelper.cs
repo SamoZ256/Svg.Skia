@@ -8,7 +8,11 @@ namespace Svg.Skia.UnitTests.Common;
 
 public static class ImageHelper
 {
-    private static double CompareImages(Image<Rgba32> actual, Image<Rgba32> expected, IReadOnlyCollection<Rectangle>? ignoredRegions = null, Rgba32? compositeBackground = null)
+    /// <summary>Root mean square error over the two images, 0 when they are identical.</summary>
+    /// <remarks>
+    /// Public so a suite making thousands of comparisons need not encode each side to a file first.
+    /// </remarks>
+    public static double CompareImages(Image<Rgba32> actual, Image<Rgba32> expected, IReadOnlyCollection<Rectangle>? ignoredRegions = null, Rgba32? compositeBackground = null)
     {
         if (actual.Width != expected.Width || actual.Height != expected.Height)
         {

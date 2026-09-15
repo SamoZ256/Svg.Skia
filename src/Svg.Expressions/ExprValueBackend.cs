@@ -208,6 +208,11 @@ internal static class ExprValueBackend
             case ExprFunction.Len:
                 return ExprValue.Number(arguments[0].AsString.Length);
 
+            // Shortest round-trip, invariant: a whole number reads as one, with no point and no
+            // trailing zero, which is what anyone writing a label expects to see.
+            case ExprFunction.Str:
+                return ExprValue.String(arguments[0].AsNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
             default:
                 throw new NotSupportedException($"Unsupported {nameof(ExprFunction)}: {call.Function}.");
         }

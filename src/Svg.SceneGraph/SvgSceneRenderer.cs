@@ -884,6 +884,13 @@ public static class SvgSceneRenderer
 
         if (!child.IsRenderable ||
             child.SymbolicTransform is not null ||
+            // The fast path draws the child straight onto the parent's canvas, with no range around
+            // it for a conditional to resolve later -- so a driven display or visibility would be
+            // silently ignored and the child drawn whatever its expression says. Every other reason
+            // to leave this path is about what cannot be folded into a path and a fill; this one is
+            // about something that has to be recorded while the tree is being walked.
+            child.DisplayExpression is not null ||
+            child.VisibilityExpression is not null ||
             child.LocalPath is null ||
             child.LocalFill is null ||
             child.LocalStroke is not null ||

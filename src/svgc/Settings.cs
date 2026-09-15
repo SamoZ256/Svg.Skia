@@ -6,6 +6,7 @@ internal class Settings
     public System.IO.FileInfo? OutputFile { get; set; }
     public System.IO.FileInfo? ProjectFile { get; set; }
     public System.IO.FileInfo? RecipeFile { get; set; }
+    public System.IO.FileInfo? PaintCode { get; set; }
     // Named for their options rather than the ...File pattern above: System.CommandLine binds a
     // setting by matching the option name, so '--singleFile' has to land on 'SingleFile'.
     public System.IO.FileInfo? SingleFile { get; set; }

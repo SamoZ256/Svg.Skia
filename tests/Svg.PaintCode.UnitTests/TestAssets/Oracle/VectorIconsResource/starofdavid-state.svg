@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" xmlns:e="https://svg.skia/expr/1.0">
+  <defs>
+    <e:code>
+      <e:param name="enabled" type="boolean" default="true" />
+      <e:param name="state" type="boolean" default="true" />
+      <e:param name="accent" type="boolean" default="true" />
+      <e:param name="accentColorOn" type="color" default="#fb3e72ff" />
+      <e:param name="isLight" type="boolean" default="false" />
+      <e:param name="whiteColor_" type="color" default="#ffffffff" />
+      <e:param name="blackColor_" type="color" default="#1f2123ff" />
+      <e:let name="whiteColor30">withAlpha(whiteColor_, 0.3)</e:let>
+      <e:let name="blackColor30">withAlpha(blackColor_, 0.3)</e:let>
+      <e:let name="stateAccentColor">(enabled and state) ? accent ? accentColorOn : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30</e:let>
+    </e:code>
+  </defs>
+  <path id="bezier-10" d="M14.2044,5.6498L21.5225,5.6498L17.9453,11.838L21.8034,18.2203L14.255,18.2203L11.0181,23.8193L7.6231,18.2203L0.2311,18.2203L3.8428,11.987L0,5.6498L7.5155,5.6498L10.7894,0ZM12.5182,18.2203L9.3824,18.2203L10.9876,20.8677ZM2.8436,16.7119L6.7081,16.7119L4.7321,13.4529ZM8.3791,7.1582L5.5917,11.9695L8.4674,16.7119L13.3906,16.7119L16.1981,11.8552L13.3585,7.1582ZM17.0857,13.3242L15.1274,16.7119L19.134,16.7119ZM2.6743,7.1582L4.7024,10.5037L6.6415,7.1582ZM15.1162,7.1582L17.0569,10.3691L18.9133,7.1582ZM9.2532,5.6498L12.4467,5.6498L10.8166,2.9526Z" fill-rule="evenodd" fill="{{ stateAccentColor }}" transform="translate(4.0559,3.0846)" />
+</svg>

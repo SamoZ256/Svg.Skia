@@ -10,6 +10,7 @@ public sealed class SKPaint : ICloneable, IDeepCloneable<SKPaint>
     private bool _isAntialias;
     private bool _isDither;
     private float _strokeWidth;
+    private SymNode? _strokeWidthExpression;
     private SKStrokeCap _strokeCap = SKStrokeCap.Butt;
     private SKStrokeJoin _strokeJoin = SKStrokeJoin.Miter;
     private float _strokeMiter = 4;
@@ -91,6 +92,29 @@ public sealed class SKPaint : ICloneable, IDeepCloneable<SKPaint>
             }
 
             _strokeWidth = value;
+            _version++;
+        }
+    }
+
+    /// <summary>
+    /// The expression driving <see cref="StrokeWidth"/>, or null where a literal does.
+    /// </summary>
+    /// <remarks>
+    /// Beside the width rather than instead of it, the way <see cref="SKColor.Expression"/> sits
+    /// beside a colour's bytes: what is recorded is the placeholder, and binding a value rewrites the
+    /// recorded drawing rather than compiling it again.
+    /// </remarks>
+    public SymNode? StrokeWidthExpression
+    {
+        get => _strokeWidthExpression;
+        set
+        {
+            if (ReferenceEquals(_strokeWidthExpression, value))
+            {
+                return;
+            }
+
+            _strokeWidthExpression = value;
             _version++;
         }
     }
@@ -431,6 +455,7 @@ public sealed class SKPaint : ICloneable, IDeepCloneable<SKPaint>
         clone.IsAntialias = IsAntialias;
         clone.IsDither = IsDither;
         clone.StrokeWidth = StrokeWidth;
+        clone.StrokeWidthExpression = StrokeWidthExpression;
         clone.StrokeCap = StrokeCap;
         clone.StrokeJoin = StrokeJoin;
         clone.StrokeMiter = StrokeMiter;

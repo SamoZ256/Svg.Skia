@@ -338,6 +338,7 @@ internal static class SvgScenePaintingService
 
         skPaint.StrokeMiter = svgVisualElement.StrokeMiterLimit;
         skPaint.StrokeWidth = svgVisualElement.StrokeWidth.ToDeviceValue(UnitRenderingType.Other, svgVisualElement, skBounds);
+        skPaint.StrokeWidthExpression = SvgSceneExpressions.TryGet(svgVisualElement, SvgSceneExpressions.StrokeWidth);
         skPaint.IsStrokeNonScaling = svgVisualElement.VectorEffect == SvgVectorEffect.NonScalingStroke;
 
         if (svgVisualElement.StrokeDashArray is { })
