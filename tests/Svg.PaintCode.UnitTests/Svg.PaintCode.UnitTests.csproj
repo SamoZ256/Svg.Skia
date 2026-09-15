@@ -11,6 +11,13 @@
   <Import Project="..\..\build\SignAssembly.props" />
   <Import Project="..\..\build\XUnit.props" />
   <Import Project="..\..\build\SixLabors.ImageSharp.props" />
+  <!--
+    The slice rasterises, so it needs libSkiaSharp itself and not only the managed binding that
+    arrives through Svg.Skia. Without these the rows pass on macOS and throw DllNotFoundException on
+    Linux and Windows, which is how they reached master.
+  -->
+  <Import Project="..\..\build\SkiaSharp.props" />
+  <Import Project="..\..\build\SkiaSharp.Native.props" />
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Svg.PaintCode\Svg.PaintCode.csproj" />
