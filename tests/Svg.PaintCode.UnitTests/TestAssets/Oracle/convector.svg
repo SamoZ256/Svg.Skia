@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" xmlns:e="https://svg.skia/expr/1.0">
+  <defs>
+    <clipPath id="rectangle-2-clip">
+      <path d="M0,0L16,0L16,3L0,3L0,0Z" />
+    </clipPath>
+    <e:code>
+      <e:param name="enabled" type="boolean" default="true" />
+      <e:param name="state" type="boolean" default="true" />
+      <e:param name="accent" type="boolean" default="true" />
+      <e:param name="accentColorOn" type="color" default="#fb3e72ff" />
+      <e:param name="isLight" type="boolean" default="false" />
+      <e:param name="whiteColor_" type="color" default="#ffffffff" />
+      <e:param name="blackColor_" type="color" default="#1f2123ff" />
+      <e:let name="whiteColor30">withAlpha(whiteColor_, 0.3)</e:let>
+      <e:let name="blackColor30">withAlpha(blackColor_, 0.3)</e:let>
+      <e:let name="stateAccentColor">(enabled and state) ? accent ? accentColorOn : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30</e:let>
+      <e:let name="accentColor70">withAlpha(accentColorOn, 0.7)</e:let>
+      <e:let name="whiteColor70">withAlpha(whiteColor_, 0.7)</e:let>
+      <e:let name="blackColor70">withAlpha(blackColor_, 0.7)</e:let>
+      <e:let name="stateAccentColor70">(enabled and state) ? accent ? accentColor70 : isLight ? whiteColor70 : blackColor70 : isLight ? whiteColor30 : blackColor30</e:let>
+    </e:code>
+  </defs>
+  <rect id="rectangle" x="0" y="0" width="20" height="12" fill="none" stroke="{{ stateAccentColor }}" stroke-width="1" stroke-miterlimit="10" transform="translate(5,9)" />
+  <path id="bezier" d="M0,0.001L7.5,0.001" fill="none" stroke="{{ stateAccentColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(6.5,11)" />
+  <path id="bezier-2" d="M0,0.001L7.5,0.001" fill="none" stroke="{{ stateAccentColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(16,11)" />
+  <path id="bezier-3" d="M0,0.001L7.5,0.001" fill="none" stroke="{{ stateAccentColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(6.5,12)" />
+  <path id="bezier-4" d="M0,0.001L7.5,0.001" fill="none" stroke="{{ stateAccentColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(16,12)" />
+  <path id="bezier-5" d="M0,0.001L7.5,0.001" fill="none" stroke="{{ stateAccentColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(6.5,13)" />
+  <path id="bezier-6" d="M0,0.001L7.5,0.001" fill="none" stroke="{{ stateAccentColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(16,13)" />
+  <ellipse id="oval" cx="1.25" cy="1.25" rx="1.25" ry="1.25" fill="{{ stateAccentColor70 }}" transform="translate(21,17)" />
+  <path id="bezier-7" d="M0,0.001L2.5,0.001" fill="none" stroke="{{ stateAccentColor70 }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(17.75,18.25)" />
+  <path id="bezier-8" d="M0.5,0L0,0L0,2L0.5,2" fill="none" stroke="{{ stateAccentColor }}" stroke-width="0.25" stroke-miterlimit="10" transform="translate(4,10.5)" />
+  <path id="bezier-9" d="M0.5,0L0,0L0,2L0.5,2" fill="none" stroke="{{ stateAccentColor }}" stroke-width="0.25" stroke-miterlimit="10" transform="translate(4,14.5)" />
+  <g id="group" clip-path="url(#rectangle-2-clip)" transform="translate(7,21.5)">
+    <path id="oval-2" d="M0,2.5A2.5 2.5 0 0 1 2.5,0" fill="none" stroke="{{ stateAccentColor }}" stroke-width="1" stroke-miterlimit="10" transform="translate(1.5,-0.5)" />
+    <path id="oval-3" d="M2.5,0A2.5 2.5 0 0 1 5,2.5" fill="none" stroke="{{ stateAccentColor }}" stroke-width="1" stroke-miterlimit="10" transform="translate(9.5,-0.5)" />
+  </g>
+</svg>

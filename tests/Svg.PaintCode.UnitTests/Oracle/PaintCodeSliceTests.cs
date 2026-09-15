@@ -56,14 +56,21 @@ public class PaintCodeSliceTests
 
         // The nested group anchor, which is the fault this one caught. It sits further out than the
         // others at its own defaults, and is pinned here rather than left out for being awkward.
-        Row("symbol-daikin", 0.03)
+        Row("symbol-daikin", 0.03),
+
+        // Arcs. Nothing else here contains one, and an arc drawn the wrong way round was worth 36
+        // canvases before it was found: a wedge closed through the middle, and a stroked arc left
+        // open.
+        Row("symbol-saturation-level", 0.02),
+        Row("convector", 0.02)
     };
 
     internal static IReadOnlyList<string> Slice { get; } = new[]
     {
         "symbol-overlay-error", "symbol-notstarred", "symbol-starred", "starofdavid-state",
         "battery-starting", "symbol-forceupstart", "ventilation", "symbol-housewithventilation",
-        "circle-housewithventilation", "circle-heatpump", "10colors", "symbol-daikin"
+        "circle-housewithventilation", "circle-heatpump", "10colors", "symbol-daikin",
+        "symbol-saturation-level", "convector"
     };
 
     private static object[] Row(string slug, double threshold) => new object[] { slug, threshold };

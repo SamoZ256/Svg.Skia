@@ -176,19 +176,28 @@ internal static class PaintCodePathData
             return Ellipse(centerX, centerY, radiusX, radiusY);
         }
 
+        // PaintCode turns one way and never takes the short route: its own code emits
+        // AddArc(rect, -start, (360 * ceil(end / 360)) - end), a sweep that is always positive and
+        // so always clockwise once the drawing is turned over. Reading the sign of start - end as
+        // the direction instead drew the complement of every arc that ran more than half a turn --
+        // the same two ends, the other way round, and 36 of the sample's canvases wrong by it.
+        var turn = sweep < 0 ? sweep + 360 : sweep;
+
         var start = OnEllipse(centerX, centerY, radiusX, radiusY, -metrics.StartAngle);
         var end = OnEllipse(centerX, centerY, radiusX, radiusY, -metrics.EndAngle);
         var data = new StringBuilder();
 
         data.Append('M').Append(Pair(start))
             .Append('A').Append(Number(radiusX)).Append(' ').Append(Number(radiusY)).Append(" 0 ")
-            .Append(Math.Abs(sweep) > 180 ? '1' : '0').Append(' ')
-            .Append(sweep > 0 ? '1' : '0').Append(' ')
+            .Append(turn > 180 ? '1' : '0').Append(" 1 ")
             .Append(Pair(end));
 
+        // Through the middle, not straight back: PaintCode closes an arc with LineTo(MidX, MidY),
+        // which is a wedge rather than the segment a bare Z cuts off. The two enclose the same area
+        // at exactly half a turn, where the chord is a diameter, and nowhere else.
         if (metrics.IsClosed)
         {
-            data.Append('Z');
+            data.Append('L').Append(Pair(new PaintCodePoint(centerX, centerY))).Append('Z');
         }
 
         return data.ToString();

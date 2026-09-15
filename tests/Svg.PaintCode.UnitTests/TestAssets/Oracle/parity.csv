@@ -3,7 +3,7 @@ canvas,allowed
 access-card,0.0111
 access-checkin,0.0171
 access-checkout,0.0182
-access-expired,0.1107
+access-expired,0.0115
 access-general,0.0175
 access-lost,0.0097
 access-pin,0.0079
@@ -13,8 +13,8 @@ action,0.0052
 air-flow,0.0161
 air-flow-level,0.0161
 airpurification-state,0.0075
-alarm,0.1321
-alarm-state,0.1321
+alarm,0.0040
+alarm-state,0.0040
 analog-level,0.0040
 analogminmedmax-level,0.0054
 analogscale-level,0.0053
@@ -23,9 +23,9 @@ automatic,0.0105
 automatic-ventilation-state,0.0061
 automaticventilation,0.0083
 away-state,0.1085
-awning,0.1587
-awning-even,0.2173
-awning-odd,0.1573
+awning,0.0040
+awning-even,0.0040
+awning-odd,0.0040
 battery-charging,0.0040
 battery-error,0.0040
 battery-level,0.0124
@@ -34,7 +34,7 @@ battery-notready,0.0040
 battery-ready,0.0040
 battery-soc-level,0.0190
 battery-starting,0.0040
-bell-state,0.0965
+bell-state,0.0101
 blinds180,0.0040
 blinds180ltr,0.0171
 blinds180mirror,0.0267
@@ -53,7 +53,7 @@ button-close,0.0040
 button-context-menu,0.0040
 button-delete,0.0040
 button-down,0.0040
-button-duration,0.2452
+button-duration,0.0133
 button-edit,0.0111
 button-export,0.0112
 button-fade,0.0040
@@ -65,7 +65,7 @@ button-minus,0.0040
 button-more,0.0040
 button-newwindow,0.0040
 button-next,0.0040
-button-notification,0.0316
+button-notification,0.0040
 button-notstarred,0.0040
 button-photo,0.0064
 button-photo-new,0.0065
@@ -89,7 +89,7 @@ button-up,0.0040
 card-in-holder-state,0.0285
 charger-plug,0.0095
 charger-plug-ev-state,0.0096
-charger-plug-locked-state,0.0308
+charger-plug-locked-state,0.0095
 charger-plug-wallbox-state,0.0096
 charger-wallbox,0.0044
 circle-abc,0.0080
@@ -204,7 +204,7 @@ co-state,0.0040
 co2,0.0063
 coffee-state,0.0050
 controller,0.0223
-convector,0.0850
+convector,0.0040
 cooling-1-6,0.0040
 cooling-demand,0.0075
 cooling-level,0.0075
@@ -213,8 +213,8 @@ dashboardunknown,0.0040
 dashedborder,0.0040
 dashedline,0.0040
 day-state,0.0066
-detail-analogoutput-level,0.0480
-detail-awning-level,0.1091
+detail-analogoutput-level,0.0077
+detail-awning-level,0.0041
 detail-blind180-level-angle,0.0040
 detail-blind180-ltr-level-angle,0.0082
 detail-blind180-mirror-level-angle,0.0088
@@ -222,7 +222,7 @@ detail-blind180-rtl-level-angle,0.0089
 detail-blind180-slat,0.0040
 detail-blind90-level-angle,0.0047
 detail-blind90-slat,0.0040
-detail-setpoint-level,0.0480
+detail-setpoint-level,0.0077
 detail-slide-level,0.0096
 detail-thermostat-level-angle,0.0426
 deviceunknown,0.0040
@@ -312,7 +312,7 @@ location-local-remote,0.0040
 location-new,0.0040
 location-unavailable,0.0040
 location-unknown,0.0040
-locked-state,0.1321
+locked-state,0.0040
 makeuproom,0.0093
 mix-valve-cold-level,0.0051
 mix-valve-dynamic-level,0.0053
@@ -464,9 +464,9 @@ smartruleunknown,0.0040
 splitunit-state,0.0119
 sr-access,0.0040
 sr-alarm,0.0073
-sr-alarm-2,0.0856
-sr-alarm-simple,0.0557
-sr-alarm-trigger,0.0969
+sr-alarm-2,0.0708
+sr-alarm-simple,0.0040
+sr-alarm-trigger,0.0053
 sr-blinds-1button,0.4261
 sr-blinds-2buttons,0.0040
 sr-blinds-adjust-angle,0.0104
@@ -484,7 +484,7 @@ sr-limittemperature,0.0857
 sr-link,0.0047
 sr-motion,0.0046
 sr-multivalue-trigger,0.0040
-sr-notification,0.0156
+sr-notification,0.0040
 sr-notification-error,0.0043
 sr-open-blinds,0.1500
 sr-presence-simulation,0.0053
@@ -602,7 +602,7 @@ symbol-conferencetable,0.0300
 symbol-context-menu,0.0040
 symbol-cookingplate,0.0061
 symbol-cooling-level,0.0073
-symbol-cooling-locked,0.0559
+symbol-cooling-locked,0.0063
 symbol-counter,0.0104
 symbol-csv,0.0074
 symbol-cutlery,0.0040
@@ -616,7 +616,7 @@ symbol-dining,0.0059
 symbol-doorbird,0.0045
 symbol-down,0.0040
 symbol-duplicate,0.0118
-symbol-duration,0.3431
+symbol-duration,0.0109
 symbol-edit,0.0090
 symbol-edit-crop,0.0213
 symbol-electric-unit-price,0.0040
@@ -659,7 +659,7 @@ symbol-gym,0.0040
 symbol-hanger,0.0040
 symbol-hardware,0.0520
 symbol-heating-level,0.0055
-symbol-heating-locked,0.0568
+symbol-heating-locked,0.0120
 symbol-heatingcooling,0.0061
 symbol-heatingcoolingoff,0.0040
 symbol-heatingfloor,0.0113
@@ -717,7 +717,7 @@ symbol-microphone,0.0048
 symbol-minus,0.0040
 symbol-mirror,0.0040
 symbol-modbus,0.0040
-symbol-money,0.0969
+symbol-money,0.0231
 symbol-more,0.0040
 symbol-motion,0.0043
 symbol-moto-hours,0.0096
@@ -735,7 +735,7 @@ symbol-nextsong,0.0083
 symbol-night,0.0051
 symbol-nocategory,0.0094
 symbol-noise,0.0040
-symbol-notification,0.0444
+symbol-notification,0.0040
 symbol-notstarred,0.0040
 symbol-nox,0.0085
 symbol-ods,0.0040
@@ -748,9 +748,9 @@ symbol-overlay-add,0.0040
 symbol-overlay-automatic,0.0040
 symbol-overlay-car-off,0.0040
 symbol-overlay-error,0.0040
-symbol-overlay-expired,0.2237
-symbol-overlay-lock,0.0996
-symbol-overlay-lock-off,0.0617
+symbol-overlay-expired,0.0118
+symbol-overlay-lock,0.0040
+symbol-overlay-lock-off,0.0040
 symbol-overlay-lost,0.0040
 symbol-overlay-manual-off,0.0082
 symbol-overlay-manual-on,0.0056
@@ -807,7 +807,7 @@ symbol-rename,0.0040
 symbol-repeat,0.0041
 symbol-rpm,0.0085
 symbol-safe,0.0049
-symbol-saturation-level,0.6208
+symbol-saturation-level,0.0040
 symbol-sauna,0.0085
 symbol-scan-card,0.0139
 symbol-scene,0.0060
@@ -819,7 +819,7 @@ symbol-schedules,0.0105
 symbol-schedules-unlimited,0.0103
 symbol-select,0.0070
 symbol-sensor,0.0155
-symbol-session-duration,0.3431
+symbol-session-duration,0.0109
 symbol-setautomatic,0.0040
 symbol-setcurrentvalue,0.0040
 symbol-setimpulse,0.0040
@@ -829,7 +829,7 @@ symbol-setnoaction,0.0040
 symbol-setoff,0.0040
 symbol-seton,0.0040
 symbol-setprevious,0.0040
-symbol-setrange,0.1608
+symbol-setrange,0.0068
 symbol-setting,0.0060
 symbol-settings,0.0060
 symbol-settoggle,0.0040
@@ -866,7 +866,7 @@ symbol-starred,0.0059
 symbol-startcalibration,0.0040
 symbol-stop,0.0040
 symbol-stopaudio,0.0040
-symbol-stoptimer,0.2784
+symbol-stoptimer,0.0138
 symbol-sunshadewithbed,0.0091
 symbol-swimjet,0.0074
 symbol-switch,0.0080
@@ -894,7 +894,7 @@ symbol-updates,0.0323
 symbol-usb,0.0040
 symbol-user,0.0130
 symbol-vacuum,0.0091
-symbol-validity-custom,0.3218
+symbol-validity-custom,0.0128
 symbol-validity-expired,0.0046
 symbol-validity-unlimited,0.0062
 symbol-variable,0.0140

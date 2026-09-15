@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" xmlns:e="https://svg.skia/expr/1.0">
+  <defs>
+    <e:code>
+      <e:param name="enabled" type="boolean" default="true" />
+      <e:param name="state" type="boolean" default="true" />
+      <e:param name="accent" type="boolean" default="true" />
+      <e:param name="accentColorOn" type="color" default="#fb3e72ff" />
+      <e:param name="isLight" type="boolean" default="false" />
+      <e:param name="whiteColor_" type="color" default="#ffffffff" />
+      <e:param name="blackColor_" type="color" default="#1f2123ff" />
+      <e:let name="whiteColor30">withAlpha(whiteColor_, 0.3)</e:let>
+      <e:let name="blackColor30">withAlpha(blackColor_, 0.3)</e:let>
+      <e:let name="stateAccentColor">(enabled and state) ? accent ? accentColorOn : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30</e:let>
+      <e:let name="stateWhiteColor">(enabled and state) ? not isLight ? whiteColor_ : blackColor_ : not isLight ? whiteColor30 : blackColor30</e:let>
+      <e:let name="stateAccentInverseColorstateWhiteColor">stateWhiteColor</e:let>
+    </e:code>
+  </defs>
+  <ellipse id="oval" cx="14" cy="14" rx="14" ry="14" fill="{{ stateAccentColor }}" transform="translate(1,1)" />
+  <path id="saturation" d="M23.8995,4.1005A14 14 0 0 1 4.1005,23.8995L14,14Z" fill="{{ stateAccentInverseColorstateWhiteColor }}" transform="translate(1,1)" />
+</svg>

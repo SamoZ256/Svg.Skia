@@ -192,6 +192,45 @@ public class PaintCodeSvgWriterTests
         Assert.Equal("M4.0951,0.8175A7.5 7.5 0 0 1 14.4539,10.3095", PaintCodePathData.For(shape));
     }
 
+    /// <summary>
+    /// An arc that runs more than half a turn still runs PaintCode's way round.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode turns one way and never takes the short route — its own code writes
+    /// <c>AddArc(rect, -start, (360 * ceil(end / 360)) - end)</c>, a sweep that is always positive.
+    /// Taking the sign of <c>start - end</c> as the direction instead drew the complement of every
+    /// arc past half a turn: the same two ends, the other side of the ellipse. It cost 36 of the
+    /// sample's canvases and no test saw it, because the only arc pinned here happened to have a
+    /// positive sweep already.
+    /// </remarks>
+    [Theory]
+    // start - end is positive: unchanged, and the arc PaintCode's AddArc(rect, -117, 139) draws.
+    [InlineData(117, -22, false, "M4.0951,0.8175A7.5 7.5 0 0 1 14.4539,10.3095")]
+    // Negative, so the turn wraps to 260 and the arc becomes the long way round. PaintCode writes
+    // AddArc(rect, 10, (360 * ceil(100 / 360)) - 100).
+    [InlineData(-10, 90, false, "M14.8861,8.8024A7.5 7.5 0 1 1 7.5,0")]
+    // Exactly half a turn, where the two halves are told apart by the direction alone.
+    [InlineData(0, 180, false, "M15,7.5A7.5 7.5 0 0 1 0,7.5")]
+    // Closed through the middle, which is the wedge PaintCode closes with LineTo(MidX, MidY).
+    [InlineData(0, 180, true, "M15,7.5A7.5 7.5 0 0 1 0,7.5L7.5,7.5Z")]
+    public void An_Oval_Arc_Turns_The_Way_PaintCode_Turns(double start, double end, bool closed, string expected)
+    {
+        var shape = new PaintCodeShape(
+            "Oval",
+            PaintCodeShapeKind.Oval,
+            new PaintCodeFrame(0, -15, 15, 15, new PaintCodePoint(9.25, -5.25), 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            null,
+            PaintCodePaint.None,
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            null,
+            new PaintCodeShapeMetrics(0, true, true, true, true, start, end, closed, 0, 0));
+
+        Assert.Equal(expected, PaintCodePathData.For(shape));
+    }
+
     [Fact]
     public void A_Turned_Shape_Turns_The_Other_Way_Because_The_Drawing_Is_Flipped()
     {
