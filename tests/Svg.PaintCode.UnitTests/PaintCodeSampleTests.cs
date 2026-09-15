@@ -29,24 +29,29 @@ public class PaintCodeSampleTests
         var document = PaintCodeDocument.Load(SampleFactAttribute.Path!);
         var census = Census.Of(document);
 
-        _output.WriteLine(census.ToString());
-
-        Assert.Equal(10, document.Desks.Count);
-        Assert.Equal(1014, document.Canvases.Count());
-        Assert.Equal(149, document.Variables.Count);
-        Assert.Equal(1389, census.Groups);
-        Assert.Equal(761, census.Symbols);
-        Assert.Equal(67, census.Clips);
-
-        // The archive holds 3747 shape objects, 2331 of them beziers; the 67 that clip are named as a
-        // group's clip and as one of its children, and the model keeps each only once, as the clip.
-        Assert.Equal(3747 - 67, census.Shapes);
-        Assert.Equal(2331 - 31, census.Beziers);
-        Assert.Equal(1340 - 8, census.Stroked);
-        Assert.Equal(94 - 6, census.GradientFilled);
-        Assert.Equal(42, census.Texts);
-        Assert.Equal(253, census.Rotated);
-        Assert.Equal(0, census.Shadows);
+        // Counted rather than asserted here: what a document holds is a fact about that document,
+        // and belongs beside it. For the one this was written against, the shape counts are two
+        // short of the archive's own -- it holds 3747 shapes and 2331 beziers, and the 67 that clip
+        // are named both as a group's clip and as one of its children, which the model keeps once.
+        PaintCodeExpected.Assert(
+            "census.csv",
+            new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["desks"] = document.Desks.Count,
+                ["canvases"] = document.Canvases.Count(),
+                ["variables"] = document.Variables.Count,
+                ["groups"] = census.Groups,
+                ["symbols"] = census.Symbols,
+                ["clips"] = census.Clips,
+                ["shapes"] = census.Shapes,
+                ["beziers"] = census.Beziers,
+                ["stroked"] = census.Stroked,
+                ["gradientFilled"] = census.GradientFilled,
+                ["texts"] = census.Texts,
+                ["rotated"] = census.Rotated,
+                ["shadows"] = census.Shadows
+            },
+            _output);
     }
 
     [SampleFact]
@@ -70,7 +75,9 @@ public class PaintCodeSampleTests
 
             _output.WriteLine($"{result.Files.Count} drawings, {result.Notes.Count} notes");
 
-            Assert.Equal(1014, result.Files.Count);
+            // One drawing per canvas, whatever the document holds -- which is the part that is not
+            // about any one document.
+            Assert.Equal(document.Canvases.Count(), result.Files.Count);
 
             foreach (var file in result.Files)
             {

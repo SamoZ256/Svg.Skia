@@ -27,53 +27,29 @@ public class PaintCodeSampleNoteTests
 
     public PaintCodeSampleNoteTests(ITestOutputHelper output) => _output = output;
 
-    /// <summary>The note kinds the sample document produces, by what each of them is about.</summary>
-    private static readonly (PaintCodeImportSeverity Severity, string Property, string Fragment, int Count)[] s_expected =
-    {
-        // SVG anchors a run where PaintCode measures one, so the words land in the right box but not
-        // to the same tenth. Unconditional: one per text-bearing shape.
-        (PaintCodeImportSeverity.Approximated, "text", "placed from the shape's box", 46),
-
-        // A gradient turned by a dial rather than laid by its ends. PaintCode works its two points
-        // out from the shape's own middle, which is not the box's, and the handles beside the angle
-        // are stale for these.
-        (PaintCodeImportSeverity.Approximated, "fill", "laid across the shape's box", 46),
-
-        // An oval's sweep driven by an expression, which path data cannot carry. Nine of these are
-        // on a clip rather than on a drawn shape -- a level indicator is very often an arc masking
-        // what is under it -- and went unreported until the clip was asked as well.
-        (PaintCodeImportSeverity.Dropped, "endAngle", "keeps this value literal", 19),
-        (PaintCodeImportSeverity.Dropped, "startAngle", "keeps this value literal", 1),
-
-        // A whole gradient chosen by an expression rather than its stops being driven.
-        (PaintCodeImportSeverity.Dropped, "fill", "a gradient has no type", 6),
-
-        // The document's own fault, and the only kind here that is.
-        (PaintCodeImportSeverity.Missing, "symbol", "the document has no canvas called", 5),
-
-        // PaintCode's numbering is not SVG's, and one that is nearly right is worse than reported.
-        (PaintCodeImportSeverity.Dropped, "blendMode", "has no name here", 1)
-    };
+    /// <summary>What a note is about, as a key the committed tally is written in.</summary>
+    /// <remarks>
+    /// The fragment is enough of the message to tell one kind from another and no more, so a
+    /// reworded note does not read as a new one while a new kind still does.
+    /// </remarks>
+    private static string Kind(PaintCodeImportNote note)
+        => note.Severity is PaintCodeImportSeverity.Missing ? "Missing/symbol/no canvas called"
+            : note.Property is "text" ? "Approximated/text/placed from the shape's box"
+            : note.Property is "startAngle" or "endAngle" ? "Dropped/" + note.Property + "/keeps this value literal"
+            : note.Property is "blendMode" ? "Dropped/blendMode/has no name here"
+            : note.Message.Contains("laid across the shape's box", StringComparison.Ordinal) ? "Approximated/fill/laid across the shape's box"
+            : note.Message.Contains("a gradient has no type", StringComparison.Ordinal) ? "Dropped/fill/a gradient has no type"
+            : note.Severity + "/" + note.Property + "/" + note.Message;
 
     [SampleFact]
     public void The_Sample_Reports_What_It_Has_Always_Reported()
     {
-        var notes = Notes();
-
-        foreach (var (severity, property, fragment, count) in s_expected)
-        {
-            var matched = notes.Count(note =>
-                note.Severity == severity &&
-                note.Property == property &&
-                note.Message.Contains(fragment, StringComparison.Ordinal));
-
-            _output.WriteLine($"{matched,4} (expected {count,4})  {severity} {property} — {fragment}");
-
-            Assert.Equal(count, matched);
-        }
-
-        // And nothing else: a kind nobody has an expectation for is a kind nobody has looked at.
-        Assert.Equal(s_expected.Sum(e => e.Count), notes.Count);
+        // Counted whole, so a kind appearing or vanishing is as much a result as a count changing --
+        // which is what caught nine driven sweeps going unreported on clip shapes.
+        PaintCodeExpected.Assert(
+            "notes.csv",
+            Notes().GroupBy(Kind, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal),
+            _output);
     }
 
     /// <summary>

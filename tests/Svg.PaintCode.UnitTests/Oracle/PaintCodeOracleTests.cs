@@ -83,6 +83,7 @@ public class PaintCodeOracleTests
     {
         var suite = PaintCodeOracleSuite.Instance;
         var known = new HashSet<string>(suite.Drawings.Select(d => d.Slug), StringComparer.Ordinal);
+
         if (PaintCodeOracleBaseline.Excepted is not { } listed)
         {
             _output.WriteLine("No exceptions.csv for this document yet; run the report and commit what it writes.");
@@ -94,54 +95,10 @@ public class PaintCodeOracleTests
             .GroupBy(e => e.Cause, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
 
-        foreach (var entry in counted.OrderByDescending(e => e.Value))
-        {
-            _output.WriteLine($"{entry.Value,4}  {entry.Key}");
-        }
-
         // A canvas that no longer exists cannot be excepted, so a rename cannot carry a gap with it.
         Assert.Empty(listed.Keys.Where(slug => !known.Contains(slug)));
 
-        Assert.Equal(
-            new Dictionary<string, int>(StringComparer.Ordinal)
-            {
-                // SVG anchors a run where PaintCode measures one.
-                ["TextMetrics"] = 16,
-
-                // A sweep an expression drives, which path data keeps literal. The largest class the
-                // converter could still do something about, and it needs the format to learn
-                // something rather than the converter to be corrected.
-                ["DrivenSweep"] = 16,
-
-                // The reference is the rounded drawing, not ours: each of these matches to about
-                // 0.001 once the emitted numbers are rounded the way PaintCode2Skia rounded its own.
-                ["OracleRounding"] = 9,
-
-                // The reference predates the document and is short a shape, a gate or a nudge.
-                ["StaleOracle"] = 5,
-
-                // A whole gradient chosen by an expression, which the format has no type for.
-                ["GradientChoice"] = 3,
-
-                // PaintCode clips without antialiasing and SVG cannot ask for that without aliasing
-                // what is inside the clip too.
-                ["AliasedClip"] = 3,
-
-                // The document points at a canvas it does not contain.
-                ["MissingCanvas"] = 1,
-
-                // A gradient turned by a dial, laid across the box rather than from the shape's middle.
-                ["GradientAngle"] = 1,
-
-                // A colour derived by saturation and shadow, which are worked out at import because
-                // the format has no word for them, so they follow the canvas and not the caller.
-                ["DerivedColour"] = 1,
-
-                // We draw the two-circle gradient the document describes; the reference's runtime
-                // cannot, and collapses it.
-                ["ReferenceRadial"] = 1
-            },
-            counted);
+        PaintCodeExpected.Assert("causes.csv", counted, _output);
     }
 
     /// <summary>
