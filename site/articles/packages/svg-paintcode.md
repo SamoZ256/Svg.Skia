@@ -84,6 +84,9 @@ renders wrong, and what was lost is a list rather than a surprise.
   from where its children were, so the number is written instead — the same rule the format states.
 - **A blend mode.** PaintCode's numbering is not SVG's, and one that is nearly right is worse than
   one that is reported.
+- **A canvas the document does not contain.** Reported apart from the rest, because it is the one
+  thing here no amount of work on the converter can draw: a symbol naming a canvas that was renamed
+  or deleted upstream without its references being repointed.
 
 ## How it is verified
 
@@ -106,20 +109,23 @@ SVG_PAINTCODE_FONTS=/path/to/fonts \
 integration does — the suite builds and runs without it, and a dozen drawings committed with the
 raster PaintCode produced for them are compared instead, on every platform.
 
-**The conversion is not yet at parity, and the suite does not claim it is.** Measured against the
-1014-canvas sample, 385 canvases match; 414 are within a hairline of it (0.004–0.01), 185 differ in
-visible detail, and 30 are plainly wrong. Most of the drift only appears once a parameter leaves its
-default, which is why checking defaults alone had shown the conversion as sound.
+Every canvas is drawn at each combination of the booleans PaintCode varies it on, and at the ends and
+middle of each number, and must come within **0.03** of PaintCode. The ones that cannot are listed in
+`TestAssets/Oracle/exceptions.csv` with the reason each cannot — an entry without a cause is refused,
+so a canvas cannot join the list by having a number written beside it, and one that starts meeting
+the bound has to be taken out rather than left sitting there.
 
-So each canvas is pinned at what it currently measures, in `TestAssets/Oracle/parity.csv`: a canvas
-that gets worse fails, and the file doubles as the list of what is left to fix. Numbers there above
-0.004 are gaps, not allowances; closing one means re-running the report and committing the smaller
-number.
+**The conversion is not at parity and the list says where it is not.** Of 1014 canvases, 954 meet the
+bound. Of the 60 that do not: 18 have a sweep an expression drives, which path data keeps literal; 16
+draw text, which SVG anchors where PaintCode measures; 5 want a whole gradient or a blend mode the
+format has no word for; 2 are the document pointing at canvases it does not contain; and **20 are not
+yet understood**, which is the number to watch.
 
-One caveat bounds the whole comparison. The generated code rounds every literal to two decimals — a
-stroke the document sets at `0.3364` is written `0.34f` — so the oracle is a rounded rendition and a
-residual of about a pixel is unreachable by construction. Canvases that emit nothing finer than two
-decimals reach parity roughly twice as often as the rest.
+Two things put a floor under the bound and neither is the conversion's. The two sides reach Skia
+through different models, where a single axis-aligned rect costs about 0.0045 and an icon is many;
+and PaintCode's generated code rounds every literal to two decimals, so what is compared against is
+itself a rounded drawing — of the 24 canvases it rounds nothing in, 23 match outright. For scale,
+this repository's own W3C rows sit at 0.022 for whole rendered pages.
 
 Seventeen canvases draw text, and they are compared only when `SVG_PAINTCODE_FONTS` names the folder
 holding the faces PaintCode asks for. Nothing sets `TypefaceManager.FontNamePrefix` of its own

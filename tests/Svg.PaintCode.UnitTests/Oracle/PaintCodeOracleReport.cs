@@ -64,19 +64,14 @@ public class PaintCodeOracleReport
             using var _ = svg;
 
             var switches = PaintCodeOracle.Switches(drawing.Method);
+            var dials = PaintCodeOracle.Dials(drawing.Method).Select(name => (name, PaintCodeOracle.Turns(svg, name))).ToArray();
             var worst = 0d;
             var first = 0d;
             var where = "defaults";
+            var combination = 0;
 
-            for (var combination = 0; combination < 1 << switches.Count; combination++)
+            foreach (var (values, description) in PaintCodeOracleTests.Combinations(suite.Defaults, switches, dials))
             {
-                var values = new Dictionary<string, ExprValue>(suite.Defaults, StringComparer.Ordinal);
-
-                for (var bit = 0; bit < switches.Count; bit++)
-                {
-                    values[switches[bit]] = ExprValue.Boolean(((combination >> bit) & 1) == 1);
-                }
-
                 double difference;
 
                 try
@@ -91,11 +86,11 @@ public class PaintCodeOracleReport
                     // A drawing that will not bind is the worst outcome there is, and reporting it
                     // beside the measurements beats stopping the run on the first one.
                     worst = double.PositiveInfinity;
-                    where = $"{PaintCodeOracle.Describe(switches, combination)}: {e.GetType().Name} {e.Message}".Replace(",", ";");
+                    where = $"{description}: {e.GetType().Name} {e.Message}".Replace(",", ";");
                     break;
                 }
 
-                if (combination == 0)
+                if (combination++ == 0)
                 {
                     first = difference;
                 }
@@ -103,7 +98,7 @@ public class PaintCodeOracleReport
                 if (difference > worst)
                 {
                     worst = difference;
-                    where = PaintCodeOracle.Describe(switches, combination);
+                    where = description.Replace(",", ";");
                 }
             }
 
@@ -129,6 +124,22 @@ public class PaintCodeOracleReport
         }
 
         File.WriteAllText(Path.Combine(directory, "paintcode-oracle (Actual).csv"), csv.ToString());
+
+        // And the exception table itself, ready to replace the committed one: every canvas past the
+        // bound, with the cause the importer's own notes give it, or Unexplained where they say
+        // nothing. Written beside the measurements rather than into TestAssets, so replacing the
+        // committed list is a deliberate copy and shows up as a diff worth reading.
+        var exceptions = new StringBuilder("canvas,cause,measured").AppendLine();
+
+        foreach (var row in rows.Where(r => r.Worst > PaintCodeOracleBaseline.Bound).OrderBy(r => r.Slug, StringComparer.Ordinal))
+        {
+            var drawing = PaintCodeOracleSuite.Instance.Drawings.First(d => d.Slug == row.Slug);
+            var cause = row.Text ? "TextMetrics" : drawing.Cause ?? "Unexplained";
+
+            exceptions.AppendLine($"{row.Slug},{cause},{Math.Ceiling(row.Worst * 10000) / 10000:F4}");
+        }
+
+        File.WriteAllText(Path.Combine(directory, "paintcode-exceptions (Actual).csv"), exceptions.ToString());
 
         var clean = rows.Where(r => !r.Noted && !r.Text).ToArray();
 

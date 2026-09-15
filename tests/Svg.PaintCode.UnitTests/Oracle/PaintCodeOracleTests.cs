@@ -70,22 +70,55 @@ public class PaintCodeOracleTests
     }
 
     /// <summary>
-    /// The baseline names every canvas that can be compared, and nothing else.
+    /// How many canvases do not meet the bound, and why — counted by cause.
     /// </summary>
     /// <remarks>
-    /// Without this a canvas could leave the comparison — by gaining text, by failing to import, by
-    /// being renamed — and take its own gap with it, silently.
+    /// The shape of the remaining work in one place. Every count here going down is the point, and
+    /// <c>Unexplained</c> reaching nought is what finishing looks like: those are the canvases that
+    /// differ for a reason nobody has found yet, which is the one cause that is a confession rather
+    /// than a decision.
     /// </remarks>
     [SampleFact]
-    public void The_Baseline_Names_Every_Comparable_Canvas()
+    public void The_Exceptions_Are_The_Ones_There_Is_A_Reason_For()
     {
         var suite = PaintCodeOracleSuite.Instance;
-        var comparable = suite.Drawings.Select(d => d.Slug).OrderBy(s => s, StringComparer.Ordinal).ToArray();
-        var recorded = PaintCodeOracleBaseline.Allowed.Keys.OrderBy(s => s, StringComparer.Ordinal).ToArray();
+        var known = new HashSet<string>(suite.Drawings.Select(d => d.Slug), StringComparer.Ordinal);
+        var counted = PaintCodeOracleBaseline.Excepted.Values
+            .GroupBy(e => e.Cause, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
 
-        _output.WriteLine($"{comparable.Length} canvases, {suite.Drawings.Count(d => d.HasText)} of them drawing words");
+        foreach (var entry in counted.OrderByDescending(e => e.Value))
+        {
+            _output.WriteLine($"{entry.Value,4}  {entry.Key}");
+        }
 
-        Assert.Equal(recorded, comparable);
+        // A canvas that no longer exists cannot be excepted, so a rename cannot carry a gap with it.
+        Assert.Empty(PaintCodeOracleBaseline.Excepted.Keys.Where(slug => !known.Contains(slug)));
+
+        Assert.Equal(
+            new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                // A sweep driven by an expression, which path data keeps literal. The largest class
+                // left, and the one that needs the format to learn something rather than the
+                // converter to be corrected.
+                ["DrivenSweep"] = 18,
+
+                // Not yet diagnosed. This is the debt.
+                ["Unexplained"] = 20,
+
+                // SVG anchors a run where PaintCode measures one.
+                ["TextMetrics"] = 16,
+
+                // A whole gradient chosen by an expression, which the format has no type for.
+                ["GradientChoice"] = 3,
+
+                // The document points at canvases it does not contain.
+                ["MissingCanvas"] = 2,
+
+                // A gradient turned by a dial, laid across the box rather than from the shape's middle.
+                ["GradientAngle"] = 1
+            },
+            counted);
     }
 
     /// <summary>
@@ -127,15 +160,17 @@ public class PaintCodeOracleTests
             return;
         }
 
-        var allowed = PaintCodeOracleBaseline.Allowed[slug];
+        var excepted = PaintCodeOracleBaseline.Excepted.TryGetValue(slug, out var exception) ? exception : null;
+        var allowed = excepted?.Measured ?? PaintCodeOracleBaseline.Bound;
 
         using var svg = PaintCodeOracle.Load(drawing.Path);
 
         var switches = PaintCodeOracle.Switches(drawing.Method);
+        var dials = PaintCodeOracle.Dials(drawing.Method).Select(name => (name, PaintCodeOracle.Turns(svg, name))).ToArray();
         var worst = 0d;
         var where = "defaults";
 
-        foreach (var (values, description) in Combinations(suite.Defaults, switches))
+        foreach (var (values, description) in Combinations(suite.Defaults, switches, dials))
         {
             using var ours = PaintCodeOracle.Ours(svg, values);
             using var theirs = PaintCodeOracle.Theirs(drawing.Method, values, ours.Width / PaintCodeOracle.Scale, ours.Height / PaintCodeOracle.Scale);
@@ -156,8 +191,18 @@ public class PaintCodeOracleTests
 
         Assert.True(
             worst <= allowed + Rounding,
-            $"{slug} draws further from PaintCode than it did: {worst.ToString("F5", CultureInfo.InvariantCulture)} at [{where}], "
-            + $"recorded {allowed.ToString("F4", CultureInfo.InvariantCulture)}. Both rasters and a heat map are in tests/Tests.");
+            excepted is null
+                ? $"{slug} draws {worst.ToString("F5", CultureInfo.InvariantCulture)} from PaintCode at [{where}], past the {PaintCodeOracleBaseline.Bound} every canvas is held to. "
+                  + "Either it is a fault to fix, or it needs a line in TestAssets/Oracle/exceptions.csv saying why it cannot be. "
+                  + "Both rasters and a heat map are in tests/Tests."
+                : $"{slug} draws further from PaintCode than its exception allows: {worst.ToString("F5", CultureInfo.InvariantCulture)} at [{where}], "
+                  + $"recorded {allowed.ToString("F4", CultureInfo.InvariantCulture)} for {excepted.Cause}. A named cause explains a gap; it does not let it widen.");
+
+        // An exception that is no longer needed is worse than none: it reads as a known gap and
+        // hides the next one that lands on the same canvas.
+        Assert.True(
+            excepted is null || worst > PaintCodeOracleBaseline.Bound,
+            $"{slug} now meets {PaintCodeOracleBaseline.Bound} at {worst.ToString("F5", CultureInfo.InvariantCulture)}. Take its line out of exceptions.csv.");
     }
 
     /// <summary>
@@ -170,20 +215,39 @@ public class PaintCodeOracleTests
     /// parameter and take itself out of the comparison — the one fault the comparison most needs to
     /// find, and the one that turned out to be there.
     /// </remarks>
-    private static IEnumerable<(IReadOnlyDictionary<string, ExprValue> Values, string Description)> Combinations(
+    internal static IEnumerable<(IReadOnlyDictionary<string, ExprValue> Values, string Description)> Combinations(
         IReadOnlyDictionary<string, ExprValue> defaults,
-        IReadOnlyList<string> switches)
+        IReadOnlyList<string> switches,
+        IReadOnlyList<(string Name, IReadOnlyList<float> Turns)> dials)
     {
         for (var combination = 0; combination < 1 << switches.Count; combination++)
         {
-            var values = new Dictionary<string, ExprValue>(defaults, StringComparer.Ordinal);
+            var booleans = new Dictionary<string, ExprValue>(defaults, StringComparer.Ordinal);
 
             for (var bit = 0; bit < switches.Count; bit++)
             {
-                values[switches[bit]] = ExprValue.Boolean(((combination >> bit) & 1) == 1);
+                booleans[switches[bit]] = ExprValue.Boolean(((combination >> bit) & 1) == 1);
             }
 
-            yield return (values, PaintCodeOracle.Describe(switches, combination));
+            var description = PaintCodeOracle.Describe(switches, combination);
+
+            yield return (booleans, description);
+
+            // One dial at a time rather than every dial against every other: a drawing reads each of
+            // them in its own corner, and the product of three numbers and sixteen settings would be
+            // a great many comparisons for a combination nothing draws differently.
+            foreach (var (name, turns) in dials)
+            {
+                foreach (var turn in turns)
+                {
+                    var values = new Dictionary<string, ExprValue>(booleans, StringComparer.Ordinal)
+                    {
+                        [name] = ExprValue.Number(turn)
+                    };
+
+                    yield return (values, $"{description} {name}={turn.ToString("0.####", CultureInfo.InvariantCulture)}");
+                }
+            }
         }
     }
 

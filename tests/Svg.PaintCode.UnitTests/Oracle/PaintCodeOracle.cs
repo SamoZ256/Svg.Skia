@@ -67,6 +67,36 @@ internal static class PaintCodeOracle
         .Select(p => p.Name!)
         .ToArray();
 
+    /// <summary>The numbers a drawing method varies on, likewise.</summary>
+    internal static IReadOnlyList<string> Dials(MethodInfo method) => method
+        .GetParameters()
+        .Where(p => p.ParameterType == typeof(float))
+        .Select(p => p.Name!)
+        .ToArray();
+
+    /// <summary>
+    /// The values to try a number at: the ends of what it was declared to take, and the middle.
+    /// </summary>
+    /// <remarks>
+    /// Any value probes honestly, since both sides are handed the same one -- the range only decides
+    /// how representative the probe is. Where nothing was declared this is 0 to 1, which is what
+    /// <c>level</c> means and what most of these are; an angle or a step is weakly probed by it, and
+    /// is the thing to improve if one of those turns out to hide a fault.
+    /// </remarks>
+    internal static IReadOnlyList<float> Turns(SKSvg svg, string name)
+    {
+        var parameter = svg.ExpressionParameters.FirstOrDefault(p => p.Name == name);
+
+        if (parameter is null)
+        {
+            return new[] { 0f, 0.5f, 1f };
+        }
+
+        var range = parameter.ResolveRange();
+
+        return new[] { range.Minimum, (range.Minimum + range.Maximum) / 2, range.Maximum };
+    }
+
     /// <summary>
     /// The faces PaintCode asks for, or null when they were not pointed at.
     /// </summary>

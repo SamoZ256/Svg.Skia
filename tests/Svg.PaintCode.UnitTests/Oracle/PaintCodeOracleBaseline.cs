@@ -7,28 +7,46 @@ using System.Linq;
 
 namespace Svg.PaintCode.UnitTests.Oracle;
 
+/// <summary>Why one canvas does not draw what PaintCode draws, and how far off it is.</summary>
+internal sealed record PaintCodeException(string Canvas, string Cause, double Measured);
+
 /// <summary>
-/// How far each canvas currently draws from PaintCode, as measured, one row per canvas.
+/// The canvases that do not meet the bound, each with the reason it does not.
 /// </summary>
 /// <remarks>
-/// A record of the gap rather than a licence for it. Numbers above
-/// <see cref="PaintCodeOracleTests.Parity"/> mark a canvas the conversion does not yet reproduce;
-/// re-running <see cref="PaintCodeOracleReport"/> after a fix writes the smaller number, and
-/// committing it is what stops the gap reopening.
+/// A list of work rather than a record of what was measured. Every entry has to name a cause, so a
+/// canvas cannot quietly join by having a number written beside it; the measurement is kept only to
+/// stop a known gap widening.
 ///
-/// Committed even though neither the document nor PaintCode's generated code is in this repository:
-/// it is the only part of the comparison that can be, and without it a fix has nothing to be
-/// measured against.
+/// Committed even though neither the document nor PaintCode's generated code is in this repository,
+/// because it is the only part of the comparison that can be, and without it a fix has nothing to be
+/// measured against. Rewrite it with <see cref="PaintCodeOracleReport"/>, never by hand.
 /// </remarks>
 internal static class PaintCodeOracleBaseline
 {
-    internal static IReadOnlyDictionary<string, double> Allowed { get; } = Read();
+    /// <summary>
+    /// What every canvas must meet unless it is excepted below.
+    /// </summary>
+    /// <remarks>
+    /// Two things put a floor under this and neither is ours. The two sides reach Skia through
+    /// different models, where one axis-aligned rect alone costs about 0.0045
+    /// (<c>SkiaCSharpRenderTests</c>) and an icon is many; and PaintCode's generated code rounds
+    /// every literal to two decimals, so the drawing being compared against is itself a rounded one
+    /// -- of the 24 canvases it rounds nothing in, 23 match outright.
+    ///
+    /// The number is where the excepted canvases stop being a list of noise and start being a list
+    /// of faults: at 0.015 two thirds of the exceptions have no cause anybody can name, at 0.03 a
+    /// third do, and the named causes hardly move between the two. For scale, this repository's own
+    /// W3C rows sit at 0.022 for whole rendered pages and its resvg rows at 0.12.
+    /// </remarks>
+    internal const double Bound = 0.03;
 
-    private static IReadOnlyDictionary<string, double> Read()
+    internal static IReadOnlyDictionary<string, PaintCodeException> Excepted { get; } = Read();
+
+    private static IReadOnlyDictionary<string, PaintCodeException> Read()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "TestAssets", "Oracle", "parity.csv");
-
-        var allowed = new Dictionary<string, double>(StringComparer.Ordinal);
+        var path = Path.Combine(AppContext.BaseDirectory, "TestAssets", "Oracle", "exceptions.csv");
+        var excepted = new Dictionary<string, PaintCodeException>(StringComparer.Ordinal);
 
         foreach (var line in File.ReadAllLines(path).Skip(1))
         {
@@ -37,12 +55,17 @@ internal static class PaintCodeOracleBaseline
                 continue;
             }
 
-            var comma = line.IndexOf(',');
+            var parts = line.Split(',');
 
-            allowed[line.Substring(0, comma)] = double.Parse(line.Substring(comma + 1), CultureInfo.InvariantCulture);
+            if (parts.Length != 3 || parts[1].Length == 0)
+            {
+                throw new InvalidOperationException($"'{line}' has no cause: an exception has to say why it is one.");
+            }
+
+            excepted[parts[0]] = new PaintCodeException(parts[0], parts[1], double.Parse(parts[2], CultureInfo.InvariantCulture));
         }
 
-        return allowed;
+        return excepted;
     }
 }
 #endif

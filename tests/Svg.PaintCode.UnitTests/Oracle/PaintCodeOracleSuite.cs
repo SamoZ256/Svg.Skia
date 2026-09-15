@@ -53,6 +53,29 @@ internal sealed class PaintCodeOracleSuite
     /// <summary>Drawing methods claimed by more than one canvas.</summary>
     internal IReadOnlyList<string> Shared { get; }
 
+    /// <summary>What a note is about, in the vocabulary the exception table uses.</summary>
+    private static string Cause(PaintCodeImportNote note)
+        => note.Severity is PaintCodeImportSeverity.Missing ? "MissingCanvas"
+            : note.Property is "text" ? "TextMetrics"
+            : note.Property is "startAngle" or "endAngle" ? "DrivenSweep"
+            : note.Property is "blendMode" ? "BlendMode"
+            : note.Message.Contains("laid across the shape's box", StringComparison.Ordinal) ? "GradientAngle"
+            : note.Message.Contains("a gradient has no type", StringComparison.Ordinal) ? "GradientChoice"
+            : "Approximated";
+
+    /// <summary>Which cause wins where a canvas has several, most consequential first.</summary>
+    private static int Rank(string cause)
+        => cause switch
+        {
+            "MissingCanvas" => 0,
+            "DrivenSweep" => 1,
+            "GradientChoice" => 2,
+            "BlendMode" => 3,
+            "TextMetrics" => 4,
+            "GradientAngle" => 5,
+            _ => 6
+        };
+
     private static PaintCodeOracleSuite Load()
     {
         var source = SampleFactAttribute.Path
@@ -66,6 +89,13 @@ internal sealed class PaintCodeOracleSuite
         // ones that cannot match, and deriving the list from the report rather than writing it out
         // means it shrinks by itself as the conversion improves.
         var noted = new HashSet<string>(result.Notes.Select(note => PaintCodeSlug.Of(note.Canvas)), StringComparer.Ordinal);
+
+        // What the importer said about a canvas is the first candidate for why it does not match, so
+        // a drawing carries its own worst note kind and the exception table can name a cause rather
+        // than only a number.
+        var causes = result.Notes
+            .GroupBy(note => PaintCodeSlug.Of(note.Canvas), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Select(Cause).OrderBy(Rank).First(), StringComparer.Ordinal);
 
         var defaults = new Dictionary<string, ExprValue>(StringComparer.Ordinal);
         var drawings = new List<PaintCodeDrawing>(result.Files.Count);
@@ -102,7 +132,13 @@ internal sealed class PaintCodeOracleSuite
 
             by.Add(slug);
 
-            drawings.Add(new PaintCodeDrawing(slug, file, method, text.Contains("<text", StringComparison.Ordinal), noted.Contains(slug)));
+            drawings.Add(new PaintCodeDrawing(
+                slug,
+                file,
+                method,
+                text.Contains("<text", StringComparison.Ordinal),
+                noted.Contains(slug),
+                causes.TryGetValue(slug, out var cause) ? cause : null));
         }
 
         var shared = claimed
@@ -116,5 +152,6 @@ internal sealed class PaintCodeOracleSuite
 }
 
 /// <summary>One imported drawing, and the PaintCode method that draws the same canvas.</summary>
-internal sealed record PaintCodeDrawing(string Slug, string Path, MethodInfo Method, bool HasText, bool Noted);
+/// <param name="Cause">The kind of the worst thing the importer said about it, or null if it said nothing.</param>
+internal sealed record PaintCodeDrawing(string Slug, string Path, MethodInfo Method, bool HasText, bool Noted, string? Cause);
 #endif

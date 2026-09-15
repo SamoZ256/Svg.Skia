@@ -131,6 +131,11 @@ internal sealed class PaintCodeSvgWriter
             // no opacity and cannot be hidden, and copying those over would suppress the clip
             // wherever the shape it was drawn from is marked invisible.
             Transform(path, clip, null);
+
+            // A clip carries a driven sweep as readily as a drawn shape does, and says nothing about
+            // it unless asked: a level indicator is very often an arc masking what is under it, and
+            // those went unreported while every drawn one was named.
+            Sweep(clip);
             _definitions.Add(new XElement(Svg + "clipPath", new XAttribute("id", identifier), path));
             element.SetAttributeValue("clip-path", $"url(#{identifier})");
         }
@@ -161,13 +166,7 @@ internal sealed class PaintCodeSvgWriter
             Note(PaintCodeImportSeverity.Dropped, shape.Name, "blendMode", $"PaintCode's blend mode {shape.BlendMode} has no name here, so the shape is drawn over what is under it.");
         }
 
-        foreach (var property in new[] { "startAngle", "endAngle" })
-        {
-            if (shape.Bindings.ContainsKey(property))
-            {
-                Note(PaintCodeImportSeverity.Dropped, shape.Name, property, "the expression format keeps this value literal, so the drawing's own is written.");
-            }
-        }
+        Sweep(shape);
 
         return written;
     }
@@ -1028,6 +1027,18 @@ internal sealed class PaintCodeSvgWriter
         _code.Use(expression);
 
         return expression;
+    }
+
+    /// <summary>Reports an oval whose sweep an expression drives, which path data cannot carry.</summary>
+    private void Sweep(PaintCodeShape shape)
+    {
+        foreach (var property in new[] { "startAngle", "endAngle" })
+        {
+            if (shape.Bindings.ContainsKey(property))
+            {
+                Note(PaintCodeImportSeverity.Dropped, shape.Name, property, "the expression format keeps this value literal, so the drawing's own is written.");
+            }
+        }
     }
 
     /// <summary>Binds <paramref name="attribute"/> to what drives <paramref name="property"/>.</summary>

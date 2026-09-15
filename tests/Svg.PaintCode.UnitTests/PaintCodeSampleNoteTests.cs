@@ -39,8 +39,10 @@ public class PaintCodeSampleNoteTests
         // are stale for these.
         (PaintCodeImportSeverity.Approximated, "fill", "laid across the shape's box", 46),
 
-        // An oval's sweep driven by an expression, which path data cannot carry.
-        (PaintCodeImportSeverity.Dropped, "endAngle", "keeps this value literal", 10),
+        // An oval's sweep driven by an expression, which path data cannot carry. Nine of these are
+        // on a clip rather than on a drawn shape -- a level indicator is very often an arc masking
+        // what is under it -- and went unreported until the clip was asked as well.
+        (PaintCodeImportSeverity.Dropped, "endAngle", "keeps this value literal", 19),
         (PaintCodeImportSeverity.Dropped, "startAngle", "keeps this value literal", 1),
 
         // A whole gradient chosen by an expression rather than its stops being driven.
