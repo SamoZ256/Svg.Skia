@@ -62,7 +62,11 @@ public class PaintCodeSliceTests
         // canvases before it was found: a wedge closed through the middle, and a stroked arc left
         // open.
         Row("symbol-saturation-level", 0.02),
-        Row("convector", 0.02)
+        Row("convector", 0.02),
+
+        // A symbol instance that pins a number driving a transform — a tank a twentieth full, which
+        // drew full while the offset was measured against the caller instead of the canvas.
+        Row("tank-empty", 0.02)
     };
 
     internal static IReadOnlyList<string> Slice { get; } = new[]
@@ -70,7 +74,7 @@ public class PaintCodeSliceTests
         "symbol-overlay-error", "symbol-notstarred", "symbol-starred", "starofdavid-state",
         "battery-starting", "symbol-forceupstart", "ventilation", "symbol-housewithventilation",
         "circle-housewithventilation", "circle-heatpump", "10colors", "symbol-daikin",
-        "symbol-saturation-level", "convector"
+        "symbol-saturation-level", "convector", "tank-empty"
     };
 
     private static object[] Row(string slug, double threshold) => new object[] { slug, threshold };

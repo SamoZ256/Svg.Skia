@@ -91,6 +91,7 @@ repository, so it runs only where they are:
 ```bash
 PaintCodeResourcesDir=/path/to/generated \
 SVG_PAINTCODE_SAMPLE=/path/to/Icons.pcvd \
+SVG_PAINTCODE_FONTS=/path/to/fonts \
   dotnet test tests/Svg.PaintCode.UnitTests/Svg.PaintCode.UnitTests.csproj -c Release
 ```
 
@@ -99,19 +100,25 @@ integration does — the suite builds and runs without it, and a dozen drawings 
 raster PaintCode produced for them are compared instead, on every platform.
 
 **The conversion is not yet at parity, and the suite does not claim it is.** Measured against the
-1014-canvas sample, 362 of the 997 comparable canvases match; 388 are within a hairline of it
-(0.004–0.01), 173 differ in visible detail, and 74 are plainly wrong. Most of the drift only appears
-once a parameter leaves its default, which is why checking defaults alone had shown the conversion as
-sound.
+1014-canvas sample, 376 canvases match; 396 are within a hairline of it (0.004–0.01), 182 differ in
+visible detail, and 60 are plainly wrong. Most of the drift only appears once a parameter leaves its
+default, which is why checking defaults alone had shown the conversion as sound.
 
 So each canvas is pinned at what it currently measures, in `TestAssets/Oracle/parity.csv`: a canvas
 that gets worse fails, and the file doubles as the list of what is left to fix. Numbers there above
 0.004 are gaps, not allowances; closing one means re-running the report and committing the smaller
 number.
 
-Seventeen canvases draw text and are excluded by name. PaintCode asks for four SF-UI-Display faces
-by filename, they are not beside its generated code, and its own lookup falls back to whatever family
-the system lists first without reporting it — so there is nothing stable to compare against.
+One caveat bounds the whole comparison. The generated code rounds every literal to two decimals — a
+stroke the document sets at `0.3364` is written `0.34f` — so the oracle is a rounded rendition and a
+residual of about a pixel is unreachable by construction. Canvases that emit nothing finer than two
+decimals reach parity roughly twice as often as the rest.
+
+Seventeen canvases draw text, and they are compared only when `SVG_PAINTCODE_FONTS` names the folder
+holding the faces PaintCode asks for. Nothing sets `TypefaceManager.FontNamePrefix` of its own
+accord, so PaintCode's lookup otherwise falls back to whatever family the system lists first without
+reporting it — which is worse than failing. Given the faces, both sides draw the same words in the
+same one; without them these rows stand aside rather than compare against an arbitrary font.
 
 ## Related docs
 

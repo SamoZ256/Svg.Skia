@@ -901,7 +901,7 @@ internal sealed class PaintCodeSvgWriter
             return Number(value);
         }
 
-        if (Produced(expression, item, property, name) is not { } produced)
+        if (Produced(item, property, name) is not { } produced)
         {
             return Number(value);
         }
@@ -920,7 +920,7 @@ internal sealed class PaintCodeSvgWriter
             return Number(-rotation);
         }
 
-        if (Produced(expression, item, "displayRotation", item.Name) is not { } produced)
+        if (Produced(item, "displayRotation", item.Name) is not { } produced)
         {
             return Number(-rotation);
         }
@@ -936,12 +936,22 @@ internal sealed class PaintCodeSvgWriter
     /// What the expression itself comes to, which is what the offset is measured from.
     /// </summary>
     /// <remarks>
+    /// Measured against what the canvas says on its own, never against what a caller gave it: the
+    /// offset is the gap between the expression and the number saved beside it, and that gap belongs
+    /// to the canvas, so every instance of a symbol has to see the same one. Measuring the
+    /// substituted form instead left nothing free in it, so the offset came to exactly minus the
+    /// expression and the two cancelled -- the instance drew at the pose it was saved in and its
+    /// argument did nothing. A tank at a twentieth full drew full.
+    ///
     /// Null where it cannot be worked out, and the caller then writes the number the drawing had:
     /// driving it by a constant nobody could compute would move it somewhere nothing chose.
     /// </remarks>
-    private double? Produced(string expression, PaintCodeItem item, string property, string name)
+    private double? Produced(PaintCodeItem item, string property, string name)
     {
-        if (_declarations.TryValue(expression, out var produced))
+        if (item.Bindings.TryGetValue(property, out var binding) &&
+            binding.Expression is { } source &&
+            PaintCodeExpressionTranslator.TryTranslate(source, _declarations, out var alone, out _) &&
+            _declarations.TryValue(alone, out var produced))
         {
             return produced;
         }

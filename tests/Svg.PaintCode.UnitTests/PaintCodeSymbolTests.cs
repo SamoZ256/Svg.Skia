@@ -14,7 +14,7 @@ public class PaintCodeSymbolTests
     {
         var uses = Host().Descendants().Where(element => element.Name.LocalName == "use").ToList();
 
-        Assert.Equal(3, uses.Count);
+        Assert.Equal(4, uses.Count);
         Assert.NotEqual(uses[0].Attribute("href")!.Value, uses[1].Attribute("href")!.Value);
     }
 
@@ -45,6 +45,32 @@ public class PaintCodeSymbolTests
         Assert.Contains("{{ isNotLight ? colorPurple : colorPurple }}", fills);
     }
 
+    /// <summary>
+    /// An instance that pins a number still moves what that number drives.
+    /// </summary>
+    /// <remarks>
+    /// The offset a driven transform carries is the gap between the expression and the number saved
+    /// beside it, and it belongs to the canvas rather than to whoever draws it. Measuring it against
+    /// the caller's value instead left nothing free in the expression, so the offset came to exactly
+    /// minus the expression, the two cancelled, and every instance drew at the pose it was saved in:
+    /// a tank at a twentieth full drew full, and 20 canvases of the sample were wrong by it.
+    ///
+    /// Here the shape sits 13 above its anchor and is moved by <c>level * 10</c>, saved at level 1,
+    /// so the offset is 13 - 10 = 3 whatever an instance passes. The copy the pinning instance gets
+    /// must read 0.5 * 10 + 3, not the 13 the target was saved at.
+    /// </remarks>
+    [Fact]
+    public void A_Pinned_Number_Still_Drives_The_Transform_It_Was_Given_To()
+    {
+        var copies = Host().Descendants()
+            .Where(element => element.Name.LocalName == "g" && element.Attribute("id")?.Value.StartsWith("sym-slider") == true)
+            .ToList();
+
+        var bar = Assert.Single(copies).Elements().Single();
+
+        Assert.Equal("translate(0,{{ 0.5 * 10 + 3 }})", bar.Attribute("transform")!.Value);
+    }
+
     // Verified against PaintCode's own generated code, which writes the box as an SKRect and clips
     // and translates to its corner: the anchor is only where a turn pivots.
     [Fact]
@@ -63,9 +89,8 @@ public class PaintCodeSymbolTests
         var notes = new List<PaintCodeImportNote>();
         Host(notes);
 
-        var note = Assert.Single(notes);
+        var note = Assert.Single(notes, one => one.Element == "Missing");
 
-        Assert.Equal("Missing", note.Element);
         Assert.Contains("does not hold", note.Message);
     }
 

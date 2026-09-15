@@ -43,13 +43,25 @@ public class PaintCodeOracleReport
 
         foreach (var drawing in suite.Drawings)
         {
-            using var svg = new SKSvg();
-
-            if (svg.Load(drawing.Path) is null)
+            if (drawing.HasText && PaintCodeOracle.Fonts is null)
             {
-                rows.Add((drawing.Slug, drawing.Noted, drawing.HasText, double.NaN, double.NaN, "did not load"));
+                rows.Add((drawing.Slug, drawing.Noted, drawing.HasText, double.NaN, double.NaN, "no faces to compare in"));
                 continue;
             }
+
+            SKSvg svg;
+
+            try
+            {
+                svg = PaintCodeOracle.Load(drawing.Path);
+            }
+            catch (Exception e)
+            {
+                rows.Add((drawing.Slug, drawing.Noted, drawing.HasText, double.PositiveInfinity, double.PositiveInfinity, e.Message.Replace(",", ";")));
+                continue;
+            }
+
+            using var _ = svg;
 
             var switches = PaintCodeOracle.Switches(drawing.Method);
             var worst = 0d;

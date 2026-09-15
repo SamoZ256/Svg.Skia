@@ -12,6 +12,7 @@ using SixLabors.ImageSharp.PixelFormats;
 using SkiaSharp;
 using Svg.Expressions;
 using Svg.Skia;
+using Svg.Skia.TypefaceProviders;
 using Svg.Skia.UnitTests.Common;
 
 namespace Svg.PaintCode.UnitTests.Oracle;
@@ -65,6 +66,60 @@ internal static class PaintCodeOracle
         .Where(p => p.ParameterType == typeof(bool))
         .Select(p => p.Name!)
         .ToArray();
+
+    /// <summary>
+    /// The faces PaintCode asks for, or null when they were not pointed at.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode names four SF-UI-Display faces by filename and its own lookup falls through to
+    /// whatever family the system lists first without saying so, which makes a text canvas compare
+    /// against an arbitrary font. They are not in this repository either, so the canvases that draw
+    /// words are only comparable once SVG_PAINTCODE_FONTS points at them.
+    /// </remarks>
+    internal static string? Fonts
+    {
+        get
+        {
+            var path = Environment.GetEnvironmentVariable("SVG_PAINTCODE_FONTS");
+
+            return string.IsNullOrEmpty(path) || !Directory.Exists(path) ? null : path;
+        }
+    }
+
+    /// <summary>Hands PaintCode's own lookup the folder the faces are in.</summary>
+    /// <remarks>
+    /// Its fallback reads <c>FontNamePrefix + name</c> straight off disk, so a prefix ending in a
+    /// separator is all it needs; nothing sets one otherwise, which is why it was matching an
+    /// arbitrary installed family instead.
+    /// </remarks>
+    static PaintCodeOracle()
+    {
+        if (Fonts is { } fonts)
+        {
+            TypefaceManager.FontNamePrefix = fonts + Path.DirectorySeparatorChar;
+        }
+    }
+
+    /// <summary>Loads a drawing with the same faces lent to PaintCode.</summary>
+    internal static SKSvg Load(string path)
+    {
+        var svg = new SKSvg();
+
+        if (Fonts is { } fonts && svg.Settings.TypefaceProviders is { } providers)
+        {
+            foreach (var face in Directory.GetFiles(fonts, "*.otf").OrderBy(f => f, StringComparer.Ordinal))
+            {
+                providers.Insert(0, new CustomTypefaceProvider(face));
+            }
+        }
+
+        if (svg.Load(path) is null)
+        {
+            throw new InvalidOperationException($"'{path}' did not load.");
+        }
+
+        return svg;
+    }
 
     internal static SKBitmap Ours(SKSvg svg, IReadOnlyDictionary<string, ExprValue> values)
     {

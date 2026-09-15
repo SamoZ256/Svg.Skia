@@ -80,10 +80,10 @@ public class PaintCodeOracleTests
     public void The_Baseline_Names_Every_Comparable_Canvas()
     {
         var suite = PaintCodeOracleSuite.Instance;
-        var comparable = suite.Drawings.Where(d => !d.HasText).Select(d => d.Slug).OrderBy(s => s, StringComparer.Ordinal).ToArray();
+        var comparable = suite.Drawings.Select(d => d.Slug).OrderBy(s => s, StringComparer.Ordinal).ToArray();
         var recorded = PaintCodeOracleBaseline.Allowed.Keys.OrderBy(s => s, StringComparer.Ordinal).ToArray();
 
-        _output.WriteLine($"{comparable.Length} comparable, {suite.Drawings.Count(d => d.HasText)} excluded for text");
+        _output.WriteLine($"{comparable.Length} canvases, {suite.Drawings.Count(d => d.HasText)} of them drawing words");
 
         Assert.Equal(recorded, comparable);
     }
@@ -98,13 +98,15 @@ public class PaintCodeOracleTests
     /// the exclusion is visible rather than a gap in the rows.
     /// </remarks>
     [SampleFact]
-    public void Only_The_Canvases_That_Draw_Words_Are_Excluded()
+    public void The_Canvases_That_Draw_Words_Are_Named()
     {
         var text = PaintCodeOracleSuite.Instance.Drawings.Where(d => d.HasText).Select(d => d.Slug).ToArray();
 
+        _output.WriteLine(PaintCodeOracle.Fonts is { } fonts ? $"compared, in the faces under {fonts}" : "not compared: set SVG_PAINTCODE_FONTS");
+
         foreach (var slug in text)
         {
-            _output.WriteLine(slug);
+            _output.WriteLine("  " + slug);
         }
 
         Assert.Equal(17, text.Length);
@@ -117,16 +119,17 @@ public class PaintCodeOracleTests
         var suite = PaintCodeOracleSuite.Instance;
         var drawing = suite.Drawings.Single(d => d.Slug == slug);
 
-        if (drawing.HasText)
+        if (drawing.HasText && PaintCodeOracle.Fonts is null)
         {
+            // Without the faces PaintCode names, its own lookup falls back to an arbitrary installed
+            // family without saying so, and there is nothing stable to compare against. Named by the
+            // fact below rather than quietly skipped here.
             return;
         }
 
         var allowed = PaintCodeOracleBaseline.Allowed[slug];
 
-        using var svg = new SKSvg();
-
-        Assert.NotNull(svg.Load(drawing.Path));
+        using var svg = PaintCodeOracle.Load(drawing.Path);
 
         var switches = PaintCodeOracle.Switches(drawing.Method);
         var worst = 0d;

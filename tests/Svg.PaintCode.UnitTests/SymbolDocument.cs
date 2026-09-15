@@ -21,10 +21,19 @@ internal static class SymbolDocument
         var target = Canvas(archive, "badge", archive.Array(
             Shape(archive, "Mark", purple, archive.Dictionary(("fill", Expression(archive, "isLight ? colorPurple : colorPurple", 5, purple))))));
 
+        // A number that drives where a shape sits, and an instance that pins it to something other
+        // than its default: what a level indicator is, and what the offset has to survive.
+        var level = Variable(archive, "level", 2, archive.Value(1d), 2, 1);
+
+        var driven = Canvas(archive, "slider", archive.Array(
+            Driven(archive, purple, archive.Dictionary(
+                ("displayAnchorY", Expression(archive, "level * 10", 2, archive.Value(10d)))))));
+
         var host = Canvas(archive, "host", archive.Array(
             Symbol(archive, "Plain", "badge", archive.Dictionary(("VIRTUAL__isLight", Expression(archive, "isLight", 4, archive.Value(false))))),
             Symbol(archive, "Flipped", "badge", archive.Dictionary(("VIRTUAL__isLight", Expression(archive, "isNotLight", 4, archive.Value(true))))),
             Symbol(archive, "Missing", "nowhere", archive.Dictionary()),
+            Symbol(archive, "Half", "slider", archive.Dictionary(("VIRTUAL__level", Expression(archive, "0.5", 2, archive.Value(0.5d))))),
             Moved(archive)));
 
         // A canvas that holds a symbol of itself, for the test that says so rather than recursing.
@@ -32,7 +41,7 @@ internal static class SymbolDocument
             ? Canvas(archive, "loop", archive.Array(Symbol(archive, "Self", "loop", archive.Dictionary())))
             : (int?)null;
 
-        var canvases = looping is { } self ? archive.Array(target, host, self) : archive.Array(target, host);
+        var canvases = looping is { } self ? archive.Array(target, driven, host, self) : archive.Array(target, driven, host);
 
         return archive.ToBytes(
             ("styleKitName", archive.Text("Symbols")),
@@ -40,7 +49,7 @@ internal static class SymbolDocument
             ("library", archive.Object(
                 "PPLibrary",
                 ("colors", archive.Array(purple)),
-                ("variables", archive.Array(light, dark)))));
+                ("variables", archive.Array(light, dark, level)))));
     }
 
     private static int Canvas(KeyedArchiveBuilder archive, string name, int children)
@@ -73,6 +82,24 @@ internal static class SymbolDocument
                     ("contoursClosedStatus", archive.Array(archive.Value(true)))))
             },
             ("anchorX", 0d), ("anchorY", 0d), ("alpha", 1d), ("visibilityMode", 1));
+
+    /// <summary>A shape whose anchor an expression moves, and which sits 3 above where it says.</summary>
+    private static int Driven(KeyedArchiveBuilder archive, int fill, int bindings)
+        => archive.Object(
+            "PPBezier",
+            new[]
+            {
+                ("name", archive.Text("Bar")),
+                ("fill", fill),
+                ("propertyValueProviders", bindings),
+                ("path", archive.Object(
+                    "PPPath",
+                    ("contours", archive.Array(archive.Array(
+                        archive.Object("PPPathPoint", ("position", archive.Text("{0, 0}"))),
+                        archive.Object("PPPathPoint", ("position", archive.Text("{10, -10}")))))),
+                    ("contoursClosedStatus", archive.Array(archive.Value(true)))))
+            },
+            ("anchorX", 0d), ("anchorY", -13d), ("alpha", 1d), ("visibilityMode", 1));
 
     private static int Symbol(KeyedArchiveBuilder archive, string name, string target, int bindings)
         => archive.Object(
