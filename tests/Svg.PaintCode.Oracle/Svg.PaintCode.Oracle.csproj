@@ -21,9 +21,18 @@
 
   <Import Project="..\..\build\SkiaSharp.props" />
 
+  <!--
+    Every C# file directly in that folder, which is what PaintCode2Skia writes: its runtime shim and
+    a class per style kit. Not a recursive glob, because a folder may hold a UI subtree beside them, as
+    this one's SkeletUI does, needing dependencies this project has no business carrying. Override
+    PaintCodeOracleSources where that default does not suit a particular export.
+  -->
+  <PropertyGroup Condition="'$(PaintCodeOracleSources)' == ''">
+    <PaintCodeOracleSources>$(PaintCodeResourcesDir)\*.cs</PaintCodeOracleSources>
+  </PropertyGroup>
+
   <ItemGroup Condition="'$(PaintCodeResourcesDir)' != '' And Exists('$(PaintCodeResourcesDir)')">
-    <Compile Include="$(PaintCodeResourcesDir)\PaintCodeClasses.cs" Link="PaintCodeClasses.cs" />
-    <Compile Include="$(PaintCodeResourcesDir)\VectorIconsResource.cs" Link="VectorIconsResource.cs" />
+    <Compile Include="$(PaintCodeOracleSources)" />
   </ItemGroup>
 
 </Project>

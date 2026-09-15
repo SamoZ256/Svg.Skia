@@ -62,6 +62,8 @@ public class PaintCodeOracleTests
         var suite = PaintCodeOracleSuite.Instance;
 
         _output.WriteLine($"{suite.Drawings.Count} drawings, {PaintCodeOracle.MethodCount} methods, {PaintCodeOracle.Methods.Count} names");
+        _output.WriteLine("classes in the reference that draw, by how much of this document they cover:");
+        _output.WriteLine(PaintCodeOracle.Scoreboard);
 
         // A normalised name can collide, and two canvases compared against one method would pass by
         // drawing the same picture as each other rather than as PaintCode.
@@ -86,7 +88,11 @@ public class PaintCodeOracleTests
 
         if (PaintCodeOracleBaseline.Excepted is not { } listed)
         {
-            _output.WriteLine("No exceptions.csv for this document yet; run the report and commit what it writes.");
+            // The one place a document nobody has measured is reported, so it is a single sentence
+            // rather than a wall: every comparison row stands aside and this says why.
+            Assert.Fail(
+                $"No exceptions.csv for {Path.GetFileName(suite.Folder)}, so nothing is being compared. "
+                + "Run PaintCodeOracleReport with SVG_PAINTCODE_ORACLE_REPORT set, read what it writes, and commit it.");
 
             return;
         }
@@ -142,10 +148,8 @@ public class PaintCodeOracleTests
 
         if (PaintCodeOracleBaseline.Excepted is not { } listed)
         {
-            // Nothing has been measured for this document yet, and failing once per canvas would
-            // say less than saying so once.
-            Assert.Fail("This document has no exceptions.csv. Run PaintCodeOracleReport with SVG_PAINTCODE_ORACLE_REPORT set and commit what it writes.");
-
+            // Nothing has been measured for this document yet. Standing aside rather than failing a
+            // thousand times over one missing file, and the fact below is what says so, once.
             return;
         }
 

@@ -103,6 +103,9 @@ internal sealed class PaintCodeOracleSuite
                 group => group.OrderBy(note => Rank(Cause(note))).First(),
                 StringComparer.Ordinal);
 
+        // Which class in the reference draws this document, decided by how much of it each covers.
+        PaintCodeOracle.Use(result.Files.Select(file => Path.GetFileNameWithoutExtension(file)));
+
         var defaults = new Dictionary<string, ExprValue>(StringComparer.Ordinal);
         var drawings = new List<PaintCodeDrawing>(result.Files.Count);
         var claimed = new Dictionary<string, List<string>>(StringComparer.Ordinal);

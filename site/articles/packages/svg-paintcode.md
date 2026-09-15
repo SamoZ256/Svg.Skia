@@ -106,8 +106,32 @@ SVG_PAINTCODE_FONTS=/path/to/fonts \
 ```
 
 `PaintCodeResourcesDir` is what compiles the comparison in at all. Unset — which is what continuous
-integration does — the suite builds and runs without it, and a dozen drawings committed with the
-raster PaintCode produced for them are compared instead, on every platform.
+integration does — the suite builds and runs without it, and the drawings committed with the raster
+PaintCode produced for them are compared instead, on every platform.
+
+## Pointing it at another document
+
+Nothing above names a particular PaintCode file. The three variables select one, and everything the
+suite knows about it lives in `TestAssets/Oracle/<its styleKitName>/` — what it holds, what the
+importer says about it, which canvases do not yet match and why, and the handful committed with their
+rasters. A second document is a second folder.
+
+For one nobody has measured, those files do not exist yet, and the suite says so once rather than
+failing per canvas: the comparison stands aside and asks for the report. Run it —
+
+```bash
+SVG_PAINTCODE_ORACLE_REPORT=1 dotnet test … --filter PaintCodeOracleReport
+```
+
+— and it writes what it found into `tests/Tests`, ready to read and commit. From then on the numbers
+are pinned and a change to any of them is a test result.
+
+Two things are worth knowing before trying it. The comparison needs PaintCode's *generated code* for
+the same document and at the same vintage, which is the actual gate — without it there is nothing to
+compare against. And the drawing class is found by asking which one accounts for the document's
+canvases, so a folder holding several style kits sorts itself out; `SVG_PAINTCODE_ORACLE_TYPE` names
+one outright where two genuinely overlap, and `PaintCodeOracleSources` overrides which files are
+compiled.
 
 Every canvas is drawn at each combination of the booleans PaintCode varies it on, and at the ends and
 middle of each number, and must come within **0.03** of PaintCode. The ones that cannot are listed in

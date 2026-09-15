@@ -86,7 +86,11 @@ internal static class PaintCodeExpected
         var written = Write(name, counted);
 
         output.WriteLine(string.Empty);
-        output.WriteLine($"Nothing is committed for this document. What was counted is in {written} — copy it to {Path.Combine(folder, name)} to pin it.");
+        // The source tree, not the copy under bin that this reads from: a file dropped in the output
+        // is gone at the next build.
+        output.WriteLine(
+            $"Nothing is committed for this document. What was counted is in {written} — copy it to "
+            + $"tests/Svg.PaintCode.UnitTests/TestAssets/Oracle/{Path.GetFileName(folder)}/{name} to pin it.");
     }
 
     private static string Write(string name, IReadOnlyDictionary<string, int> counted)

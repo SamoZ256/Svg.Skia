@@ -6,7 +6,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using PaintCode;
-using PaintCodeResources;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SkiaSharp;
@@ -35,12 +34,29 @@ internal static class PaintCodeOracle
     /// <summary>A 30×30 canvas rasters to 180×180, where a misplaced shape is pixels, not rounding.</summary>
     internal const float Scale = 6f;
 
-    // Non-public too: PaintCode emits a canvas it does not export as a private method, which is
-    // three of them here (symbol-a, symbol-m, symbol-safe).
-    private static readonly MethodInfo[] s_methods = typeof(VectorIconsResource)
-        .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-        .Where(m => m.Name.StartsWith("draw", StringComparison.Ordinal))
-        .ToArray();
+    /// <summary>
+    /// Every class in the compiled reference that draws, with the methods each of them draws by.
+    /// </summary>
+    /// <remarks>
+    /// Anchored on PaintCode's own runtime shim rather than on any style kit's name: PaintCode2Skia
+    /// emits <c>PaintCode.Context</c> beside whatever it generates, so the assembly can be found
+    /// without knowing what is in it.
+    ///
+    /// Non-public too, because PaintCode emits a canvas it does not export as a private method --
+    /// three of them in the document this was written against.
+    /// </remarks>
+    private static IReadOnlyDictionary<Type, MethodInfo[]> Drawing()
+        => typeof(Context).Assembly
+            .GetTypes()
+            .Select(type => (type, methods: type
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                .Where(m => m.Name.StartsWith("draw", StringComparison.Ordinal))
+                .Where(m => m.GetParameters().FirstOrDefault()?.ParameterType == typeof(SKCanvas))
+                .ToArray()))
+            .Where(candidate => candidate.methods.Length > 0)
+            .ToDictionary(candidate => candidate.type, candidate => candidate.methods);
+
+    private static MethodInfo[] s_methods = Array.Empty<MethodInfo>();
 
     /// <summary>
     /// PaintCode's method names and our file slugs punctuate differently, so both are reduced to
@@ -54,11 +70,66 @@ internal static class PaintCodeOracle
     /// overloads PaintCode emits — the one without <c>(SKRect, ResizingBehavior)</c>, which is the
     /// framing PaintCode itself defaults to.
     /// </summary>
-    internal static IReadOnlyDictionary<string, MethodInfo> Methods { get; } = s_methods
-        .GroupBy(m => Normalise(m.Name.Substring("draw".Length)))
-        .ToDictionary(g => g.Key, g => g.OrderBy(m => m.GetParameters().Length).First());
+    internal static IReadOnlyDictionary<string, MethodInfo> Methods { get; private set; } =
+        new Dictionary<string, MethodInfo>(StringComparer.Ordinal);
 
     internal static int MethodCount => s_methods.Length;
+
+    /// <summary>What was chosen and what it beat, so the choice is never silent.</summary>
+    internal static string Scoreboard { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// Picks the class that draws this document, by how much of it each candidate covers.
+    /// </summary>
+    /// <remarks>
+    /// A folder holds a class per style kit, so which one draws a given document is a question the
+    /// document itself answers: the class generated from it accounts for its canvases and any other
+    /// accounts for almost none. Counted in canvases rather than methods, since PaintCode emits two
+    /// overloads for most of them.
+    ///
+    /// Hand-written helpers alongside are not in the running at all -- PaintCode2Skia names what it
+    /// generates <c>drawSomething</c>, carried over from the Java it transliterates, and the two
+    /// beside this document's are <c>DrawSomething</c>. That is luck rather than a rule, which is why
+    /// coverage decides rather than the mere presence of drawing methods, and why
+    /// SVG_PAINTCODE_ORACLE_TYPE can name one outright.
+    ///
+    /// A wrong pick cannot pass quietly either way: the map is asserted total and injective after.
+    /// </remarks>
+    internal static void Use(IEnumerable<string> slugs)
+    {
+        var wanted = new HashSet<string>(slugs.Select(Normalise), StringComparer.Ordinal);
+        var named = Environment.GetEnvironmentVariable("SVG_PAINTCODE_ORACLE_TYPE");
+
+        var ranked = Drawing()
+            .Select(candidate => (
+                candidate.Key,
+                candidate.Value,
+                Covered: candidate.Value
+                    .Select(m => Normalise(m.Name.Substring("draw".Length)))
+                    .Distinct(StringComparer.Ordinal)
+                    .Count(wanted.Contains)))
+            .OrderByDescending(candidate => candidate.Covered)
+            .ToList();
+
+        Scoreboard = string.Join(
+            Environment.NewLine,
+            ranked.Select(candidate => $"  {candidate.Covered,5} of {wanted.Count}  {candidate.Key.FullName}"));
+
+        var chosen = named is { Length: > 0 }
+            ? ranked.FirstOrDefault(candidate => candidate.Key.FullName == named || candidate.Key.Name == named)
+            : ranked.FirstOrDefault();
+
+        if (chosen.Value is null)
+        {
+            throw new InvalidOperationException(
+                $"Nothing in the compiled reference draws this document.{Environment.NewLine}{Scoreboard}");
+        }
+
+        s_methods = chosen.Value;
+        Methods = s_methods
+            .GroupBy(m => Normalise(m.Name.Substring("draw".Length)))
+            .ToDictionary(g => g.Key, g => g.OrderBy(m => m.GetParameters().Length).First());
+    }
 
     /// <summary>The boolean parameters a drawing method varies on, in PaintCode's own order.</summary>
     internal static IReadOnlyList<string> Switches(MethodInfo method) => method
