@@ -700,6 +700,10 @@ public partial class MainWindow : Window
             // And nothing is left held from a project that is no longer open, which would otherwise
             // be pasted into the next one as a row of a document it does not belong to.
             _held = null;
+
+            // Nor anything open in it, which would otherwise hold the closed document's nodes alive
+            // for as long as the window is.
+            _expanded.Clear();
         }
     }
 
@@ -717,17 +721,50 @@ public partial class MainWindow : Window
 
         _projectTree.Items.Clear();
         _projectTree.Items.Add(Branch(workspace.Document.Root, selected));
+
+        // A row that was just added, pasted or moved can land inside a group the reader left folded,
+        // and a selection nobody can see is no selection at all. Only when this rebuild is about that
+        // row: rebuilding for anything else must not reopen what was deliberately folded.
+        if (select is { })
+        {
+            Reveal(select);
+        }
     }
 
-    /// <summary>One node and everything under it, expanded, since a project is a handful of rows.</summary>
+    /// <summary>One node and everything under it, folded unless the reader opened it.</summary>
+    /// <remarks>
+    /// Folded rather than open: a project is usually a handful of rows, but it does not have to be
+    /// — an imported PaintCode document is ten groups holding 1014 drawings, and opening all of it
+    /// buried the ten rows anybody would start from. The root is the exception, because folding the
+    /// only row that is always there would leave the pane showing one word.
+    /// </remarks>
     private TreeViewItem Branch(SvgcProjectNode node, object? selected)
     {
         var item = new TreeViewItem
         {
             Header = ProjectWorkspace.Label(node),
             Tag = node,
-            IsExpanded = true,
+            IsExpanded = node is SvgcProjectRoot || _expanded.Contains(node),
             IsSelected = ReferenceEquals(node, selected)
+        };
+
+        // PropertyChanged rather than the Expanded and Collapsed events, which bubble: a nested row
+        // opening raises them on every group above it too, and each would record itself as opened.
+        item.PropertyChanged += (_, changed) =>
+        {
+            if (changed.Property != TreeViewItem.IsExpandedProperty)
+            {
+                return;
+            }
+
+            if (item.IsExpanded)
+            {
+                _expanded.Add(node);
+            }
+            else
+            {
+                _expanded.Remove(node);
+            }
         };
 
         // Tapped, not DoubleTapped: TreeViewItem takes a double tap on its header to fold the node
@@ -1156,6 +1193,15 @@ public partial class MainWindow : Window
 
     /// <summary>Whether the press that is finishing was a drag, so the tap it raises opens nothing.</summary>
     private bool _rowDragged;
+
+    /// <summary>The groups the reader has opened, so a rebuild puts them back as they were.</summary>
+    /// <remarks>
+    /// The rows are built afresh after every edit, and the tree opens folded — so without this,
+    /// adding a drawing would shut every group the reader had just opened to find the place to add
+    /// it. Held by node rather than by name because two groups can be called the same thing, and the
+    /// document's nodes are the same objects across a rebuild: only the rows are new.
+    /// </remarks>
+    private readonly HashSet<SvgcProjectNode> _expanded = new();
 
     /// <summary>The row waiting to be pasted, and whether taking it was a cut rather than a copy.</summary>
     /// <remarks>
@@ -2241,6 +2287,12 @@ public partial class MainWindow : Window
         }
 
         var row = path[path.Count - 1];
+
+        // The rows above were only just opened, and a TreeViewItem inside a group that has never
+        // been open has no container in the tree yet — so selecting it would be selecting something
+        // the TreeView cannot see, and the selection would come back null. Laying out first is what
+        // gives the row a container to select.
+        _projectTree.UpdateLayout();
 
         _projectTree.SelectedItem = row;
 

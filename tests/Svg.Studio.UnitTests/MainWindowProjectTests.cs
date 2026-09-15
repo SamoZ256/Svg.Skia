@@ -1502,6 +1502,11 @@ public class MainWindowProjectTests : IDisposable
         var large = (TreeViewItem)root.Items[0]!;
         var small = (TreeViewItem)root.Items[1]!;
 
+        // Opened first, because the tree now arrives folded and what this guards is a tap *closing*
+        // a group. Folded rows would pass the assertions below for the wrong reason.
+        large.IsExpanded = true;
+        small.IsExpanded = true;
+
         Dispatcher.UIThread.RunJobs();
 
         Click(window, large);
@@ -2212,6 +2217,62 @@ public class MainWindowProjectTests : IDisposable
 
         // Named by neither of its settings until one is typed, which is what the tab is for.
         Assert.Equal("group", ProjectWorkspace.Label(Panel(window, "group").Node));
+    }
+
+    /// <summary>
+    /// The tree arrives folded, down to the one row that is always there.
+    /// </summary>
+    /// <remarks>
+    /// A project is usually a handful of rows and opening all of it cost nothing, until an imported
+    /// PaintCode document turned out to be ten groups holding 1014 drawings and buried the ten rows
+    /// anybody would start from.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Tree_Opens_Folded_Below_Its_Root()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        Assert.True(root.IsExpanded, "the root row folded, leaving the pane showing one word");
+        Assert.False(((TreeViewItem)root.Items[1]!).IsExpanded);
+    }
+
+    /// <summary>
+    /// A group the reader opened is still open after an edit rebuilds the rows.
+    /// </summary>
+    /// <remarks>
+    /// Every edit builds the rows again from the document, which used to lose nothing because they
+    /// were all open anyway. Folded by default, the same rebuild would shut the group somebody had
+    /// just opened to find the place to add to — so what is open is held by node and put back.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Group_Left_Open_Is_Still_Open_After_An_Edit()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var drawing = (TreeViewItem)root.Items[0]!;
+        var group = (TreeViewItem)root.Items[1]!;
+
+        group.IsExpanded = true;
+        Dispatcher.UIThread.RunJobs();
+
+        // Added beside the drawing at the top rather than inside the group, so the group is not
+        // opened again on the way to showing the new row -- which would prove the reveal rather
+        // than the memory.
+        await window.AddGroupAsync((SvgcProjectNode)drawing.Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var rebuilt = (TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[2]!;
+
+        Assert.True(rebuilt.IsExpanded, "the edit folded a group that was open");
     }
 
     [AvaloniaFact]
