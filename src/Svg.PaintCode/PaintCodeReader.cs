@@ -173,17 +173,22 @@ internal static class PaintCodeReader
             (int)node["blendMode"].NumberOr(0));
     }
 
-    // PPShape.fillGradientType, where a gradient laid by dragging its two ends is 2. The angle is
-    // still written beside it and is still the default nobody turned, so reading that instead drew
-    // every one of these top to bottom.
+    // PPShape.fillGradientType: a radial gradient is 1 and a linear one laid by dragging its two ends
+    // is 2. Both are drawn from the handles; only the dial-turned linear 0 is drawn from the angle,
+    // which is still written beside the handles and still the default nobody moved.
+    private const int GradientRadial = 1;
     private const int GradientBetweenEnds = 2;
 
-    /// <summary>The two handles a dragged gradient was laid by, or null where it was laid by angle.</summary>
-    private static (PaintCodePoint Start, PaintCodePoint End)? Ends(PaintCodeNode node)
-        => (int)node["fillGradientType"].NumberOr(0) == GradientBetweenEnds &&
+    /// <summary>The two circles a gradient was laid between, or null where it was laid by angle.</summary>
+    private static PaintCodeGradientEnds? Ends(PaintCodeNode node)
+        => (int)node["fillGradientType"].NumberOr(0) is GradientRadial or GradientBetweenEnds &&
            node["fillGradientStartCenter"].Point is { } start &&
            node["fillGradientEndCenter"].Point is { } end
-            ? (start, end)
+            ? new PaintCodeGradientEnds(
+                start,
+                end,
+                node["fillGradientStartRadius"].NumberOr(0),
+                node["fillGradientEndRadius"].NumberOr(0))
             : null;
 
     private static PaintCodeFrame Frame(PaintCodeNode node)

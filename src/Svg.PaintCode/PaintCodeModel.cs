@@ -249,7 +249,7 @@ public sealed class PaintCodeShape : PaintCodeItem
         PaintCodeShapeMetrics metrics,
         bool isRadialFill = false,
         double fillGradientAngle = -90,
-        (PaintCodePoint Start, PaintCodePoint End)? fillGradientEnds = null,
+        PaintCodeGradientEnds? fillGradientEnds = null,
         int blendMode = 0)
         : base(name, frame, bindings)
     {
@@ -292,14 +292,9 @@ public sealed class PaintCodeShape : PaintCodeItem
     public double FillGradientAngle { get; }
 
     /// <summary>
-    /// Where PaintCode's own two gradient handles sit, as offsets from the shape's middle.
+    /// Where PaintCode's own two gradient handles sit, or null where it was laid by angle instead.
     /// </summary>
-    /// <remarks>
-    /// Null unless the gradient was laid by dragging its ends rather than by turning a dial, which
-    /// is what PaintCode records as type 2 and what it then draws from, leaving the angle at the
-    /// default nobody moved. Measured in its own y-up space, like every other point here.
-    /// </remarks>
-    public (PaintCodePoint Start, PaintCodePoint End)? FillGradientEnds { get; }
+    public PaintCodeGradientEnds? FillGradientEnds { get; }
 
     /// <summary>PaintCode's own blend mode, where 0 is the ordinary one.</summary>
     public int BlendMode { get; }
@@ -431,6 +426,37 @@ public sealed class PaintCodeColor
     /// the parent's own colour stands in. The conversion reports it rather than passing it off.
     /// </summary>
     public bool IsApproximate { get; }
+}
+
+/// <summary>
+/// The two circles a gradient runs between, as PaintCode's own handles record them.
+/// </summary>
+/// <remarks>
+/// Offsets from the shape's middle, in PaintCode's y-up space like every other point here. A linear
+/// gradient uses only the two centres; a radial one uses the radii beside them, and is a gradient
+/// between two circles rather than out from one point.
+///
+/// Set only where PaintCode drew from these -- a gradient turned by a dial keeps handles too, and
+/// they go stale: reading them for those as well put 51 canvases badly wrong, one of them a tenth of
+/// a percent away from right at 0.0055 and half wrong at 0.51.
+/// </remarks>
+public sealed class PaintCodeGradientEnds
+{
+    internal PaintCodeGradientEnds(PaintCodePoint start, PaintCodePoint end, double startRadius, double endRadius)
+    {
+        Start = start;
+        End = end;
+        StartRadius = startRadius;
+        EndRadius = endRadius;
+    }
+
+    public PaintCodePoint Start { get; }
+
+    public PaintCodePoint End { get; }
+
+    public double StartRadius { get; }
+
+    public double EndRadius { get; }
 }
 
 public sealed class PaintCodeGradient

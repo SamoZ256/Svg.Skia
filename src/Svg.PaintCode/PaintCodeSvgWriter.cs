@@ -668,7 +668,23 @@ internal sealed class PaintCodeSvgWriter
             new XAttribute("id", identifier),
             new XAttribute("gradientUnits", "objectBoundingBox"));
 
-        if (radial)
+        if (radial && shape.FillGradientEnds is { } circles)
+        {
+            // Between two circles, which is what PaintCode lays a radial one between and what
+            // cx/cy/r with fx/fy/fr says exactly: the outer circle is where the last stop lands and
+            // the inner one is where the first does. Laying it over the box instead put every one of
+            // these in the middle at half the width, whatever PaintCode had been told.
+            var middle = Middle(shape);
+
+            element.SetAttributeValue("gradientUnits", "userSpaceOnUse");
+            element.SetAttributeValue("cx", Number(middle.X + circles.End.X));
+            element.SetAttributeValue("cy", Number(middle.Y - circles.End.Y));
+            element.SetAttributeValue("r", Number(circles.EndRadius));
+            element.SetAttributeValue("fx", Number(middle.X + circles.Start.X));
+            element.SetAttributeValue("fy", Number(middle.Y - circles.Start.Y));
+            element.SetAttributeValue("fr", Number(circles.StartRadius));
+        }
+        else if (radial)
         {
             element.SetAttributeValue("cx", "0.5");
             element.SetAttributeValue("cy", "0.5");
@@ -682,8 +698,7 @@ internal sealed class PaintCodeSvgWriter
             // out from, and in its own space, so the flip turns them over. Said in the shape's own
             // coordinates rather than across its box -- the box is only the shape's extent, and
             // these run past it as often as not.
-            var box = PaintCodePathData.Box(shape);
-            var middle = new PaintCodePoint(box.X + (box.Width / 2), box.Y + (box.Height / 2));
+            var middle = Middle(shape);
 
             element.SetAttributeValue("gradientUnits", "userSpaceOnUse");
             element.SetAttributeValue("x1", Number(middle.X + ends.Start.X));
@@ -717,6 +732,14 @@ internal sealed class PaintCodeSvgWriter
         _definitions.Add(element);
 
         return identifier;
+    }
+
+    /// <summary>The shape's own middle, which its gradient handles are measured from.</summary>
+    private static PaintCodePoint Middle(PaintCodeShape shape)
+    {
+        var box = PaintCodePathData.Box(shape);
+
+        return new PaintCodePoint(box.X + (box.Width / 2), box.Y + (box.Height / 2));
     }
 
     private IEnumerable<XElement> Stops(PaintCodeShape shape, PaintCodeGradient gradient)

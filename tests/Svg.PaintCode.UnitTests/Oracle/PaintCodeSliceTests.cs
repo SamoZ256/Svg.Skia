@@ -74,7 +74,11 @@ public class PaintCodeSliceTests
 
         // A library colour desaturated and then shadowed before it is given an alpha — two
         // operations that were passing the parent's own hue straight through.
-        Row("ok-state", 0.02)
+        Row("ok-state", 0.02),
+
+        // A radial gradient, which was being laid over the shape's box rather than between the two
+        // circles PaintCode gives it.
+        Row("scene-on", 0.05)
     };
 
     internal static IReadOnlyList<string> Slice { get; } = new[]
@@ -82,7 +86,8 @@ public class PaintCodeSliceTests
         "symbol-overlay-error", "symbol-notstarred", "symbol-starred", "starofdavid-state",
         "battery-starting", "symbol-forceupstart", "ventilation", "symbol-housewithventilation",
         "circle-housewithventilation", "circle-heatpump", "10colors", "symbol-daikin",
-        "symbol-saturation-level", "convector", "tank-empty", "symbol-grafana", "ok-state"
+        "symbol-saturation-level", "convector", "tank-empty", "symbol-grafana", "ok-state",
+        "scene-on"
     };
 
     private static object[] Row(string slug, double threshold) => new object[] { slug, threshold };

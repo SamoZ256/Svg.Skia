@@ -147,12 +147,41 @@ public class PaintCodeSvgWriterTests
     public void A_Gradient_Laid_By_Its_Ends_Runs_Between_Them()
     {
         var box = new PaintCodeFrame(0, -10, 20, 10, default, 0, 1, 1, 1, false, true);
-        var shape = Filled(Gradient(), -90, ends: (new PaintCodePoint(-6, 4), new PaintCodePoint(6, -4)), frame: box);
+        var shape = Filled(Gradient(), -90, ends: new PaintCodeGradientEnds(new PaintCodePoint(-6, 4), new PaintCodePoint(6, -4), 0, 0), frame: box);
         var gradient = WriteTree(Only(shape), new List<PaintCodeImportNote>())
             .Descendants().First(one => one.Name.LocalName == "linearGradient");
 
         Assert.Equal("userSpaceOnUse", gradient.Attribute("gradientUnits")!.Value);
         Assert.Equal(new[] { "4", "1", "16", "9" }, new[] { "x1", "y1", "x2", "y2" }.Select(name => gradient.Attribute(name)!.Value));
+    }
+
+    /// <summary>
+    /// A radial gradient runs between its own two circles, not out from the middle of the box.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode lays one between an inner circle and an outer, and SVG says exactly that: cx/cy/r
+    /// is where the last stop lands and fx/fy/fr where the first does. Laying it over the box instead
+    /// put all 31 of the sample's radials in the middle at half the width, whatever PaintCode had
+    /// been told, and the note beside them was really describing this.
+    /// </remarks>
+    [Fact]
+    public void A_Radial_Gradient_Runs_Between_Its_Own_Two_Circles()
+    {
+        var box = new PaintCodeFrame(0, -10, 20, 10, default, 0, 1, 1, 1, false, true);
+        var shape = Filled(
+            Gradient(),
+            -90,
+            ends: new PaintCodeGradientEnds(new PaintCodePoint(-6, 4), new PaintCodePoint(6, -4), 1, 8),
+            frame: box,
+            radial: true);
+
+        var gradient = WriteTree(Only(shape), new List<PaintCodeImportNote>())
+            .Descendants().First(one => one.Name.LocalName == "radialGradient");
+
+        Assert.Equal("userSpaceOnUse", gradient.Attribute("gradientUnits")!.Value);
+        Assert.Equal(
+            new[] { "16", "9", "8", "4", "1", "1" },
+            new[] { "cx", "cy", "r", "fx", "fy", "fr" }.Select(name => gradient.Attribute(name)!.Value));
     }
 
     [Fact]
@@ -435,7 +464,7 @@ public class PaintCodeSvgWriterTests
                 new PaintCodeGradientStop(new PaintCodeColor(string.Empty, 0, 0, 255, 1), 1, 0.5, false)
             });
 
-    private static PaintCodeShape Filled(PaintCodeGradient gradient, double angle, string? expression = null, (PaintCodePoint Start, PaintCodePoint End)? ends = null, PaintCodeFrame? frame = null)
+    private static PaintCodeShape Filled(PaintCodeGradient gradient, double angle, string? expression = null, PaintCodeGradientEnds? ends = null, PaintCodeFrame? frame = null, bool radial = false)
         => new(
             "Filled",
             PaintCodeShapeKind.Bezier,
@@ -450,7 +479,7 @@ public class PaintCodeSvgWriterTests
             false,
             null,
             PaintCodeShapeMetrics.Default,
-            false,
+            radial,
             angle,
             ends);
 
