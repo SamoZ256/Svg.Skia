@@ -101,7 +101,7 @@ public class PaintCodeOracleTests
                 // A sweep driven by an expression, which path data keeps literal. The largest class
                 // left, and the one that needs the format to learn something rather than the
                 // converter to be corrected.
-                ["DrivenSweep"] = 18,
+                ["DrivenSweep"] = 16,
 
                 // Not yet diagnosed. This is the debt.
                 ["Unexplained"] = 20,
@@ -116,7 +116,11 @@ public class PaintCodeOracleTests
                 ["MissingCanvas"] = 2,
 
                 // A gradient turned by a dial, laid across the box rather than from the shape's middle.
-                ["GradientAngle"] = 1
+                ["GradientAngle"] = 1,
+
+                // The drawing being compared against predates the document: PaintCode's own export
+                // has no trace of a shape the archive plainly holds. Nothing here to fix.
+                ["StaleOracle"] = 2
             },
             counted);
     }

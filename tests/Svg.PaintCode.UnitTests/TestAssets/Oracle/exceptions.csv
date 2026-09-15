@@ -18,8 +18,8 @@ message,TextMetrics,0.2163
 orientationlight-level,DrivenSweep,0.2726
 orientationlight-state,DrivenSweep,0.2726
 overlay-number-step,TextMetrics,0.1039
-pendantlight-level,DrivenSweep,0.6190
-pendantlight-state,DrivenSweep,0.5263
+pendantlight-level,StaleOracle,0.6190
+pendantlight-state,StaleOracle,0.5263
 powerbutton-state,Unexplained,0.0825
 presence-state,Unexplained,0.7037
 pump-cooling-level,DrivenSweep,0.0581

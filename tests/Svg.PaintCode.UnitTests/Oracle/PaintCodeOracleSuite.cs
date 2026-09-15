@@ -53,6 +53,29 @@ internal sealed class PaintCodeOracleSuite
     /// <summary>Drawing methods claimed by more than one canvas.</summary>
     internal IReadOnlyList<string> Shared { get; }
 
+    /// <summary>
+    /// Canvases whose cause the importer's own notes cannot tell you, because it is not about the
+    /// conversion at all.
+    /// </summary>
+    /// <remarks>
+    /// Both of these draw an Oval 3 that PaintCode's generated code has no trace of -- not in the
+    /// SkiaSharp it was transliterated to, and not in the Android export that was transliterated
+    /// from, so it is PaintCode's own export that lacks it rather than anything in between. The
+    /// archive holds the shape as the first child of the canvas group, isHidden false,
+    /// visibilityMode 1, alpha 1, carrying no binding at all: there is nothing there for the
+    /// converter to have skipped on. The document was edited after the code was generated, and the
+    /// drawing being compared against is the older one.
+    ///
+    /// Both carry a driven sweep as well, and pendantLight-level is 0.09 worse at level 0 for it.
+    /// But pendantLight-state measures the same 0.526 at every setting, which is the disc alone, so
+    /// the sweep is not what either of these is really about.
+    /// </remarks>
+    private static readonly IReadOnlyDictionary<string, string> s_regardless = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["pendantlight-level"] = "StaleOracle",
+        ["pendantlight-state"] = "StaleOracle"
+    };
+
     /// <summary>What a note is about, in the vocabulary the exception table uses.</summary>
     private static string Cause(PaintCodeImportNote note)
         => note.Severity is PaintCodeImportSeverity.Missing ? "MissingCanvas"
@@ -138,7 +161,9 @@ internal sealed class PaintCodeOracleSuite
                 method,
                 text.Contains("<text", StringComparison.Ordinal),
                 noted.Contains(slug),
-                causes.TryGetValue(slug, out var cause) ? cause : null));
+                s_regardless.TryGetValue(slug, out var known) ? known
+                    : causes.TryGetValue(slug, out var cause) ? cause
+                    : null));
         }
 
         var shared = claimed
