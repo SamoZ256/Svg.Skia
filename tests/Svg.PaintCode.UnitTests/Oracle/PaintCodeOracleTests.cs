@@ -98,7 +98,7 @@ public class PaintCodeOracleTests
         // A canvas that no longer exists cannot be excepted, so a rename cannot carry a gap with it.
         Assert.Empty(listed.Keys.Where(slug => !known.Contains(slug)));
 
-        PaintCodeExpected.Assert("causes.csv", counted, _output);
+        PaintCodeExpected.Assert(suite.Folder, "causes.csv", counted, _output);
     }
 
     /// <summary>

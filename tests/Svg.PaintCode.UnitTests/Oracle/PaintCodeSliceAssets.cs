@@ -34,14 +34,15 @@ public class PaintCodeSliceAssets
             return;
         }
 
+        var suite = PaintCodeOracleSuite.Instance;
+
+        // Written into the source tree rather than the build output, since the point is to commit it.
         var directory = Path.GetFullPath(Path.Combine(
-            AppContext.BaseDirectory, "..", "..", "..", "TestAssets", "Oracle"));
+            AppContext.BaseDirectory, "..", "..", "..", "TestAssets", "Oracle", Path.GetFileName(suite.Folder)));
 
         Directory.CreateDirectory(directory);
 
-        var suite = PaintCodeOracleSuite.Instance;
-
-        foreach (var slug in PaintCodeSliceTests.Slice)
+        foreach (var slug in PaintCodeSliceTests.Slice(suite.Folder))
         {
             var drawing = suite.Drawings.Single(d => d.Slug == slug);
 

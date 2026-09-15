@@ -47,6 +47,7 @@ public class PaintCodeSampleNoteTests
         // Counted whole, so a kind appearing or vanishing is as much a result as a count changing --
         // which is what caught nine driven sweeps going unreported on clip shapes.
         PaintCodeExpected.Assert(
+            PaintCodeExpected.Folder(PaintCodeDocument.Load(SampleFactAttribute.Path!)),
             "notes.csv",
             Notes().GroupBy(Kind, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal),
             _output);

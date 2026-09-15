@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SkiaSharp;
@@ -40,64 +41,40 @@ public class PaintCodeSliceTests
     /// the one part of the comparison that runs on three operating systems and Skia does not
     /// antialias identically on all of them. Tight enough that a shape moving fails.
     /// </remarks>
-    public static IEnumerable<object[]> Rows() => new[]
+    public static IEnumerable<object[]> Rows()
     {
-        Row("symbol-overlay-error", 0.02),
-        Row("symbol-notstarred", 0.02),
-        Row("symbol-starred", 0.02),
-        Row("starofdavid-state", 0.02),
-        Row("battery-starting", 0.02),
-        Row("symbol-forceupstart", 0.02),
-        Row("ventilation", 0.02),
-        Row("symbol-housewithventilation", 0.02),
-        Row("circle-housewithventilation", 0.02),
-        Row("circle-heatpump", 0.02),
-        Row("10colors", 0.02),
+        foreach (var folder in PaintCodeExpected.Folders())
+        {
+            var list = Path.Combine(folder, "slice.csv");
 
-        // The nested group anchor, which is the fault this one caught. It sits further out than the
-        // others at its own defaults, and is pinned here rather than left out for being awkward.
-        Row("symbol-daikin", 0.03),
+            if (!File.Exists(list))
+            {
+                continue;
+            }
 
-        // Arcs. Nothing else here contains one, and an arc drawn the wrong way round was worth 36
-        // canvases before it was found: a wedge closed through the middle, and a stroked arc left
-        // open.
-        Row("symbol-saturation-level", 0.02),
-        Row("convector", 0.02),
+            foreach (var line in File.ReadAllLines(list).Skip(1).Where(line => line.Length > 0))
+            {
+                var fields = PaintCodeCsv.Fields(line);
 
-        // A symbol instance that pins a number driving a transform — a tank a twentieth full, which
-        // drew full while the offset was measured against the caller instead of the canvas.
-        Row("tank-empty", 0.02),
+                yield return new object[] { folder, fields[0], double.Parse(fields[1], CultureInfo.InvariantCulture) };
+            }
+        }
+    }
 
-        // A gradient laid by dragging its two ends rather than by turning a dial, which was being
-        // read off the angle beside them and drawn top to bottom.
-        Row("symbol-grafana", 0.04),
-
-        // A library colour desaturated and then shadowed before it is given an alpha — two
-        // operations that were passing the parent's own hue straight through.
-        Row("ok-state", 0.02),
-
-        // A radial gradient, which was being laid over the shape's box rather than between the two
-        // circles PaintCode gives it.
-        Row("scene-on", 0.05)
-    };
-
-    internal static IReadOnlyList<string> Slice { get; } = new[]
+    /// <summary>The canvases one document contributes, for the generator that writes their rasters.</summary>
+    internal static IReadOnlyList<string> Slice(string folder)
     {
-        "symbol-overlay-error", "symbol-notstarred", "symbol-starred", "starofdavid-state",
-        "battery-starting", "symbol-forceupstart", "ventilation", "symbol-housewithventilation",
-        "circle-housewithventilation", "circle-heatpump", "10colors", "symbol-daikin",
-        "symbol-saturation-level", "convector", "tank-empty", "symbol-grafana", "ok-state",
-        "scene-on"
-    };
+        var list = Path.Combine(folder, "slice.csv");
 
-    private static object[] Row(string slug, double threshold) => new object[] { slug, threshold };
+        return File.Exists(list)
+            ? File.ReadAllLines(list).Skip(1).Where(line => line.Length > 0).Select(line => PaintCodeCsv.Fields(line)[0]).ToList()
+            : new List<string>();
+    }
 
     [Theory]
     [MemberData(nameof(Rows))]
-    public void Draws_What_PaintCode_Drew(string slug, double threshold)
+    public void Draws_What_PaintCode_Drew(string directory, string slug, double threshold)
     {
-        var directory = Path.Combine(AppContext.BaseDirectory, "TestAssets", "Oracle");
-
         using var svg = new SKSvg();
 
         Assert.NotNull(svg.Load(Path.Combine(directory, slug + ".svg")));

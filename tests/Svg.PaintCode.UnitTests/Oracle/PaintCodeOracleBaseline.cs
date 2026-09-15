@@ -43,11 +43,13 @@ internal static class PaintCodeOracleBaseline
     internal const double Bound = 0.03;
 
     /// <summary>The list, or null where this document has none yet.</summary>
-    internal static IReadOnlyDictionary<string, PaintCodeException>? Excepted { get; } = Read();
+    internal static IReadOnlyDictionary<string, PaintCodeException>? Excepted => s_excepted ??= Read();
+
+    private static IReadOnlyDictionary<string, PaintCodeException>? s_excepted;
 
     private static IReadOnlyDictionary<string, PaintCodeException>? Read()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "TestAssets", "Oracle", "exceptions.csv");
+        var path = Path.Combine(PaintCodeOracleSuite.Instance.Folder, "exceptions.csv");
         var excepted = new Dictionary<string, PaintCodeException>(StringComparer.Ordinal);
 
         // A document nobody has measured yet has no list, which is not the same as having an empty

@@ -20,6 +20,9 @@ internal sealed class PaintCodeOracleSuite
     private static readonly Lazy<PaintCodeOracleSuite> s_instance =
         new(Load, LazyThreadSafetyMode.ExecutionAndPublication);
 
+    /// <summary>Where this document's committed answers live.</summary>
+    internal string Folder { get; private init; } = string.Empty;
+
     private PaintCodeOracleSuite(
         IReadOnlyList<PaintCodeDrawing> drawings,
         IReadOnlyDictionary<string, ExprValue> defaults,
@@ -154,7 +157,7 @@ internal sealed class PaintCodeOracleSuite
             .OrderBy(line => line, StringComparer.Ordinal)
             .ToArray();
 
-        return new PaintCodeOracleSuite(drawings, defaults, unmatched, shared);
+        return new PaintCodeOracleSuite(drawings, defaults, unmatched, shared) { Folder = PaintCodeExpected.Folder(document) };
     }
 }
 

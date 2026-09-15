@@ -34,6 +34,7 @@ public class PaintCodeSampleTests
         // short of the archive's own -- it holds 3747 shapes and 2331 beziers, and the 67 that clip
         // are named both as a group's clip and as one of its children, which the model keeps once.
         PaintCodeExpected.Assert(
+            PaintCodeExpected.Folder(document),
             "census.csv",
             new Dictionary<string, int>(StringComparer.Ordinal)
             {

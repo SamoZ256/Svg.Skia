@@ -26,10 +26,30 @@ namespace Svg.PaintCode.UnitTests;
 /// </remarks>
 internal static class PaintCodeExpected
 {
-    /// <summary>The committed tally, or null where this document has none.</summary>
-    internal static IReadOnlyDictionary<string, int>? Read(string name)
+    /// <summary>
+    /// Where one document's committed answers live, named after the document itself.
+    /// </summary>
+    /// <remarks>
+    /// A PaintCode file carries its own styleKitName, which is the name PaintCode gives the class it
+    /// generates -- so a document says which folder is its own and there is nothing to configure. A
+    /// second one adds a folder rather than displacing the first.
+    /// </remarks>
+    internal static string Folder(PaintCodeDocument document)
+        => Path.Combine(AppContext.BaseDirectory, "TestAssets", "Oracle", PaintCodeSlug.Pascal(document.Name));
+
+    /// <summary>Every document this repository has committed answers for.</summary>
+    /// <remarks>Read without a document in hand, which is what the slice has to do.</remarks>
+    internal static IEnumerable<string> Folders()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "TestAssets", "Oracle", name);
+        var root = Path.Combine(AppContext.BaseDirectory, "TestAssets", "Oracle");
+
+        return Directory.Exists(root) ? Directory.EnumerateDirectories(root).OrderBy(p => p, StringComparer.Ordinal) : Enumerable.Empty<string>();
+    }
+
+    /// <summary>The committed tally, or null where this document has none.</summary>
+    internal static IReadOnlyDictionary<string, int>? Read(string folder, string name)
+    {
+        var path = Path.Combine(folder, name);
 
         if (!File.Exists(path))
         {
@@ -49,14 +69,14 @@ internal static class PaintCodeExpected
     }
 
     /// <summary>Holds what was counted against what was committed, or records it if nothing was.</summary>
-    internal static void Assert(string name, IReadOnlyDictionary<string, int> counted, ITestOutputHelper output)
+    internal static void Assert(string folder, string name, IReadOnlyDictionary<string, int> counted, ITestOutputHelper output)
     {
         foreach (var entry in counted.OrderBy(entry => entry.Key, StringComparer.Ordinal))
         {
             output.WriteLine($"{entry.Value,8}  {entry.Key}");
         }
 
-        if (Read(name) is { } expected)
+        if (Read(folder, name) is { } expected)
         {
             Xunit.Assert.Equal(expected.OrderBy(e => e.Key, StringComparer.Ordinal), counted.OrderBy(e => e.Key, StringComparer.Ordinal));
 
@@ -66,7 +86,7 @@ internal static class PaintCodeExpected
         var written = Write(name, counted);
 
         output.WriteLine(string.Empty);
-        output.WriteLine($"Nothing is committed for this document. What was counted is in {written} — copy it to TestAssets/Oracle/{name} to pin it.");
+        output.WriteLine($"Nothing is committed for this document. What was counted is in {written} — copy it to {Path.Combine(folder, name)} to pin it.");
     }
 
     private static string Write(string name, IReadOnlyDictionary<string, int> counted)
