@@ -117,10 +117,10 @@ the bound has to be taken out rather than left sitting there.
 
 **The conversion is not at parity and the list says where it is not.** Of 1014 canvases, 954 meet the
 bound. Of the 60 that do not: 16 have a sweep an expression drives, which path data keeps literal; 16
-draw text, which SVG anchors where PaintCode measures; 4 want a whole gradient or a blend mode the
-format has no word for; 4 are the reference being older than the document rather than anything to
-fix; 2 are the document pointing at canvases it does not contain; and **18 are not yet understood**,
-which is the number to watch.
+draw text, which SVG anchors where PaintCode measures; **13 are the reference rather than the
+drawing** — 9 where it is the rounded one and 4 where it is the older one; 4 want a whole gradient or
+a blend mode the format has no word for; 2 are the document pointing at canvases it does not contain;
+and **9 are not yet understood**, which is the number to watch.
 
 One caution about the reference itself, and it is the largest single thing on the list. It is
 generated from the document and falls behind it: four canvases — including the two that measured
@@ -134,6 +134,18 @@ through different models, where a single axis-aligned rect costs about 0.0045 an
 and PaintCode's generated code rounds every literal to two decimals, so what is compared against is
 itself a rounded drawing — of the 24 canvases it rounds nothing in, 23 match outright. For scale,
 this repository's own W3C rows sit at 0.022 for whole rendered pages.
+
+That second floor is higher than it sounds where the rounding lands on a group's **scale**, because
+a scale is a ratio and its error grows with distance from the group's origin: two decimals on 0.7428
+is four tenths of a pixel by the far end of a 26-unit shape. Nine canvases are on the list for that
+alone — each matches to about 0.001 the moment the emitted numbers are rounded the same way. Emitting
+two decimals ourselves would close them and would be the wrong thing to do, since the drawing being
+compared against is the approximate one.
+
+It is also worth knowing that the comparison is not colour-neutral. It weighs premultiplied channels,
+so the same half-pixel edge reads about six times worse in opaque white than in the 30%-alpha dark
+these icons take at their defaults — which is why so much of the list is worst at
+`state=true enabled=true isLight=true` and unremarkable everywhere else.
 
 Seventeen canvases draw text, and they are compared only when `SVG_PAINTCODE_FONTS` names the folder
 holding the faces PaintCode asks for. Nothing sets `TypefaceManager.FontNamePrefix` of its own

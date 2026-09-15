@@ -85,7 +85,32 @@ internal sealed class PaintCodeOracleSuite
         ["pendantlight-level"] = "StaleOracle",
         ["pendantlight-state"] = "StaleOracle",
         ["presence-state"] = "StaleOracle",
-        ["septic2-tank-level"] = "StaleOracle"
+        ["septic2-tank-level"] = "StaleOracle",
+
+        // A different complaint about the same reference, and the commonest one on this list. Each
+        // of these matches to about 0.001 the moment the emitted drawing is rounded to two decimals
+        // the way PaintCode2Skia rounded its own -- symbol-hardware from 0.0520 to 0.0013,
+        // symbol-updates from 0.0323 to 0.0009. So the geometry agrees exactly and only the
+        // precision does not.
+        //
+        // What makes these the ones it shows on: a group scale, where the rounding is a ratio rather
+        // than an offset and so grows with distance from the group's origin. symbol-hardware is
+        // scaled 0.7428 and the reference says 0.74, which by the far end of a 26-unit shape is
+        // four tenths of a pixel -- and they are drawn in opaque white, where the comparison weighs
+        // an edge some six times what it weighs the same edge in the dimmed dark these measure at
+        // their defaults.
+        //
+        // Emitting two decimals ourselves would close them and would be the wrong thing: the
+        // drawing being compared against is the approximate one.
+        ["symbol-hardware"] = "OracleRounding",
+        ["symbol-permissions"] = "OracleRounding",
+        ["symbol-pb-monitor-large"] = "OracleRounding",
+        ["symbol-mylocation"] = "OracleRounding",
+        ["symbol-allusers"] = "OracleRounding",
+        ["symbol-variables"] = "OracleRounding",
+        ["symbol-logout"] = "OracleRounding",
+        ["symbol-addlocation"] = "OracleRounding",
+        ["symbol-updates"] = "OracleRounding"
     };
 
     /// <summary>What a note is about, in the vocabulary the exception table uses.</summary>

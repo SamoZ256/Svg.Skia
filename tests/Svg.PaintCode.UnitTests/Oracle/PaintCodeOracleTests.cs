@@ -104,7 +104,7 @@ public class PaintCodeOracleTests
                 ["DrivenSweep"] = 16,
 
                 // Not yet diagnosed. This is the debt.
-                ["Unexplained"] = 18,
+                ["Unexplained"] = 9,
 
                 // SVG anchors a run where PaintCode measures one.
                 ["TextMetrics"] = 16,
@@ -120,7 +120,11 @@ public class PaintCodeOracleTests
 
                 // The drawing being compared against predates the document: PaintCode's own export
                 // has no trace of a shape the archive plainly holds. Nothing here to fix.
-                ["StaleOracle"] = 4
+                ["StaleOracle"] = 4,
+
+                // The reference is the rounded drawing, not ours: each of these matches to about
+                // 0.001 once the emitted numbers are rounded the way PaintCode2Skia rounded its own.
+                ["OracleRounding"] = 9
             },
             counted);
     }
