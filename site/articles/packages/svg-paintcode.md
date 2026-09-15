@@ -118,15 +118,16 @@ the bound has to be taken out rather than left sitting there.
 **The conversion is not at parity and the list says where it is not.** Of 1014 canvases, 954 meet the
 bound. Of the 60 that do not: 16 have a sweep an expression drives, which path data keeps literal; 16
 draw text, which SVG anchors where PaintCode measures; 4 want a whole gradient or a blend mode the
-format has no word for; 2 are the document pointing at canvases it does not contain; 2 are the
-reference being older than the document rather than anything to fix; and **20 are not yet
-understood**, which is the number to watch.
+format has no word for; 4 are the reference being older than the document rather than anything to
+fix; 2 are the document pointing at canvases it does not contain; and **18 are not yet understood**,
+which is the number to watch.
 
-One caution about the reference itself. It is generated from the document and can fall behind it:
-two canvases draw a shape the archive plainly holds, visible and unbound, that PaintCode's own export
-has no trace of — in neither the SkiaSharp it was transliterated to nor the Android export it came
-from. Where the conversion and the reference disagree, check which is older before assuming which is
-wrong.
+One caution about the reference itself, and it is the largest single thing on the list. It is
+generated from the document and falls behind it: four canvases — including the two that measured
+furthest from PaintCode of all 1014 — draw shapes the archive plainly holds and PaintCode's own
+export has no trace of, in neither the SkiaSharp it was transliterated to nor the Android export it
+came from. Where the conversion and the reference disagree, check which is older before assuming
+which is wrong; regenerating the reference closes those four on its own.
 
 Two things put a floor under the bound and neither is the conversion's. The two sides reach Skia
 through different models, where a single axis-aligned rect costs about 0.0045 and an icon is many;

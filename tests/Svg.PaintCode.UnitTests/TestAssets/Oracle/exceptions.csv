@@ -21,7 +21,7 @@ overlay-number-step,TextMetrics,0.1039
 pendantlight-level,StaleOracle,0.6190
 pendantlight-state,StaleOracle,0.5263
 powerbutton-state,Unexplained,0.0825
-presence-state,Unexplained,0.7037
+presence-state,StaleOracle,0.7037
 pump-cooling-level,DrivenSweep,0.0581
 pump-heating-cooling-level,DrivenSweep,0.0580
 pump-heating-level,DrivenSweep,0.0603
@@ -29,7 +29,7 @@ pump-level,DrivenSweep,0.1311
 pump-state,DrivenSweep,0.1434
 scene-on,Unexplained,0.0310
 scene-state,GradientChoice,0.0510
-septic2-tank-level,Unexplained,0.4976
+septic2-tank-level,StaleOracle,0.4976
 sr-alarm-2,Unexplained,0.0866
 sr-lighting-timer,GradientChoice,0.0496
 sr-lightscene,GradientChoice,0.0510

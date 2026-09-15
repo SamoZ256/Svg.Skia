@@ -58,22 +58,34 @@ internal sealed class PaintCodeOracleSuite
     /// conversion at all.
     /// </summary>
     /// <remarks>
-    /// Both of these draw an Oval 3 that PaintCode's generated code has no trace of -- not in the
-    /// SkiaSharp it was transliterated to, and not in the Android export that was transliterated
-    /// from, so it is PaintCode's own export that lacks it rather than anything in between. The
-    /// archive holds the shape as the first child of the canvas group, isHidden false,
-    /// visibilityMode 1, alpha 1, carrying no binding at all: there is nothing there for the
-    /// converter to have skipped on. The document was edited after the code was generated, and the
-    /// drawing being compared against is the older one.
+    /// Each of these draws something the archive plainly holds and PaintCode's generated code has no
+    /// trace of -- not in the SkiaSharp it was transliterated to, and not in the Android export that
+    /// was transliterated from, so it is PaintCode's own export that is short rather than anything
+    /// in between. The document was edited after the code was generated, and the drawing being
+    /// compared against is the older one. A regenerated VectorIconsResource.cs closes all of these
+    /// on its own; nothing here is the converter's to fix.
     ///
-    /// Both carry a driven sweep as well, and pendantLight-level is 0.09 worse at level 0 for it.
-    /// But pendantLight-state measures the same 0.526 at every setting, which is the disc alone, so
-    /// the sweep is not what either of these is really about.
+    /// The two pendantLights draw an Oval 3, the first child of their canvas group, isHidden false
+    /// and visibilityMode 1, carrying no binding at all. Both carry a driven sweep as well and
+    /// pendantLight-level is 0.09 worse at level 0 for it, but pendantLight-state measures the same
+    /// 0.526 at every setting, which is the disc alone.
+    ///
+    /// presence-state draws a 29x29 disc filling almost the whole canvas, between its OffGroup and
+    /// its OnGroup, where the generated method goes straight from one to the other and its cache
+    /// declares no path for it. Taking that one element out of the emitted drawing takes it from
+    /// 0.7037 to 0.0227, so it is the whole of the difference.
+    ///
+    /// septic2-tank-level says it twice over: a Group the archive gates on 'accent' that the
+    /// generated code draws unconditionally, and a Group 3 the archive anchors four units below
+    /// where the generated code translates it. The x of that same translate agrees exactly, which is
+    /// what rules out our reading the anchor wrongly.
     /// </remarks>
     private static readonly IReadOnlyDictionary<string, string> s_regardless = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["pendantlight-level"] = "StaleOracle",
-        ["pendantlight-state"] = "StaleOracle"
+        ["pendantlight-state"] = "StaleOracle",
+        ["presence-state"] = "StaleOracle",
+        ["septic2-tank-level"] = "StaleOracle"
     };
 
     /// <summary>What a note is about, in the vocabulary the exception table uses.</summary>
