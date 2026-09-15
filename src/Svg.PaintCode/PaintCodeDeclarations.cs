@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using Svg.Expressions;
 
 namespace Svg.PaintCode;
@@ -432,6 +433,74 @@ internal sealed class PaintCodeDeclarations
 
             yield return expression.Substring(start, at - start);
         }
+    }
+
+    /// <summary>
+    /// The same expression with every name the scope rebinds replaced by what it is now bound to.
+    /// </summary>
+    /// <remarks>
+    /// For a local already written in this format's own syntax rather than PaintCode's, which the
+    /// translator cannot be asked to read again. Tokenised exactly as <see cref="Names"/> does, so a
+    /// name inside a string or the letters of a colour literal are left where they are, and each
+    /// replacement is bracketed: splicing a conditional in raw would re-associate it against
+    /// whatever sits beside it.
+    /// </remarks>
+    internal static string Rebound(string expression, IReadOnlyDictionary<string, string> scope)
+    {
+        var rebuilt = new StringBuilder(expression.Length);
+
+        for (var at = 0; at < expression.Length;)
+        {
+            if (expression[at] == '\'' || expression[at] == '"')
+            {
+                var quote = expression[at++];
+                var opened = at - 1;
+
+                while (at < expression.Length && expression[at] != quote)
+                {
+                    at += expression[at] == '\\' ? 2 : 1;
+                }
+
+                at++;
+                rebuilt.Append(expression, opened, Math.Min(at, expression.Length) - opened);
+
+                continue;
+            }
+
+            if (expression[at] == '#')
+            {
+                var opened = at++;
+
+                while (at < expression.Length && Uri.IsHexDigit(expression[at]))
+                {
+                    at++;
+                }
+
+                rebuilt.Append(expression, opened, at - opened);
+
+                continue;
+            }
+
+            if (!char.IsLetter(expression[at]) && expression[at] != '_')
+            {
+                rebuilt.Append(expression[at++]);
+
+                continue;
+            }
+
+            var start = at;
+
+            while (at < expression.Length && (char.IsLetterOrDigit(expression[at]) || expression[at] == '_'))
+            {
+                at++;
+            }
+
+            var name = expression.Substring(start, at - start);
+
+            rebuilt.Append(scope.TryGetValue(name, out var bound) ? "(" + bound + ")" : name);
+        }
+
+        return rebuilt.ToString();
     }
 
     /// <summary>The number a dotted path names, where every part of it is a constant.</summary>

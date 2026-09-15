@@ -110,7 +110,37 @@ internal sealed class PaintCodeOracleSuite
         ["symbol-variables"] = "OracleRounding",
         ["symbol-logout"] = "OracleRounding",
         ["symbol-addlocation"] = "OracleRounding",
-        ["symbol-updates"] = "OracleRounding"
+        ["symbol-updates"] = "OracleRounding",
+
+        // Rounding and a moved group, stacked: the reference's group y and every path coordinate in
+        // it round from the archive's, and its x does not -- 6.93 against 6.985869, where rounding
+        // would give 6.99. Writing PaintCode's own transform takes it from 0.0510 to 0.0010, and
+        // each half alone leaves about half of that, so it is both.
+        ["symbol-myprofile"] = "StaleOracle",
+
+        // PaintCode clips without antialiasing -- SkiaSharp's ClipPath defaults to it -- and SVG has
+        // no way to ask for a hard clip without aliasing the shapes inside as well. The whole of the
+        // difference is one pixel of coverage around the clip boundary: masking that boundary takes
+        // donotdisturb from 0.0347 to 0.0031, and lightbulb-empty-2 falls to 0.0084 with
+        // shape-rendering=crispEdges, which is the nearest SVG lever and trades one error for
+        // another.
+        ["donotdisturb"] = "AliasedClip",
+        ["lightbulb-empty-2"] = "AliasedClip",
+        ["filter-remaining"] = "AliasedClip",
+
+        // The derived colour chain -- saturation, then shadow, then an alpha -- is worked out at
+        // import, so it follows the canvas rather than the caller that hands the symbol a different
+        // colour to derive from. Substituting what PaintCode's own runtime computes per setting
+        // takes it from 0.0865 to 0.0031. Closing it means the expression format learning to say a
+        // saturation and a shadow, which is wider than this package.
+        ["sr-alarm-2"] = "DerivedColour",
+
+        // Not the converter being wrong but the reference being coarser. A radial gradient here runs
+        // between two circles and SVG says exactly that; PaintCode's runtime cannot, and collapses
+        // it to one circle at the start centre with the end radius, remapping the stops. Matching
+        // that would mean drawing the document less faithfully to agree with a shim, so it is
+        // recorded rather than chased -- 0.0309 as emitted against 0.0067 if we imitated it.
+        ["scene-on"] = "ReferenceRadial"
     };
 
     /// <summary>What a note is about, in the vocabulary the exception table uses.</summary>

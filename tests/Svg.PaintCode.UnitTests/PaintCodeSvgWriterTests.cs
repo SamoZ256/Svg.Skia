@@ -107,13 +107,41 @@ public class PaintCodeSvgWriterTests
     // A whole oval is written with no sweep at all rather than with a full turn, and reading the
     // first of those as an arc draws nothing: 670 of the sample's 718 ovals say it that way.
     [InlineData(0, 0)]
-    [InlineData(0, 360)]
+    // Ends before it starts, so PaintCode adds nothing and the sweep is a whole turn as it stands.
     [InlineData(90, -270)]
     public void A_Whole_Oval_Keeps_Svgs_Own_Element(double start, double end)
     {
         var shape = Box(PaintCodeShapeKind.Oval, new PaintCodeShapeMetrics(0, true, true, true, true, start, end, true, 0, 0));
 
         Assert.True(PaintCodePathData.IsWholeEllipse(shape));
+    }
+
+    /// <summary>
+    /// An arc that ends more than a turn past where it starts comes round by as many turns as it
+    /// takes, not by one.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode's own sum is <c>(start - end) + (end > start ? 360 * ceil((end - start) / 360) : 0)</c>.
+    /// Adding a single turn is right inside one and wrong beyond it, and taking the size of the
+    /// sweep instead -- anything past a turn is whole -- closed the gap in powerButton-state's ring
+    /// altogether. start -290 end 110 is PaintCode's own AddArc(rect, 290, 320).
+    ///
+    /// A sweep that comes round to nothing draws nothing, which is not the same as drawing all of
+    /// it: thermostat-temperature-level asks for start -450 end 270 and PaintCode's sum brings that
+    /// to nought. No oval in the sample is start 0 end 360, but the same sum would make one of those
+    /// empty too, which is why it is not in the theory above.
+    /// </remarks>
+    [Theory]
+    [InlineData(-290, 110, false, false)]
+    [InlineData(-450, 270, false, true)]
+    [InlineData(0, 360, false, true)]
+    [InlineData(90, -270, true, false)]
+    public void An_Arc_Past_A_Turn_Comes_Round_As_Far_As_It_Has_To(double start, double end, bool whole, bool empty)
+    {
+        var shape = Box(PaintCodeShapeKind.Oval, new PaintCodeShapeMetrics(0, true, true, true, true, start, end, false, 0, 0));
+
+        Assert.Equal(whole, PaintCodePathData.IsWholeEllipse(shape));
+        Assert.Equal(empty, PaintCodePathData.For(shape)!.Length == 0);
     }
 
     [Fact]

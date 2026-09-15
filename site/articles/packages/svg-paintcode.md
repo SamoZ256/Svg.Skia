@@ -113,14 +113,17 @@ Every canvas is drawn at each combination of the booleans PaintCode varies it on
 middle of each number, and must come within **0.03** of PaintCode. The ones that cannot are listed in
 `TestAssets/Oracle/exceptions.csv` with the reason each cannot — an entry without a cause is refused,
 so a canvas cannot join the list by having a number written beside it, and one that starts meeting
-the bound has to be taken out rather than left sitting there.
+the bound has to be taken out rather than left sitting there. The counts per cause are asserted too,
+so a class cannot quietly grow.
 
 **The conversion is not at parity and the list says where it is not.** Of 1014 canvases, 954 meet the
-bound. Of the 60 that do not: 16 have a sweep an expression drives, which path data keeps literal; 16
-draw text, which SVG anchors where PaintCode measures; **13 are the reference rather than the
-drawing** — 9 where it is the rounded one and 4 where it is the older one; 4 want a whole gradient or
-a blend mode the format has no word for; 2 are the document pointing at canvases it does not contain;
-and **9 are not yet understood**, which is the number to watch.
+bound, and **every one of the 56 that do not names a reason**. 16 draw text, which SVG anchors where
+PaintCode measures; 16 have a sweep an expression drives, which path data keeps literal; **18 are the
+reference rather than the drawing** — 9 where it is the rounded one, 5 where it is the older one, 3
+where it clips without antialiasing and 1 where its runtime cannot draw the two-circle gradient the
+document asks for; 4 want a whole gradient, a derived colour or a blend mode the format has no word
+for; 1 is the document pointing at a canvas it does not contain; and 1 is a gradient laid across the
+box rather than from the shape's middle.
 
 One caution about the reference itself, and it is the largest single thing on the list. It is
 generated from the document and falls behind it: four canvases — including the two that measured

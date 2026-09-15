@@ -53,9 +53,29 @@ internal static class PaintCodePathData
     /// 718 ovals are start 0, end 0, and reading that as an arc draws nothing.
     /// </remarks>
     internal static bool IsWholeEllipse(PaintCodeShape shape)
-        => shape.Kind is PaintCodeShapeKind.Oval && IsWhole(shape.Metrics.StartAngle - shape.Metrics.EndAngle);
+        => shape.Kind is PaintCodeShapeKind.Oval &&
+           (shape.Metrics.StartAngle == shape.Metrics.EndAngle || Turn(shape.Metrics) >= 360);
 
-    private static bool IsWhole(double sweep) => sweep == 0 || Math.Abs(sweep) >= 360;
+    /// <summary>
+    /// How far round the arc goes, the way PaintCode works it out.
+    /// </summary>
+    /// <remarks>
+    /// Its own generated code writes the sweep as
+    /// <c>(start - end) + (end > start ? 360 * ceil((end - start) / 360) : 0)</c>, so an end past the
+    /// start is brought round by as many whole turns as it takes rather than by exactly one. Adding
+    /// a single turn is right for every sweep inside one and wrong beyond it: powerButton-state is
+    /// start -290 end 110, which is -400, and one turn leaves -40 where PaintCode has 320. Reading
+    /// the size of it instead -- anything past a turn is whole -- drew that one as a closed ring
+    /// with the gap at the top filled in, and large-switch with it.
+    /// </remarks>
+    private static double Turn(PaintCodeShapeMetrics metrics)
+    {
+        var sweep = metrics.StartAngle - metrics.EndAngle;
+
+        return metrics.EndAngle > metrics.StartAngle
+            ? sweep + (360 * Math.Ceiling((metrics.EndAngle - metrics.StartAngle) / 360))
+            : sweep;
+    }
 
     private static string? Bezier(PaintCodeShape shape)
     {
@@ -164,25 +184,30 @@ internal static class PaintCodePathData
         var radiusY = box.Height / 2;
         var centerX = box.X + radiusX;
         var centerY = box.Y + radiusY;
-        var sweep = metrics.StartAngle - metrics.EndAngle;
+        var turn = Turn(metrics);
 
         if (radiusX <= 0 || radiusY <= 0)
         {
             return string.Empty;
         }
 
-        if (IsWhole(sweep))
+        if (metrics.StartAngle == metrics.EndAngle || turn >= 360)
         {
             return Ellipse(centerX, centerY, radiusX, radiusY);
         }
 
-        // PaintCode turns one way and never takes the short route: its own code emits
-        // AddArc(rect, -start, (360 * ceil(end / 360)) - end), a sweep that is always positive and
-        // so always clockwise once the drawing is turned over. Reading the sign of start - end as
+        // A sweep that comes round to nothing draws nothing, which is not the same as drawing the
+        // whole of it: thermostat-temperature-level asks for start -450 end 270, and PaintCode's own
+        // sum brings that to nought.
+        if (turn <= 0)
+        {
+            return string.Empty;
+        }
+
+        // PaintCode turns one way and never takes the short route, so the sweep is always positive
+        // and always clockwise once the drawing is turned over. Reading the sign of start - end as
         // the direction instead drew the complement of every arc that ran more than half a turn --
         // the same two ends, the other way round, and 36 of the sample's canvases wrong by it.
-        var turn = sweep < 0 ? sweep + 360 : sweep;
-
         var start = OnEllipse(centerX, centerY, radiusX, radiusY, -metrics.StartAngle);
         var end = OnEllipse(centerX, centerY, radiusX, radiusY, -metrics.EndAngle);
         var data = new StringBuilder();

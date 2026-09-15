@@ -372,10 +372,23 @@ internal sealed class PaintCodeSvgWriter
 
         foreach (var name in _declarations.Locals())
         {
-            if (scope.ContainsKey(name) ||
-                _declarations.ByName[name] is not { Source: { } source } local ||
-                !Reads(local.Body, scope))
+            if (scope.ContainsKey(name) || _declarations.ByName[name] is not { } local || !Reads(local.Body, scope))
             {
+                continue;
+            }
+
+            // A local built from a library colour rather than from a PaintCode expression -- an
+            // alpha over a parameter, say -- is already written in this format's own syntax and has
+            // no source to translate again. It still has to follow a rebinding: sr-limitTemperature
+            // hands its symbol one colour and the symbol derives another from it, and reading the
+            // canvas's own instead left the glyph in the wrong shade at thirteen of sixteen settings.
+            if (local.Source is not { } source)
+            {
+                if (local.Body is { } body)
+                {
+                    scope[name] = PaintCodeDeclarations.Rebound(body, scope);
+                }
+
                 continue;
             }
 

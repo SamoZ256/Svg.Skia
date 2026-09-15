@@ -98,33 +98,41 @@ public class PaintCodeOracleTests
         Assert.Equal(
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                // A sweep driven by an expression, which path data keeps literal. The largest class
-                // left, and the one that needs the format to learn something rather than the
-                // converter to be corrected.
-                ["DrivenSweep"] = 16,
-
-                // Not yet diagnosed. This is the debt.
-                ["Unexplained"] = 9,
-
                 // SVG anchors a run where PaintCode measures one.
                 ["TextMetrics"] = 16,
+
+                // A sweep an expression drives, which path data keeps literal. The largest class the
+                // converter could still do something about, and it needs the format to learn
+                // something rather than the converter to be corrected.
+                ["DrivenSweep"] = 16,
+
+                // The reference is the rounded drawing, not ours: each of these matches to about
+                // 0.001 once the emitted numbers are rounded the way PaintCode2Skia rounded its own.
+                ["OracleRounding"] = 9,
+
+                // The reference predates the document and is short a shape, a gate or a nudge.
+                ["StaleOracle"] = 5,
 
                 // A whole gradient chosen by an expression, which the format has no type for.
                 ["GradientChoice"] = 3,
 
-                // The document points at canvases it does not contain.
-                ["MissingCanvas"] = 2,
+                // PaintCode clips without antialiasing and SVG cannot ask for that without aliasing
+                // what is inside the clip too.
+                ["AliasedClip"] = 3,
+
+                // The document points at a canvas it does not contain.
+                ["MissingCanvas"] = 1,
 
                 // A gradient turned by a dial, laid across the box rather than from the shape's middle.
                 ["GradientAngle"] = 1,
 
-                // The drawing being compared against predates the document: PaintCode's own export
-                // has no trace of a shape the archive plainly holds. Nothing here to fix.
-                ["StaleOracle"] = 4,
+                // A colour derived by saturation and shadow, which are worked out at import because
+                // the format has no word for them, so they follow the canvas and not the caller.
+                ["DerivedColour"] = 1,
 
-                // The reference is the rounded drawing, not ours: each of these matches to about
-                // 0.001 once the emitted numbers are rounded the way PaintCode2Skia rounded its own.
-                ["OracleRounding"] = 9
+                // We draw the two-circle gradient the document describes; the reference's runtime
+                // cannot, and collapses it.
+                ["ReferenceRadial"] = 1
             },
             counted);
     }
