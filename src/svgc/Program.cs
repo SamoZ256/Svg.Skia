@@ -77,18 +77,27 @@ class Program
         var result = PaintCodeImport.Run(path, options);
         Log($"Imported: {result.Files.Count} drawings into {options.ProjectPath}");
 
-        // Capped the way a compiler caps its diagnostics: a document of any size can produce
-        // thousands of these, and a wall of them buries the build output that follows.
+        // What the document itself is missing comes first and is never capped away: it is the only
+        // thing here the converter cannot ever fix, and it is short.
+        foreach (var note in result.Notes.Where(note => note.Severity is PaintCodeImportSeverity.Missing))
+        {
+            Log($"missing: {note}");
+        }
+
+        // The rest is capped the way a compiler caps its diagnostics: a document of any size can
+        // produce thousands of these, and a wall of them buries the build output that follows.
         const int shown = 20;
 
-        foreach (var note in result.Notes.Take(shown))
+        var rest = result.Notes.Where(note => note.Severity is not PaintCodeImportSeverity.Missing).ToList();
+
+        foreach (var note in rest.Take(shown))
         {
             Log($"note: {note}");
         }
 
-        if (result.Notes.Count > shown)
+        if (rest.Count > shown)
         {
-            Log($"note: and {result.Notes.Count - shown} more.");
+            Log($"note: and {rest.Count - shown} more.");
         }
 
         return options.ProjectPath!;

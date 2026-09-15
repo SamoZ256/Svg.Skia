@@ -278,7 +278,7 @@ internal sealed class PaintCodeSvgWriter
     {
         if (_symbols.Find(symbol) is not { } target)
         {
-            Note(PaintCodeImportSeverity.Dropped, symbol.Name, "symbol", $"'{symbol.TargetName}' names a canvas this document does not hold.");
+            Note(PaintCodeImportSeverity.Missing, symbol.Name, "symbol", $"the document has no canvas called '{symbol.TargetName}', so nothing is drawn where this symbol was placed.");
 
             return null;
         }

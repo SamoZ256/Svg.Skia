@@ -74,7 +74,12 @@ public class MainWindowImportTests : IDisposable
         await window.ImportPaintCodeAsync(Sample(), Path.Combine(_directory, "icons"));
 
         Assert.Contains("could not be carried across", _said);
-        Assert.Contains("does not hold", _said);
+
+        // What the document itself is missing is listed apart from the rest and before it: a symbol
+        // naming a canvas the document has no copy of is not something this converter can ever fix,
+        // and among a hundred caveats about what SVG cannot say it read as one more of them.
+        Assert.Contains("the document itself is missing:", _said);
+        Assert.Contains("the document has no canvas called", _said);
     }
 
     private string _said = string.Empty;

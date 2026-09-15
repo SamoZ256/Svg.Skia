@@ -91,7 +91,13 @@ public class PaintCodeSymbolTests
 
         var note = Assert.Single(notes, one => one.Element == "Missing");
 
-        Assert.Contains("does not hold", note.Message);
+        // A severity of its own, because this one is not the converter's to fix: however much SVG
+        // learns to say, a symbol naming a canvas the document has no copy of still draws nothing.
+        Assert.Equal(PaintCodeImportSeverity.Missing, note.Severity);
+        Assert.Contains("the document has no canvas called 'nowhere'", note.Message);
+
+        // And it says what it cost without the property column, which names nothing here.
+        Assert.StartsWith("host/Missing: the document has no canvas", note.ToString());
     }
 
     [Fact]

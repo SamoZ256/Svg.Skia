@@ -475,14 +475,26 @@ public partial class MainWindow : Window
     private static string Said(PaintCodeImportResult result)
     {
         var wrote = $"{result.Files.Count} drawing{(result.Files.Count == 1 ? string.Empty : "s")}.";
-        var lines = result.Notes.Take(Listed).Select(note => note.ToString()).ToList();
+        var missing = result.Notes.Where(note => note.Severity is PaintCodeImportSeverity.Missing).ToList();
+        var rest = result.Notes.Where(note => note.Severity is not PaintCodeImportSeverity.Missing).ToList();
+        var lines = new List<string> { $"{wrote} {result.Notes.Count} could not be carried across:" };
 
-        if (result.Notes.Count > Listed)
+        // First, and never trimmed away: this is the document asking for a canvas it does not have,
+        // which is the one thing in here to take back to PaintCode rather than to this converter.
+        if (missing.Count > 0)
         {
-            lines.Add($"and {result.Notes.Count - Listed} more.");
+            lines.Add($"{missing.Count} the document itself is missing:");
+            lines.AddRange(missing.Select(note => "  " + note));
         }
 
-        return string.Join(Environment.NewLine, lines.Prepend($"{wrote} {result.Notes.Count} could not be carried across:"));
+        lines.AddRange(rest.Take(Listed).Select(note => note.ToString()));
+
+        if (rest.Count > Listed)
+        {
+            lines.Add($"and {rest.Count - Listed} more.");
+        }
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     /// <summary>Where an import writes when nobody was asked: a folder beside the document.</summary>

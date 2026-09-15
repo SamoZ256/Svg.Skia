@@ -8,7 +8,19 @@ public enum PaintCodeImportSeverity
     Approximated,
 
     /// <summary>Something was left out, and the drawing is short of what PaintCode draws.</summary>
-    Dropped
+    Dropped,
+
+    /// <summary>
+    /// The document asks for something it does not itself contain.
+    /// </summary>
+    /// <remarks>
+    /// Not a limit of the conversion, and the only severity here that is somebody else's to fix: a
+    /// symbol naming a canvas the document has no copy of draws nothing wherever it is placed, and
+    /// will go on doing so however the converter is improved. Listed apart from the rest for that
+    /// reason -- read among a hundred caveats about what SVG cannot say, it looks like one more of
+    /// them.
+    /// </remarks>
+    Missing
 }
 
 /// <summary>One thing an import could not carry across, named so it can be looked at.</summary>
@@ -38,5 +50,8 @@ public sealed class PaintCodeImportNote
 
     public string Message { get; }
 
-    public override string ToString() => $"{Canvas}/{Element}: {Property} — {Message}";
+    public override string ToString()
+        => Severity is PaintCodeImportSeverity.Missing
+            ? $"{Canvas}/{Element}: {Message}"
+            : $"{Canvas}/{Element}: {Property} — {Message}";
 }
