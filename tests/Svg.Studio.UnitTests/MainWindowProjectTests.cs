@@ -1088,6 +1088,66 @@ public class MainWindowProjectTests : IDisposable
         }
     }
 
+    /// <summary>A second drawing declaring exactly what <see cref="Declaring"/> does, in its own file.</summary>
+    private const string DeclaringToo = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="tint" type="color" default="#00ff00" /></e:code></defs>
+          <circle cx="12" cy="12" r="10" fill="{{ tint }}" />
+        </svg>
+        """;
+
+    /// <summary>The same name and type, seeded differently — which is a different parameter.</summary>
+    private const string DeclaringDifferently = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="tint" type="color" default="#0000ff" /></e:code></defs>
+          <rect width="24" height="24" fill="{{ tint }}" />
+        </svg>
+        """;
+
+    /// <summary>Three drawings that declare for themselves, with no recipe anywhere.</summary>
+    private const string DeclaringProject = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+          <group namespace="Demo.Icons.Own">
+            <svg input="one.svg" class="One" />
+            <svg input="two.svg" class="Two" />
+            <svg input="three.svg" class="Three" />
+          </group>
+        </svgc>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Value_Reaches_Every_Drawing_Declaring_The_Same_Thing()
+    {
+        // No recipe anywhere. Two drawings that each wrote the same block by hand are as much a
+        // family as two built through one, and they are not the same file either -- one is a rect
+        // and one a circle, so what pairs them is what they declare and nothing else.
+        Write("one.svg", Declaring);
+        Write("two.svg", DeclaringToo);
+        Write("three.svg", DeclaringDifferently);
+
+        var window = await Host(Write("icons.svgcproj", DeclaringProject));
+        var panel = await Group(window, 0);
+
+        var placements = Drawn(panel);
+
+        Assert.Equal(3, placements.Count);
+
+        Pick(window, panel, 0);
+
+        var before = placements.Select(placed => placed.Svg.Picture).ToArray();
+
+        ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotSame(before[0], placements[0].Svg.Picture);
+        Assert.NotSame(before[1], placements[1].Svg.Picture);
+
+        // The same name and the same type, a different default: a different parameter, and it moves
+        // alone. Matching on the names alone would have taken this one with it.
+        Assert.Same(before[2], placements[2].Svg.Picture);
+    }
+
     [AvaloniaFact]
     public async Task A_Value_Reaches_Every_Drawing_Sharing_The_Declaration()
     {
