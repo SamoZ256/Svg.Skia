@@ -55,7 +55,10 @@ public partial class SvgDocument
                     case "let":
                         // The expression is element content, which arrives both as Content and as a
                         // content node; Content is the one that is set for a single text child.
-                        builder.AddLet(Attribute(declaration, "name"), declaration.Content);
+                        builder.AddLet(
+                            Attribute(declaration, "name"),
+                            declaration.Content,
+                            Attribute(declaration, "type"));
                         break;
                 }
             }

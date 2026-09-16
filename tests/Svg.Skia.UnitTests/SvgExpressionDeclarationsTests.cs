@@ -11,6 +11,69 @@ public class SvgExpressionDeclarationsTests
 {
     private const string Ns = SvgExpressionDeclarations.Namespace;
 
+    private static SvgExpressionDeclarations Parse(string body)
+        => SvgExpressionDeclarations.Parse($"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
+              <defs><e:code>{body}</e:code></defs>
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Let_Can_Declare_Its_Type()
+    {
+        var declarations = Parse("""<e:let name="n" type="integer">3</e:let>""");
+
+        Assert.Equal(ExprType.Integer, declarations.Lets[0].DeclaredType);
+        Assert.Equal(ExprType.Integer, ExprEvaluator.Create(declarations).Evaluate("n").Type);
+    }
+
+    [Fact]
+    public void A_Let_Without_One_Is_Still_Inferred()
+    {
+        Assert.Null(Parse("""<e:let name="n">3</e:let>""").Lets[0].DeclaredType);
+    }
+
+    [Fact]
+    public void A_Let_That_Does_Not_Produce_Its_Declared_Type_Is_Refused()
+    {
+        var declarations = Parse("""<e:let name="n" type="integer">0.5</e:let>""");
+
+        var error = Assert.Throws<ExprException>(() => ExprEvaluator.Create(declarations));
+
+        Assert.Contains("integer", error.Message);
+    }
+
+    [Fact]
+    public void An_Integer_Parameter_May_Carry_A_Range()
+    {
+        var range = Parse("""<e:param name="steps" type="integer" default="4" min="0" max="9" step="1" />""")
+            .Parameters[0]
+            .ResolveRange();
+
+        Assert.Equal(0f, range.Minimum);
+        Assert.Equal(9f, range.Maximum);
+        Assert.Equal(1f, range.Step);
+    }
+
+    [Fact]
+    public void An_Integer_Parameters_Bounds_Are_Whole()
+    {
+        // tau is a number, so it is not a bound an integer can have. Truncating it silently would
+        // put the slider somewhere the document did not ask for.
+        var parameter = Parse("""<e:param name="steps" type="integer" default="1" min="0" max="tau" />""").Parameters[0];
+
+        Assert.Contains("integer", Assert.Throws<ExprException>(() => parameter.ResolveRange()).Message);
+    }
+
+    [Fact]
+    public void A_Range_On_Something_With_No_Range_Is_Still_Refused()
+    {
+        var error = Assert.Throws<ExprException>(
+            () => Parse("""<e:param name="tint" type="color" min="0" max="1" />"""));
+
+        Assert.Contains("cannot carry min, max or step", error.Message);
+    }
+
     [Fact]
     public void Plain_Svg_Yields_Empty_Declarations()
     {

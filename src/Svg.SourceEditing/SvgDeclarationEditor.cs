@@ -532,7 +532,10 @@ public static class SvgDeclarationEditor
                 continue;
             }
 
-            builder.AddLet(let.Name, let.Expression);
+            builder.AddLet(
+                let.Name,
+                let.Expression,
+                let.DeclaredType is { } declared ? ExprFunctions.NameOf(declared) : null);
         }
 
         return builder;

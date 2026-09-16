@@ -54,7 +54,9 @@ public sealed class ExprChecker
             try
             {
                 // Into the table the checker is holding, so each let is in scope for the next.
-                symbols[let.Name] = checker.Check(let.Expression).Type;
+                symbols[let.Name] = let.DeclaredType is { } declared
+                    ? checker.CheckAs(let.Expression, declared, $"The let '{let.Name}'").Type
+                    : checker.Check(let.Expression).Type;
             }
             catch (ExprException)
             {

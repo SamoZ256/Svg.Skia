@@ -41,9 +41,11 @@ public class SvgDocumentExpressionDeclarationsTests
             expected.Parameters.Select(p => (p.Name, p.Type, p.DefaultExpression, p.MinExpression, p.MaxExpression, p.StepExpression)),
             actual.Parameters.Select(p => (p.Name, p.Type, p.DefaultExpression, p.MinExpression, p.MaxExpression, p.StepExpression)));
 
+        // The declared type with them, and for the same reason: a let carrying one is the only
+        // thing that tells the two numeric types apart, so a reader dropping it would be silent.
         Assert.Equal(
-            expected.Lets.Select(l => (l.Name, l.Expression)),
-            actual.Lets.Select(l => (l.Name, l.Expression)));
+            expected.Lets.Select(l => (l.Name, l.Expression, l.DeclaredType)),
+            actual.Lets.Select(l => (l.Name, l.Expression, l.DeclaredType)));
 
         Assert.Equal(expected.IsEmpty, actual.IsEmpty);
     }
@@ -62,8 +64,10 @@ public class SvgDocumentExpressionDeclarationsTests
                   <e:param name="hue" type="number" default="217" min="0" max="360" step="1" />
                   <e:param name="tint" type="color" />
                   <e:param name="bold" type="boolean" default="false" />
+                  <e:param name="steps" type="integer" default="4" min="0" max="9" step="1" />
                   <e:let name="wave">(sin(t * tau) + 1) / 2</e:let>
                   <e:let name="tone">hsl(200 + wave * 60, 0.6, 0.4)</e:let>
+                  <e:let name="half" type="integer">steps / 2</e:let>
                 </e:code>
               </defs>
               <rect x="0" y="0" width="24" height="24" fill="{{ tone }}" />
@@ -74,8 +78,10 @@ public class SvgDocumentExpressionDeclarationsTests
 
         var declarations = Document(markup).ExpressionDeclarations;
 
-        Assert.Equal(4, declarations.Parameters.Count);
-        Assert.Equal(2, declarations.Lets.Count);
+        Assert.Equal(5, declarations.Parameters.Count);
+        Assert.Equal(3, declarations.Lets.Count);
+        Assert.Equal(ExprType.Integer, declarations.Parameters[4].Type);
+        Assert.Equal(ExprType.Integer, declarations.Lets[2].DeclaredType);
         Assert.Equal("(sin(t * tau) + 1) / 2", declarations.Lets[0].Expression);
         Assert.Equal(ExprType.Color, declarations.Parameters[2].Type);
         Assert.Null(declarations.Parameters[2].DefaultExpression);

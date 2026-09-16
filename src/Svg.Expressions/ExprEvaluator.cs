@@ -61,7 +61,10 @@ public sealed class ExprEvaluator
         // to both maps is what makes each one visible to whatever is evaluated after it.
         foreach (var let in declarations.Lets)
         {
-            var value = evaluator.Evaluate(let.Expression);
+            var value = let.DeclaredType is { } declared
+                ? evaluator.EvaluateTo(let.Expression, declared, $"The let '{let.Name}'")
+                : evaluator.Evaluate(let.Expression);
+
             symbols[let.Name] = value.Type;
             values[let.Name] = value;
         }
