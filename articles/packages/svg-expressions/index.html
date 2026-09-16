@@ -209,14 +209,16 @@ keep in sync.</p>
 renderers ignore:</p>
 <pre><code class="language-xml">&lt;defs&gt;
   &lt;e:code&gt;
-    &lt;e:param name=&quot;t&quot;    type=&quot;number&quot;  default=&quot;0&quot; /&gt;
-    &lt;e:param name=&quot;hue&quot;  type=&quot;number&quot;  default=&quot;217&quot; min=&quot;0&quot; max=&quot;360&quot; step=&quot;1&quot; /&gt;
-    &lt;e:param name=&quot;tint&quot; type=&quot;color&quot;   /&gt;
-    &lt;e:param name=&quot;bold&quot; type=&quot;boolean&quot; default=&quot;false&quot; /&gt;
-    &lt;e:param name=&quot;theme&quot; type=&quot;string&quot; default=&quot;'dark'&quot; /&gt;
+    &lt;e:param name=&quot;t&quot;     type=&quot;number&quot;  default=&quot;0&quot; /&gt;
+    &lt;e:param name=&quot;hue&quot;   type=&quot;number&quot;  default=&quot;217&quot; min=&quot;0&quot; max=&quot;360&quot; step=&quot;1&quot; /&gt;
+    &lt;e:param name=&quot;steps&quot; type=&quot;integer&quot; default=&quot;4&quot;   min=&quot;0&quot; max=&quot;9&quot;   step=&quot;1&quot; /&gt;
+    &lt;e:param name=&quot;tint&quot;  type=&quot;color&quot;   /&gt;
+    &lt;e:param name=&quot;bold&quot;  type=&quot;boolean&quot; default=&quot;false&quot; /&gt;
+    &lt;e:param name=&quot;theme&quot; type=&quot;string&quot;  default=&quot;'dark'&quot; /&gt;
 
     &lt;e:let name=&quot;wave&quot;&gt;(sin(t * tau) + 1) / 2&lt;/e:let&gt;
     &lt;e:let name=&quot;shade&quot;&gt;mix(tint, #000000, wave)&lt;/e:let&gt;
+    &lt;e:let name=&quot;half&quot; type=&quot;integer&quot;&gt;steps / 2&lt;/e:let&gt;
   &lt;/e:code&gt;
 &lt;/defs&gt;
 </code></pre>
@@ -240,12 +242,17 @@ increment. All three are optional, and each is an expression like <code>default<
 &lt;e:param name=&quot;fade&quot; type=&quot;number&quot; default=&quot;0.5&quot; step=&quot;5%&quot; /&gt;
 </code></pre>
 <p><code>min</code> and <code>max</code> are given together or not at all. <code>step</code> may stand alone, against the range of <code>0</code> to
-<code>1</code> a parameter has when it declares none. All three are for <code>number</code> only — any other type
-carrying one is an error, as is a <code>min</code> above its <code>max</code>, or a <code>step</code> of zero or less.</p>
+<code>1</code> a parameter has when it declares none. All three are for <code>number</code> and <code>integer</code> only — any other
+type carrying one is an error, as is a <code>min</code> above its <code>max</code>, or a <code>step</code> of zero or less. An
+integer's bounds are themselves integers, so <code>max=&quot;tau&quot;</code> on one is refused rather than truncated.</p>
 <p>They are <strong>advice to a host, not a constraint on the value</strong>. Nothing clamps: a value supplied at run
 time is accepted wherever it lies, and a <code>default</code> outside its own range is legal.</p>
 <p><strong><code>&lt;e:let&gt;</code></strong> declares a local. Its type is <strong>inferred</strong> from the expression. Lets resolve in document
 order, so a let may reference parameters and earlier lets, but not later ones — and not itself.</p>
+<p><code>type</code> is optional on a let, and the only thing it is really for is the numeric types: an inferred
+whole literal is a number (<a href="#32-literals">§3.2</a>), so <code>&lt;e:let name=&quot;n&quot;&gt;3&lt;/e:let&gt;</code> is a number and
+<code>&lt;e:let name=&quot;n&quot; type=&quot;integer&quot;&gt;3&lt;/e:let&gt;</code> is how to ask for the other. Written anywhere else it is a
+check rather than a choice — the expression has to produce that type or the block is refused.</p>
 <p>Names must be valid identifiers (letter or <code>_</code>, then letters, digits or <code>_</code>), must not collide with a
 built-in constant, function or operator word (<a href="#33-operators">§3.3</a>), and must be unique across
 params and lets.</p>
@@ -397,6 +404,9 @@ document first, and changing one compiles the drawing again.</p>
 <p>An element's text is lifted whole or not at all: <code>{{ … }}</code> has to be the entire content, so
 <code>Total: {{ n }}</code> is literal text and <code>{{ 'Total: ' + n }}</code> is the way to say it. The language has <code>+</code>
 on strings for exactly this.</p>
+<p>No attribute takes an <code>integer</code>, and that is a decision rather than a gap: SVG has none whose value
+is whole. An integer drives a drawing by choosing — <code>visibility=&quot;{{ steps &gt; 0 }}&quot;</code> — or through
+<code>num()</code>, which is what the tables above ask for.</p>
 <p>Everything else — <code>x</code>, <code>y</code>, <code>cx</code>, <code>cy</code>, <code>width</code>, <code>height</code>, <code>d</code> — is a literal.
 Braces written in one of those are read as an ordinary value and do nothing; a source view marks it.</p>
 <p>Position through <code>x</code> or <code>cx</code> stays literal because those are consumed into the path the drawing
@@ -471,9 +481,24 @@ live canvas matrix, which is precisely what SVG means by user space: the paint m
 </ul>
 <h2 id="3-language-reference">3. Language reference</h2>
 <h3 id="31-types">3.1 Types</h3>
-<p><code>number</code> (single-precision float), <code>color</code> (RGBA, 8 bits per channel), <code>boolean</code>, <code>string</code>.</p>
+<p><code>number</code> (single-precision float), <code>integer</code> (32-bit, wrapping), <code>color</code> (RGBA, 8 bits per channel),
+<code>boolean</code>, <code>string</code>.</p>
 <p>There are no implicit conversions between them. In particular <code>+</code> never turns a number into text:
-between a string and anything else it is an error, not a conversion.</p>
+between a string and anything else it is an error, not a conversion — and it does not turn an integer
+into a number either. <code>num(i)</code> and <code>int(x)</code> are the crossing, and they are functions for the same
+reason <code>len</code> and <code>str</code> are (<a href="#35-functions">§3.5</a>): a value that changed type without being asked to
+would give every arithmetic operator a second meaning.</p>
+<p>A <strong>literal</strong> is the exception, and it is not a conversion: <code>3</code> has no type of its own until
+something says which one it is (<a href="#32-literals">§3.2</a>). What has a type is a value, and every value
+keeps it.</p>
+<p>An integer is what a drawing <strong>counts</strong> with — a step, a level, an index. No attribute takes one
+(<a href="#2-where-an-expression-can-go">§2</a>), because SVG has none whose value is whole: an opacity, a width
+and a stroke width are all fractional. So an integer is computed with and converted through <code>num()</code>
+to paint with.</p>
+<pre><code class="language-xml">&lt;e:param name=&quot;steps&quot; type=&quot;integer&quot; default=&quot;4&quot; min=&quot;0&quot; max=&quot;9&quot; step=&quot;1&quot; /&gt;
+
+&lt;rect visibility=&quot;{{ steps &gt; 0 }}&quot; opacity=&quot;{{ num(steps) / 10 }}&quot; /&gt;
+</code></pre>
 <p>A string reaches a drawing two ways (<a href="#2-where-an-expression-can-go">§2</a>): as the text or the font
 of a <code>&lt;text&gt;</code>, and as the thing that chooses between values the other attributes take.</p>
 <pre><code class="language-xml">&lt;e:param name=&quot;theme&quot; type=&quot;string&quot; default=&quot;'dark'&quot; /&gt;
@@ -491,9 +516,14 @@ of a <code>&lt;text&gt;</code>, and as the thing that chooses between values the
 </thead>
 <tbody>
 <tr>
-<td><code>1</code>, <code>1.5</code>, <code>.5</code></td>
+<td><code>1</code>, <code>42</code></td>
+<td>number <em>or</em> integer</td>
+<td>Whole, and which one is decided by where it is written. See below.</td>
+</tr>
+<tr>
+<td><code>1.5</code>, <code>.5</code></td>
 <td>number</td>
-<td>Decimal only. No exponent form.</td>
+<td>A point settles it. Decimal only, no exponent form.</td>
 </tr>
 <tr>
 <td><code>55%</code>, <code>7.4%</code></td>
@@ -532,6 +562,42 @@ of a <code>&lt;text&gt;</code>, and as the thing that chooses between values the
 </tr>
 </tbody>
 </table>
+<h4 id="a-whole-literal-takes-the-type-its-context-asks-for">A whole literal takes the type its context asks for</h4>
+<p><code>3</code> is not a number that becomes an integer, nor an integer that becomes a number. It is written
+whole, and the slot it lands in decides:</p>
+<table class="table">
+<thead>
+<tr>
+<th>Where it is written</th>
+<th>What <code>3</code> is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;e:param type=&quot;integer&quot; default=&quot;3&quot; /&gt;</code></td>
+<td>integer</td>
+</tr>
+<tr>
+<td><code>&lt;e:param type=&quot;number&quot; default=&quot;3&quot; /&gt;</code></td>
+<td>number</td>
+</tr>
+<tr>
+<td>beside a value, as in <code>steps + 3</code></td>
+<td>whatever that value is</td>
+</tr>
+<tr>
+<td>where nothing says — a <code>&lt;e:let&gt;</code> with no type</td>
+<td><strong>number</strong></td>
+</tr>
+</tbody>
+</table>
+<p>That last row is the rule everything else rests on. <code>step=&quot;1/60&quot;</code> is two whole literals divided, and
+it means <code>0.0166…</code> as it always has, because the slot asks for a number and both literals are
+numbers before the division happens. The context reaches the literals themselves rather than the
+answer, so integer division only ever happens between two values that were <em>declared</em> integers —
+something an author did on purpose.</p>
+<p>A literal too big for an integer is refused where an integer is wanted and is an ordinary number
+everywhere else, so <code>3000000000</code> is a fine number and a bad step count.</p>
 <p>A string literal is closed by whichever quote opened it, and only that quote has to be escaped
 inside it. <code>'</code> is the spelling to prefer: an expression lives in a double-quoted XML attribute, where
 <code>'</code> needs no entity and <code>&quot;</code> has to be written <code>&amp;quot;</code>.</p>
@@ -585,36 +651,36 @@ listed alongside:</p>
 <td>5</td>
 <td><code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code></td>
 <td><code>lt</code> <code>le</code> <code>gt</code> <code>ge</code></td>
-<td>number</td>
+<td>number, or two integers</td>
 <td>boolean</td>
 </tr>
 <tr>
 <td>6</td>
 <td><code>+</code></td>
 <td></td>
-<td>number, or two strings</td>
-<td>number, or string</td>
+<td>number, two integers, or two strings</td>
+<td>that type</td>
 </tr>
 <tr>
 <td>6</td>
 <td><code>-</code></td>
 <td></td>
-<td>number</td>
-<td>number</td>
+<td>number, or two integers</td>
+<td>that type</td>
 </tr>
 <tr>
 <td>7</td>
 <td><code>*</code> <code>/</code></td>
 <td></td>
-<td>number</td>
-<td>number</td>
+<td>number, or two integers</td>
+<td>that type</td>
 </tr>
 <tr>
 <td>8</td>
 <td><code>-x</code> (unary)</td>
 <td></td>
-<td>number</td>
-<td>number</td>
+<td>number, or integer</td>
+<td>that type</td>
 </tr>
 <tr>
 <td>8</td>
@@ -626,10 +692,40 @@ listed alongside:</p>
 </tbody>
 </table>
 <p>Parentheses group as usual.</p>
-<p>Arithmetic on colours is rejected — use <code>mix(a, b, t)</code> to blend. Ordering comparisons (<code>&lt;</code>, <code>&gt;</code>, …)
-are numbers only; <code>==</code> and <code>!=</code> work on any type provided both sides match.</p>
-<p><code>+</code> is the one operator with two meanings: two numbers add, two strings join. A string with anything
-else is an error, because the alternative would make <code>+</code> a conversion.</p>
+<p>Arithmetic on colours is rejected — use <code>mix(a, b, t)</code> to blend. <code>==</code> and <code>!=</code> work on any type
+provided both sides match.</p>
+<p><code>+</code> is the one operator with two meanings: numbers add, two strings join. A string with anything else
+is an error, because the alternative would make <code>+</code> a conversion.</p>
+<p>Arithmetic never mixes the two numeric types: <code>steps + 0.5</code> is an error, and <code>num(steps) + 0.5</code> is
+how to say it. Between two integers the answer is an integer — including <code>/</code>, which divides <strong>toward
+zero</strong>, so <code>7 / 2</code> is <code>3</code>. That never catches a literal out, because two whole literals with nothing
+else to settle them are numbers (<a href="#32-literals">§3.2</a>).</p>
+<p>Integer arithmetic <strong>wraps</strong> rather than failing, and the three things C# would throw on are answered
+instead, so a drawing that renders cannot start throwing:</p>
+<table class="table">
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>a / 0</code></td>
+<td>the ends — <code>int.MaxValue</code>, <code>int.MinValue</code>, or <code>0</code> for <code>0 / 0</code></td>
+</tr>
+<tr>
+<td><code>mod(a, 0)</code></td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>abs</code> of the lowest integer</td>
+<td><code>int.MaxValue</code></td>
+</tr>
+</tbody>
+</table>
+<p>Those are the integer spelling of what the number path already answers — an infinity and a NaN — and
+they are the same ends <code>int()</code> saturates to, so <code>int(1 / 0)</code> and <code>1 / 0</code> agree.</p>
 <h4 id="escaping-and-the-word-forms">Escaping, and the word forms</h4>
 <p>XML requires <code>&lt;</code> and <code>&amp;</code> to be escaped, which makes <code>t &lt; 5</code> and <code>a &amp;&amp; b</code> awkward to author. <code>&gt;</code> does
 <strong>not</strong> need escaping and can always be written literally.</p>
@@ -697,12 +793,13 @@ names.</p>
 <td><code>clamp(x, lo, hi)</code></td>
 <td></td>
 </tr>
-<tr>
-<td><code>lerp(a, b, t)</code></td>
-<td><code>a + (b - a) * t</code>. <strong><code>t</code> is not clamped</strong>, so it extrapolates outside 0..1.</td>
-</tr>
 </tbody>
 </table>
+<p><code>abs</code>, <code>min</code>, <code>max</code>, <code>mod</code> and <code>clamp</code> answer in <strong>either</strong> numeric type, by the arguments they are
+given: <code>min(steps, 1)</code> is an integer and <code>min(t, 1)</code> is a number. Where the arguments say nothing
+because both are whole literals — <code>min(1, 2)</code> — the answer is a number, which is what such a call
+always meant; <code>int(min(1, 2))</code> asks for the other.
+| <code>lerp(a, b, t)</code> | <code>a + (b - a) * t</code>. <strong><code>t</code> is not clamped</strong>, so it extrapolates outside 0..1. |</p>
 <p>Colour:</p>
 <table class="table">
 <thead>
@@ -753,19 +850,39 @@ names.</p>
 </tr>
 <tr>
 <td><code>len(s)</code></td>
-<td>Number of UTF-16 code units, as a <strong>number</strong> — which is how a string reaches the arithmetic.</td>
+<td>Number of UTF-16 code units, as an <strong>integer</strong> — which is how a string reaches the arithmetic.</td>
 </tr>
 <tr>
 <td><code>str(x)</code></td>
-<td>A <strong>number</strong> as text, invariant and shortest round-trip — which is how a number reaches the words. A whole number reads as one: <code>str(100)</code> is <code>'100'</code>, not <code>'100.0'</code>.</td>
+<td>A number <strong>or an integer</strong> as text, invariant and shortest round-trip — which is how either reaches the words. A whole number reads as one: <code>str(100)</code> is <code>'100'</code>, not <code>'100.0'</code>.</td>
 </tr>
 </tbody>
 </table>
 <p>Note the deliberate asymmetry: <code>rgb</code> takes 0..255 and <code>hsl</code> takes degrees plus fractions, matching
 CSS rather than being internally uniform.</p>
-<p><code>len</code> and <code>str</code> are the only two crossings between a number and a string, and they are functions
-rather than conversions for the reason <a href="#33-operators">§3.3</a> gives: <code>+</code> would otherwise have a third
-meaning, and <code>'total: ' + n</code> would silently be text where it was meant to be an error.</p>
+<p>Between the two numeric types:</p>
+<table class="table">
+<thead>
+<tr>
+<th>Signature</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>int(x)</code></td>
+<td>A number as an integer, <strong>toward zero</strong> — <code>int(-2.5)</code> is <code>-2</code>, which is not <code>floor</code>. Saturates at the ends rather than wrapping, and a NaN is <code>0</code>.</td>
+</tr>
+<tr>
+<td><code>num(i)</code></td>
+<td>An integer as a number. Above 2²⁴ a float stops counting by one, so a large integer loses its last digits — which is the whole reason the two types are separate.</td>
+</tr>
+</tbody>
+</table>
+<p><code>len</code> and <code>str</code> cross between a string and the numbers, <code>int</code> and <code>num</code> between the numbers
+themselves, and all four are functions rather than conversions for the reason
+<a href="#33-operators">§3.3</a> gives: <code>+</code> would otherwise have a third meaning, and <code>'total: ' + n</code> would
+silently be text where it was meant to be an error.</p>
 <h3 id="36-grammar">3.6 Grammar</h3>
 <pre><code>conditional    := or ( '?' conditional ':' conditional )?
 or             := and ( ( '||' | 'or' ) and )*
@@ -780,6 +897,9 @@ primary        := number | color | string | 'true' | 'false'
                 | identifier '(' ( conditional ( ',' conditional )* )? ')'
                 | '(' conditional ')'
 </code></pre>
+<p>The grammar is unchanged by the integer, and deliberately so: <code>3</code> and <code>3.0</code> are one production, and
+which numeric type each is belongs to the checker rather than the parser. There is no suffix to
+write and nothing new to spell.</p>
 <h2 id="related-docs">Related docs</h2>
 <ul>
 <li><a href="/Svg.Skia/articles/packages/svg-highlighting">Svg.Highlighting</a> — colouring and checking a document that uses the extension</li>
