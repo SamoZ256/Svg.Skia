@@ -1,5 +1,5 @@
 ---
-description: Push the current branch, open a PR against a target branch, merge it, and land; or push and finish a PR that already exists
+description: Land work by merging a pull request on the remote, never with a local git merge - push the current branch, open a PR against a target branch, merge that PR on GitHub, and land; or push and finish a PR that already exists. This is the only way work lands in this repository.
 argument-hint: [target-branch, or the number of a PR that already exists]
 allowed-tools: SlashCommand, Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git ls-files:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(git rev-list:*), Bash(git checkout:*), Bash(git switch:*), Bash(git restore:*), Bash(git pull:*), Bash(git fetch:*), Bash(gh auth:*), Bash(gh pr:*), Bash(gh repo:*), Bash(dotnet build:*), Bash(dotnet test:*), Bash(dotnet format:*)
 ---
