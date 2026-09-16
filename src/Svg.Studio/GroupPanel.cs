@@ -856,9 +856,13 @@ public sealed class GroupPanel : UserControl
     /// drawings that each wrote the same block by hand, which are as much a family as two built from
     /// one recipe and had been moving alone.
     ///
-    /// The whole parameter list, in order, and not the names: a default and a bound are as much of
-    /// what a parameter is as its type, so two drawings agreeing on all of them have agreed about
-    /// something, where two that merely both say <c>hue</c> would be a coincidence acted on.
+    /// The whole parameter list, in order, and not the names: a bound is as much of what a parameter
+    /// is as its type, so two drawings agreeing on all of them have agreed about something, where two
+    /// that merely both say <c>hue</c> would be a coincidence acted on.
+    ///
+    /// The default is the one thing left out, because it is where a drawing starts rather than what
+    /// it takes. A set of icons seeded at different colours is the case this is for, and counting the
+    /// seed would have been exactly the rule that broke it.
     ///
     /// A drawing declaring nothing shares with nothing but itself -- it has no value anyone could be
     /// moving, and an empty set means "every default", which would put a neighbour that has values
@@ -871,12 +875,12 @@ public sealed class GroupPanel : UserControl
                && mine.Declarations.Parameters.Count > 0
                && Same(mine.Declarations.Parameters, theirs.Declarations.Parameters));
 
-    /// <summary>Whether two parameter lists say the same thing in the same order.</summary>
+    /// <summary>Whether two parameter lists take the same values, in the same order.</summary>
     private static bool Same(
         IReadOnlyList<SvgExpressionParameter> mine,
         IReadOnlyList<SvgExpressionParameter> theirs)
         => mine.Count == theirs.Count
-           && !mine.Where((parameter, index) => !parameter.Equals(theirs[index])).Any();
+           && !mine.Where((parameter, index) => !parameter.SharesValuesWith(theirs[index])).Any();
 
     /// <summary>What the group builds, drawn on one canvas.</summary>
     /// <remarks>

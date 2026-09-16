@@ -59,6 +59,49 @@ public class SvgExpressionDeclarationsTests
     }
 
     [Fact]
+    public void A_Seed_Is_Not_Part_Of_What_A_Parameter_Takes()
+    {
+        // The one field the two questions differ by. The same slider seeded at two points is one
+        // parameter to anything moving a value through it, and two declarations to anything reading
+        // them back — which is why both are asked and not one.
+        var mine = Declared(@default: "120");
+        var theirs = Declared(@default: "217");
+
+        Assert.True(mine.SharesValuesWith(theirs));
+        Assert.NotEqual(mine, theirs);
+
+        Assert.True(Declared(@default: null).SharesValuesWith(Declared(@default: "120")));
+    }
+
+    [Theory]
+    [InlineData("name")]
+    [InlineData("type")]
+    [InlineData("min")]
+    [InlineData("max")]
+    [InlineData("step")]
+    public void Everything_But_The_Seed_Decides_What_A_Parameter_Takes(string field)
+    {
+        var other = field switch
+        {
+            "name" => Declared(name: "tint"),
+            "type" => Declared(type: ExprType.Integer),
+            "min" => Declared(min: "1"),
+            "max" => Declared(max: "359"),
+            _ => Declared(step: "2"),
+        };
+
+        Assert.False(Declared().SharesValuesWith(other));
+        Assert.NotEqual(Declared(), other);
+    }
+
+    [Fact]
+    public void Nothing_Shares_With_Nothing()
+    {
+        Assert.False(Declared().SharesValuesWith(null));
+        Assert.NotEqual(Declared(), null);
+    }
+
+    [Fact]
     public void A_Declared_Expression_Is_Compared_As_Written()
     {
         // Ordinal, and not resolved: max="tau" and max="6.283185" come to the same range and are
