@@ -45,7 +45,9 @@ internal static class ExprCSharpBackend
         [ExprFunction.Upper] = ExprHelpers.Upper,
         [ExprFunction.Lower] = ExprHelpers.Lower,
         [ExprFunction.Len] = ExprHelpers.Len,
-        [ExprFunction.Str] = ExprHelpers.Str
+        [ExprFunction.Str] = ExprHelpers.Str,
+        [ExprFunction.Int] = ExprHelpers.Int,
+        [ExprFunction.Num] = ExprHelpers.Num
         // Mod is absent on purpose: no BCL function has the semantics, so it is emitted inline. It
         // used to be MathF.IEEERemainder here, which is a different operation.
     };
@@ -60,6 +62,7 @@ internal static class ExprCSharpBackend
         => node switch
         {
             TypedNumber number => Literal(number.Value),
+            TypedInteger integer => Literal(integer.Value),
             TypedColor color => $"new SKColor({color.R}, {color.G}, {color.B}, {color.A})",
             TypedBoolean boolean => boolean.Value ? "true" : "false",
             TypedString text => Literal(text.Value),
@@ -81,6 +84,7 @@ internal static class ExprCSharpBackend
         => type switch
         {
             ExprType.Number => "float",
+            ExprType.Integer => "int",
             ExprType.Color => "SKColor",
             ExprType.Boolean => "bool",
             ExprType.String => "string",
@@ -146,6 +150,14 @@ internal static class ExprCSharpBackend
 
         return literal.ToString();
     }
+
+    /// <remarks>
+    /// The checker range checks before this, so the narrowing is lossless. A literal is never
+    /// negative -- the parser reads a leading minus as negation -- so int.MinValue, which C# will
+    /// not accept written out, cannot arise here.
+    /// </remarks>
+    private static string Literal(long value)
+        => ((int)value).ToString(CultureInfo.InvariantCulture);
 
     private static string Literal(double value)
     {

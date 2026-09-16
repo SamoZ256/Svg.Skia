@@ -41,6 +41,29 @@ public class ExprEvaluatorTests
     }
 
     [Fact]
+    public void An_Integer_Parameter_Binds_And_Defaults()
+    {
+        var declarations = Declarations("""<e:param name="steps" type="integer" default="int(4)" />""");
+
+        Assert.Equal(4, ExprEvaluator.Create(declarations).Evaluate("steps").AsInteger);
+        Assert.Equal(
+            9,
+            ExprEvaluator.Create(declarations, Values(("steps", ExprValue.Integer(9))))
+                .Evaluate("steps").AsInteger);
+    }
+
+    [Fact]
+    public void A_Number_Supplied_For_An_Integer_Is_Refused()
+    {
+        var declarations = Declarations("""<e:param name="steps" type="integer" default="int(4)" />""");
+
+        var error = Assert.Throws<ExprException>(
+            () => ExprEvaluator.Create(declarations, Values(("steps", ExprValue.Number(9f)))));
+
+        Assert.Contains("integer", error.Message);
+    }
+
+    [Fact]
     public void A_Supplied_Value_Is_Used()
     {
         var declarations = Declarations("""<e:param name="t" type="number" default="0" />""");

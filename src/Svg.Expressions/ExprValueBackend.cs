@@ -19,6 +19,7 @@ internal static class ExprValueBackend
         {
             // The double is narrowed exactly where the C# back end's Literal() narrows it.
             TypedNumber number => ExprValue.Number((float)number.Value),
+            TypedInteger integer => ExprValue.Integer((int)integer.Value),
             TypedColor color => ExprValue.Color(color.R, color.G, color.B, color.A),
             TypedBoolean boolean => ExprValue.Boolean(boolean.Value),
             TypedString text => ExprValue.String(text.Value),
@@ -115,6 +116,7 @@ internal static class ExprValueBackend
         => left.Type switch
         {
             ExprType.Number => left.AsNumber == right.AsNumber,
+            ExprType.Integer => left.AsInteger == right.AsInteger,
             ExprType.Color => left.Red == right.Red
                               && left.Green == right.Green
                               && left.Blue == right.Blue
@@ -213,10 +215,27 @@ internal static class ExprValueBackend
             case ExprFunction.Str:
                 return ExprValue.String(arguments[0].AsNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
+            case ExprFunction.Int:
+                return ExprValue.Integer(Truncate(arguments[0].AsNumber));
+            case ExprFunction.Num:
+                return ExprValue.Number(arguments[0].AsInteger);
+
             default:
                 throw new NotSupportedException($"Unsupported {nameof(ExprFunction)}: {call.Function}.");
         }
     }
+
+    /// <summary>A number as an integer, toward zero, saturating at the ends.</summary>
+    /// <remarks>
+    /// Character for character what ExprHelpers.SvgInt emits. A bare C# cast is what we want in the
+    /// middle of the range and undefined outside it -- .NET does not promise what (int)1e30f is --
+    /// so the ends are named rather than left to whatever the two back ends happen to compile to.
+    /// </remarks>
+    private static int Truncate(float value)
+        => float.IsNaN(value) ? 0
+            : value >= 2147483647f ? int.MaxValue
+            : value <= -2147483648f ? int.MinValue
+            : (int)value;
 
     // ExprHelpers.SvgLerp: unclamped, so t outside [0, 1] extrapolates.
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;

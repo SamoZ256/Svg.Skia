@@ -42,7 +42,9 @@ public enum ExprFunction
     Upper,
     Lower,
     Len,
-    Str
+    Str,
+    Int,
+    Num
 }
 
 /// <summary>What a function takes and returns. No spelling in any target language.</summary>
@@ -73,6 +75,7 @@ public sealed class ExprSignature
 public static class ExprFunctions
 {
     private const ExprType N = ExprType.Number;
+    private const ExprType I = ExprType.Integer;
     private const ExprType C = ExprType.Color;
     private const ExprType S = ExprType.String;
 
@@ -120,7 +123,13 @@ public static class ExprFunctions
 
         // The other direction, and the only one: + never converts, so this is how a number reaches
         // the text of a <text> element.
-        ["str"] = new(ExprFunction.Str, S, N)
+        ["str"] = new(ExprFunction.Str, S, N),
+
+        // The crossings between the two numeric types. Functions rather than conversions for the
+        // reason the string ones are: a value that changed type without being asked to would make
+        // every arithmetic operator mean two things.
+        ["int"] = new(ExprFunction.Int, I, N),
+        ["num"] = new(ExprFunction.Num, N, I)
     };
 
     /// <summary>Function names as authored. Diagnostics list these, not the enum.</summary>
@@ -151,10 +160,11 @@ public static class ExprFunctions
         => text switch
         {
             "number" => ExprType.Number,
+            "integer" => ExprType.Integer,
             "color" => ExprType.Color,
             "boolean" => ExprType.Boolean,
             "string" => ExprType.String,
-            _ => throw new ExprException($"Unknown type '{text}'. Expected number, color, boolean or string.", position, part: part)
+            _ => throw new ExprException($"Unknown type '{text}'. Expected number, integer, color, boolean or string.", position, part: part)
         };
 
     /// <summary>How a type is written in a document, which is the spelling <see cref="ParseType"/> takes.</summary>
@@ -168,6 +178,7 @@ public static class ExprFunctions
         => type switch
         {
             ExprType.Number => "number",
+            ExprType.Integer => "integer",
             ExprType.Color => "color",
             ExprType.Boolean => "boolean",
             ExprType.String => "string",
@@ -189,8 +200,8 @@ public static class ExprFunctions
         ExprType.Boolean => "A visibility expression",
         ExprType.Number => "An opacity expression",
 
-        // String falls here rather than being named: no attribute holds one, so no expression is
-        // ever asked to produce one, and there is no use to describe.
+        // String and integer fall here rather than being named: no attribute holds either, so no
+        // expression is ever asked to produce one, and there is no use to describe.
         _ => throw Unknown(expected),
     };
 
@@ -199,6 +210,7 @@ public static class ExprFunctions
         => type switch
         {
             ExprType.Number => "number",
+            ExprType.Integer => "integer",
             ExprType.Color => "colour",
             ExprType.Boolean => "boolean",
             ExprType.String => "string",

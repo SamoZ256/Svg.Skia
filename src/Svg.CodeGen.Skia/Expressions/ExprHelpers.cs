@@ -24,6 +24,8 @@ internal static class ExprHelpers
     public const string Lower = "SvgLower";
     public const string Len = "SvgLen";
     public const string Str = "SvgStr";
+    public const string Int = "SvgInt";
+    public const string Num = "SvgNum";
     public const string Tangent = "SvgTangent";
 
     // Ordered so generated output is stable.
@@ -147,6 +149,22 @@ internal static class ExprHelpers
         new(Str, new[]
         {
             $"private static string {Str}(float value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);"
+        }),
+
+        // The ends are named rather than left to a bare cast: .NET does not promise what
+        // (int)1e30f is, and ExprValueBackend.Truncate has to land on the same answer.
+        new(Int, new[]
+        {
+            $"private static int {Int}(float value)",
+            "    => float.IsNaN(value) ? 0",
+            "        : value >= 2147483647f ? int.MaxValue",
+            "        : value <= -2147483648f ? int.MinValue",
+            "        : (int)value;"
+        }),
+
+        new(Num, new[]
+        {
+            $"private static float {Num}(int value) => value;"
         }),
 
         // Character for character what ShimSkiaSharp.SymMatrix.Tangent computes, including the

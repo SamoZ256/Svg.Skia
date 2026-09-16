@@ -10,6 +10,7 @@ public class ExprCompilerTests
     private static readonly Dictionary<string, ExprType> Symbols = new()
     {
         ["t"] = ExprType.Number,
+        ["steps"] = ExprType.Integer,
         ["tint"] = ExprType.Color,
         ["bold"] = ExprType.Boolean,
         ["theme"] = ExprType.String
@@ -21,6 +22,29 @@ public class ExprCompilerTests
 
     private static ExprException Error(string source)
         => Assert.Throws<ExprException>(() => new ExprCompiler(Symbols).Compile(source));
+
+    [Fact]
+    public void An_Integer_Is_An_Int_In_The_Generated_Code()
+    {
+        Assert.Equal("int", ExprCompiler.CSharpTypeOf(ExprType.Integer));
+        Assert.Equal(ExprType.Integer, Type("steps"));
+        Assert.Equal(ExprType.Integer, Type("int(t)"));
+        Assert.Equal(ExprType.Number, Type("num(steps)"));
+    }
+
+    [Fact]
+    public void The_Numeric_Crossings_Emit_Helpers_Rather_Than_Casts()
+    {
+        Assert.Equal("SvgInt(t)", Code("int(t)"));
+        Assert.Equal("SvgNum(steps)", Code("num(steps)"));
+    }
+
+    [Fact]
+    public void A_Number_And_An_Integer_Do_Not_Mix_Without_Being_Asked()
+    {
+        Assert.Contains("integer", Error("steps + t").Message);
+        Assert.Contains("integer", Error("sin(steps)").Message);
+    }
 
     // ---- literals -------------------------------------------------------------------------
 

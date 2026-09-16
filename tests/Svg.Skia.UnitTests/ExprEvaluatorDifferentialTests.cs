@@ -43,6 +43,7 @@ public class ExprEvaluatorDifferentialTests
         public object Boxed => Value.Type switch
         {
             ExprType.Number => Value.AsNumber,
+            ExprType.Integer => Value.AsInteger,
             ExprType.Color => new SKColor(Value.Red, Value.Green, Value.Blue, Value.Alpha),
             ExprType.Boolean => Value.AsBoolean,
             ExprType.String => Value.AsString,
@@ -58,6 +59,8 @@ public class ExprEvaluatorDifferentialTests
     private static Argument Boolean(string name, bool value) => new(name, ExprValue.Boolean(value));
 
     private static Argument Text(string name, string value) => new(name, ExprValue.String(value));
+
+    private static Argument Integer(string name, int value) => new(name, ExprValue.Integer(value));
 
     /// <summary>Compiles <paramref name="code"/> into a method and invokes it.</summary>
     /// <remarks>
@@ -169,6 +172,10 @@ public class ExprEvaluatorDifferentialTests
                         (evaluated.Red, evaluated.Green, evaluated.Blue, evaluated.Alpha));
                     break;
                 }
+
+            case ExprType.Integer:
+                Assert.Equal((int)compiled, evaluated.AsInteger);
+                break;
 
             case ExprType.Boolean:
                 Assert.Equal((bool)compiled, evaluated.AsBoolean);
@@ -331,6 +338,31 @@ public class ExprEvaluatorDifferentialTests
         // A case fold that differs by culture, which is why both back ends spell it invariant.
         AssertSameValue("upper(theme)", Text("theme", "istanbul"));
         AssertSameValue("lower(theme)", Text("theme", "ISTANBUL"));
+    }
+
+    [Fact]
+    public void The_Crossings_Between_A_Number_And_An_Integer_Agree()
+    {
+        AssertSameValue("num(steps)", Integer("steps", 4));
+        AssertSameValue("num(steps) / 10", Integer("steps", 4));
+
+        // Above 2^24 a float stops counting by one, so both back ends have to lose the same digit.
+        AssertSameValue("num(steps)", Integer("steps", 16777217));
+
+        // Toward zero, not down: -2.5 truncates to -2, which is not floor.
+        AssertSameValue("int(t)", Number("t", 2.5f));
+        AssertSameValue("int(t)", Number("t", -2.5f));
+        AssertSameValue("int(t)", Number("t", 0f));
+
+        // The ends, which a bare cast does not define. NaN included, since sqrt of a negative
+        // reaches here through arithmetic nobody wrote deliberately.
+        AssertSameValue("int(t)", Number("t", 1e30f));
+        AssertSameValue("int(t)", Number("t", -1e30f));
+        AssertSameValue("int(t)", Number("t", float.NaN));
+        AssertSameValue("int(t)", Number("t", float.PositiveInfinity));
+        AssertSameValue("int(t)", Number("t", float.NegativeInfinity));
+
+        AssertSameValue("int(num(steps))", Integer("steps", -7));
     }
 
     [Theory]
