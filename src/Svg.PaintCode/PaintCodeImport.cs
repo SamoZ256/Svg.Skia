@@ -111,9 +111,14 @@ public static class PaintCodeImport
             Encoding = new UTF8Encoding(false)
         };
 
-        using var writer = XmlWriter.Create(path, settings);
-        document.Save(writer);
-        writer.Flush();
+        // Scoped so the handle is closed, not merely flushed, before the append: Windows refuses the
+        // second open while the first is live, where POSIX allows it. Held open, this threw
+        // IOException on every import on Windows and on no other platform.
+        using (var writer = XmlWriter.Create(path, settings))
+        {
+            document.Save(writer);
+        }
+
         File.AppendAllText(path, Environment.NewLine);
     }
 
