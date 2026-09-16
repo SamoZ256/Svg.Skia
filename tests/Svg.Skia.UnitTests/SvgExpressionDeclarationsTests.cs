@@ -11,6 +11,69 @@ public class SvgExpressionDeclarationsTests
 {
     private const string Ns = SvgExpressionDeclarations.Namespace;
 
+    // ---- a parameter is what it says, not where it was said -------------------------------
+
+    private static SvgExpressionParameter Declared(
+        string name = "hue",
+        ExprType type = ExprType.Number,
+        string? @default = "120",
+        string? min = "0",
+        string? max = "360",
+        string? step = "1")
+        => new(name, type, @default, min, max, step);
+
+    [Fact]
+    public void Two_Parameters_Declaring_The_Same_Thing_Are_The_Same_Parameter()
+    {
+        Assert.Equal(Declared(), Declared());
+        Assert.Equal(Declared().GetHashCode(), Declared().GetHashCode());
+
+        // Whatever is missing, as long as both are missing it.
+        Assert.Equal(
+            Declared(@default: null, min: null, max: null, step: null),
+            Declared(@default: null, min: null, max: null, step: null));
+    }
+
+    [Theory]
+    // Every one of the six, because a step or a bound is as much of what a parameter is as its type
+    // and two that differ in one are two different parameters wearing one name.
+    [InlineData("name")]
+    [InlineData("type")]
+    [InlineData("default")]
+    [InlineData("min")]
+    [InlineData("max")]
+    [InlineData("step")]
+    public void Differing_In_Any_One_Of_The_Six_Is_A_Different_Parameter(string field)
+    {
+        var other = field switch
+        {
+            "name" => Declared(name: "tint"),
+            "type" => Declared(type: ExprType.Integer),
+            "default" => Declared(@default: "121"),
+            "min" => Declared(min: "1"),
+            "max" => Declared(max: "359"),
+            _ => Declared(step: "2"),
+        };
+
+        Assert.NotEqual(Declared(), other);
+    }
+
+    [Fact]
+    public void A_Declared_Expression_Is_Compared_As_Written()
+    {
+        // Ordinal, and not resolved: max="tau" and max="6.283185" come to the same range and are
+        // still two different declarations, which is what anything reading the text back needs.
+        Assert.NotEqual(Declared(max: "tau"), Declared(max: "6.283185"));
+        Assert.NotEqual(Declared(@default: "120"), Declared(@default: "120 "));
+        Assert.NotEqual(Declared(name: "hue"), Declared(name: "Hue"));
+    }
+
+    [Fact]
+    public void A_Missing_Expression_Is_Not_An_Empty_One()
+    {
+        Assert.NotEqual(Declared(step: null), Declared(step: ""));
+    }
+
     private static SvgExpressionDeclarations Parse(string body)
         => SvgExpressionDeclarations.Parse($"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">

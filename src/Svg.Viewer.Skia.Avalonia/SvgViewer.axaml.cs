@@ -861,16 +861,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>Whether a row already standing was built from this declaration.</summary>
     /// <remarks>
-    /// All four expressions, not the name and type alone: with the source editable, changing a
-    /// <c>step</c> or a bound leaves those two untouched and the panel showed the pre-edit range.
+    /// The declaration answers this itself. With the source editable, changing a <c>step</c> or a
+    /// bound leaves the name and type untouched, which is why it is not those two alone -- see
+    /// <see cref="SvgExpressionParameter.Equals(SvgExpressionParameter)"/>.
     /// </remarks>
     private static bool Same(SvgViewerParameter row, SvgExpressionParameter declared)
-        => row.Type == declared.Type
-           && string.Equals(row.Name, declared.Name, StringComparison.Ordinal)
-           && string.Equals(row.Declaration.DefaultExpression, declared.DefaultExpression, StringComparison.Ordinal)
-           && string.Equals(row.Declaration.MinExpression, declared.MinExpression, StringComparison.Ordinal)
-           && string.Equals(row.Declaration.MaxExpression, declared.MaxExpression, StringComparison.Ordinal)
-           && string.Equals(row.Declaration.StepExpression, declared.StepExpression, StringComparison.Ordinal);
+        => row.Declaration.Equals(declared);
 
     public void ResetParameters()
     {
