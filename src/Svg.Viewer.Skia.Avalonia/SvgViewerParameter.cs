@@ -125,6 +125,60 @@ public sealed class SvgViewerNumberParameter : SvgViewerParameter
     public override void ResetToDefault() => Value = _seed;
 }
 
+/// <summary>An <c>integer</c> parameter, with the range its author declared.</summary>
+/// <remarks>
+/// Its own row rather than a number one that rounds: a control bound to a double would let a drag
+/// land between two values and put a number back where an integer is declared, which the evaluator
+/// refuses. The bounds are held as ints for the same reason.
+/// </remarks>
+public sealed class SvgViewerIntegerParameter : SvgViewerParameter
+{
+    private readonly int _seed;
+    private int _value;
+
+    internal SvgViewerIntegerParameter(
+        SvgExpressionParameter declaration,
+        int seed,
+        int minimum,
+        int maximum,
+        int step)
+        : base(declaration)
+    {
+        _seed = seed;
+        _value = seed;
+        Minimum = minimum;
+        Maximum = maximum;
+        Step = step;
+    }
+
+    public int Minimum { get; }
+
+    public int Maximum { get; }
+
+    /// <summary>The declared increment, which is one where the document declared none.</summary>
+    /// <remarks>
+    /// One rather than zero, unlike a number's: a continuous integer is a contradiction, so there is
+    /// no case for the number row's hundredth-of-the-range fallback to serve.
+    /// </remarks>
+    public int Step { get; }
+
+    public int TickFrequency => Step;
+
+    public int Value
+    {
+        get => _value;
+        set => Set(ref _value, value);
+    }
+
+    public override ExprValue ToExprValue() => ExprValue.Integer(_value);
+
+    public override string ToExpression() => SvgViewerParameterFactory.Describe(ToExprValue());
+
+    public override bool IsModified => _value != _seed;
+
+    public override void ResetToDefault() => Value = _seed;
+}
+
 /// <summary>A <c>color</c> parameter.</summary>
 public sealed class SvgViewerColorParameter : SvgViewerParameter
 {

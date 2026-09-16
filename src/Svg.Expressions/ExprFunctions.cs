@@ -42,7 +42,9 @@ public enum ExprFunction
     Upper,
     Lower,
     Len,
-    Str
+    Str,
+    Int,
+    Num
 }
 
 /// <summary>What a function takes and returns. No spelling in any target language.</summary>
@@ -73,6 +75,7 @@ public sealed class ExprSignature
 public static class ExprFunctions
 {
     private const ExprType N = ExprType.Number;
+    private const ExprType I = ExprType.Integer;
     private const ExprType C = ExprType.Color;
     private const ExprType S = ExprType.String;
 
@@ -90,37 +93,48 @@ public static class ExprFunctions
 
     // Ordinal, so 'SIN' is not a spelling of 'sin'. Keyed by the name as authored, which is also
     // what a diagnostic has to show, so the enum is never the source of the text.
-    private static readonly Dictionary<string, ExprSignature> s_functions = new(StringComparer.Ordinal)
+    //
+    // A name may have more than one signature, which is how the numeric library reaches both
+    // numeric types. Every overload of a name takes the same number of arguments, so arity is still
+    // one question with one answer and is asked before any argument is looked at.
+    private static readonly Dictionary<string, ExprSignature[]> s_functions = new(StringComparer.Ordinal)
     {
-        ["sin"] = new(ExprFunction.Sin, N, N),
-        ["cos"] = new(ExprFunction.Cos, N, N),
-        ["tan"] = new(ExprFunction.Tan, N, N),
-        ["abs"] = new(ExprFunction.Abs, N, N),
-        ["sqrt"] = new(ExprFunction.Sqrt, N, N),
-        ["floor"] = new(ExprFunction.Floor, N, N),
-        ["ceil"] = new(ExprFunction.Ceil, N, N),
-        ["round"] = new(ExprFunction.Round, N, N),
-        ["pow"] = new(ExprFunction.Pow, N, N, N),
-        ["min"] = new(ExprFunction.Min, N, N, N),
-        ["max"] = new(ExprFunction.Max, N, N, N),
-        ["mod"] = new(ExprFunction.Mod, N, N, N),
-        ["clamp"] = new(ExprFunction.Clamp, N, N, N, N),
-        ["lerp"] = new(ExprFunction.Lerp, N, N, N, N),
-        ["rgb"] = new(ExprFunction.Rgb, C, N, N, N),
-        ["rgba"] = new(ExprFunction.Rgba, C, N, N, N, N),
-        ["hsl"] = new(ExprFunction.Hsl, C, N, N, N),
-        ["hsla"] = new(ExprFunction.Hsla, C, N, N, N, N),
-        ["mix"] = new(ExprFunction.Mix, C, C, C, N),
-        ["withAlpha"] = new(ExprFunction.WithAlpha, C, C, N),
-        ["upper"] = new(ExprFunction.Upper, S, S),
-        ["lower"] = new(ExprFunction.Lower, S, S),
+        ["sin"] = new[] { new ExprSignature(ExprFunction.Sin, N, N) },
+        ["cos"] = new[] { new ExprSignature(ExprFunction.Cos, N, N) },
+        ["tan"] = new[] { new ExprSignature(ExprFunction.Tan, N, N) },
+        ["abs"] = new[] { new ExprSignature(ExprFunction.Abs, N, N), new ExprSignature(ExprFunction.Abs, I, I) },
+        ["sqrt"] = new[] { new ExprSignature(ExprFunction.Sqrt, N, N) },
+        ["floor"] = new[] { new ExprSignature(ExprFunction.Floor, N, N) },
+        ["ceil"] = new[] { new ExprSignature(ExprFunction.Ceil, N, N) },
+        ["round"] = new[] { new ExprSignature(ExprFunction.Round, N, N) },
+        ["pow"] = new[] { new ExprSignature(ExprFunction.Pow, N, N, N) },
+        ["min"] = new[] { new ExprSignature(ExprFunction.Min, N, N, N), new ExprSignature(ExprFunction.Min, I, I, I) },
+        ["max"] = new[] { new ExprSignature(ExprFunction.Max, N, N, N), new ExprSignature(ExprFunction.Max, I, I, I) },
+        ["mod"] = new[] { new ExprSignature(ExprFunction.Mod, N, N, N), new ExprSignature(ExprFunction.Mod, I, I, I) },
+        ["clamp"] = new[] { new ExprSignature(ExprFunction.Clamp, N, N, N, N), new ExprSignature(ExprFunction.Clamp, I, I, I, I) },
+        ["lerp"] = new[] { new ExprSignature(ExprFunction.Lerp, N, N, N, N) },
+        ["rgb"] = new[] { new ExprSignature(ExprFunction.Rgb, C, N, N, N) },
+        ["rgba"] = new[] { new ExprSignature(ExprFunction.Rgba, C, N, N, N, N) },
+        ["hsl"] = new[] { new ExprSignature(ExprFunction.Hsl, C, N, N, N) },
+        ["hsla"] = new[] { new ExprSignature(ExprFunction.Hsla, C, N, N, N, N) },
+        ["mix"] = new[] { new ExprSignature(ExprFunction.Mix, C, C, C, N) },
+        ["withAlpha"] = new[] { new ExprSignature(ExprFunction.WithAlpha, C, C, N) },
+        ["upper"] = new[] { new ExprSignature(ExprFunction.Upper, S, S) },
+        ["lower"] = new[] { new ExprSignature(ExprFunction.Lower, S, S) },
 
-        // Returns a number, so a string can reach the arithmetic rather than being an island.
-        ["len"] = new(ExprFunction.Len, N, S),
+        // A count of code units is whole, and now has a type that says so. It still reaches the
+        // arithmetic, through num() where the arithmetic is fractional.
+        ["len"] = new[] { new ExprSignature(ExprFunction.Len, I, S) },
 
         // The other direction, and the only one: + never converts, so this is how a number reaches
         // the text of a <text> element.
-        ["str"] = new(ExprFunction.Str, S, N)
+        ["str"] = new[] { new ExprSignature(ExprFunction.Str, S, N), new ExprSignature(ExprFunction.Str, S, I) },
+
+        // The crossings between the two numeric types. Functions rather than conversions for the
+        // reason the string ones are: a value that changed type without being asked to would make
+        // every arithmetic operator mean two things.
+        ["int"] = new[] { new ExprSignature(ExprFunction.Int, I, N) },
+        ["num"] = new[] { new ExprSignature(ExprFunction.Num, N, I) }
     };
 
     /// <summary>Function names as authored. Diagnostics list these, not the enum.</summary>
@@ -128,8 +142,21 @@ public static class ExprFunctions
 
     public static IEnumerable<string> ConstantNames => s_constants.Keys;
 
-    public static bool TryGetFunction(string name, out ExprSignature signature)
-        => s_functions.TryGetValue(name, out signature!);
+    /// <summary>Every signature a name has, in the order a tie is broken.</summary>
+    /// <remarks>
+    /// The number overload is written first everywhere, and <see cref="ExprChecker"/> takes the
+    /// first candidate: a call whose arguments are all open literals -- <c>min(1, 2)</c> -- is the
+    /// one case where both fit, and answering with a number is what it answered before there was a
+    /// second numeric type. <c>int(min(1, 2))</c> is how to ask for the other.
+    /// </remarks>
+    public static bool TryGetFunction(string name, out IReadOnlyList<ExprSignature> overloads)
+    {
+        var found = s_functions.TryGetValue(name, out var signatures);
+
+        overloads = signatures ?? Array.Empty<ExprSignature>();
+
+        return found;
+    }
 
     public static bool IsFunction(string name) => s_functions.ContainsKey(name);
 
@@ -151,10 +178,11 @@ public static class ExprFunctions
         => text switch
         {
             "number" => ExprType.Number,
+            "integer" => ExprType.Integer,
             "color" => ExprType.Color,
             "boolean" => ExprType.Boolean,
             "string" => ExprType.String,
-            _ => throw new ExprException($"Unknown type '{text}'. Expected number, color, boolean or string.", position, part: part)
+            _ => throw new ExprException($"Unknown type '{text}'. Expected number, integer, color, boolean or string.", position, part: part)
         };
 
     /// <summary>How a type is written in a document, which is the spelling <see cref="ParseType"/> takes.</summary>
@@ -168,6 +196,7 @@ public static class ExprFunctions
         => type switch
         {
             ExprType.Number => "number",
+            ExprType.Integer => "integer",
             ExprType.Color => "color",
             ExprType.Boolean => "boolean",
             ExprType.String => "string",
@@ -189,8 +218,8 @@ public static class ExprFunctions
         ExprType.Boolean => "A visibility expression",
         ExprType.Number => "An opacity expression",
 
-        // String falls here rather than being named: no attribute holds one, so no expression is
-        // ever asked to produce one, and there is no use to describe.
+        // String and integer fall here rather than being named: no attribute holds either, so no
+        // expression is ever asked to produce one, and there is no use to describe.
         _ => throw Unknown(expected),
     };
 
@@ -199,6 +228,7 @@ public static class ExprFunctions
         => type switch
         {
             ExprType.Number => "number",
+            ExprType.Integer => "integer",
             ExprType.Color => "colour",
             ExprType.Boolean => "boolean",
             ExprType.String => "string",

@@ -136,8 +136,13 @@ public static class SvgExpressionSubstitution
     {
         ExprType.String => value.AsString,
         ExprType.Number => value.AsNumber.ToString("R", CultureInfo.InvariantCulture),
+        ExprType.Integer => value.AsInteger.ToString(CultureInfo.InvariantCulture),
         ExprType.Boolean => value.AsBoolean ? "true" : "false",
-        _ => value.ToString()
+
+        // A colour is the one whose attribute spelling and whose literal are the same six or eight
+        // hex digits, so it is the one that can be taken from ToString.
+        ExprType.Color => value.ToString(),
+        _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {value.Type}.")
     };
 
     private static ExprType TypeOf(string name)

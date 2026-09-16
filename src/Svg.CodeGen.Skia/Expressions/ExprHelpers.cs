@@ -24,6 +24,11 @@ internal static class ExprHelpers
     public const string Lower = "SvgLower";
     public const string Len = "SvgLen";
     public const string Str = "SvgStr";
+    public const string IAbs = "SvgIAbs";
+    public const string IDiv = "SvgIDiv";
+    public const string IMod = "SvgIMod";
+    public const string Int = "SvgInt";
+    public const string Num = "SvgNum";
     public const string Tangent = "SvgTangent";
 
     // Ordered so generated output is stable.
@@ -141,12 +146,62 @@ internal static class ExprHelpers
 
         new(Len, new[]
         {
-            $"private static float {Len}(string value) => value.Length;"
+            $"private static int {Len}(string value) => value.Length;"
         }),
 
+        // Two, because str() has an overload per numeric type and C# picks between them by the
+        // argument it is handed -- which is already the right type, the checker having said so.
         new(Str, new[]
         {
-            $"private static string {Str}(float value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);"
+            $"private static string {Str}(float value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);",
+            string.Empty,
+            $"private static string {Str}(int value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);"
+        }),
+
+        // Math.Abs(int.MinValue) throws, its answer being one past the top. int.MaxValue is the
+        // nearest that fits, and where int() and integer division saturate.
+        // ExprValueBackend.Absolute spells it the same way.
+        new(IAbs, new[]
+        {
+            $"private static int {IAbs}(int value) => value == int.MinValue ? int.MaxValue : Math.Abs(value);"
+        }),
+
+        // The number path answers a zero divisor with NaN, which int() reads as zero.
+        // ExprValueBackend.Remainder spells it the same way.
+        new(IMod, new[]
+        {
+            $"private static int {IMod}(int left, int right)",
+            "    => right == 0 || (left == int.MinValue && right == -1) ? 0 : left % right;"
+        }),
+
+        // A drawing that renders must not start throwing because a divisor reached zero, and the
+        // number path does not -- it produces an infinity. These are that infinity's integer
+        // spelling, and the ends SvgInt saturates to, so int(1 / 0) and 1 / 0 agree.
+        // ExprValueBackend.Divide spells it the same way.
+        new(IDiv, new[]
+        {
+            $"private static int {IDiv}(int left, int right)",
+            "    => right != 0 && !(left == int.MinValue && right == -1)",
+            "        ? left / right",
+            "        : left == 0 && right == 0 ? 0",
+            "        : (left < 0) == (right < 0) ? int.MaxValue",
+            "        : int.MinValue;"
+        }),
+
+        // The ends are named rather than left to a bare cast: .NET does not promise what
+        // (int)1e30f is, and ExprValueBackend.Truncate has to land on the same answer.
+        new(Int, new[]
+        {
+            $"private static int {Int}(float value)",
+            "    => float.IsNaN(value) ? 0",
+            "        : value >= 2147483647f ? int.MaxValue",
+            "        : value <= -2147483648f ? int.MinValue",
+            "        : (int)value;"
+        }),
+
+        new(Num, new[]
+        {
+            $"private static float {Num}(int value) => value;"
         }),
 
         // Character for character what ShimSkiaSharp.SymMatrix.Tangent computes, including the

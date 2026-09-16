@@ -10,6 +10,7 @@ public class ExprCompilerTests
     private static readonly Dictionary<string, ExprType> Symbols = new()
     {
         ["t"] = ExprType.Number,
+        ["steps"] = ExprType.Integer,
         ["tint"] = ExprType.Color,
         ["bold"] = ExprType.Boolean,
         ["theme"] = ExprType.String
@@ -21,6 +22,122 @@ public class ExprCompilerTests
 
     private static ExprException Error(string source)
         => Assert.Throws<ExprException>(() => new ExprCompiler(Symbols).Compile(source));
+
+    // ---- whole literals take the type the context asks for --------------------------------
+
+    [Fact]
+    public void A_Whole_Literal_Is_A_Number_When_Nothing_Says_Otherwise()
+    {
+        // The rule the rest of this rests on: every literal written before there was a second
+        // numeric type has to go on meaning exactly what it meant.
+        Assert.Equal(ExprType.Number, Type("3"));
+        Assert.Equal(ExprType.Number, Type("1 + 2 * 3"));
+        Assert.Equal("3f", Code("3"));
+    }
+
+    [Fact]
+    public void The_Articles_Own_Step_Divides_In_Float()
+    {
+        // step="1/60" is written down in svg-expressions.md. Folding the literals as whole numbers
+        // first and coercing after would make it 0, which is the whole reason the context is pushed
+        // down to the leaves instead.
+        Assert.Equal("(1f / 60f)", Code("1 / 60"));
+        Assert.Equal(ExprType.Number, Type("1 / 60"));
+    }
+
+    [Fact]
+    public void A_Whole_Literal_Is_An_Integer_Where_An_Integer_Is_Wanted()
+    {
+        Assert.Equal("(steps + 1)", Code("steps + 1"));
+        Assert.Equal(ExprType.Integer, Type("steps + 1"));
+        Assert.Equal(ExprType.Integer, Type("1 + steps"));
+        Assert.Equal(ExprType.Integer, Type("-1 + steps"));
+        Assert.Equal(ExprType.Boolean, Type("steps == 3"));
+        Assert.Equal(ExprType.Boolean, Type("steps > 3"));
+        Assert.Equal(ExprType.Integer, Type("steps > 0 ? steps : 0"));
+    }
+
+    [Fact]
+    public void A_Whole_Literal_Does_Not_Reach_Across_A_Point()
+    {
+        // 0.5 is a number however it is spelled, so it cannot settle an integer beside it.
+        Assert.Contains("integer", Error("steps + 0.5").Message);
+        Assert.Contains("integer", Error("steps + 50%").Message);
+        Assert.Contains("integer", Error("steps == 1.0").Message);
+    }
+
+    [Fact]
+    public void A_Literal_Too_Big_For_An_Integer_Is_Refused_Where_One_Is_Wanted()
+    {
+        Assert.Contains("outside the range", Error("steps + 3000000000").Message);
+
+        // ...and is a perfectly good number anywhere else.
+        Assert.Equal(ExprType.Number, Type("3000000000"));
+    }
+
+    [Fact]
+    public void An_Argument_Picks_The_Overload()
+    {
+        Assert.Equal(ExprType.Integer, Type("min(steps, 1)"));
+        Assert.Equal(ExprType.Integer, Type("max(1, steps)"));
+        Assert.Equal(ExprType.Integer, Type("abs(steps)"));
+        Assert.Equal(ExprType.Integer, Type("mod(steps, 4)"));
+        Assert.Equal(ExprType.Integer, Type("clamp(steps, 0, 9)"));
+
+        Assert.Equal(ExprType.Number, Type("min(t, 1)"));
+        Assert.Equal(ExprType.Number, Type("abs(t)"));
+    }
+
+    [Fact]
+    public void A_Call_That_Says_Nothing_Is_The_Number_It_Always_Was()
+    {
+        // Both overloads fit, and the answer has to be the one every such call gave before there
+        // was a second numeric type. int() is how to ask for the other.
+        Assert.Equal(ExprType.Number, Type("min(1, 2)"));
+        Assert.Equal("MathF.Min(1f, 2f)", Code("min(1, 2)"));
+        Assert.Equal(ExprType.Integer, Type("int(min(1, 2))"));
+    }
+
+    [Fact]
+    public void The_Integer_Library_Is_Spelled_From_Its_Own_Table()
+    {
+        Assert.Equal("Math.Min(steps, 1)", Code("min(steps, 1)"));
+        Assert.Equal("Math.Max(steps, 1)", Code("max(steps, 1)"));
+        Assert.Equal("Math.Clamp(steps, 0, 9)", Code("clamp(steps, 0, 9)"));
+
+        // The two where a bare C# spelling throws.
+        Assert.Equal("SvgIAbs(steps)", Code("abs(steps)"));
+        Assert.Equal("SvgIMod(steps, 4)", Code("mod(steps, 4)"));
+        Assert.Equal("SvgIDiv(steps, 4)", Code("steps / 4"));
+
+        // ...against the number spellings, which are untouched.
+        Assert.Equal("MathF.Abs(t)", Code("abs(t)"));
+        Assert.Equal("(t % 4f)", Code("mod(t, 4)"));
+        Assert.Equal("(t / 4f)", Code("t / 4"));
+    }
+
+    [Fact]
+    public void An_Integer_Is_An_Int_In_The_Generated_Code()
+    {
+        Assert.Equal("int", ExprCompiler.CSharpTypeOf(ExprType.Integer));
+        Assert.Equal(ExprType.Integer, Type("steps"));
+        Assert.Equal(ExprType.Integer, Type("int(t)"));
+        Assert.Equal(ExprType.Number, Type("num(steps)"));
+    }
+
+    [Fact]
+    public void The_Numeric_Crossings_Emit_Helpers_Rather_Than_Casts()
+    {
+        Assert.Equal("SvgInt(t)", Code("int(t)"));
+        Assert.Equal("SvgNum(steps)", Code("num(steps)"));
+    }
+
+    [Fact]
+    public void A_Number_And_An_Integer_Do_Not_Mix_Without_Being_Asked()
+    {
+        Assert.Contains("integer", Error("steps + t").Message);
+        Assert.Contains("integer", Error("sin(steps)").Message);
+    }
 
     // ---- literals -------------------------------------------------------------------------
 
@@ -366,15 +483,22 @@ public class ExprCompilerTests
         Assert.Equal("SvgStr(t)", Code("str(t)"));
 
         Assert.Equal(ExprType.String, Type("upper(theme)"));
-        Assert.Equal(ExprType.Number, Type("len(theme)"));
+        Assert.Equal(ExprType.Integer, Type("len(theme)"));
         Assert.Equal(ExprType.String, Type("str(t)"));
+        Assert.Equal(ExprType.String, Type("str(steps)"));
     }
 
     [Fact]
     public void Len_Puts_A_String_Into_The_Arithmetic()
     {
-        Assert.Equal(ExprType.Number, Type("len(theme) * 2"));
+        // A count of code units is whole, so the arithmetic it reaches is whole too, and the open
+        // literal beside it follows.
+        Assert.Equal(ExprType.Integer, Type("len(theme) * 2"));
         Assert.Equal(ExprType.Boolean, Type("len(theme) > 3"));
+
+        // Fractional arithmetic is still a crossing away.
+        Assert.Equal(ExprType.Number, Type("num(len(theme)) / 2"));
+        Assert.Contains("integer", Error("len(theme) * 0.5").Message);
     }
 
     [Fact]

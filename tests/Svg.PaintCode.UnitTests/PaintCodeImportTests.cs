@@ -52,6 +52,38 @@ public class PaintCodeImportTests
         Assert.Equal("_2State", PaintCodeSlug.Pascal("2-state"));
     }
 
+    /// <summary>
+    /// The declared type of every variable, whether or not a drawing happens to use it.
+    /// </summary>
+    private static string? TypeOf(string name, bool integers)
+        => PaintCodeDeclarations
+            .Of(PaintCodeDocument.Parse(SampleDocument.Bytes()), integers)
+            .ByName[name]
+            .Type;
+
+    [Fact]
+    public void A_Whole_Number_Stays_A_Number_Unless_Integers_Are_Asked_For()
+    {
+        Assert.False(new PaintCodeImportOptions(".").Integers);
+        Assert.Equal("number", TypeOf("level", integers: false));
+    }
+
+    [Fact]
+    public void Integers_Retypes_A_Whole_Number_And_Guesses_While_It_Does()
+    {
+        // 'level' is a 0..1 fade whose value happened to be saved at 1, and this retypes it. That is
+        // the cost of the option rather than a fault in it: PaintCode has one numeric kind, and a
+        // min and a max with no step, so nothing in the document tells a step enum from a slider
+        // sitting on a whole number. It is why the author asks for this rather than being given it.
+        Assert.Equal("integer", TypeOf("level", integers: true));
+
+        // The kinds that are not numbers are untouched, and so is a derived expression: its body is
+        // PaintCode's arithmetic in PaintCode's one numeric type.
+        Assert.Equal("boolean", TypeOf("state", integers: true));
+        Assert.Equal("boolean", TypeOf("off", integers: true));
+        Assert.Equal("color", TypeOf("colorPurple", integers: true));
+    }
+
     private static void Imported(System.Action<PaintCodeImportResult, string> assert)
     {
         var directory = Directory.CreateTempSubdirectory("paintcode");

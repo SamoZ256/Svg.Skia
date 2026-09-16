@@ -45,9 +45,23 @@ internal static class ExprCSharpBackend
         [ExprFunction.Upper] = ExprHelpers.Upper,
         [ExprFunction.Lower] = ExprHelpers.Lower,
         [ExprFunction.Len] = ExprHelpers.Len,
-        [ExprFunction.Str] = ExprHelpers.Str
+        [ExprFunction.Str] = ExprHelpers.Str,
+        [ExprFunction.Int] = ExprHelpers.Int,
+        [ExprFunction.Num] = ExprHelpers.Num
         // Mod is absent on purpose: no BCL function has the semantics, so it is emitted inline. It
         // used to be MathF.IEEERemainder here, which is a different operation.
+    };
+
+    // What the same function is called when it works in integers. Absent from here means the one
+    // spelling above serves both: str() is two C# overloads under one name, and len() takes a
+    // string whatever it returns.
+    private static readonly Dictionary<ExprFunction, string> s_integerNames = new()
+    {
+        [ExprFunction.Abs] = ExprHelpers.IAbs,
+        [ExprFunction.Min] = "Math.Min",
+        [ExprFunction.Max] = "Math.Max",
+        [ExprFunction.Clamp] = "Math.Clamp",
+        [ExprFunction.Mod] = ExprHelpers.IMod
     };
 
     /// <param name="symbolNames">
@@ -60,14 +74,14 @@ internal static class ExprCSharpBackend
         => node switch
         {
             TypedNumber number => Literal(number.Value),
+            TypedInteger integer => Literal(integer.Value),
             TypedColor color => $"new SKColor({color.R}, {color.G}, {color.B}, {color.A})",
             TypedBoolean boolean => boolean.Value ? "true" : "false",
             TypedString text => Literal(text.Value),
             TypedSymbol symbol => Name(symbol, symbolNames),
             TypedConstant constant => EmitConstant(constant.Constant),
             TypedUnary unary => EmitUnary(unary, symbolNames),
-            TypedBinary binary =>
-                $"({Emit(binary.Left, symbolNames)} {ExprFunctions.OperatorText(binary.Op)} {Emit(binary.Right, symbolNames)})",
+            TypedBinary binary => EmitBinary(binary, symbolNames),
             TypedConditional conditional =>
                 $"({Emit(conditional.Condition, symbolNames)} ? {Emit(conditional.WhenTrue, symbolNames)} : {Emit(conditional.WhenFalse, symbolNames)})",
             TypedCall call => EmitCall(call, symbolNames),
@@ -81,6 +95,7 @@ internal static class ExprCSharpBackend
         => type switch
         {
             ExprType.Number => "float",
+            ExprType.Integer => "int",
             ExprType.Color => "SKColor",
             ExprType.Boolean => "bool",
             ExprType.String => "string",
@@ -94,6 +109,24 @@ internal static class ExprCSharpBackend
             _ => "(MathF.PI * 2f)"
         };
 
+    /// <remarks>
+    /// C# spells integer arithmetic with the same operators, so only division is named: <c>/</c>
+    /// between two ints throws where the language answers, and <c>+</c>, <c>-</c> and <c>*</c> wrap
+    /// in both.
+    /// </remarks>
+    private static string EmitBinary(TypedBinary binary, IReadOnlyDictionary<string, string>? symbolNames)
+    {
+        var left = Emit(binary.Left, symbolNames);
+        var right = Emit(binary.Right, symbolNames);
+
+        if (binary.Op == ExprBinaryOp.Divide && binary.Type == ExprType.Integer)
+        {
+            return $"{ExprHelpers.IDiv}({left}, {right})";
+        }
+
+        return $"({left} {ExprFunctions.OperatorText(binary.Op)} {right})";
+    }
+
     private static string EmitUnary(TypedUnary unary, IReadOnlyDictionary<string, string>? symbolNames)
         => unary.Op == ExprUnaryOp.Negate
             ? $"(-{Emit(unary.Operand, symbolNames)})"
@@ -102,6 +135,13 @@ internal static class ExprCSharpBackend
     private static string EmitCall(TypedCall call, IReadOnlyDictionary<string, string>? symbolNames)
     {
         var arguments = call.Arguments.Select(argument => Emit(argument, symbolNames)).ToList();
+
+        // An integer call is spelled from its own table where the two differ. The result type
+        // answers for it, every argument of an integer overload being an integer as well.
+        if (call.Type == ExprType.Integer && s_integerNames.TryGetValue(call.Function, out var integerName))
+        {
+            return $"{integerName}({string.Join(", ", arguments)})";
+        }
 
         // Remainder has no BCL function with the semantics we want, so it is emitted inline.
         // Both operands are already parenthesised sub-expressions, so each is evaluated once.
@@ -146,6 +186,14 @@ internal static class ExprCSharpBackend
 
         return literal.ToString();
     }
+
+    /// <remarks>
+    /// The checker range checks before this, so the narrowing is lossless. A literal is never
+    /// negative -- the parser reads a leading minus as negation -- so int.MinValue, which C# will
+    /// not accept written out, cannot arise here.
+    /// </remarks>
+    private static string Literal(long value)
+        => ((int)value).ToString(CultureInfo.InvariantCulture);
 
     private static string Literal(double value)
     {

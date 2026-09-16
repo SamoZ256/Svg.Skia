@@ -215,6 +215,7 @@ public class SkiaCSharpRenderTests
             values[declarations.Parameters[index].Name] = arguments[index] switch
             {
                 float number => ExprValue.Number(number),
+                int whole => ExprValue.Integer(whole),
                 bool boolean => ExprValue.Boolean(boolean),
                 SKColor color => ExprValue.Color(color.Red, color.Green, color.Blue, color.Alpha),
                 string text => ExprValue.String(text),
@@ -488,6 +489,31 @@ public class SkiaCSharpRenderTests
             """
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
               <circle cx="12" cy="12" r="9" fill="#22c55e" />
+            </svg>
+            """);
+
+    [Fact]
+    public void An_Integer_Parameter_Reaches_Both_A_Choice_And_A_Paint()
+        // Everything the integer added, through the only path that compiles and draws the emitted
+        // code: an int argument, the two helpers C# would otherwise throw from (SvgIMod, and
+        // Math.Min on ints), and SvgNum crossing into an opacity. An unselected helper is CS0103,
+        // so this also says the selection scan found them.
+        => AssertExpressionsRenderTheSame(
+            "ExprInteger",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code><e:param name="steps" type="integer" default="1" min="0" max="9" step="1" /></e:code>
+              </defs>
+              <circle cx="12" cy="12" r="9"
+                      fill="{{ mod(steps, 2) == 1 ? #22c55e : #1e40af }}"
+                      opacity="{{ num(min(steps, 5)) / 10 }}" />
+            </svg>
+            """,
+            new object?[] { 7 },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="9" fill="#22c55e" opacity="0.5" />
             </svg>
             """);
 

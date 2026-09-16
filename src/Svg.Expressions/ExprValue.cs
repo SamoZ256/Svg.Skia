@@ -8,16 +8,21 @@ using System.Text;
 namespace Svg.Expressions;
 
 /// <summary>
-/// A value of the expression language: a number, a colour, a boolean, or a string.
+/// A value of the expression language: a number, an integer, a colour, a boolean, or a string.
 /// </summary>
 /// <remarks>
 /// A number is a <see cref="float"/> even though <see cref="TypedNumber"/> carries a double: the C#
 /// back end computes in float, and the two back ends may not disagree about the same document. A
 /// colour is four bytes rather than a renderer's type, so the language stays free of Skia.
 /// </remarks>
+/// <remarks>
+/// An integer has a field of its own rather than riding in <c>_number</c>: a float stops counting by
+/// one above 2^24, so 16777217 would come back as 16777216.
+/// </remarks>
 public readonly struct ExprValue : IEquatable<ExprValue>
 {
     private readonly float _number;
+    private readonly int _integer;
     private readonly byte _r;
     private readonly byte _g;
     private readonly byte _b;
@@ -25,10 +30,11 @@ public readonly struct ExprValue : IEquatable<ExprValue>
     private readonly bool _boolean;
     private readonly string? _text;
 
-    private ExprValue(ExprType type, float number, byte r, byte g, byte b, byte a, bool boolean, string? text)
+    private ExprValue(ExprType type, float number, int integer, byte r, byte g, byte b, byte a, bool boolean, string? text)
     {
         Type = type;
         _number = number;
+        _integer = integer;
         _r = r;
         _g = g;
         _b = b;
@@ -40,18 +46,23 @@ public readonly struct ExprValue : IEquatable<ExprValue>
     public ExprType Type { get; }
 
     public static ExprValue Number(float value)
-        => new(ExprType.Number, value, 0, 0, 0, 0, false, null);
+        => new(ExprType.Number, value, 0, 0, 0, 0, 0, false, null);
+
+    public static ExprValue Integer(int value)
+        => new(ExprType.Integer, 0f, value, 0, 0, 0, 0, false, null);
 
     public static ExprValue Color(byte r, byte g, byte b, byte a)
-        => new(ExprType.Color, 0f, r, g, b, a, false, null);
+        => new(ExprType.Color, 0f, 0, r, g, b, a, false, null);
 
     public static ExprValue Boolean(bool value)
-        => new(ExprType.Boolean, 0f, 0, 0, 0, 0, value, null);
+        => new(ExprType.Boolean, 0f, 0, 0, 0, 0, 0, value, null);
 
     public static ExprValue String(string value)
-        => new(ExprType.String, 0f, 0, 0, 0, 0, false, value ?? throw new ArgumentNullException(nameof(value)));
+        => new(ExprType.String, 0f, 0, 0, 0, 0, 0, false, value ?? throw new ArgumentNullException(nameof(value)));
 
     public float AsNumber => Require(ExprType.Number)._number;
+
+    public int AsInteger => Require(ExprType.Integer)._integer;
 
     public bool AsBoolean => Require(ExprType.Boolean)._boolean;
 
@@ -89,6 +100,7 @@ public readonly struct ExprValue : IEquatable<ExprValue>
         return Type switch
         {
             ExprType.Number => _number.Equals(other._number),
+            ExprType.Integer => _integer == other._integer,
             ExprType.Color => _r == other._r && _g == other._g && _b == other._b && _a == other._a,
             ExprType.Boolean => _boolean == other._boolean,
             ExprType.String => string.Equals(_text, other._text, StringComparison.Ordinal),
@@ -107,6 +119,7 @@ public readonly struct ExprValue : IEquatable<ExprValue>
             hash = Type switch
             {
                 ExprType.Number => (hash * 397) ^ _number.GetHashCode(),
+                ExprType.Integer => (hash * 397) ^ _integer,
                 ExprType.Color => (((((hash * 397) ^ _r) * 397) ^ _g) * 397 ^ _b) * 397 ^ _a,
                 ExprType.Boolean => (hash * 397) ^ (_boolean ? 1 : 0),
                 ExprType.String => (hash * 397) ^ StringComparer.Ordinal.GetHashCode(_text!),
@@ -121,6 +134,7 @@ public readonly struct ExprValue : IEquatable<ExprValue>
         => Type switch
         {
             ExprType.Number => _number.ToString("R", CultureInfo.InvariantCulture),
+            ExprType.Integer => _integer.ToString(CultureInfo.InvariantCulture),
             ExprType.Color => $"#{_r:x2}{_g:x2}{_b:x2}{_a:x2}",
             ExprType.Boolean => _boolean ? "true" : "false",
             ExprType.String => Quote(_text!),

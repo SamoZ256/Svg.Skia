@@ -121,9 +121,12 @@ public sealed class SvgExpressionParameter
 
         try
         {
-            return ExprEvaluator.Isolated
-                .EvaluateTo(expression, ExprType.Number, $"The {what} for '{Name}'")
-                .AsNumber;
+            // In the type the parameter was declared as, so an integer's ends are whole and `max="tau"`
+            // on one is refused rather than silently truncated. Widened afterwards because a range is
+            // advice to a host, and a host's control takes a double whichever type asked for it.
+            var value = ExprEvaluator.Isolated.EvaluateTo(expression, Type, $"The {what} for '{Name}'");
+
+            return value.Type == ExprType.Integer ? value.AsInteger : value.AsNumber;
         }
         catch (ExprException failure)
         {
@@ -136,15 +139,24 @@ public sealed class SvgExpressionParameter
 
 public sealed class SvgExpressionLet
 {
-    public SvgExpressionLet(string name, string expression)
+    public SvgExpressionLet(string name, string expression, ExprType? declaredType = null)
     {
         Name = name;
         Expression = expression;
+        DeclaredType = declaredType;
     }
 
     public string Name { get; }
 
     public string Expression { get; }
+
+    /// <summary>The type the document wrote down, where it wrote one.</summary>
+    /// <remarks>
+    /// A let is inferred by default, and an inferred whole literal is a number -- which is what one
+    /// always was. This is how to say otherwise, and it is the only way: nothing in an expression on
+    /// its own distinguishes the two, that being the point of leaving the literal open.
+    /// </remarks>
+    public ExprType? DeclaredType { get; }
 }
 
 // Document level declarations, authored as a foreign-namespace block conforming renderers ignore:
@@ -306,7 +318,10 @@ public sealed class SvgExpressionDeclarations
                         break;
 
                     case "let":
-                        builder.AddLet((string?)element.Attribute("name"), element.Value);
+                        builder.AddLet(
+                            (string?)element.Attribute("name"),
+                            element.Value,
+                            (string?)element.Attribute("type"));
                         break;
                 }
             }
@@ -700,10 +715,10 @@ public sealed class SvgExpressionDeclarations
             // ResolveRange, since reading a document may not evaluate anything. What is checked here
             // is what can be checked by looking, and catches the typo worth catching early — a range
             // on something that has no range.
-            if (type != ExprType.Number && (minimum is { } || maximum is { } || step is { }))
+            if (type is not (ExprType.Number or ExprType.Integer) && (minimum is { } || maximum is { } || step is { }))
             {
                 throw new ExprException(
-                    $"<e:param name=\"{declared}\"> is a {ExprFunctions.Describe(type)}, so it cannot carry min, max or step. Those describe the range of a number.",
+                    $"<e:param name=\"{declared}\"> is a {ExprFunctions.Describe(type)}, so it cannot carry min, max or step. Those describe the range of a number or an integer.",
                     0,
                     // The one to delete, which is the first one written.
                     part: minimum is { } ? SvgDeclarationPart.Min : maximum is { } ? SvgDeclarationPart.Max : SvgDeclarationPart.Step);
@@ -734,14 +749,19 @@ public sealed class SvgExpressionDeclarations
                 step));
         }
 
-        public void AddLet(string? name, string? expression)
+        public void AddLet(string? name, string? expression, string? type = null)
         {
             var declared = RequireName(name, "let");
+
+            var declaredType = Trim(type) is { } spelled
+                ? ExprFunctions.ParseType(spelled, 0, SvgDeclarationPart.Type)
+                : (ExprType?)null;
 
             _lets.Add(new SvgExpressionLet(
                 declared,
                 Trim(expression)
-                ?? throw new ExprException($"<e:let name=\"{declared}\"> has no expression.", 0, part: SvgDeclarationPart.Body)));
+                ?? throw new ExprException($"<e:let name=\"{declared}\"> has no expression.", 0, part: SvgDeclarationPart.Body),
+                declaredType));
         }
 
         /// <summary>

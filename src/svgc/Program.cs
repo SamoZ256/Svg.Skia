@@ -62,7 +62,7 @@ class Program
 
 
     /// <summary>Converts a PaintCode document beside itself, and names the project it wrote.</summary>
-    static string Import(string path, string? namespaceName)
+    static string Import(string path, string? namespaceName, bool integers)
     {
         var directory = System.IO.Path.Combine(
             System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path)) ?? ".",
@@ -71,7 +71,8 @@ class Program
         var options = new PaintCodeImportOptions(directory)
         {
             ProjectPath = System.IO.Path.Combine(directory, System.IO.Path.GetFileNameWithoutExtension(path) + ".svgcproj"),
-            Namespace = namespaceName
+            Namespace = namespaceName,
+            Integers = integers
         };
 
         var result = PaintCodeImport.Run(path, options);
@@ -136,6 +137,15 @@ class Program
             Argument = new Argument<System.IO.FileInfo?>(getDefaultValue: () => null)
         };
         rootCommand.AddOption(optionPaintCode);
+
+        var optionPaintCodeIntegers = new Option(
+            new[] { "--paintcodeIntegers" },
+            "Write a whole-valued PaintCode number as an integer parameter. A guess: PaintCode has one numeric kind, so a continuous slider sitting on whole ends is retyped too")
+        {
+            IsRequired = false,
+            Argument = new Argument<bool>(getDefaultValue: () => false)
+        };
+        rootCommand.AddOption(optionPaintCodeIntegers);
 
         var optionRecipeFile = new Option(new[] { "--recipeFile", "-r" }, "The relative or absolute path to a recipe applied to the input before generating")
         {
@@ -231,7 +241,7 @@ class Program
                 // An import is a build of the project it just wrote, so the flag names the source and
                 // everything else on the command line goes on meaning what it already meant.
                 var projectPath = settings.PaintCode is { } paintCode
-                    ? Import(paintCode.FullName, settings.Namespace)
+                    ? Import(paintCode.FullName, settings.Namespace, settings.PaintCodeIntegers)
                     : settings.ProjectFile?.FullName;
 
                 var project = projectPath is { }
