@@ -85,7 +85,7 @@ internal sealed class PaintCodeDeclarations
 
     internal IReadOnlyDictionary<string, PaintCodeDeclaration> ByName => _byName;
 
-    internal static PaintCodeDeclarations Of(PaintCodeDocument document)
+    internal static PaintCodeDeclarations Of(PaintCodeDocument document, bool integers = false)
     {
         var declarations = new PaintCodeDeclarations();
 
@@ -124,7 +124,7 @@ internal sealed class PaintCodeDeclarations
                 }
             }
 
-            declarations.Add(Variable(variable));
+            declarations.Add(Variable(variable, integers));
         }
 
         declarations.Resolve();
@@ -584,10 +584,10 @@ internal sealed class PaintCodeDeclarations
         return PaintCodeDeclaration.Constant(name, "color", Literal(color.Value), color.Value.IsApproximate);
     }
 
-    private static PaintCodeDeclaration Variable(PaintCodeVariable variable)
+    private static PaintCodeDeclaration Variable(PaintCodeVariable variable, bool integers)
     {
         var name = PaintCodeSlug.Identifier(variable.Name);
-        var type = Type(variable.Kind);
+        var type = integers && IsWhole(variable) ? "integer" : Type(variable.Kind);
 
         if (type is null)
         {
@@ -611,6 +611,25 @@ internal sealed class PaintCodeDeclarations
             : PaintCodeDeclaration.Constant(name, type, literal);
     }
 
+    /// <summary>Whether a number variable is one this would write as an integer.</summary>
+    /// <remarks>
+    /// An input rather than a derived expression, whose value is whole, and whose ends are whole
+    /// where it has any. A derived one is left out because its body is PaintCode's arithmetic in
+    /// PaintCode's one numeric type, and retyping the answer without retyping the working would
+    /// refuse the document rather than improve it.
+    /// </remarks>
+    private static bool IsWhole(PaintCodeVariable variable)
+        => variable.Kind is PaintCodeValueKind.Number
+           && !variable.IsDerived
+           && variable.Value.Number is { } value
+           && Whole(value)
+           && (variable.Minimum is not { } minimum || Whole(minimum))
+           && (variable.Maximum is not { } maximum || Whole(maximum));
+
+    // In range as well as whole: an integer is 32 bits and a PaintCode number is a double.
+    private static bool Whole(double value)
+        => value == Math.Floor(value) && value >= int.MinValue && value <= int.MaxValue;
+
     private static string? Type(PaintCodeValueKind kind)
         => kind switch
         {
@@ -625,6 +644,12 @@ internal sealed class PaintCodeDeclarations
         => type switch
         {
             "number" => value.Number is { } number ? Number(number) : null,
+
+            // Written out rather than through Number, whose "0.####" would be right for every value
+            // that reaches here and wrong the moment one did not.
+            "integer" => value.Number is { } whole && Whole(whole)
+                ? ((int)whole).ToString(CultureInfo.InvariantCulture)
+                : null,
             "boolean" => value.Flag is { } flag ? (flag ? "true" : "false") : null,
             "string" => value.Text is { } text ? "'" + text.Replace("\\", "\\\\").Replace("'", "\\'") + "'" : null,
             "color" => value.Color is { } color ? Literal(color) : null,

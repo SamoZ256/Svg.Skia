@@ -36,7 +36,7 @@ public static class PaintCodeImport
         }
 
         var notes = new List<PaintCodeImportNote>();
-        var declarations = PaintCodeDeclarations.Of(document);
+        var declarations = PaintCodeDeclarations.Of(document, options.Integers);
         var symbols = PaintCodeSymbols.Of(document);
         var files = new List<string>();
         var project = options.ProjectPath is { } path
