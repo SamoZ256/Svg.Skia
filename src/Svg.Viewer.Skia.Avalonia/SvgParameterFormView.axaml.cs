@@ -121,7 +121,7 @@ public partial class SvgParameterFormView : UserControl
             return null;
         }
 
-        var ranged = type == ExprType.Number;
+        var ranged = type is ExprType.Number or ExprType.Integer;
 
         var parameter = new SvgExpressionParameter(
             _name.Text?.Trim() ?? string.Empty,
@@ -180,15 +180,17 @@ public partial class SvgParameterFormView : UserControl
         }
     }
 
-    private void ShowRange() => _range.IsVisible = Selected() == "number";
+    private void ShowRange() => _range.IsVisible = Selected() is "number" or "integer";
 
+    // The order of the items in the ComboBox, which is the enum's order.
     private void Select(ExprType type)
         => _type.SelectedIndex = type switch
         {
             ExprType.Number => 0,
-            ExprType.Color => 1,
-            ExprType.Boolean => 2,
-            ExprType.String => 3,
+            ExprType.Integer => 1,
+            ExprType.Color => 2,
+            ExprType.Boolean => 3,
+            ExprType.String => 4,
             _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}."),
         };
 

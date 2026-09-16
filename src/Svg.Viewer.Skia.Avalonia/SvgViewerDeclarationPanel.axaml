@@ -111,6 +111,38 @@
       </StackPanel>
     </DataTemplate>
 
+    <DataTemplate DataType="viewer:SvgViewerIntegerParameter">
+      <StackPanel Spacing="2" Margin="0,0,0,10" Classes="row">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+          <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                  PointerPressed="OnGripPressed"
+                  ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+            <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <NumericUpDown Grid.Column="2"
+                         Width="110"
+                         Value="{Binding Value, Mode=TwoWay}"
+                         Minimum="{Binding Minimum}"
+                         Maximum="{Binding Maximum}"
+                         Increment="{Binding TickFrequency}"
+                         FormatString="0"
+                         ShowButtonSpinner="True" />
+          <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
+                  ToolTip.Tip="Edit this parameter" />
+          <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
+                  ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
+        </Grid>
+        <!-- Always snapping to the tick: an integer has no value between two of them. -->
+        <Slider Margin="20,0,0,0"
+                Minimum="{Binding Minimum}"
+                Maximum="{Binding Maximum}"
+                TickFrequency="{Binding TickFrequency}"
+                IsSnapToTickEnabled="True"
+                Value="{Binding Value, Mode=TwoWay}" />
+      </StackPanel>
+    </DataTemplate>
+
     <DataTemplate DataType="viewer:SvgViewerBooleanParameter">
       <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
         <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"

@@ -890,6 +890,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
                 number.Value = SvgViewerParameterFactory.Widen(value.AsNumber);
                 return true;
 
+            case SvgViewerIntegerParameter integer when value.Type == ExprType.Integer:
+                integer.Value = value.AsInteger;
+                return true;
+
             case SvgViewerBooleanParameter boolean when value.Type == ExprType.Boolean:
                 boolean.Value = value.AsBoolean;
                 return true;
