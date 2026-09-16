@@ -69,8 +69,7 @@ internal static class ExprCSharpBackend
             TypedSymbol symbol => Name(symbol, symbolNames),
             TypedConstant constant => EmitConstant(constant.Constant),
             TypedUnary unary => EmitUnary(unary, symbolNames),
-            TypedBinary binary =>
-                $"({Emit(binary.Left, symbolNames)} {ExprFunctions.OperatorText(binary.Op)} {Emit(binary.Right, symbolNames)})",
+            TypedBinary binary => EmitBinary(binary, symbolNames),
             TypedConditional conditional =>
                 $"({Emit(conditional.Condition, symbolNames)} ? {Emit(conditional.WhenTrue, symbolNames)} : {Emit(conditional.WhenFalse, symbolNames)})",
             TypedCall call => EmitCall(call, symbolNames),
@@ -97,6 +96,24 @@ internal static class ExprCSharpBackend
             ExprConstant.Pi => "MathF.PI",
             _ => "(MathF.PI * 2f)"
         };
+
+    /// <remarks>
+    /// C# spells integer arithmetic with the same operators, so only division is named: <c>/</c>
+    /// between two ints throws where the language answers, and <c>+</c>, <c>-</c> and <c>*</c> wrap
+    /// in both.
+    /// </remarks>
+    private static string EmitBinary(TypedBinary binary, IReadOnlyDictionary<string, string>? symbolNames)
+    {
+        var left = Emit(binary.Left, symbolNames);
+        var right = Emit(binary.Right, symbolNames);
+
+        if (binary.Op == ExprBinaryOp.Divide && binary.Type == ExprType.Integer)
+        {
+            return $"{ExprHelpers.IDiv}({left}, {right})";
+        }
+
+        return $"({left} {ExprFunctions.OperatorText(binary.Op)} {right})";
+    }
 
     private static string EmitUnary(TypedUnary unary, IReadOnlyDictionary<string, string>? symbolNames)
         => unary.Op == ExprUnaryOp.Negate

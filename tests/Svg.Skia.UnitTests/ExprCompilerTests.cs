@@ -23,6 +23,58 @@ public class ExprCompilerTests
     private static ExprException Error(string source)
         => Assert.Throws<ExprException>(() => new ExprCompiler(Symbols).Compile(source));
 
+    // ---- whole literals take the type the context asks for --------------------------------
+
+    [Fact]
+    public void A_Whole_Literal_Is_A_Number_When_Nothing_Says_Otherwise()
+    {
+        // The rule the rest of this rests on: every literal written before there was a second
+        // numeric type has to go on meaning exactly what it meant.
+        Assert.Equal(ExprType.Number, Type("3"));
+        Assert.Equal(ExprType.Number, Type("1 + 2 * 3"));
+        Assert.Equal("3f", Code("3"));
+    }
+
+    [Fact]
+    public void The_Articles_Own_Step_Divides_In_Float()
+    {
+        // step="1/60" is written down in svg-expressions.md. Folding the literals as whole numbers
+        // first and coercing after would make it 0, which is the whole reason the context is pushed
+        // down to the leaves instead.
+        Assert.Equal("(1f / 60f)", Code("1 / 60"));
+        Assert.Equal(ExprType.Number, Type("1 / 60"));
+    }
+
+    [Fact]
+    public void A_Whole_Literal_Is_An_Integer_Where_An_Integer_Is_Wanted()
+    {
+        Assert.Equal("(steps + 1)", Code("steps + 1"));
+        Assert.Equal(ExprType.Integer, Type("steps + 1"));
+        Assert.Equal(ExprType.Integer, Type("1 + steps"));
+        Assert.Equal(ExprType.Integer, Type("-1 + steps"));
+        Assert.Equal(ExprType.Boolean, Type("steps == 3"));
+        Assert.Equal(ExprType.Boolean, Type("steps > 3"));
+        Assert.Equal(ExprType.Integer, Type("steps > 0 ? steps : 0"));
+    }
+
+    [Fact]
+    public void A_Whole_Literal_Does_Not_Reach_Across_A_Point()
+    {
+        // 0.5 is a number however it is spelled, so it cannot settle an integer beside it.
+        Assert.Contains("integer", Error("steps + 0.5").Message);
+        Assert.Contains("integer", Error("steps + 50%").Message);
+        Assert.Contains("integer", Error("steps == 1.0").Message);
+    }
+
+    [Fact]
+    public void A_Literal_Too_Big_For_An_Integer_Is_Refused_Where_One_Is_Wanted()
+    {
+        Assert.Contains("outside the range", Error("steps + 3000000000").Message);
+
+        // ...and is a perfectly good number anywhere else.
+        Assert.Equal(ExprType.Number, Type("3000000000"));
+    }
+
     [Fact]
     public void An_Integer_Is_An_Int_In_The_Generated_Code()
     {

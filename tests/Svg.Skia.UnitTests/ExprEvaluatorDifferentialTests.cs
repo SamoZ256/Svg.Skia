@@ -365,6 +365,38 @@ public class ExprEvaluatorDifferentialTests
         AssertSameValue("int(num(steps))", Integer("steps", -7));
     }
 
+    [Fact]
+    public void Integer_Arithmetic_Agrees_Including_Where_Csharp_Would_Throw()
+    {
+        AssertSameValue("steps + 1", Integer("steps", 4));
+        AssertSameValue("steps - 10", Integer("steps", 4));
+        AssertSameValue("steps * 3", Integer("steps", 4));
+        AssertSameValue("-steps", Integer("steps", 4));
+        AssertSameValue("(steps + 1) * (steps - 1)", Integer("steps", 7));
+
+        // Toward zero, which is neither floor nor the number path's exact quotient.
+        AssertSameValue("steps / 2", Integer("steps", 7));
+        AssertSameValue("steps / 2", Integer("steps", -7));
+
+        // Wrapping, not throwing, and the same wrap in both.
+        AssertSameValue("steps * steps", Integer("steps", 2147483647));
+        AssertSameValue("steps + 1", Integer("steps", 2147483647));
+
+        // The two divisions C# throws on. A render must not fail because a divisor reached zero.
+        AssertSameValue("steps / 0", Integer("steps", 1));
+        AssertSameValue("steps / 0", Integer("steps", -1));
+        AssertSameValue("steps / 0", Integer("steps", 0));
+        AssertSameValue("steps / n", Integer("steps", -2147483648), Integer("n", -1));
+
+        // int() saturates an infinity to the same end integer division saturates a zero divisor to.
+        AssertSameValue("int(num(steps) / 0) == steps / 0", Integer("steps", 1));
+
+        AssertSameValue("steps == 3", Integer("steps", 3));
+        AssertSameValue("steps == 3", Integer("steps", 4));
+        AssertSameValue("steps > 3 and steps le 9", Integer("steps", 5));
+        AssertSameValue("steps > 0 ? steps : 0", Integer("steps", -4));
+    }
+
     [Theory]
     // Every escape the language has, so the C# literal the emitter writes has to mean the same
     // thing as the value the lexer resolved.

@@ -43,7 +43,7 @@ public class ExprEvaluatorTests
     [Fact]
     public void An_Integer_Parameter_Binds_And_Defaults()
     {
-        var declarations = Declarations("""<e:param name="steps" type="integer" default="int(4)" />""");
+        var declarations = Declarations("""<e:param name="steps" type="integer" default="4" />""");
 
         Assert.Equal(4, ExprEvaluator.Create(declarations).Evaluate("steps").AsInteger);
         Assert.Equal(
@@ -55,12 +55,30 @@ public class ExprEvaluatorTests
     [Fact]
     public void A_Number_Supplied_For_An_Integer_Is_Refused()
     {
-        var declarations = Declarations("""<e:param name="steps" type="integer" default="int(4)" />""");
+        var declarations = Declarations("""<e:param name="steps" type="integer" default="4" />""");
 
         var error = Assert.Throws<ExprException>(
             () => ExprEvaluator.Create(declarations, Values(("steps", ExprValue.Number(9f)))));
 
         Assert.Contains("integer", error.Message);
+    }
+
+    [Fact]
+    public void A_Let_With_No_Type_Of_Its_Own_Is_A_Number()
+    {
+        // Nothing constrains a let, so a whole literal in one settles the way it always did.
+        var declarations = Declarations("""<e:let name="n">3</e:let>""");
+
+        Assert.Equal(ExprType.Number, ExprEvaluator.Create(declarations).Evaluate("n").Type);
+    }
+
+    [Fact]
+    public void An_Integer_Default_Needs_No_Conversion()
+    {
+        var declarations = Declarations(
+            """<e:param name="steps" type="integer" default="2 + 2" />""");
+
+        Assert.Equal(4, ExprEvaluator.Create(declarations).Evaluate("steps").AsInteger);
     }
 
     [Fact]

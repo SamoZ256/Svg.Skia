@@ -187,7 +187,9 @@ internal static class ExprParser
         {
             case ExprTokenKind.Number:
                 index++;
-                return new NumberExpr(token.Position, token.Number);
+                return token.Integer is { } whole
+                    ? new IntegerExpr(token.Position, whole)
+                    : new NumberExpr(token.Position, token.Number);
 
             case ExprTokenKind.Color:
                 index++;

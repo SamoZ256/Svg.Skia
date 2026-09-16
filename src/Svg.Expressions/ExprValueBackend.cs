@@ -57,9 +57,16 @@ internal static class ExprValueBackend
     {
         var operand = Evaluate(unary.Operand, values);
 
-        return unary.Op == ExprUnaryOp.Negate
-            ? ExprValue.Number(-operand.AsNumber)
-            : ExprValue.Boolean(!operand.AsBoolean);
+        if (unary.Op != ExprUnaryOp.Negate)
+        {
+            return ExprValue.Boolean(!operand.AsBoolean);
+        }
+
+        // Unchecked, so negating int.MinValue wraps back to itself rather than throwing, which is
+        // what the generated C# does with the same int.
+        return operand.Type == ExprType.Integer
+            ? ExprValue.Integer(unchecked(-operand.AsInteger))
+            : ExprValue.Number(-operand.AsNumber);
     }
 
     private static ExprValue EvaluateBinary(TypedBinary binary, IReadOnlyDictionary<string, ExprValue> values)
@@ -80,6 +87,16 @@ internal static class ExprValueBackend
 
         var left = Evaluate(binary.Left, values);
         var right = Evaluate(binary.Right, values);
+
+        // The checker has already settled that both sides are integers wherever one is, so the
+        // whole of integer arithmetic branches once here rather than case by case below. Equality
+        // is not among it: AreEqual already answers for every type, integers included.
+        if (left.Type == ExprType.Integer
+            && right.Type == ExprType.Integer
+            && binary.Op is not (ExprBinaryOp.Equal or ExprBinaryOp.NotEqual))
+        {
+            return EvaluateIntegerBinary(binary.Op, left.AsInteger, right.AsInteger);
+        }
 
         switch (binary.Op)
         {
@@ -224,6 +241,48 @@ internal static class ExprValueBackend
                 throw new NotSupportedException($"Unsupported {nameof(ExprFunction)}: {call.Function}.");
         }
     }
+
+    private static ExprValue EvaluateIntegerBinary(ExprBinaryOp op, int left, int right)
+    {
+        switch (op)
+        {
+            // Unchecked, so an overflow wraps rather than throwing -- which is what the generated
+            // C# does with the same two ints, and the two may not disagree.
+            case ExprBinaryOp.Add:
+                return ExprValue.Integer(unchecked(left + right));
+            case ExprBinaryOp.Subtract:
+                return ExprValue.Integer(unchecked(left - right));
+            case ExprBinaryOp.Multiply:
+                return ExprValue.Integer(unchecked(left * right));
+            case ExprBinaryOp.Divide:
+                return ExprValue.Integer(Divide(left, right));
+            case ExprBinaryOp.Less:
+                return ExprValue.Boolean(left < right);
+            case ExprBinaryOp.LessOrEqual:
+                return ExprValue.Boolean(left <= right);
+            case ExprBinaryOp.Greater:
+                return ExprValue.Boolean(left > right);
+            case ExprBinaryOp.GreaterOrEqual:
+                return ExprValue.Boolean(left >= right);
+            default:
+                throw new NotSupportedException($"Unsupported {nameof(ExprBinaryOp)}: {op}.");
+        }
+    }
+
+    /// <summary>Integer division, with the two cases C# throws on answered instead.</summary>
+    /// <remarks>
+    /// Character for character what ExprHelpers.SvgIDiv emits. A drawing that renders must not start
+    /// throwing because a divisor reached zero, and the number path does not: it produces an
+    /// infinity. The ends are that infinity's integer spelling, and the same ones int() saturates
+    /// to, so int(1 / 0) and 1 / 0 agree. int.MinValue / -1 has no answer in range and throws even
+    /// unchecked, so it saturates with them.
+    /// </remarks>
+    private static int Divide(int left, int right)
+        => right != 0 && !(left == int.MinValue && right == -1)
+            ? left / right
+            : left == 0 && right == 0 ? 0
+            : (left < 0) == (right < 0) ? int.MaxValue
+            : int.MinValue;
 
     /// <summary>A number as an integer, toward zero, saturating at the ends.</summary>
     /// <remarks>

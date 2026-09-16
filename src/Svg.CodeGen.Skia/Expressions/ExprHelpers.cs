@@ -24,6 +24,7 @@ internal static class ExprHelpers
     public const string Lower = "SvgLower";
     public const string Len = "SvgLen";
     public const string Str = "SvgStr";
+    public const string IDiv = "SvgIDiv";
     public const string Int = "SvgInt";
     public const string Num = "SvgNum";
     public const string Tangent = "SvgTangent";
@@ -149,6 +150,20 @@ internal static class ExprHelpers
         new(Str, new[]
         {
             $"private static string {Str}(float value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);"
+        }),
+
+        // A drawing that renders must not start throwing because a divisor reached zero, and the
+        // number path does not -- it produces an infinity. These are that infinity's integer
+        // spelling, and the ends SvgInt saturates to, so int(1 / 0) and 1 / 0 agree.
+        // ExprValueBackend.Divide spells it the same way.
+        new(IDiv, new[]
+        {
+            $"private static int {IDiv}(int left, int right)",
+            "    => right != 0 && !(left == int.MinValue && right == -1)",
+            "        ? left / right",
+            "        : left == 0 && right == 0 ? 0",
+            "        : (left < 0) == (right < 0) ? int.MaxValue",
+            "        : int.MinValue;"
         }),
 
         // The ends are named rather than left to a bare cast: .NET does not promise what
