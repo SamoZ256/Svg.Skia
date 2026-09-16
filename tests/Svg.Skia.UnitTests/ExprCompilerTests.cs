@@ -76,6 +76,47 @@ public class ExprCompilerTests
     }
 
     [Fact]
+    public void An_Argument_Picks_The_Overload()
+    {
+        Assert.Equal(ExprType.Integer, Type("min(steps, 1)"));
+        Assert.Equal(ExprType.Integer, Type("max(1, steps)"));
+        Assert.Equal(ExprType.Integer, Type("abs(steps)"));
+        Assert.Equal(ExprType.Integer, Type("mod(steps, 4)"));
+        Assert.Equal(ExprType.Integer, Type("clamp(steps, 0, 9)"));
+
+        Assert.Equal(ExprType.Number, Type("min(t, 1)"));
+        Assert.Equal(ExprType.Number, Type("abs(t)"));
+    }
+
+    [Fact]
+    public void A_Call_That_Says_Nothing_Is_The_Number_It_Always_Was()
+    {
+        // Both overloads fit, and the answer has to be the one every such call gave before there
+        // was a second numeric type. int() is how to ask for the other.
+        Assert.Equal(ExprType.Number, Type("min(1, 2)"));
+        Assert.Equal("MathF.Min(1f, 2f)", Code("min(1, 2)"));
+        Assert.Equal(ExprType.Integer, Type("int(min(1, 2))"));
+    }
+
+    [Fact]
+    public void The_Integer_Library_Is_Spelled_From_Its_Own_Table()
+    {
+        Assert.Equal("Math.Min(steps, 1)", Code("min(steps, 1)"));
+        Assert.Equal("Math.Max(steps, 1)", Code("max(steps, 1)"));
+        Assert.Equal("Math.Clamp(steps, 0, 9)", Code("clamp(steps, 0, 9)"));
+
+        // The two where a bare C# spelling throws.
+        Assert.Equal("SvgIAbs(steps)", Code("abs(steps)"));
+        Assert.Equal("SvgIMod(steps, 4)", Code("mod(steps, 4)"));
+        Assert.Equal("SvgIDiv(steps, 4)", Code("steps / 4"));
+
+        // ...against the number spellings, which are untouched.
+        Assert.Equal("MathF.Abs(t)", Code("abs(t)"));
+        Assert.Equal("(t % 4f)", Code("mod(t, 4)"));
+        Assert.Equal("(t / 4f)", Code("t / 4"));
+    }
+
+    [Fact]
     public void An_Integer_Is_An_Int_In_The_Generated_Code()
     {
         Assert.Equal("int", ExprCompiler.CSharpTypeOf(ExprType.Integer));
@@ -442,15 +483,22 @@ public class ExprCompilerTests
         Assert.Equal("SvgStr(t)", Code("str(t)"));
 
         Assert.Equal(ExprType.String, Type("upper(theme)"));
-        Assert.Equal(ExprType.Number, Type("len(theme)"));
+        Assert.Equal(ExprType.Integer, Type("len(theme)"));
         Assert.Equal(ExprType.String, Type("str(t)"));
+        Assert.Equal(ExprType.String, Type("str(steps)"));
     }
 
     [Fact]
     public void Len_Puts_A_String_Into_The_Arithmetic()
     {
-        Assert.Equal(ExprType.Number, Type("len(theme) * 2"));
+        // A count of code units is whole, so the arithmetic it reaches is whole too, and the open
+        // literal beside it follows.
+        Assert.Equal(ExprType.Integer, Type("len(theme) * 2"));
         Assert.Equal(ExprType.Boolean, Type("len(theme) > 3"));
+
+        // Fractional arithmetic is still a crossing away.
+        Assert.Equal(ExprType.Number, Type("num(len(theme)) / 2"));
+        Assert.Contains("integer", Error("len(theme) * 0.5").Message);
     }
 
     [Fact]

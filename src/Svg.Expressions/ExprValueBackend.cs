@@ -159,6 +159,26 @@ internal static class ExprValueBackend
             arguments[index] = Evaluate(call.Arguments[index], values);
         }
 
+        // The checker picked an overload, and every argument of an integer one is an integer, so
+        // the first argument answers for the call.
+        if (arguments.Length > 0 && arguments[0].Type == ExprType.Integer)
+        {
+            switch (call.Function)
+            {
+                case ExprFunction.Abs:
+                    return ExprValue.Integer(Absolute(arguments[0].AsInteger));
+                case ExprFunction.Min:
+                    return ExprValue.Integer(Math.Min(arguments[0].AsInteger, arguments[1].AsInteger));
+                case ExprFunction.Max:
+                    return ExprValue.Integer(Math.Max(arguments[0].AsInteger, arguments[1].AsInteger));
+                case ExprFunction.Mod:
+                    return ExprValue.Integer(Remainder(arguments[0].AsInteger, arguments[1].AsInteger));
+                case ExprFunction.Clamp:
+                    return ExprValue.Integer(
+                        ExprMath.Clamp(arguments[0].AsInteger, arguments[1].AsInteger, arguments[2].AsInteger));
+            }
+        }
+
         switch (call.Function)
         {
             case ExprFunction.Sin:
@@ -225,12 +245,15 @@ internal static class ExprValueBackend
             case ExprFunction.Lower:
                 return ExprValue.String(arguments[0].AsString.ToLowerInvariant());
             case ExprFunction.Len:
-                return ExprValue.Number(arguments[0].AsString.Length);
+                return ExprValue.Integer(arguments[0].AsString.Length);
 
             // Shortest round-trip, invariant: a whole number reads as one, with no point and no
             // trailing zero, which is what anyone writing a label expects to see.
             case ExprFunction.Str:
-                return ExprValue.String(arguments[0].AsNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                return ExprValue.String(
+                    arguments[0].Type == ExprType.Integer
+                        ? arguments[0].AsInteger.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : arguments[0].AsNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
             case ExprFunction.Int:
                 return ExprValue.Integer(Truncate(arguments[0].AsNumber));
@@ -268,6 +291,23 @@ internal static class ExprValueBackend
                 throw new NotSupportedException($"Unsupported {nameof(ExprBinaryOp)}: {op}.");
         }
     }
+
+    /// <summary>The magnitude, saturating where there is no room for it.</summary>
+    /// <remarks>
+    /// Character for character what ExprHelpers.SvgIAbs emits. Math.Abs(int.MinValue) throws, since
+    /// its answer is one past the top; int.MaxValue is the nearest one that fits, and is where
+    /// int() and integer division saturate too.
+    /// </remarks>
+    private static int Absolute(int value)
+        => value == int.MinValue ? int.MaxValue : Math.Abs(value);
+
+    /// <summary>The remainder, with the two cases C# throws on answered instead.</summary>
+    /// <remarks>
+    /// Character for character what ExprHelpers.SvgIMod emits. The number path answers a zero
+    /// divisor with NaN, which int() reads as zero, so this does too.
+    /// </remarks>
+    private static int Remainder(int left, int right)
+        => right == 0 || (left == int.MinValue && right == -1) ? 0 : left % right;
 
     /// <summary>Integer division, with the two cases C# throws on answered instead.</summary>
     /// <remarks>

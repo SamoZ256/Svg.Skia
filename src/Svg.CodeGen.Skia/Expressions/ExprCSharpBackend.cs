@@ -52,6 +52,18 @@ internal static class ExprCSharpBackend
         // used to be MathF.IEEERemainder here, which is a different operation.
     };
 
+    // What the same function is called when it works in integers. Absent from here means the one
+    // spelling above serves both: str() is two C# overloads under one name, and len() takes a
+    // string whatever it returns.
+    private static readonly Dictionary<ExprFunction, string> s_integerNames = new()
+    {
+        [ExprFunction.Abs] = ExprHelpers.IAbs,
+        [ExprFunction.Min] = "Math.Min",
+        [ExprFunction.Max] = "Math.Max",
+        [ExprFunction.Clamp] = "Math.Clamp",
+        [ExprFunction.Mod] = ExprHelpers.IMod
+    };
+
     /// <param name="symbolNames">
     /// Names to emit in place of a declared one. A colour parameter carrying a default is emitted as
     /// a nullable parameter and coalesced into a local, and the body has to reference that local:
@@ -123,6 +135,13 @@ internal static class ExprCSharpBackend
     private static string EmitCall(TypedCall call, IReadOnlyDictionary<string, string>? symbolNames)
     {
         var arguments = call.Arguments.Select(argument => Emit(argument, symbolNames)).ToList();
+
+        // An integer call is spelled from its own table where the two differ. The result type
+        // answers for it, every argument of an integer overload being an integer as well.
+        if (call.Type == ExprType.Integer && s_integerNames.TryGetValue(call.Function, out var integerName))
+        {
+            return $"{integerName}({string.Join(", ", arguments)})";
+        }
 
         // Remainder has no BCL function with the semantics we want, so it is emitted inline.
         // Both operands are already parenthesised sub-expressions, so each is evaluated once.

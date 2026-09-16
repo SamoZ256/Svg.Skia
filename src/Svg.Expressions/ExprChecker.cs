@@ -416,25 +416,37 @@ public sealed class ExprChecker
 
     private TypedExpr CheckCall(CallExpr call)
     {
-        // Name and arity before any argument is visited: sin(nope, 2) reports the count.
-        if (!ExprFunctions.TryGetFunction(call.Name, out var signature))
+        // Name and arity before any argument is visited: sin(nope, 2) reports the count. Every
+        // overload of a name takes the same number of arguments, so the first one answers for all.
+        if (!ExprFunctions.TryGetFunction(call.Name, out var overloads))
         {
             var known = string.Join(", ", ExprFunctions.FunctionNames.OrderBy(k => k, StringComparer.Ordinal));
             throw new ExprException($"Unknown function '{call.Name}'. Available: {known}.", call.Position);
         }
 
-        if (call.Arguments.Count != signature.Parameters.Count)
+        if (call.Arguments.Count != overloads[0].Parameters.Count)
         {
             throw new ExprException(
-                $"'{call.Name}' takes {signature.Parameters.Count} argument(s), but {call.Arguments.Count} were given.",
+                $"'{call.Name}' takes {overloads[0].Parameters.Count} argument(s), but {call.Arguments.Count} were given.",
                 call.Position);
         }
+
+        // Once each, so an argument with an error in it reports that error rather than being
+        // visited again per overload and reporting it twice.
+        var checkedArguments = new List<Checked>(call.Arguments.Count);
+
+        for (var i = 0; i < call.Arguments.Count; i++)
+        {
+            checkedArguments.Add(CheckNode(call.Arguments[i]));
+        }
+
+        var signature = Resolve(overloads, checkedArguments);
 
         var arguments = new List<TypedExpr>(call.Arguments.Count);
 
         for (var i = 0; i < call.Arguments.Count; i++)
         {
-            var argument = Settle(CheckNode(call.Arguments[i]), signature.Parameters[i]);
+            var argument = Settle(checkedArguments[i], signature.Parameters[i]);
 
             if (argument.Type != signature.Parameters[i])
             {
@@ -447,6 +459,38 @@ public sealed class ExprChecker
         }
 
         return new TypedCall(signature.Result, call.Position, signature.Function, arguments);
+    }
+
+    /// <summary>The overload a call's arguments pick out.</summary>
+    /// <remarks>
+    /// A definite argument has to match exactly; an open one fits either numeric parameter and is
+    /// settled to it afterwards. The first candidate wins, and the number overload is written first
+    /// everywhere, so <c>min(1, 2)</c> -- the one call where the arguments say nothing -- is the
+    /// number it has always been. Nothing matching falls back to the first overload, which then
+    /// reports the mismatch in the words a single-signature function always reported it in.
+    /// </remarks>
+    private static ExprSignature Resolve(IReadOnlyList<ExprSignature> overloads, IReadOnlyList<Checked> arguments)
+    {
+        foreach (var candidate in overloads)
+        {
+            var fits = true;
+
+            for (var i = 0; i < arguments.Count && fits; i++)
+            {
+                var parameter = candidate.Parameters[i];
+
+                fits = arguments[i].Untyped
+                    ? parameter is ExprType.Number or ExprType.Integer
+                    : arguments[i].Type == parameter;
+            }
+
+            if (fits)
+            {
+                return candidate;
+            }
+        }
+
+        return overloads[0];
     }
 
     private static void Require(ExprType actual, ExprType expected, string what, int position)

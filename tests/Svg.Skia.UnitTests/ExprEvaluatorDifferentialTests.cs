@@ -397,6 +397,32 @@ public class ExprEvaluatorDifferentialTests
         AssertSameValue("steps > 0 ? steps : 0", Integer("steps", -4));
     }
 
+    [Fact]
+    public void The_Integer_Library_Agrees_Including_Where_Csharp_Would_Throw()
+    {
+        AssertSameValue("min(steps, 3)", Integer("steps", 7));
+        AssertSameValue("max(steps, 3)", Integer("steps", 7));
+        AssertSameValue("clamp(steps, 0, 9)", Integer("steps", 42));
+        AssertSameValue("abs(steps)", Integer("steps", -7));
+        AssertSameValue("mod(steps, 3)", Integer("steps", 7));
+
+        // The remainder's sign follows the dividend in both, as it does for numbers.
+        AssertSameValue("mod(steps, 3)", Integer("steps", -7));
+
+        // Math.Abs and % both throw on these; the language answers instead.
+        AssertSameValue("abs(steps)", Integer("steps", -2147483648));
+        AssertSameValue("mod(steps, 0)", Integer("steps", 7));
+        AssertSameValue("mod(steps, n)", Integer("steps", -2147483648), Integer("n", -1));
+
+        // len() is whole now, and str() has an overload for it.
+        AssertSameValue("len(theme)", Text("theme", "home"));
+        AssertSameValue("len(theme) * 2", Text("theme", "home"));
+        AssertSameValue("str(len(theme))", Text("theme", "home"));
+        AssertSameValue("str(steps)", Integer("steps", 100));
+        AssertSameValue("str(steps)", Integer("steps", -30));
+        AssertSameValue("'step ' + str(steps)", Integer("steps", 3));
+    }
+
     [Theory]
     // Every escape the language has, so the C# literal the emitter writes has to mean the same
     // thing as the value the lexer resolved.
