@@ -249,6 +249,7 @@ means that one was never painting anything.
 svgc -i badge.svg -o Badge.cs -r badge.recipe -n Demo.Icons -c Badge
 ```
 
+{%%{
 ```
 Generating: /tmp/demo/Badge.cs
   #3b82f6 -> {{ primary }} (3)
@@ -256,6 +257,7 @@ Generating: /tmp/demo/Badge.cs
   red -> {{ alert }} (2)
   opacity 0.5 -> {{ bold ? 1 : 0.5 }} (1)
 ```
+}%%}
 
 A colour is named alone because its value says which it is; anything else carries its attribute.
 
@@ -435,7 +437,7 @@ Beside them is an **Element** tab, and it needs no recipe. It lists the attribut
 picked — on the canvas or in the element tree, on a drawing's own tab or on a group's — in the order
 the file writes them, then the ones an expression could drive that the element has no value for yet.
 
-A row's box holds the value itself, whatever it is. Typing `{{ tint }}` into `fill` writes that into
+A row's box holds the value itself, whatever it is. Typing `{%{{{ tint }}}%}` into `fill` writes that into
 the drawing; typing `#00ff00` back writes that. Binding and unbinding are the same gesture, so
 nothing has to remember what a value used to be, and emptying the box takes the attribute away.
 Typing into one of the empty rows adds it.
@@ -546,5 +548,5 @@ once, the resulting drawings checked in, and the source generator compiling them
 
 - [Svg.CodeGen.Skia](../packages/svg-codegen-skia) — the generator both front ends call
 - [Svg.SourceGenerator.Skia](../packages/svg-sourcegenerator-skia) — the package, and its project setup
-- [Svg.Expressions](../packages/svg-expressions) — the `{{ … }}` format, its operators and functions
+- [Svg.Expressions](../packages/svg-expressions) — the `{%{{{ … }}}%}` format, its operators and functions
 - [Svg.Viewer.Skia.Avalonia](../packages/svg-viewer-skia-avalonia) — opening a parametric drawing and driving it

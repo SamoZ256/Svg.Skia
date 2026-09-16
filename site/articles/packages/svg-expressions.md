@@ -8,6 +8,7 @@ title: "Svg.Expressions"
 an **expression** instead of a literal, so one drawing can stand for a whole family of them.
 
 {%{
+{%%{
 ```xml
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="64" height="64">
   <defs>
@@ -22,6 +23,7 @@ an **expression** instead of a literal, so one drawing can stand for a whole fam
           visibility="{{ alert }}" />
 </svg>
 ```
+}%%}
 }%}
 
 The package itself is the language — lexer, parser and type checker — shared by everything that reads
@@ -46,9 +48,11 @@ reference it already.
 An expression is written directly in the attribute it drives, wrapped in double braces:
 
 {%{
+{%%{
 ```xml
 <rect fill="{{ primary }}" opacity="{{ fade }}" />
 ```
+}%%}
 }%}
 
 The whole attribute value must be the expression. A value that merely *contains* braces is left
@@ -58,9 +62,11 @@ alone — `fill="url(#g) {%{{{ x }}}%}"` is an ordinary (invalid) value, not an 
 an expression is the whole of one function **argument**, and one value may hold several.
 
 {%{
+{%%{
 ```xml
 <rect transform="translate({{ dx }}, 0) rotate({{ angle }} 32 32)" width="64" height="64" />
 ```
+}%%}
 }%}
 
 Each argument is wholly an expression or wholly a literal, so {%{`translate(1{{ dx }}, 0)`}%} is an
@@ -72,9 +78,11 @@ Whitespace inside the braces is trimmed, so {%{`{{primary}}` and `{{ primary }}`
 A declaration in a `style` attribute works the same way, and the same rule applies to its value:
 
 {%{
+{%%{
 ```xml
 <rect style="stroke: #000; fill: {{ primary }}" />
 ```
+}%%}
 }%}
 
 Where both are written, the `style` declaration drives the drawing and the presentation attribute
@@ -187,15 +195,17 @@ document first, and changing one compiles the drawing again.
 | `word-spacing` | number | User units. |
 | `textLength` | number | The length the run is fitted to. |
 
+{%%{
 ```xml
 <e:param name="label" type="string" default="'Save'" />
 <e:param name="face"  type="string" default="'Inter'" />
 
 <text x="100" y="40" text-anchor="middle" font-family="{{ face }}">{{ label }}</text>
 ```
+}%%}
 
-An element's text is lifted whole or not at all: `{{ … }}` has to be the entire content, so
-`Total: {{ n }}` is literal text and `{{ 'Total: ' + n }}` is the way to say it. The language has `+`
+An element's text is lifted whole or not at all: `{%{{{ … }}}%}` has to be the entire content, so
+`Total: {%{{{ n }}}%}` is literal text and `{%{{{ 'Total: ' + n }}}%}` is the way to say it. The language has `+`
 on strings for exactly this.
 
 Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d` — is a literal.
@@ -297,11 +307,13 @@ between a string and anything else it is an error, not a conversion.
 A string reaches a drawing two ways ([§2](#2-where-an-expression-can-go)): as the text or the font
 of a `<text>`, and as the thing that chooses between values the other attributes take.
 
+{%%{
 ```xml
 <e:param name="theme" type="string" default="'dark'" />
 <circle fill="{{ theme == 'dark' ? #ffffff : #101010 }}" />
 <text font-family="{{ theme == 'dark' ? 'Inter' : 'Georgia' }}">{{ theme }}</text>
 ```
+}%%}
 
 ### 3.2 Literals
 

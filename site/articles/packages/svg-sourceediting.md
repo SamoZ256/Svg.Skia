@@ -50,11 +50,11 @@ back. It renders identically — and it is measurably wrong for a file somebody 
 
 - **Every comment is gone**, because the SVG reader's node switch has no case for them: a comment is
   not dropped on the way out, it is never modelled.
-- `fill="{{ primary }}"` becomes `style="fill:gray;"` and `e:fill="primary"`.
+- `fill="{%{{{ primary }}}%}"` becomes `style="fill:gray;"` and `e:fill="primary"`.
 - A `<!DOCTYPE>`, `version="1.1"`, `xmlns:xlink`, `xmlns:xml` and a comma-separated `viewBox` appear.
 
 So the tree is an `XDocument`. Comments are nodes, an attribute's value is the string it was written
-as — `{{ }}` and all — and the order somebody put the attributes in is the order they come back in.
+as — `{%{{{ }}}%}` and all — and the order somebody put the attributes in is the order they come back in.
 
 That alone is not enough. Measured over the 2,988 drawings in the two suites, re-serialising an
 `XDocument` the ordinary way returned **28** of them unchanged. XML says nothing about the whitespace
@@ -102,7 +102,7 @@ asked for is refused instead of applied.
 ## Renaming carries the uses with it
 
 `Update` and `UpdateLet` rewrite a declaration, and where the name changes they also rewrite every
-place the drawing names it: the identifier in each `{{ … }}` and in each `<e:let>` body. Renaming only the declaration
+place the drawing names it: the identifier in each `{%{{{ … }}}%}` and in each `<e:let>` body. Renaming only the declaration
 would leave a document that still parses and no longer draws, with nothing about its shape to say
 why.
 
@@ -123,7 +123,7 @@ used one away leaves a document that parses perfectly and draws nothing, which i
 this package exists to prevent; the count is what separates a button that did nothing from one that
 did something unintended.
 
-The uses are the ones `Rename` rewrites — every `{{ … }}` and every `<e:let>` body, found by lexing —
+The uses are the ones `Rename` rewrites — every `{%{{{ … }}}%}` and every `<e:let>` body, found by lexing —
 so the two ask the same question of the same walker. A `default`, `min`, `max` or `step` is not
 searched: the language puts nothing the document declares in scope there, so a name in one is a
 different name.
