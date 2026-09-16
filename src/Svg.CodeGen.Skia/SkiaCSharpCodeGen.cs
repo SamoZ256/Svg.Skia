@@ -478,7 +478,11 @@ public static class SkiaCSharpCodeGen
             {
                 ExprType.Color => $"{type}? {parameter.Name} = null",
                 ExprType.String => $"{type} {parameter.Name} = null",
-                _ => $"{type} {parameter.Name} = {code}"
+
+                // Named rather than left to a default arm: each of these is a value type whose
+                // default is usually a C# constant and can stand in the signature as written.
+                ExprType.Number or ExprType.Integer or ExprType.Boolean => $"{type} {parameter.Name} = {code}",
+                _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {parameter.Type}.")
             });
         }
 
