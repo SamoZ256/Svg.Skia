@@ -104,14 +104,16 @@ renderers ignore:
 ```xml
 <defs>
   <e:code>
-    <e:param name="t"    type="number"  default="0" />
-    <e:param name="hue"  type="number"  default="217" min="0" max="360" step="1" />
-    <e:param name="tint" type="color"   />
-    <e:param name="bold" type="boolean" default="false" />
-    <e:param name="theme" type="string" default="'dark'" />
+    <e:param name="t"     type="number"  default="0" />
+    <e:param name="hue"   type="number"  default="217" min="0" max="360" step="1" />
+    <e:param name="steps" type="integer" default="4"   min="0" max="9"   step="1" />
+    <e:param name="tint"  type="color"   />
+    <e:param name="bold"  type="boolean" default="false" />
+    <e:param name="theme" type="string"  default="'dark'" />
 
     <e:let name="wave">(sin(t * tau) + 1) / 2</e:let>
     <e:let name="shade">mix(tint, #000000, wave)</e:let>
+    <e:let name="half" type="integer">steps / 2</e:let>
   </e:code>
 </defs>
 ```
@@ -142,14 +144,20 @@ increment. All three are optional, and each is an expression like `default` is, 
 ```
 
 `min` and `max` are given together or not at all. `step` may stand alone, against the range of `0` to
-`1` a parameter has when it declares none. All three are for `number` only — any other type
-carrying one is an error, as is a `min` above its `max`, or a `step` of zero or less.
+`1` a parameter has when it declares none. All three are for `number` and `integer` only — any other
+type carrying one is an error, as is a `min` above its `max`, or a `step` of zero or less. An
+integer's bounds are themselves integers, so `max="tau"` on one is refused rather than truncated.
 
 They are **advice to a host, not a constraint on the value**. Nothing clamps: a value supplied at run
 time is accepted wherever it lies, and a `default` outside its own range is legal.
 
 **`<e:let>`** declares a local. Its type is **inferred** from the expression. Lets resolve in document
 order, so a let may reference parameters and earlier lets, but not later ones — and not itself.
+
+`type` is optional on a let, and the only thing it is really for is the numeric types: an inferred
+whole literal is a number ([§3.2](#32-literals)), so `<e:let name="n">3</e:let>` is a number and
+`<e:let name="n" type="integer">3</e:let>` is how to ask for the other. Written anywhere else it is a
+check rather than a choice — the expression has to produce that type or the block is refused.
 
 Names must be valid identifiers (letter or `_`, then letters, digits or `_`), must not collide with a
 built-in constant, function or operator word ([§3.3](#33-operators)), and must be unique across
@@ -207,6 +215,10 @@ document first, and changing one compiles the drawing again.
 An element's text is lifted whole or not at all: `{%{{{ … }}}%}` has to be the entire content, so
 `Total: {%{{{ n }}}%}` is literal text and `{%{{{ 'Total: ' + n }}}%}` is the way to say it. The language has `+`
 on strings for exactly this.
+
+No attribute takes an `integer`, and that is a decision rather than a gap: SVG has none whose value
+is whole. An integer drives a drawing by choosing — `visibility="{%{{{ steps > 0 }}}%}"` — or through
+`num()`, which is what the tables above ask for.
 
 Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d` — is a literal.
 Braces written in one of those are read as an ordinary value and do nothing; a source view marks it.
@@ -299,10 +311,31 @@ Three that look like they belong on that list and do not, which is the more usef
 
 ### 3.1 Types
 
-`number` (single-precision float), `color` (RGBA, 8 bits per channel), `boolean`, `string`.
+`number` (single-precision float), `integer` (32-bit, wrapping), `color` (RGBA, 8 bits per channel),
+`boolean`, `string`.
 
 There are no implicit conversions between them. In particular `+` never turns a number into text:
-between a string and anything else it is an error, not a conversion.
+between a string and anything else it is an error, not a conversion — and it does not turn an integer
+into a number either. `num(i)` and `int(x)` are the crossing, and they are functions for the same
+reason `len` and `str` are ([§3.5](#35-functions)): a value that changed type without being asked to
+would give every arithmetic operator a second meaning.
+
+A **literal** is the exception, and it is not a conversion: `3` has no type of its own until
+something says which one it is ([§3.2](#32-literals)). What has a type is a value, and every value
+keeps it.
+
+An integer is what a drawing **counts** with — a step, a level, an index. No attribute takes one
+([§2](#2-where-an-expression-can-go)), because SVG has none whose value is whole: an opacity, a width
+and a stroke width are all fractional. So an integer is computed with and converted through `num()`
+to paint with.
+
+{%%{
+```xml
+<e:param name="steps" type="integer" default="4" min="0" max="9" step="1" />
+
+<rect visibility="{{ steps > 0 }}" opacity="{{ num(steps) / 10 }}" />
+```
+}%%}
 
 A string reaches a drawing two ways ([§2](#2-where-an-expression-can-go)): as the text or the font
 of a `<text>`, and as the thing that chooses between values the other attributes take.
@@ -319,7 +352,8 @@ of a `<text>`, and as the thing that chooses between values the other attributes
 
 | Form | Type | Notes |
 | --- | --- | --- |
-| `1`, `1.5`, `.5` | number | Decimal only. No exponent form. |
+| `1`, `42` | number *or* integer | Whole, and which one is decided by where it is written. See below. |
+| `1.5`, `.5` | number | A point settles it. Decimal only, no exponent form. |
 | `55%`, `7.4%` | number | `%` is a **suffix**, meaning "divide by 100". `55%` is `0.55`. |
 | `#f80` | color | 3 hex digits, each doubled. |
 | `#f808` | color | 4 hex digits, RGBA, each doubled. |
@@ -327,6 +361,27 @@ of a `<text>`, and as the thing that chooses between values the other attributes
 | `#ff880080` | color | 8 hex digits, RGBA. |
 | `true`, `false` | boolean | |
 | `'dark'`, `"dark"` | string | Either quote; the one that opened the literal closes it. |
+
+#### A whole literal takes the type its context asks for
+
+`3` is not a number that becomes an integer, nor an integer that becomes a number. It is written
+whole, and the slot it lands in decides:
+
+| Where it is written | What `3` is |
+| --- | --- |
+| `<e:param type="integer" default="3" />` | integer |
+| `<e:param type="number" default="3" />` | number |
+| beside a value, as in `steps + 3` | whatever that value is |
+| where nothing says — a `<e:let>` with no type | **number** |
+
+That last row is the rule everything else rests on. `step="1/60"` is two whole literals divided, and
+it means `0.0166…` as it always has, because the slot asks for a number and both literals are
+numbers before the division happens. The context reaches the literals themselves rather than the
+answer, so integer division only ever happens between two values that were *declared* integers —
+something an author did on purpose.
+
+A literal too big for an integer is refused where an integer is wanted and is an ordinary number
+everywhere else, so `3000000000` is a fine number and a bad step count.
 
 A string literal is closed by whichever quote opened it, and only that quote has to be escaped
 inside it. `'` is the spelling to prefer: an expression lives in a double-quoted XML attribute, where
@@ -349,20 +404,37 @@ listed alongside:
 | 2 | `\|\|` | `or` | boolean | boolean |
 | 3 | `&&` | `and` | boolean | boolean |
 | 4 | `==` `!=` | `eq` `ne` | both operands the same type | boolean |
-| 5 | `<` `<=` `>` `>=` | `lt` `le` `gt` `ge` | number | boolean |
-| 6 | `+` | | number, or two strings | number, or string |
-| 6 | `-` | | number | number |
-| 7 | `*` `/` | | number | number |
-| 8 | `-x` (unary) | | number | number |
+| 5 | `<` `<=` `>` `>=` | `lt` `le` `gt` `ge` | number, or two integers | boolean |
+| 6 | `+` | | number, two integers, or two strings | that type |
+| 6 | `-` | | number, or two integers | that type |
+| 7 | `*` `/` | | number, or two integers | that type |
+| 8 | `-x` (unary) | | number, or integer | that type |
 | 8 | `!x` | `not x` | boolean | boolean |
 
 Parentheses group as usual.
 
-Arithmetic on colours is rejected — use `mix(a, b, t)` to blend. Ordering comparisons (`<`, `>`, …)
-are numbers only; `==` and `!=` work on any type provided both sides match.
+Arithmetic on colours is rejected — use `mix(a, b, t)` to blend. `==` and `!=` work on any type
+provided both sides match.
 
-`+` is the one operator with two meanings: two numbers add, two strings join. A string with anything
-else is an error, because the alternative would make `+` a conversion.
+`+` is the one operator with two meanings: numbers add, two strings join. A string with anything else
+is an error, because the alternative would make `+` a conversion.
+
+Arithmetic never mixes the two numeric types: `steps + 0.5` is an error, and `num(steps) + 0.5` is
+how to say it. Between two integers the answer is an integer — including `/`, which divides **toward
+zero**, so `7 / 2` is `3`. That never catches a literal out, because two whole literals with nothing
+else to settle them are numbers ([§3.2](#32-literals)).
+
+Integer arithmetic **wraps** rather than failing, and the three things C# would throw on are answered
+instead, so a drawing that renders cannot start throwing:
+
+| | |
+| --- | --- |
+| `a / 0` | the ends — `int.MaxValue`, `int.MinValue`, or `0` for `0 / 0` |
+| `mod(a, 0)` | `0` |
+| `abs` of the lowest integer | `int.MaxValue` |
+
+Those are the integer spelling of what the number path already answers — an infinity and a NaN — and
+they are the same ends `int()` saturates to, so `int(1 / 0)` and `1 / 0` agree.
 
 #### Escaping, and the word forms
 
@@ -407,6 +479,11 @@ Numeric:
 | `pow(x, y)` `min(a, b)` `max(a, b)` | |
 | `mod(a, b)` | Remainder; the sign follows the dividend. |
 | `clamp(x, lo, hi)` | |
+
+`abs`, `min`, `max`, `mod` and `clamp` answer in **either** numeric type, by the arguments they are
+given: `min(steps, 1)` is an integer and `min(t, 1)` is a number. Where the arguments say nothing
+because both are whole literals — `min(1, 2)` — the answer is a number, which is what such a call
+always meant; `int(min(1, 2))` asks for the other.
 | `lerp(a, b, t)` | `a + (b - a) * t`. **`t` is not clamped**, so it extrapolates outside 0..1. |
 
 Colour:
@@ -425,15 +502,23 @@ String:
 | Signature | Notes |
 | --- | --- |
 | `upper(s)` `lower(s)` | **Invariant** case folding, so the answer does not vary with the machine. |
-| `len(s)` | Number of UTF-16 code units, as a **number** — which is how a string reaches the arithmetic. |
-| `str(x)` | A **number** as text, invariant and shortest round-trip — which is how a number reaches the words. A whole number reads as one: `str(100)` is `'100'`, not `'100.0'`. |
+| `len(s)` | Number of UTF-16 code units, as an **integer** — which is how a string reaches the arithmetic. |
+| `str(x)` | A number **or an integer** as text, invariant and shortest round-trip — which is how either reaches the words. A whole number reads as one: `str(100)` is `'100'`, not `'100.0'`. |
 
 Note the deliberate asymmetry: `rgb` takes 0..255 and `hsl` takes degrees plus fractions, matching
 CSS rather than being internally uniform.
 
-`len` and `str` are the only two crossings between a number and a string, and they are functions
-rather than conversions for the reason [§3.3](#33-operators) gives: `+` would otherwise have a third
-meaning, and `'total: ' + n` would silently be text where it was meant to be an error.
+Between the two numeric types:
+
+| Signature | Notes |
+| --- | --- |
+| `int(x)` | A number as an integer, **toward zero** — `int(-2.5)` is `-2`, which is not `floor`. Saturates at the ends rather than wrapping, and a NaN is `0`. |
+| `num(i)` | An integer as a number. Above 2²⁴ a float stops counting by one, so a large integer loses its last digits — which is the whole reason the two types are separate. |
+
+`len` and `str` cross between a string and the numbers, `int` and `num` between the numbers
+themselves, and all four are functions rather than conversions for the reason
+[§3.3](#33-operators) gives: `+` would otherwise have a third meaning, and `'total: ' + n` would
+silently be text where it was meant to be an error.
 
 ### 3.6 Grammar
 
@@ -451,6 +536,10 @@ primary        := number | color | string | 'true' | 'false'
                 | identifier '(' ( conditional ( ',' conditional )* )? ')'
                 | '(' conditional ')'
 ```
+
+The grammar is unchanged by the integer, and deliberately so: `3` and `3.0` are one production, and
+which numeric type each is belongs to the checker rather than the parser. There is no suffix to
+write and nothing new to spell.
 
 ## Related docs
 

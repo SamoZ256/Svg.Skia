@@ -63,6 +63,26 @@ dropping a `.pcvd` on the window imports it beside itself.
 PaintCode is y-up and SVG is y-down, so everything is turned over on the way: a point at `(x, y)`
 is written at `(x, -y)`, and an angle with it.
 
+### Whole numbers, if you ask
+
+PaintCode has one numeric kind. A value is stored as a real whether or not it is whole — a width of
+15 and an alpha of 1 both are — and a variable's bounds are a minimum and a maximum with no step. So
+nothing in the document distinguishes a step enum from a slider that happens to sit on a whole
+number, and by default every one of them becomes `<e:param type="number">`.
+
+That leaves the shape PaintCode documents keep reaching for unsaid: a parameter compared with `==`
+against 0, 1, 2 and so on, which is an integer carried as a float.
+
+```bash
+svgc --paintcode Icons.pcvd --paintcodeIntegers
+```
+
+writes a number variable as `<e:param type="integer">` where its value is whole and its bounds are
+whole. It is **a guess, and it is yours to make**: a continuous 0 to 1 fade that happened to be saved
+at 1 is retyped too, and only the author knows which it was. A derived variable is never retyped —
+its body is PaintCode's arithmetic in PaintCode's one numeric type, and retyping the answer without
+the working would refuse the document rather than improve it.
+
 ## What does not, and what happens instead
 
 The rule is that the converter never writes a binding it cannot say. It writes the value the drawing
