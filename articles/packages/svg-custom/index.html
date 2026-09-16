@@ -98,7 +98,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.eae3b3891b6e2dc99fed4f90647687c2.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-7,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.044efb6e392d2ecca9dc97ce8e760cc0.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-7,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
         </div>
       </nav>
       <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
@@ -199,9 +199,22 @@ if (document is not null)
 <li>embedded SVG 1.1 DTD resources,</li>
 <li>analyzer and generator integration used by the vendored code path,</li>
 <li>repository-local SVG 1.1 animation object-model types,</li>
-<li>typed <code>pointer-events</code> support used by the shared hit-test and interaction layers.</li>
+<li>typed <code>pointer-events</code> support used by the shared hit-test and interaction layers,</li>
+<li><code>SvgElementNames.NameOf</code> and <code>SvgElementAddress</code>, which answer the two questions the vendored
+<code>SvgElement</code> cannot: what an element is called, and which element it is.</li>
 </ul>
 <p>The rendering behavior still lives above this package, not inside it.</p>
+<h3 id="naming-and-addressing-an-element">Naming and addressing an element</h3>
+<p><code>SvgElement.ElementName</code> is <code>protected internal</code>, so nothing outside this package can say what an
+element is called. <code>SvgElementNames.NameOf</code> carries the rules once: a document is <code>svg</code>, a
+foreign-namespace element carries its own name, an element whose name this renderer does not
+recognise keeps what it was written with, and everything else is named by its type.</p>
+<p><code>SvgElementAddress</code> is the child-index path from the root — <code>Create(element).Key</code> is <code>0/2/1</code>, and
+<code>Resolve(document)</code> walks it back down. It is the identity that survives a document being rebuilt:
+a host reloading a drawing from edited text gets a new <code>SvgDocument</code> and new elements every time, so
+a reference taken a moment ago names nothing. <code>SvgSceneNode.ElementAddressKey</code> spells the same path,
+and so does <code>SvgSourceElements</code> in <code>Svg.Highlighting</code>, which is what lets a scene node, a row of text
+and an element all be talked about as the same thing.</p>
 <h2 id="animation-dom-coverage">Animation DOM coverage</h2>
 <p><code>Svg.Custom</code> now includes the repository's SVG 1.1 animation object-model overlay in the <code>Svg</code> namespace.</p>
 <p>That surface includes:</p>

@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="Svg.Highlighting | Svg.Skia">
-<meta name="twitter:description" content="Svg.Highlighting Svg.Highlighting splits an SVG document into coloured pieces for a source view, and says what is wrong with it. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what Svg.Viewer.Skia.Avalonia's source pane is built on. It depends on Svg.Expressions for the expression language's own lexer and checker, and on...">
+<meta name="twitter:description" content="Svg.Highlighting Svg.Highlighting splits an SVG document into coloured pieces for a source view, and says what is wrong with it. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what Svg.Viewer.Skia.Avalonia colours its expression boxes with, and what it asks for a drawing's mistakes. It depends on Svg.Expressions for the expression language's own lexer and checker, and on...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="Svg.Highlighting | Svg.Skia">
 <meta property="og:title" content="Svg.Highlighting | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="Svg.Highlighting Svg.Highlighting splits an SVG document into coloured pieces for a source view, and says what is wrong with it. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what Svg.Viewer.Skia.Avalonia's source pane is built on. It depends on Svg.Expressions for the expression language's own lexer and checker, and on...">
+<meta property="og:description" content="Svg.Highlighting Svg.Highlighting splits an SVG document into coloured pieces for a source view, and says what is wrong with it. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what Svg.Viewer.Skia.Avalonia colours its expression boxes with, and what it asks for a drawing's mistakes. It depends on Svg.Expressions for the expression language's own lexer and checker, and on...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="Svg.Highlighting | Svg.Skia">
   </head>
@@ -98,7 +98,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.eae3b3891b6e2dc99fed4f90647687c2.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-23,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.044efb6e392d2ecca9dc97ce8e760cc0.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-24,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
         </div>
       </nav>
       <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
@@ -144,7 +144,7 @@
         </div>
 <!-- lunet:summarize -->
 <h1 id="svghighlighting">Svg.Highlighting</h1>
-<p><code>Svg.Highlighting</code> splits an SVG document into coloured pieces for a source view, and says what is wrong with it. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what <code>Svg.Viewer.Skia.Avalonia</code>'s source pane is built on.</p>
+<p><code>Svg.Highlighting</code> splits an SVG document into coloured pieces for a source view, and says what is wrong with it. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what <code>Svg.Viewer.Skia.Avalonia</code> colours its expression boxes with, and what it asks for a drawing's mistakes.</p>
 <p>It depends on <code>Svg.Expressions</code> for the expression language's own lexer and checker, and on <code>Svg.Custom</code> for the SVG parser's own converters. Both are there so that what is coloured and what is called wrong are decided by the things that actually read a drawing, rather than by a second description of them.</p>
 <h2 id="install">Install</h2>
 <pre><code class="language-bash">dotnet add package Svg.Highlighting
@@ -168,7 +168,7 @@
 <tbody>
 <tr>
 <td><code>SvgSourceHighlighter</code></td>
-<td><code>Tokenize</code> for a whole document, <code>Lines</code> for one row at a time</td>
+<td><code>Tokenize</code> for a whole document, <code>Lines</code> for one row at a time, <code>Expression</code> for one expression with no document around it</td>
 </tr>
 <tr>
 <td><code>SvgSourceToken</code></td>
@@ -189,6 +189,14 @@
 <tr>
 <td><code>SvgSourceDiagnostic</code></td>
 <td>A range, a severity and a message, in the same coordinates as a token</td>
+</tr>
+<tr>
+<td><code>SvgSourceElements</code></td>
+<td><code>Map</code> — where every element of a document is written, by address</td>
+</tr>
+<tr>
+<td><code>SvgSourceElement</code></td>
+<td>An element's name and the range its start tag occupies</td>
 </tr>
 </tbody>
 </table>
@@ -250,7 +258,7 @@ than it sounds:</p>
 </tbody>
 </table>
 <p>A tokenizer written by hand here would have coloured the percent as an operator and the word forms
-as names. Reusing the lexer is what keeps the pane and the compiler saying the same thing.</p>
+as names. Reusing the lexer is what keeps a view and the compiler saying the same thing.</p>
 <p>An expression the language refuses — a lone <code>=</code>, a half-typed call — colours as far as it read and
 leaves the remainder plain. Someone reading a file to find out why it will not compile is exactly
 who has a source view open.</p>
@@ -275,7 +283,15 @@ would accept what the code generator then rejects.</p>
 <pre><code class="language-xml">&lt;rect opacity=&quot;{{ tint }}&quot; /&gt;
 &lt;!--             ^ An opacity expression must be a number expression, but this one is a colour. --&gt;
 </code></pre>
-<p><code>fill</code>, <code>stroke</code> and <code>stop-color</code> want a colour, <code>opacity</code> a number, <code>visibility</code> a boolean. Both
+<p>Inside a <code>style</code> attribute the property the declaration names decides, not the word <code>style</code>: the
+value is split into declarations first, so <code>style=&quot;fill: {{ hue }}&quot;</code> is refused for the same reason
+<code>fill=&quot;{{ hue }}&quot;</code> is.</p>
+<p><code>fill</code>, <code>stroke</code>, <code>stop-color</code>, <code>flood-color</code> and <code>lighting-color</code> want a colour, <code>opacity</code> and the
+three that scale an alpha —
+<code>fill-opacity</code>, <code>stroke-opacity</code>, <code>stop-opacity</code> — a number, <code>visibility</code> and <code>display</code> a boolean.
+<code>transform</code> is the one attribute checked argument by argument rather than whole: each <code>{{ … }}</code>
+inside it is its own span, wants a number, and is marked where it was written. Braces there that are
+not the whole of one argument drive nothing, and are reported as that rather than as a bad number. Both
 back ends already refuse the wrong one as they read the document — the emitter and the renderer — so
 this asks the same question earlier and reports it in the same words, rather than letting a drawing
 open and fail when it is generated or drawn.</p>
@@ -355,6 +371,18 @@ document deliberately never does.</p>
 <p>Splitting is context-free and analysing is not, which is why they are separate calls: colouring a
 placeholder needs only the span, checking it needs the whole file. Splitting a 132KB drawing twice —
 once for lines, once for analysis — costs about 12ms.</p>
+<h2 id="placing-an-element-in-the-text">Placing an element in the text</h2>
+<p>An <code>SvgElement</code> holds no source position — the parser never asks the reader for one — so a host holding a parsed document has nothing to go on when it wants to show an element in the file. <code>SvgSourceElements.Map</code> reads the text a second time and answers that, giving each element's start tag as a range:</p>
+<pre><code class="language-csharp">var map = SvgSourceElements.Map(svgText);
+
+if (map.TryGetValue(SvgElementAddress.Create(element).Key, out var placed)
+    &amp;&amp; placed.Name == SvgElementNames.NameOf(element))
+{
+    editor.Select(placed.Start, placed.Length);
+}
+</code></pre>
+<p>The key is the child-index path <code>SvgElementAddress</code> spells, and that works because it is the one name both sides can produce without knowing about each other: this side counts <code>XElement</code>s, the other counts <code>SvgElement.Children</code>, and neither counts a comment or a run of text. It is also the key that survives a document being rebuilt from edited text, where every element is a new object.</p>
+<p><strong>Check the name before you move the caret.</strong> The two readings are not correlated by anything, so <code>Name</code> is carried alongside the range for exactly this: a disagreement should become nothing happening, never a confident jump to the wrong line. A document that will not parse maps nothing at all, which is what a drawing looks like for most of the time somebody is typing one.</p>
 <h2 id="it-describes-rather-than-validates">It describes rather than validates</h2>
 <p>A malformed document still colours — refusing to colour the file someone is trying to find the fault in would be perverse. What keeps that honest is an invariant asserted over CDATA, processing instructions, an unterminated comment and an unclosed tag alike: <strong>concatenating every token reproduces the input exactly</strong>. Colouring can never quietly alter, drop or reorder what a file says.</p>
 <h2 id="two-limits-and-why-they-are-not-the-same">Two limits, and why they are not the same</h2>

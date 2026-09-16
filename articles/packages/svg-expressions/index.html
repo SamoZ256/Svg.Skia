@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="Svg.Expressions | Svg.Skia">
-<meta name="twitter:description" content="Svg.Expressions Svg.Expressions is the SVG expression extension: an addition to SVG that lets an attribute value be an expression instead of a literal, so one drawing can stand for a whole family of them. &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; xmlns:e=&quot;https://svg.skia/expr/1.0&quot; width=&quot;64&quot; height=&quot;64&quot;> &lt;defs> &lt;e:code> &lt;e:param name=&quot;level&quot; type=&quot;number&quot; default=&quot;0&quot; /> &lt;e:let name=&quot;alert&quot;>level ge 0.8&lt;/e:let> &lt;/e:code> &lt;/defs> &lt;circle cx=&quot;32&quot; cy=&quot;32&quot; r=&quot;20&quot; fill=&quot;{{ level > 0.9 ? #ff0000 : hsl(200, 74%, 55%) }}&quot; visibility=&quot;{{ alert }}&quot;...">
+<meta name="twitter:description" content="Svg.Expressions Svg.Expressions is the SVG expression extension: an addition to SVG that lets an attribute value be an expression instead of a literal, so one drawing can stand for a whole family of them. {%%{ &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; xmlns:e=&quot;https://svg.skia/expr/1.0&quot; width=&quot;64&quot; height=&quot;64&quot;> &lt;defs> &lt;e:code> &lt;e:param name=&quot;level&quot; type=&quot;number&quot; default=&quot;0&quot; /> &lt;e:let name=&quot;alert&quot;>level ge 0.8&lt;/e:let> &lt;/e:code> &lt;/defs> &lt;circle cx=&quot;32&quot; cy=&quot;32&quot; r=&quot;20&quot; fill=&quot;{{ level > 0.9 ? #ff0000 : hsl(200, 74%, 55%) }}&quot; visibility=&quot;{{ alert...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="Svg.Expressions | Svg.Skia">
 <meta property="og:title" content="Svg.Expressions | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="Svg.Expressions Svg.Expressions is the SVG expression extension: an addition to SVG that lets an attribute value be an expression instead of a literal, so one drawing can stand for a whole family of them. &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; xmlns:e=&quot;https://svg.skia/expr/1.0&quot; width=&quot;64&quot; height=&quot;64&quot;> &lt;defs> &lt;e:code> &lt;e:param name=&quot;level&quot; type=&quot;number&quot; default=&quot;0&quot; /> &lt;e:let name=&quot;alert&quot;>level ge 0.8&lt;/e:let> &lt;/e:code> &lt;/defs> &lt;circle cx=&quot;32&quot; cy=&quot;32&quot; r=&quot;20&quot; fill=&quot;{{ level > 0.9 ? #ff0000 : hsl(200, 74%, 55%) }}&quot; visibility=&quot;{{ alert }}&quot;...">
+<meta property="og:description" content="Svg.Expressions Svg.Expressions is the SVG expression extension: an addition to SVG that lets an attribute value be an expression instead of a literal, so one drawing can stand for a whole family of them. {%%{ &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; xmlns:e=&quot;https://svg.skia/expr/1.0&quot; width=&quot;64&quot; height=&quot;64&quot;> &lt;defs> &lt;e:code> &lt;e:param name=&quot;level&quot; type=&quot;number&quot; default=&quot;0&quot; /> &lt;e:let name=&quot;alert&quot;>level ge 0.8&lt;/e:let> &lt;/e:code> &lt;/defs> &lt;circle cx=&quot;32&quot; cy=&quot;32&quot; r=&quot;20&quot; fill=&quot;{{ level > 0.9 ? #ff0000 : hsl(200, 74%, 55%) }}&quot; visibility=&quot;{{ alert...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="Svg.Expressions | Svg.Skia">
   </head>
@@ -98,7 +98,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.eae3b3891b6e2dc99fed4f90647687c2.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-24,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.044efb6e392d2ecca9dc97ce8e760cc0.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-25,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
         </div>
       </nav>
       <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
@@ -146,6 +146,7 @@
 <h1 id="svgexpressions">Svg.Expressions</h1>
 <p><code>Svg.Expressions</code> is the SVG expression extension: an addition to SVG that lets an attribute value be
 an <strong>expression</strong> instead of a literal, so one drawing can stand for a whole family of them.</p>
+<p>{%%{</p>
 <pre><code class="language-xml">&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; xmlns:e=&quot;https://svg.skia/expr/1.0&quot; width=&quot;64&quot; height=&quot;64&quot;&gt;
   &lt;defs&gt;
     &lt;e:code&gt;
@@ -159,6 +160,7 @@ an <strong>expression</strong> instead of a literal, so one drawing can stand fo
           visibility=&quot;{{ alert }}&quot; /&gt;
 &lt;/svg&gt;
 </code></pre>
+<p>}%%}</p>
 <p>The package itself is the language — lexer, parser and type checker — shared by everything that reads
 the format. This article is the format: what you may write and what it means. Rendering a drawing
 with values supplied is <a href="/Svg.Skia/articles/packages/svg-skia">Svg.Skia</a>; turning one into C# is
@@ -172,11 +174,32 @@ reference it already.</p>
 <h2 id="1-two-pieces-of-syntax">1. Two pieces of syntax</h2>
 <h3 id="11-inline-expressions">1.1 Inline expressions</h3>
 <p>An expression is written directly in the attribute it drives, wrapped in double braces:</p>
+<p>{%%{</p>
 <pre><code class="language-xml">&lt;rect fill=&quot;{{ primary }}&quot; opacity=&quot;{{ fade }}&quot; /&gt;
 </code></pre>
+<p>}%%}</p>
 <p>The whole attribute value must be the expression. A value that merely <em>contains</em> braces is left
 alone — <code>fill=&quot;url(#g) {{ x }}&quot;</code> is an ordinary (invalid) value, not an expression.</p>
+<p><code>transform</code> is the one exception, and it moves the rule one level down rather than dropping it: there
+an expression is the whole of one function <strong>argument</strong>, and one value may hold several.</p>
+<p>{%%{</p>
+<pre><code class="language-xml">&lt;rect transform=&quot;translate({{ dx }}, 0) rotate({{ angle }} 32 32)&quot; width=&quot;64&quot; height=&quot;64&quot; /&gt;
+</code></pre>
+<p>}%%}</p>
+<p>Each argument is wholly an expression or wholly a literal, so <code>translate(1{{ dx }}, 0)</code> is an
+ordinary value that drives nothing — and so is <code>transform=&quot;{{ t }}&quot;</code>, where the braces stand
+where a function goes rather than where an argument does. A source view marks both.</p>
 <p>Whitespace inside the braces is trimmed, so <code>{{primary}}</code> and <code>{{ primary }}</code> are equivalent.</p>
+<p>A declaration in a <code>style</code> attribute works the same way, and the same rule applies to its value:</p>
+<p>{%%{</p>
+<pre><code class="language-xml">&lt;rect style=&quot;stroke: #000; fill: {{ primary }}&quot; /&gt;
+</code></pre>
+<p>}%%}</p>
+<p>Where both are written, the <code>style</code> declaration drives the drawing and the presentation attribute
+does not — the cascade decides, in whichever order they appear — so a literal in <code>style</code> leaves an
+expression in the attribute beneath it doing nothing, exactly as it leaves a literal there doing
+nothing. A rule in a <code>&lt;style&gt;</code> element is <strong>not</strong> lifted: its declarations apply to every element a
+selector matches, and an expression is a property of one element.</p>
 <p>A drawing written this way has no design-time value: the expression replaces the attribute rather
 than sitting beside it, so a tool that does not know the extension shows a stand-in colour rather
 than the intended one. In exchange there is one source of truth per attribute and no second value to
@@ -190,6 +213,7 @@ renderers ignore:</p>
     &lt;e:param name=&quot;hue&quot;  type=&quot;number&quot;  default=&quot;217&quot; min=&quot;0&quot; max=&quot;360&quot; step=&quot;1&quot; /&gt;
     &lt;e:param name=&quot;tint&quot; type=&quot;color&quot;   /&gt;
     &lt;e:param name=&quot;bold&quot; type=&quot;boolean&quot; default=&quot;false&quot; /&gt;
+    &lt;e:param name=&quot;theme&quot; type=&quot;string&quot; default=&quot;'dark'&quot; /&gt;
 
     &lt;e:let name=&quot;wave&quot;&gt;(sin(t * tau) + 1) / 2&lt;/e:let&gt;
     &lt;e:let name=&quot;shade&quot;&gt;mix(tint, #000000, wave)&lt;/e:let&gt;
@@ -216,7 +240,7 @@ increment. All three are optional, and each is an expression like <code>default<
 &lt;e:param name=&quot;fade&quot; type=&quot;number&quot; default=&quot;0.5&quot; step=&quot;5%&quot; /&gt;
 </code></pre>
 <p><code>min</code> and <code>max</code> are given together or not at all. <code>step</code> may stand alone, against the range of <code>0</code> to
-<code>1</code> a parameter has when it declares none. All three are for <code>number</code> only — a colour or boolean
+<code>1</code> a parameter has when it declares none. All three are for <code>number</code> only — any other type
 carrying one is an error, as is a <code>min</code> above its <code>max</code>, or a <code>step</code> of zero or less.</p>
 <p>They are <strong>advice to a host, not a constraint on the value</strong>. Nothing clamps: a value supplied at run
 time is accepted wherever it lies, and a <code>default</code> outside its own range is legal.</p>
@@ -225,7 +249,11 @@ order, so a let may reference parameters and earlier lets, but not later ones �
 <p>Names must be valid identifiers (letter or <code>_</code>, then letters, digits or <code>_</code>), must not collide with a
 built-in constant, function or operator word (<a href="#33-operators">§3.3</a>), and must be unique across
 params and lets.</p>
-<h2 id="2-which-attributes-take-an-expression">2. Which attributes take an expression</h2>
+<h2 id="2-where-an-expression-can-go">2. Where an expression can go</h2>
+<p>There are two kinds, and which one an attribute is decides what it costs to change.</p>
+<p><strong>Resolved after the drawing is recorded.</strong> The value survives into the compiled drawing, so binding
+a new one rewrites that drawing and nothing is compiled again. This is the cheap path: a slider drag
+stays smooth.</p>
 <table class="table">
 <thead>
 <tr>
@@ -251,30 +279,207 @@ params and lets.</p>
 <td>Gradient stop colour.</td>
 </tr>
 <tr>
+<td><code>flood-color</code></td>
+<td>color</td>
+<td><code>&lt;feFlood&gt;</code>'s colour. <code>flood-opacity</code> scales it, as a literal or an expression of its own.</td>
+</tr>
+<tr>
+<td><code>lighting-color</code></td>
+<td>color</td>
+<td><code>&lt;feDiffuseLighting&gt;</code>'s and <code>&lt;feSpecularLighting&gt;</code>'s light colour.</td>
+</tr>
+<tr>
 <td><code>opacity</code></td>
 <td>number</td>
 <td>Group opacity.</td>
+</tr>
+<tr>
+<td><code>fill-opacity</code></td>
+<td>number</td>
+<td>Scales the fill's alpha, whether the fill is a literal, an expression or a gradient.</td>
+</tr>
+<tr>
+<td><code>stroke-opacity</code></td>
+<td>number</td>
+<td>Scales the stroke's alpha.</td>
+</tr>
+<tr>
+<td><code>stroke-width</code></td>
+<td>number</td>
+<td>The stroke's width in user units. Refused where a driven transform is, and for the same reason: a stroke that grows paints outside bounds something already measured.</td>
+</tr>
+<tr>
+<td><code>stop-opacity</code></td>
+<td>number</td>
+<td>Scales one gradient stop's alpha.</td>
 </tr>
 <tr>
 <td><code>visibility</code></td>
 <td>boolean</td>
 <td><code>true</code> meaning visible. Wraps the element's drawing in a condition.</td>
 </tr>
+<tr>
+<td><code>display</code></td>
+<td>boolean</td>
+<td><code>true</code> meaning displayed. Wraps the element and its subtree in a condition.</td>
+</tr>
+<tr>
+<td><code>transform</code></td>
+<td>number, per argument</td>
+<td>One expression drives one argument of one function. Unbound, an argument reads as the identity of <strong>its slot</strong> — 0 for an offset, an angle or a rotation centre, 1 for a scale factor — rather than one constant for all of them, since an unbound <code>scale</code> of 0 would leave no shape on screen to bind to.</td>
+</tr>
 </tbody>
 </table>
-<p>Everything else — <code>x</code>, <code>y</code>, <code>cx</code>, <code>cy</code>, <code>width</code>, <code>height</code>, <code>d</code>, <code>transform</code>, <code>display</code>,
-<code>stroke-width</code>, <code>fill-opacity</code> — is a literal. Braces written in one of those are read as an ordinary
-value and do nothing; a source view marks it.</p>
-<p><code>visibility</code> is a boolean rather than a value substitution because a hidden element contributes no
-drawing at all. SVG's third value, <code>collapse</code>, means the same as <code>hidden</code> outside CSS table layout,
-so nothing is lost.</p>
-<p>Ordinary attributes still apply alongside an expression: <code>fill-opacity</code>, <code>stroke-opacity</code> and
-<code>stop-opacity</code> scale its alpha, and <code>color-interpolation=&quot;linearRGB&quot;</code> converts it, exactly as they
+<p><strong>Resolved before the drawing is recorded.</strong> The value is consumed while the document is compiled —
+the typeface is chosen with it and the text measured against that — so it is substituted into the
+document first, and changing one compiles the drawing again.</p>
+<table class="table">
+<thead>
+<tr>
+<th>Where</th>
+<th>Expression type</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>element text</td>
+<td>string</td>
+<td>The text of a <code>&lt;text&gt;</code>, <code>&lt;tspan&gt;</code> or <code>&lt;textPath&gt;</code>.</td>
+</tr>
+<tr>
+<td><code>font-family</code></td>
+<td>string</td>
+<td>The typeface the text is laid out with.</td>
+</tr>
+<tr>
+<td><code>font-weight</code></td>
+<td>string</td>
+<td><code>bold</code>, <code>700</code>, and the rest of SVG's own spellings.</td>
+</tr>
+<tr>
+<td><code>font-style</code></td>
+<td>string</td>
+<td><code>normal</code>, <code>italic</code>, <code>oblique</code>.</td>
+</tr>
+<tr>
+<td><code>text-anchor</code></td>
+<td>string</td>
+<td><code>start</code>, <code>middle</code>, <code>end</code>.</td>
+</tr>
+<tr>
+<td><code>font-size</code></td>
+<td>number</td>
+<td>User units; a number carries no unit, so <code>2em</code> cannot be written this way.</td>
+</tr>
+<tr>
+<td><code>letter-spacing</code></td>
+<td>number</td>
+<td>User units.</td>
+</tr>
+<tr>
+<td><code>word-spacing</code></td>
+<td>number</td>
+<td>User units.</td>
+</tr>
+<tr>
+<td><code>textLength</code></td>
+<td>number</td>
+<td>The length the run is fitted to.</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-xml">&lt;e:param name=&quot;label&quot; type=&quot;string&quot; default=&quot;'Save'&quot; /&gt;
+&lt;e:param name=&quot;face&quot;  type=&quot;string&quot; default=&quot;'Inter'&quot; /&gt;
+
+&lt;text x=&quot;100&quot; y=&quot;40&quot; text-anchor=&quot;middle&quot; font-family=&quot;{{ face }}&quot;&gt;{{ label }}&lt;/text&gt;
+</code></pre>
+<p>An element's text is lifted whole or not at all: <code>{{ … }}</code> has to be the entire content, so
+<code>Total: {{ n }}</code> is literal text and <code>{{ 'Total: ' + n }}</code> is the way to say it. The language has <code>+</code>
+on strings for exactly this.</p>
+<p>Everything else — <code>x</code>, <code>y</code>, <code>cx</code>, <code>cy</code>, <code>width</code>, <code>height</code>, <code>d</code> — is a literal.
+Braces written in one of those are read as an ordinary value and do nothing; a source view marks it.</p>
+<p>Position through <code>x</code> or <code>cx</code> stays literal because those are consumed into the path the drawing
+records — a rect is points by the time anything could rewrite it — so <code>translate</code> is how a driven
+position is said.</p>
+<h3 id="what-the-second-kind-costs">What the second kind costs</h3>
+<p>Two things, both worth knowing before reaching for it.</p>
+<p><strong>A compile, not a rewrite.</strong> Measured on a 400-element drawing with 200 text runs: binding a colour
+takes 1.4 ms, binding the text takes 6.0 ms — about four times as much, and still inside a frame.
+Nothing throttles it, and a host that binds one per keystroke will not notice; a host driving one
+from a slider on a very large document might.</p>
+<p><strong>No generated code.</strong> <code>svgc</code> and the source generator bake a picture at build time, with the text
+already measured and the glyph positions already numbers. A parameter driving one of these could
+never vary at run time, so a document using them is <strong>refused</strong> rather than generated with a
+signature that offers something it cannot do. Bind it at run time with <code>SKSvg.SetExpressionValues</code>,
+or write the value as a literal to generate from.</p>
+<p>A <strong>pattern</strong> fill is the one exception among the opacities: it paints into a picture of its own,
+where the alpha is baked into every command rather than sitting on one colour, so <code>fill-opacity</code>
+still applies but only as the value it had when the drawing was compiled.</p>
+<p><code>&lt;feDropShadow&gt;</code> is the exception among the colours. Its <code>flood-color</code> is folded into a colour
+matrix of floats rather than kept as a colour, so it has nowhere to carry an expression and stays a
+literal. <code>&lt;feFlood&gt;</code> behind the same drop shadow does take one.</p>
+<p><code>visibility</code> and <code>display</code> are booleans rather than value substitutions because a hidden element
+contributes no drawing at all. SVG's third visibility value, <code>collapse</code>, means the same as <code>hidden</code>
+outside CSS table layout, so nothing is lost; <code>display</code> has many values, but only <code>none</code> is the
+difference between drawing and not.</p>
+<p>Written on one element they nest, in either order, and the element draws only where both hold. What
+neither reaches is hit testing, which reads the placeholder: an element hidden by an expression
+alone still answers a hit.</p>
+<p>A driven transform does reach it. Binding moves the compiled scene as well as the recorded drawing,
+so an element turned by an expression answers, measures and is drawn around where it is turned to —
+hit testing, node bounds, the outline and the editor's selection handles all follow, because none of
+them is told about expressions at all: they read the scene, and the scene moved.</p>
+<p>The two compose in either direction: an opacity expression scales a literal colour, a colour
+expression is scaled by a literal opacity, and where both are expressions the alpha is scaled by
+whatever the number one yields. <code>color-interpolation=&quot;linearRGB&quot;</code> converts the result, exactly as it
 would a literal.</p>
+<h3 id="where-a-driven-transform-or-stroke-width-is-refused">Where a driven transform or stroke width is refused</h3>
+<p>A recorded matrix can be rewritten because nothing downstream measured it. Where something <em>was</em>
+measured against it while the drawing was compiled, binding another value would move the element out
+from under that measurement, so the expression is <strong>refused</strong> rather than bound:</p>
+<ul>
+<li>a <strong>filter</strong> — on the element, above it or below it. Its region was measured against the matrix in
+force when the drawing was recorded.</li>
+<li>a strict <strong>ancestor that opens a layer</strong>: <code>opacity</code>, <code>mask</code>, a blend mode, an isolation group. That
+layer's bounds were unioned from the transforms of the children under it, and <code>SaveLayer</code>'s bounds
+are a hard clip rather than a hint — an element bound outside them would not be clipped late, it
+would be gone.</li>
+<li>a transform written <strong>inside a <code>&lt;clipPath&gt;</code></strong>, whose contents compile to geometry and are never
+recorded as commands, so there is no matrix left in the drawing to rewrite.</li>
+<li>a transform on a <strong><code>&lt;text&gt;</code></strong> or <strong><code>&lt;tspan&gt;</code></strong>, whose matrix is folded into the glyph positions the
+drawing records, and one on an element that also declares <strong><code>transform-origin</code></strong>, which wraps the
+author's functions in translations computed from the value they had when the drawing was compiled.</li>
+</ul>
+<p>Those last two are the reason the rule is written as <em>either it moves or it is named</em>, rather than as
+a list: an element that carries a driven transform and was nonetheless compiled without one is
+refused whatever the reason, so a function or an argument count SVG does not allow is caught by the
+same sentence rather than binding silently to nothing.</p>
+<p>A driven <strong><code>stroke-width</code></strong> answers the first two of those — a filter, and an ancestor that opens a
+layer — for the same reason: a stroke that grows paints outside bounds that were unioned from where
+it painted when the drawing was compiled, and <code>SaveLayer</code>'s bounds are a hard clip. It answers none
+of the rest, because unlike a transform it is a value on the recorded paint wherever it was compiled
+and there is nothing for it to have been folded into.</p>
+<p>Three that look like they belong on that list and do not, which is the more useful half of the rule:</p>
+<ul>
+<li><strong><code>clip-path</code></strong> on the element or on an ancestor. The clip is recorded after the element's own
+matrix, in its own space, and <code>clipPathUnits</code> resolves against local bounds — so it travels with
+the element rather than staying where the element was.</li>
+<li>a <strong><code>userSpaceOnUse</code></strong> gradient or pattern. It is built from local bounds and applied under the
+live canvas matrix, which is precisely what SVG means by user space: the paint moves with the shape.</li>
+<li><strong><code>vector-effect=&quot;non-scaling-stroke&quot;</code></strong>, which is redone against the live matrix.</li>
+</ul>
 <h2 id="3-language-reference">3. Language reference</h2>
 <h3 id="31-types">3.1 Types</h3>
-<p><code>number</code> (single-precision float), <code>color</code> (RGBA, 8 bits per channel), <code>boolean</code>.</p>
-<p>There are no implicit conversions between them.</p>
+<p><code>number</code> (single-precision float), <code>color</code> (RGBA, 8 bits per channel), <code>boolean</code>, <code>string</code>.</p>
+<p>There are no implicit conversions between them. In particular <code>+</code> never turns a number into text:
+between a string and anything else it is an error, not a conversion.</p>
+<p>A string reaches a drawing two ways (<a href="#2-where-an-expression-can-go">§2</a>): as the text or the font
+of a <code>&lt;text&gt;</code>, and as the thing that chooses between values the other attributes take.</p>
+<pre><code class="language-xml">&lt;e:param name=&quot;theme&quot; type=&quot;string&quot; default=&quot;'dark'&quot; /&gt;
+&lt;circle fill=&quot;{{ theme == 'dark' ? #ffffff : #101010 }}&quot; /&gt;
+&lt;text font-family=&quot;{{ theme == 'dark' ? 'Inter' : 'Georgia' }}&quot;&gt;{{ theme }}&lt;/text&gt;
+</code></pre>
 <h3 id="32-literals">3.2 Literals</h3>
 <table class="table">
 <thead>
@@ -320,8 +525,18 @@ would a literal.</p>
 <td>boolean</td>
 <td></td>
 </tr>
+<tr>
+<td><code>'dark'</code>, <code>&quot;dark&quot;</code></td>
+<td>string</td>
+<td>Either quote; the one that opened the literal closes it.</td>
+</tr>
 </tbody>
 </table>
+<p>A string literal is closed by whichever quote opened it, and only that quote has to be escaped
+inside it. <code>'</code> is the spelling to prefer: an expression lives in a double-quoted XML attribute, where
+<code>'</code> needs no entity and <code>&quot;</code> has to be written <code>&amp;quot;</code>.</p>
+<p>The escapes are <code>\\</code>, <code>\'</code>, <code>\&quot;</code>, <code>\n</code> and <code>\t</code>. Any other character after a backslash is an
+error rather than a passed-through backslash.</p>
 <p><code>%</code> is <strong>only</strong> a suffix and never an operator. Use <code>mod(a, b)</code> for the remainder. This keeps <code>55%</code>
 unambiguous; writing <code>a % b</code> is a syntax error with a message saying so.</p>
 <h3 id="33-operators">3.3 Operators</h3>
@@ -375,7 +590,14 @@ listed alongside:</p>
 </tr>
 <tr>
 <td>6</td>
-<td><code>+</code> <code>-</code></td>
+<td><code>+</code></td>
+<td></td>
+<td>number, or two strings</td>
+<td>number, or string</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>-</code></td>
 <td></td>
 <td>number</td>
 <td>number</td>
@@ -406,6 +628,8 @@ listed alongside:</p>
 <p>Parentheses group as usual.</p>
 <p>Arithmetic on colours is rejected — use <code>mix(a, b, t)</code> to blend. Ordering comparisons (<code>&lt;</code>, <code>&gt;</code>, …)
 are numbers only; <code>==</code> and <code>!=</code> work on any type provided both sides match.</p>
+<p><code>+</code> is the one operator with two meanings: two numbers add, two strings join. A string with anything
+else is an error, because the alternative would make <code>+</code> a conversion.</p>
 <h4 id="escaping-and-the-word-forms">Escaping, and the word forms</h4>
 <p>XML requires <code>&lt;</code> and <code>&amp;</code> to be escaped, which makes <code>t &lt; 5</code> and <code>a &amp;&amp; b</code> awkward to author. <code>&gt;</code> does
 <strong>not</strong> need escaping and can always be written literally.</p>
@@ -514,8 +738,34 @@ names.</p>
 </tr>
 </tbody>
 </table>
+<p>String:</p>
+<table class="table">
+<thead>
+<tr>
+<th>Signature</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>upper(s)</code> <code>lower(s)</code></td>
+<td><strong>Invariant</strong> case folding, so the answer does not vary with the machine.</td>
+</tr>
+<tr>
+<td><code>len(s)</code></td>
+<td>Number of UTF-16 code units, as a <strong>number</strong> — which is how a string reaches the arithmetic.</td>
+</tr>
+<tr>
+<td><code>str(x)</code></td>
+<td>A <strong>number</strong> as text, invariant and shortest round-trip — which is how a number reaches the words. A whole number reads as one: <code>str(100)</code> is <code>'100'</code>, not <code>'100.0'</code>.</td>
+</tr>
+</tbody>
+</table>
 <p>Note the deliberate asymmetry: <code>rgb</code> takes 0..255 and <code>hsl</code> takes degrees plus fractions, matching
 CSS rather than being internally uniform.</p>
+<p><code>len</code> and <code>str</code> are the only two crossings between a number and a string, and they are functions
+rather than conversions for the reason <a href="#33-operators">§3.3</a> gives: <code>+</code> would otherwise have a third
+meaning, and <code>'total: ' + n</code> would silently be text where it was meant to be an error.</p>
 <h3 id="36-grammar">3.6 Grammar</h3>
 <pre><code>conditional    := or ( '?' conditional ':' conditional )?
 or             := and ( ( '||' | 'or' ) and )*
@@ -525,7 +775,7 @@ comparison     := additive ( ( '&lt;' | '&lt;=' | '&gt;' | '&gt;=' | 'lt' | 'le'
 additive       := multiplicative ( ( '+' | '-' ) multiplicative )*
 multiplicative := unary ( ( '*' | '/' ) unary )*
 unary          := ( '-' | '!' | 'not' ) unary | primary
-primary        := number | color | 'true' | 'false'
+primary        := number | color | string | 'true' | 'false'
                 | identifier
                 | identifier '(' ( conditional ( ',' conditional )* )? ')'
                 | '(' conditional ')'

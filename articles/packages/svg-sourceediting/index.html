@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html data-lunet-theme-mode="system" data-lunet-theme-storage-key="lunet-theme" data-lunet-css-prefix="lunet" lang="en" itemscope itemtype="http://schema.org/WebPage">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="generator" content="lunet 1.0.10.0">
+    <script>(function(){const root=document.documentElement;const key=root.getAttribute("data-lunet-theme-storage-key")||"lunet-theme";const fallback=root.getAttribute("data-lunet-theme-mode")||"system";let stored=null;try{stored=localStorage.getItem(key);}catch(_){stored=null;}const mode=(stored==="light"||stored==="dark"||stored==="system")?stored:fallback;const prefersDark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches;const resolved=mode==="system"?(prefersDark?"dark":"light"):mode;root.setAttribute("data-lunet-theme-mode",mode);root.setAttribute("data-bs-theme",resolved);}());</script>
+    <link rel='icon' href='/Svg.Skia/favicon.ico' sizes='32x32'>
+    <title>Svg.SourceEditing | Svg.Skia</title>
+    <link rel="stylesheet" href="/Svg.Skia/css/lite.css">
+    <script src="/Svg.Skia/js/lite-defer.js" defer></script>
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@wieslawsoltes">
+<meta name="twitter:title" content="Svg.SourceEditing | Svg.Skia">
+<meta name="twitter:description" content="Svg.SourceEditing Svg.SourceEditing holds an SVG document as a tree that writes back as the file it was read from, and edits it. It adds a parameter to an &lt;e:code> block, moves an element, writes an attribute — and what comes out is the file with the edit in it and nothing else changed. It draws nothing and knows no UI framework; it is what Svg.Viewer.Skia.Avalonia...">
+<meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
+<meta name="twitter:image:alt" content="Svg.SourceEditing | Svg.Skia">
+<meta property="og:title" content="Svg.SourceEditing | Svg.Skia">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
+<meta property="og:description" content="Svg.SourceEditing Svg.SourceEditing holds an SVG document as a tree that writes back as the file it was read from, and edits it. It adds a parameter to an &lt;e:code> block, moves an element, writes an attribute — and what comes out is the file with the edit in it and nothing else changed. It draws nothing and knows no UI framework; it is what Svg.Viewer.Skia.Avalonia...">
+<meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
+<meta property="og:image:alt" content="Svg.SourceEditing | Svg.Skia">
+  </head>
+  <body>
+
+    <div id="lunet" class="container">
+      <nav class="navbar navbar-expand-md sticky-top">
+        <a class="navbar-brand" href="/Svg.Skia/">
+          <img class="lunet-logo" src="/Svg.Skia/images/logo.svg" alt="Svg.Skia" width="96" height="96">
+          <span class="visually-hidden">Home</span>
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+          data-bs-target="#navbarSupportedContent"
+          aria-controls="navbarSupportedContent"
+          aria-expanded="false"
+          aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div id="navbarSupportedContent" class="collapse navbar-collapse justify-content-between">
+<ol id='nav-id-home-0' class='navbar-nav nav-level0 show '>
+  <li id='nav-item-home-1' class='nav-item '>
+    <span class='nav-item-row'><a href='/Svg.Skia/' class='nav-link  '><i class='bi bi-house-door' aria-hidden='true'></i> Home</a></span>  </li>
+  <li id='nav-item-home-2' class='nav-item  active'>
+    <span class='nav-item-row'><a href='/Svg.Skia/articles/' class='nav-link  '><i class='bi bi-book' aria-hidden='true'></i> Docs</a></span>  </li>
+  <li id='nav-item-home-3' class='nav-item '>
+    <span class='nav-item-row'><a href='/Svg.Skia/api/' class='nav-link  '><i class='bi bi-braces' aria-hidden='true'></i> API</a></span>  </li>
+</ol>
+          <ol class="navbar-nav flex-grow-1" style="padding-right: 0.5rem;">
+            <li class="nav-item w-100">
+                <div class="lunet-search dropdown w-100">
+                  <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input id="search-input" type="search" class="form-control" placeholder="Search... (Alt+s)" aria-label="Search" aria-controls="search-results" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-search-empty-message="Enter words to search..." data-search-no-results-message="No results found.">
+                    <ul id="search-results" class="dropdown-menu w-100 p-0" style="max-height: 50vh;" role="listbox" aria-labelledby="search-input"></ul>
+                  </div>
+                </div>
+            </li>
+          </ol>
+          <div class="d-flex align-items-center gap-2 flex-shrink-0 navbar-right">
+            <div class="dropdown">
+              <button
+                id="theme-mode-toggle"
+                class="btn btn-outline-secondary btn-sm lunet-theme-toggle dropdown-toggle"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+                aria-label="Theme">
+                <i class="bi bi-circle-half" data-lunet-theme-toggle-icon aria-hidden="true"></i>
+                <span
+                  data-lunet-theme-toggle-label
+                  data-theme-system-label="System"
+                  data-theme-light-label="Light"
+                  data-theme-dark-label="Dark">Theme</span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="theme-mode-toggle">
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="system"><i class="bi bi-circle-half me-2"></i>System</button></li>
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="light"><i class="bi bi-sun-fill me-2"></i>Light</button></li>
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="dark"><i class="bi bi-moon-stars-fill me-2"></i>Dark</button></li>
+              </ul>
+            </div>
+<ol id='nav-id-home2-0' class='navbar-nav nav-level0 show flex-shrink-0'>
+  <li id='nav-item-home2-1' class='nav-item '>
+    <span class='nav-item-row'><a href='https://github.com/wieslawsoltes/Svg.Skia' class='nav-link  btn btn-info'><i class="bi bi-github"></i> GitHub</a></span>  </li>
+</ol>
+          </div>
+        </div>
+      </nav>
+      <div class="lunet lunet-articles">
+        <section data-prismjs-copy="" data-prismjs-copy-success="" data-prismjs-copy-timeout="1200" data-copy-tooltip="Copy to Clipboard." data-copy-tooltip-success="Copied!" data-copy-tooltip-error="Failed to copy!">
+
+<div class="container-xxl">
+  <div class="row">
+      <!-- Left sidebar - responsive offcanvas (offcanvas on mobile, visible sidebar on md+) -->
+      <nav id="docs-sidebar-menu" class="col-md-3 col-lg-3 col-xl-3 col-xxl-2 offcanvas-md offcanvas-start sticky-md-top menu-sidebar align-self-start order-1 order-md-0" tabindex="-1" aria-labelledby="docs-sidebar-menu-label" aria-expanded="true">
+        <div class="offcanvas-header">
+          <h5 class="offcanvas-title" id="docs-sidebar-menu-label">Menu</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body">
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.044efb6e392d2ecca9dc97ce8e760cc0.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-26,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+        </div>
+      </nav>
+      <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
+      <aside id="docs-sidebar-toc" class="col-12 col-xxl-2 sticky-xxl-top menu-sidebar align-self-start order-0 order-xxl-2 collapse d-xxl-block" aria-expanded="true">
+        <h3 class="toc-title">On this page</h3>
+        <nav class="js-toc"></nav>
+      </aside>
+      <!-- Main content column -->
+      <div class="col-12 col-md-9 col-lg-9 col-xl-9 col-xxl-8 order-2 order-md-1 js-toc-content">
+        <ol class='breadcrumb'>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/' class='breadcrumb-link  '><i class='bi bi-house-door' aria-hidden='true'></i> Home</a>  </li>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/articles/' class='breadcrumb-link  '><i class='bi bi-book' aria-hidden='true'></i> Docs</a>  </li>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/articles/packages/' class='breadcrumb-link  '>Packages</a>  </li>
+          <li class='breadcrumb-item  active'>
+            Svg.SourceEditing  </li>
+        </ol>
+
+        <p id="lunet-results"></p>
+        <!-- Toggle buttons visible only on small screens -->
+        <div class="d-md-none mb-3">
+          <button
+            class="btn btn-outline-secondary btn-sm me-2"
+            type="button"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#docs-sidebar-menu"
+            aria-controls="docs-sidebar-menu"
+            aria-label="Toggle docs menu">
+            Menu
+          </button>
+          <button
+            class="btn btn-outline-secondary btn-sm d-xxl-none"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#docs-sidebar-toc"
+            aria-controls="docs-sidebar-toc"
+            aria-expanded="false"
+            aria-label="Toggle Table Of Contents">
+            On this page
+          </button>
+        </div>
+<!-- lunet:summarize -->
+<h1 id="svgsourceediting">Svg.SourceEditing</h1>
+<p><code>Svg.SourceEditing</code> holds an SVG document as a tree that writes back as the file it was read from,
+and edits it. It adds a parameter to an <code>&lt;e:code&gt;</code> block, moves an element, writes an attribute — and
+what comes out is the file with the edit in it and nothing else changed. It draws nothing and knows
+no UI framework; it is what <code>Svg.Viewer.Skia.Avalonia</code> edits through.</p>
+<p>It depends on <code>Svg.Expressions</code> alone — for the declarations it edits, the rules it validates
+against, and the position map that says where in the text each of them was written.</p>
+<h2 id="install">Install</h2>
+<pre><code class="language-bash">dotnet add package Svg.SourceEditing
+</code></pre>
+<h2 id="choose-this-package-when">Choose this package when</h2>
+<ul>
+<li>you want to add or change a parameter from a GUI and still show the file somebody wrote,</li>
+<li>you are editing a document that a person also edits by hand, and the two have to be the same
+document,</li>
+<li>you want one entry to take back per gesture, however many attributes or elements it moved.</li>
+</ul>
+<h2 id="main-types">Main types</h2>
+<table class="table">
+<thead>
+<tr>
+<th>Type</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SvgDeclarationEditor</code></td>
+<td><code>Add</code> a parameter, <code>Update</code> one, <code>Remove</code> one, <code>MoveParameter</code> one, <code>Set</code> one attribute of one, <code>SetDefaults</code> for many; <code>AddLet</code>, <code>UpdateLet</code>, <code>MoveLet</code> and <code>RemoveLet</code> for the other half of the block</td>
+</tr>
+<tr>
+<td><code>SvgRecipeRuleEditor</code></td>
+<td><code>SetRule</code> and <code>RemoveRule</code> for an svgc recipe's replacement rules — the half of a recipe that is not declarations</td>
+</tr>
+<tr>
+<td><code>SvgAttributeEditor</code></td>
+<td><code>SetAttribute</code> on any element, named by its address, and <code>Attributes</code> to read what one is written with</td>
+</tr>
+<tr>
+<td><code>SvgSourceDocument</code></td>
+<td>A drawing as a tree, <code>Read</code> from text and written back by <code>ToText</code></td>
+</tr>
+<tr>
+<td><code>SvgSourceWorkspace</code></td>
+<td>That drawing and its history: <code>Commit</code>, <code>Undo</code>, <code>Redo</code>, <code>IsModified</code>, <code>MarkSaved</code></td>
+</tr>
+<tr>
+<td><code>SvgElementEditor</code></td>
+<td><code>Move</code> an element to where a drop puts it, and <code>NewGroup</code> to put things in</td>
+</tr>
+<tr>
+<td><code>SvgTextEdit</code></td>
+<td>One span to replace, and <code>ApplyAll</code> for a caller holding only a string</td>
+</tr>
+<tr>
+<td><code>SvgSourceEditResult</code></td>
+<td>The spans, or why nothing can be done</td>
+</tr>
+</tbody>
+</table>
+<p>Every editor has two halves: one that writes the tree and answers a refusal or null, and one that
+measures spans against text. The first is what a host with a document uses. The second remains
+because a drawing under an svgc recipe has its declarations written into the recipe instead, which is
+a different file with a text buffer of its own.</p>
+<h2 id="why-a-tree-and-why-not-the-svg-one">Why a tree, and why not the SVG one</h2>
+<p>The obvious way to do this is to parse the drawing with the SVG reader, change the tree, and write it
+back. It renders identically — and it is measurably wrong for a file somebody is looking at.</p>
+<ul>
+<li><strong>Every comment is gone</strong>, because the SVG reader's node switch has no case for them: a comment is
+not dropped on the way out, it is never modelled.</li>
+<li><code>fill=&quot;{{ primary }}&quot;</code> becomes <code>style=&quot;fill:gray;&quot;</code> and <code>e:fill=&quot;primary&quot;</code>.</li>
+<li>A <code>&lt;!DOCTYPE&gt;</code>, <code>version=&quot;1.1&quot;</code>, <code>xmlns:xlink</code>, <code>xmlns:xml</code> and a comma-separated <code>viewBox</code> appear.</li>
+</ul>
+<p>So the tree is an <code>XDocument</code>. Comments are nodes, an attribute's value is the string it was written
+as — <code>{{ }}</code> and all — and the order somebody put the attributes in is the order they come back in.</p>
+<p>That alone is not enough. Measured over the 2,988 drawings in the two suites, re-serialising an
+<code>XDocument</code> the ordinary way returned <strong>28</strong> of them unchanged. XML says nothing about the whitespace
+inside a start tag, so attributes written one to a line come back on one line and <code>&lt;rect/&gt;</code> comes back
+as <code>&lt;rect /&gt;</code>; and a parser must fold CRLF to LF before the tree ever sees it, so every line of a file
+written on Windows changes.</p>
+<p>So a tag is remembered rather than regenerated. Each element keeps the bytes of the start tag it was
+read as, along with where each value sits inside it, and writes those bytes back — splicing a changed
+value over the old one, cutting a removed attribute out with the whitespace in front of it, and
+putting a new one in before the close. Runs of text are kept the same way, because a parser resolves
+<code>&amp;gt;</code> to the character and says nothing about which of the two the file used.</p>
+<p><strong>2,980 of 2,988 come back byte for byte.</strong> The eight that do not declare entities of their own,
+which a reader expands with no node left to write back; those are refused rather than mangled. The
+contract is that what it reads, it writes back exactly.</p>
+<h2 id="one-thing-to-take-back-per-gesture">One thing to take back per gesture</h2>
+<p><code>SvgSourceWorkspace</code> is the history. A commit is the whole of what somebody did — a resize writes
+three attributes and is one thing to take back — and a step is reversed by reading the drawing's own
+text back.</p>
+<p>Reversing by snapshot is usually the wrong answer, and it is the right one here for two reasons.
+<code>ToText</code> is byte-faithful, so the text is a lossless record of the tree rather than an approximation
+of it: the annotations that carry the author's bytes are rebuilt from the author's bytes, which is
+why undo returns the file and not merely something that renders like it. And an edit needs the text
+it started from anyway — a declaration can only be checked against the language's rules after the
+tree has been changed, and one of those checks needs the state before it — so a refusal must already
+be able to put a half-made edit back. Rollback and undo are one mechanism instead of two.</p>
+<h2 id="it-decides-nothing-about-what-is-legal">It decides nothing about what is legal</h2>
+<p>A proposed declaration goes through <code>SvgExpressionDeclarations.Builder</code>, the rules both readers of a
+document enforce — identifier-shaped names, nothing reserved, nothing declared twice across params
+<em>and</em> lets, a type that parses, <code>min</code>/<code>max</code>/<code>step</code> only on a number, and a range with both ends or
+neither. What it refuses is the refusal you get back.</p>
+<p>The result is then read again with <code>SvgExpressionDeclarations.Parse</code> before it is handed over. A
+splice can go wrong in ways that still look like text — a quote landed on, a tag left open — and the
+reader is the one thing that can say so. Two extra reads of a document measured at 3ms each is the
+whole cost, and it is why an edit that would leave the document saying something other than what was
+asked for is refused instead of applied.</p>
+<h2 id="renaming-carries-the-uses-with-it">Renaming carries the uses with it</h2>
+<p><code>Update</code> and <code>UpdateLet</code> rewrite a declaration, and where the name changes they also rewrite every
+place the drawing names it: the identifier in each <code>{{ … }}</code> and in each <code>&lt;e:let&gt;</code> body. Renaming only the declaration
+would leave a document that still parses and no longer draws, with nothing about its shape to say
+why.</p>
+<p>The uses are found by lexing, not by searching the file's characters. An expression reaches the file
+XML-escaped, so a let holding <code>a &lt; b</code> is written <code>a &amp;lt; b</code>; and <code>amp</code> is a name the language allows,
+so a search would rename the inside of <code>&amp;amp;</code> and take the markup with it. Each site is decoded,
+lexed, and every identifier token remembers where it was written. A site that will not lex refuses
+the whole rename rather than being skipped — a use that cannot be read is still a use.</p>
+<p>Changing a <strong>type</strong> is refused. Every expression naming a parameter was checked against the type it
+had, so changing one is a change to all of them rather than to the declaration alone.</p>
+<h2 id="removing-needs-to-know-what-uses-it">Removing needs to know what uses it</h2>
+<p><code>Remove</code> and <code>RemoveLet</code> refuse while anything still names the declaration, and say how many uses
+they found. Taking a
+used one away leaves a document that parses perfectly and draws nothing, which is the one outcome
+this package exists to prevent; the count is what separates a button that did nothing from one that
+did something unintended.</p>
+<p>The uses are the ones <code>Rename</code> rewrites — every <code>{{ … }}</code> and every <code>&lt;e:let&gt;</code> body, found by lexing —
+so the two ask the same question of the same walker. A <code>default</code>, <code>min</code>, <code>max</code> or <code>step</code> is not
+searched: the language puts nothing the document declares in scope there, so a name in one is a
+different name.</p>
+<p>The declaration goes with the line it sat on. The <code>&lt;e:code&gt;</code> block stays even when it empties, since
+taking it away is a second decision — about a <code>&lt;defs&gt;</code> that may hold other things, and an <code>xmlns</code>
+nothing declares any more — and adding a parameter writes into the block that is already there.</p>
+<h2 id="parameters-reorder-freely-lets-do-not">Parameters reorder freely; lets do not</h2>
+<p>Nothing in this language reads parameters in order: a default may not name another parameter, so
+every order renders the same picture. <code>MoveParameter</code> therefore allows any of them, and is the one
+move here with no rule to check.</p>
+<p>A back end may want its own order. The C# generator writes its signature in declaration order, so
+the ones with defaults have to come last, and it refuses a document that puts them otherwise — as
+<code>svgc error: …</code>, when somebody runs it. That is a restriction of that back end and not of the
+language, so it is not enforced here: a drawing is not stopped from saying what it means because one
+of the things that reads it would rather it said it differently.</p>
+<h2 id="where-a-let-sits-is-what-it-means">Where a let sits is what it means</h2>
+<p>A let resolves against what is declared above it and nothing below, so <code>MoveLet</code> is a change of
+meaning and not of layout. The re-read cannot catch that on its own: a let dragged above the one it
+names reads back perfectly well and renders as nothing. So every edit also folds the symbol table and
+type checks each body in order, and is refused if it leaves a let unresolved.</p>
+<p>Only a let the edit is answerable for. Reading does not type check, so a document can hold a body
+that names nothing and still open; refusing on that one too would make an unrelated parameter
+uneditable in a document somebody is part-way through repairing. The check runs against the document
+as it was as well, and only a let that worked before and does not after stops the edit. The original
+is re-read only once something failed, so an ordinary splice pays nothing for this.</p>
+<p><code>MoveLet</code> moves the let's whole line as it was written, and refuses a let sharing a line with
+something else rather than cutting it out of one.</p>
+<h2 id="what-it-refuses">What it refuses</h2>
+<ul>
+<li>a document that is not well-formed XML yet, which is what one looks like halfway through being
+typed,</li>
+<li>a document whose declarations are already wrong, which is fixed by hand first,</li>
+<li>anything the language would not accept.</li>
+</ul>
+<p>None of these is worth a mode. The action declines, says why, and works again as soon as the text
+does.</p>
+<h2 id="where-a-new-block-goes">Where a new block goes</h2>
+<p>First inside <code>&lt;defs&gt;</code>, creating one if the drawing has none — the same place, and for the same
+reason, that <code>Svg.Expressions.Recipes</code> puts it: the declarations read as the document's preamble
+rather than as one more definition among the gradients. A drawing that has been through a recipe and
+one that has been through this should not differ in where they keep it.</p>
+<p>The namespace prefix is whatever the document already binds the extension to, so a drawing writing
+<code>x:param</code> keeps writing it; failing that <code>e</code>, and <code>e2</code> if something else has taken <code>e</code>. That choice
+lives in <code>Svg.Expressions</code> because both this and the recipe rewriter have to reach the same answer.</p>
+<p>A parameter added to a block that already has some joins the last of them rather than going at the
+end of the block. A block is written in two groups — the parameters, then the lets built on them —
+and although the reader takes declarations in any order, a parameter written below the lets that use
+it reads backwards. With no parameters to join it goes above the first let, rather than between two,
+whose order is the one thing about them that does matter.</p>
+<p>Line endings and indentation are read off the document, never assumed: a file written with tabs stays
+written with tabs, and a file with CRLF does not come back with a mixture.</p>
+<h2 id="a-recipe-is-edited-the-same-way">A recipe is edited the same way</h2>
+<p><code>SvgDeclarationEditor</code> finds declarations by namespace — <code>Descendants(Ns + &quot;code&quot;)</code> — and not by
+document shape, so a recipe's own unprefixed <code>&lt;code&gt;</code>, <code>&lt;param&gt;</code> and <code>&lt;let&gt;</code> are the same block to it
+as a drawing's <code>&lt;e:code&gt;</code>. That is not a coincidence: a recipe is written in the extension's own
+namespace precisely so one reader serves both.</p>
+<p><code>SvgRecipeRuleEditor</code> writes the other half, the <code>&lt;replace&gt;</code> rules. It knows nothing about what a
+rule names, deliberately. A colour has many spellings and only <code>Svg.Expressions.Recipes</code> can say
+which of them are one colour; answering that here would be a second answer to it, and referencing
+that package to borrow the first would pull a whole SVG parser into a text editor. So the caller
+decides which rule it means — by value, against a parsed recipe — and passes the attribute and the
+value as that rule already writes them. Passing a second spelling of a value a rule already names
+adds a second rule, which the recipe then refuses to read.</p>
+<p><code>SvgAttributeEditor</code> writes anything else: one attribute of one element, named by the child-index
+path <code>SvgElementAddress.Key</code> spells — as a string, since that type belongs to the SVG parser and this
+package deliberately cannot see it. The walk that resolves the path is mirrored rather than borrowed
+for the same reason, so the two rules that make the two agree are pinned by a test: the root is the
+empty key, and a comment or a run of text takes no index.</p>
+<p>It refuses an attribute a <code>style</code> declaration overrides. The declaration wins, so writing the
+attribute would leave a document where the change paints nothing and nothing said so; editing inside
+the declaration needs the scanner that splits one properly, which is internal to the SVG parser.</p>
+<h2 id="related-docs">Related docs</h2>
+<ul>
+<li><a href="/Svg.Skia/articles/packages/svg-expressions">Svg.Expressions</a> — the language, its declarations and the rules quoted above</li>
+<li><a href="/Svg.Skia/articles/packages/svg-highlighting">Svg.Highlighting</a> — the other half of a source view, which reads text for display</li>
+<li><a href="/Svg.Skia/articles/packages/svg-viewer-skia-avalonia">Svg.Viewer.Skia.Avalonia</a> — the panel that edits through this</li>
+</ul>
+
+      </div>
+  </div>
+</div>
+
+        </section>
+        <footer>
+          <hr>
+          <p>Copyright &copy; 2026, Wieslaw Soltes aka <a href="https://github.com/wieslawsoltes">wieslawsoltes</a> - Content licensed under the Creative Commons <a href="http://creativecommons.org/licenses/by/2.5/">CC BY 2.5</a> | Site generated by <a href="https://github.com/lunet-io/lunet">lunet</a> hosted on <a href="https://pages.github.com/">GitHub Pages</a></p>
+        </footer>
+      </div>
+    </div>
+
+  </body>
+</html>

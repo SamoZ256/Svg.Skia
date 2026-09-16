@@ -98,7 +98,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.eae3b3891b6e2dc99fed4f90647687c2.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-25,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.044efb6e392d2ecca9dc97ce8e760cc0.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-27,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
         </div>
       </nav>
       <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
@@ -197,6 +197,10 @@ if (svg.Load(&quot;Assets/icon.svg&quot;) is not null &amp;&amp; svg.Model is no
 }
 </code></pre>
 <p>This example uses <code>Svg.Skia</code> to create the intermediate model, but <code>Svg.CodeGen.Skia</code> itself only needs a <code>ShimSkiaSharp.SKPicture</code>.</p>
+<h2 id="drawings-that-use-expressions">Drawings that use expressions</h2>
+<p>A drawing using the <a href="/Svg.Skia/articles/packages/svg-expressions">expression extension</a> generates: its parameters become C# parameters, and each expression is emitted as code that recomputes the value at call time rather than as the number it happened to have when the drawing was compiled.</p>
+<p>A driven <code>transform</code> is generated too. The picture records how the matrix was derived — <code>ShimSkiaSharp</code>'s <code>SymMatrix</code>, the transform functions and their arguments — so the emitted code rebuilds the matrix from the argument values instead of baking one, and the refusals are the same ones the renderer applies: a driven transform under a filter, under an ancestor that opens a layer, or written inside a <code>&lt;clipPath&gt;</code> is refused, because each of those was measured against the matrix as the drawing was compiled.</p>
+<p>What generation still refuses outright is the other kind of expression, the kind resolved <strong>before</strong> the drawing is recorded — element text, <code>font-family</code>, <code>font-size</code> and the rest of the text attributes. Generation bakes the picture with the text already measured and the glyphs already positioned, so a parameter driving one could never vary at run time; the document is refused rather than generated with a signature that offers something it cannot do.</p>
 <h2 id="why-use-this-package-instead-of-the-source-generator">Why use this package instead of the source generator</h2>
 <p>Choose <code>Svg.CodeGen.Skia</code> when generation is an explicit build step and you want control over:</p>
 <ul>
@@ -218,6 +222,7 @@ if (svg.Load(&quot;Assets/icon.svg&quot;) is not null &amp;&amp; svg.Model is no
 <li><a href="/Svg.Skia/articles/guides/source-generator-and-svgc">Source Generator and svgc</a></li>
 <li><a href="/Svg.Skia/articles/packages/svg-sourcegenerator-skia">Svg.SourceGenerator.Skia</a></li>
 <li><a href="/Svg.Skia/articles/packages/shim-skiasharp">ShimSkiaSharp</a></li>
+<li><a href="/Svg.Skia/articles/packages/svg-expressions">Svg.Expressions</a></li>
 </ul>
 
       </div>

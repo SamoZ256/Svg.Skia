@@ -98,7 +98,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.eae3b3891b6e2dc99fed4f90647687c2.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-22,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.044efb6e392d2ecca9dc97ce8e760cc0.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-23,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
         </div>
       </nav>
       <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
@@ -153,7 +153,7 @@
 <li>you want a ready-made SVG viewer pane in an Avalonia app,</li>
 <li>you want the parameters a drawing declares exposed as sliders, colour pickers and checkboxes without writing that UI,</li>
 <li>you want zoom, pan, fit and actual-size behaviour that already works,</li>
-<li>you want the same stack <code>src/SvgViewer</code> is built from.</li>
+<li>you want the same stack <code>src/Svg.Studio</code> is built from.</li>
 </ul>
 <h2 id="main-types">Main types</h2>
 <table class="table">
@@ -173,8 +173,24 @@
 <td>The drawing surface alone, owning scale and offset</td>
 </tr>
 <tr>
-<td><code>SvgViewerParameterPanel</code></td>
-<td>One control per declared parameter</td>
+<td><code>SvgViewerDeclarationPanel</code></td>
+<td>One control per declared parameter, and one row per declared let</td>
+</tr>
+<tr>
+<td><code>SvgViewerElementTree</code></td>
+<td>Every element of the open drawing, as a tree, with a filter box</td>
+</tr>
+<tr>
+<td><code>SvgViewerElementNode</code></td>
+<td>One row: the element, its address, its name and its id</td>
+</tr>
+<tr>
+<td><code>SvgViewerLet</code></td>
+<td>A let row: the name and body being typed, what it evaluates to, and what is wrong with it</td>
+</tr>
+<tr>
+<td><code>SvgExpressionPresenter</code></td>
+<td>Paints an expression box by token, in place of a <code>TextBox</code>'s own presenter</td>
 </tr>
 <tr>
 <td><code>SvgViewerDocument</code></td>
@@ -221,8 +237,32 @@
 <td>Driving values from host UI</td>
 </tr>
 <tr>
-<td><code>ShowToolBar</code> / <code>ShowParameterPanel</code> / <code>ShowStatusBar</code> / <code>ShowSource</code></td>
-<td>Supplying your own chrome</td>
+<td><code>ShowToolBar</code> / <code>ShowDeclarationPanel</code> / <code>ShowStatusBar</code></td>
+<td>Supplying your own chrome. <code>ShowDeclarationPanel</code> is the whole right-hand strip, element tree included</td>
+</tr>
+<tr>
+<td><code>ShowElementTree</code> / <code>Elements</code></td>
+<td>The tree under the parameters — on by default; <code>Elements.Filter</code> is the box above it</td>
+</tr>
+<tr>
+<td><code>SelectedElement</code> / <code>ElementSelected</code></td>
+<td>Which element is picked</td>
+</tr>
+<tr>
+<td><code>ShowBounds</code></td>
+<td>Outlining the drawing's own edges — on by default, since an icon with transparent margins otherwise ends nowhere the eye can see</td>
+</tr>
+<tr>
+<td><code>SidePanels</code></td>
+<td>Panels of your own beside the parameters: the right pane becomes a strip of tabs while there are any, yours first and so the first one it opens on, and holds the parameters alone again when there are none</td>
+</tr>
+<tr>
+<td><code>Rewrite</code> / <code>Notice</code></td>
+<td>Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be</td>
+</tr>
+<tr>
+<td><code>DeclarationTarget</code></td>
+<td>Where the parameter panel writes, when the drawing's declarations are not in the drawing</td>
 </tr>
 <tr>
 <td><code>FileDialogService</code></td>
@@ -230,11 +270,15 @@
 </tr>
 <tr>
 <td><code>Canvas</code></td>
-<td>Direct access to the surface for zoom and pan</td>
+<td>Direct access to the surface for zoom and pan; <code>Show</code> lays out several drawings at once, and <code>TryGetPlacementAt</code> says which one a click fell on</td>
 </tr>
 <tr>
 <td><code>DocumentOpened</code> / <code>ErrorRaised</code> / <code>ParameterValueChanged</code></td>
 <td>Syncing host titles and status</td>
+</tr>
+<tr>
+<td><code>SvgViewerSourceColorizer</code> / <code>SourceResourceKey</code></td>
+<td>Colouring a source view of your own the way this one is coloured — Svg.Studio paints an svgc recipe with them</td>
 </tr>
 </tbody>
 </table>
@@ -245,17 +289,19 @@
 <p>Every row is seeded by <em>evaluating</em> the declared <code>default</code>, so <code>default=&quot;tau / 4&quot;</code> works as well as a literal does.</p>
 <p>A <code>default</code> that will not evaluate, or a range whose ends are the wrong way round, does not stop the
 parameter being offered: the drawing still renders and the value is still bindable, the row falls back
-to a placeholder and the default range. What is wrong with it is marked in the source pane, at the
-attribute it is wrong in — the panel does not repeat it.</p>
+to a placeholder and the default range. What is wrong with it is said on the declaration panel, in
+place of the row it would have had — the drawing's status line does not repeat it.</p>
 <p>A drawing with mistakes in it says so from the moment it opens, in two places for two different
 things.</p>
-<p><strong>A note in the status bar</strong> — <em>&quot;6 errors, marked in the Source pane&quot;</em> — for everything the pane
-already marks on the line that carries it. Errors and warnings are counted apart and worded apart
-(<em>&quot;1 error and 1 warning&quot;</em>), because a warning is something the drawing opened in spite of; a note
-that is only warnings is painted in the warning colour rather than the error one. The count and the pointer are all it gives, because the
-line is where the detail belongs. It sits beside the status rather than under it, so it takes no room
-and the viewer does not shift as it comes and goes while you edit. It is a standing statement, not a
-reaction: it does not wait for a control to be touched, and it does not change when one is.</p>
+<p><strong>A note in the status bar</strong> — <em>&quot;6 errors&quot;</em> — for everything said in detail elsewhere. Errors and
+warnings are counted apart and worded apart (<em>&quot;1 error and 1 warning&quot;</em>), because a warning is
+something the drawing opened in spite of; a note that is only warnings is painted in the warning
+colour rather than the error one. The count is all it gives, because the row that carries the mistake
+is where the detail belongs: an expression is explained under the attribute row holding it in the
+Element panel, and a refused declaration in place of the parameter row it would have had. It sits
+beside the status rather than under it, so it takes no room and the viewer does not shift as it comes
+and goes while you edit. It is a standing statement, not a reaction: it does not wait for a control to
+be touched, and it does not change when one is.</p>
 <p><strong>A card over the drawing, frosting it</strong>, for what has no line to be put on — chiefly a document
 that would not load at all, where there is no pane to mark because there is no drawing. In every one
 of those the drawing on screen is not what the file says, and the frosting says
@@ -263,69 +309,178 @@ so before the sentence is read — a wide blur with a wash over it, because defo
 drawing out of focus rather than as glass in front of one. The card takes no room either, and the
 drawing can still be panned around it. Both reach a host through <code>ErrorRaised</code>.</p>
 <p>The format itself — <code>&lt;e:code&gt;</code>, the operators, and the placeholder mechanism — is what <code>Svg.Expressions</code> implements.</p>
+<h2 id="editing-not-just-showing">Editing, not just showing</h2>
+<p>Moving a control is a <strong>preview</strong>: it rebuilds the picture and leaves the file alone. Everything
+below is an edit, and each writes the drawing's own text through
+<a href="/Svg.Skia/articles/packages/svg-sourceediting">Svg.SourceEditing</a>:</p>
+<table class="table">
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AddParameterAsync</code></td>
+<td>Asks for a parameter and splices it into the <code>&lt;e:code&gt;</code> block, creating the block and the namespace if the drawing has neither</td>
+</tr>
+<tr>
+<td><code>CommitParameterDefaults</code></td>
+<td>Writes every value that differs from its declared default into the document as that default</td>
+</tr>
+<tr>
+<td><code>EditParameterAsync</code></td>
+<td>Asks what one parameter should declare and writes the answer, carrying every use of its name when it is renamed</td>
+</tr>
+<tr>
+<td><code>RemoveParameter</code></td>
+<td>Takes a parameter out, refusing while anything still names it</td>
+</tr>
+<tr>
+<td><code>MoveParameter</code></td>
+<td>Puts a parameter at another position; any order is allowed</td>
+</tr>
+<tr>
+<td><code>CommitLet</code></td>
+<td>Writes what a let row says, declaring it below the lets already there or rewriting the one it stands for</td>
+</tr>
+<tr>
+<td><code>MoveLet</code></td>
+<td>Puts a let at another position among the lets, refusing a move that would leave one unresolved</td>
+</tr>
+<tr>
+<td><code>RemoveLet</code></td>
+<td>Takes a let out, refusing while anything still names it</td>
+</tr>
+</tbody>
+</table>
+<p>A row's <code>⋯</code> button, which appears while the pointer is over it, is how a parameter is edited. Its
+type is not offered: every expression naming a parameter was checked against the type it has.
+Its grip drags it up and down, into any order. The <code>✕</code> removes it, refused while the drawing still
+uses it — the
+refusal says how many uses there are, since a button that did nothing would say less.</p>
+<p>Every box that holds an expression — a let's body, and a parameter's <code>default</code>, <code>min</code>, <code>max</code> and
+<code>step</code> — is coloured by what the language says each piece is, live as it is typed, from the same
+table everything else here paints an expression with. <code>SvgExpressionPresenter</code> is what does it: a control theme puts it
+in place of a <code>TextBox</code>'s own presenter, so the caret, the selection, composition and undo stay the
+box's. Selected text keeps its colours, which is what a reader wants of an expression.</p>
+<p>A let has no form and no <code>⋯</code>: it is a name and an expression, so the row is the editor. <code>Add let…</code>
+leaves an empty row to type into, <code>Enter</code> or leaving the row writes it, <code>Escape</code> puts it back. What
+is typed is checked against the parameters and the lets above it as it is typed, and nothing is
+written until it checks. Beside each row is what the let evaluates to right now, which follows the
+sliders, and a <code>✕</code> that removes it on the same terms as a parameter — a row nothing has been
+typed into yet is simply dropped, since there is nothing in the document to take out.</p>
+<p>Its grip drags it up and down, because <strong>where a let sits is what it can name</strong>: one resolves against
+what is declared above it and nothing below. A drag is held inside the positions that still check, so
+there is nothing to refuse; <code>MoveLet</code> refuses anyway, since the document reads back perfectly well
+either way and only type checking can tell.</p>
+<p>All of them go through the drawing's own history, so there is one record of what was done: an
+addition that had to declare a namespace and open a block is one thing to take back, and so is a
+resize that wrote three attributes. Nothing needs the pane to be open, because the pane shows the
+drawing rather than holding it. What it shows afterwards is the file as it was, with one line added:
+every comment and every placeholder where the author left them.</p>
+<p><code>ParameterDialogService</code> is how the form is asked for, replaceable for the reason <code>FileDialogService</code>
+is. <code>SvgParameterFormView</code> is the form itself, a plain control, for a host that wants to ask its own
+way.</p>
+<h2 id="saying-what-is-wrong">Saying what is wrong</h2>
+<p>There used to be a <strong>Source</strong> toggle here, opening a read-only pane under the drawing that showed the
+document as it was read and drew a wavy underline under every mistake. It is gone. It made sense while
+the text was the truth; once the truth became a tree, the pane was a transcript of what that tree
+would write — a second account of the drawing that took 220px from the canvas, had to be re-coloured
+on every rebuild, and answered no question the element tree does not answer better.</p>
+<p>What it was really for was <strong>where</strong> a mistake is, and that moved to the rows the mistakes are about:</p>
+<ul>
+<li>An expression is explained under the attribute row holding it, in the <strong>Element</strong> panel. The panel
+already checked what a row said against the declarations in scope, so the sentence is the one the
+analyser files against the span.</li>
+<li>A declaration the reader refuses is said on the <strong>parameter</strong> panel, in place of the row it would
+have had — a refused <code>&lt;e:param&gt;</code> produces no row, and &quot;This drawing declares no parameters&quot; about a
+file that declares one was simply wrong.</li>
+<li>The count is in the status bar, as before.</li>
+</ul>
+<p><code>SourceDiagnostics</code> is the whole list, as ranges into <code>Source</code>, if you would rather show it your own
+way — a problems panel, a gutter, a report. Nothing about it changed: it is analysed on first ask
+rather than when anything is opened, so whether a drawing is at fault is knowable before anyone has
+picked a row. Each one carries <code>Start</code>, <code>Length</code>, <code>Severity</code> and <code>Message</code>; an element name this
+renderer does not know, or an id used twice, is a warning, since the drawing still opens either way.</p>
+<p>That covers the drawing's expressions and the <code>&lt;e:code&gt;</code> block alike: a name nothing declares, a range
+on a colour, a <code>min</code> above its <code>max</code>, a <code>default</code> that will not resolve.</p>
+<p>It covers the SVG as well. An attribute value the parser's own converter will not take —
+<code>width=&quot;abc&quot;</code>, <code>stroke-miterlimit=&quot;20%&quot;</code>, a unit this renderer does not implement — is reported where
+it is written, which is the one failure the library is least able to report for itself: the value is
+dropped, the property keeps its default, and the drawing renders wrong without a word. A declaration
+inside <code>style=&quot;…&quot;</code> is reported the same way, and on the declaration rather than the whole attribute. So
+is <code>clip-path=&quot;url(#gone)&quot;</code> — a reference to an id the drawing does not contain, which is the most
+ordinary way for a picture to come out wrong and, until now, the quietest. An expression written in an
+attribute that does not take one, <code>stroke-width=&quot;{{ w }}&quot;</code>, is reported too, and says which
+attributes do — as is one written in an attribute that takes a <em>different</em> kind, such as a colour in
+<code>opacity</code>. What counts as a mistake is <a href="/Svg.Skia/articles/packages/svg-highlighting">Svg.Highlighting</a>'s answer, which is the
+language's own checker.</p>
 <h2 id="reading-the-drawings-text">Reading the drawing's text</h2>
-<p>The <strong>Source</strong> toggle in the toolbar opens a pane under the drawing showing the document as it was
-read — comments, formatting and <code>{{ … }}</code> expressions exactly as their author wrote them. It is
-read-only; editing SVG is what <code>Svg.Editor.Skia.Avalonia</code> is for.</p>
-<p>It is coloured as XML, and — because no stock grammar knows the extension — <code>{{ … }}</code> placeholders
-and <code>&lt;e:let&gt;</code> bodies are coloured as the expression code they are, not as strings and prose. The
-splitting is <a href="/Svg.Skia/articles/packages/svg-highlighting">Svg.Highlighting</a>, which draws nothing; the palette here is theme
-resources you can override:</p>
-<pre><code class="language-xml">&lt;SolidColorBrush x:Key=&quot;SvgViewerSourceExpressionBrush&quot; Color=&quot;#C586C0&quot; /&gt;
-</code></pre>
-<p><code>…ElementBrush</code>, <code>…AttributeBrush</code>, <code>…ValueBrush</code>, <code>…CommentBrush</code>, <code>…PunctuationBrush</code>,
-<code>…TextBrush</code> and <code>…LineNumberBrush</code> cover the markup, and the expression language has its own:
-<code>…ExpressionNumberBrush</code>, <code>…ExpressionColorBrush</code>, <code>…ExpressionFunctionBrush</code>,
-<code>…ExpressionConstantBrush</code>, <code>…ExpressionKeywordBrush</code>, <code>…ExpressionOperatorBrush</code>,
-<code>…ExpressionPunctuationBrush</code> and <code>…ExpressionIdentifierBrush</code>.</p>
-<p>The pane is an <a href="https://github.com/AvaloniaUI/AvaloniaEdit">AvaloniaEdit</a> editor over one document,
-so <strong>a selection can cross a line</strong> and the text can be taken away whole. You need nothing in your
-<code>App.axaml</code>: AvaloniaEdit supplies its own theme, and the viewer carries the style include regardless.</p>
-<p><strong>It is editable.</strong> Type, and the drawing follows a fifth of a second after you stop — the whole
-document is re-read each time, which costs about 43ms for a 132KB drawing, so nothing is incremental
-and nothing is stale. Half-typed markup does not parse, and that is the ordinary case: the picture
-you already have stays up while the marks move to what is now wrong. Undo, redo and find come with
-the editor.</p>
+<p><code>Source</code> is the whole drawing as the tree writes it — comments, formatting and <code>{{ … }}</code>
+expressions exactly as their author wrote them, with every unsaved edit in it. <code>SetSource</code> is how text
+arrives from outside: it is an edit like any other, one entry on the history, and text that will not
+read back is refused rather than held.</p>
+<p>Undo and redo are bound on the canvas, taken from the platform rather than written down, so the
+gestures reach the drawing's history while somebody is looking at the drawing and a parameter box
+keeps its own.</p>
 <p><code>IsSourceModified</code> says whether there are edits not on disk and <code>SourceModifiedChanged</code> announces it;
 <code>SaveSourceAsync</code> writes them back, asking through <code>FileDialogService</code> when the drawing has no file
-of its own. In <code>src/SvgViewer</code> that is Cmd/Ctrl+S, a dot on the tab, and a prompt before anything
+of its own. In <code>src/Svg.Studio</code> that is Cmd/Ctrl+S, a dot on the tab, and a prompt before anything
 throws work away — closing a tab asks about that drawing, closing the window asks once about every
 unsaved one it is holding. The control raises, the host decides, the same way opening works.</p>
-<p>Two rules worth knowing. A drawing too large to show whole is <strong>read-only</strong>: the pane holds a cut
-copy, and saving that would behead the file. And a save keeps the byte order mark the file arrived
-with, so nothing changes in a part of it you did not edit.</p>
-<p>There is no size at which colouring gives up, because only the lines on screen are ever coloured: a
-132KB drawing of 340 lines opens in 102ms. What that does not bound is a single enormous <em>line</em> — a
-minified drawing is the whole file on one — so a line is coloured for its first 250 pieces and the
-rest left plain, which takes that same 132KB minified to 217ms. Nothing is hidden either way; the
-uncoloured remainder is still there to read and select.</p>
-<p>Mistakes get a wavy underline where they are written, and hovering one shows its message.
-<code>…ErrorBrush</code> is the key for the mark, and <code>…WarningBrush</code> for the lighter one — an element name
-this renderer does not know, or an id used twice, is a warning, since the drawing still opens either
-way. <code>SourceDiagnostics</code> is the same list if you would rather show
-it your own way — a problems panel, a status line. That covers the drawing's
-expressions and the <code>&lt;e:code&gt;</code> block alike: a name nothing declares, a range on a colour, a <code>min</code>
-above its <code>max</code>, a <code>default</code> that will not resolve.</p>
-<p>It covers the SVG as well. An attribute value the parser's own converter will not take —
-<code>width=&quot;abc&quot;</code>, <code>stroke-miterlimit=&quot;20%&quot;</code>, a unit this renderer does not implement — is marked where it
-is written, which is the one failure the library is least able to report for itself: the value is
-dropped, the property keeps its default, and the drawing renders wrong without a word. A declaration
-inside <code>style=&quot;…&quot;</code> is marked the same way, and on the declaration rather than the whole attribute. So
-is <code>clip-path=&quot;url(#gone)&quot;</code> — a reference to an id the drawing does not contain, which is the most
-ordinary way for a picture to come out wrong and, until now, the quietest. An
-expression written in an attribute that does not take one, <code>stroke-width=&quot;{{ w }}&quot;</code>, is marked
-too, and says which attributes do — as is one written in an attribute that takes a <em>different</em> kind,
-such as a colour in <code>opacity</code>. What counts as a mistake is
-<a href="/Svg.Skia/articles/packages/svg-highlighting">Svg.Highlighting</a>'s answer, which is the language's own checker — and a
-declaration that is wrong is marked on the attribute that is wrong, not summarised above the drawing.</p>
-<p>The text is <code>SvgViewerDocument.SourceText</code>, captured while loading, so it is what the picture was
-built from rather than whatever the file says later. A host that would rather show it its own way —
-a window, a docked tool panel — reads that property and leaves <code>ShowSource</code> off:</p>
-<pre><code class="language-csharp">var text = viewer.Document?.SourceText;
-</code></pre>
-<p>Drawings loaded from text or from a stream carry it too, so a viewer fed by a database or an archive
-shows source like any other. The pane holds at most 2,000,000 characters — a backstop on what is kept in
-memory rather than a layout limit — while <code>SourceText</code> itself is always whole.</p>
+<p>A save keeps the byte order mark the file arrived with, and nothing changes in a part of it you did
+not edit — the writer remembers the bytes of every tag it read and replays them, splicing only the
+values that changed. There is no size at which a drawing becomes read-only: that limit existed
+because the pane had to hold the text, and there is no pane.</p>
+<p><code>SvgViewerDocument.SourceText</code> is the text captured while loading — what the picture was built from,
+rather than whatever the file says later, and unchanged by edits. Drawings loaded from text or from a
+stream carry it too, so a viewer fed by a database or an archive answers like any other.</p>
+<h2 id="the-element-tree">The element tree</h2>
+<p>Under the parameters, in the same column, split by a splitter of its own. That column is the full
+height of the viewer, and the drawing has the rest of it. It lists <strong>every</strong> element
+of the open drawing — <code>&lt;defs&gt;</code> and its contents, the <code>&lt;e:code&gt;</code> block, a <code>&lt;title&gt;</code> — because what is
+in a file is the question it answers, and half of that never reaches the canvas. On by default;
+<code>ShowElementTree = false</code> gives the height back and stops the work — a hidden tree holds nothing,
+because it is rebuilt every time typing pauses and that is 27ms at 4,000 elements.</p>
+<p>Picking a row rings the element on the drawing and fills the <strong>Element</strong> panel with the attributes
+the file writes it with. The ring is the element's own <strong>silhouette</strong>, traced from the scene
+geometry rather than drawn around its bounds — a circle rings as a circle, a stroked path rings round
+both edges of the stroke rather than down the middle of it, and a group rings as its parts rather
+than as the box containing them. It is one orange line, whose colour sweeps and settles over about
+two seconds when it appears — that is what finds it on a busy picture, and once settled it costs
+nothing. Clicking the drawing does the reverse and selects the row. A drag
+still only pans, and a click that lands on nothing changes nothing — the tree is read alongside the
+drawing, and a click two pixels wide of a shape should not throw away the row somebody was looking
+at.</p>
+<p>Rows are <strong>dragged</strong> the way a project's rows are: pick one up and a line shows where it will land —
+between two rows to go beside one, or an outline round a row to go inside it. Dropping writes the
+move into the drawing, so the element really is somewhere else afterwards, and the order it paints
+in changes with it. <strong>New group</strong> on the tree's own menu writes an empty <code>&lt;g&gt;</code> beside the picked row
+for things to be dragged into. Both arrive as one step to take back.</p>
+<p>What cannot be done is refused with a sentence rather than attempted: a row cannot land in its own
+branch, a drawing written on one line has no line to move, a tag that closes itself has no inside,
+and a drop that would carry an element across a <code>&lt;defs&gt;</code>, a <code>&lt;clipPath&gt;</code> or a <code>&lt;mask&gt;</code> would change
+what the drawing paints.</p>
+<p>Three things are worth knowing before relying on it:</p>
+<ul>
+<li><strong>Not everything can be ringed.</strong> Anything that never reaches the drawing has no scene node at all
+— the row still selects and is still shown in the text. And only the seven basic shapes carry
+geometry, so text and images ring as their own measured bounds, which for those is the answer
+rather than an approximation of one.</li>
+<li><strong>Not everything can be shown in the text.</strong> The tree comes from the parsed document and the spans
+come from a second reading of the file (<code>SvgSourceElements</code>), and the two are checked against each
+other by name before the caret moves. Under a recipe the drawing has rows its file has never heard
+of, and those are the disagreement that remains; a half-typed document is no longer one of them,
+since text that will not read back never becomes the drawing.</li>
+<li><strong>A <code>&lt;use&gt;</code> has one row, not one per use.</strong> What is listed is what is written. Picking the
+definition rings it everywhere it is drawn, and clicking any of those copies selects that one row.</li>
+</ul>
+<p>Rows are held by the child-index address <code>SvgElementAddress</code> spells, not by element. A drawing
+rebuilt from edited text shares no element with the one it replaced, so that is what keeps the
+selection and the open branches across a keystroke; a selection whose element has been deleted is
+dropped.</p>
 <h2 id="one-document-per-viewer">One document per viewer</h2>
 <p>The control shows one drawing, and opening another replaces it. A host that wants several at once
 puts a viewer in each pane and handles <code>OpenRequested</code>, which is raised for every file the user
@@ -338,8 +493,22 @@ picks or drops before any of them is read:</p>
 </code></pre>
 <p>Hand back what you started. The event is synchronous, so without <code>Completion</code> a host has no way to
 say it has not finished, and <code>OpenAsync</code> completes while the files are still being read.</p>
-<p><code>src/SvgViewer</code> is that host: one viewer per tab, a new tab per file opened, and <code>Close</code> on the
-viewer whose tab goes away.</p>
+<p><code>src/Svg.Studio</code> is that host: one viewer per tab, a new tab per file opened, and <code>Close</code> on the
+viewer whose tab goes away. A path it recognises as an svgc project opens a pane beside the tabs
+instead of a tab, which is why the request carries paths rather than drawings.</p>
+<p><code>SizeRequest</code> is the seam that host opens a project's drawings through: a size applied to the parsed
+document on every build, the file left as it was written. <code>Edit → Resize…</code> is the other half of the
+pair and the opposite choice — it rewrites the drawing's own text.</p>
+<p><code>Rewrite</code> is the second such seam, and goes further: the drawing built is not the file at all. Studio
+sets it to a project's recipe, so what is on screen is the document <code>svgc</code> compiles — colours turned
+into expressions, and the recipe's parameters declared. Everything else still works from the file:
+<code>Source</code> is it and a save writes it, and every rebuild goes back through the rewrite.
+Because the declarations then belong to the recipe rather than to the drawing, a host sets
+<code>DeclarationTarget</code> to say where the parameter panel should write: the recipe is a different file
+held as a tree of its own, and <code>ISvgViewerDeclarationTarget</code> is the seam to it. Left unset the
+commands go into the drawing, which is what a drawing declaring for itself wants — and what a recipe refuses to be
+applied to. <code>Notice</code> is where a host says a rewrite could not be
+set up at all; it appears on the status line beside the viewer's own count of what is wrong.</p>
 <h2 id="two-things-worth-knowing">Two things worth knowing</h2>
 <p>It does <strong>not</strong> host <code>Avalonia.Svg.Skia.Svg</code>. That control sizes itself to the drawing it fits, so it cannot fill a viewport and its zoom is bounded by its own clip. The viewer draws onto <code>SKCanvasControl</code> and owns the transform, which is what makes fit and actual-size exact.</p>
 <p>Loading is the only work off the UI thread. Binding a value evaluates a model that is already compiled, on the UI thread, coalesced to one call per frame, so a slider drag stays smooth and two changes keep the order they were made in.</p>

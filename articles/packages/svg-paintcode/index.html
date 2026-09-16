@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html data-lunet-theme-mode="system" data-lunet-theme-storage-key="lunet-theme" data-lunet-css-prefix="lunet" lang="en" itemscope itemtype="http://schema.org/WebPage">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="generator" content="lunet 1.0.10.0">
+    <script>(function(){const root=document.documentElement;const key=root.getAttribute("data-lunet-theme-storage-key")||"lunet-theme";const fallback=root.getAttribute("data-lunet-theme-mode")||"system";let stored=null;try{stored=localStorage.getItem(key);}catch(_){stored=null;}const mode=(stored==="light"||stored==="dark"||stored==="system")?stored:fallback;const prefersDark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches;const resolved=mode==="system"?(prefersDark?"dark":"light"):mode;root.setAttribute("data-lunet-theme-mode",mode);root.setAttribute("data-bs-theme",resolved);}());</script>
+    <link rel='icon' href='/Svg.Skia/favicon.ico' sizes='32x32'>
+    <title>Svg.PaintCode | Svg.Skia</title>
+    <link rel="stylesheet" href="/Svg.Skia/css/lite.css">
+    <script src="/Svg.Skia/js/lite-defer.js" defer></script>
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@wieslawsoltes">
+<meta name="twitter:title" content="Svg.PaintCode | Svg.Skia">
+<meta name="twitter:description" content="Svg.PaintCode Svg.PaintCode reads a PaintCode document — a .pcvd file — and writes it out as SVG drawings, an svgc project that builds them, and a note for everything it could not carry across. A PaintCode drawing is usually one of a family rather than one picture: its colours and its visibility follow named variables, which is what its own code generator turns into method parameters. That part survives the...">
+<meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
+<meta name="twitter:image:alt" content="Svg.PaintCode | Svg.Skia">
+<meta property="og:title" content="Svg.PaintCode | Svg.Skia">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
+<meta property="og:description" content="Svg.PaintCode Svg.PaintCode reads a PaintCode document — a .pcvd file — and writes it out as SVG drawings, an svgc project that builds them, and a note for everything it could not carry across. A PaintCode drawing is usually one of a family rather than one picture: its colours and its visibility follow named variables, which is what its own code generator turns into method parameters. That part survives the...">
+<meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
+<meta property="og:image:alt" content="Svg.PaintCode | Svg.Skia">
+  </head>
+  <body>
+
+    <div id="lunet" class="container">
+      <nav class="navbar navbar-expand-md sticky-top">
+        <a class="navbar-brand" href="/Svg.Skia/">
+          <img class="lunet-logo" src="/Svg.Skia/images/logo.svg" alt="Svg.Skia" width="96" height="96">
+          <span class="visually-hidden">Home</span>
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+          data-bs-target="#navbarSupportedContent"
+          aria-controls="navbarSupportedContent"
+          aria-expanded="false"
+          aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div id="navbarSupportedContent" class="collapse navbar-collapse justify-content-between">
+<ol id='nav-id-home-0' class='navbar-nav nav-level0 show '>
+  <li id='nav-item-home-1' class='nav-item '>
+    <span class='nav-item-row'><a href='/Svg.Skia/' class='nav-link  '><i class='bi bi-house-door' aria-hidden='true'></i> Home</a></span>  </li>
+  <li id='nav-item-home-2' class='nav-item  active'>
+    <span class='nav-item-row'><a href='/Svg.Skia/articles/' class='nav-link  '><i class='bi bi-book' aria-hidden='true'></i> Docs</a></span>  </li>
+  <li id='nav-item-home-3' class='nav-item '>
+    <span class='nav-item-row'><a href='/Svg.Skia/api/' class='nav-link  '><i class='bi bi-braces' aria-hidden='true'></i> API</a></span>  </li>
+</ol>
+          <ol class="navbar-nav flex-grow-1" style="padding-right: 0.5rem;">
+            <li class="nav-item w-100">
+                <div class="lunet-search dropdown w-100">
+                  <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input id="search-input" type="search" class="form-control" placeholder="Search... (Alt+s)" aria-label="Search" aria-controls="search-results" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-search-empty-message="Enter words to search..." data-search-no-results-message="No results found.">
+                    <ul id="search-results" class="dropdown-menu w-100 p-0" style="max-height: 50vh;" role="listbox" aria-labelledby="search-input"></ul>
+                  </div>
+                </div>
+            </li>
+          </ol>
+          <div class="d-flex align-items-center gap-2 flex-shrink-0 navbar-right">
+            <div class="dropdown">
+              <button
+                id="theme-mode-toggle"
+                class="btn btn-outline-secondary btn-sm lunet-theme-toggle dropdown-toggle"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+                aria-label="Theme">
+                <i class="bi bi-circle-half" data-lunet-theme-toggle-icon aria-hidden="true"></i>
+                <span
+                  data-lunet-theme-toggle-label
+                  data-theme-system-label="System"
+                  data-theme-light-label="Light"
+                  data-theme-dark-label="Dark">Theme</span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="theme-mode-toggle">
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="system"><i class="bi bi-circle-half me-2"></i>System</button></li>
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="light"><i class="bi bi-sun-fill me-2"></i>Light</button></li>
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="dark"><i class="bi bi-moon-stars-fill me-2"></i>Dark</button></li>
+              </ul>
+            </div>
+<ol id='nav-id-home2-0' class='navbar-nav nav-level0 show flex-shrink-0'>
+  <li id='nav-item-home2-1' class='nav-item '>
+    <span class='nav-item-row'><a href='https://github.com/wieslawsoltes/Svg.Skia' class='nav-link  btn btn-info'><i class="bi bi-github"></i> GitHub</a></span>  </li>
+</ol>
+          </div>
+        </div>
+      </nav>
+      <div class="lunet lunet-articles">
+        <section data-prismjs-copy="" data-prismjs-copy-success="" data-prismjs-copy-timeout="1200" data-copy-tooltip="Copy to Clipboard." data-copy-tooltip-success="Copied!" data-copy-tooltip-error="Failed to copy!">
+
+<div class="container-xxl">
+  <div class="row">
+      <!-- Left sidebar - responsive offcanvas (offcanvas on mobile, visible sidebar on md+) -->
+      <nav id="docs-sidebar-menu" class="col-md-3 col-lg-3 col-xl-3 col-xxl-2 offcanvas-md offcanvas-start sticky-md-top menu-sidebar align-self-start order-1 order-md-0" tabindex="-1" aria-labelledby="docs-sidebar-menu-label" aria-expanded="true">
+        <div class="offcanvas-header">
+          <h5 class="offcanvas-title" id="docs-sidebar-menu-label">Menu</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body">
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.044efb6e392d2ecca9dc97ce8e760cc0.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-8,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+        </div>
+      </nav>
+      <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
+      <aside id="docs-sidebar-toc" class="col-12 col-xxl-2 sticky-xxl-top menu-sidebar align-self-start order-0 order-xxl-2 collapse d-xxl-block" aria-expanded="true">
+        <h3 class="toc-title">On this page</h3>
+        <nav class="js-toc"></nav>
+      </aside>
+      <!-- Main content column -->
+      <div class="col-12 col-md-9 col-lg-9 col-xl-9 col-xxl-8 order-2 order-md-1 js-toc-content">
+        <ol class='breadcrumb'>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/' class='breadcrumb-link  '><i class='bi bi-house-door' aria-hidden='true'></i> Home</a>  </li>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/articles/' class='breadcrumb-link  '><i class='bi bi-book' aria-hidden='true'></i> Docs</a>  </li>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/articles/packages/' class='breadcrumb-link  '>Packages</a>  </li>
+          <li class='breadcrumb-item  active'>
+            Svg.PaintCode  </li>
+        </ol>
+
+        <p id="lunet-results"></p>
+        <!-- Toggle buttons visible only on small screens -->
+        <div class="d-md-none mb-3">
+          <button
+            class="btn btn-outline-secondary btn-sm me-2"
+            type="button"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#docs-sidebar-menu"
+            aria-controls="docs-sidebar-menu"
+            aria-label="Toggle docs menu">
+            Menu
+          </button>
+          <button
+            class="btn btn-outline-secondary btn-sm d-xxl-none"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#docs-sidebar-toc"
+            aria-controls="docs-sidebar-toc"
+            aria-expanded="false"
+            aria-label="Toggle Table Of Contents">
+            On this page
+          </button>
+        </div>
+<!-- lunet:summarize -->
+<h1 id="svgpaintcode">Svg.PaintCode</h1>
+<p><code>Svg.PaintCode</code> reads a PaintCode document — a <code>.pcvd</code> file — and writes it out as SVG drawings, an
+<a href="/Svg.Skia/articles/packages/svg-codegen-skia">svgc project</a> that builds them, and a note for everything it could not carry
+across.</p>
+<p>A PaintCode drawing is usually one of a family rather than one picture: its colours and its
+visibility follow named variables, which is what its own code generator turns into method parameters.
+That part survives the conversion. Variables become the
+<a href="/Svg.Skia/articles/packages/svg-expressions">expression extension</a>'s parameters and locals, and the attributes they drove are
+written in double braces.</p>
+<h2 id="install">Install</h2>
+<pre><code class="language-bash">dotnet add package Svg.PaintCode
+</code></pre>
+<h2 id="use-it">Use it</h2>
+<pre><code class="language-csharp">var result = PaintCodeImport.Run(&quot;Icons.pcvd&quot;, new PaintCodeImportOptions(&quot;out&quot;)
+{
+    ProjectPath = &quot;out/Icons.svgcproj&quot;,
+    Namespace = &quot;Icons&quot;
+});
+
+foreach (var note in result.Notes)
+{
+    Console.WriteLine(note);
+}
+</code></pre>
+<p>From the command line, <code>svgc --paintcode Icons.pcvd</code> imports beside the document and then builds the
+project it wrote, so every other flag means what it already meant. In
+<a href="/Svg.Skia/articles/guides/readme">Svg.Studio</a>, <strong>File → Import PaintCode…</strong> does the same and opens the result;
+dropping a <code>.pcvd</code> on the window imports it beside itself.</p>
+<h2 id="what-comes-across">What comes across</h2>
+<table class="table">
+<thead>
+<tr>
+<th>PaintCode</th>
+<th>SVG</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A desk</td>
+<td>A folder</td>
+</tr>
+<tr>
+<td>A canvas</td>
+<td>One <code>.svg</code>, and one row of the project</td>
+</tr>
+<tr>
+<td>A group</td>
+<td><code>&lt;g&gt;</code>, with its clip as a <code>&lt;clipPath&gt;</code></td>
+</tr>
+<tr>
+<td>Bezier, rectangle, rounded rectangle, oval, star, polygon</td>
+<td><code>&lt;path&gt;</code>, or <code>&lt;rect&gt;</code> and <code>&lt;ellipse&gt;</code> where those say it</td>
+</tr>
+<tr>
+<td>A symbol instance</td>
+<td><code>&lt;use&gt;</code> of a copy in the same file's <code>&lt;defs&gt;</code></td>
+</tr>
+<tr>
+<td>A library colour marked as used</td>
+<td><code>&lt;e:param type=&quot;color&quot;&gt;</code></td>
+</tr>
+<tr>
+<td>A colour derived from one</td>
+<td><code>&lt;e:let&gt;</code> over <code>withAlpha</code></td>
+</tr>
+<tr>
+<td>A variable marked as used</td>
+<td><code>&lt;e:param&gt;</code>, with its range as <code>min</code> and <code>max</code></td>
+</tr>
+<tr>
+<td>A variable derived from others</td>
+<td><code>&lt;e:let&gt;</code></td>
+</tr>
+<tr>
+<td><code>fill</code>, <code>strokeColor</code>, <code>fontColor</code></td>
+<td><code>fill</code>, <code>stroke</code>, and the text's own <code>fill</code></td>
+</tr>
+<tr>
+<td><code>alpha</code>, <code>visibilityMode</code></td>
+<td><code>opacity</code>, <code>display</code></td>
+</tr>
+<tr>
+<td>The display position, rotation and scale</td>
+<td>One argument each of <code>transform</code></td>
+</tr>
+<tr>
+<td>A gradient chosen by an expression</td>
+<td>One <code>&lt;linearGradient&gt;</code>, with the expression on every <code>stop-color</code></td>
+</tr>
+<tr>
+<td>A gradient laid by dragging its two ends</td>
+<td>The same two points, in <code>userSpaceOnUse</code></td>
+</tr>
+<tr>
+<td>A library colour desaturated or shadowed</td>
+<td>The shade PaintCode derives, worked out at import</td>
+</tr>
+</tbody>
+</table>
+<p>PaintCode is y-up and SVG is y-down, so everything is turned over on the way: a point at <code>(x, y)</code>
+is written at <code>(x, -y)</code>, and an angle with it.</p>
+<h2 id="what-does-not-and-what-happens-instead">What does not, and what happens instead</h2>
+<p>The rule is that the converter never writes a binding it cannot say. It writes the value the drawing
+had, and records a <code>PaintCodeImportNote</code> naming the canvas, the element and the property. Nothing
+renders wrong, and what was lost is a list rather than a surprise.</p>
+<ul>
+<li><strong>A driven stroke width, and an oval's driven start and end angle.</strong> <code>stroke-width</code> and path data
+are literal in the expression format.</li>
+<li><strong>Text built from a number.</strong> PaintCode's <code>stringFromNumber</code> has no equivalent, so the words the
+drawing had are written.</li>
+<li><strong>A gradient turned to an angle off the axes.</strong> PaintCode places one from the shape's own middle,
+which is not its box's; the conversion lays it across the box. Only where the gradient was turned
+by a dial — one laid by dragging its two ends carries them, and those are written exactly.</li>
+<li><strong>A library colour derived by an operation with no equivalent.</strong> Alpha, saturation and shadow are
+carried; anything else keeps the colour it came from and is reported. A derived colour is also
+worked out at import rather than followed live, so a symbol handed a different colour to derive
+from draws the shade the canvas was saved with.</li>
+<li><strong>A driven transform inside a group that draws into a layer.</strong> The layer's bounds were measured
+from where its children were, so the number is written instead — the same rule the format states.</li>
+<li><strong>A blend mode.</strong> PaintCode's numbering is not SVG's, and one that is nearly right is worse than
+one that is reported.</li>
+<li><strong>A canvas the document does not contain.</strong> Reported apart from the rest, because it is the one
+thing here no amount of work on the converter can draw: a symbol naming a canvas that was renamed
+or deleted upstream without its references being repointed.</li>
+</ul>
+<h2 id="how-it-is-verified">How it is verified</h2>
+<p>PaintCode generates drawing code as well as documents, so the same <code>.pcvd</code> can be drawn twice — once
+through this conversion, once through PaintCode's own generated output — and the two compared as
+pixels. <code>tests/Svg.PaintCode.UnitTests/Oracle</code> does that for every canvas, at every combination of
+the booleans PaintCode varies it on.</p>
+<p>That comparison needs the document and the generated code, neither of which belongs in this
+repository, so it runs only where they are:</p>
+<pre><code class="language-bash">PaintCodeResourcesDir=/path/to/generated \
+SVG_PAINTCODE_SAMPLE=/path/to/Icons.pcvd \
+SVG_PAINTCODE_FONTS=/path/to/fonts \
+  dotnet test tests/Svg.PaintCode.UnitTests/Svg.PaintCode.UnitTests.csproj -c Release
+</code></pre>
+<p><code>PaintCodeResourcesDir</code> is what compiles the comparison in at all. Unset — which is what continuous
+integration does — the suite builds and runs without it, and the drawings committed with the raster
+PaintCode produced for them are compared instead, on every platform.</p>
+<h2 id="pointing-it-at-another-document">Pointing it at another document</h2>
+<p>Nothing above names a particular PaintCode file. The three variables select one, and everything the
+suite knows about it lives in <code>TestAssets/Oracle/&lt;its styleKitName&gt;/</code> — what it holds, what the
+importer says about it, which canvases do not yet match and why, and the handful committed with their
+rasters. A second document is a second folder.</p>
+<p>For one nobody has measured, those files do not exist yet, and the suite says so once rather than
+failing per canvas: the comparison stands aside and asks for the report. Run it —</p>
+<pre><code class="language-bash">SVG_PAINTCODE_ORACLE_REPORT=1 dotnet test … --filter PaintCodeOracleReport
+</code></pre>
+<p>— and it writes what it found into <code>tests/Tests</code>, ready to read and commit. From then on the numbers
+are pinned and a change to any of them is a test result.</p>
+<p>Two things are worth knowing before trying it. The comparison needs PaintCode's <em>generated code</em> for
+the same document and at the same vintage, which is the actual gate — without it there is nothing to
+compare against. And the drawing class is found by asking which one accounts for the document's
+canvases, so a folder holding several style kits sorts itself out; <code>SVG_PAINTCODE_ORACLE_TYPE</code> names
+one outright where two genuinely overlap, and <code>PaintCodeOracleSources</code> overrides which files are
+compiled.</p>
+<p>Every canvas is drawn at each combination of the booleans PaintCode varies it on, and at the ends and
+middle of each number, and must come within <strong>0.03</strong> of PaintCode. The ones that cannot are listed in
+<code>TestAssets/Oracle/exceptions.csv</code> with the reason each cannot — an entry without a cause is refused,
+so a canvas cannot join the list by having a number written beside it, and one that starts meeting
+the bound has to be taken out rather than left sitting there. The counts per cause are asserted too,
+so a class cannot quietly grow.</p>
+<p><strong>The conversion is not at parity and the list says where it is not.</strong> Of 1014 canvases, 954 meet the
+bound, and <strong>every one of the 56 that do not names a reason</strong>. 16 draw text, which SVG anchors where
+PaintCode measures; 16 have a sweep an expression drives, which path data keeps literal; <strong>18 are the
+reference rather than the drawing</strong> — 9 where it is the rounded one, 5 where it is the older one, 3
+where it clips without antialiasing and 1 where its runtime cannot draw the two-circle gradient the
+document asks for; 4 want a whole gradient, a derived colour or a blend mode the format has no word
+for; 1 is the document pointing at a canvas it does not contain; and 1 is a gradient laid across the
+box rather than from the shape's middle.</p>
+<p>One caution about the reference itself, and it is the largest single thing on the list. It is
+generated from the document and falls behind it: four canvases — including the two that measured
+furthest from PaintCode of all 1014 — draw shapes the archive plainly holds and PaintCode's own
+export has no trace of, in neither the SkiaSharp it was transliterated to nor the Android export it
+came from. Where the conversion and the reference disagree, check which is older before assuming
+which is wrong; regenerating the reference closes those four on its own.</p>
+<p>Two things put a floor under the bound and neither is the conversion's. The two sides reach Skia
+through different models, where a single axis-aligned rect costs about 0.0045 and an icon is many;
+and PaintCode's generated code rounds every literal to two decimals, so what is compared against is
+itself a rounded drawing — of the 24 canvases it rounds nothing in, 23 match outright. For scale,
+this repository's own W3C rows sit at 0.022 for whole rendered pages.</p>
+<p>That second floor is higher than it sounds where the rounding lands on a group's <strong>scale</strong>, because
+a scale is a ratio and its error grows with distance from the group's origin: two decimals on 0.7428
+is four tenths of a pixel by the far end of a 26-unit shape. Nine canvases are on the list for that
+alone — each matches to about 0.001 the moment the emitted numbers are rounded the same way. Emitting
+two decimals ourselves would close them and would be the wrong thing to do, since the drawing being
+compared against is the approximate one.</p>
+<p>It is also worth knowing that the comparison is not colour-neutral. It weighs premultiplied channels,
+so the same half-pixel edge reads about six times worse in opaque white than in the 30%-alpha dark
+these icons take at their defaults — which is why so much of the list is worst at
+<code>state=true enabled=true isLight=true</code> and unremarkable everywhere else.</p>
+<p>Seventeen canvases draw text, and they are compared only when <code>SVG_PAINTCODE_FONTS</code> names the folder
+holding the faces PaintCode asks for. Nothing sets <code>TypefaceManager.FontNamePrefix</code> of its own
+accord, so PaintCode's lookup otherwise falls back to whatever family the system lists first without
+reporting it — which is worse than failing. Given the faces, both sides draw the same words in the
+same one; without them these rows stand aside rather than compare against an arbitrary font.</p>
+<h2 id="related-docs">Related docs</h2>
+<ul>
+<li><a href="/Svg.Skia/articles/packages/svg-expressions">Svg.Expressions</a> — the format the parameters are written in</li>
+<li><a href="/Svg.Skia/articles/packages/svg-codegen-skia">Svg.CodeGen.Skia</a> — what the project it writes is built by</li>
+</ul>
+
+      </div>
+  </div>
+</div>
+
+        </section>
+        <footer>
+          <hr>
+          <p>Copyright &copy; 2026, Wieslaw Soltes aka <a href="https://github.com/wieslawsoltes">wieslawsoltes</a> - Content licensed under the Creative Commons <a href="http://creativecommons.org/licenses/by/2.5/">CC BY 2.5</a> | Site generated by <a href="https://github.com/lunet-io/lunet">lunet</a> hosted on <a href="https://pages.github.com/">GitHub Pages</a></p>
+        </footer>
+      </div>
+    </div>
+
+  </body>
+</html>

@@ -98,7 +98,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.eae3b3891b6e2dc99fed4f90647687c2.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-8,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.044efb6e392d2ecca9dc97ce8e760cc0.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-9,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
         </div>
       </nav>
       <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
@@ -185,6 +185,14 @@
 <td>Stores fill, stroke, shader, filter, and typography state</td>
 </tr>
 <tr>
+<td><code>SymNode</code></td>
+<td>How a value was derived, where an expression drives it</td>
+</tr>
+<tr>
+<td><code>SymMatrix</code></td>
+<td>How a matrix was derived: the transform functions that built it</td>
+</tr>
+<tr>
 <td><code>ShimSkiaSharp.Editing.*</code></td>
 <td>Clone-on-write and traversal helpers for model editing</td>
 </tr>
@@ -215,6 +223,14 @@ foreach (var command in picture.Commands ?? Array.Empty&lt;CanvasCommand&gt;())
 }
 </code></pre>
 <p>This is the same family of types that <code>Svg.Model</code>, <code>Svg.CodeGen.Skia</code>, and parts of <code>Svg.Skia</code> exchange internally.</p>
+<h2 id="how-a-command-was-derived">How a command was derived</h2>
+<p>A drawing that uses the <a href="/Svg.Skia/articles/packages/svg-expressions">expression extension</a> records not only what a command draws but how that was arrived at, so a bound value can rewrite the picture instead of compiling the document again:</p>
+<ul>
+<li><code>SymNode</code> describes how one <strong>value</strong> was derived — a literal, author-supplied expression source, or an operation over those. It interprets nothing; a back end decides what it evaluates or emits as.</li>
+<li><code>SymTransform</code> and <code>SymMatrix</code> describe how a <strong>matrix</strong> was derived: the transform functions that built it (<code>Matrix</code>, <code>Translate</code>, <code>Scale</code>, <code>Rotate</code>, <code>Skew</code>), each with <code>SymNode</code> arguments.</li>
+</ul>
+<p>A matrix is described <em>beside</em> <code>SymNode</code> rather than as a kind of one because a <code>SymNode</code> says how a value was derived and both back ends thread the expected <code>ExprType</code> through it, so a matrix-shaped node could reach a slot expecting a colour.</p>
+<p><code>SetMatrixCanvasCommand</code> therefore carries <code>SymbolicDelta</code> and <code>SymbolicTotal</code> beside the <code>DeltaMatrix</code> and <code>TotalMatrix</code> it always had. Both are null where a drawing drives no transform, so nothing changes for a document that does not use the extension. The symbolic total is composed off the same save and restore stack as the baked one, which means a command's <code>SymbolicTotal</code> is already the whole composition down to it and no consumer has to keep a running matrix of its own. <code>SymMatrix.Apply</code> is the one place a function becomes an <code>SKMatrix</code>, so the recorder, the evaluator and the code generator cannot disagree about what a skew angle means.</p>
 <h2 id="why-it-exists">Why it exists</h2>
 <p>Live <code>SkiaSharp</code> objects are excellent for rendering, but they are not ideal when you need:</p>
 <ul>

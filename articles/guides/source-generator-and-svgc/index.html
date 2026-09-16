@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="Source Generator and svgc | Svg.Skia">
-<meta name="twitter:description" content="Source Generator and svgc Svg.Skia supports two generated-code workflows. Roslyn source generator Svg.SourceGenerator.Skia compiles .svg additional files into C# types during build. Add the package: &lt;ItemGroup> &lt;PackageReference Include=&quot;Svg.SourceGenerator.Skia&quot; Version=&quot;*&quot; /> &lt;/ItemGroup> Add SVG assets: &lt;ItemGroup> &lt;AdditionalFiles Include=&quot;Assets\**\*.svg&quot; /> &lt;/ItemGroup> Optional metadata can control the generated type names: &lt;ItemGroup> &lt;AdditionalFiles Include=&quot;Assets\Camera.svg&quot; ClassName=&quot;Camera&quot; NamespaceName=&quot;Svg.Generated&quot; /> &lt;/ItemGroup>...">
+<meta name="twitter:description" content="Source Generator and svgc Svg.Skia has two ways of turning a drawing into C#. Both compile the document to a ShimSkiaSharp.SKPicture and emit the SkiaSharp calls that replay it, through the same Svg.CodeGen.Skia — what differs is when they run and how much of the generator they expose. Svg.SourceGenerator.Skia runs inside the compiler, on .svg files the project already owns. src/svgc is a command-line tool run as its own step,...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="Source Generator and svgc | Svg.Skia">
 <meta property="og:title" content="Source Generator and svgc | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="Source Generator and svgc Svg.Skia supports two generated-code workflows. Roslyn source generator Svg.SourceGenerator.Skia compiles .svg additional files into C# types during build. Add the package: &lt;ItemGroup> &lt;PackageReference Include=&quot;Svg.SourceGenerator.Skia&quot; Version=&quot;*&quot; /> &lt;/ItemGroup> Add SVG assets: &lt;ItemGroup> &lt;AdditionalFiles Include=&quot;Assets\**\*.svg&quot; /> &lt;/ItemGroup> Optional metadata can control the generated type names: &lt;ItemGroup> &lt;AdditionalFiles Include=&quot;Assets\Camera.svg&quot; ClassName=&quot;Camera&quot; NamespaceName=&quot;Svg.Generated&quot; /> &lt;/ItemGroup>...">
+<meta property="og:description" content="Source Generator and svgc Svg.Skia has two ways of turning a drawing into C#. Both compile the document to a ShimSkiaSharp.SKPicture and emit the SkiaSharp calls that replay it, through the same Svg.CodeGen.Skia — what differs is when they run and how much of the generator they expose. Svg.SourceGenerator.Skia runs inside the compiler, on .svg files the project already owns. src/svgc is a command-line tool run as its own step,...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="Source Generator and svgc | Svg.Skia">
   </head>
@@ -144,38 +144,464 @@
         </div>
 <!-- lunet:summarize -->
 <h1 id="source-generator-and-svgc">Source Generator and svgc</h1>
-<p>Svg.Skia supports two generated-code workflows.</p>
+<p>Svg.Skia has two ways of turning a drawing into C#. Both compile the document to a
+<code>ShimSkiaSharp.SKPicture</code> and emit the SkiaSharp calls that replay it, through the same
+<a href="/Svg.Skia/articles/packages/svg-codegen-skia">Svg.CodeGen.Skia</a> — what differs is when they run and how much of the
+generator they expose.</p>
+<ul>
+<li><strong><code>Svg.SourceGenerator.Skia</code></strong> runs inside the compiler, on <code>.svg</code> files the project already owns.</li>
+<li><strong><code>src/svgc</code></strong> is a command-line tool run as its own step, and reaches the options the
+generator does not: recipes, resizing, batching, caching and the SkiaSharp target.</li>
+</ul>
 <h2 id="roslyn-source-generator">Roslyn source generator</h2>
-<p><code>Svg.SourceGenerator.Skia</code> compiles <code>.svg</code> additional files into C# types during build.</p>
 <p>Add the package:</p>
 <pre><code class="language-xml">&lt;ItemGroup&gt;
   &lt;PackageReference Include=&quot;Svg.SourceGenerator.Skia&quot; Version=&quot;*&quot; /&gt;
 &lt;/ItemGroup&gt;
 </code></pre>
-<p>Add SVG assets:</p>
+<p>Add SVG assets as <code>AdditionalFiles</code> — that item type is what the generator looks at, not <code>Content</code>
+or <code>EmbeddedResource</code>:</p>
 <pre><code class="language-xml">&lt;ItemGroup&gt;
   &lt;AdditionalFiles Include=&quot;Assets\**\*.svg&quot; /&gt;
 &lt;/ItemGroup&gt;
 </code></pre>
-<p>Optional metadata can control the generated type names:</p>
+<p>Metadata names the generated type:</p>
 <pre><code class="language-xml">&lt;ItemGroup&gt;
   &lt;AdditionalFiles Include=&quot;Assets\Camera.svg&quot;
                    ClassName=&quot;Camera&quot;
                    NamespaceName=&quot;Svg.Generated&quot; /&gt;
 &lt;/ItemGroup&gt;
 </code></pre>
-<p>The sample project under <code>samples/Svg.SourceGenerator.Skia.Sample</code> demonstrates the generated classes being used as static <code>Picture</code> providers.</p>
-<h2 id="manual-code-generation-with-svgc">Manual code generation with svgc</h2>
-<p><code>samples/svgc</code> is a command-line tool that uses <code>Svg.CodeGen.Skia</code> directly.</p>
-<p>Generate one file:</p>
-<pre><code class="language-bash">dotnet run -p samples/svgc/svgc.csproj -c Release -- \
-  --inputFile ./Assets/icon.svg \
-  --outputFile ./Generated/Icon.cs \
-  --namespace Svg.Generated \
-  --class Icon
+<p>Neither is required. <code>NamespaceName</code> falls back to the project-wide <code>NamespaceName</code> MSBuild
+property, and then to <code>Svg</code>; <code>ClassName</code> falls back to the file's own name prefixed with <code>Svg_</code>,
+with anything not valid in an identifier replaced by <code>_</code> — <code>pservers-pattern-01-b.svg</code> becomes
+<code>Svg_pservers_pattern_01_b</code>.</p>
+<h3 id="what-comes-out">What comes out</h3>
+<p>For an ordinary drawing, a static picture built once at type initialisation:</p>
+<pre><code class="language-csharp">public static class Camera
+{
+    public static SKPicture Picture { get; }
+    public static void Draw(SKCanvas skCanvas)
+}
 </code></pre>
-<p>Generate many files from JSON:</p>
-<pre><code class="language-bash">dotnet run -p samples/svgc/svgc.csproj -c Release -- --jsonFile ./items.json
+<p>For a drawing using the <a href="/Svg.Skia/articles/packages/svg-expressions">expression extension</a>, the parameters it
+declares become C# parameters in the order the document declares them, with their declared defaults,
+and there is <strong>no</strong> <code>Picture</code> property — there is no single picture to have, since the drawing depends
+on its arguments:</p>
+<pre><code class="language-csharp">public static class Expressions
+{
+    public static SKPicture Record(float t = 0f, float amp = 1f, bool bold = false)
+    public static void Draw(SKCanvas skCanvas, float t = 0f, float amp = 1f, bool bold = false)
+}
+</code></pre>
+<p>The expressions themselves are folded into the emitted code, so <code>hsl</code>, <code>mix</code> and <code>clamp</code> are
+evaluated as C# at call time; nothing is re-parsed and no SVG text ships.</p>
+<h3 id="diagnostics">Diagnostics</h3>
+<p>Failures are reported as <code>SVG0001</code> on the build rather than as a crash. A mistake in an expression —
+a name nothing declares, a range on a colour — is reported on its own, without a stack trace, and
+says which expression it was in.</p>
+<h3 id="inside-this-repository">Inside this repository</h3>
+<p>The sample at <code>samples/Svg.SourceGenerator.Skia.Sample</code> references the generator project directly
+rather than the package, which means importing the <code>.props</code> by hand — the published package does it
+for you:</p>
+<pre><code class="language-xml">&lt;ProjectReference Include=&quot;..\..\src\Svg.SourceGenerator.Skia\Svg.SourceGenerator.Skia.csproj&quot;
+                  OutputItemType=&quot;Analyzer&quot; ReferenceOutputAssembly=&quot;False&quot; /&gt;
+
+&lt;Import Project=&quot;..\..\src\Svg.SourceGenerator.Skia\Svg.SourceGenerator.Skia.props&quot; /&gt;
+</code></pre>
+<p>It also sets <code>EmitCompilerGeneratedFiles</code>, which writes the generated <code>.cs</code> under <code>obj/</code> where it can
+be read — the quickest way to see what any of this produces.</p>
+<h2 id="manual-code-generation-with-svgc">Manual code generation with svgc</h2>
+<p><code>src/svgc</code> is a command-line front end over the same generator, packaged as a <code>dotnet</code> tool. From a
+clone it is run from the repository:</p>
+<pre><code class="language-bash">dotnet run --project src/svgc/svgc.csproj -c Release -- --help
+</code></pre>
+<p>Build it once and invoke the assembly directly if you are running it repeatedly:</p>
+<pre><code class="language-bash">dotnet build src/svgc/svgc.csproj -c Release
+dotnet src/svgc/bin/Release/net10.0/svgc.dll --help
+</code></pre>
+<p><code>svgc</code> below stands for whichever of those two you are using.</p>
+<h3 id="one-file">One file</h3>
+<pre><code class="language-bash">svgc --inputFile ./Assets/icon.svg \
+     --outputFile ./Generated/Icon.cs \
+     --namespace Svg.Generated \
+     --class Icon
+</code></pre>
+<p>The short forms are <code>-i</code>, <code>-o</code>, <code>-n</code> and <code>-c</code>. The defaults are the namespace <code>Svg</code> and the class
+<code>Generated</code>.</p>
+<h3 id="resizing-as-it-generates">Resizing as it generates</h3>
+<pre><code class="language-bash">svgc -i ./Assets/icon.svg -o ./Generated/Icon.cs --width 512
+</code></pre>
+<p><code>--width</code>, <code>--height</code> and <code>--scale</code> resize the <em>document</em> before it is compiled, so the picture is
+genuinely built at the new size rather than scaled by a matrix wrapped around the old one. They are
+one group: naming any of them on the command line replaces the project file's sizing outright, since
+a flag width joining a project scale would be a contradiction rather than an override. A scale is
+one factor for both axes and cannot be given beside a width or a height, which say the same thing a
+second way.</p>
+<p><code>src/Svg.Studio</code> does the same arithmetic from <strong>Edit → Resize…</strong>, padding included, and writes the
+answer into the drawing's own <code>width</code>, <code>height</code> and <code>viewBox</code> rather than into generated code — so a
+document resized there arrives at svgc already the size it should be.</p>
+<h3 id="leaving-room-around-it">Leaving room around it</h3>
+<pre><code class="language-bash">svgc -i ./Assets/icon.svg -o ./Generated/Icon.cs --width 512 --padding 10%
+</code></pre>
+<p><code>--padding</code> leaves space around the drawing <strong>inside</strong> the size it was given: that command produces a
+512×512 picture whose art occupies the middle 410×410, so <code>--width</code> still describes the file you get.
+Values are fractions of the target — <code>10%</code> or <code>0.1</code> say the same thing — which means one setting fits
+every size a batch is generated at. A bare <code>10</code> is a fraction too, so it asks for ten times the
+canvas and is refused rather than quietly read as ten percent.</p>
+<p>Sides are written the way CSS writes them, one, two, three or four values:</p>
+<pre><code class="language-bash">svgc … --padding &quot;10%&quot;              # every side
+svgc … --padding &quot;5% 10%&quot;           # down, across
+svgc … --padding &quot;5% 10% 0 10%&quot;     # top, right, bottom, left
+</code></pre>
+<p><strong>It never crops.</strong> The space is added outside the frame the document declares, so a drawing whose
+author already left it room keeps that room and gets more — padding is a floor, not a target. Where
+the drawing's shape and the size asked for disagree, what the aspect ratio leaves over centres, the
+same way an unpadded mismatch does, so a side may end up with more clear space than it asked for and
+never less.</p>
+<p>Unlike the three sizing values, <code>--padding</code> overlays on its own: it says how much room to leave
+rather than what size to be, so naming it does not replace a project file's width.</p>
+<h3 id="when-the-defaults-cannot-come-along">When the defaults cannot come along</h3>
+<p>C# takes optional arguments last. A drawing that declares a parameter <em>without</em> a default after one
+<em>with</em> a default cannot have both its order and its defaults, so <code>svgc</code> keeps the order and gives up
+the defaults: every argument is generated as required, and it says so.</p>
+<pre><code>warning: badge.svg declares a parameter with no default after one that has a default, so every
+argument is generated as required and 'tint' loses its default.
+</code></pre>
+<p>The source generator reports the same thing as <strong>SVG0002</strong>, since it runs inside the compiler and has
+nowhere to print. The generated file carries a comment above the class for whoever reads the
+signature and wonders.</p>
+<p>The order is kept rather than the defaults because the order is what a positional call means, and
+what a reader matches against the <code>&lt;e:param&gt;</code> block. Losing a default is a compile error where the
+caller can see it; a silently reordered argument list is not. Declaring the parameters without
+defaults first avoids the whole question.</p>
+<h3 id="recipes-making-a-flat-drawing-parametric">Recipes: making a flat drawing parametric</h3>
+<p>A recipe declares parameters and named expressions, then says which literal values of a drawing
+stand for them:</p>
+<pre><code class="language-xml">&lt;recipe xmlns=&quot;https://svg.skia/expr/1.0&quot;&gt;
+  &lt;code&gt;
+    &lt;param name=&quot;hue&quot;  type=&quot;number&quot;  default=&quot;217&quot; /&gt;
+    &lt;param name=&quot;bold&quot; type=&quot;boolean&quot; default=&quot;false&quot; /&gt;
+
+    &lt;let name=&quot;primary&quot;&gt;hsl(hue, 91%, bold ? 66% : 60%)&lt;/let&gt;
+    &lt;let name=&quot;deep&quot;&gt;hsl(hue + 5, 71%, 40%)&lt;/let&gt;
+    &lt;let name=&quot;alert&quot;&gt;&lt;![CDATA[hue &lt; 100 ? #ff0000 : #ff6600]]&gt;&lt;/let&gt;
+  &lt;/code&gt;
+
+  &lt;replace color=&quot;#3b82f6&quot;&gt;primary&lt;/replace&gt;
+  &lt;replace color=&quot;rgb(30,64,175)&quot;&gt;deep&lt;/replace&gt;
+  &lt;replace color=&quot;red&quot;&gt;alert&lt;/replace&gt;
+
+  &lt;replace opacity=&quot;0.5&quot;&gt;bold ? 1 : 0.5&lt;/replace&gt;
+&lt;/recipe&gt;
+</code></pre>
+<p>A rule names one of the attributes whose whole value an expression can drive, and there are eleven
+of them:</p>
+<table class="table">
+<thead>
+<tr>
+<th>Rule</th>
+<th>Replaces</th>
+<th>The expression is a</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>color</code></td>
+<td><code>fill</code>, <code>stroke</code>, <code>stop-color</code>, <code>flood-color</code>, <code>lighting-color</code></td>
+<td>colour</td>
+</tr>
+<tr>
+<td><code>opacity</code>, <code>fill-opacity</code>, <code>stroke-opacity</code>, <code>stop-opacity</code></td>
+<td>that attribute</td>
+<td>number</td>
+</tr>
+<tr>
+<td><code>visibility</code>, <code>display</code></td>
+<td>that attribute</td>
+<td>boolean</td>
+</tr>
+</tbody>
+</table>
+<p><code>color</code> is the only name that is not an attribute. A colour means the same thing wherever it is
+painted, so one rule claims every colour attribute at once — which is what a recipe over a family of
+icons wants. The others are named one at a time on purpose: a group's <code>opacity</code> and a gradient stop's
+<code>stop-opacity</code> are different quantities, and one name for both would replace a value nobody meant.
+Writing <code>&lt;replace fill=&quot;…&quot;&gt;</code> is refused for the same reason, pointing at <code>color</code>.</p>
+<p><code>transform</code> takes an expression but no rule: an expression there drives one function argument rather
+than the whole value, and a rule names one whole value and swaps it for one whole expression — half a
+transform is not a rule. Anything else — <code>stroke-width</code>, <code>d</code>, the geometry attributes — takes no
+expression anywhere in the pipeline, so a rule naming one is refused rather than written and silently
+ignored.</p>
+<p><code>--recipeFile</code> (<code>-r</code>) applies it to the input before anything is generated, which is how one recipe
+parameterises a whole icon set. Values are matched by value rather than by spelling, through whatever
+the document parser reads that attribute with: <code>#3B82F6</code> and <code>#3b82f6</code> are one rule, so are <code>0.5</code>,
+<code>.5</code> and <code>0.50</code>, and <code>none</code> matches <code>NONE</code>. A value written inside a <code>style=&quot;…&quot;</code> declaration is
+replaced where it stands, and the presentation attribute it was shadowing is left alone — the cascade
+means that one was never painting anything.</p>
+<pre><code class="language-bash">svgc -i badge.svg -o Badge.cs -r badge.recipe -n Demo.Icons -c Badge
+</code></pre>
+<pre><code>Generating: /tmp/demo/Badge.cs
+  #3b82f6 -&gt; {{ primary }} (3)
+  rgb(30,64,175) -&gt; {{ deep }} (2)
+  red -&gt; {{ alert }} (2)
+  opacity 0.5 -&gt; {{ bold ? 1 : 0.5 }} (1)
+</code></pre>
+<p>A colour is named alone because its value says which it is; anything else carries its attribute.</p>
+<p>The generated class takes the recipe's parameters, exactly as a drawing that declared them itself
+would:</p>
+<pre><code class="language-csharp">public static SKPicture Record(float hue = 217f, bool bold = false)
+public static void Draw(SKCanvas skCanvas, float hue = 217f, bool bold = false)
+</code></pre>
+<p><code>--emit svg</code> asks for the rewritten document instead of code — useful for checking what a recipe did,
+and for producing a parametric <code>.svg</code> to open in the <a href="/Svg.Skia/articles/packages/svg-viewer-skia-avalonia">viewer</a>:</p>
+<pre><code class="language-bash">svgc -i badge.svg -o badge.parametric.svg -r badge.recipe --emit svg
+</code></pre>
+<p>It needs a recipe (without one the output would be a copy of the input) and cannot be combined with
+a resize or a single file: the conversion rewrites text and never compiles a drawing, and an SVG
+document holds one drawing where a C# file holds any number.</p>
+<h3 id="caching-the-last-picture">Caching the last picture</h3>
+<pre><code class="language-bash">svgc -i badge.svg -o Badge.cs -r badge.recipe --cache lastValue
+</code></pre>
+<p><code>--cache</code> gives <code>Draw</code> a one-entry memo, so redrawing with unchanged arguments reuses the picture
+instead of recording it again — worth it for a parametric drawing on a slider or an animation.
+<code>lastValueLocked</code> is the same guarded by a lock held across the draw, for a drawing shared between
+threads. It applies only to parameterised drawings; one without parameters already caches better
+than this, as a single picture built in the static constructor.</p>
+<h3 id="a-whole-build-in-one-project-file">A whole build in one project file</h3>
+<p>More than one drawing goes in an XML project file rather than a shell loop:</p>
+<pre><code class="language-xml">&lt;!-- icons.svgcproj --&gt;
+&lt;svgc&gt;
+  &lt;recipe&gt;icons.recipe&lt;/recipe&gt;
+  &lt;namespace&gt;Demo.Icons&lt;/namespace&gt;
+  &lt;singleFile&gt;Icons.cs&lt;/singleFile&gt;
+  &lt;cache&gt;lastValue&lt;/cache&gt;
+  &lt;padding&gt;10%&lt;/padding&gt;
+
+  &lt;svg input=&quot;home.svg&quot; class=&quot;Home&quot; /&gt;
+  &lt;svg input=&quot;badge.svg&quot; class=&quot;Badge&quot; padding=&quot;0&quot; /&gt;
+
+  &lt;group namespace=&quot;Demo.Icons.Large&quot; scale=&quot;2&quot;&gt;
+    &lt;svg input=&quot;badge.svg&quot; class=&quot;BadgeLarge&quot; /&gt;
+  &lt;/group&gt;
+&lt;/svgc&gt;
+</code></pre>
+<pre><code class="language-bash">svgc --projectFile ./icons.svgcproj
+</code></pre>
+<ul>
+<li>Every setting at the top is a default each <code>&lt;svg&gt;</code> may override, so a shared recipe or namespace is
+named once and an item only says what differs. <code>padding</code> is one of them, and unlike <code>width</code>,
+<code>height</code> and <code>scale</code> it overrides on its own: the drawing above keeps the project's sizing while
+asking for no room around it.</li>
+<li>A <code>&lt;group&gt;</code> is folded into its drawings as the project is read, so a drawing carries what its
+groups said as if it had said it itself.</li>
+<li><code>&lt;singleFile&gt;</code> folds every drawing into one C# file, which also lets them share one copy of the
+emitted expression helpers. Without it, each <code>&lt;svg&gt;</code> needs its own <code>output</code>.</li>
+<li>A command line flag beats the project file, which beats the built-in default.</li>
+</ul>
+<p><code>src/Svg.Studio</code> opens a project as well as a drawing — <code>File → Open</code>, a drop anywhere on the window
+including an empty one, or as a command line argument. A project opens as a workspace rather than as
+a document: the group tree goes in a pane beside the tabs and the project itself takes no tab, one
+project at a time, closed with <code>Project → Close</code>. <code>File → Save</code> writes whatever the selected tab is
+holding — the drawing, the project settings in its right pane, or the recipe behind them — and
+<code>Save As…</code> writes the open drawing somewhere new and points its tab at it.
+Clicking a node opens it — a drawing in a viewer <strong>at the size its groups build it at</strong> rather than
+the one it was written with, a group as its settings and what they come to. A double click is left
+to the tree, which folds a node with it. Picking a tab opens the tree back down to the row it came
+from and marks it, so a group folded away still says where the tab you are looking at lives.
+Settings are edited there and saved back with the file's comments and layout intact. The resize is
+applied to the picture and never to the file, so what a group says about a drawing stays the group's.</p>
+<p>A group's tab is not only a picture of what it builds. Clicking a shape on it — or a row in the
+<strong>element tree</strong> beside it — picks that drawing, and the <strong>Parameters</strong> and <strong>Replacements</strong> tabs then
+behave as they would on that drawing's own tab: the parameters are the ones the drawing is built
+with, dragging one repaints that drawing alone, and the replacements are what its recipe can name. Until
+something is picked they say so, because a group builds several drawings and cannot guess which is
+meant.</p>
+<p>Where an edit lands follows the same rule as everywhere else, in the order that loses the least. A
+drawing under a <strong>recipe</strong> writes into the recipe, which is where its parameters came from. One that
+is also <strong>open in a tab</strong> writes into that tab's buffer, so it can be taken back and is saved when
+you ask — and two tabs on one file cannot come to disagree about it. That edit is unsaved work on the
+drawing's tab, and ⌘S on the <em>group's</em> tab will not save it; the drawing's tab carries the unsaved
+mark and saves it. A drawing that is under no recipe and open nowhere is the last case, and its
+<strong>file is written directly</strong>: there is no buffer to hold it, so the edit is saved as it is made and
+there is nothing to undo.</p>
+<p>A drawing under a <code>recipe</code> is shown <strong>as the recipe makes it</strong> — the values the recipe names already
+turned into expressions, and its parameters on the panel with sliders on them, which is the whole
+loop a recipe is written for. The file is untouched: the tab edits and saves the drawing itself,
+and <code>File → Export…</code> writes what the project builds, which is the document
+<code>--emit svg</code> produces. The parameter panel writes into the <strong>recipe</strong> there rather than into the
+drawing — the parameters are the recipe's, so adding one, editing one, reordering them or committing
+the values as defaults all go back to the file that declared them. Written into the drawing they
+would be a declaration block of its own, and a recipe refuses a document that already has one.
+A recipe that cannot be read, or that this drawing refuses, is said on the status line under the
+drawing, which still opens.</p>
+<p>A <code>recipe</code> is named with buttons rather than typed as a path. With none, the row offers <strong>Add…</strong> for
+one that exists and <strong>New…</strong> to write one — a recipe that does not exist yet cannot be picked, and
+leaving for a text editor to make an empty one was most of what made recipes awkward to start using.
+What <strong>New…</strong> writes is the root and nothing else. It applies as it stands and changes nothing, which
+is the point: a seeded parameter and a survey of the drawings' colours written under it as commented
+rules were both somebody else's opening line to read and delete before the file said what you meant.
+The <strong>Replacements</strong> tab is where the drawing's own values are listed, so they no longer have to be
+read out of the files by hand either. A file already at that name is named rather than written over.
+With one named, the row is the file and a <strong>✕</strong> that stops using it — the file itself is left where
+it is. <strong>Double-clicking the file opens it</strong>, in a tab of its own — described under
+<a href="#the-recipes-own-tab">The recipe's own tab</a> below. One recipe is usually named by several groups, so
+it opens once however many of them ask for it. A
+drawing's tab answers for the recipe behind it as well as for itself: it takes the unsaved mark, ⌘S
+saves it, ⌘Z takes back the last edit made to it once the drawing's own text has nothing left to take
+back, and closing the project asks about it — including when the tab it was edited from has gone.</p>
+<p>There is one buffer per open recipe, so the drawings under it follow it <strong>as it is edited</strong> rather
+than when it is saved — a tab you are not looking at is read again when you come back to it.</p>
+<h4 id="the-recipes-own-tab">The recipe's own tab</h4>
+<p>It wears the shape of a drawing's tab, because a recipe is read the same way one is: the thing itself
+in the room, and what it is made of in the strip beside it.</p>
+<p>The canvas holds <strong>the drawings this recipe paints</strong> — every drawing in the project built through it,
+laid out the way a group's are and built the way the project builds them. A recipe has no ink of its
+own, and the only way to see what a rule does is to see it done, so a colour changed on the right
+moves the icons on the left.</p>
+<p>The strip splits in two. <strong>Parameters and lets</strong> above, the same panel a drawing's tab has, writing
+into the recipe's <code>&lt;code&gt;</code> block: add one, edit one, drag them into order, or commit the slider
+values as the declared defaults. <strong>Replaces</strong> below, in the slot a drawing's tab gives the element
+tree — both answer &quot;what is this file made of&quot;. Every rule is listed with what it replaces and the
+expression that replaces it; emptying a box takes the rule away, and the row at the bottom starts a
+new one, since without a drawing to survey there is nothing to find the value in.</p>
+<p>It was a text editor until the tree became the truth. After that it was a read-only transcript of
+what the tree would write, which is a second account of a file that holds exactly two things and has
+a panel for each of them.</p>
+<p>Everything on it commits into the same workspace the drawings' own panes do, so a rule bound from a
+drawing's <strong>Replacements</strong> tab and a parameter added here are one history and come off it in the
+order they were made.</p>
+<p><strong>Apply…</strong> beside it writes the recipe into the drawings and stops naming it. This is the conversion
+a build does on its way to code, kept: each <code>.svg</code> under the node is read, put through the recipe
+that covers it, and written back over itself, declarations and all. It goes down the tree, and each
+drawing takes <strong>its own</strong> recipe — a nested group naming one of its own is converted with that
+rather than with the outer one, which is why this is offered on a group rather than per drawing. The
+button is there when the node names a recipe or something under it does; one inherited from <em>above</em>
+is applied from the node that names it, since it covers drawings this node does not hold.</p>
+<p>It <strong>refuses while anything involved is unsaved</strong>, naming what to save. Reading the buffers would
+bake a rule no file says, and a tab holding edits of its own is skipped when files are re-read, so
+it would put the drawing back the way it was on the next ⌘S and undo the conversion without saying
+so. Everything is converted before anything is written, so a drawing that will not parse stops the
+whole thing rather than leaving half a set converted and the other half about to lose its recipe.
+There is no undo — the confirmation is what answers for that.</p>
+<p>Afterwards the drawings declare their own parameters, so the <code>recipe</code> setting is cleared from the
+node and from any group under it that named one. <strong>Running it again is safe</strong>: a recipe applied to a
+drawing that already holds its declarations replaces nothing and declares nothing, so a set half
+converted last week converts the rest and leaves the rest alone. That is also what makes an
+inherited recipe safe to leave named.</p>
+<p>Beside them is an <strong>Element</strong> tab, and it needs no recipe. It lists the attributes of whatever is
+picked — on the canvas or in the element tree, on a drawing's own tab or on a group's — in the order
+the file writes them, then the ones an expression could drive that the element has no value for yet.</p>
+<p>A row's box holds the value itself, whatever it is. Typing <code>{{ tint }}</code> into <code>fill</code> writes that into
+the drawing; typing <code>#00ff00</code> back writes that. Binding and unbinding are the same gesture, so
+nothing has to remember what a value used to be, and emptying the box takes the attribute away.
+Typing into one of the empty rows adds it.</p>
+<p>Only an expression is judged: what it comes to is read out beside it, an expression of the wrong type
+is caught in the box, and one written on an attribute the parser lifts nothing out of is refused
+rather than written as braces nobody reads. Anything else is the file's own value and the parser
+answers for it as it always did.</p>
+<p>Rows come from the drawing's text rather than from the drawing, so what is listed is what is there —
+an attribute already holding an expression reads back as that, in the order somebody wrote them.
+An edit lands in the drawing whatever builds it: never in the recipe, which has nowhere to put one
+element's attribute. A value a <code>style</code> declaration overrides is refused, since the attribute under
+one paints nothing.</p>
+<p>A drawing under a recipe also gets a <strong>Replacements</strong> tab beside its Project and Parameters: every
+value the drawing uses that a rule could name, how much of the drawing each one is, and the expression
+the recipe gives it. A colour shows as a swatch and is one row however many attributes paint it;
+everything else shows the attribute beside the value, because <code>0.5</code> means one thing on an <code>opacity</code>
+and another on a <code>stop-opacity</code>.</p>
+<p>Typing one writes the <code>&lt;replace&gt;</code> rule; emptying the box takes it away. What the expression comes to
+is read out beside it and follows the sliders, and what is wrong with one is said under the box it was
+typed in — checked as whatever that attribute holds, so a colour typed into an <code>opacity</code> row is
+caught here rather than by the drawing, as is a number typed into a colour one. Nothing
+is written while a row has trouble. A rule for a value this
+drawing does not have is listed underneath as &quot;not in this drawing&quot; rather than hidden, since one
+recipe covers a family and a rule is for whichever of them has the value. The list is what the
+build would act on: it comes from the same walk that does the rewriting, so a value under a <code>style</code>
+declaration is offered and the dead attribute beneath it is not.</p>
+<p>The tree is editable. Each row carries <strong>Add group</strong>, <strong>Add SVG…</strong> and <strong>Remove</strong>; <code>Delete</code> removes
+the selected row, and a row is dragged to move it — dropped on the top or bottom quarter of a group
+it lands beside it, and in the middle it goes inside. A drawing's own settings — its <code>output</code>, its
+<code>class</code>, anything it overrides — are a <strong>Project</strong> tab in the right pane of the drawing's own tab,
+in front of the parameters the drawing declares for itself: the same pane a group keeps its settings
+in, saved the same way, and the tab a drawing opened from the tree lands on. A project usually builds one file several times with nothing but the class to
+tell the rows apart, so this is the only place those rows can be told apart at all.</p>
+<p>Adding, removing and moving write the file as they are made; settings are held until the tab is
+saved, like everything else in a tab. A group is confirmed before it is removed, and there is no
+undo — the project is a text file, and reverting one is what a version control system is for.</p>
+<p><code>Project → Build</code> writes the project's outputs, exactly as <code>svgc --projectFile</code> would — through the
+same build, so the two cannot come to disagree. Recipes are applied, since the output would not be
+what <code>svgc</code> produces otherwise, and what a recipe matched or failed to match is reported along with
+the files written.</p>
+<h3 id="options">Options</h3>
+<table class="table">
+<thead>
+<tr>
+<th>Option</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-i</code>, <code>--inputFile</code> / <code>-o</code>, <code>--outputFile</code></td>
+<td>One drawing in, one file out</td>
+</tr>
+<tr>
+<td><code>-p</code>, <code>--projectFile</code></td>
+<td>A whole build, described in XML</td>
+</tr>
+<tr>
+<td><code>-r</code>, <code>--recipeFile</code></td>
+<td>A recipe applied to the input before generating</td>
+</tr>
+<tr>
+<td><code>-n</code>, <code>--namespace</code> / <code>-c</code>, <code>--class</code></td>
+<td>Names for the generated type; <code>Svg</code> and <code>Generated</code> by default</td>
+</tr>
+<tr>
+<td><code>--emit</code></td>
+<td><code>csharp</code> (default), or <code>svg</code> for the document the recipe produced</td>
+</tr>
+<tr>
+<td><code>--width</code> / <code>--height</code> / <code>--scale</code></td>
+<td>Resize the document before it is compiled</td>
+</tr>
+<tr>
+<td><code>--padding</code></td>
+<td>Room to leave around the drawing inside that size, in CSS order: <code>10%</code>, <code>&quot;5% 10%&quot;</code>, <code>&quot;5% 10% 0 10%&quot;</code></td>
+</tr>
+<tr>
+<td><code>--singleFile</code></td>
+<td>Emit a batch into one C# file</td>
+</tr>
+<tr>
+<td><code>--helperScope</code></td>
+<td>Where shared helpers live in that file: <code>file</code> (default, C# 11 file-local), <code>internal</code>, or <code>perClass</code></td>
+</tr>
+<tr>
+<td><code>--cache</code></td>
+<td><code>none</code> (default), <code>lastValue</code>, <code>lastValueLocked</code></td>
+</tr>
+<tr>
+<td><code>--skiaSharp</code></td>
+<td>The SkiaSharp major version the output is compiled against: <code>4</code> (default) or <code>3</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>--helperScope internal</code> names the helper class after the output file, so two generated files can sit
+in one assembly without colliding on it.</p>
+<h3 id="it-reports-mistakes-like-a-compiler">It reports mistakes like a compiler</h3>
+<p>A fault in the input or the command line is a diagnostic, not a stack trace, and sets a non-zero exit
+code:</p>
+<pre><code>error: Emitting svg needs a recipe. Pass -r, name one in the project, or emit csharp.
+
+error: Unknown name 'nosuchname' (in scope: alert, bold, deep, hue, pi, primary, tau).
+    nosuchname
+    ^
+</code></pre>
+<p>A recipe rule that matched nothing is a <strong>warning</strong> and exits zero, because one recipe usually covers
+a family of drawings and not every drawing uses every value:</p>
+<pre><code>warning: nothing in badge.recipe matched '#00ff00'.
 </code></pre>
 <h2 id="when-to-use-which">When to use which</h2>
 <p>Use the source generator when:</p>
@@ -188,7 +614,18 @@
 <ul>
 <li>generation is part of a separate asset-preparation step,</li>
 <li>you want checked-in generated files,</li>
-<li>a custom pipeline needs direct control over names and destinations.</li>
+<li>a custom pipeline needs direct control over names and destinations,</li>
+<li>or you need something the generator does not expose: a recipe, a resize, a batch in one file, a
+draw cache, or SkiaSharp 3 as the target.</li>
+</ul>
+<p>The two are not exclusive. A common arrangement is <code>svgc --emit svg</code> to parameterise an icon set
+once, the resulting drawings checked in, and the source generator compiling them on every build.</p>
+<h2 id="related-docs">Related docs</h2>
+<ul>
+<li><a href="/Svg.Skia/articles/packages/svg-codegen-skia">Svg.CodeGen.Skia</a> — the generator both front ends call</li>
+<li><a href="/Svg.Skia/articles/packages/svg-sourcegenerator-skia">Svg.SourceGenerator.Skia</a> — the package, and its project setup</li>
+<li><a href="/Svg.Skia/articles/packages/svg-expressions">Svg.Expressions</a> — the <code>{{ … }}</code> format, its operators and functions</li>
+<li><a href="/Svg.Skia/articles/packages/svg-viewer-skia-avalonia">Svg.Viewer.Skia.Avalonia</a> — opening a parametric drawing and driving it</li>
 </ul>
 
       </div>
