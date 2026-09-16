@@ -874,38 +874,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         RequestApply();
     }
 
+    /// <remarks>
+    /// False for a name nothing declares and for a value of the wrong type alike, which a caller
+    /// cannot tell apart -- and does not need to, both being the same mistake about this drawing.
+    /// </remarks>
     public bool TrySetParameterValue(string name, ExprValue value)
-    {
-        var row = _rows.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.Ordinal));
-
-        switch (row)
-        {
-            case SvgViewerNumberParameter number when value.Type == ExprType.Number:
-                // The same widening the seed took: compared plainly, the float's binary tail would
-                // leave the row modified for ever over a difference nobody made.
-                number.Value = SvgViewerParameterFactory.Widen(value.AsNumber);
-                return true;
-
-            case SvgViewerIntegerParameter integer when value.Type == ExprType.Integer:
-                integer.Value = value.AsInteger;
-                return true;
-
-            case SvgViewerBooleanParameter boolean when value.Type == ExprType.Boolean:
-                boolean.Value = value.AsBoolean;
-                return true;
-
-            case SvgViewerStringParameter text when value.Type == ExprType.String:
-                text.Value = value.AsString;
-                return true;
-
-            case SvgViewerColorParameter colour when value.Type == ExprType.Color:
-                colour.Color = global::Avalonia.Media.Color.FromArgb(value.Alpha, value.Red, value.Green, value.Blue);
-                return true;
-
-            default:
-                return false;
-        }
-    }
+        => _rows.FirstOrDefault(row => string.Equals(row.Name, name, StringComparison.Ordinal))
+               ?.TrySet(value)
+           ?? false;
 
     private Dictionary<string, ExprValue> BuildValues()
     {

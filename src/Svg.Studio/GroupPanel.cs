@@ -607,29 +607,11 @@ public sealed class GroupPanel : UserControl
 
             if (had is { IsModified: true })
             {
-                Restore(row, had);
+                row.TrySet(had.ToExprValue());
             }
         }
 
         return rebuilt;
-    }
-
-    private static void Restore(SvgViewerParameter row, SvgViewerParameter before)
-    {
-        switch (row)
-        {
-            case SvgViewerNumberParameter number when before is SvgViewerNumberParameter had:
-                number.Value = had.Value;
-                break;
-
-            case SvgViewerColorParameter colour when before is SvgViewerColorParameter had:
-                colour.Color = had.Color;
-                break;
-
-            case SvgViewerBooleanParameter boolean when before is SvgViewerBooleanParameter had:
-                boolean.Value = had.Value;
-                break;
-        }
     }
 
     /// <summary>Puts a declaration edit where the drawing keeps them, or says why it would not go.</summary>
