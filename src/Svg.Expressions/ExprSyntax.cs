@@ -41,6 +41,12 @@ internal abstract record ExprNode(int Position);
 
 internal sealed record NumberExpr(int Position, double Value) : ExprNode(Position);
 
+/// <remarks>
+/// A literal written without a point or a percent. Which of the two numeric types it is belongs to
+/// the context it lands in, so the checker decides it and this only records how it was written.
+/// </remarks>
+internal sealed record IntegerExpr(int Position, long Value) : ExprNode(Position);
+
 internal sealed record ColorExpr(int Position, byte R, byte G, byte B, byte A) : ExprNode(Position);
 
 internal sealed record BooleanExpr(int Position, bool Value) : ExprNode(Position);

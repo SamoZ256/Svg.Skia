@@ -155,6 +155,11 @@ public static class SvgCodeDeclarationsExtensions
     /// A string default is sometimes a C# constant and sometimes not, and telling the two apart
     /// would mean deciding constness of emitted source. Every one takes the local instead, which
     /// costs a line in the generated method and is always right.
+    ///
+    /// A number and an integer are both off this list, and share what that costs: a default that is
+    /// a literal or arithmetic over literals is a C# constant and stands in the signature, while one
+    /// that calls a function -- <c>sin(1)</c>, <c>int(2.5)</c> -- is emitted as a call there and
+    /// will not compile. That predates the integer and is the same fault for both.
     /// </remarks>
     private static bool NeedsLocal(ExprType type)
         => type is ExprType.Color or ExprType.String;

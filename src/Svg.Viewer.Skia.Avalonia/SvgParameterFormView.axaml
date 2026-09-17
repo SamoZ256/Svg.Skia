@@ -22,6 +22,7 @@
       <TextBlock Grid.Column="0" Text="Type" VerticalAlignment="Center" />
       <ComboBox Grid.Column="1" x:Name="TypeBox" HorizontalAlignment="Stretch" SelectedIndex="0">
         <ComboBoxItem>number</ComboBoxItem>
+        <ComboBoxItem>integer</ComboBoxItem>
         <ComboBoxItem>color</ComboBoxItem>
         <ComboBoxItem>boolean</ComboBoxItem>
         <ComboBoxItem>string</ComboBoxItem>

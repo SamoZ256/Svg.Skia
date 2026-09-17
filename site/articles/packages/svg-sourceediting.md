@@ -32,7 +32,7 @@ dotnet add package Svg.SourceEditing
 | `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `MoveParameter` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
 | `SvgRecipeRuleEditor` | `SetRule` and `RemoveRule` for an svgc recipe's replacement rules — the half of a recipe that is not declarations |
 | `SvgAttributeEditor` | `SetAttribute` on any element, named by its address, and `Attributes` to read what one is written with |
-| `SvgSourceDocument` | A drawing as a tree, `Read` from text and written back by `ToText` |
+| `SvgSourceDocument` | A drawing as a tree, `Read` from text and written back by `ToText` — or one element of it by `TextOf` |
 | `SvgSourceWorkspace` | That drawing and its history: `Commit`, `Undo`, `Redo`, `IsModified`, `MarkSaved` |
 | `SvgElementEditor` | `Move` an element to where a drop puts it, and `NewGroup` to put things in |
 | `SvgTextEdit` | One span to replace, and `ApplyAll` for a caller holding only a string |
@@ -50,11 +50,11 @@ back. It renders identically — and it is measurably wrong for a file somebody 
 
 - **Every comment is gone**, because the SVG reader's node switch has no case for them: a comment is
   not dropped on the way out, it is never modelled.
-- `fill="{{ primary }}"` becomes `style="fill:gray;"` and `e:fill="primary"`.
+- `fill="{%{{{ primary }}}%}"` becomes `style="fill:gray;"` and `e:fill="primary"`.
 - A `<!DOCTYPE>`, `version="1.1"`, `xmlns:xlink`, `xmlns:xml` and a comma-separated `viewBox` appear.
 
 So the tree is an `XDocument`. Comments are nodes, an attribute's value is the string it was written
-as — `{{ }}` and all — and the order somebody put the attributes in is the order they come back in.
+as — `{%{{{ }}}%}` and all — and the order somebody put the attributes in is the order they come back in.
 
 That alone is not enough. Measured over the 2,988 drawings in the two suites, re-serialising an
 `XDocument` the ordinary way returned **28** of them unchanged. XML says nothing about the whitespace
@@ -86,6 +86,14 @@ it started from anyway — a declaration can only be checked against the languag
 tree has been changed, and one of those checks needs the state before it — so a refusal must already
 be able to put a half-made edit back. Rollback and undo are one mechanism instead of two.
 
+## One document inside another
+
+`TextOf` writes a single element the way `ToText` writes the root: from the bytes that element was
+read as, with the file's own line endings put back. It is what lets a file hold a whole document
+inside it — a [Svg Studio](../guides/svg-studio) project keeps each of its drawings inline — and
+hand one out and take it back without reformatting it. The prologue stays with the file, since what
+comes back is an element.
+
 ## It decides nothing about what is legal
 
 A proposed declaration goes through `SvgExpressionDeclarations.Builder`, the rules both readers of a
@@ -102,7 +110,7 @@ asked for is refused instead of applied.
 ## Renaming carries the uses with it
 
 `Update` and `UpdateLet` rewrite a declaration, and where the name changes they also rewrite every
-place the drawing names it: the identifier in each `{{ … }}` and in each `<e:let>` body. Renaming only the declaration
+place the drawing names it: the identifier in each `{%{{{ … }}}%}` and in each `<e:let>` body. Renaming only the declaration
 would leave a document that still parses and no longer draws, with nothing about its shape to say
 why.
 
@@ -123,7 +131,7 @@ used one away leaves a document that parses perfectly and draws nothing, which i
 this package exists to prevent; the count is what separates a button that did nothing from one that
 did something unintended.
 
-The uses are the ones `Rename` rewrites — every `{{ … }}` and every `<e:let>` body, found by lexing —
+The uses are the ones `Rename` rewrites — every `{%{{{ … }}}%}` and every `<e:let>` body, found by lexing —
 so the two ask the same question of the same walker. A `default`, `min`, `max` or `step` is not
 searched: the language puts nothing the document declares in scope there, so a name in one is a
 different name.

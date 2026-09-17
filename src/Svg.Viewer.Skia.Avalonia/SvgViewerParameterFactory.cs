@@ -47,6 +47,7 @@ public static class SvgViewerParameterFactory
         return declaration.Type switch
         {
             ExprType.Number => Number(declaration, seed),
+            ExprType.Integer => Integer(declaration, seed),
             ExprType.Color => new SvgViewerColorParameter(declaration, ToColor(seed)),
             ExprType.Boolean => new SvgViewerBooleanParameter(declaration, seed?.Type == ExprType.Boolean && seed.Value.AsBoolean),
             ExprType.String => new SvgViewerStringParameter(
@@ -56,21 +57,60 @@ public static class SvgViewerParameterFactory
         };
     }
 
-    private static SvgViewerNumberParameter Number(SvgExpressionParameter declaration, ExprValue? seed)
+    private static SvgViewerIntegerParameter Integer(SvgExpressionParameter declaration, ExprValue? seed)
     {
-        var value = seed?.Type == ExprType.Number ? Widen(seed.Value.AsNumber) : 0d;
+        var value = seed?.Type == ExprType.Integer ? seed.Value.AsInteger : 0;
+        var range = Range(declaration);
 
-        SvgExpressionRange range;
+        var minimum = (int)range.Minimum;
+        var maximum = (int)range.Maximum;
+
+        // The same inference the number row does, and for the same reason: a declared 4 against the
+        // 0..1 fallback would put the handle off the end of its own track.
+        if (!declaration.HasRange)
+        {
+            if (value > maximum)
+            {
+                maximum = (int)NiceCeiling(2d * value);
+            }
+            else if (value < minimum)
+            {
+                minimum = -(int)NiceCeiling(-2d * value);
+            }
+        }
+
+        minimum = Math.Min(minimum, value);
+        maximum = Math.Max(maximum, value);
+
+        // At least one. A declared step is whole already, having resolved as an integer, and a step
+        // of zero is refused -- but the fallback for no step at all is one rather than the number
+        // row's fraction of the range.
+        var step = range.Step > 0f ? Math.Max(1, (int)range.Step) : 1;
+
+        return new SvgViewerIntegerParameter(declaration, value, minimum, maximum, step);
+    }
+
+    /// <summary>The declared range, or the default one where the block was refused.</summary>
+    /// <remarks>
+    /// Swallowed: the declaration panel already says what the block was refused for. The parameter
+    /// is still offered, since the document renders.
+    /// </remarks>
+    private static SvgExpressionRange Range(SvgExpressionParameter declaration)
+    {
         try
         {
-            range = declaration.ResolveRange();
+            return declaration.ResolveRange();
         }
         catch (Exception resolveError) when (resolveError is ExprException or ArgumentException)
         {
-            // Swallowed: the declaration panel already says what the block was refused for. The
-            // parameter is still offered, since the document renders.
-            range = SvgExpressionRange.Default;
+            return SvgExpressionRange.Default;
         }
+    }
+
+    private static SvgViewerNumberParameter Number(SvgExpressionParameter declaration, ExprValue? seed)
+    {
+        var value = seed?.Type == ExprType.Number ? Widen(seed.Value.AsNumber) : 0d;
+        var range = Range(declaration);
 
         double minimum = Widen(range.Minimum);
         double maximum = Widen(range.Maximum);
@@ -106,6 +146,7 @@ public static class SvgViewerParameterFactory
     public static string Describe(ExprValue value) => value.Type switch
     {
         ExprType.Number => value.AsNumber.ToString("R", CultureInfo.InvariantCulture),
+        ExprType.Integer => value.AsInteger.ToString(CultureInfo.InvariantCulture),
         ExprType.Color => value.Alpha == byte.MaxValue
             ? string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}", value.Red, value.Green, value.Blue)
             : string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}{3:x2}", value.Red, value.Green, value.Blue, value.Alpha),

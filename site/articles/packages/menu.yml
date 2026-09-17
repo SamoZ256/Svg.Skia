@@ -6,6 +6,7 @@ packages:
   - {path: svg-scenegraph.md, title: "Svg.SceneGraph"}
   - {path: svg-model.md, title: "Svg.Model"}
   - {path: svg-custom.md, title: "Svg.Custom"}
+  - {path: svg-paintcode.md, title: "Svg.PaintCode"}
   - {path: shim-skiasharp.md, title: "ShimSkiaSharp"}
   - {path: svg-controls-skia-uno.md, title: "Svg.Controls.Skia.Uno"}
   - {path: svg-controls-skia-maui.md, title: "Svg.Controls.Skia.Maui"}

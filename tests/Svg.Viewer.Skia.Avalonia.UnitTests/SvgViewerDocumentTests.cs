@@ -106,6 +106,20 @@ public class SvgViewerDocumentTests
     }
 
     [Fact]
+    public void Text_Is_Built_At_The_Size_It_Is_Asked_For()
+    {
+        using var written = SvgViewerDocument.LoadFromSvg(Plain);
+        using var scaled = SvgViewerDocument.LoadFromSvg(Plain, null, new SvgSizeRequest(null, null, 2f));
+
+        Assert.Equal(24f, written.Svg.Picture!.CullRect.Width);
+        Assert.Equal(48f, scaled.Svg.Picture!.CullRect.Width);
+
+        // The drawing's own text and not what the resize made of it, the same as for one read from
+        // a file: a project's scale says how to build a drawing rather than what the drawing is.
+        Assert.Equal(Plain, scaled.SourceText);
+    }
+
+    [Fact]
     public void Rows_Built_From_A_Document_Bind_Through_To_The_Drawing()
     {
         using var document = SvgViewerDocument.LoadFromSvg(Parametric);

@@ -43,6 +43,7 @@ public class ExprEvaluatorDifferentialTests
         public object Boxed => Value.Type switch
         {
             ExprType.Number => Value.AsNumber,
+            ExprType.Integer => Value.AsInteger,
             ExprType.Color => new SKColor(Value.Red, Value.Green, Value.Blue, Value.Alpha),
             ExprType.Boolean => Value.AsBoolean,
             ExprType.String => Value.AsString,
@@ -58,6 +59,8 @@ public class ExprEvaluatorDifferentialTests
     private static Argument Boolean(string name, bool value) => new(name, ExprValue.Boolean(value));
 
     private static Argument Text(string name, string value) => new(name, ExprValue.String(value));
+
+    private static Argument Integer(string name, int value) => new(name, ExprValue.Integer(value));
 
     /// <summary>Compiles <paramref name="code"/> into a method and invokes it.</summary>
     /// <remarks>
@@ -169,6 +172,10 @@ public class ExprEvaluatorDifferentialTests
                         (evaluated.Red, evaluated.Green, evaluated.Blue, evaluated.Alpha));
                     break;
                 }
+
+            case ExprType.Integer:
+                Assert.Equal((int)compiled, evaluated.AsInteger);
+                break;
 
             case ExprType.Boolean:
                 Assert.Equal((bool)compiled, evaluated.AsBoolean);
@@ -322,9 +329,98 @@ public class ExprEvaluatorDifferentialTests
         AssertSameValue("lower(theme)", Text("theme", "STRASSE"));
         AssertSameValue("len(theme) * 2", Text("theme", "home"));
 
+        // A whole number has to read as one on both sides, with no point and no trailing zero.
+        AssertSameValue("str(t)", Number("t", 100f));
+        AssertSameValue("str(t)", Number("t", 7.5f));
+        AssertSameValue("str(t)", Number("t", -30f));
+        AssertSameValue("'step ' + str(t)", Number("t", 3f));
+
         // A case fold that differs by culture, which is why both back ends spell it invariant.
         AssertSameValue("upper(theme)", Text("theme", "istanbul"));
         AssertSameValue("lower(theme)", Text("theme", "ISTANBUL"));
+    }
+
+    [Fact]
+    public void The_Crossings_Between_A_Number_And_An_Integer_Agree()
+    {
+        AssertSameValue("num(steps)", Integer("steps", 4));
+        AssertSameValue("num(steps) / 10", Integer("steps", 4));
+
+        // Above 2^24 a float stops counting by one, so both back ends have to lose the same digit.
+        AssertSameValue("num(steps)", Integer("steps", 16777217));
+
+        // Toward zero, not down: -2.5 truncates to -2, which is not floor.
+        AssertSameValue("int(t)", Number("t", 2.5f));
+        AssertSameValue("int(t)", Number("t", -2.5f));
+        AssertSameValue("int(t)", Number("t", 0f));
+
+        // The ends, which a bare cast does not define. NaN included, since sqrt of a negative
+        // reaches here through arithmetic nobody wrote deliberately.
+        AssertSameValue("int(t)", Number("t", 1e30f));
+        AssertSameValue("int(t)", Number("t", -1e30f));
+        AssertSameValue("int(t)", Number("t", float.NaN));
+        AssertSameValue("int(t)", Number("t", float.PositiveInfinity));
+        AssertSameValue("int(t)", Number("t", float.NegativeInfinity));
+
+        AssertSameValue("int(num(steps))", Integer("steps", -7));
+    }
+
+    [Fact]
+    public void Integer_Arithmetic_Agrees_Including_Where_Csharp_Would_Throw()
+    {
+        AssertSameValue("steps + 1", Integer("steps", 4));
+        AssertSameValue("steps - 10", Integer("steps", 4));
+        AssertSameValue("steps * 3", Integer("steps", 4));
+        AssertSameValue("-steps", Integer("steps", 4));
+        AssertSameValue("(steps + 1) * (steps - 1)", Integer("steps", 7));
+
+        // Toward zero, which is neither floor nor the number path's exact quotient.
+        AssertSameValue("steps / 2", Integer("steps", 7));
+        AssertSameValue("steps / 2", Integer("steps", -7));
+
+        // Wrapping, not throwing, and the same wrap in both.
+        AssertSameValue("steps * steps", Integer("steps", 2147483647));
+        AssertSameValue("steps + 1", Integer("steps", 2147483647));
+
+        // The two divisions C# throws on. A render must not fail because a divisor reached zero.
+        AssertSameValue("steps / 0", Integer("steps", 1));
+        AssertSameValue("steps / 0", Integer("steps", -1));
+        AssertSameValue("steps / 0", Integer("steps", 0));
+        AssertSameValue("steps / n", Integer("steps", -2147483648), Integer("n", -1));
+
+        // int() saturates an infinity to the same end integer division saturates a zero divisor to.
+        AssertSameValue("int(num(steps) / 0) == steps / 0", Integer("steps", 1));
+
+        AssertSameValue("steps == 3", Integer("steps", 3));
+        AssertSameValue("steps == 3", Integer("steps", 4));
+        AssertSameValue("steps > 3 and steps le 9", Integer("steps", 5));
+        AssertSameValue("steps > 0 ? steps : 0", Integer("steps", -4));
+    }
+
+    [Fact]
+    public void The_Integer_Library_Agrees_Including_Where_Csharp_Would_Throw()
+    {
+        AssertSameValue("min(steps, 3)", Integer("steps", 7));
+        AssertSameValue("max(steps, 3)", Integer("steps", 7));
+        AssertSameValue("clamp(steps, 0, 9)", Integer("steps", 42));
+        AssertSameValue("abs(steps)", Integer("steps", -7));
+        AssertSameValue("mod(steps, 3)", Integer("steps", 7));
+
+        // The remainder's sign follows the dividend in both, as it does for numbers.
+        AssertSameValue("mod(steps, 3)", Integer("steps", -7));
+
+        // Math.Abs and % both throw on these; the language answers instead.
+        AssertSameValue("abs(steps)", Integer("steps", -2147483648));
+        AssertSameValue("mod(steps, 0)", Integer("steps", 7));
+        AssertSameValue("mod(steps, n)", Integer("steps", -2147483648), Integer("n", -1));
+
+        // len() is whole now, and str() has an overload for it.
+        AssertSameValue("len(theme)", Text("theme", "home"));
+        AssertSameValue("len(theme) * 2", Text("theme", "home"));
+        AssertSameValue("str(len(theme))", Text("theme", "home"));
+        AssertSameValue("str(steps)", Integer("steps", 100));
+        AssertSameValue("str(steps)", Integer("steps", -30));
+        AssertSameValue("'step ' + str(steps)", Integer("steps", 3));
     }
 
     [Theory]

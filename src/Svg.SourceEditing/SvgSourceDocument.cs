@@ -210,6 +210,30 @@ public sealed class SvgSourceDocument
         return _carriageReturns ? Restore(text) : text;
     }
 
+    /// <summary>One element of this file as text, written the way the file writes it.</summary>
+    /// <remarks>
+    /// For a host keeping a whole document inside another one -- a Svg.Studio project holds each of
+    /// its drawings inline. The element is written from the bytes it was read as, the same as it
+    /// would be in place, so a drawing handed out and put back unedited leaves the file untouched.
+    /// The prologue is the file's and stays with it: what comes back is an element, so an inlined
+    /// drawing has no declaration of its own to give away.
+    /// </remarks>
+    public string TextOf(XElement element)
+    {
+        if (element is null)
+        {
+            throw new ArgumentNullException(nameof(element));
+        }
+
+        var builder = new StringBuilder();
+
+        Write(builder, element);
+
+        var text = builder.ToString();
+
+        return _carriageReturns ? Restore(text) : text;
+    }
+
     /// <summary>Whether this file ends its lines the way Windows does.</summary>
     /// <remarks>
     /// Every newline being part of one, rather than merely there being a carriage return somewhere:

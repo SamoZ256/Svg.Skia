@@ -19,6 +19,7 @@ internal static class ExprValueBackend
         {
             // The double is narrowed exactly where the C# back end's Literal() narrows it.
             TypedNumber number => ExprValue.Number((float)number.Value),
+            TypedInteger integer => ExprValue.Integer((int)integer.Value),
             TypedColor color => ExprValue.Color(color.R, color.G, color.B, color.A),
             TypedBoolean boolean => ExprValue.Boolean(boolean.Value),
             TypedString text => ExprValue.String(text.Value),
@@ -56,9 +57,16 @@ internal static class ExprValueBackend
     {
         var operand = Evaluate(unary.Operand, values);
 
-        return unary.Op == ExprUnaryOp.Negate
-            ? ExprValue.Number(-operand.AsNumber)
-            : ExprValue.Boolean(!operand.AsBoolean);
+        if (unary.Op != ExprUnaryOp.Negate)
+        {
+            return ExprValue.Boolean(!operand.AsBoolean);
+        }
+
+        // Unchecked, so negating int.MinValue wraps back to itself rather than throwing, which is
+        // what the generated C# does with the same int.
+        return operand.Type == ExprType.Integer
+            ? ExprValue.Integer(unchecked(-operand.AsInteger))
+            : ExprValue.Number(-operand.AsNumber);
     }
 
     private static ExprValue EvaluateBinary(TypedBinary binary, IReadOnlyDictionary<string, ExprValue> values)
@@ -79,6 +87,16 @@ internal static class ExprValueBackend
 
         var left = Evaluate(binary.Left, values);
         var right = Evaluate(binary.Right, values);
+
+        // The checker has already settled that both sides are integers wherever one is, so the
+        // whole of integer arithmetic branches once here rather than case by case below. Equality
+        // is not among it: AreEqual already answers for every type, integers included.
+        if (left.Type == ExprType.Integer
+            && right.Type == ExprType.Integer
+            && binary.Op is not (ExprBinaryOp.Equal or ExprBinaryOp.NotEqual))
+        {
+            return EvaluateIntegerBinary(binary.Op, left.AsInteger, right.AsInteger);
+        }
 
         switch (binary.Op)
         {
@@ -115,6 +133,7 @@ internal static class ExprValueBackend
         => left.Type switch
         {
             ExprType.Number => left.AsNumber == right.AsNumber,
+            ExprType.Integer => left.AsInteger == right.AsInteger,
             ExprType.Color => left.Red == right.Red
                               && left.Green == right.Green
                               && left.Blue == right.Blue
@@ -138,6 +157,26 @@ internal static class ExprValueBackend
         for (var index = 0; index < call.Arguments.Count; index++)
         {
             arguments[index] = Evaluate(call.Arguments[index], values);
+        }
+
+        // The checker picked an overload, and every argument of an integer one is an integer, so
+        // the first argument answers for the call.
+        if (arguments.Length > 0 && arguments[0].Type == ExprType.Integer)
+        {
+            switch (call.Function)
+            {
+                case ExprFunction.Abs:
+                    return ExprValue.Integer(Absolute(arguments[0].AsInteger));
+                case ExprFunction.Min:
+                    return ExprValue.Integer(Math.Min(arguments[0].AsInteger, arguments[1].AsInteger));
+                case ExprFunction.Max:
+                    return ExprValue.Integer(Math.Max(arguments[0].AsInteger, arguments[1].AsInteger));
+                case ExprFunction.Mod:
+                    return ExprValue.Integer(Remainder(arguments[0].AsInteger, arguments[1].AsInteger));
+                case ExprFunction.Clamp:
+                    return ExprValue.Integer(
+                        ExprMath.Clamp(arguments[0].AsInteger, arguments[1].AsInteger, arguments[2].AsInteger));
+            }
         }
 
         switch (call.Function)
@@ -206,12 +245,96 @@ internal static class ExprValueBackend
             case ExprFunction.Lower:
                 return ExprValue.String(arguments[0].AsString.ToLowerInvariant());
             case ExprFunction.Len:
-                return ExprValue.Number(arguments[0].AsString.Length);
+                return ExprValue.Integer(arguments[0].AsString.Length);
+
+            // Shortest round-trip, invariant: a whole number reads as one, with no point and no
+            // trailing zero, which is what anyone writing a label expects to see.
+            case ExprFunction.Str:
+                return ExprValue.String(
+                    arguments[0].Type == ExprType.Integer
+                        ? arguments[0].AsInteger.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : arguments[0].AsNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+            case ExprFunction.Int:
+                return ExprValue.Integer(Truncate(arguments[0].AsNumber));
+            case ExprFunction.Num:
+                return ExprValue.Number(arguments[0].AsInteger);
 
             default:
                 throw new NotSupportedException($"Unsupported {nameof(ExprFunction)}: {call.Function}.");
         }
     }
+
+    private static ExprValue EvaluateIntegerBinary(ExprBinaryOp op, int left, int right)
+    {
+        switch (op)
+        {
+            // Unchecked, so an overflow wraps rather than throwing -- which is what the generated
+            // C# does with the same two ints, and the two may not disagree.
+            case ExprBinaryOp.Add:
+                return ExprValue.Integer(unchecked(left + right));
+            case ExprBinaryOp.Subtract:
+                return ExprValue.Integer(unchecked(left - right));
+            case ExprBinaryOp.Multiply:
+                return ExprValue.Integer(unchecked(left * right));
+            case ExprBinaryOp.Divide:
+                return ExprValue.Integer(Divide(left, right));
+            case ExprBinaryOp.Less:
+                return ExprValue.Boolean(left < right);
+            case ExprBinaryOp.LessOrEqual:
+                return ExprValue.Boolean(left <= right);
+            case ExprBinaryOp.Greater:
+                return ExprValue.Boolean(left > right);
+            case ExprBinaryOp.GreaterOrEqual:
+                return ExprValue.Boolean(left >= right);
+            default:
+                throw new NotSupportedException($"Unsupported {nameof(ExprBinaryOp)}: {op}.");
+        }
+    }
+
+    /// <summary>The magnitude, saturating where there is no room for it.</summary>
+    /// <remarks>
+    /// Character for character what ExprHelpers.SvgIAbs emits. Math.Abs(int.MinValue) throws, since
+    /// its answer is one past the top; int.MaxValue is the nearest one that fits, and is where
+    /// int() and integer division saturate too.
+    /// </remarks>
+    private static int Absolute(int value)
+        => value == int.MinValue ? int.MaxValue : Math.Abs(value);
+
+    /// <summary>The remainder, with the two cases C# throws on answered instead.</summary>
+    /// <remarks>
+    /// Character for character what ExprHelpers.SvgIMod emits. The number path answers a zero
+    /// divisor with NaN, which int() reads as zero, so this does too.
+    /// </remarks>
+    private static int Remainder(int left, int right)
+        => right == 0 || (left == int.MinValue && right == -1) ? 0 : left % right;
+
+    /// <summary>Integer division, with the two cases C# throws on answered instead.</summary>
+    /// <remarks>
+    /// Character for character what ExprHelpers.SvgIDiv emits. A drawing that renders must not start
+    /// throwing because a divisor reached zero, and the number path does not: it produces an
+    /// infinity. The ends are that infinity's integer spelling, and the same ones int() saturates
+    /// to, so int(1 / 0) and 1 / 0 agree. int.MinValue / -1 has no answer in range and throws even
+    /// unchecked, so it saturates with them.
+    /// </remarks>
+    private static int Divide(int left, int right)
+        => right != 0 && !(left == int.MinValue && right == -1)
+            ? left / right
+            : left == 0 && right == 0 ? 0
+            : (left < 0) == (right < 0) ? int.MaxValue
+            : int.MinValue;
+
+    /// <summary>A number as an integer, toward zero, saturating at the ends.</summary>
+    /// <remarks>
+    /// Character for character what ExprHelpers.SvgInt emits. A bare C# cast is what we want in the
+    /// middle of the range and undefined outside it -- .NET does not promise what (int)1e30f is --
+    /// so the ends are named rather than left to whatever the two back ends happen to compile to.
+    /// </remarks>
+    private static int Truncate(float value)
+        => float.IsNaN(value) ? 0
+            : value >= 2147483647f ? int.MaxValue
+            : value <= -2147483648f ? int.MinValue
+            : (int)value;
 
     // ExprHelpers.SvgLerp: unclamped, so t outside [0, 1] extrapolates.
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;

@@ -40,6 +40,12 @@ public static class SvgExpressionAttributes
     // down the tree the expression has to travel with it, or a child would paint the placeholder
     // its parent's expression was standing in for.
     //
+    // No attribute is an integer, and that is a decision rather than an omission. SVG has no
+    // attribute whose value is whole -- an opacity, a width and a stroke width are all fractional --
+    // so an integer is something a document computes with and converts through num() to paint with.
+    // Several readers of this table lean on it: a recipe rule takes its type from here, so an
+    // integer rule can never be named, and the placeholder column has no whole spelling to offer.
+    //
     // BeforeRecording is the whole difference between the two kinds. False means the drawing still
     // holds the value once it has been recorded, so binding rewrites the recorded model and nothing
     // is compiled again. True means the value is consumed while the drawing is being built -- a
@@ -58,6 +64,9 @@ public static class SvgExpressionAttributes
         // Fully opaque, so the colour the expression scales is the one the author wrote.
         ["fill-opacity"] = ("1", ExprType.Number, true, false, false),
         ["stroke-opacity"] = ("1", ExprType.Number, true, false, false),
+        // One unit, which is SVG's own default, so a document whose expression will not evaluate
+        // strokes the way the same document without the attribute does.
+        ["stroke-width"] = ("1", ExprType.Number, true, false, false),
         ["stop-opacity"] = ("1", ExprType.Number, false, false, false),
         // A hidden element contributes no commands at all, so the placeholder has to be the
         // visible state or there would be nothing left to make conditional. For display that goes

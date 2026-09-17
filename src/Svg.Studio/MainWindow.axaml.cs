@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -20,6 +21,7 @@ using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
 using Svg.Expressions.Recipes;
+using Svg.PaintCode;
 using Svg.Skia;
 using Svg.Viewer.Skia.Avalonia;
 
@@ -66,20 +68,6 @@ public partial class MainWindow : Window
     /// </remarks>
     private readonly HashSet<TabItem> _stale = new();
 
-    /// <summary>The recipes this project has opened, by file. One buffer each, however many ask.</summary>
-    private readonly Dictionary<string, RecipeWorkspace> _recipes = new(StringComparer.Ordinal);
-
-    /// <summary>Why a recipe could not be opened, or null where it could.</summary>
-    public string? Unreadable(string path)
-        => path is { } && _unreadable.TryGetValue(path, out var why) ? why : null;
-
-    /// <summary>Why a recipe named by the project could not be opened, by path.</summary>
-    /// <remarks>
-    /// A recipe with no tree is not held open and empty the way it used to be, so the reason has
-    /// nowhere else to live: this is what the drawings under it put on their status line.
-    /// </remarks>
-    private readonly Dictionary<string, string> _unreadable = new(StringComparer.Ordinal);
-
     private TabItem? _pressed;
     private Point _pressedAt;
     private double _grabbedAt;
@@ -100,7 +88,6 @@ public partial class MainWindow : Window
 
         ConfirmDiscard = AskDiscard;
         ConfirmRemove = message => Ask("Remove from the project", message, "Remove", "Cancel");
-        ConfirmApply = message => Ask("Apply the recipe to the files", message, "Apply", "Cancel");
         Announce = (title, message) => Ask(title, message, null, "Close");
         ShowOnDisk = Reveal;
 
@@ -251,6 +238,14 @@ public partial class MainWindow : Window
                 continue;
             }
 
+            // A dropped document is unambiguous in a way a menu command is not: there is nowhere to
+            // ask where it should go, so it goes beside itself, the way a pasted drawing does.
+            if (IsPaintCode(path))
+            {
+                await ImportPaintCodeAsync(path, Beside(path)).ConfigureAwait(true);
+                continue;
+            }
+
             var viewer = source is { Document: null } ? source : AddTab();
 
             if (await viewer.LoadAsync(path).ConfigureAwait(true))
@@ -303,9 +298,17 @@ public partial class MainWindow : Window
             .Select(path => path!)
             .ToList();
 
-    /// <summary>Whether a path names an svgc project rather than a drawing.</summary>
+    /// <summary>Whether a path names a project rather than a drawing.</summary>
     private static bool IsProject(string path)
+        => Path.GetExtension(path).Equals(".svgstudio", StringComparison.OrdinalIgnoreCase) || IsSvgc(path);
+
+    /// <summary>Whether a path names an svgc project, which opens by being converted into one.</summary>
+    private static bool IsSvgc(string path)
         => Path.GetExtension(path).Equals(".svgcproj", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether a path names a PaintCode document, which an import reads.</summary>
+    private static bool IsPaintCode(string path)
+        => Path.GetExtension(path).Equals(".pcvd", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether a path names a drawing — what the project is a list of.</summary>
     /// <remarks>The two extensions the picker offers when a drawing is being added to one.</remarks>
@@ -318,16 +321,6 @@ public partial class MainWindow : Window
 
     /// <summary>The open project, for a test to read. Null while none is open.</summary>
     public ProjectWorkspace? Workspace => _workspace;
-
-    /// <summary>
-    /// What a new project holds: nothing, on the two lines a first drawing is written between.
-    /// </summary>
-    /// <remarks>
-    /// No namespace, because the build already defaults one and a guess written into the file would
-    /// have to be found and corrected rather than simply typed. Empty rather than a template with a
-    /// drawing in it: the input would name a file that is not there, and the project would not open.
-    /// </remarks>
-    private const string Skeleton = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<svgc>\n</svgc>\n";
 
     private async void OnNewProject(object? sender, EventArgs e) => await NewProjectAsync();
 
@@ -342,8 +335,8 @@ public partial class MainWindow : Window
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "New project",
-            SuggestedFileName = "project.svgcproj",
-            DefaultExtension = "svgcproj",
+            SuggestedFileName = "project.svgstudio",
+            DefaultExtension = "svgstudio",
             FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
         }).ConfigureAwait(true);
 
@@ -370,7 +363,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                File.WriteAllText(path, Skeleton);
+                ProjectDocument.Empty(Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty).Save(path);
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
@@ -380,6 +373,139 @@ public partial class MainWindow : Window
         }
 
         await OpenProjectAsync(path).ConfigureAwait(true);
+    }
+
+    private async void OnImportPaintCode(object? sender, EventArgs e) => await ImportPaintCodeAsync();
+
+    /// <summary>Asks for a PaintCode document and somewhere to put it, and imports it there.</summary>
+    private async Task ImportPaintCodeAsync()
+    {
+        if (StorageProvider is not { CanOpen: true })
+        {
+            return;
+        }
+
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import PaintCode",
+            AllowMultiple = false,
+            FileTypeFilter = new[] { StudioFileDialogService.PaintCode }
+        }).ConfigureAwait(true);
+
+        if (files.Count == 0 || files[0].TryGetLocalPath() is not { } source)
+        {
+            return;
+        }
+
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Where the project goes",
+            SuggestedFileName = Path.GetFileNameWithoutExtension(source) + ".svgstudio",
+            DefaultExtension = "svgstudio",
+            FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
+        }).ConfigureAwait(true);
+
+        if (file?.TryGetLocalPath() is not { Length: > 0 } target)
+        {
+            return;
+        }
+
+        await ImportPaintCodeAsync(source, target).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Converts <paramref name="source"/> into a project at <paramref name="target"/>, and opens it.
+    /// </summary>
+    /// <remarks>
+    /// One file, with the drawings in it: what the document has to say is what a project is made of
+    /// now, so nothing is written beside it. Taking the paths rather than asking for them, so
+    /// everything but the two pickers can be driven.
+    /// </remarks>
+    public async Task<bool> ImportPaintCodeAsync(string source, string target)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (target is null)
+        {
+            throw new ArgumentNullException(nameof(target));
+        }
+
+        var notes = new List<PaintCodeImportNote>();
+        var directory = Path.GetDirectoryName(Path.GetFullPath(target)) ?? string.Empty;
+        var options = new PaintCodeImportOptions(directory);
+
+        ProjectDocument document;
+
+        try
+        {
+            // Off the UI thread: the document this was written for is 16 MB and a thousand drawings.
+            document = await Task.Run(
+                () => ProjectImport.FromPaintCode(PaintCodeDocument.Load(source), options, notes, directory))
+                .ConfigureAwait(true);
+
+            document.Save(target);
+        }
+        catch (Exception failure) when (failure is PaintCodeException or SvgcProjectException or IOException or UnauthorizedAccessException)
+        {
+            await Announce("The document couldn't be imported", failure.Message).ConfigureAwait(true);
+
+            return false;
+        }
+
+        await OpenProjectAsync(target).ConfigureAwait(true);
+
+        // Only when something could not be carried across. The project opening on what was written
+        // is the rest of the answer, and a dialog saying so would be one click for nothing.
+        if (notes.Count > 0)
+        {
+            await Announce("Imported", Said(document, notes)).ConfigureAwait(true);
+        }
+
+        return true;
+    }
+
+    private static string Said(ProjectDocument document, IReadOnlyList<PaintCodeImportNote> notes)
+    {
+        var drawn = document.Root.Drawings.Count();
+        var wrote = $"{drawn} drawing{(drawn == 1 ? string.Empty : "s")}.";
+        var missing = notes.Where(note => note.Severity is PaintCodeImportSeverity.Missing).ToList();
+        var rest = notes.Where(note => note.Severity is not PaintCodeImportSeverity.Missing).ToList();
+        var lines = new List<string> { $"{wrote} {notes.Count} could not be carried across:" };
+
+        // First, and never trimmed away: this is the document asking for a canvas it does not have,
+        // which is the one thing in here to take back to PaintCode rather than to this converter.
+        if (missing.Count > 0)
+        {
+            lines.Add($"{missing.Count} the document itself is missing:");
+            lines.AddRange(missing.Select(note => "  " + note));
+        }
+
+        lines.AddRange(rest.Take(Listed).Select(note => note.ToString()));
+
+        if (rest.Count > Listed)
+        {
+            lines.Add($"and {rest.Count - Listed} more.");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    /// <summary>Where an import writes when nobody was asked: a project beside the document.</summary>
+    private static string Beside(string source)
+    {
+        var directory = Path.GetDirectoryName(Path.GetFullPath(source)) ?? ".";
+        var name = Path.GetFileNameWithoutExtension(source);
+        var candidate = Path.Combine(directory, name + ".svgstudio");
+
+        for (var index = 2; File.Exists(candidate); index++)
+        {
+            candidate = Path.Combine(directory, $"{name}-{index.ToString(CultureInfo.InvariantCulture)}.svgstudio");
+        }
+
+        return candidate;
     }
 
     /// <summary>
@@ -397,13 +523,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        SvgcProjectDocument document;
+        ProjectDocument document;
+        var notes = new List<string>();
 
         try
         {
-            document = SvgcProjectDocument.Load(path);
+            document = IsSvgc(path) ? Converted(path, notes) : ProjectDocument.Load(path);
         }
-        catch (Exception failure) when (failure is SvgcProjectException or IOException or UnauthorizedAccessException)
+        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or IOException or UnauthorizedAccessException)
         {
             await Announce("The project couldn't be opened", failure.Message).ConfigureAwait(true);
             return;
@@ -432,7 +559,35 @@ public partial class MainWindow : Window
         await ShowAsync(workspace.Document.Root).ConfigureAwait(true);
 
         UpdateMenu();
-        Remember(path);
+        Remember(document.Path ?? path);
+
+        if (notes.Count > 0)
+        {
+            await Announce("Converted", string.Join(Environment.NewLine + Environment.NewLine, notes)).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// An svgc project as one of these, written beside it.
+    /// </summary>
+    /// <remarks>
+    /// One way, and the old project is left exactly as it was: the two formats say different things
+    /// about where a drawing lives, and a conversion that wrote back would have to put the drawings
+    /// out into files again. What it does lose is said in the notes — a recipe is baked into the
+    /// drawings it painted, and a file the old project named twice becomes two drawings.
+    /// </remarks>
+    private static ProjectDocument Converted(string path, ICollection<string> notes)
+    {
+        var document = ProjectImport.FromSvgc(SvgcProjectDocument.Load(path), notes);
+        var written = Path.ChangeExtension(Path.GetFullPath(path), ".svgstudio");
+
+        document.Save(written);
+
+        notes.Add(
+            $"{Path.GetFileName(path)} was converted and written as {Path.GetFileName(written)}, which holds the drawings "
+            + "themselves. The project it came from and the drawings it named are left where they are.");
+
+        return document;
     }
 
     /// <summary>Closes the open project and everything it opened.</summary>
@@ -449,8 +604,6 @@ public partial class MainWindow : Window
         // and being stopped halfway through it would leave half a workspace open.
         var owned = _tabs.Items.OfType<TabItem>().Where(Owned).ToList();
 
-        // Unsaved() rather than the tabs alone: the recipes are the project's too, and one can be
-        // holding work with no tab left open on it.
         var unsaved = Unsaved();
 
         if (unsaved.Count > 0 && !await ConfirmDiscard(Describe(unsaved)).ConfigureAwait(true))
@@ -466,9 +619,6 @@ public partial class MainWindow : Window
 
         _workspace = null;
 
-        // The recipes were the project's too, and their buffers go with the tabs that showed them.
-        _recipes.Clear();
-
         _projectTree.Items.Clear();
         ShowProjectPane(false);
         UpdateTitle();
@@ -478,7 +628,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Whether a tab belongs to the open project, and goes when the project does.</summary>
-    private static bool Owned(TabItem item) => item.Tag is SvgcProjectNode || item.Content is RecipePanel;
+    private static bool Owned(TabItem item) => item.Tag is ProjectNode;
 
     private async void OnCloseProject(object? sender, EventArgs e) => await CloseProjectAsync();
 
@@ -582,11 +732,15 @@ public partial class MainWindow : Window
             // And nothing is left held from a project that is no longer open, which would otherwise
             // be pasted into the next one as a row of a document it does not belong to.
             _held = null;
+
+            // Nor anything open in it, which would otherwise hold the closed document's nodes alive
+            // for as long as the window is.
+            _expanded.Clear();
         }
     }
 
     /// <param name="select">The node to leave selected, or null to keep whatever was.</param>
-    private void BuildTree(SvgcProjectNode? select = null)
+    private void BuildTree(ProjectNode? select = null)
     {
         if (_workspace is not { } workspace)
         {
@@ -599,17 +753,50 @@ public partial class MainWindow : Window
 
         _projectTree.Items.Clear();
         _projectTree.Items.Add(Branch(workspace.Document.Root, selected));
+
+        // A row that was just added, pasted or moved can land inside a group the reader left folded,
+        // and a selection nobody can see is no selection at all. Only when this rebuild is about that
+        // row: rebuilding for anything else must not reopen what was deliberately folded.
+        if (select is { })
+        {
+            Reveal(select);
+        }
     }
 
-    /// <summary>One node and everything under it, expanded, since a project is a handful of rows.</summary>
-    private TreeViewItem Branch(SvgcProjectNode node, object? selected)
+    /// <summary>One node and everything under it, folded unless the reader opened it.</summary>
+    /// <remarks>
+    /// Folded rather than open: a project is usually a handful of rows, but it does not have to be
+    /// — an imported PaintCode document is ten groups holding 1014 drawings, and opening all of it
+    /// buried the ten rows anybody would start from. The root is the exception, because folding the
+    /// only row that is always there would leave the pane showing one word.
+    /// </remarks>
+    private TreeViewItem Branch(ProjectNode node, object? selected)
     {
         var item = new TreeViewItem
         {
             Header = ProjectWorkspace.Label(node),
             Tag = node,
-            IsExpanded = true,
+            IsExpanded = node is ProjectRoot || _expanded.Contains(node),
             IsSelected = ReferenceEquals(node, selected)
+        };
+
+        // PropertyChanged rather than the Expanded and Collapsed events, which bubble: a nested row
+        // opening raises them on every group above it too, and each would record itself as opened.
+        item.PropertyChanged += (_, changed) =>
+        {
+            if (changed.Property != TreeViewItem.IsExpandedProperty)
+            {
+                return;
+            }
+
+            if (item.IsExpanded)
+            {
+                _expanded.Add(node);
+            }
+            else
+            {
+                _expanded.Remove(node);
+            }
         };
 
         // Tapped, not DoubleTapped: TreeViewItem takes a double tap on its header to fold the node
@@ -641,7 +828,7 @@ public partial class MainWindow : Window
 
         item.ContextMenu = Commands(node);
 
-        if (node is SvgcProjectGroup group)
+        if (node is ProjectGroup group)
         {
             foreach (var child in group.Children)
             {
@@ -657,7 +844,7 @@ public partial class MainWindow : Window
     /// Per row, so what is acted on is what was clicked — a right click does not select, and a menu
     /// reading the selection would act on whatever was opened last.
     /// </remarks>
-    private ContextMenu Commands(SvgcProjectNode node)
+    private ContextMenu Commands(ProjectNode node)
     {
         var menu = new ContextMenu();
         var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
@@ -706,16 +893,14 @@ public partial class MainWindow : Window
 
     /// <summary>What the file manager would be pointed at for this row, or null where nothing would.</summary>
     /// <remarks>
-    /// A drawing is a file; a group is not, and neither is the project row, so both answer with the
-    /// project file they are written in. A project parsed from text rather than opened has no file
-    /// at all, and no row of it offers the command.
+    /// The project, whatever the row: a drawing is in it rather than beside it, so there is no other
+    /// file to show. A project parsed from text rather than opened has none at all, and no row of it
+    /// offers the command.
     /// </remarks>
-    private string? OnDisk(SvgcProjectNode node) => node is SvgcProjectDrawing drawing
-        ? drawing.ResolvedInput
-        : _workspace?.Document.Path;
+    private string? OnDisk(ProjectNode node) => _workspace?.Document.Path;
 
     /// <summary>Takes a row, to be pasted somewhere else.</summary>
-    private void Hold(SvgcProjectNode node, bool cut)
+    private void Hold(ProjectNode node, bool cut)
     {
         _held = node;
         _heldCut = cut;
@@ -734,7 +919,7 @@ public partial class MainWindow : Window
     ///
     /// A row cut and then removed is gone, and the hold goes with it rather than waiting to fail.
     /// </remarks>
-    private void Paste(SvgcProjectNode target)
+    private void Paste(ProjectNode target)
     {
         if (_workspace is not { } workspace || _held is not { } held)
         {
@@ -745,7 +930,7 @@ public partial class MainWindow : Window
         {
             if (held.Parent is { })
             {
-                Move(held, target, target is SvgcProjectGroup ? ProjectDrop.Inside : ProjectDrop.After);
+                Move(held, target, target is ProjectGroup ? ProjectDrop.Inside : ProjectDrop.After);
             }
 
             _held = null;
@@ -774,7 +959,7 @@ public partial class MainWindow : Window
     /// ranked by age — nothing says when a clipboard was written — so the one this window was told
     /// about wins, and it is spent by the paste that takes it rather than staying to answer the next.
     /// </remarks>
-    private async Task PasteAsync(SvgcProjectNode target)
+    private async Task PasteAsync(ProjectNode target)
     {
         if (_workspace is not { } workspace)
         {
@@ -801,58 +986,14 @@ public partial class MainWindow : Window
 
         if (carried.Drawing is { } drawing)
         {
-            if (await WrittenAsync(workspace, drawing).ConfigureAwait(true) is { } written)
-            {
-                await AddDrawingsAsync(parent, index, new[] { written }).ConfigureAwait(true);
-            }
+            // Straight in, with no file written anywhere: the project holds the drawings, so a
+            // pasted one needs nowhere to live but the row it lands on.
+            await AddTextAsync(parent, index, "drawing", drawing).ConfigureAwait(true);
 
             return;
         }
 
         await Announce("There is nothing to paste", Offering(carried)).ConfigureAwait(true);
-    }
-
-    /// <summary>
-    /// Writes a pasted drawing beside the project, under a name nothing there has yet.
-    /// </summary>
-    /// <remarks>
-    /// A file because that is what a project is a list of — it names inputs, and there is nowhere in
-    /// the format to keep a drawing that has none. Beside the project rather than through a save
-    /// panel: a paste is one gesture, and a panel in the middle of it asks for more than the name is
-    /// worth, which the row shows and a rename settles.
-    /// </remarks>
-    /// <returns>The file written, or null when nothing was — which has been said already.</returns>
-    private async Task<string?> WrittenAsync(ProjectWorkspace workspace, string drawing)
-    {
-        if (workspace.Document.BaseDirectory is not { Length: > 0 } directory)
-        {
-            await Announce(
-                    "The drawing couldn't be pasted",
-                    "This project has no file of its own, so there is nowhere beside it to write one.")
-                .ConfigureAwait(true);
-
-            return null;
-        }
-
-        var path = Path.Combine(directory, "drawing.svg");
-
-        for (var next = 2; File.Exists(path); next++)
-        {
-            path = Path.Combine(directory, $"drawing-{next}.svg");
-        }
-
-        try
-        {
-            File.WriteAllText(path, drawing);
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-        {
-            await Announce("The drawing couldn't be pasted", failure.Message).ConfigureAwait(true);
-
-            return null;
-        }
-
-        return path;
     }
 
     /// <summary>Why a paste did nothing, in terms of what the clipboard actually had on it.</summary>
@@ -883,14 +1024,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Where something added beside <paramref name="node"/> goes: in a group, after a drawing.</summary>
-    private static (SvgcProjectGroup Parent, int Index) Beside(SvgcProjectNode node)
-        => node is SvgcProjectGroup group
+    private static (ProjectGroup Parent, int Index) Beside(ProjectNode node)
+        => node is ProjectGroup group
             ? (group, group.Children.Count)
             : (node.Parent!, node.Parent!.Children.ToList().IndexOf(node) + 1);
 
     /// <summary>Adds an empty group, and opens it so it can be given a name.</summary>
     /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the menu.</remarks>
-    public async Task AddGroupAsync(SvgcProjectNode beside)
+    public async Task AddGroupAsync(ProjectNode beside)
     {
         if (_workspace is not { } workspace)
         {
@@ -898,18 +1039,18 @@ public partial class MainWindow : Window
         }
 
         var (parent, index) = Beside(beside);
-        var group = parent.AddGroup(index);
+        var group = parent.AddGroup("group", index);
 
         workspace.Save();
         BuildTree(group);
 
-        // A group with nothing on it is named by neither of its settings, so it opens as "group"
-        // until one is typed — which is what the tab is for.
+        // Named "group" until something better is typed into its settings, which is what the tab
+        // it opens on is for.
         await ShowAsync(group).ConfigureAwait(true);
     }
 
     /// <summary>Asks which drawing to add, and adds it.</summary>
-    private async Task AddDrawingAsync(SvgcProjectNode beside)
+    private async Task AddDrawingAsync(ProjectNode beside)
     {
         if (_workspace is null || !StorageProvider.CanOpen)
         {
@@ -937,7 +1078,7 @@ public partial class MainWindow : Window
 
     /// <summary>Adds <paramref name="path"/> to the project, and opens it.</summary>
     /// <remarks>Taking the path rather than asking for it, so everything but the panel can be driven.</remarks>
-    public Task AddDrawingAsync(SvgcProjectNode beside, string path)
+    public Task AddDrawingAsync(ProjectNode beside, string path)
     {
         var (parent, index) = Beside(beside);
 
@@ -959,24 +1100,63 @@ public partial class MainWindow : Window
     /// is one act, and it has no business opening twenty of them.
     /// </remarks>
     /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
-    public async Task AddDrawingsAsync(SvgcProjectGroup parent, int index, IReadOnlyList<string> paths)
+    public async Task AddDrawingsAsync(ProjectGroup parent, int index, IReadOnlyList<string> paths)
     {
         if (_workspace is not { } workspace || paths.Count == 0)
         {
             return;
         }
 
-        SvgcProjectDrawing? added = null;
+        ProjectDrawing? added = null;
 
         foreach (var path in paths)
         {
-            added = parent.AddDrawing(workspace.Carry(path), index++);
+            try
+            {
+                added = parent.AddDrawing(Path.GetFileNameWithoutExtension(path), File.ReadAllText(path), index++);
+            }
+            catch (Exception failure) when (failure is SvgcProjectException or IOException or UnauthorizedAccessException)
+            {
+                await Announce("That drawing couldn't be added", $"{Path.GetFileName(path)}: {failure.Message}").ConfigureAwait(true);
+            }
+        }
+
+        if (added is null)
+        {
+            return;
         }
 
         workspace.Save();
         BuildTree(added);
 
-        await ShowAsync(added!).ConfigureAwait(true);
+        await ShowAsync(added).ConfigureAwait(true);
+    }
+
+    /// <summary>Adds one drawing the window has the text of rather than a file for.</summary>
+    private async Task AddTextAsync(ProjectGroup parent, int index, string name, string svgText)
+    {
+        if (_workspace is not { } workspace)
+        {
+            return;
+        }
+
+        ProjectDrawing added;
+
+        try
+        {
+            added = parent.AddDrawing(name, svgText, index);
+        }
+        catch (SvgcProjectException failure)
+        {
+            await Announce("That drawing couldn't be added", failure.Message).ConfigureAwait(true);
+
+            return;
+        }
+
+        workspace.Save();
+        BuildTree(added);
+
+        await ShowAsync(added).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -988,7 +1168,7 @@ public partial class MainWindow : Window
     /// removed node goes on writing settings into a detached element and reporting itself saved.
     /// </remarks>
     /// <returns>Whether it was removed, or false when the question was answered against it.</returns>
-    public async Task<bool> RemoveAsync(SvgcProjectNode node)
+    public async Task<bool> RemoveAsync(ProjectNode node)
     {
         if (_workspace is not { } workspace || node.Parent is not { } parent)
         {
@@ -997,14 +1177,14 @@ public partial class MainWindow : Window
 
         // Only when it takes something with it. A row removed by mistake is one add away; a branch
         // is not, and there is no undo.
-        if (node is SvgcProjectGroup { Children.Count: > 0 } group
+        if (node is ProjectGroup { Children.Count: > 0 } group
             && !await ConfirmRemove(Removing(group)).ConfigureAwait(true))
         {
             return false;
         }
 
         foreach (var item in _tabs.Items.OfType<TabItem>()
-                     .Where(item => item.Tag is SvgcProjectNode held && held.DescendsFrom(node))
+                     .Where(item => item.Tag is ProjectNode held && held.DescendsFrom(node))
                      .ToList())
         {
             if (!await CloseTabAsync(item).ConfigureAwait(true))
@@ -1030,24 +1210,33 @@ public partial class MainWindow : Window
     /// and took the application with it. As a field it is a type initialiser instead, which is a
     /// failure every test that opens a window sees.
     /// </remarks>
-    private static readonly DataFormat<string> RowFormat = DataFormat.CreateStringApplicationFormat("SvgcProjectNode");
+    private static readonly DataFormat<string> RowFormat = DataFormat.CreateStringApplicationFormat("ProjectNode");
 
-    private SvgcProjectNode? _row;
+    private ProjectNode? _row;
     private PointerPressedEventArgs? _rowPressed;
     private Point _rowPressedAt;
 
     /// <summary>Whether the press that is finishing was a drag, so the tap it raises opens nothing.</summary>
     private bool _rowDragged;
 
+    /// <summary>The groups the reader has opened, so a rebuild puts them back as they were.</summary>
+    /// <remarks>
+    /// The rows are built afresh after every edit, and the tree opens folded — so without this,
+    /// adding a drawing would shut every group the reader had just opened to find the place to add
+    /// it. Held by node rather than by name because two groups can be called the same thing, and the
+    /// document's nodes are the same objects across a rebuild: only the rows are new.
+    /// </remarks>
+    private readonly HashSet<ProjectNode> _expanded = new();
+
     /// <summary>The row waiting to be pasted, and whether taking it was a cut rather than a copy.</summary>
     /// <remarks>
     /// The window's own, not the machine's: what is held is a row of this project, and pasting one
     /// into a text editor would mean nothing. Nothing in the app touches the system clipboard.
     /// </remarks>
-    private SvgcProjectNode? _held;
+    private ProjectNode? _held;
     private bool _heldCut;
 
-    private SvgcProjectNode? _dropOn;
+    private ProjectNode? _dropOn;
     private ProjectDrop _dropWhere;
 
     private void OnRowPressed(object? sender, PointerPressedEventArgs e)
@@ -1059,9 +1248,9 @@ public partial class MainWindow : Window
         if (e.Source is not Visual source
             // The chevron folds the row; it does not pick it up.
             || source.FindAncestorOfType<ToggleButton>(true) is { }
-            || source.FindAncestorOfType<TreeViewItem>(true)?.Tag is not SvgcProjectNode node
+            || source.FindAncestorOfType<TreeViewItem>(true)?.Tag is not ProjectNode node
             // The project is the file. There is nowhere to put it.
-            || node is SvgcProjectRoot
+            || node is ProjectRoot
             || !e.GetCurrentPoint(_projectTree).Properties.IsLeftButtonPressed)
         {
             return;
@@ -1130,7 +1319,7 @@ public partial class MainWindow : Window
 
         if (_row is { } dragged)
         {
-            if (over is not { Tag: SvgcProjectNode node })
+            if (over is not { Tag: ProjectNode node })
             {
                 HideDrop();
 
@@ -1166,7 +1355,7 @@ public partial class MainWindow : Window
         // runs after this one.
         var target = over ?? _projectTree.Items.OfType<TreeViewItem>().FirstOrDefault();
 
-        if (target is not { Tag: SvgcProjectNode into } || Land(target, into, e) is null)
+        if (target is not { Tag: ProjectNode into } || Land(target, into, e) is null)
         {
             HideDrop();
 
@@ -1177,7 +1366,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Takes down where a drop on this row would go, and says where that is.</summary>
-    private (SvgcProjectGroup Parent, int Index)? Land(TreeViewItem row, SvgcProjectNode node, DragEventArgs e)
+    private (ProjectGroup Parent, int Index)? Land(TreeViewItem row, ProjectNode node, DragEventArgs e)
     {
         _dropOn = node;
         _dropWhere = Bands(e.GetPosition(row).Y, RowHeight(row), node);
@@ -1222,7 +1411,7 @@ public partial class MainWindow : Window
     /// </summary>
     /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the pointer.</remarks>
     /// <returns>Whether it moved. A drop that would take a group into itself does not.</returns>
-    public bool Move(SvgcProjectNode node, SvgcProjectNode target, ProjectDrop where)
+    public bool Move(ProjectNode node, ProjectNode target, ProjectDrop where)
     {
         if (_workspace is not { } workspace || Landing(target, where) is not { } landing)
         {
@@ -1245,11 +1434,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Which group a drop lands in, and where among its children. Null when it lands nowhere.</summary>
-    private static (SvgcProjectGroup Parent, int Index)? Landing(SvgcProjectNode target, ProjectDrop where)
+    private static (ProjectGroup Parent, int Index)? Landing(ProjectNode target, ProjectDrop where)
     {
         if (where == ProjectDrop.Inside)
         {
-            return target is SvgcProjectGroup group ? (group, group.Children.Count) : null;
+            return target is ProjectGroup group ? (group, group.Children.Count) : null;
         }
 
         if (target.Parent is not { } parent)
@@ -1268,9 +1457,9 @@ public partial class MainWindow : Window
     /// so its middle is not a place, and halves put every drop somewhere it can go. The project has
     /// no siblings to sit beside, so the whole of its row means inside it.
     /// </remarks>
-    private static ProjectDrop Bands(double y, double height, SvgcProjectNode target)
+    private static ProjectDrop Bands(double y, double height, ProjectNode target)
     {
-        if (target is not SvgcProjectGroup)
+        if (target is not ProjectGroup)
         {
             return y < height / 2 ? ProjectDrop.Before : ProjectDrop.After;
         }
@@ -1331,7 +1520,7 @@ public partial class MainWindow : Window
         _dropOn = null;
     }
 
-    private static string Removing(SvgcProjectGroup group)
+    private static string Removing(ProjectGroup group)
     {
         var rows = group.Children.Count;
 
@@ -1340,277 +1529,17 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Every drawing under <paramref name="node"/>, whatever kind of node it is.</summary>
-    private static IEnumerable<SvgcProjectDrawing> Drawings(SvgcProjectNode node)
+    private static IEnumerable<ProjectDrawing> Drawings(ProjectNode node)
         => node switch
         {
-            SvgcProjectGroup group => group.Drawings,
-            SvgcProjectDrawing drawing => new[] { drawing },
-            _ => Enumerable.Empty<SvgcProjectDrawing>()
+            ProjectGroup group => group.Drawings,
+            ProjectDrawing drawing => new[] { drawing },
+            _ => Enumerable.Empty<ProjectDrawing>()
         };
-
-    /// <summary>
-    /// Rewrites the drawings under <paramref name="node"/> into the expression format, in place.
-    /// </summary>
-    /// <remarks>
-    /// The conversion a build does on its way to code, kept: each file is read, put through the
-    /// recipe that covers it, and written back over itself. Every drawing takes its <em>own</em>
-    /// effective recipe, so a nested group naming one of its own is honoured rather than the outer
-    /// one — which is the whole reason to offer this on a group rather than per drawing.
-    ///
-    /// On the window and not on the settings pane that offers it, for the reason
-    /// <c>GroupPanel.RecipeOpened</c> gives about opening a recipe: the project's files are the
-    /// window's business. It also needs what only the window has — the tabs, to refuse while any of
-    /// this is unsaved and to re-read what changed underneath them.
-    ///
-    /// Public and taking the node, so everything but the button can be driven.
-    /// </remarks>
-    /// <returns>Whether anything was written.</returns>
-    public async Task<bool> ApplyRecipeAsync(SvgcProjectNode node)
-    {
-        if (node is null)
-        {
-            throw new ArgumentNullException(nameof(node));
-        }
-
-        if (_workspace is not { } workspace)
-        {
-            return false;
-        }
-
-        // One entry per file, not per row: a project routinely builds one drawing several times,
-        // and converting the same file twice would convert it and then refuse it.
-        var work = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        foreach (var drawing in Drawings(node))
-        {
-            if (drawing.EffectiveResolvedRecipe is { } recipe)
-            {
-                work.TryAdd(drawing.ResolvedInput, recipe);
-            }
-        }
-
-        if (work.Count == 0)
-        {
-            await Announce("Nothing to apply", $"No drawing under {ProjectWorkspace.Label(node)} is built through a recipe.").ConfigureAwait(true);
-
-            return false;
-        }
-
-        if (Holding(work) is { } holding)
-        {
-            await Announce("There is unsaved work", holding).ConfigureAwait(true);
-
-            return false;
-        }
-
-        if (!await ConfirmApply(Applying(node, work.Count)).ConfigureAwait(true))
-        {
-            return false;
-        }
-
-        return await WriteAsync(workspace, node, work).ConfigureAwait(true);
-    }
-
-    /// <summary>Why the files cannot be written yet, or null when nothing is in the way.</summary>
-    /// <remarks>
-    /// Refused rather than read from the buffers or saved behind somebody's back. A tab holding
-    /// edits of its own is skipped by both <see cref="Reread"/> and <see cref="Rebuild"/>, so it
-    /// would go on showing the text from before the conversion and put it back on the next save —
-    /// undoing the whole thing quietly. The project itself counts too: the recipe settings are
-    /// cleared afterwards, and a pane with settings still pending would write its own back over
-    /// them.
-    /// </remarks>
-    private string? Holding(Dictionary<string, string> work)
-    {
-        var names = new List<string>();
-
-        foreach (var item in _tabs.Items.OfType<TabItem>())
-        {
-            var involved = item.Content switch
-            {
-                SvgViewer viewer => viewer.DocumentPath is { } path && work.ContainsKey(path),
-                RecipePanel recipe => work.Values.Contains(recipe.Path, StringComparer.Ordinal),
-                GroupPanel => true,
-                _ => false
-            };
-
-            if (involved && Unsaved(item) is { } name)
-            {
-                names.Add(name);
-            }
-        }
-
-        // Also the recipes themselves, which are unsaved from every tab at once and may be open in
-        // none of them.
-        foreach (var recipe in work.Values.Distinct(StringComparer.Ordinal))
-        {
-            if (_recipes.TryGetValue(recipe, out var open) && open.IsModified)
-            {
-                names.Add(Path.GetFileName(recipe));
-            }
-        }
-
-        var said = names.Distinct(StringComparer.Ordinal).OrderBy(name => name, StringComparer.Ordinal).ToList();
-
-        return said.Count == 0
-            ? null
-            : $"Save {string.Join(", ", said)} first. Applying a recipe writes over the drawings, and there is no undo.";
-    }
-
-    private static string Applying(SvgcProjectNode node, int files)
-        => $"{files} {(files == 1 ? "drawing" : "drawings")} under {ProjectWorkspace.Label(node)} "
-           + "will be written over with the recipe applied to them, and the recipe setting cleared. "
-           + "This cannot be undone.";
-
-    /// <summary>
-    /// Converts every drawing, and writes only once all of them have converted.
-    /// </summary>
-    /// <remarks>
-    /// The rule a build follows — say why it cannot be made before any of it is. One malformed
-    /// drawing leaving the set half converted is the failure worth engineering against, since the
-    /// half that was written no longer matches the recipe that is about to be cleared.
-    ///
-    /// Through <see cref="SvgRecipeRewriter"/> directly and not <see cref="Rewritten"/>, which
-    /// swallows a refusal and answers with the text unchanged: right for a canvas repainting per
-    /// keystroke, and for a permanent write it would silently save the unconverted file.
-    /// </remarks>
-    private async Task<bool> WriteAsync(ProjectWorkspace workspace, SvgcProjectNode node, Dictionary<string, string> work)
-    {
-        var converted = new Dictionary<string, string>(StringComparer.Ordinal);
-        var recipes = new Dictionary<string, SvgRecipe>(StringComparer.Ordinal);
-        var unmatched = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-
-        try
-        {
-            foreach (var (input, path) in work)
-            {
-                if (!recipes.TryGetValue(path, out var recipe))
-                {
-                    recipe = SvgRecipe.Load(path);
-                    recipes.Add(path, recipe);
-                }
-
-                var result = SvgRecipeRewriter.Apply(File.ReadAllText(input), recipe);
-
-                converted.Add(input, result.Svg);
-
-                // Kept per file and reported only for the ones that changed. A drawing already
-                // converted matches nothing by definition, and saying so for every rule of every
-                // one of them would bury the drawing that really is missing a colour.
-                unmatched.Add(
-                    input,
-                    result.UnmatchedRules
-                        .Select(rule => $"warning: nothing in {Path.GetFileName(input)} matched '{rule.ValueText}'.")
-                        .ToList());
-            }
-        }
-        catch (Exception failure) when (failure is SvgRecipeException or IOException or UnauthorizedAccessException)
-        {
-            await Announce("The recipe couldn't be applied", $"{failure.Message}\n\nNothing was written.").ConfigureAwait(true);
-
-            return false;
-        }
-
-        var written = new List<string>();
-
-        try
-        {
-            foreach (var (input, text) in converted)
-            {
-                // A file already saying this is left alone, so running it again touches nothing.
-                if (string.Equals(File.ReadAllText(input), text, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                SvgViewerDocument.Load(input).Write(text, input);
-                written.Add(input);
-            }
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-        {
-            await Announce("The recipe couldn't be applied", failure.Message).ConfigureAwait(true);
-
-            return false;
-        }
-
-        Cleared(workspace, node);
-        Reread(written);
-
-        var said = written.Count == 0
-            ? "Every drawing was already in the expression format, so nothing was written."
-            : $"{written.Count} of {converted.Count} {(converted.Count == 1 ? "drawing was" : "drawings were")} written."
-              + (written.Count < converted.Count ? " The rest were already in the expression format." : string.Empty);
-
-        var warnings = written
-            .SelectMany(input => unmatched.TryGetValue(input, out var lines) ? lines : Enumerable.Empty<string>())
-            .Distinct(StringComparer.Ordinal);
-
-        await Announce("Applied", string.Join("\n", new[] { said }.Concat(warnings))).ConfigureAwait(true);
-
-        return written.Count > 0;
-    }
-
-    /// <summary>
-    /// Stops the nodes under <paramref name="node"/> naming a recipe, now their drawings hold it.
-    /// </summary>
-    /// <remarks>
-    /// Only the ones at or under what was applied. A recipe inherited from further up covers
-    /// drawings this did not touch, and clearing it there would take it away from them — harmless
-    /// to leave, since applying it again to a drawing that already holds its declarations now does
-    /// nothing.
-    /// </remarks>
-    private void Cleared(ProjectWorkspace workspace, SvgcProjectNode node)
-    {
-        var owners = Drawings(node)
-            .Select(drawing => drawing.OwnerOf("recipe"))
-            .Where(owner => owner is { } && owner.DescendsFrom(node))
-            .Distinct()
-            .ToList();
-
-        if (owners.Count == 0)
-        {
-            return;
-        }
-
-        foreach (var owner in owners)
-        {
-            owner!.Recipe = null;
-        }
-
-        workspace.Save();
-    }
-
-    /// <summary>Marks every tab showing one of <paramref name="written"/> as needing reading again.</summary>
-    /// <remarks>
-    /// The path-taking half of <see cref="Reread(SvgViewer)"/>: these files changed under the tabs
-    /// rather than being saved from one. None of them can be holding edits, since that is what
-    /// <see cref="Holding"/> refused over.
-    /// </remarks>
-    private void Reread(IReadOnlyList<string> written)
-    {
-        if (written.Count == 0)
-        {
-            return;
-        }
-
-        foreach (var item in _tabs.Items.OfType<TabItem>())
-        {
-            if (item.Content is SvgViewer viewer
-                && viewer.DocumentPath is { } path
-                && written.Contains(path, StringComparer.Ordinal))
-            {
-                _stale.Add(item);
-            }
-        }
-
-        Refill();
-        Rebuild();
-    }
 
     private async void OnProjectTreeKeyDown(object? sender, KeyEventArgs e)
     {
-        if ((_projectTree.SelectedItem as TreeViewItem)?.Tag is not SvgcProjectNode node)
+        if ((_projectTree.SelectedItem as TreeViewItem)?.Tag is not ProjectNode node)
         {
             return;
         }
@@ -1663,7 +1592,7 @@ public partial class MainWindow : Window
     /// and opens as its settings and what they come to. Public because a modal-free way in is what
     /// a test drives, the same as <see cref="ExportAsync"/>.
     /// </remarks>
-    public async Task ShowAsync(SvgcProjectNode node)
+    public async Task ShowAsync(ProjectNode node)
     {
         if (node is null)
         {
@@ -1681,13 +1610,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (node is SvgcProjectGroup group)
+        if (node is ProjectGroup group)
         {
-            AddNodeTab(new GroupPanel(workspace, group) { Rewrite = Built, DeclarationTargetOf = DeclarationsOf, DrawingTargetOf = DrawingOf }, node, ProjectWorkspace.Label(node));
+            AddNodeTab(new GroupPanel(workspace, group) { TargetOf = DrawingOf }, node, ProjectWorkspace.Label(node));
             return;
         }
 
-        var drawing = (SvgcProjectDrawing)node;
+        var drawing = (ProjectDrawing)node;
 
         var viewer = AddTab();
 
@@ -1701,286 +1630,25 @@ public partial class MainWindow : Window
             var settings = new GroupPanel(workspace, drawing);
 
             settings.ModifiedChanged += (_, _) => Mark(item);
-            settings.RecipeOpened += (_, recipe) => ShowRecipe(recipe);
-            settings.RecipeApplyRequested += async (_, applied) => await ApplyRecipeAsync(applied);
-
-            // Whichever colours panel the tab has by then: it is built before the drawing is read,
-            // so it has nothing to survey until one arrives, and a drawing reopened at another size
-            // brings its colours again.
-            viewer.DocumentOpened += (_, _) => Replacements(viewer)?.Refresh();
-
-            // A readout is what a rule paints now, so it follows the slider being dragged.
-            viewer.ParameterValueChanged += (_, _) => Replacements(viewer)?.Readouts();
 
             viewer.SidePanels = new[] { new SvgViewerPane("Project", settings) };
         }
 
         viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
-        Recipe(viewer, drawing);
 
-        await viewer.LoadAsync(drawing.ResolvedInput).ConfigureAwait(true);
+        await viewer.LoadTextAsync(drawing.Text, drawing.Name).ConfigureAwait(true);
     }
 
     /// <summary>
-    /// Puts the drawing's recipe on the viewer, so the preview is the document the project builds.
+    /// Where a drawing's text is written, for a host that wants to edit one.
     /// </summary>
     /// <remarks>
-    /// A recipe rewrites colours into expressions and declares the parameters that drive them, so a
-    /// drawing under one looks nothing like its file — and the parameters the panel then offers are
-    /// the recipe's, which is what makes them worth dragging. Without this the preview was the plain
-    /// file while the build produced something else, and nothing said so.
+    /// The tab it is open in, so the edit lands in a buffer somebody can take back and saves when
+    /// they ask. Null is answered by the caller with the project, which writes the edit as it is
+    /// made. By the row rather than by a file: a drawing is one row of the project, so one tab.
     /// </remarks>
-    private void Recipe(SvgViewer viewer, SvgcProjectDrawing drawing)
-    {
-        viewer.Rewrite = null;
-        viewer.Notice = null;
-        viewer.DeclarationTarget = null;
-
-        // Recomposed from what the project says now rather than from what it said when the tab
-        // opened: a recipe taken off a group leaves a drawing that declares nothing of its own, and
-        // one added to a group gives an open drawing colours to bind.
-        var panes = new List<SvgViewerPane>();
-
-        if (Settings(viewer) is { } settings)
-        {
-            panes.Add(new SvgViewerPane("Project", settings));
-        }
-
-        if (drawing.EffectiveResolvedRecipe is not { } path)
-        {
-            viewer.SidePanels = panes;
-
-            return;
-        }
-
-        // The open buffer, not the file: a recipe being typed in decides what the drawings under it
-        // look like from the keystroke, which is the whole of editing one here.
-        var workspace = Opened(path);
-
-        // What the drawing declares comes from the recipe, so what the parameter panel writes goes
-        // back there. Into the drawing it would be a declaration block, and a recipe refuses a
-        // document that already has one.
-        viewer.DeclarationTarget = workspace;
-
-        // Kept where it is the same recipe, since it holds what somebody is halfway through typing.
-        var replacements = Replacements(viewer) is { } open && ReferenceEquals(open.Recipe, workspace)
-            ? open
-            : new ReplacementsPanel(workspace, () => viewer.Source, () => Values(viewer));
-
-        panes.Add(new SvgViewerPane("Replacements", replacements));
-
-        viewer.SidePanels = panes;
-
-        try
-        {
-            if (workspace.Fault is { } fault)
-            {
-                throw new SvgRecipeException(fault);
-            }
-
-            // Applied once here rather than taken on trust, because a recipe this drawing refuses —
-            // one that already declares for itself, say — would otherwise fail inside the load, and
-            // the tab would open empty instead of showing the drawing and the reason. It costs a
-            // second read of a file the load is about to read anyway.
-            SvgRecipeRewriter.Apply(File.ReadAllText(drawing.ResolvedInput), workspace.Recipe!);
-
-            viewer.Rewrite = text => Rewritten(text, workspace);
-        }
-        catch (Exception failure)
-            when (failure is SvgRecipeException or IOException or UnauthorizedAccessException)
-        {
-            viewer.Notice = $"{Path.GetFileName(path)} was not applied: {failure.Message}";
-        }
-    }
-
-    /// <summary>The open recipe at <paramref name="path"/>, opened if this is the first to ask.</summary>
-    /// <remarks>
-    /// One buffer per file however many drawings name it, so a rule typed once is seen by all of
-    /// them and there is one answer to whether the recipe has unsaved work.
-    /// </remarks>
-    private RecipeWorkspace? Opened(string path)
-    {
-        if (_recipes.TryGetValue(path, out var open))
-        {
-            return open;
-        }
-
-        // A recipe that will not read has no tree to edit and nothing to show but itself, so no
-        // buffer is made for it. What names it goes on building unrewritten, and says why.
-        if (RecipeWorkspace.Open(path, out var refusal) is not { } workspace)
-        {
-            _unreadable[path] = refusal ?? "This recipe could not be read.";
-
-            return null;
-        }
-
-        _unreadable.Remove(path);
-
-        workspace.Edited += (_, _) => Rebuild();
-
-        // Every tab that writes into it, since a recipe is unsaved from all of them at once.
-        workspace.ModifiedChanged += (_, _) =>
-        {
-            foreach (var item in _tabs.Items.OfType<TabItem>())
-            {
-                if (item.Content is RecipePanel panel && ReferenceEquals(panel.Workspace, workspace))
-                {
-                    Mark(item);
-                }
-                else if (item.Content is SvgViewer viewer && ReferenceEquals(Recipe(viewer), workspace))
-                {
-                    Mark(item);
-                }
-                else if (item.Content is GroupPanel group
-                         && RecipesUnder(group.Node).Any(under => ReferenceEquals(under, workspace)))
-                {
-                    Mark(item);
-                }
-            }
-        };
-
-        _recipes.Add(path, workspace);
-
-        return workspace;
-    }
-
-    /// <summary>
-    /// Where a drawing keeps its declarations, for a host that wants to write one.
-    /// </summary>
-    /// <remarks>
-    /// The two this window knows about, in the order that loses the least. Its recipe, if it has
-    /// one: that is where the parameters came from, and a drawing under one refuses a block of its
-    /// own. Otherwise the tab it is open in, so the edit lands in a buffer somebody can take back
-    /// and saves when they ask — and so two tabs on one file cannot end up disagreeing about it.
-    ///
-    /// Null for anything else, which the caller answers with the drawing's own file: the document
-    /// read from it belongs to whatever built the drawing, not to this window.
-    ///
-    /// This is never assigned to a viewer's own <c>DeclarationTarget</c>. That is read back with an
-    /// <c>as RecipeWorkspace</c> in three places — the unsaved dot, Save, and the modified fan-out —
-    /// and anything else put there would be invisible to all three.
-    /// </remarks>
-    private ISvgViewerDeclarationTarget? DeclarationsOf(SvgcProjectDrawing drawing)
-        => drawing.EffectiveResolvedRecipe is { } recipe
-            ? Opened(recipe) as ISvgViewerDeclarationTarget
-            : DrawingOf(drawing);
-
-    /// <summary>
-    /// Where a drawing's own text is written, whatever builds it.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="DeclarationsOf"/> without its first step. A declaration belongs to the recipe that
-    /// declared it; an attribute of an element belongs to the drawing it is written in, and a recipe
-    /// has nowhere to put one.
-    ///
-    /// The tab it is open in, so the edit lands in a buffer somebody can take back — and so two tabs
-    /// on one file cannot end up disagreeing. Null is answered by the caller with the file itself.
-    /// </remarks>
-    private ISvgViewerDeclarationTarget? DrawingOf(SvgcProjectDrawing drawing)
-    {
-        var path = drawing.ResolvedInput;
-
-        // The comparison Rebuild and Reread already use. Not normalised, so two spellings of one
-        // path do not meet — their limitation, and not one to fix from here.
-        foreach (var item in _tabs.Items.OfType<TabItem>())
-        {
-            if (item.Content is SvgViewer viewer
-                && string.Equals(viewer.DocumentPath, path, StringComparison.Ordinal))
-            {
-                return viewer;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>The drawing as its recipe makes it, or as it is when the recipe will not have it.</summary>
-    /// <remarks>
-    /// Never throws: this runs on every gesture in a drawing and on every gesture in the recipe,
-    /// and a recipe halfway through being given a rule is applied as it stands rather than freezing
-    /// the picture where it was.
-    /// </remarks>
-    private static string Rewritten(string svgText, RecipeWorkspace workspace)
-    {
-        if (workspace.Recipe is not { } recipe)
-        {
-            return svgText;
-        }
-
-        try
-        {
-            return SvgRecipeRewriter.Apply(svgText, recipe).Svg;
-        }
-        catch (SvgRecipeException)
-        {
-            return svgText;
-        }
-    }
-
-    /// <summary>A drawing as the project builds it, for a canvas that shows several at once.</summary>
-    /// <remarks>
-    /// Through <see cref="Opened"/> rather than the recipe file, so a group's canvas is painted from
-    /// the same buffer its drawings' own tabs are: a rule being typed in a recipe tab moves the
-    /// icons as it is typed. The cost is that opening a group opens a buffer for every recipe named
-    /// anywhere under it — idempotent, and a buffer nobody has typed in is unmodified, so no tab is
-    /// marked for it.
-    /// </remarks>
-    private string Built(SvgcProjectDrawing drawing, string svgText)
-        => drawing.EffectiveResolvedRecipe is { } recipe && Opened(recipe) is { } workspace
-            ? Rewritten(svgText, workspace)
-            : svgText;
-
-    /// <summary>
-    /// Brings a recipe forward, in a tab of its own.
-    /// </summary>
-    /// <remarks>
-    /// A file rather than a node: one recipe is usually named by several groups, and a tab per
-    /// namer would be several editors over one file disagreeing about what is in it. Public for the
-    /// reason <see cref="ShowAsync"/> is — it is the way in without a pointer.
-    /// </remarks>
-    public RecipePanel? ShowRecipe(string path)
-    {
-        if (path is null)
-        {
-            throw new ArgumentNullException(nameof(path));
-        }
-
-        if (Tab(path) is { } open)
-        {
-            _tabs.SelectedItem = open;
-
-            return (RecipePanel)open.Content!;
-        }
-
-        // A recipe with no tree has no tab. Whoever asked learns why from Unreadable, which the
-        // drawings under it are already putting on their status line.
-        if (Opened(path) is not { } opened)
-        {
-            return null;
-        }
-
-        var panel = new RecipePanel(opened, () => Painted(path), Built);
-
-        AddNodeTab(panel, path, Path.GetFileName(path));
-
-        return panel;
-    }
-
-    /// <summary>
-    /// Every drawing in the project that is built through the recipe at <paramref name="path"/>.
-    /// </summary>
-    /// <remarks>
-    /// Asked again on every gesture rather than taken once: a recipe put on a group, or taken off
-    /// one, changes which drawings it paints without the recipe's own tab being told anything. One
-    /// row per drawing and not per file, because a project routinely builds one file several ways
-    /// and each of those is a square on the canvas.
-    /// </remarks>
-    private IReadOnlyList<SvgcProjectDrawing> Painted(string path)
-        => _workspace is not { } workspace
-            ? Array.Empty<SvgcProjectDrawing>()
-            : workspace.Document.Root.Drawings
-                .Where(drawing => string.Equals(drawing.EffectiveResolvedRecipe, path, StringComparison.Ordinal))
-                .ToList();
+    private ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
+        => Tab(drawing)?.Content as SvgViewer;
 
     /// <summary>A tab for something that is not a drawing, which the viewer's own tab does not fit.</summary>
     private void AddNodeTab(Control content, object tag, string name)
@@ -2003,17 +1671,9 @@ public partial class MainWindow : Window
 
         close.Click += async (_, _) => await CloseTabAsync(item);
 
-        switch (content)
+        if (content is GroupPanel panel)
         {
-            case GroupPanel panel:
-                panel.ModifiedChanged += (_, _) => Mark(item);
-                panel.RecipeOpened += (_, recipe) => ShowRecipe(recipe);
-                panel.RecipeApplyRequested += async (_, applied) => await ApplyRecipeAsync(applied);
-                break;
-
-            case RecipePanel recipe:
-                recipe.ModifiedChanged += (_, _) => Mark(item);
-                break;
+            panel.ModifiedChanged += (_, _) => Mark(item);
         }
 
         _tabs.Items.Add(item);
@@ -2021,12 +1681,8 @@ public partial class MainWindow : Window
 
     }
 
-    private TabItem? Tab(SvgcProjectNode node)
+    private TabItem? Tab(ProjectNode node)
         => _tabs.Items.OfType<TabItem>().FirstOrDefault(item => ReferenceEquals(item.Tag, node));
-
-    private TabItem? Tab(string path)
-        => _tabs.Items.OfType<TabItem>().FirstOrDefault(
-            item => item.Content is RecipePanel panel && string.Equals(panel.Path, path, StringComparison.Ordinal));
 
     /// <summary>
     /// Reads the open drawings again as the project's settings now say to build them.
@@ -2034,46 +1690,31 @@ public partial class MainWindow : Window
     /// <remarks>
     /// A drawing with unsaved edits of its own is left alone: reloading it would throw
     /// them away, and following a setting is not worth that.
+    ///
+    /// Viewers only. A group's tab follows the same event itself, so refreshing it from here was a
+    /// second call to the one method, and every save rebuilt every open board twice.
     /// </remarks>
     private void Rebuild()
     {
         foreach (var item in _tabs.Items.OfType<TabItem>())
         {
-            // A group builds its own drawings, and a recipe decides what they come to, so it goes
-            // stale for exactly the reason a viewer does. It was left out of this, so a rule written
-            // from a group's own Replacements tab repainted nothing until the tab was left and come
-            // back to -- which is what rebuilds it, and what made the bug look like it had not been
-            // written at all. Only the tab on screen does the work; the rest rebuild when they are
-            // next attached.
-            if (item.Content is GroupPanel group)
-            {
-                group.Refresh();
-
-                continue;
-            }
-
-            if (item.Tag is not SvgcProjectDrawing drawing || item.Content is not SvgViewer viewer)
+            if (item.Tag is not ProjectDrawing drawing || item.Content is not SvgViewer viewer)
             {
                 continue;
             }
 
             var request = ProjectWorkspace.SizeOf(drawing);
 
-            // The input is editable too, so a tab can be left showing a file the row no longer names.
-            var elsewhere = !string.Equals(viewer.DocumentPath, drawing.ResolvedInput, StringComparison.Ordinal);
+            // The drawing itself can have been written from somewhere else — a group's Element tab,
+            // which writes into the project as it goes.
+            var changed = !string.Equals(viewer.Source, drawing.Text, StringComparison.Ordinal);
 
-            // A drawing under a recipe is read again whatever the settings say, rather than compared:
-            // the recipe it names could have been changed, and so could the recipe file itself, and
-            // no comparison here would see either.
-            var derived = drawing.EffectiveResolvedRecipe is { } || viewer.Rewrite is { };
-
-            if ((request.Equals(viewer.SizeRequest) && !elsewhere && !derived) || viewer.IsSourceModified)
+            if ((request.Equals(viewer.SizeRequest) && !changed) || viewer.IsSourceModified)
             {
                 continue;
             }
 
             viewer.SizeRequest = request;
-            Recipe(viewer, drawing);
 
             if (!ReferenceEquals(_tabs.SelectedItem, item))
             {
@@ -2082,7 +1723,7 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            Read(viewer, drawing.ResolvedInput, elsewhere);
+            Read(viewer, drawing, changed);
         }
     }
 
@@ -2094,12 +1735,10 @@ public partial class MainWindow : Window
     /// all about a tab from inside it. Picking a tab is the answer to "where is this?", so the row
     /// comes back into sight rather than being left for the reader to go and find.
     ///
-    /// Only what the tabs and the tree both hold: a recipe's tab is a file rather than a node of
-    /// the project, and has no row to open down to.
     /// </remarks>
     private void Reveal()
     {
-        if ((_tabs.SelectedItem as TabItem)?.Tag is SvgcProjectNode node)
+        if ((_tabs.SelectedItem as TabItem)?.Tag is ProjectNode node)
         {
             Reveal(node);
         }
@@ -2107,7 +1746,7 @@ public partial class MainWindow : Window
 
     /// <summary>Opens the tree down to one node and puts its row in sight.</summary>
     /// <remarks>The jump a search makes, and the one picking a tab makes: the same one.</remarks>
-    private void Reveal(SvgcProjectNode node)
+    private void Reveal(ProjectNode node)
     {
         if (_projectTree.Items.OfType<TreeViewItem>().FirstOrDefault() is not { } root
             || Route(root, node) is not { } path)
@@ -2123,6 +1762,12 @@ public partial class MainWindow : Window
         }
 
         var row = path[path.Count - 1];
+
+        // The rows above were only just opened, and a TreeViewItem inside a group that has never
+        // been open has no container in the tree yet — so selecting it would be selecting something
+        // the TreeView cannot see, and the selection would come back null. Laying out first is what
+        // gives the row a container to select.
+        _projectTree.UpdateLayout();
 
         _projectTree.SelectedItem = row;
 
@@ -2171,7 +1816,7 @@ public partial class MainWindow : Window
         var at = matches.IndexOf((_projectTree.SelectedItem as TreeViewItem)!);
         var index = at < 0 ? 0 : (at + step + matches.Count) % matches.Count;
 
-        if (matches[index].Tag is SvgcProjectNode node)
+        if (matches[index].Tag is ProjectNode node)
         {
             Reveal(node);
         }
@@ -2215,7 +1860,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>The rows from the root down to <paramref name="node"/>, or null when it has none.</summary>
-    private static List<TreeViewItem>? Route(TreeViewItem item, SvgcProjectNode node)
+    private static List<TreeViewItem>? Route(TreeViewItem item, ProjectNode node)
     {
         if (ReferenceEquals(item.Tag, node))
         {
@@ -2240,32 +1885,39 @@ public partial class MainWindow : Window
     {
         if (_tabs.SelectedItem is not TabItem item
             || !_stale.Remove(item)
-            || item.Content is not SvgViewer viewer
-            || viewer.DocumentPath is not { } path)
+            || item.Content is not SvgViewer viewer)
         {
             return;
         }
 
-        // Off the disk, always: this is also how a save in one tab reaches the others showing the
-        // same file, and what those are out of date about is the file itself.
-        _ = viewer.LoadAsync(path);
+        if (item.Tag is ProjectDrawing drawing)
+        {
+            _ = viewer.LoadTextAsync(drawing.Text, drawing.Name);
+
+            return;
+        }
+
+        // A drawing of its own, so off the disk.
+        if (viewer.DocumentPath is { } path)
+        {
+            _ = viewer.LoadAsync(path);
+        }
     }
 
     /// <summary>
     /// Brings the drawing being looked at up to date, off the disk only where it has to be.
     /// </summary>
     /// <remarks>
-    /// A recipe or a size changes what the same text comes to, not the text, so the drawing is
-    /// built again from what the pane is already holding. Reading the file for that dropped the
-    /// pane's buffer and its caret on every keystroke somebody made in the recipe, and flashed a
-    /// load in the status line while they typed. Only a tab now naming another file has to be
-    /// opened.
+    /// A size changes what the same text comes to, not the text, so the drawing is built again
+    /// from what the pane is already holding. Reading it in again for that dropped the pane's
+    /// buffer and its caret on every keystroke somebody made elsewhere, and flashed a load in the
+    /// status line while they typed. Only text that has actually changed is taken again.
     /// </remarks>
-    private static void Read(SvgViewer viewer, string path, bool elsewhere)
+    private static void Read(SvgViewer viewer, ProjectDrawing drawing, bool changed)
     {
-        if (elsewhere || !viewer.Rebuild())
+        if (changed || !viewer.Rebuild())
         {
-            _ = viewer.LoadAsync(path);
+            _ = viewer.LoadTextAsync(drawing.Text, drawing.Name);
         }
     }
 
@@ -2526,17 +2178,7 @@ public partial class MainWindow : Window
             return true;
         }
 
-        // Before the viewer, which a recipe tab has none of. The gesture is the window's, so the
-        // editor in the tab never sees the keystroke and this is the only route back to its stack.
-        if (Editing() is { } recipe)
-        {
-            return recipe.Undo();
-        }
-
-        // The tab's own document first, and the recipe behind it second. A viewer with nothing to
-        // take back answers false, so the recipe is only reached when the drawing is untouched —
-        // which is the ordinary case, since a colour bound in the pane never touches the drawing.
-        return Selected()?.Undo() == true || Recipe(Selected())?.Undo() == true;
+        return Selected()?.Undo() == true;
     }
 
     /// <inheritdoc cref="Undo"/>
@@ -2549,18 +2191,10 @@ public partial class MainWindow : Window
             return true;
         }
 
-        if (Editing() is { } recipe)
-        {
-            return recipe.Redo();
-        }
-
-        return Selected()?.Redo() == true || Recipe(Selected())?.Redo() == true;
+        return Selected()?.Redo() == true;
     }
 
     private IInputElement? Focused() => FocusManager?.GetFocusedElement();
-
-    /// <summary>The recipe being edited, when that is what the selected tab holds.</summary>
-    private RecipePanel? Editing() => (_tabs.SelectedItem as TabItem)?.Content as RecipePanel;
 
     /// <summary>
     /// Shows each command's gesture beside it, as the platform spells that gesture.
@@ -2584,16 +2218,18 @@ public partial class MainWindow : Window
             export.IsEnabled = Selected() is { Document: { } };
         }
 
-        // What the tab's own dot is drawn from, so it covers the drawing's text, the project's say
-        // over it and the recipe behind it without asking any of them separately.
+        // What the tab's own dot is drawn from, so it covers the drawing's text and the project's
+        // say over it without asking either of them separately.
         if (Item(menu, "Save") is { } save)
         {
             save.IsEnabled = _tabs.SelectedItem is TabItem tab && Unsaved(tab) is { };
         }
 
+        // Not for a drawing the project holds: Save As points a tab at the file it wrote, and one
+        // of those has no file to be pointed at. Export writes it out instead.
         if (Item(menu, "Save As…") is { } saveAs)
         {
-            saveAs.IsEnabled = Selected() is { Document: { } };
+            saveAs.IsEnabled = Selected() is { Document: { } } && _tabs.SelectedItem is not TabItem { Tag: ProjectDrawing };
         }
 
         // Both act on the project, and both did nothing at all when picked without one.
@@ -2698,9 +2334,11 @@ public partial class MainWindow : Window
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Export drawing",
-            SuggestedFileName = viewer.DocumentPath is { } path
-                ? Path.GetFileNameWithoutExtension(path)
-                : "drawing",
+            SuggestedFileName = _tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing }
+                ? drawing.Name
+                : viewer.DocumentPath is { } path
+                    ? Path.GetFileNameWithoutExtension(path)
+                    : "drawing",
             FileTypeChoices = new List<FilePickerFileType> { SvgFileType, CSharpFileType }
         });
 
@@ -2767,15 +2405,6 @@ public partial class MainWindow : Window
     /// caller that only reads the message would have to pass values it ignores.
     /// </remarks>
     public Func<string, Task<bool>> ConfirmRemove { get; set; }
-
-    /// <summary>
-    /// How the window asks whether the drawings under a node may be written over.
-    /// </summary>
-    /// <remarks>
-    /// Its own for the reason <see cref="ConfirmRemove"/> is: the buttons say Apply and Cancel, and
-    /// what it is asking about is files rather than rows of the project.
-    /// </remarks>
-    public Func<string, Task<bool>> ConfirmApply { get; set; }
 
     /// <summary>
     /// How the window shows a file where it lives.
@@ -2888,15 +2517,9 @@ public partial class MainWindow : Window
     private SvgViewer? Selected() => (_tabs.SelectedItem as TabItem)?.Content as SvgViewer;
 
     /// <summary>Everything open with changes that are not on disk.</summary>
-    /// <remarks>
-    /// The recipes as well as the tabs. A recipe is edited from the panes of the drawings under it,
-    /// so its buffer can be the only thing holding unsaved work — and closing the tab it was edited
-    /// from leaves it with nothing at all to speak for it.
-    /// </remarks>
     private IReadOnlyList<string> Unsaved()
         => _tabs.Items.OfType<TabItem>()
             .Select(Unsaved)
-            .Concat(_recipes.Values.Where(recipe => recipe.IsModified).Select(recipe => Path.GetFileName(recipe.Path)))
             .Where(name => name is { })
             .Select(name => name!)
             .Distinct(StringComparer.Ordinal)
@@ -2906,88 +2529,20 @@ public partial class MainWindow : Window
     /// What a tab is holding that is not on disk, named, or null when it is holding nothing.
     /// </summary>
     /// <remarks>
-    /// A drawing's tab answers for three things: the drawing's own text, the project settings riding
-    /// in its right pane, and the recipe those panes write into. Any one of them unsaved is the tab
-    /// unsaved — the recipe last, since it is the one the tab is not named after.
-    ///
-    /// A group's tab answers for the same last thing, for the same reason: its tabs write into the
-    /// recipe covering whichever drawing is selected, and with no drawing tab open there is nothing
-    /// else holding that work. It used to say nothing, so an edit made there was unsaved with no
-    /// dot on any tab and no way to save it.
+    /// A drawing's tab answers for two things: the drawing's own text, and the project settings
+    /// riding in its right pane. Either of them unsaved is the tab unsaved.
     /// </remarks>
     private string? Unsaved(TabItem item) => item.Content switch
     {
         SvgViewer viewer when viewer.IsSourceModified || Settings(viewer) is { IsModified: true }
             => Named(viewer),
-        SvgViewer viewer when Recipe(viewer) is { IsModified: true } recipe => Path.GetFileName(recipe.Path),
         GroupPanel panel when panel.IsModified => ProjectWorkspace.Label(panel.Node),
-        GroupPanel panel when Modified(panel.Node) is { } recipe => Path.GetFileName(recipe.Path),
-        RecipePanel recipe when recipe.IsModified => Path.GetFileName(recipe.Path),
         _ => null
     };
-
-    /// <summary>The first recipe under <paramref name="node"/> holding work, or null.</summary>
-    private RecipeWorkspace? Modified(SvgcProjectNode node)
-        => RecipesUnder(node).FirstOrDefault(recipe => recipe.IsModified);
-
-    /// <summary>The recipe a viewer's panes write into, when one covers the drawing.</summary>
-    private static RecipeWorkspace? Recipe(SvgViewer? viewer) => viewer?.DeclarationTarget as RecipeWorkspace;
-
-    /// <summary>
-    /// The open recipes the drawings under <paramref name="node"/> are built through.
-    /// </summary>
-    /// <remarks>
-    /// What a group's tab answers for. Its Replacements and Parameters tabs write into whichever
-    /// recipe covers the drawing that is selected, and a group can hold several — a nested group
-    /// naming its own wins for the drawings under it.
-    ///
-    /// Only recipes already open. Asking through <see cref="Opened"/> would open the file as a side
-    /// effect of asking whether a tab is dirty, and one that was never opened cannot be modified.
-    /// </remarks>
-    private IEnumerable<RecipeWorkspace> RecipesUnder(SvgcProjectNode node)
-        => (node switch
-            {
-                SvgcProjectGroup group => group.Drawings,
-                SvgcProjectDrawing drawing => new[] { drawing },
-                _ => Enumerable.Empty<SvgcProjectDrawing>()
-            })
-            .Select(drawing => drawing.EffectiveResolvedRecipe)
-            .Where(path => path is { })
-            .Distinct(StringComparer.Ordinal)
-            .Select(path => _recipes.TryGetValue(path!, out var workspace) ? workspace : null)
-            .Where(workspace => workspace is { })
-            .Select(workspace => workspace!);
 
     /// <summary>The project's say over the drawing a viewer is showing, when it came from a project.</summary>
     private static GroupPanel? Settings(SvgViewer viewer)
         => viewer.SidePanels.Select(pane => pane.Content).OfType<GroupPanel>().FirstOrDefault();
-
-    /// <summary>What the drawing's expressions come to, with the values the panel has bound.</summary>
-    /// <remarks>
-    /// The drawing's declarations rather than the recipe's text, because these are the recipe's
-    /// declarations as the drawing received them — and the values beside them are the ones somebody
-    /// is dragging. Null while nothing can be worked out, which a parameter with no value does.
-    /// </remarks>
-    private static ExprEvaluator? Values(SvgViewer viewer)
-    {
-        if (viewer.Document is not { } document)
-        {
-            return null;
-        }
-
-        try
-        {
-            return ExprEvaluator.Create(document.Declarations, viewer.ParameterValues);
-        }
-        catch (Exception failure) when (failure is ExprException or ArgumentException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>The rules the drawing's recipe can write for it, when one covers it.</summary>
-    private static ReplacementsPanel? Replacements(SvgViewer viewer)
-        => viewer.SidePanels.Select(pane => pane.Content).OfType<ReplacementsPanel>().FirstOrDefault();
 
     private static TextBlock Marker(TabItem item) => (TextBlock)((StackPanel)item.Header!).Children[0];
 
@@ -3024,8 +2579,13 @@ public partial class MainWindow : Window
         UpdateMenu();
     }
 
-    private static string Named(SvgViewer viewer)
-        => viewer.DocumentPath is { } path ? Path.GetFileName(path) : "A drawing";
+    private string Named(SvgViewer viewer) => Tabbed(viewer) is { Tag: ProjectDrawing drawing }
+        ? drawing.Name
+        : viewer.DocumentPath is { } path ? Path.GetFileName(path) : "A drawing";
+
+    /// <summary>The tab a viewer is the content of, or null where it is in none.</summary>
+    private TabItem? Tabbed(SvgViewer viewer)
+        => _tabs.Items.OfType<TabItem>().FirstOrDefault(item => ReferenceEquals(item.Content, viewer));
 
 
 
@@ -3111,20 +2671,31 @@ public partial class MainWindow : Window
         /// </remarks>
         private static readonly FilePickerFileType OpenableFileType = new("Drawings and projects")
         {
-            Patterns = new[] { "*.svg", "*.svgz", "*.svgcproj" },
+            Patterns = new[] { "*.svg", "*.svgz", "*.svgstudio", "*.svgcproj", "*.pcvd" },
             MimeTypes = new[] { "image/svg+xml", "application/gzip", "application/xml" }
         };
 
         /// <remarks>
+        /// No Apple type identifier, for the reason the projects below carry none: the machine reads
+        /// a <c>.pcvd</c> as whatever claimed the extension, and it conforms to nothing.
+        /// </remarks>
+        internal static readonly FilePickerFileType PaintCode = new("PaintCode Documents")
+        {
+            Patterns = new[] { "*.pcvd" }
+        };
+
+        /// <remarks>
         /// No Apple type identifier, unlike the drawings below. macOS decides a file's type from
-        /// its extension, and <c>.svgcproj</c> is whatever the machine happens to have claimed it —
+        /// its extension, and <c>.svgstudio</c> is whatever the machine happens to have claimed it —
         /// on this one, the editor it was last opened with. Either way it conforms to nothing, and
         /// <c>public.xml</c> was a claim about it that no machine agrees with, narrowing the filter
         /// to files macOS reads as XML rather than widening it. The extension is what matches.
+        ///
+        /// The svgc project is here too, since Open takes one by converting it.
         /// </remarks>
-        internal static readonly FilePickerFileType Projects = new("Svgc Projects")
+        internal static readonly FilePickerFileType Projects = new("Svg Studio Projects")
         {
-            Patterns = new[] { "*.svgcproj" },
+            Patterns = new[] { "*.svgstudio", "*.svgcproj" },
             MimeTypes = new[] { "application/xml" }
         };
 
@@ -3173,8 +2744,10 @@ public partial class MainWindow : Window
         _tabs.Items.Remove(item);
         _stale.Remove(item);
 
-        // Nothing else disposes the document a discarded viewer is holding.
+        // Nothing else disposes the documents a discarded tab is holding — a viewer's one, or the
+        // whole group a board was built from, which is kept now while the tab is merely not on top.
         (item.Content as SvgViewer)?.Close();
+        (item.Content as GroupPanel)?.Close();
 
         UpdateTitle();
         UpdateMenu();
@@ -3272,25 +2845,6 @@ public partial class MainWindow : Window
     /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the keyboard.</remarks>
     public async Task SaveAsync()
     {
-        if ((_tabs.SelectedItem as TabItem)?.Content is RecipePanel recipe)
-        {
-            try
-            {
-                recipe.Save();
-            }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-            {
-                await Announce("The recipe couldn't be saved", failure.Message).ConfigureAwait(true);
-                return;
-            }
-
-            // What a recipe says is what the drawings under it are, so they are read again — the
-            // same thing a saved project setting does, and the reason to edit one here at all.
-            Rebuild();
-
-            return;
-        }
-
         if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel panel)
         {
             try
@@ -3302,21 +2856,6 @@ public partial class MainWindow : Window
                 await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
             }
 
-            // Both halves, as a drawing's tab saves both of its. A rule written from the group's
-            // Replacements tab lands in a recipe, and this returning after the project file left it
-            // unsaved with nothing else open to save it from.
-            foreach (var under in RecipesUnder(panel.Node).Where(recipe => recipe.IsModified).ToList())
-            {
-                try
-                {
-                    under.Save();
-                }
-                catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-                {
-                    await Announce("The recipe couldn't be saved", failure.Message).ConfigureAwait(true);
-                }
-            }
-
             return;
         }
 
@@ -3325,8 +2864,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Every half, since all of them are the tab's: the drawing's text, the project's say over
-        // it, and the recipe its panes write into.
+        // Both halves, since both are the tab's: the drawing's text and the project's say over it.
         if (Settings(viewer) is { IsModified: true } settings)
         {
             try
@@ -3339,54 +2877,34 @@ public partial class MainWindow : Window
             }
         }
 
-        if (Recipe(viewer) is { IsModified: true } behind)
+        if (_tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing } && _workspace is { } workspace)
         {
+            if (drawing.SetText(viewer.Source) is { } refusal)
+            {
+                await Announce("The drawing couldn't be saved", refusal).ConfigureAwait(true);
+
+                return;
+            }
+
             try
             {
-                behind.Save();
+                workspace.Save();
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
-                await Announce("The recipe couldn't be saved", failure.Message).ConfigureAwait(true);
+                await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
+
+                return;
             }
-        }
 
-        if (await viewer.SaveSourceAsync().ConfigureAwait(true))
-        {
-            Reread(viewer);
-        }
-    }
+            // The bytes are the project's now, so the tab is told rather than asked to write them:
+            // SaveSourceAsync would go looking for a file this drawing has not got.
+            viewer.MarkSaved();
 
-    /// <summary>
-    /// Marks every other tab showing the same file as needing to be read again.
-    /// </summary>
-    /// <remarks>
-    /// A project builds one drawing more than once, so the same file is often open in several tabs
-    /// at once, each holding its own copy of it. A save in one left the others showing what the
-    /// file used to say until they were closed and opened again. They are marked rather than read
-    /// now because none of them is the tab on screen — only one can be — and reading a drawing into
-    /// a viewer that is not presented is what left it blank.
-    ///
-    /// A tab holding edits of its own is left alone: reading the file again would throw them away,
-    /// and two tabs disagreeing is the smaller harm.
-    /// </remarks>
-    private void Reread(SvgViewer saved)
-    {
-        if (saved.DocumentPath is not { } path)
-        {
             return;
         }
 
-        foreach (var item in _tabs.Items.OfType<TabItem>())
-        {
-            if (item.Content is SvgViewer viewer
-                && !ReferenceEquals(viewer, saved)
-                && !viewer.IsSourceModified
-                && string.Equals(viewer.DocumentPath, path, StringComparison.Ordinal))
-            {
-                _stale.Add(item);
-            }
-        }
+        await viewer.SaveSourceAsync().ConfigureAwait(true);
     }
 
     private void UpdateTitle()
@@ -3401,10 +2919,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        var open = Selected();
-        var path = open?.DocumentPath;
         var mark = _tabs.SelectedItem is TabItem tab && Unsaved(tab) is { } ? "• " : string.Empty;
 
-        Title = path is { } ? $"{mark}{Path.GetFileName(path)} — SVG viewer" : "SVG viewer";
+        if (_tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing } && _workspace is { } workspace)
+        {
+            Title = $"{mark}{drawing.Name} — {workspace.Name}";
+            return;
+        }
+
+        Title = Selected()?.DocumentPath is { } path ? $"{mark}{Path.GetFileName(path)} — SVG viewer" : "SVG viewer";
     }
 }

@@ -76,6 +76,9 @@ public static class SvgRecipeValue
     {
         key = string.Empty;
 
+        // A rule's type comes from SvgExpressionAttributes, where no attribute is an integer, so
+        // the two types missing below are string -- which a rule cannot name -- and integer, which
+        // nothing can reach this with.
         switch (type)
         {
             case ExprType.Color:

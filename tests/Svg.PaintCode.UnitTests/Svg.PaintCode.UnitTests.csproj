@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <IsPackable>False</IsPackable>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <Import Project="..\..\build\ReferenceAssemblies.props" />
+  <Import Project="..\..\build\SignAssembly.props" />
+  <Import Project="..\..\build\XUnit.props" />
+  <Import Project="..\..\build\SixLabors.ImageSharp.props" />
+  <!--
+    The slice rasterises, so it needs libSkiaSharp itself and not only the managed binding that
+    arrives through Svg.Skia. Without these the rows pass on macOS and throw DllNotFoundException on
+    Linux and Windows, which is how they reached master.
+  -->
+  <Import Project="..\..\build\SkiaSharp.props" />
+  <Import Project="..\..\build\SkiaSharp.Native.props" />
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Svg.PaintCode\Svg.PaintCode.csproj" />
+    <!-- Every drawing an import writes is built here, so "an import always opens" is a test. -->
+    <ProjectReference Include="..\..\src\Svg.Skia\Svg.Skia.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="TestAssets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Linked rather than referenced across test assemblies: this is the repository's only image
+      comparer, and the render suite needs the same metric the W3C and resvg rows are calibrated in.
+    -->
+    <Compile Include="..\Svg.Skia.UnitTests\Common\ImageHelper.cs" Link="Common\ImageHelper.cs" />
+  </ItemGroup>
+
+  <!--
+    The oracle is PaintCode's own generated drawing code, which lives outside the repository. Point
+    PaintCodeResourcesDir at it to compile the render comparison in; with it unset this project
+    builds and runs exactly as it does without it, which is what CI does.
+  -->
+  <ItemGroup Condition="'$(PaintCodeResourcesDir)' != '' And Exists('$(PaintCodeResourcesDir)')">
+    <ProjectReference Include="..\Svg.PaintCode.Oracle\Svg.PaintCode.Oracle.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(PaintCodeResourcesDir)' != '' And Exists('$(PaintCodeResourcesDir)')">
+    <DefineConstants>$(DefineConstants);PAINTCODE_ORACLE</DefineConstants>
+  </PropertyGroup>
+
+</Project>

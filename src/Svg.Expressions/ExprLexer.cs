@@ -37,12 +37,13 @@ internal enum ExprTokenKind
 
 internal readonly struct ExprToken
 {
-    public ExprToken(ExprTokenKind kind, int position, string text, double number = 0, uint color = 0, string? value = null)
+    public ExprToken(ExprTokenKind kind, int position, string text, double number = 0, uint color = 0, string? value = null, long? integer = null)
     {
         Kind = kind;
         Position = position;
         Text = text;
         Number = number;
+        Integer = integer;
         Color = color;
         Value = value;
     }
@@ -59,6 +60,14 @@ internal readonly struct ExprToken
     public string Text { get; }
 
     public double Number { get; }
+
+    /// <summary>The literal as a whole number, when it was written as one.</summary>
+    /// <remarks>
+    /// Null for anything carrying a point or a percent, which can only be a number, and for a run of
+    /// digits too long to be one. Not a token kind of its own: a highlighter colours both the same
+    /// way, and a second kind would have to be threaded through it to say nothing.
+    /// </remarks>
+    public long? Integer { get; }
 
     // Packed 0xRRGGBBAA, only meaningful for Color tokens.
     public uint Color { get; }
@@ -270,15 +279,23 @@ internal static class ExprLexer
             throw new ExprException($"'{literal}' is not a valid number.", start);
         }
 
+        // Whole when it is all digits, which is what the parser needs to know to leave the literal's
+        // type to whatever the context turns out to be.
+        var integer = literal.IndexOf('.') < 0 && long.TryParse(literal, NumberStyles.None, CultureInfo.InvariantCulture, out var whole)
+            ? whole
+            : (long?)null;
+
         // A percent sign is a suffix on the literal, never an operator, so that 55% reads as a
-        // fraction without making 'a % b' ambiguous.
+        // fraction without making 'a % b' ambiguous. It also settles the type: a fraction of a
+        // hundred is a number however it was spelled.
         if (i < text.Length && text[i] == '%')
         {
             i++;
             value /= 100d;
+            integer = null;
         }
 
-        return new ExprToken(ExprTokenKind.Number, start, literal, value);
+        return new ExprToken(ExprTokenKind.Number, start, literal, value, integer: integer);
     }
 
     /// <summary>Reads a string literal, closed by whichever quote opened it.</summary>

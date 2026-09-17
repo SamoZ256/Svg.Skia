@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" xmlns:e="https://svg.skia/expr/1.0">
+  <defs>
+    <e:code>
+      <e:param name="enabled" type="boolean" default="true" />
+      <e:param name="state" type="boolean" default="true" />
+      <e:param name="accent" type="boolean" default="true" />
+      <e:param name="accentColorOn" type="color" default="#fb3e72ff" />
+      <e:param name="isLight" type="boolean" default="false" />
+      <e:param name="whiteColor_" type="color" default="#ffffffff" />
+      <e:param name="blackColor_" type="color" default="#1f2123ff" />
+      <e:let name="whiteColor30">withAlpha(whiteColor_, 0.3)</e:let>
+      <e:let name="blackColor30">withAlpha(blackColor_, 0.3)</e:let>
+      <e:let name="stateAccentColor">(enabled and state) ? accent ? accentColorOn : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30</e:let>
+    </e:code>
+  </defs>
+  <path id="bezier-2" d="M0,0.001L17.3823,0.001" fill="none" stroke="{{ stateAccentColor }}" stroke-width="1.5" transform="translate(5.7621,21.3278)" />
+  <path id="bezier-3" d="M0,11.3141L8.3065,0L16.5992,11.3158Z" fill="none" stroke="{{ stateAccentColor }}" stroke-width="1.5" stroke-miterlimit="10" transform="translate(6.28,7.0581)" />
+</svg>

@@ -215,6 +215,7 @@ public class SkiaCSharpRenderTests
             values[declarations.Parameters[index].Name] = arguments[index] switch
             {
                 float number => ExprValue.Number(number),
+                int whole => ExprValue.Integer(whole),
                 bool boolean => ExprValue.Boolean(boolean),
                 SKColor color => ExprValue.Color(color.Red, color.Green, color.Blue, color.Alpha),
                 string text => ExprValue.String(text),
@@ -492,6 +493,31 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void An_Integer_Parameter_Reaches_Both_A_Choice_And_A_Paint()
+        // Everything the integer added, through the only path that compiles and draws the emitted
+        // code: an int argument, the two helpers C# would otherwise throw from (SvgIMod, and
+        // Math.Min on ints), and SvgNum crossing into an opacity. An unselected helper is CS0103,
+        // so this also says the selection scan found them.
+        => AssertExpressionsRenderTheSame(
+            "ExprInteger",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code><e:param name="steps" type="integer" default="1" min="0" max="9" step="1" /></e:code>
+              </defs>
+              <circle cx="12" cy="12" r="9"
+                      fill="{{ mod(steps, 2) == 1 ? #22c55e : #1e40af }}"
+                      opacity="{{ num(min(steps, 5)) / 10 }}" />
+            </svg>
+            """,
+            new object?[] { 7 },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="9" fill="#22c55e" opacity="0.5" />
+            </svg>
+            """);
+
+    [Fact]
     public void A_String_Parameter_Chooses_The_Paint()
         // The whole point of the type: a string reaches no attribute, so the only way it can show up
         // in a drawing is by choosing between values that do. `lower` comes with it, which is also
@@ -637,6 +663,44 @@ public class SkiaCSharpRenderTests
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
               <g opacity="0.5">
                 <rect x="2" y="2" width="20" height="20" fill="#be123c" />
+              </g>
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Stroke_Width_Expression_Value_Reaches_The_Paint()
+        => AssertExpressionsRenderTheSame(
+            "ExprStrokeWidth",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="weight" type="number" default="1" /></e:code></defs>
+              <circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="{{ weight }}" />
+            </svg>
+            """,
+            new object?[] { 4f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="4" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Stroke_Width_Expression_Is_Inherited_The_Way_A_Written_One_Is()
+        => AssertExpressionsRenderTheSame(
+            "ExprStrokeWidthInherited",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="weight" type="number" default="1" /></e:code></defs>
+              <g stroke="#b45309" fill="none" stroke-width="{{ weight * 2 }}">
+                <circle cx="12" cy="12" r="8" />
+              </g>
+            </svg>
+            """,
+            new object?[] { 1.5f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g stroke="#b45309" fill="none" stroke-width="3">
+                <circle cx="12" cy="12" r="8" />
               </g>
             </svg>
             """);

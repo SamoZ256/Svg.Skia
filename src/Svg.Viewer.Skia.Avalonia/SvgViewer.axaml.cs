@@ -100,6 +100,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>What the modified flag last was, so the change can be raised rather than polled.</summary>
     private bool _sourceModified;
+    private string? _name;
 
     /// <summary>Waits for typing to stop before rebuilding the drawing.</summary>
     /// <remarks>
@@ -848,8 +849,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     public Task<bool> LoadAsync(string path)
         => LoadCoreAsync(() => SvgViewerDocument.Load(path, SizeRequest, Rewrite), Path.GetFileName(path));
 
-    public Task<bool> LoadTextAsync(string svgText)
-        => LoadCoreAsync(() => SvgViewerDocument.LoadFromSvg(svgText), null);
+    /// <summary>Opens a drawing that is held as text — one a project keeps inline.</summary>
+    /// <param name="name">What to call it, since there is no file to take a name from.</param>
+    public Task<bool> LoadTextAsync(string svgText, string? name = null)
+        => LoadCoreAsync(() => SvgViewerDocument.LoadFromSvg(svgText, null, SizeRequest), name);
 
     public Task<bool> LoadAsync(Stream stream)
         => LoadCoreAsync(() => SvgViewerDocument.Load(stream), null);
@@ -895,6 +898,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             document.Dispose();
             return false;
         }
+
+        _name = name;
 
         SetDocument(document);
         return true;
@@ -1041,16 +1046,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>Whether a row already standing was built from this declaration.</summary>
     /// <remarks>
-    /// All four expressions, not the name and type alone: with the source editable, changing a
-    /// <c>step</c> or a bound leaves those two untouched and the panel showed the pre-edit range.
+    /// The declaration answers this itself. With the source editable, changing a <c>step</c> or a
+    /// bound leaves the name and type untouched, which is why it is not those two alone -- see
+    /// <see cref="SvgExpressionParameter.Equals(SvgExpressionParameter)"/>.
     /// </remarks>
     private static bool Same(SvgViewerParameter row, SvgExpressionParameter declared)
-        => row.Type == declared.Type
-           && string.Equals(row.Name, declared.Name, StringComparison.Ordinal)
-           && string.Equals(row.Declaration.DefaultExpression, declared.DefaultExpression, StringComparison.Ordinal)
-           && string.Equals(row.Declaration.MinExpression, declared.MinExpression, StringComparison.Ordinal)
-           && string.Equals(row.Declaration.MaxExpression, declared.MaxExpression, StringComparison.Ordinal)
-           && string.Equals(row.Declaration.StepExpression, declared.StepExpression, StringComparison.Ordinal);
+        => row.Declaration.Equals(declared);
 
     public void ResetParameters()
     {
@@ -1058,34 +1059,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         RequestApply();
     }
 
+    /// <remarks>
+    /// False for a name nothing declares and for a value of the wrong type alike, which a caller
+    /// cannot tell apart -- and does not need to, both being the same mistake about this drawing.
+    /// </remarks>
     public bool TrySetParameterValue(string name, ExprValue value)
-    {
-        var row = _rows.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.Ordinal));
-
-        switch (row)
-        {
-            case SvgViewerNumberParameter number when value.Type == ExprType.Number:
-                // The same widening the seed took: compared plainly, the float's binary tail would
-                // leave the row modified for ever over a difference nobody made.
-                number.Value = SvgViewerParameterFactory.Widen(value.AsNumber);
-                return true;
-
-            case SvgViewerBooleanParameter boolean when value.Type == ExprType.Boolean:
-                boolean.Value = value.AsBoolean;
-                return true;
-
-            case SvgViewerStringParameter text when value.Type == ExprType.String:
-                text.Value = value.AsString;
-                return true;
-
-            case SvgViewerColorParameter colour when value.Type == ExprType.Color:
-                colour.Color = global::Avalonia.Media.Color.FromArgb(value.Alpha, value.Red, value.Green, value.Blue);
-                return true;
-
-            default:
-                return false;
-        }
-    }
+        => _rows.FirstOrDefault(row => string.Equals(row.Name, name, StringComparison.Ordinal))
+               ?.TrySet(value)
+           ?? false;
 
     private Dictionary<string, ExprValue> BuildValues()
     {
@@ -1953,6 +1934,19 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         return true;
     }
 
+    /// <summary>Marks the drawing's text saved, for a host that has written it somewhere itself.</summary>
+    /// <remarks>
+    /// <see cref="SaveSourceAsync"/> for a drawing that has no file of its own: a project holding
+    /// the drawing inline saves it by writing its own file, and then has to say so here or the tab
+    /// goes on carrying an unsaved mark. Asking that method to do it would ask for a file, which is
+    /// the one thing such a drawing has not got.
+    /// </remarks>
+    public void MarkSaved()
+    {
+        _workspace?.MarkSaved();
+        RaiseModified();
+    }
+
     /// <summary>Takes back the last edit to the drawing's text.</summary>
     /// <remarks>
     /// For a host with a menu: the canvas binds the platform's gestures itself, and a menu item
@@ -2090,7 +2084,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        var name = document.Path is { } path ? Path.GetFileName(path) : "drawing";
+        var name = document.Path is { } path ? Path.GetFileName(path) : _name ?? "drawing";
         var count = document.Declarations.Parameters.Count;
 
         _statusText.Text = count == 0

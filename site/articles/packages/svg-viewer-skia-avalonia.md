@@ -60,9 +60,9 @@ await Viewer.LoadAsync("badge.svg");
 | `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
 | `DeclarationTarget` | Where the parameter panel writes, when the drawing's declarations are not in the drawing |
 | `FileDialogService` | Custom storage or picker integration |
-| `Canvas` | Direct access to the surface for zoom and pan; `Show` lays out several drawings at once, and `TryGetPlacementAt` says which one a click fell on |
+| `Canvas` | Direct access to the surface for zoom and pan; `Show` lays out several drawings at once — with `SvgViewerFrame`s drawn under them where a host wants to say that some belong together — and `Rearrange` lays the same set out again without re-fitting, so a host that moves one of them keeps the view on the rest. `TryGetPlacementAt` says which drawing a click fell on, and `Grip` with `Moved` lets a press take hold of something and carry it |
 | `DocumentOpened` / `ErrorRaised` / `ParameterValueChanged` | Syncing host titles and status |
-| `SvgViewerSourceColorizer` / `SourceResourceKey` | Colouring a source view of your own the way this one is coloured — Svg.Studio paints an svgc recipe with them |
+| `SvgViewerSourceColorizer` / `SourceResourceKey` | Colouring a source view of your own the way this one is coloured |
 
 ## Ranges come from the document
 
@@ -204,7 +204,9 @@ keeps its own.
 
 `IsSourceModified` says whether there are edits not on disk and `SourceModifiedChanged` announces it;
 `SaveSourceAsync` writes them back, asking through `FileDialogService` when the drawing has no file
-of its own. In `src/Svg.Studio` that is Cmd/Ctrl+S, a dot on the tab, and a prompt before anything
+of its own. A host that keeps the bytes itself — a [Svg Studio](../guides/svg-studio) project holds
+each drawing inline — writes them where they live and calls `MarkSaved`, since there is no file for
+`SaveSourceAsync` to ask about. In `src/Svg.Studio` that is Cmd/Ctrl+S, a dot on the tab, and a prompt before anything
 throws work away — closing a tab asks about that drawing, closing the window asks once about every
 unsaved one it is holding. The control raises, the host decides, the same way opening works.
 
@@ -284,23 +286,40 @@ viewer.OpenRequested += (_, request) =>
 Hand back what you started. The event is synchronous, so without `Completion` a host has no way to
 say it has not finished, and `OpenAsync` completes while the files are still being read.
 
+### Several drawings, and moving them
+
+A canvas showing an arrangement answers in the space the drawings are arranged in — the union of them
+all — rather than in control pixels, because a place a host saves has to mean the same at every zoom.
+`SvgViewerPlacement` is where one drawing goes; `SvgViewerFrame` is a named rectangle drawn under
+them, holding nothing, for a host that wants to show what belongs to what. A click resolves to
+drawings alone: a frame is furniture, and one is picked by falling through it.
+
+`Grip` is how a press takes hold of something. The host answers what is at a point and how big it is
+— what counts as one thing is the arrangement's own business, and several drawings and the frame
+round them can be one item — and while it is carried the canvas draws it, and everything wholly
+inside the rectangle, where the pointer has it. Nothing else moves: the placements are not rewritten,
+the view is not refitted, and the canvas commits nothing. `Moved` is the request, raised once on
+release, and a host that does nothing about it has refused — what it drew goes back where the
+arrangement still says it is. Escape and a lost capture do the same and raise nothing. Left unset,
+every press pans as it always did.
+
 `src/Svg.Studio` is that host: one viewer per tab, a new tab per file opened, and `Close` on the
-viewer whose tab goes away. A path it recognises as an svgc project opens a pane beside the tabs
-instead of a tab, which is why the request carries paths rather than drawings.
+viewer whose tab goes away. A path it recognises as a project opens a pane beside the tabs instead of
+a tab, which is why the request carries paths rather than drawings. `LoadTextAsync` is how a drawing
+that is not a file of its own — one a project holds inline — reaches a viewer, at the size the host
+asks for and under the name it gives it.
 
 `SizeRequest` is the seam that host opens a project's drawings through: a size applied to the parsed
 document on every build, the file left as it was written. `Edit → Resize…` is the other half of the
 pair and the opposite choice — it rewrites the drawing's own text.
 
-`Rewrite` is the second such seam, and goes further: the drawing built is not the file at all. Studio
-sets it to a project's recipe, so what is on screen is the document `svgc` compiles — colours turned
-into expressions, and the recipe's parameters declared. Everything else still works from the file:
-`Source` is it and a save writes it, and every rebuild goes back through the rewrite.
-Because the declarations then belong to the recipe rather than to the drawing, a host sets
-`DeclarationTarget` to say where the parameter panel should write: the recipe is a different file
-held as a tree of its own, and `ISvgViewerDeclarationTarget` is the seam to it. Left unset the
-commands go into the drawing, which is what a drawing declaring for itself wants — and what a recipe refuses to be
-applied to. `Notice` is where a host says a rewrite could not be
+`Rewrite` is the second such seam, and goes further: the drawing built is not the file at all — an
+svgc recipe applied on the way to the canvas, so what is on screen is the document the tool compiles.
+Everything else still works from the text: `Source` is it and a save writes it, and every rebuild
+goes back through the rewrite. Where the declarations then belong to whatever made them rather than
+to the drawing, a host sets `DeclarationTarget` to say where the parameter panel should write;
+`ISvgViewerDeclarationTarget` is the seam to it. Left unset the commands go into the drawing, which
+is what a drawing declaring for itself wants. `Notice` is where a host says a rewrite could not be
 set up at all; it appears on the status line beside the viewer's own count of what is wrong.
 
 ## Two things worth knowing

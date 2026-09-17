@@ -148,7 +148,14 @@ public sealed class SvgViewerDocument : IDisposable
         return Describe(svg, path, source, mark, rewrite);
     }
 
-    public static SvgViewerDocument LoadFromSvg(string svgText, string? path = null)
+    /// <summary>The drawing <paramref name="svgText"/> holds, built at the size <paramref name="request"/> asks for.</summary>
+    /// <remarks>
+    /// The size is applied to the parsed document rather than to its text, as it is for a drawing
+    /// read from a file: a project's <c>scale="2"</c> says how to build a drawing, not what the
+    /// drawing is. A drawing a project holds inline passes no path, and so resolves nothing
+    /// relative — what it references has to be carried in the text.
+    /// </remarks>
+    public static SvgViewerDocument LoadFromSvg(string svgText, string? path = null, SvgSizeRequest request = default)
     {
         if (svgText is null)
         {
@@ -157,7 +164,7 @@ public sealed class SvgViewerDocument : IDisposable
 
         var svg = new SKSvg();
 
-        if (svg.FromSvg(svgText) is null)
+        if (Text(svg, request, svgText, BaseUri(path)) is null)
         {
             svg.Dispose();
             throw new InvalidOperationException("The text could not be read as SVG.");

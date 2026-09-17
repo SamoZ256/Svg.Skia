@@ -156,7 +156,8 @@ public class SvgRecipeTests
     [InlineData("<recipe><replace color=\"red\">a</replace></recipe>", "must be <recipe")]
     [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace color=\"red\">a</replace>", "not well formed")]
     // A value the language cannot drive at all, named as an attribute.
-    [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace stroke-width=\"1\">w</replace></recipe>", "cannot replace 'stroke-width'")]
+    // A rule names a value the extension can drive; stroke-width now is one, and path data is not.
+    [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace d=\"M0,0\">p</replace></recipe>", "cannot replace 'd'")]
     // A colour attribute is replaceable, but only under the one name that claims all of them.
     [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace fill=\"red\">a</replace></recipe>", "one attribute at a time")]
     [InlineData("<recipe xmlns=\"https://svg.skia/expr/1.0\"><replace color=\"red\" opacity=\"1\">a</replace></recipe>", "a rule replaces one value")]

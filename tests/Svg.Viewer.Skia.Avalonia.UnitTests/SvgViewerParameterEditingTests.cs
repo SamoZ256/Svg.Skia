@@ -46,6 +46,48 @@ public class SvgViewerParameterEditingTests
         </svg>
         """;
 
+    private const string Stepped = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="steps" type="integer" default="4" min="0" max="9" step="1" />
+            </e:code>
+          </defs>
+          <rect x="0" y="0" width="24" height="24" fill="#ff0000" opacity="{{ num(steps) / 10 }}" />
+        </svg>
+        """;
+
+    [AvaloniaFact]
+    public async Task An_Integer_Parameter_Gets_A_Row_Of_Its_Own()
+    {
+        var (window, viewer) = await HostLoaded(Stepped);
+
+        var row = Assert.IsType<SvgViewerIntegerParameter>(Assert.Single(viewer.Parameters));
+
+        Assert.Equal("steps", row.Name);
+        Assert.Equal(4, row.Value);
+        Assert.Equal(0, row.Minimum);
+        Assert.Equal(9, row.Maximum);
+        Assert.Equal(1, row.Step);
+        Assert.False(row.IsModified);
+
+        // The value a host puts back, and the one a commit would write into the document.
+        Assert.True(viewer.TrySetParameterValue("steps", ExprValue.Integer(7)));
+        Assert.Equal(7, row.Value);
+        Assert.True(row.IsModified);
+        Assert.Equal("7", row.ToExpression());
+        Assert.Equal(ExprType.Integer, row.ToExprValue().Type);
+
+        // A number is not an integer, and the row says so rather than rounding one in.
+        Assert.False(viewer.TrySetParameterValue("steps", ExprValue.Number(2f)));
+        Assert.Equal(7, row.Value);
+
+        row.ResetToDefault();
+        Assert.Equal(4, row.Value);
+
+        window.Close();
+    }
+
     private const string Grouped = """
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
           <defs>
@@ -473,8 +515,17 @@ public class SvgViewerParameterEditingTests
         Dispatcher.UIThread.RunJobs();
 
         form.GetVisualDescendants().OfType<TextBox>().First(box => box.Name == "NameBox").Text = name;
-        form.GetVisualDescendants().OfType<ComboBox>().First(box => box.Name == "TypeBox").SelectedIndex =
-            type == ExprType.Number ? 0 : type == ExprType.Color ? 1 : type == ExprType.Boolean ? 2 : 3;
+        form.GetVisualDescendants().OfType<ComboBox>().First(box => box.Name == "TypeBox").SelectedIndex = type switch
+        {
+            // The picker's order, which is the enum's. Named rather than counted from the end, so a
+            // type added between two of these moves the indices here and not silently the meaning.
+            ExprType.Number => 0,
+            ExprType.Integer => 1,
+            ExprType.Color => 2,
+            ExprType.Boolean => 3,
+            ExprType.String => 4,
+            _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}."),
+        };
 
         SvgExpressionParameter? accepted = null;
 

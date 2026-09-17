@@ -44,6 +44,8 @@ internal static class ExprMath
     public static float Max(float x, float y) => MathF.Max(x, y);
 
     public static float Clamp(float value, float min, float max) => Math.Clamp(value, min, max);
+
+    public static int Clamp(int value, int min, int max) => Math.Clamp(value, min, max);
 #else
     public const float Pi = ExprMathFallback.Pi;
 
@@ -70,6 +72,8 @@ internal static class ExprMath
     public static float Max(float x, float y) => ExprMathFallback.Max(x, y);
 
     public static float Clamp(float value, float min, float max) => ExprMathFallback.Clamp(value, min, max);
+
+    public static int Clamp(int value, int min, int max) => ExprMathFallback.Clamp(value, min, max);
 #endif
 }
 
@@ -110,6 +114,27 @@ internal static class ExprMathFallback
     // Math.Clamp's own behaviour, including the throw: a reversed range is a mistake in the
     // document, and generated code would raise it at runtime rather than picking a bound.
     public static float Clamp(float value, float min, float max)
+    {
+        if (min > max)
+        {
+            throw new ArgumentException($"'{min}' cannot be greater than {max}.", nameof(min));
+        }
+
+        if (value < min)
+        {
+            return min;
+        }
+
+        if (value > max)
+        {
+            return max;
+        }
+
+        return value;
+    }
+
+    // The same rule in integers, and the same throw for a reversed range.
+    public static int Clamp(int value, int min, int max)
     {
         if (min > max)
         {

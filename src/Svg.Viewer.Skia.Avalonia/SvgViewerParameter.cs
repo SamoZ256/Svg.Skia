@@ -42,6 +42,14 @@ public abstract class SvgViewerParameter : INotifyPropertyChanged
     /// </remarks>
     public abstract ExprValue ToExprValue();
 
+    /// <summary>Takes a value back, where it is one this row can hold.</summary>
+    /// <remarks>
+    /// The inverse of <see cref="ToExprValue"/>, and refused rather than coerced: a number offered
+    /// to an integer row is a caller's mistake, and rounding it would put a value into the drawing
+    /// that the evaluator refuses and nobody chose.
+    /// </remarks>
+    public abstract bool TrySet(ExprValue value);
+
     /// <summary>The value as a document would write it, for committing it as the declared default.</summary>
     /// <remarks>
     /// The expression language, since the same parser reads it back. It is a literal, so committing
@@ -118,9 +126,89 @@ public sealed class SvgViewerNumberParameter : SvgViewerParameter
 
     public override ExprValue ToExprValue() => ExprValue.Number((float)_value);
 
+    public override bool TrySet(ExprValue value)
+    {
+        if (value.Type != ExprType.Number)
+        {
+            return false;
+        }
+
+        // The same widening the seed took: compared plainly, the float's binary tail would leave
+        // the row modified for ever over a difference nobody made.
+        Value = SvgViewerParameterFactory.Widen(value.AsNumber);
+
+        return true;
+    }
+
     public override string ToExpression() => SvgViewerParameterFactory.Describe(ToExprValue());
 
     public override bool IsModified => !_value.Equals(_seed);
+
+    public override void ResetToDefault() => Value = _seed;
+}
+
+/// <summary>An <c>integer</c> parameter, with the range its author declared.</summary>
+/// <remarks>
+/// Its own row rather than a number one that rounds: a control bound to a double would let a drag
+/// land between two values and put a number back where an integer is declared, which the evaluator
+/// refuses. The bounds are held as ints for the same reason.
+/// </remarks>
+public sealed class SvgViewerIntegerParameter : SvgViewerParameter
+{
+    private readonly int _seed;
+    private int _value;
+
+    internal SvgViewerIntegerParameter(
+        SvgExpressionParameter declaration,
+        int seed,
+        int minimum,
+        int maximum,
+        int step)
+        : base(declaration)
+    {
+        _seed = seed;
+        _value = seed;
+        Minimum = minimum;
+        Maximum = maximum;
+        Step = step;
+    }
+
+    public int Minimum { get; }
+
+    public int Maximum { get; }
+
+    /// <summary>The declared increment, which is one where the document declared none.</summary>
+    /// <remarks>
+    /// One rather than zero, unlike a number's: a continuous integer is a contradiction, so there is
+    /// no case for the number row's hundredth-of-the-range fallback to serve.
+    /// </remarks>
+    public int Step { get; }
+
+    public int TickFrequency => Step;
+
+    public int Value
+    {
+        get => _value;
+        set => Set(ref _value, value);
+    }
+
+    public override ExprValue ToExprValue() => ExprValue.Integer(_value);
+
+    public override bool TrySet(ExprValue value)
+    {
+        if (value.Type != ExprType.Integer)
+        {
+            return false;
+        }
+
+        Value = value.AsInteger;
+
+        return true;
+    }
+
+    public override string ToExpression() => SvgViewerParameterFactory.Describe(ToExprValue());
+
+    public override bool IsModified => _value != _seed;
 
     public override void ResetToDefault() => Value = _seed;
 }
@@ -145,6 +233,18 @@ public sealed class SvgViewerColorParameter : SvgViewerParameter
     }
 
     public override ExprValue ToExprValue() => ExprValue.Color(_color.R, _color.G, _color.B, _color.A);
+
+    public override bool TrySet(ExprValue value)
+    {
+        if (value.Type != ExprType.Color)
+        {
+            return false;
+        }
+
+        Color = global::Avalonia.Media.Color.FromArgb(value.Alpha, value.Red, value.Green, value.Blue);
+
+        return true;
+    }
 
     public override string ToExpression() => SvgViewerParameterFactory.Describe(ToExprValue());
 
@@ -178,6 +278,18 @@ public sealed class SvgViewerStringParameter : SvgViewerParameter
 
     public override ExprValue ToExprValue() => ExprValue.String(_value);
 
+    public override bool TrySet(ExprValue value)
+    {
+        if (value.Type != ExprType.String)
+        {
+            return false;
+        }
+
+        Value = value.AsString;
+
+        return true;
+    }
+
     public override string ToExpression() => SvgViewerParameterFactory.Describe(ToExprValue());
 
     public override bool IsModified => !string.Equals(_value, _seed, StringComparison.Ordinal);
@@ -205,6 +317,18 @@ public sealed class SvgViewerBooleanParameter : SvgViewerParameter
     }
 
     public override ExprValue ToExprValue() => ExprValue.Boolean(_value);
+
+    public override bool TrySet(ExprValue value)
+    {
+        if (value.Type != ExprType.Boolean)
+        {
+            return false;
+        }
+
+        Value = value.AsBoolean;
+
+        return true;
+    }
 
     public override string ToExpression() => SvgViewerParameterFactory.Describe(ToExprValue());
 

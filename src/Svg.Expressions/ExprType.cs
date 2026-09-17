@@ -13,6 +13,7 @@ namespace Svg.Expressions;
 public enum ExprType
 {
     Number,
+    Integer,
     Color,
     Boolean,
     String

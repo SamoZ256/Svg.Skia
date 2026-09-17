@@ -20,6 +20,14 @@ public abstract record TypedExpr(ExprType Type, int Position);
 public sealed record TypedNumber(int Position, double Value)
     : TypedExpr(ExprType.Number, Position);
 
+/// <remarks>
+/// Carries a <see langword="long"/> for the same reason <see cref="TypedNumber"/> carries a double:
+/// the literal keeps the width it was written in, and the checker range checks before the back end
+/// narrows it to the <see langword="int"/> an integer actually is.
+/// </remarks>
+public sealed record TypedInteger(int Position, long Value)
+    : TypedExpr(ExprType.Integer, Position);
+
 public sealed record TypedColor(int Position, byte R, byte G, byte B, byte A)
     : TypedExpr(ExprType.Color, Position);
 

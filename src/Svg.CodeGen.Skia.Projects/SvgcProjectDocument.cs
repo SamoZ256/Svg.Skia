@@ -666,6 +666,17 @@ public sealed class SvgcProjectDocument
     public static SvgcProjectDocument Parse(string xml, string baseDirectory)
         => Parse(xml, baseDirectory, null, false);
 
+    /// <summary>
+    /// A project holding nothing, on the two lines a first drawing is written between.
+    /// </summary>
+    /// <remarks>
+    /// No namespace, because the build already defaults one and a guess written into the file would
+    /// have to be found and corrected rather than simply typed. Empty rather than a template with a
+    /// drawing in it: the input would name a file that is not there, and the project would not open.
+    /// </remarks>
+    public static SvgcProjectDocument Empty(string baseDirectory)
+        => Parse("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<svgc>\n</svgc>\n", baseDirectory);
+
     private static SvgcProjectDocument Parse(string xml, string baseDirectory, string? path, bool byteOrderMark)
     {
         XDocument document;
