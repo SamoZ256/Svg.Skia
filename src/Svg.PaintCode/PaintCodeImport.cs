@@ -36,8 +36,6 @@ public static class PaintCodeImport
         }
 
         var notes = new List<PaintCodeImportNote>();
-        var declarations = PaintCodeDeclarations.Of(document, options.Integers);
-        var symbols = PaintCodeSymbols.Of(document);
         var files = new List<string>();
         var project = options.ProjectPath is { } path
             ? SvgcProjectDocument.Empty(Path.GetDirectoryName(Path.GetFullPath(path)) ?? options.Directory)
@@ -45,27 +43,19 @@ public static class PaintCodeImport
 
         if (project is { })
         {
-            project.Root.Namespace = options.Namespace ?? PaintCodeSlug.Pascal(document.Name);
+            project.Root.Namespace = NamespaceOf(document, options);
         }
 
-        foreach (var desk in document.Desks)
+        foreach (var desk in Desks(document, options, notes))
         {
-            var slug = PaintCodeSlug.Of(desk.Name);
-            var folder = Path.Combine(options.Directory, slug);
-            var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var folder = Path.Combine(options.Directory, desk.Folder);
             SvgcProjectGroup? group = null;
 
-            foreach (var canvas in desk.Canvases)
+            foreach (var canvas in desk.Drawings)
             {
-                if (!canvas.IsExported && !options.IncludeSymbolOnlyCanvases)
-                {
-                    continue;
-                }
-
-                var name = Unique(taken, PaintCodeSlug.Of(canvas.Name));
-                var file = Path.Combine(folder, name + ".svg");
+                var file = Path.Combine(folder, canvas.Name + ".svg");
                 Directory.CreateDirectory(folder);
-                Write(PaintCodeSvgWriter.Write(canvas, declarations, symbols, notes), file);
+                Write(canvas.Document, file);
                 files.Add(file);
 
                 if (project is null)
@@ -73,17 +63,15 @@ public static class PaintCodeImport
                     continue;
                 }
 
-                // A desk is only a group once something is in it: an empty one would generate a
-                // namespace with nothing in it and show in Studio as a row that opens on nothing.
-                group ??= Group(project, PaintCodeSlug.Pascal(desk.Name));
+                group ??= Group(project, desk.Name);
 
-                var drawing = group.AddDrawing(slug + "/" + name + ".svg", group.Children.Count);
-                drawing.Class = PaintCodeSlug.Pascal(canvas.Name);
+                var drawing = group.AddDrawing(desk.Folder + "/" + canvas.Name + ".svg", group.Children.Count);
+                drawing.Class = canvas.Class;
 
                 // A drawing needs somewhere for its C# to go, or the build stops on the first row.
                 // Beside the drawing is the answer that needs no decision; a project meant to fold
                 // into one file says so afterwards, by naming a singleFile and clearing these.
-                drawing.Output = slug + "/" + name + ".cs";
+                drawing.Output = desk.Folder + "/" + canvas.Name + ".cs";
             }
         }
 
@@ -93,6 +81,72 @@ public static class PaintCodeImport
         }
 
         return new PaintCodeImportResult(options.ProjectPath, files, notes);
+    }
+
+    /// <summary>The namespace the generated code sits in: the one asked for, or the document's own.</summary>
+    public static string NamespaceOf(PaintCodeDocument document, PaintCodeImportOptions options)
+        => options?.Namespace ?? PaintCodeSlug.Pascal((document ?? throw new ArgumentNullException(nameof(document))).Name);
+
+    /// <summary>
+    /// The drawings a document holds, desk by desk, without writing any of them.
+    /// </summary>
+    /// <remarks>
+    /// For a caller that keeps the drawings rather than filing them — a Svg.Studio project holds
+    /// them inline, and writing a thousand files to read them straight back would be both slower and
+    /// less faithful than the documents themselves.
+    ///
+    /// A desk with nothing in it is left out: it would be a namespace with nothing in it, and a row
+    /// in Studio that opens on nothing.
+    /// </remarks>
+    public static IReadOnlyList<PaintCodeImportDesk> Desks(
+        PaintCodeDocument document,
+        PaintCodeImportOptions options,
+        ICollection<PaintCodeImportNote> notes)
+    {
+        if (document is null)
+        {
+            throw new ArgumentNullException(nameof(document));
+        }
+
+        if (options is null)
+        {
+            throw new ArgumentNullException(nameof(options));
+        }
+
+        if (notes is null)
+        {
+            throw new ArgumentNullException(nameof(notes));
+        }
+
+        var declarations = PaintCodeDeclarations.Of(document, options.Integers);
+        var symbols = PaintCodeSymbols.Of(document);
+        var desks = new List<PaintCodeImportDesk>();
+
+        foreach (var desk in document.Desks)
+        {
+            var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var drawings = new List<PaintCodeImportDrawing>();
+
+            foreach (var canvas in desk.Canvases)
+            {
+                if (!canvas.IsExported && !options.IncludeSymbolOnlyCanvases)
+                {
+                    continue;
+                }
+
+                drawings.Add(new PaintCodeImportDrawing(
+                    Unique(taken, PaintCodeSlug.Of(canvas.Name)),
+                    PaintCodeSlug.Pascal(canvas.Name),
+                    PaintCodeSvgWriter.Write(canvas, declarations, symbols, notes)));
+            }
+
+            if (drawings.Count > 0)
+            {
+                desks.Add(new PaintCodeImportDesk(PaintCodeSlug.Pascal(desk.Name), PaintCodeSlug.Of(desk.Name), drawings));
+            }
+        }
+
+        return desks;
     }
 
     /// <summary>The drawing as text: two-space indent, no declaration, a newline at the end.</summary>
