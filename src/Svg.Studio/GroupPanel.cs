@@ -847,13 +847,12 @@ public sealed class GroupPanel : UserControl
 
         Forget();
 
-        var had = _built.ToDictionary(one => one.Drawing);
+        var had = _built;
+        var reusing = had.ToDictionary(one => one.Drawing);
 
         var built = ((ProjectGroup)Node).Drawings
-            .Select(drawing => Draw(drawing, had.GetValueOrDefault(drawing)))
+            .Select(drawing => Draw(drawing, reusing.GetValueOrDefault(drawing)))
             .ToList();
-
-        Discard(built);
 
         _built = built;
 
@@ -867,6 +866,8 @@ public sealed class GroupPanel : UserControl
         if (drawn.Count == 0)
         {
             _canvas.Show(Array.Empty<SvgViewerPlacement>());
+
+            Discard(had, built);
 
             if (built.Count == 0)
             {
@@ -897,6 +898,11 @@ public sealed class GroupPanel : UserControl
         {
             _canvas.Rearrange(placed, frames);
         }
+
+        // Only now: a picture belongs to its document, and until the line above the canvas was still
+        // holding the board it had. The render thread reads a snapshot of its own, so a document
+        // disposed while one naming its picture is published is a surface drawing freed memory.
+        Discard(had, built);
 
         // The same row as before, over whatever it is built from now: what is shown is looked up
         // again rather than put back, and that is the point — the tabs beside it are about the
@@ -1318,7 +1324,7 @@ public sealed class GroupPanel : UserControl
 
         _canvas.Show(Array.Empty<SvgViewerPlacement>());
 
-        Discard(Array.Empty<Drawn>());
+        Discard(_built, Array.Empty<Drawn>());
 
         _built = Array.Empty<Drawn>();
         _stale = true;
@@ -1349,12 +1355,16 @@ public sealed class GroupPanel : UserControl
         Says(null);
     }
 
-    /// <summary>Disposes every document the build being kept did not take over.</summary>
-    private void Discard(IReadOnlyList<Drawn> kept)
+    /// <summary>
+    /// Disposes every document of <paramref name="previous"/> that <paramref name="kept"/> did not
+    /// take over.
+    /// </summary>
+    /// <remarks>Always after the canvas has been given what replaces them. See the call site.</remarks>
+    private static void Discard(IReadOnlyList<Drawn> previous, IReadOnlyList<Drawn> kept)
     {
         var keeping = kept.Where(one => one.Document is { }).Select(one => one.Document!).ToHashSet();
 
-        foreach (var built in _built)
+        foreach (var built in previous)
         {
             if (built.Document is { } document && !keeping.Contains(document))
             {
