@@ -17,10 +17,10 @@ using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using Svg.CodeGen.Skia.Projects;
 using SkiaSharp;
+using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
-using Svg.Expressions.Recipes;
+using Svg.Skia;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
@@ -210,41 +210,6 @@ public class MainWindowProjectTests : IDisposable
 
     // ---- the canvas on a group's tab ----------------------------------------------------------
 
-    /// <summary>A recipe that paints the fixture something it is not, so a pixel can tell.</summary>
-    /// <remarks>
-    /// hue 0 rather than the 120 <see cref="Recipe"/> uses: 120 is hsl for the #00ff00 the drawing
-    /// already is, which would pass whether the recipe reached the canvas or not.
-    /// </remarks>
-    private const string RedRecipe = """
-        <recipe xmlns="https://svg.skia/expr/1.0">
-          <code>
-            <param name="hue" type="number" default="0" />
-            <let name="tint">hsl(hue, 100%, 50%)</let>
-          </code>
-          <replace color="#00ff00">tint</replace>
-        </recipe>
-        """;
-
-    [AvaloniaFact]
-    public async Task A_Groups_Drawings_Are_Drawn_On_Its_Tab()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        var window = await Host(Write("icons.svgcproj", Project));
-
-        // The project row opens as a tab of its own, and it is a group like any other.
-        var drawn = Drawn(Panel(window, "Demo.Icons"));
-
-        Assert.Equal(2, drawn.Count);
-        Assert.All(drawn, placed => Assert.NotNull(Picture(placed)));
-
-        // In the order the project builds them, and not one on top of another.
-        Assert.StartsWith("home.svg", drawn[0].Label);
-        Assert.StartsWith("badge.svg", drawn[1].Label);
-        Assert.NotEqual(drawn[0].At, drawn[1].At);
-    }
-
     [AvaloniaFact]
     public async Task A_Drawing_Keeps_The_Line_The_List_Showed_As_Its_Caption()
     {
@@ -375,54 +340,6 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         Assert.All(Drawn(panel), placed => Assert.NotNull(Picture(placed)));
-    }
-
-    /// <summary>
-    /// A group's canvas is painted the way its drawings' own tabs are painted.
-    /// </summary>
-    /// <remarks>
-    /// Through the open buffer rather than the recipe file, which the second half is what proves: a
-    /// rule typed and not saved moves the icons, as it already moves the drawing on its own tab.
-    /// </remarks>
-    [AvaloniaFact]
-    public async Task A_Drawing_Under_A_Recipe_Is_Drawn_As_The_Project_Builds_It()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        var recipe = Write("icons.recipe", RedRecipe);
-        var window = await Host(Write("icons.svgcproj", RecipeProject));
-        var panel = Panel(window, "Demo.Icons");
-        var drawn = Drawn(panel);
-
-        // home.svg is outside the group the recipe is on, so nothing rewrites it.
-        Assert.Equal(SKColors.Lime, Centre(Picture(drawn[0])!));
-        Assert.Equal(SKColors.Red, Centre(Picture(drawn[1])!));
-
-        window.ShowRecipe(recipe)!.SetText(RedRecipe.Replace("\"0\"", "\"240\""));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(RedRecipe, File.ReadAllText(recipe));
-
-        Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>()
-            .Single(item => ReferenceEquals(item.Content, panel));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(SKColors.Blue, Centre(Picture(Drawn(panel)[1])!));
-    }
-
-    /// <summary>The colour in the middle of a drawing, which for the fixture is all of it.</summary>
-    private static SKColor Centre(SKPicture picture)
-    {
-        var bounds = picture.CullRect;
-
-        using var bitmap = new SKBitmap((int)bounds.Width, (int)bounds.Height);
-        using var canvas = new SKCanvas(bitmap);
-
-        canvas.Clear(SKColors.Transparent);
-        canvas.DrawPicture(picture);
-
-        return bitmap.GetPixel(bitmap.Width / 2, bitmap.Height / 2);
     }
 
     /// <summary>
@@ -691,7 +608,7 @@ public class MainWindowProjectTests : IDisposable
 
     // ---- the tabs follow the selected drawing ---------------------------------------------------
 
-    /// <summary>A drawing that declares its own parameters, so it needs no recipe.</summary>
+    /// <summary>A drawing that declares its own parameters.</summary>
     private const string Declaring = """
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
           <defs><e:code><e:param name="tint" type="color" default="#00ff00" /></e:code></defs>
@@ -699,260 +616,116 @@ public class MainWindowProjectTests : IDisposable
         </svg>
         """;
 
-    /// <summary>A group with a recipe on it and two drawings built through it.</summary>
-    private const string SharedRecipeProject = """
-        <svgc>
-          <namespace>Demo.Icons</namespace>
-          <group namespace="Demo.Icons.Both" recipe="icons.recipe">
-            <svg input="home.svg" class="Home" />
-            <svg input="badge.svg" class="Badge" />
-          </group>
-        </svgc>
-        """;
-
-    // ---- writing a recipe into the drawings ------------------------------------------------------
-
-    /// <summary>Two groups, each with a recipe of its own, under one that names none.</summary>
-    private const string NestedRecipeProject = """
-        <svgc>
-          <namespace>Demo.Icons</namespace>
-          <group namespace="Demo.Icons.All">
-            <group namespace="Demo.Icons.One" recipe="icons.recipe">
-              <svg input="home.svg" class="Home" />
-            </group>
-            <group namespace="Demo.Icons.Two" recipe="other.recipe">
-              <svg input="badge.svg" class="Badge" />
-            </group>
-          </group>
-        </svgc>
-        """;
-
-    private const string OtherRecipe = """
-        <recipe xmlns="https://svg.skia/expr/1.0">
-          <code>
-            <param name="shade" type="color" default="#0000ff" />
-          </code>
-          <replace color="#00ff00">shade</replace>
-        </recipe>
-        """;
-
-    /// <summary>The project node a tree row stands for, found by the label the row shows.</summary>
-    private static SvgcProjectNode Node(MainWindow window, string label)
-        => (SvgcProjectNode)Row(window, label).Tag!;
-
-    /// <summary>A window whose dialogs answer themselves, since a modal cannot be driven.</summary>
-    private static List<string> Willing(MainWindow window)
-    {
-        var said = new List<string>();
-
-        window.ConfirmApply = _ => Task.FromResult(true);
-        window.Announce = (_, message) => { said.Add(message); return Task.CompletedTask; };
-
-        return said;
-    }
-
     [AvaloniaFact]
-    public async Task Applying_A_Recipe_Writes_It_Into_The_Drawings()
-    {
-        var home = Write("home.svg", Drawing);
-        var badge = Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
-
-        Willing(window);
-
-        Assert.True(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
-        Dispatcher.UIThread.RunJobs();
-
-        // Both files hold the declarations and the expression now, and neither is the recipe's.
-        foreach (var path in new[] { home, badge })
-        {
-            var written = File.ReadAllText(path);
-
-            Assert.Contains("<e:code>", written);
-            Assert.Contains("name=\"hue\"", written);
-            Assert.Contains("fill=\"{{ tint }}\"", written);
-            Assert.DoesNotContain("#00ff00", written);
-        }
-    }
-
-    [AvaloniaFact]
-    public async Task Applying_A_Recipe_Stops_The_Node_Naming_It()
+    public async Task A_Groups_Drawings_Are_Drawn_On_Its_Tab()
     {
         Write("home.svg", Drawing);
         Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
 
-        var path = Write("icons.svgcproj", SharedRecipeProject);
-        var window = await Host(path);
+        var window = await Host(Write("icons.svgcproj", Project));
 
-        Willing(window);
+        // The project row opens as a tab of its own, and it is a group like any other.
+        var drawn = Drawn(Panel(window, "Demo.Icons"));
 
-        Assert.True(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
-        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(2, drawn.Count);
+        Assert.All(drawn, placed => Assert.NotNull(Picture(placed)));
 
-        // The drawings declare their own parameters now, so the project has no reason to name it —
-        // and naming it would put a build back through a conversion with nothing left to do.
-        Assert.DoesNotContain("recipe=", File.ReadAllText(path));
-    }
-
-    /// <summary>Each drawing takes the recipe nearest to it, not the one the command was pressed on.</summary>
-    [AvaloniaFact]
-    public async Task Applying_A_Recipe_Reaches_The_Recipes_Of_Groups_Below()
-    {
-        var home = Write("home.svg", Drawing);
-        var badge = Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
-        Write("other.recipe", OtherRecipe);
-
-        var path = Write("icons.svgcproj", NestedRecipeProject);
-        var window = await Host(path);
-
-        Willing(window);
-
-        // The node pressed names no recipe at all; both of the ones below it are applied.
-        Assert.True(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.All")));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(home));
-        Assert.Contains("fill=\"{{ shade }}\"", File.ReadAllText(badge));
-
-        // Both settings are gone, since both nodes that named one sit under what was applied.
-        Assert.DoesNotContain("recipe=", File.ReadAllText(path));
-    }
-
-    /// <summary>The recipe is on the project, above the group the command is pressed on.</summary>
-    private const string InheritedRecipeProject = """
-        <svgc>
-          <namespace>Demo.Icons</namespace>
-          <recipe>icons.recipe</recipe>
-          <group namespace="Demo.Icons.Both">
-            <svg input="home.svg" class="Home" />
-            <svg input="badge.svg" class="Badge" />
-          </group>
-        </svgc>
-        """;
-
-    /// <summary>
-    /// A recipe inherited from above the node is applied, and left named.
-    /// </summary>
-    /// <remarks>
-    /// It covers drawings this did not touch, so taking it away would take it from them too. Safe
-    /// to leave only because applying it again to a drawing that already holds its declarations
-    /// now does nothing — which is what the second half of this checks.
-    /// </remarks>
-    [AvaloniaFact]
-    public async Task Applying_An_Inherited_Recipe_Leaves_It_Named_And_Is_Idempotent()
-    {
-        var home = Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
-
-        var path = Write("icons.svgcproj", InheritedRecipeProject);
-        var window = await Host(path);
-
-        var said = Willing(window);
-
-        Assert.True(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(home));
-
-        // The project still names it, because it is the project's and not this group's.
-        Assert.Contains("icons.recipe", File.ReadAllText(path));
-
-        var was = File.ReadAllText(home);
-
-        said.Clear();
-
-        // So the command is still offered, and pressing it again goes all the way through the
-        // rewriter, finds every declaration already made and every value already an expression,
-        // and writes nothing.
-        Assert.False(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(was, File.ReadAllText(home));
-        Assert.Contains(said, message => message.Contains("already in the expression format", StringComparison.Ordinal));
-
-        // And no warnings. A drawing already converted matches no rule by definition, and saying so
-        // for every rule of every one of them would bury a drawing that really is missing a colour.
-        Assert.DoesNotContain(said, message => message.Contains("warning:", StringComparison.Ordinal));
+        // In the order the project builds them, and not one on top of another.
+        Assert.StartsWith("home.svg", drawn[0].Label);
+        Assert.StartsWith("badge.svg", drawn[1].Label);
+        Assert.NotEqual(drawn[0].At, drawn[1].At);
     }
 
     [AvaloniaFact]
-    public async Task Applying_A_Recipe_Named_Twice_Over_Writes_The_File_Once()
-    {
-        // A project builds one drawing more than once. Converting it per row would convert it and
-        // then meet its own output on the second pass.
-        Write("home.svg", Drawing);
-        Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", """
-            <svgc>
-              <namespace>Demo.Icons</namespace>
-              <group namespace="Demo.Icons.Both" recipe="icons.recipe">
-                <svg input="home.svg" class="Home" />
-                <svg input="home.svg" class="HomeAgain" />
-              </group>
-            </svgc>
-            """));
-
-        var said = Willing(window);
-
-        Assert.True(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains(said, message => message.Contains("1 of 1", StringComparison.Ordinal));
-    }
-
-    [AvaloniaFact]
-    public async Task Applying_A_Recipe_Is_Refused_While_Anything_Is_Unsaved()
-    {
-        var home = Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        var recipe = Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
-
-        var said = Willing(window);
-        var was = File.ReadAllText(home);
-
-        // A rule typed into the recipe and not saved. Reading the file would bake something else
-        // than what is on screen; reading the buffer would bake what no file says.
-        window.ShowRecipe(recipe)!.SetText(" " + window.ShowRecipe(recipe)!.Text);
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.False(await window.ApplyRecipeAsync(Node(window, "Demo.Icons.Both")));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(was, File.ReadAllText(home));
-        Assert.Contains(said, message => message.Contains("icons.recipe", StringComparison.Ordinal));
-    }
-
-    [AvaloniaFact]
-    public async Task Applying_A_Recipe_Offers_Itself_Where_A_Recipe_Reaches()
+    public async Task Picking_A_Tab_Opens_The_Tree_Down_To_What_It_Shows()
     {
         Write("home.svg", Drawing);
         Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
-        Write("other.recipe", OtherRecipe);
 
-        var window = await Host(Write("icons.svgcproj", NestedRecipeProject));
+        var window = await Host(Write("icons.svgcproj", Project));
 
-        // The outer group names nothing itself, and still offers it: the groups under it do.
-        Assert.Contains("Apply…", RecipeButtons(await Group(window, 0)));
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var group = (TreeViewItem)root.Items[1]!;
+        var badge = (TreeViewItem)group.Items[0]!;
+
+        await window.ShowAsync((SvgcProjectNode)badge.Tag!);
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        // Folded away with a tab from inside it still open, which is what makes the tree stop
+        // saying anything about where that tab is.
+        group.IsExpanded = false;
+        Dispatcher.UIThread.RunJobs();
+
+        Tabs(window).SelectedItem = Tabs(window).Items
+            .OfType<TabItem>()
+            .Single(item => ReferenceEquals(item.Tag, badge.Tag));
+
+        Dispatcher.UIThread.RunJobs();
+
+        // Picking the tab is the answer to "where is this?", so the row comes back into sight.
+        Assert.True(group.IsExpanded);
+        Assert.Same(badge, Tree(window).SelectedItem);
     }
 
     [AvaloniaFact]
-    public async Task A_Group_Under_No_Recipe_Does_Not_Offer_To_Apply_One()
+    public async Task Saving_A_Drawing_As_Another_File_Points_Its_Tab_At_The_New_One()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Project));
+
+        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = await Settle(window, "home.svg");
+        var copy = Path.Combine(_directory, "copied.svg");
+
+        Assert.True(await window.SaveAsAsync(copy));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(Drawing, File.ReadAllText(copy));
+
+        // The one it came from is left as it was: this is a save under another name, not a move.
+        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "home.svg")));
+
+        // And the tab is the new file's now, so saving again writes there.
+        await Settle(window, "copied.svg");
+
+        Assert.Equal(copy, viewer.DocumentPath);
+        Assert.False(viewer.IsSourceModified);
+    }
+
+    [AvaloniaFact]
+    public async Task Save_Is_Offered_Only_While_Something_Is_Unsaved()
     {
         Write("home.svg", Drawing);
         Write("badge.svg", Drawing);
 
         var window = await Host(Write("icons.svgcproj", Pair));
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var group = (SvgcProjectGroup)(SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!;
 
-        Assert.DoesNotContain("Apply…", RecipeButtons(await Group(window, 0)));
+        await window.ShowAsync(group.Drawings.First());
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
+        var save = Menu(window, "Save");
+
+        Assert.False(save.IsEnabled);
+
+        // The menu is drawn from the same answer the tab's own dot is, so it follows without being
+        // told separately.
+        Assert.True(viewer.Resize(new SvgSizeRequest(48f, null, null)));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(save.IsEnabled);
+
+        await window.SaveAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(save.IsEnabled);
     }
 
     /// <summary>The declaration panel on a group's Parameters tab, which the tab must be on to hold.</summary>
@@ -996,9 +769,8 @@ public class MainWindowProjectTests : IDisposable
     {
         Write("home.svg", Drawing);
         Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
 
-        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var window = await Host(Write("icons.svgcproj", Pair));
         var panel = await Group(window, 0);
 
         // The tabs are about a drawing, and a group builds several: it cannot guess which.
@@ -1013,44 +785,31 @@ public class MainWindowProjectTests : IDisposable
     [AvaloniaFact]
     public async Task The_Parameters_Are_The_Picked_Drawings()
     {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
+        Write("one.svg", Declaring);
+        Write("two.svg", Declaring);
 
-        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var window = await Host(Write("icons.svgcproj", DeclaringPairProject));
         var panel = await Group(window, 0);
 
         Pick(window, panel, 0);
 
-        // Read off the drawing as built, which is where a recipe's declarations end up.
-        Assert.Equal(new[] { "hue" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+        // Read off the drawing as built, which is what a viewer would show for it.
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
     }
 
-    /// <summary>A group holding two drawings under one recipe and one that declares its own.</summary>
-    private const string MixedProject = """
-        <svgc>
-          <namespace>Demo.Icons</namespace>
-          <group namespace="Demo.Icons.Mixed">
-            <group recipe="icons.recipe">
-              <svg input="home.svg" class="One" />
-              <svg input="badge.svg" class="Two" />
-            </group>
-            <svg input="plain.svg" class="Plain" />
-          </group>
-        </svgc>
-        """;
-
-    /// <summary>A recipe declaring a parameter the host is expected to supply, as a real one does.</summary>
-    private const string OpenEndedRecipe = """
-        <recipe xmlns="https://svg.skia/expr/1.0">
-          <code>
-            <param name="accent" type="color" default="#00a7ff" />
-            <param name="whiteColor" type="color" />
-            <param name="on" type="boolean" default="true" />
-            <let name="colour">on ? accent : whiteColor</let>
-          </code>
-          <replace color="#00ff00">colour</replace>
-        </recipe>
+    /// <summary>A drawing declaring a parameter the host is expected to supply, as a real one does.</summary>
+    private const string OpenEnded = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="accent" type="color" default="#00a7ff" />
+              <e:param name="whiteColor" type="color" />
+              <e:param name="on" type="boolean" default="true" />
+              <e:let name="colour">on ? accent : whiteColor</e:let>
+            </e:code>
+          </defs>
+          <rect width="24" height="24" fill="{{ colour }}" />
+        </svg>
         """;
 
     [AvaloniaFact]
@@ -1058,14 +817,13 @@ public class MainWindowProjectTests : IDisposable
     {
         // Reported against a real project: every icon came up grey, which is what a drawing renders
         // when its expressions are left at placeholders. Binding the declared defaults refuses the
-        // whole set the moment one parameter has none -- and a recipe is entitled to declare one --
+        // whole set the moment one parameter has none -- which a drawing is entitled to declare --
         // so nothing was bound at all. A viewer never hit it, because it binds the rows its panel
         // seeds rather than the defaults.
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        Write("icons.recipe", OpenEndedRecipe);
+        Write("one.svg", OpenEnded);
+        Write("two.svg", OpenEnded);
 
-        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
+        var window = await Host(Write("icons.svgcproj", DeclaringPairProject));
         var panel = await Group(window, 0);
 
         foreach (var placed in Drawn(panel))
@@ -1081,7 +839,7 @@ public class MainWindowProjectTests : IDisposable
 
             var painted = bitmap.GetPixel(4, 4);
 
-            // The accent the recipe names, not the placeholder grey it fell back to.
+            // The accent the drawing names, not the placeholder grey it fell back to.
             Assert.True(
                 painted.Blue > 200 && painted.Red < 100,
                 $"{painted} is not the accent colour: the drawing is still on its placeholders");
@@ -1119,7 +877,7 @@ public class MainWindowProjectTests : IDisposable
         </svg>
         """;
 
-    /// <summary>Three drawings that declare for themselves, with no recipe anywhere.</summary>
+    /// <summary>Three drawings, each declaring for itself.</summary>
     private const string DeclaringProject = """
         <svgc>
           <namespace>Demo.Icons</namespace>
@@ -1144,7 +902,7 @@ public class MainWindowProjectTests : IDisposable
     [AvaloniaFact]
     public async Task A_Value_Reaches_Every_Drawing_Declaring_The_Same_Thing()
     {
-        // No recipe anywhere, and not the same file either -- a rect and a circle, seeded at two
+        // Not the same file either -- a rect and a circle, seeded at two
         // different colours. What pairs them is what they declare: a default is where a drawing
         // starts rather than what it takes, so a family caught at two points is still one family.
         Write("one.svg", Declaring);
@@ -1200,90 +958,35 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task A_Value_Reaches_Every_Drawing_Sharing_The_Declaration()
-    {
-        // A value belongs where its declaration does. Under a recipe that is every drawing built
-        // through it, so moving one slider moves the family -- which is the whole reason to look at
-        // them side by side. A drawing declaring its own shares with nothing.
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        Write("plain.svg", Declaring);
-        Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", MixedProject));
-        var panel = await Group(window, 0);
-
-        var placements = Drawn(panel);
-
-        Assert.Equal(3, placements.Count);
-
-        Pick(window, panel, 0);
-
-        var before = placements.Select(placed => placed.Svg.Picture).ToArray();
-
-        ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single()).Value = 0d;
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.NotSame(before[0], placements[0].Svg.Picture);
-        Assert.NotSame(before[1], placements[1].Svg.Picture);
-
-        // Its own declarations, so nothing was shared with it.
-        Assert.Same(before[2], placements[2].Svg.Picture);
-    }
-
-    [AvaloniaFact]
     public async Task Picking_A_Drawing_That_Shares_Keeps_The_Value_On_Show()
     {
         // The value was bound into both, so the panel showing the next one its declared default
         // would have it disagreeing with the picture beside it.
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        Write("plain.svg", Declaring);
-        Write("icons.recipe", Recipe);
+        Write("one.svg", Declaring);
+        Write("two.svg", DeclaringSeededDifferently);
+        Write("three.svg", DeclaringAnother);
 
-        var window = await Host(Write("icons.svgcproj", MixedProject));
+        var window = await Host(Write("icons.svgcproj", DeclaringProject));
         var panel = await Group(window, 0);
 
         Pick(window, panel, 0);
 
-        ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single()).Value = 0d;
+        ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
         Dispatcher.UIThread.RunJobs();
 
-        // The other drawing under the same recipe.
+        // The other drawing declaring the same thing.
         Pick(window, panel, 1);
 
-        Assert.Equal(0d, ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single()).Value);
+        Assert.Equal(Colors.Red, ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color);
 
         // The one that shares nothing shows what it declares.
         Pick(window, panel, 2);
 
-        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+        Assert.Equal(new[] { "shade" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
     }
 
     [AvaloniaFact]
-    public async Task Adding_A_Parameter_Writes_Into_The_Drawings_Recipe()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        var recipe = Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
-        var panel = await Group(window, 0);
-
-        Pick(window, panel, 0);
-
-        panel.ParameterDialogService = new StubParameterDialogService(
-            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
-
-        Assert.True(await panel.AddParameterAsync());
-        Dispatcher.UIThread.RunJobs();
-
-        // Into the recipe's shared buffer, which is where a drawing under one keeps its parameters.
-        Assert.Contains("sweep", window.ShowRecipe(recipe)!.Text);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Drawing_With_No_Recipe_Is_Written_To_Its_File()
+    public async Task A_Drawing_Open_In_No_Tab_Is_Written_To_Its_File()
     {
         // The last resort, and the one that has no buffer behind it: the edit is written and saved
         // at once, because there is nothing else holding the drawing.
@@ -1341,62 +1044,8 @@ public class MainWindowProjectTests : IDisposable
         Assert.DoesNotContain("sweep", File.ReadAllText(home));
     }
 
-    /// <summary>The Replacements tab's content, whatever it currently is.</summary>
     /// <summary>The Element tab's content, whatever it currently is.</summary>
     private static object? Element(GroupPanel panel)
-    {
-        var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
-
-        tabs.SelectedIndex = 3;
-        Dispatcher.UIThread.RunJobs();
-
-        return ((TabItem)tabs.Items[3]!).Content is ContentControl host ? host.Content : null;
-    }
-
-    [AvaloniaFact]
-    public async Task Picking_A_Shape_Shows_What_It_Is_Written_With()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
-        var panel = await Group(window, 0);
-
-        Pick(window, panel, 0);
-
-        var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
-
-        // The rect the fixture draws, in the file's own words — and the recipe injected a defs in
-        // front of it, so this is also the address translation working.
-        Assert.Equal("#00ff00", element.Shown("fill"));
-        Assert.Contains("width", element.Attributes);
-    }
-
-    [AvaloniaFact]
-    public async Task An_Element_Edited_From_A_Group_Lands_In_The_Drawing()
-    {
-        var home = Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        var recipe = Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
-        var panel = await Group(window, 0);
-
-        Pick(window, panel, 0);
-
-        var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
-
-        Assert.True(element.Set("fill", "{{ tint }}"));
-        Dispatcher.UIThread.RunJobs();
-
-        // Into the drawing, which is where an element's attribute lives. Never the recipe, however
-        // much the recipe is what declares the name it now uses.
-        Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(home));
-        Assert.Equal(Recipe, File.ReadAllText(recipe));
-    }
-
-    private static object? Replacements(GroupPanel panel)
     {
         var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
 
@@ -1407,108 +1056,9 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task The_Colours_Are_The_Picked_Drawings()
+    public async Task Picking_A_Shape_Shows_What_It_Is_Written_With()
     {
         Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
-        var panel = await Group(window, 0);
-
-        Pick(window, panel, 0);
-
-        var colours = Assert.IsType<ReplacementsPanel>(Replacements(panel));
-
-        // The fixture paints one colour, and the recipe has a rule for it.
-        Assert.Equal(new[] { "#00ff00" }, colours.Values.Select(value => value.Text).ToArray());
-        Assert.Equal("tint", colours.Expression("color", "#00ff00"));
-    }
-
-    /// <summary>
-    /// A rule written from a group repaints the group, straight away.
-    /// </summary>
-    /// <remarks>
-    /// The panel writes into the recipe's buffer, which is what a drawing's own tab is rebuilt from.
-    /// A group was not: <c>Rebuild</c> only looked at tabs holding a viewer, so the drawings on
-    /// screen went on showing what the recipe used to say until the tab was left and come back to.
-    /// </remarks>
-    [AvaloniaFact]
-    public async Task A_Rule_Written_From_A_Group_Repaints_It()
-    {
-        Write("home.svg", Fading);
-        Write("badge.svg", Fading);
-        Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
-        var panel = await Group(window, 0);
-
-        Pick(window, panel, 0);
-
-        var placements = Drawn(panel);
-        var before = placements.Select(placed => placed.Svg.Picture).ToArray();
-
-        // A value the recipe says nothing about yet, so this is an added rule rather than an edited
-        // one -- which is what changes the document the drawings are built from.
-        Assert.True(Assert.IsType<ReplacementsPanel>(Replacements(panel)).Bind("opacity", "0.5", "hue / 240"));
-
-        // The buffer settles a fifth of a second after the last keystroke, so this waits it out the
-        // way the drawing-tab rebuild test does.
-        for (var attempt = 0; attempt < 200 && ReferenceEquals(before[0], Drawn(panel)[0].Svg.Picture); attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        Assert.NotSame(before[0], Drawn(panel)[0].Svg.Picture);
-
-        // And the one beside it, since both are built through the recipe that just changed.
-        Assert.NotSame(before[1], Drawn(panel)[1].Svg.Picture);
-    }
-
-    /// <summary>
-    /// A group tab answers for the recipe it wrote into: it takes the mark, and ⌘S saves it.
-    /// </summary>
-    /// <remarks>
-    /// With no drawing tab open there was nothing else holding the edit, and nothing said so —
-    /// the modified fan-out knew about viewer and recipe tabs only, and Save's group branch wrote
-    /// the project file and returned. The work was unsaved with no dot and no way to save it.
-    /// </remarks>
-    [AvaloniaFact]
-    public async Task A_Recipe_Edited_From_A_Group_Is_Marked_And_Saved_On_That_Tab()
-    {
-        Write("home.svg", Fading);
-        Write("badge.svg", Fading);
-        var recipe = Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", SharedRecipeProject));
-        var panel = await Group(window, 0);
-
-        Pick(window, panel, 0);
-
-        var tab = Tabs(window).Items.OfType<TabItem>().Single(item => ReferenceEquals(item.Content, panel));
-
-        Assert.DoesNotContain("unsaved", Marker(tab).Classes);
-
-        Assert.True(Assert.IsType<ReplacementsPanel>(Replacements(panel)).Bind("opacity", "0.5", "hue / 240"));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("unsaved", Marker(tab).Classes);
-        Assert.DoesNotContain("hue / 240", File.ReadAllText(recipe));
-
-        await window.SaveAsync();
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("hue / 240", File.ReadAllText(recipe));
-        Assert.DoesNotContain("unsaved", Marker(tab).Classes);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Drawing_Under_No_Recipe_Has_Nothing_To_Recolour()
-    {
-        // The same rule a drawing's own tab follows: the colours are a recipe's rules, and without
-        // one there are none.
-        Write("home.svg", Declaring);
         Write("badge.svg", Drawing);
 
         var window = await Host(Write("icons.svgcproj", Pair));
@@ -1516,9 +1066,31 @@ public class MainWindowProjectTests : IDisposable
 
         Pick(window, panel, 0);
 
-        var said = Assert.IsType<TextBlock>(Replacements(panel));
+        var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
 
-        Assert.Contains("not built through a recipe", said.Text);
+        // The rect the fixture draws, in the file's own words.
+        Assert.Equal("#00ff00", element.Shown("fill"));
+        Assert.Contains("width", element.Attributes);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Element_Edited_From_A_Group_Lands_In_The_Drawing()
+    {
+        var home = Write("home.svg", Declaring);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgcproj", Pair));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
+
+        Assert.True(element.Set("fill", "{{ tint }}"));
+        Dispatcher.UIThread.RunJobs();
+
+        // Into the drawing, which is where an element's attribute lives.
+        Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(home));
     }
 
     private sealed class StubParameterDialogService : ISvgViewerParameterDialogService
@@ -2660,1092 +2232,6 @@ public class MainWindowProjectTests : IDisposable
             .OfType<GroupPanel>()
             .Single(panel => ProjectWorkspace.Label(panel.Node) == label);
 
-    private const string Recipe = """
-        <recipe xmlns="https://svg.skia/expr/1.0">
-          <code>
-            <param name="hue" type="number" default="120" />
-            <let name="tint">hsl(hue, 100%, 50%)</let>
-          </code>
-          <replace color="#00ff00">tint</replace>
-        </recipe>
-        """;
-
-    /// <summary>The sample project with a recipe on the group, which only badge.svg is under.</summary>
-    private const string RecipeProject = """
-        <svgc>
-          <namespace>Demo.Icons</namespace>
-
-          <svg input="home.svg" class="Home" />
-
-          <group namespace="Demo.Icons.Large" scale="2" recipe="icons.recipe">
-            <svg input="badge.svg" class="BadgeLarge" />
-          </group>
-        </svgc>
-        """;
-
-    [AvaloniaFact]
-    public async Task A_Drawing_Under_A_Recipe_Is_Shown_As_The_Project_Builds_It()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", RecipeProject));
-
-        var root = (TreeViewItem)Tree(window).Items[0]!;
-        var group = (TreeViewItem)root.Items[1]!;
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)group.Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        var viewer = await Settle(window, "badge.svg");
-
-        // The recipe declares the parameter, so the drawing on screen has one to drive even though
-        // its own file declares nothing.
-        Assert.Equal(new[] { "hue" }, viewer.Parameters.Select(row => row.Name).ToArray());
-        Assert.Equal(new[] { "tint" }, viewer.Document!.Declarations.Lets.Select(let => let.Name).ToArray());
-
-        // What is edited and saved is still the file: the rewrite is only what gets drawn.
-        Assert.Equal(Drawing, viewer.Source);
-        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "badge.svg")));
-        Assert.False(viewer.IsSourceModified);
-
-        // home.svg is outside the group, so nothing rewrites it.
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Empty((await Settle(window, "home.svg")).Parameters);
-    }
-
-    [AvaloniaFact]
-    public async Task The_Panel_Declares_Into_The_Recipe_And_Never_Into_The_Drawing()
-    {
-        var (window, viewer) = await Painting();
-        var recipe = Path.Combine(_directory, "icons.recipe");
-        var badge = Path.Combine(_directory, "badge.svg");
-
-        // The panel is offered, not locked: the parameters it shows are the recipe's, so this is
-        // where they are edited. Written into the drawing they would be a declaration block, and a
-        // recipe refuses a document that already has one.
-        Assert.True(viewer.CommitLet(new SvgViewerLet(null) { Name = "deep", Expression = "hsl(hue + 5, 71%, 40%)" }));
-        Dispatcher.UIThread.RunJobs();
-
-        var buffer = Replacements(viewer).Recipe;
-
-        Assert.Contains("""<let name="deep">hsl(hue + 5, 71%, 40%)</let>""", buffer.Text);
-        Assert.True(buffer.IsModified);
-
-        // Neither file has been written, and the drawing has not been touched at all.
-        Assert.Equal(Drawing, viewer.Source);
-        Assert.Equal(Drawing, File.ReadAllText(badge));
-        Assert.DoesNotContain("deep", File.ReadAllText(recipe));
-        Assert.False(viewer.IsSourceModified);
-
-        // And the drawing shows what it now declares, once the recipe settles.
-        for (var attempt = 0; attempt < 200 && viewer.Lets.Count < 2; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        Assert.Contains("deep", viewer.Lets.Select(let => let.Name));
-
-        // A drawing with no recipe over it writes into itself, as it always did.
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        var plain = await Settle(window, "home.svg");
-
-        Assert.Null(plain.DeclarationTarget);
-        Assert.True(plain.CommitLet(new SvgViewerLet(null) { Name = "deep", Expression = "1" }));
-        Assert.Contains("deep", plain.Source);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Recipe_That_Will_Not_Apply_Is_Said_Over_The_Drawing_It_Was_For()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        // A rule with no expression: the kind of thing a recipe is left in halfway through writing.
-        Write("icons.recipe", """
-            <recipe xmlns="https://svg.skia/expr/1.0">
-              <replace color="#00ff00"></replace>
-            </recipe>
-            """);
-
-        var window = await Host(Write("icons.svgcproj", RecipeProject));
-
-        var group = (TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!;
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)group.Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        var viewer = await Settle(window, "badge.svg");
-
-        // The drawing still opens. Refusing to show it would leave nothing to read the reason on.
-        Assert.NotNull(viewer.Document);
-        Assert.Empty(viewer.Parameters);
-
-        Assert.Contains("icons.recipe was not applied", viewer.Notice);
-        Assert.Contains("no expression", viewer.Notice);
-    }
-
-    [AvaloniaFact]
-    public async Task Taking_The_Recipe_Off_A_Group_Reads_Its_Drawings_Again()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-        Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", RecipeProject));
-
-        var group = (TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!;
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)group.Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        var viewer = await Settle(window, "badge.svg");
-        Assert.Single(viewer.Parameters);
-
-        var workspace = window.Workspace!;
-
-        ((SvgcProjectGroup)workspace.Document.Root.Children[1]).Recipe = null;
-        workspace.Save();
-
-        for (var attempt = 0; attempt < 200 && viewer.Parameters.Count > 0; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        // The size did not change, so only the recipe could have asked for this reload.
-        Assert.Empty(viewer.Parameters);
-        Assert.Null(viewer.Rewrite);
-
-        // And what the panel writes goes back to the drawing, since nothing else declares for it.
-        Assert.Null(viewer.DeclarationTarget);
-
-        // The colours went with the recipe: there is nothing left to bind them to.
-        Assert.Empty(viewer.SidePanels.Select(pane => pane.Content).OfType<ReplacementsPanel>());
-    }
-
-    /// <summary>The buttons on a panel's recipe row, by what they are labelled.</summary>
-    /// <summary>
-    /// What the settings pane offers about the recipe.
-    /// </summary>
-    /// <remarks>
-    /// Scoped to the pane, which is the scrolled half: the canvas beside it has buttons of its own,
-    /// and taking every button in the panel would be reading the zoom controls as recipe commands.
-    /// </remarks>
-    private static string[] RecipeButtons(GroupPanel panel)
-        => panel.GetVisualDescendants()
-            .OfType<Button>()
-            .Where(button => button.GetVisualAncestors().OfType<Control>().Any(above => above.Name == "Settings"))
-            .Select(button => button.Content as string)
-            .Where(content => content is { })
-            .ToArray()!;
-
-    [AvaloniaFact]
-    public async Task A_Recipe_Is_Named_And_Dropped_With_Buttons()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        var recipe = Write("icons.recipe", Recipe);
-        var path = Write("icons.svgcproj", Project);
-        var window = await Host(path);
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        var panel = Panel(window, "Demo.Icons.Large");
-
-        // Nothing named, so there is nothing to type into — only the two ways to name one.
-        Assert.DoesNotContain(
-            panel.GetVisualDescendants().OfType<TextBox>(),
-            box => Equals(box.Tag, "recipe"));
-        Assert.Equal(new[] { "Add…", "New…" }, RecipeButtons(panel));
-
-        panel.SetRecipe(recipe);
-        Dispatcher.UIThread.RunJobs();
-
-        // Carried relative, so the project still builds anywhere it is cloned to.
-        Assert.Equal("icons.recipe", panel.Shown("recipe"));
-        Assert.True(panel.IsModified);
-
-        // Named, so the two ways to name one give way to writing it into the drawings and to
-        // dropping it again.
-        Assert.Equal(new[] { "Apply…", "✕" }, RecipeButtons(panel));
-
-        panel.Save();
-
-        Assert.Contains("recipe=\"icons.recipe\"", File.ReadAllText(path));
-
-        // And the drawing under it is read again through it, without anything else asking.
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal("hue", Assert.Single((await Settle(window, "badge.svg")).Parameters).Name);
-
-        panel.RemoveRecipe();
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Null(panel.Shown("recipe"));
-        Assert.Equal(new[] { "Add…", "New…" }, RecipeButtons(panel));
-
-        panel.Save();
-
-        Assert.DoesNotContain("recipe=", File.ReadAllText(path));
-
-        // The file is the project's to name, not the project's to own.
-        Assert.True(File.Exists(recipe));
-    }
-
-    /// <summary>
-    /// A new recipe says nothing. It was written with a parameter, a let and the colours its
-    /// drawings paint listed under them as commented-out rules — an opening line to read and delete
-    /// before the file said what its author meant.
-    /// </summary>
-    [AvaloniaFact]
-    public async Task A_New_Recipe_Is_Empty()
-    {
-        Write("badge.svg", Drawing);
-        Write("mark.svg", Drawing.Replace("#00ff00", "#ff8800", StringComparison.Ordinal));
-
-        var window = await Host(Write("icons.svgcproj", """
-            <svgc>
-              <namespace>Demo.Icons</namespace>
-
-              <group namespace="Demo.Icons.Large" scale="2">
-                <svg input="badge.svg" class="BadgeLarge" />
-                <svg input="mark.svg" class="MarkLarge" />
-              </group>
-            </svgc>
-            """));
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        var written = Path.Combine(_directory, "large.recipe");
-
-        Panel(window, "Demo.Icons.Large").CreateRecipe(written);
-
-        var text = File.ReadAllText(written);
-
-        Assert.Equal("""
-            <?xml version="1.0" encoding="utf-8"?>
-            <recipe xmlns="https://svg.skia/expr/1.0">
-            </recipe>
-
-            """, text);
-
-        // Empty and still a recipe: it parses, declares nothing and repaints nothing, so the file
-        // applies as it stands rather than having to be finished before the drawing will load.
-        var recipe = SvgRecipe.Parse(text);
-
-        Assert.Empty(recipe.Rules);
-        Assert.Equal(0, SvgRecipeRewriter.Apply(Drawing, recipe).TotalReplacements);
-    }
-
-    [AvaloniaFact]
-    public async Task A_New_Recipe_Is_Written_Where_It_Is_Asked_For_And_Applies_As_It_Stands()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        var path = Write("icons.svgcproj", Project);
-        var window = await Host(path);
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        var panel = Panel(window, "Demo.Icons.Large");
-        var written = Path.Combine(_directory, "large.recipe");
-
-        panel.CreateRecipe(written);
-        panel.Save();
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal("large.recipe", panel.Shown("recipe"));
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        var viewer = await Settle(window, "badge.svg");
-
-        // Empty applies as it stands too: the drawing opens through the recipe with nothing to say
-        // about it, rather than failing to load until the file has been written.
-        Assert.Null(viewer.Notice);
-        Assert.Empty(viewer.Parameters);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Recipe_That_Is_Already_There_Is_Named_Rather_Than_Written_Over()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        var recipe = Write("icons.recipe", Recipe);
-
-        var window = await Host(Write("icons.svgcproj", Project));
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        Panel(window, "Demo.Icons.Large").CreateRecipe(recipe);
-
-        Assert.Equal(Recipe, File.ReadAllText(recipe));
-    }
-
-    private static RecipePanel? Editor(MainWindow window)
-        => Tabs(window).Items.OfType<TabItem>().Select(item => item.Content).OfType<RecipePanel>().SingleOrDefault();
-
-    [AvaloniaFact]
-    public async Task A_Recipe_Tab_Shows_The_Drawings_It_Paints()
-    {
-        // A recipe has no ink of its own, so what a rule does can only be seen done. The canvas
-        // holds every drawing in the project built through this recipe — one square each, because a
-        // project routinely builds one file several ways.
-        var window = await Recipes();
-        var panel = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"))!;
-
-        Dispatcher.UIThread.RunJobs();
-
-        // badge.svg is under the group that names the recipe; home.svg is not.
-        var one = Assert.Single(panel.Shown);
-
-        Assert.NotNull(one.Svg.Picture);
-
-        // Built through the recipe, so the drawing on the canvas carries what the recipe declares
-        // even though its own file declares nothing.
-        Assert.Equal(new[] { "hue" }, one.Declarations.Parameters.Select(parameter => parameter.Name));
-    }
-
-    [AvaloniaFact]
-    public async Task A_Rule_Added_On_The_Recipe_Tab_Reaches_The_File()
-    {
-        var window = await Recipes();
-        var panel = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"))!;
-
-        Dispatcher.UIThread.RunJobs();
-
-        // The rules list on a recipe's own tab is the recipe entire, not a survey of one drawing.
-        Assert.Equal(new[] { "#00ff00" }, panel.Rules.Values.Select(value => value.Text).DefaultIfEmpty("#00ff00"));
-
-        Assert.True(panel.Rules.Bind("opacity", "0.5", "hue / 240"));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("""<replace opacity="0.5">hue / 240</replace>""", panel.Text);
-        Assert.True(panel.IsModified);
-
-        // One history however the recipe was written to, so this is one thing to take back.
-        Assert.True(panel.Undo());
-        Assert.DoesNotContain("opacity", panel.Text);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Parameter_Added_On_The_Recipe_Tab_Reaches_The_File()
-    {
-        var window = await Recipes();
-        var panel = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"))!;
-
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(new[] { "hue" }, panel.Parameters.Parameters!.Select(row => row.Name));
-
-        panel.ParameterDialogService = new StubParameterDialogService(
-            new SvgExpressionParameter("shade", ExprType.Number, "0.5", "0", "1", null));
-
-        Assert.True(await panel.AddParameterAsync());
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("""<param name="shade" type="number" default="0.5" min="0" max="1" />""", panel.Text);
-        Assert.Equal(new[] { "hue", "shade" }, panel.Parameters.Parameters!.Select(row => row.Name));
-    }
-
-    [AvaloniaFact]
-    public async Task A_Recipe_Tab_And_A_Drawing_Tab_Write_Into_One_Recipe()
-    {
-        // The reason there is one workspace per file rather than one per view: a rule bound from a
-        // drawing's Replacements pane and one added on the recipe's own tab are the same recipe, and
-        // two buffers would disagree about it the moment either was written to.
-        var (window, viewer) = await Painting();
-        var panel = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"))!;
-
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(Replacements(viewer).Bind("color", "#00ff00", "hsl(hue, 50%, 50%)"));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("hsl(hue, 50%, 50%)", panel.Text);
-        Assert.Same(Replacements(viewer).Recipe, panel.Workspace);
-    }
-
-    /// <summary>A window on the sample project with the recipe named by its group.</summary>
-    private async Task<MainWindow> Recipes(string? drawing = null, string? recipe = null)
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", drawing ?? Drawing);
-        Write("icons.recipe", recipe ?? Recipe);
-
-        var window = await Host(Write("icons.svgcproj", RecipeProject));
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        return window;
-    }
-
-    [AvaloniaFact]
-    public async Task Double_Clicking_A_Recipe_Opens_It_In_A_Tab()
-    {
-        var window = await Recipes();
-
-        Assert.Null(Editor(window));
-
-        var name = Panel(window, "Demo.Icons.Large")
-            .GetVisualDescendants()
-            .OfType<TextBlock>()
-            .Single(block => block.Text == "icons.recipe");
-
-        Click(window, name);
-        Click(window, name);
-
-        var editor = Editor(window);
-
-        Assert.NotNull(editor);
-        Assert.Equal(Recipe, editor!.Text);
-        Assert.Null(editor.Fault);
-
-        // The tab it opened is the one being looked at, and it is the recipe's own.
-        Assert.Same(editor, ((TabItem)Tabs(window).SelectedItem!).Content);
-
-        // And there is something to look at: what the recipe declares, and what it replaces.
-        Assert.Equal(new[] { "hue" }, editor.Parameters.Parameters!.Select(row => row.Name));
-        Assert.Equal("tint", editor.Rules.Expression("color", "#00ff00"));
-    }
-
-    [AvaloniaFact]
-    public async Task Editing_A_Recipe_Marks_Its_Tab_And_Saving_Reads_The_Drawings_Again()
-    {
-        var window = await Recipes();
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        var viewer = await Settle(window, "badge.svg");
-        Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
-
-        var editor = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"));
-        Dispatcher.UIThread.RunJobs();
-
-        var item = (TabItem)Tabs(window).SelectedItem!;
-
-        Assert.False(editor.IsModified);
-        Assert.DoesNotContain("unsaved", Marker(item).Classes);
-
-        editor.SetText(Recipe.Replace("hue", "tone", StringComparison.Ordinal));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(editor.IsModified);
-        Assert.Contains("unsaved", Marker(item).Classes);
-
-        await window.SaveAsync();
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.False(editor.IsModified);
-        Assert.Contains("tone", File.ReadAllText(Path.Combine(_directory, "icons.recipe")));
-
-        // Still what it was: the drawing is behind the recipe being typed in, and a tab out of
-        // sight is marked to be read again rather than read where nobody is looking.
-        Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
-
-        Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>().Single(tab => ReferenceEquals(tab.Content, viewer));
-        Dispatcher.UIThread.RunJobs();
-
-        // The point of editing it here: what the drawing under it declares follows the save.
-        for (var attempt = 0; attempt < 200 && viewer.Parameters.FirstOrDefault()?.Name != "tone"; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        Assert.Equal("tone", Assert.Single(viewer.Parameters).Name);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Recipe_That_Will_Not_Read_Is_Said_Under_It_And_Still_Typed_In()
-    {
-        var window = await Recipes();
-
-        var editor = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"));
-
-        // Half a recipe is what one looks like while it is being written; taking the text back
-        // between keystrokes would make it unwritable.
-        editor.SetText("""
-            <recipe xmlns="https://svg.skia/expr/1.0">
-              <replace color="#00ff00"></replace>
-            </recipe>
-            """);
-
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("no expression", editor.Fault);
-        Assert.Contains("<replace", editor.Text);
-
-        editor.SetText(Recipe);
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Null(editor.Fault);
-    }
-
-    [AvaloniaFact]
-    public async Task One_Recipe_Opens_Once_And_Closes_With_The_Project()
-    {
-        var window = await Recipes();
-
-        var path = Path.Combine(_directory, "icons.recipe");
-
-        // Several groups name one recipe, and a tab per namer would be two editors over one file.
-        Assert.Same(window.ShowRecipe(path)!, window.ShowRecipe(path)!);
-        Assert.NotNull(Editor(window));
-
-        Assert.True(await window.CloseProjectAsync());
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Null(Editor(window));
-    }
-
-    private static ReplacementsPanel Replacements(SvgViewer viewer)
-        => viewer.SidePanels.Select(pane => pane.Content).OfType<ReplacementsPanel>().Single();
-
-    /// <summary>A window with badge.svg open under the recipe, which is what the colours are for.</summary>
-    private async Task<(MainWindow Window, SvgViewer Viewer)> Painting(string? drawing = null, string? recipe = null)
-    {
-        var window = await Recipes(drawing, recipe);
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        return (window, await Settle(window, "badge.svg"));
-    }
-
-    [AvaloniaFact]
-    public async Task The_Colours_Of_A_Drawing_Are_A_Pane_Of_Their_Own()
-    {
-        var (window, viewer) = await Painting();
-
-        Assert.Equal(
-            new[] { "Project", "Replacements", "Parameters", "Element" },
-            viewer.GetVisualDescendants()
-                .OfType<TabControl>()
-                .Single(control => control.Classes.Contains("panes"))
-                .Items.OfType<TabItem>()
-                .Select(item => (string)item.Header!));
-
-        var colours = Replacements(viewer);
-
-        // The drawing's own colour, and what the recipe already says paints it.
-        Assert.Equal(new[] { "#00ff00" }, colours.Values.Select(value => value.Text));
-        Assert.Equal("tint", colours.Expression("color", "#00ff00"));
-
-        // A drawing with no recipe over it has nothing to bind, so it has no pane either.
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Empty((await Settle(window, "home.svg")).SidePanels.Select(pane => pane.Content).OfType<ReplacementsPanel>());
-    }
-
-    [AvaloniaFact]
-    public async Task Binding_A_Colour_Changes_What_The_Drawing_Paints_Before_Any_Save()
-    {
-        // A drawing with a colour the recipe says nothing about yet.
-        var (window, viewer) = await Painting(Drawing.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
-        var colours = Replacements(viewer);
-        var recipe = Path.Combine(_directory, "icons.recipe");
-
-        Assert.Equal(new[] { "#ff0000" }, colours.Values.Select(value => value.Text));
-        Assert.Null(colours.Expression("color", "#ff0000"));
-
-        Assert.True(colours.Bind("color", "#ff0000", "hsl(hue, 100%, 50%)"));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Null(colours.Fault);
-        Assert.Equal("hsl(hue, 100%, 50%)", colours.Expression("color", "#ff0000"));
-
-        // Written into the recipe's buffer and nowhere near the drawing.
-        Assert.Contains("""<replace color="#ff0000">hsl(hue, 100%, 50%)</replace>""", colours.Recipe.Text);
-        Assert.DoesNotContain("{{", File.ReadAllText(Path.Combine(_directory, "badge.svg")));
-        Assert.DoesNotContain("#ff0000", File.ReadAllText(recipe));
-        Assert.True(colours.Recipe.IsModified);
-
-        // And the drawing follows it, unsaved, because the parameter it names is now bound to a
-        // colour the drawing has.
-        for (var attempt = 0; attempt < 200 && viewer.Parameters.Count == 0; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
-
-        Assert.True(colours.Unbind("color", "#ff0000"));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Null(colours.Expression("color", "#ff0000"));
-        Assert.DoesNotContain("#ff0000", colours.Recipe.Text);
-    }
-
-    [AvaloniaFact]
-    public async Task Editing_A_Recipe_Leaves_The_Pane_Being_Looked_At_Where_It_Was()
-    {
-        var (_, viewer) = await Painting();
-
-        var panes = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
-
-        panes.SelectedIndex = 1;
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal("Replacements", (string)((TabItem)panes.SelectedItem!).Header!);
-
-        Assert.True(Replacements(viewer).Bind("color", "#00ff00", "hsl(hue, 50%, 50%)"));
-
-        // The drawings under a recipe are read again when it settles, and rebuilding the strip over
-        // somebody typing in it took them back to the first tab on every keystroke.
-        for (var attempt = 0; attempt < 60; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        var strip = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
-
-        Assert.Equal("Replacements", (string)((TabItem)strip.SelectedItem!).Header!);
-    }
-
-    /// <summary>
-    /// Picking an element of a drawing built through a recipe reaches the element the file has.
-    /// </summary>
-    /// <remarks>
-    /// The tree is built from the document the recipe makes, and the panel edits the file. A recipe
-    /// puts <c>&lt;defs&gt;&lt;e:code&gt;</c> at the front of the root, so every child after it is
-    /// one index further along than the file has it — and an address is a path of child indices.
-    /// Every row of every drawing under a recipe looked up nothing.
-    /// </remarks>
-    [AvaloniaFact]
-    public async Task An_Element_Of_A_Drawing_Under_A_Recipe_Is_Found_In_Its_Own_Text()
-    {
-        var (_, viewer) = await Painting();
-
-        // The drawing is one rect. In the built document it is the second child, because the recipe
-        // injected a defs in front of it; in the file it is the first.
-        var rect = viewer.Elements.Root!.Children.Single(child => child.Element is SvgRectangle);
-
-        Assert.Equal("1", rect.AddressKey);
-        Assert.True(viewer.Elements.TrySelect(rect.AddressKey));
-        Dispatcher.UIThread.RunJobs();
-
-        var panel = viewer.GetLogicalDescendants().OfType<SvgViewerElementPanel>().Single();
-
-        // The rect's own attributes, as the file writes them and not as the recipe rewrote them.
-        Assert.Contains("fill", panel.Attributes);
-        Assert.Equal("#00ff00", panel.Shown("fill"));
-    }
-
-    [AvaloniaFact]
-    public async Task Editing_A_Recipe_Does_Not_Read_The_Drawing_Off_The_Disk_Again()
-    {
-        var (_, viewer) = await Painting();
-
-        var built = viewer.Document;
-
-        // The file says something the open tab does not. Whatever the rebuild shows afterwards says
-        // where it read the drawing from, and nothing else can tell a rebuild from a reload.
-        Write("badge.svg", Drawing.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
-
-        Assert.True(Replacements(viewer).Bind("color", "#00ff00", "hsl(hue, 50%, 50%)"));
-
-        for (var attempt = 0; attempt < 200 && ReferenceEquals(viewer.Document, built); attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        // The drawing was built again — a recipe decides what its colours come to.
-        Assert.NotSame(built, viewer.Document);
-
-        // From the text the tree was already holding, not from the file. Reading the file again
-        // dropped that tree and with it every unsaved edit and the whole history behind them, on
-        // every keystroke somebody made in the recipe.
-        Assert.Contains("#00ff00", viewer.Source);
-        Assert.DoesNotContain("#0000ff", viewer.Source);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Recipe_Edited_From_A_Drawing_Is_Marked_And_Saved_On_That_Tab()
-    {
-        var (window, viewer) = await Painting();
-        var recipe = Path.Combine(_directory, "icons.recipe");
-
-        var tab = Tabs(window).Items.OfType<TabItem>().Single(item => ReferenceEquals(item.Content, viewer));
-
-        Assert.DoesNotContain("unsaved", Marker(tab).Classes);
-
-        // No recipe tab is open, and nothing makes you open one: this is the only thing holding the
-        // work, so it is the thing that has to say so.
-        Assert.True(Replacements(viewer).Bind("color", "#00ff00", "hsl(hue, 50%, 50%)"));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("unsaved", Marker(tab).Classes);
-        Assert.DoesNotContain("hsl(hue, 50%, 50%)", File.ReadAllText(recipe));
-
-        await window.SaveAsync();
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("hsl(hue, 50%, 50%)", File.ReadAllText(recipe));
-        Assert.DoesNotContain("unsaved", Marker(tab).Classes);
-
-        // The drawing itself was never the thing being edited, and is not written either way.
-        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "badge.svg")));
-    }
-
-    [AvaloniaFact]
-    public async Task Closing_A_Project_Asks_About_A_Recipe_No_Tab_Is_Left_On()
-    {
-        var (window, viewer) = await Painting();
-
-        Assert.True(Replacements(viewer).Bind("color", "#00ff00", "hsl(hue, 50%, 50%)"));
-        Dispatcher.UIThread.RunJobs();
-
-        // The tabs it was edited from go, and the buffer is left with nothing to speak for it.
-        window.ConfirmDiscard = _ => Task.FromResult(true);
-
-        foreach (var item in Tabs(window).Items.OfType<TabItem>().Where(item => item.Tag is SvgcProjectNode).ToList())
-        {
-            ((StackPanel)item.Header!).Children.OfType<Button>().Single()
-                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-
-            for (var attempt = 0; attempt < 50 && Tabs(window).Items.Contains(item); attempt++)
-            {
-                Dispatcher.UIThread.RunJobs();
-                await Task.Delay(10);
-            }
-        }
-
-        var asked = new List<string>();
-
-        window.ConfirmDiscard = message =>
-        {
-            asked.Add(message);
-
-            return Task.FromResult(false);
-        };
-
-        Assert.False(await window.CloseProjectAsync());
-
-        // Refused, so the project is still open and the work is still there.
-        Assert.Contains("icons.recipe", Assert.Single(asked));
-        Assert.NotNull(window.Workspace);
-    }
-
-    [AvaloniaFact]
-    public async Task Undo_On_A_Drawing_Tab_Reaches_The_Recipe_Behind_It()
-    {
-        var (window, viewer) = await Painting();
-        var colours = Replacements(viewer);
-        var was = colours.Recipe.Text;
-
-        Assert.True(colours.Bind("color", "#00ff00", "hsl(hue, 50%, 50%)"));
-        Dispatcher.UIThread.RunJobs();
-
-        // A menu item's gesture belongs to the window, so this is the only route to any stack — and
-        // a drawing tab under a recipe used to match none of the ones it tried.
-        Assert.True(window.Undo());
-
-        Assert.Equal(was, colours.Recipe.Text);
-        Assert.False(colours.Recipe.IsModified);
-
-        Assert.True(window.Redo());
-        Assert.Contains("hsl(hue, 50%, 50%)", colours.Recipe.Text);
-    }
-
-    [AvaloniaFact]
-    public async Task Undo_Takes_The_Drawings_Own_Text_Back_First()
-    {
-        var (window, viewer) = await Painting();
-        var colours = Replacements(viewer);
-
-        Assert.True(colours.Bind("color", "#00ff00", "hsl(hue, 50%, 50%)"));
-        Dispatcher.UIThread.RunJobs();
-
-        Viewer(window).SetSource("<!-- typed -->" + Viewer(window).Source);
-        Dispatcher.UIThread.RunJobs();
-
-        // The tab is named after the drawing, so the drawing goes first.
-        Assert.True(window.Undo());
-
-        Assert.DoesNotContain("typed", viewer.Source);
-        Assert.Contains("hsl(hue, 50%, 50%)", colours.Recipe.Text);
-
-        // And the recipe once the drawing has run out.
-        Assert.True(window.Undo());
-
-        Assert.DoesNotContain("hsl(hue, 50%, 50%)", colours.Recipe.Text);
-    }
-
-    /// <summary>The box, the readout beside it and the trouble under it, for one value.</summary>
-    private static (TextBox Box, TextBlock Readout, TextBlock Trouble) Painted(ReplacementsPanel colours, string value, string name = "color")
-    {
-        var box = colours.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, (name, value)));
-        var row = (StackPanel)box.FindAncestorOfType<Grid>()!.Parent!;
-        var blocks = row.GetLogicalDescendants().OfType<TextBlock>().ToList();
-
-        return (box, blocks[blocks.Count - 2], blocks[blocks.Count - 1]);
-    }
-
-    private static ReplacementsPanel Showing(SvgViewer viewer)
-    {
-        viewer.GetVisualDescendants()
-            .OfType<TabControl>()
-            .Single(control => control.Classes.Contains("panes"))
-            .SelectedIndex = 1;
-
-        Dispatcher.UIThread.RunJobs();
-
-        return Replacements(viewer);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Colour_Expression_Is_Checked_Where_It_Is_Typed()
-    {
-        var (_, viewer) = await Painting();
-        var colours = Showing(viewer);
-        var was = colours.Recipe.Text;
-
-        var (box, _, trouble) = Painted(colours, "#00ff00");
-
-        box.Text = "hsl(hu, 100%, 50%)";
-        Dispatcher.UIThread.RunJobs();
-
-        // Said under the box it was typed in. It used to reach the drawing and be reported on the
-        // drawing's status line, a long way from here.
-        Assert.True(trouble.IsVisible);
-        Assert.Contains("hu", trouble.Text);
-
-        // And nothing is written while it will not check.
-        box.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(was, colours.Recipe.Text);
-        Assert.Equal("hsl(hu, 100%, 50%)", box.Text);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Colour_Expression_Of_The_Wrong_Type_Is_Refused()
-    {
-        var (_, viewer) = await Painting();
-        var colours = Showing(viewer);
-
-        var (box, _, trouble) = Painted(colours, "#00ff00");
-
-        // Well formed and wrong: a rule's body lands in the attribute it names, and this one names
-        // colours. Nothing caught this before it reached the drawing.
-        box.Text = "hue + 1";
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(trouble.IsVisible);
-        Assert.Contains("colour", trouble.Text);
-    }
-
-    /// <summary>A drawing with an opacity in it, which a rule names by that attribute.</summary>
-    private const string Fading = """
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-          <rect width="24" height="24" fill="#00ff00" opacity="0.5" />
-        </svg>
-        """;
-
-    [AvaloniaFact]
-    public async Task A_Value_That_Is_Not_A_Colour_Is_Offered_And_Bound()
-    {
-        var (_, viewer) = await Painting(Fading);
-        var colours = Showing(viewer);
-
-        // Both kinds, each named as its own rule: the colour across every colour attribute, the
-        // opacity under the attribute it sits on.
-        Assert.Equal(
-            new[] { ("color", "#00ff00"), ("opacity", "0.5") },
-            colours.Values.Select(value => (value.Name, value.Text)).ToArray());
-
-        Assert.True(colours.Bind("opacity", "0.5", "hue / 240"));
-
-        Assert.Contains("""<replace opacity="0.5">hue / 240</replace>""", colours.Recipe.Text);
-        Assert.Equal("hue / 240", colours.Expression("opacity", "0.5"));
-
-        // And the colour rule beside it is untouched, which is the whole point of naming both.
-        Assert.Equal("tint", colours.Expression("color", "#00ff00"));
-    }
-
-    [AvaloniaFact]
-    public async Task An_Expression_Is_Checked_As_What_The_Attribute_Holds()
-    {
-        var (_, viewer) = await Painting(Fading);
-        var colours = Showing(viewer);
-
-        var (box, _, trouble) = Painted(colours, "0.5", "opacity");
-
-        // A colour here is as wrong as a number was on the row above: an opacity scales an alpha.
-        box.Text = "tint";
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(trouble.IsVisible);
-        Assert.Contains("number", trouble.Text);
-
-        // Nothing written while it will not check.
-        var was = colours.Recipe.Text;
-
-        box.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(was, colours.Recipe.Text);
-
-        // And the number that does check is taken.
-        box.Text = "hue / 240";
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.False(trouble.IsVisible);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Colour_Reads_Out_What_It_Comes_To_And_Follows_The_Parameters()
-    {
-        var (_, viewer) = await Painting();
-        var colours = Showing(viewer);
-
-        var (box, readout, trouble) = Painted(colours, "#00ff00");
-
-        Assert.False(trouble.IsVisible);
-        Assert.True(readout.IsVisible);
-
-        // The recipe paints it hsl(hue, 100%, 50%) with hue at 120.
-        Assert.Contains("colour", readout.Text);
-
-        var before = readout.Text;
-
-        Assert.True(viewer.TrySetParameterValue("hue", ExprValue.Number(240f)));
-        Dispatcher.UIThread.RunJobs();
-
-        // A readout is what the rule paints now, so it moves with the slider.
-        Assert.NotEqual(before, readout.Text);
-        Assert.Equal("tint", box.Text);
-    }
-
-    [AvaloniaFact]
-    public async Task Picking_A_Tab_Opens_The_Tree_Down_To_What_It_Shows()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        var window = await Host(Write("icons.svgcproj", Project));
-
-        var root = (TreeViewItem)Tree(window).Items[0]!;
-        var group = (TreeViewItem)root.Items[1]!;
-        var badge = (TreeViewItem)group.Items[0]!;
-
-        await window.ShowAsync((SvgcProjectNode)badge.Tag!);
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)root.Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        // Folded away with a tab from inside it still open, which is what makes the tree stop
-        // saying anything about where that tab is.
-        group.IsExpanded = false;
-        Dispatcher.UIThread.RunJobs();
-
-        Tabs(window).SelectedItem = Tabs(window).Items
-            .OfType<TabItem>()
-            .Single(item => ReferenceEquals(item.Tag, badge.Tag));
-
-        Dispatcher.UIThread.RunJobs();
-
-        // Picking the tab is the answer to "where is this?", so the row comes back into sight.
-        Assert.True(group.IsExpanded);
-        Assert.Same(badge, Tree(window).SelectedItem);
-    }
-
-    [AvaloniaFact]
-    public async Task Picking_A_Tab_With_No_Row_Leaves_The_Tree_Alone()
-    {
-        var (window, viewer) = await Painting();
-
-        var root = (TreeViewItem)Tree(window).Items[0]!;
-        var group = (TreeViewItem)root.Items[1]!;
-
-        // A recipe's tab is a file, not a node of the project, so there is nothing to open down to.
-        window.ShowRecipe(Path.Combine(_directory, "icons.recipe"));
-        Dispatcher.UIThread.RunJobs();
-
-        group.IsExpanded = false;
-
-        Tabs(window).SelectedItem = Tabs(window).Items
-            .OfType<TabItem>()
-            .Single(item => item.Content is RecipePanel);
-
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.False(group.IsExpanded);
-    }
-
-    [AvaloniaFact]
-    public async Task Saving_A_Drawing_As_Another_File_Points_Its_Tab_At_The_New_One()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        var window = await Host(Write("icons.svgcproj", Project));
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        var viewer = await Settle(window, "home.svg");
-        var copy = Path.Combine(_directory, "copied.svg");
-
-        Assert.True(await window.SaveAsAsync(copy));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(Drawing, File.ReadAllText(copy));
-
-        // The one it came from is left as it was: this is a save under another name, not a move.
-        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "home.svg")));
-
-        // And the tab is the new file's now, so saving again writes there.
-        await Settle(window, "copied.svg");
-
-        Assert.Equal(copy, viewer.DocumentPath);
-        Assert.False(viewer.IsSourceModified);
-    }
-
-    [AvaloniaFact]
-    public async Task Save_Is_Offered_Only_While_Something_Is_Unsaved()
-    {
-        var (window, viewer) = await Painting();
-
-        var save = Menu(window, "Save");
-
-        Assert.False(save.IsEnabled);
-
-        // The recipe behind the drawing, which is the case the tab's dot was widened for — and the
-        // menu is drawn from the same answer, so it follows without being told separately.
-        Assert.True(Replacements(viewer).Bind("color", "#00ff00", "hsl(hue, 50%, 50%)"));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(save.IsEnabled);
-
-        await window.SaveAsync();
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.False(save.IsEnabled);
-    }
-
     /// <summary>Drops <paramref name="path"/> on the middle of the window, as a file manager would.</summary>
     /// <remarks>
     /// A real drop rather than a call to the handler: what was broken is hit testing — where the
@@ -4369,108 +2855,6 @@ public class MainWindowProjectTests : IDisposable
         }
 
         Assert.Equal(2, Tabs(window).Items.Count);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Rule_That_This_Drawing_Has_No_Colour_For_Is_Still_Shown()
-    {
-        var (_, viewer) = await Painting(Drawing.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
-        var colours = Replacements(viewer);
-
-        // The recipe's rule is for #00ff00, which this drawing does not paint. One recipe covers a
-        // family, so that is ordinary — but a rule that appeared to have vanished would not be.
-        Assert.Equal(new[] { "#ff0000" }, colours.Values.Select(value => value.Text));
-        Assert.Equal("tint", colours.Expression("color", "#00ff00"));
-
-        // On screen, not just in the model: the pane's content is out of the tree until its tab is
-        // the one being looked at.
-        var panes = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
-
-        panes.SelectedIndex = 1;
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains(
-            "Not in this drawing",
-            colours.GetVisualDescendants().OfType<TextBlock>().Select(block => block.Text));
-    }
-
-    [AvaloniaFact]
-    public async Task A_Colour_Is_Bound_Through_The_Rule_The_Recipe_Already_Writes_For_It()
-    {
-        // The recipe names the colour one way and the drawing another. Two spellings of one colour
-        // must not become two rules, which the recipe then refuses to read at all.
-        var (_, viewer) = await Painting(recipe: Recipe.Replace("#00ff00", "rgb(0, 255, 0)", StringComparison.Ordinal));
-        var colours = Replacements(viewer);
-
-        Assert.Equal(new[] { "#00ff00" }, colours.Values.Select(value => value.Text));
-        Assert.True(colours.Bind("color", "#00ff00", "deep"));
-
-        Assert.Contains("""color="rgb(0, 255, 0)">deep<""", colours.Recipe.Text);
-        Assert.Null(colours.Recipe.Fault);
-    }
-
-    [AvaloniaFact]
-    public async Task A_Drawing_Follows_Its_Recipe_Before_The_Recipe_Is_Saved()
-    {
-        var window = await Recipes();
-
-        await window.ShowAsync((SvgcProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        var viewer = await Settle(window, "badge.svg");
-        Assert.Equal("hue", Assert.Single(viewer.Parameters).Name);
-
-        var recipe = Path.Combine(_directory, "icons.recipe");
-        var editor = window.ShowRecipe(recipe)!;
-
-        editor.SetText(Recipe.Replace("hue", "tone", StringComparison.Ordinal));
-        Dispatcher.UIThread.RunJobs();
-
-        // Nothing is written. What the drawing is built through is the buffer, not the file.
-        Assert.Contains("hue", File.ReadAllText(recipe));
-        Assert.True(editor.IsModified);
-
-        var tab = Tabs(window).Items.OfType<TabItem>().Single(item => ReferenceEquals(item.Content, viewer));
-
-        for (var attempt = 0; attempt < 200 && viewer.Parameters.FirstOrDefault()?.Name != "tone"; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-
-            // Selected on every pass, since the tab is only read again once it is looked at.
-            Tabs(window).SelectedItem = tab;
-        }
-
-        Assert.Equal("tone", Assert.Single(viewer.Parameters).Name);
-        Assert.Contains("hue", File.ReadAllText(recipe));
-    }
-
-    [AvaloniaFact]
-    public async Task A_Recipe_Is_Undone_And_Redone_Through_The_Window()
-    {
-        var window = await Recipes();
-
-        var editor = window.ShowRecipe(Path.Combine(_directory, "icons.recipe"));
-        Dispatcher.UIThread.RunJobs();
-
-        editor.SetText("<recipe xmlns=\"https://svg.skia/expr/1.0\" />");
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(editor.IsModified);
-
-        // Through the window, because a menu item's gesture is the window's: the keystroke is taken
-        // before AvaloniaEdit can see it, and used to reach a viewer the tab has none of.
-        Assert.True(window.Undo());
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(Recipe, editor.Text);
-        Assert.False(editor.IsModified);
-
-        Assert.True(window.Redo());
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.DoesNotContain("<code>", editor.Text);
-        Assert.True(editor.IsModified);
     }
 
     /// <summary>A window with nothing open, which is what New… is picked from.</summary>

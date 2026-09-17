@@ -81,7 +81,7 @@ public sealed class GroupPanel : UserControl
 
     private readonly SvgViewerDeclarationPanel _parameters = new();
 
-    /// <summary>What the parameters do not reach, when the group's drawings do not all share a recipe.</summary>
+    /// <summary>What the parameters do not reach, when the group's drawings declare different things.</summary>
     private readonly TextBlock _parameterNote = new()
     {
         Margin = new Thickness(10, 0, 10, 10),
@@ -97,20 +97,10 @@ public sealed class GroupPanel : UserControl
 
     private SvgViewerDeclarationCommands? _commands;
 
-    /// <summary>The Replacements tab's content: a panel for the picked drawing, or a line saying why not.</summary>
-    private readonly ContentControl _replacementsHost = new();
-
     /// <summary>The Element tab's content: a panel for the picked element, or a line saying why not.</summary>
     private readonly ContentControl _elementHost = new();
 
     private readonly TextBlock _elementNote = new()
-    {
-        Margin = new Thickness(10),
-        Opacity = 0.6,
-        TextWrapping = TextWrapping.Wrap
-    };
-
-    private readonly TextBlock _replacementsNote = new()
     {
         Margin = new Thickness(10),
         Opacity = 0.6,
@@ -162,13 +152,7 @@ public sealed class GroupPanel : UserControl
         // Harmless on a drawing's settings pane, which has no canvas and so no placements to fall on.
         _canvas.Picked += (_, at) => Pick(at);
 
-        _parameters.ValueChanged += (_, _) =>
-        {
-            Bind();
-
-            // The readouts beside each colour are what the values come to, so they follow.
-            (_replacementsHost.Content as ReplacementsPanel)?.Readouts();
-        };
+        _parameters.ValueChanged += (_, _) => Bind();
         _parameters.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
         _parameters.CommitRequested += (_, _) => _commands?.SetDefaults();
         _parameters.EditRequested += async (_, row) =>
@@ -274,7 +258,6 @@ public sealed class GroupPanel : UserControl
         parameters.Children.Add(_parameters);
 
         tabs.Items.Add(new TabItem { Header = "Parameters", Content = parameters });
-        tabs.Items.Add(new TabItem { Header = "Replacements", Content = _replacementsHost });
         tabs.Items.Add(new TabItem { Header = "Element", Content = _elementHost });
 
         side.Children.Add(tabs);
@@ -326,47 +309,13 @@ public sealed class GroupPanel : UserControl
     /// <summary>Raised when <see cref="IsModified"/> changes, for a host that marks its tab.</summary>
     public event EventHandler<bool>? ModifiedChanged;
 
-    /// <summary>Raised with the file when somebody asks to edit the recipe this node names.</summary>
+    /// <summary>Where a drawing's text is written: the tab it is open in, or nothing.</summary>
     /// <remarks>
-    /// The panel says so rather than opening it: a recipe is a file of the project's, and where the
-    /// project's files are shown is the window's business, not a settings pane's.
+    /// Answered by the host, because deciding it means knowing which tabs are open and this panel
+    /// knows about none of them. Null is answered with the file, which the panel holds the document
+    /// for.
     /// </remarks>
-    public event EventHandler<string>? RecipeOpened;
-
-    /// <summary>Raised when somebody asks for the recipe to be written into the drawings.</summary>
-    /// <remarks>
-    /// Said rather than done, for the reason <see cref="RecipeOpened"/> is said: writing over the
-    /// project's drawings is the window's business. It is also the only side that can refuse while
-    /// a tab is holding unsaved work, and the only one that can read the files again afterwards.
-    /// </remarks>
-    public event EventHandler<SvgcProjectNode>? RecipeApplyRequested;
-
-    /// <summary>What a drawing's text goes through on its way to being drawn, or null to draw the file.</summary>
-    /// <remarks>
-    /// A hook rather than a recipe path, so the canvas draws what the drawing's own tab draws: the
-    /// host renders through an open buffer, and reading the file here would show a recipe as it was
-    /// last saved rather than as it is being typed.
-    /// </remarks>
-    public Func<SvgcProjectDrawing, string, string>? Rewrite { get; set; }
-
-    /// <summary>
-    /// Where a drawing keeps its declarations: its recipe, the tab it is open in, or its own file.
-    /// </summary>
-    /// <remarks>
-    /// Answered by the host, because deciding it needs to know about both recipes and open tabs and
-    /// this panel knows about neither. What comes back is used for the whole of a drawing's
-    /// parameters — read from and written to — and a <see cref="RecipeWorkspace"/> coming back is
-    /// also what says the drawing has colours a recipe could name.
-    /// </remarks>
-    public Func<SvgcProjectDrawing, ISvgViewerDeclarationTarget?>? DeclarationTargetOf { get; set; }
-
-    /// <summary>Where a drawing's own text is written: the tab it is open in, or nothing.</summary>
-    /// <remarks>
-    /// <see cref="DeclarationTargetOf"/> answers with the recipe where there is one, which is right
-    /// for a declaration and wrong for an attribute of an element — that belongs to the drawing
-    /// whatever builds it. Null is answered with the file, which the panel holds the document for.
-    /// </remarks>
-    public Func<SvgcProjectDrawing, ISvgViewerDeclarationTarget?>? DrawingTargetOf { get; set; }
+    public Func<SvgcProjectDrawing, ISvgViewerDeclarationTarget?>? TargetOf { get; set; }
 
     /// <summary>How the parameters tab asks what to declare. Replaceable, and faked in tests.</summary>
     public ISvgViewerParameterDialogService ParameterDialogService { get; set; } =
@@ -502,10 +451,7 @@ public sealed class GroupPanel : UserControl
     /// </summary>
     /// <remarks>
     /// The selection is the subject, so this behaves as the drawing's own tab would: the rows come
-    /// from the drawing <em>as built</em>, which is the one path that serves both cases — a recipe's
-    /// declarations are injected into the document it builds, and a drawing declaring its own
-    /// <c>&lt;e:code&gt;</c> has them there already. Reading a recipe's text instead would only ever
-    /// have worked for the drawings that have one.
+    /// from the drawing <em>as built</em>.
     ///
     /// Rebuilt on every selection, because the target changes with it.
     /// </remarks>
@@ -523,9 +469,9 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        // The host answers for a recipe and for a tab, which are the two it knows about. What is
-        // left is the file, and the document that was read from it is here rather than there.
-        _target = DeclarationTargetOf?.Invoke(inspecting.Built.Drawing)
+        // The host answers for a tab, which is what it knows about. What is left is the file, and
+        // the document that was read from it is here rather than there.
+        _target = TargetOf?.Invoke(inspecting.Built.Drawing)
                   ?? (document.SourceText is { } text
                       ? new DrawingFile(document, inspecting.Built.Drawing.ResolvedInput, text)
                       : null);
@@ -650,8 +596,8 @@ public sealed class GroupPanel : UserControl
     /// </summary>
     /// <remarks>
     /// Not the declared defaults. Binding those refuses the whole set the moment one parameter has
-    /// no default — and a recipe is entitled to declare one, since a host is expected to supply it —
-    /// so a single <c>&lt;param name="whiteColor" type="color" /&gt;</c> left every drawing in the
+    /// no default — which a drawing is entitled to do, since a host is expected to supply it — so
+    /// a single <c>&lt;param name="whiteColor" type="color" /&gt;</c> left every drawing in the
     /// group on its placeholders, which render grey. The seed is what
     /// <see cref="SvgViewerParameterFactory"/> puts in a row for a declaration that gives it
     /// nothing, and it is what a viewer binds on opening the same drawing: the group's canvas and
@@ -682,47 +628,13 @@ public sealed class GroupPanel : UserControl
         return values;
     }
 
-    /// <summary>
-    /// Shows what the picked drawing uses, and what its recipe makes of each value.
-    /// </summary>
-    /// <remarks>
-    /// Only under a recipe, which is the same rule a drawing's own tab follows — the rows are the
-    /// rules a recipe holds, and a drawing without one has none to show. That the target came back a
-    /// <see cref="RecipeWorkspace"/> is exactly the question "is this drawing under a recipe", so it
-    /// is not asked twice.
-    ///
-    /// Rebuilt with the selection rather than kept: it is one drawing's survey, and the drawing has
-    /// changed.
-    /// </remarks>
-    private void ShowReplacements()
-    {
-        if (_inspecting is not { } inspecting
-            || inspecting.Built.Document is not { } document
-            || _target is not RecipeWorkspace recipe)
-        {
-            _replacementsNote.Text = _inspecting is null
-                ? "Pick a drawing to see what it uses."
-                : "This drawing is not built through a recipe, so there is nothing to replace.";
-
-            _replacementsHost.Content = _replacementsNote;
-
-            return;
-        }
-
-        _replacementsHost.Content = new ReplacementsPanel(
-            recipe,
-            () => document.SourceText ?? string.Empty,
-            () => Evaluator(document));
-    }
-
     /// <summary>What the colour readouts are worked out with: this drawing's names and its values.</summary>
     /// <summary>
     /// Shows what the picked element is written with, in the drawing's own file.
     /// </summary>
     /// <remarks>
     /// The address comes from a tree of the drawing that was <em>built</em>, and what is edited is
-    /// the file it was made from. Under a recipe the two disagree by whatever it injected, so it is
-    /// translated before the panel is given it.
+    /// the text it was made from.
     ///
     /// Rebuilt with the selection rather than kept: it is one element of one drawing, and both
     /// change together.
@@ -752,19 +664,12 @@ public sealed class GroupPanel : UserControl
 
         var drawing = inspecting.Built.Drawing;
 
-        // The drawing's own text, never the recipe: an element's attribute is the drawing's. This is
-        // why it is not DeclarationTargetOf, which answers with the recipe and rightly so.
-        var target = DrawingTargetOf?.Invoke(drawing)
+        var target = TargetOf?.Invoke(drawing)
                      ?? new DrawingFile(document, drawing.ResolvedInput, source);
-
-        // The names in scope are the drawing's as built, which under a recipe are the recipe's. The
-        // text being edited declares none of them and checking against it would refuse every
-        // expression a recipe makes available.
-        var declaring = DeclarationTargetOf?.Invoke(drawing);
 
         var panel = new SvgViewerElementPanel(
             () => target.Text,
-            () => declaring?.Text ?? target.Text,
+            () => target.Text,
             (label, edit) =>
             {
                 var refusal = target.Commit(label, edit);
@@ -812,8 +717,7 @@ public sealed class GroupPanel : UserControl
     /// </summary>
     /// <remarks>
     /// A value belongs to the declaration it is for, and every drawing declaring that takes it. So
-    /// moving one slider moves the family — which is the whole reason to look at them side by side —
-    /// whether the family was built through one recipe or each wrote the same block by hand.
+    /// moving one slider moves the family, which is the whole reason to look at them side by side.
     ///
     /// Cheap for a drag: the pictures are the ones already built, and <c>SetExpressionValues</c>
     /// re-evaluates a model each has cached rather than reading or compiling anything again.
@@ -850,11 +754,9 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>Whether two drawings declare the same parameters, and so take the same values.</summary>
     /// <remarks>
-    /// What a drawing declares rather than where it declared it. Every drawing built through one
-    /// recipe has the recipe's block put into it before it is built, so those still share -- that
-    /// case is not lost, it is the same answer reached by reading what came out. What it adds is two
-    /// drawings that each wrote the same block by hand, which are as much a family as two built from
-    /// one recipe and had been moving alone.
+    /// What a drawing declares rather than where it declared it, read off the drawing as built. So
+    /// two drawings that each wrote the same block by hand are a family, which is what a set of
+    /// icons written from one template is.
     ///
     /// The whole parameter list, in order, and not the names: a bound is as much of what a parameter
     /// is as its type, so two drawings agreeing on all of them have agreed about something, where two
@@ -982,7 +884,6 @@ public sealed class GroupPanel : UserControl
 
         // The tabs are about whatever is selected, so they follow it.
         ShowParameters();
-        ShowReplacements();
     }
 
     /// <summary>Puts the ring round <paramref name="element"/>, where its drawing sits on the canvas.</summary>
@@ -1004,10 +905,7 @@ public sealed class GroupPanel : UserControl
     {
         try
         {
-            var document = SvgViewerDocument.Load(
-                drawing.ResolvedInput,
-                ProjectWorkspace.SizeOf(drawing),
-                Rewrite is { } rewrite ? text => rewrite(drawing, text) : null);
+            var document = SvgViewerDocument.Load(drawing.ResolvedInput, ProjectWorkspace.SizeOf(drawing));
 
             _loaded.Add(document);
 
@@ -1049,7 +947,6 @@ public sealed class GroupPanel : UserControl
         _inspecting = null;
         _tree.Show(null);
         ShowParameters();
-        ShowReplacements();
         ShowElement(null);
         _showing.Text = "Click a drawing to see what it is made of.";
 
@@ -1194,8 +1091,6 @@ public sealed class GroupPanel : UserControl
         Add("namespace");
         Add("class");
 
-        _properties.Children.Add(RecipeRow(node));
-
         if (node is SvgcProjectRoot)
         {
             Add("singleFile");
@@ -1226,183 +1121,46 @@ public sealed class GroupPanel : UserControl
     {
         switch (name)
         {
-            case "input": ((SvgcProjectDrawing)node).Input = value!; break;
-            case "output": ((SvgcProjectDrawing)node).Output = value; break;
-            case "namespace": node.Namespace = value; break;
-            case "class": node.Class = value; break;
-            case "recipe": node.Recipe = value; break;
-            case "padding": node.Padding = value; break;
-            case "width": node.Width = SvgcProject.ParseLength(value, "width"); break;
-            case "height": node.Height = SvgcProject.ParseLength(value, "height"); break;
-            case "scale": node.Scale = SvgcProject.ParseScale(value); break;
-            case "singleFile": ((SvgcProjectRoot)node).SingleFile = value; break;
-            case "emit": ((SvgcProjectRoot)node).Emit = SvgcProject.ParseEmit(value); break;
-            case "cache": ((SvgcProjectRoot)node).Cache = SvgcProject.ParseCache(value); break;
-            case "helperScope": ((SvgcProjectRoot)node).HelperScope = SvgcProject.ParseHelperScope(value); break;
-            case "skiaSharp": ((SvgcProjectRoot)node).SkiaSharp = SvgcProject.ParseSkiaSharpTarget(value); break;
+            case "input":
+                ((SvgcProjectDrawing)node).Input = value!;
+                break;
+            case "output":
+                ((SvgcProjectDrawing)node).Output = value;
+                break;
+            case "namespace":
+                node.Namespace = value;
+                break;
+            case "class":
+                node.Class = value;
+                break;
+            case "padding":
+                node.Padding = value;
+                break;
+            case "width":
+                node.Width = SvgcProject.ParseLength(value, "width");
+                break;
+            case "height":
+                node.Height = SvgcProject.ParseLength(value, "height");
+                break;
+            case "scale":
+                node.Scale = SvgcProject.ParseScale(value);
+                break;
+            case "singleFile":
+                ((SvgcProjectRoot)node).SingleFile = value;
+                break;
+            case "emit":
+                ((SvgcProjectRoot)node).Emit = SvgcProject.ParseEmit(value);
+                break;
+            case "cache":
+                ((SvgcProjectRoot)node).Cache = SvgcProject.ParseCache(value);
+                break;
+            case "helperScope":
+                ((SvgcProjectRoot)node).HelperScope = SvgcProject.ParseHelperScope(value);
+                break;
+            case "skiaSharp":
+                ((SvgcProjectRoot)node).SkiaSharp = SvgcProject.ParseSkiaSharpTarget(value);
+                break;
         }
-    }
-
-    /// <remarks>
-    /// No Apple type identifier, for the reason the project's has none: nothing registers
-    /// <c>.recipe</c> with macOS, so it is given a type conforming to nothing and naming
-    /// <c>public.xml</c> greys every recipe out rather than letting one be picked.
-    /// </remarks>
-    private static readonly FilePickerFileType Recipes = new("Svg Recipes")
-    {
-        Patterns = new[] { "*.recipe" },
-        MimeTypes = new[] { "application/xml" }
-    };
-
-    /// <summary>What a new recipe is written with: the root, and nothing said in it yet.</summary>
-    /// <remarks>
-    /// The namespace and no more. A seeded parameter and let applied cleanly and put a slider on the
-    /// drawing straight away, and a survey of the colours the drawings paint was written under it as
-    /// commented-out rules — but both are somebody else's opening line to read and delete before the
-    /// file says what you meant. The root is the only part of it that cannot be typed wrong.
-    /// </remarks>
-    private const string Skeleton = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <recipe xmlns="https://svg.skia/expr/1.0">
-        </recipe>
-
-        """;
-
-    /// <summary>
-    /// The recipe: a file, chosen with buttons rather than typed as a path.
-    /// </summary>
-    /// <remarks>
-    /// Not a box like the rest of the settings. A recipe is a second file the project has to find,
-    /// and a path typed wrong is only discovered when a drawing under it is opened or a build runs.
-    /// <b>New…</b> is there because a recipe that does not exist yet cannot be picked, and having to
-    /// leave for a text editor to make an empty one was the whole of what made recipes awkward to
-    /// start using.
-    /// </remarks>
-    private Control RecipeRow(SvgcProjectNode node)
-    {
-        var shown = Shown(node, "recipe");
-
-        var content = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-
-        if (shown is { })
-        {
-            var name = new TextBlock
-            {
-                // The file, not the path: the path is what the project carries and rarely what
-                // anybody wants to read, and the tip has it in full for when they do.
-                Text = Path.GetFileName(shown),
-                FontFamily = new FontFamily("Menlo, Consolas, monospace"),
-                FontSize = 12,
-                VerticalAlignment = VerticalAlignment.Center,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            };
-
-            // A file is opened by being double-clicked, the same as a row of the tree is. On a
-            // border filling the cell rather than on the text: a file name is a small target, and
-            // a TextBlock with nothing painted behind it is not one at all.
-            var target = new Border
-            {
-                Background = Brushes.Transparent,
-                Cursor = new Cursor(StandardCursorType.Hand),
-                Child = name
-            };
-
-            ToolTip.SetTip(target, $"{shown}\n\nDouble-click to edit it.");
-
-            target.DoubleTapped += (_, e) =>
-            {
-                e.Handled = true;
-                RecipeOpened?.Invoke(this, Resolved(shown));
-            };
-
-            content.Children.Add(target);
-            content.Children.Add(Buttons(
-                Apply(node),
-                Command("✕", "Stop using this recipe. The file is left where it is.", RemoveRecipe)));
-        }
-        else if (Bakeable(node))
-        {
-            content.Children.Add(new TextBlock
-            {
-                // Nothing of its own, but something under it: the drawings below answer to recipes
-                // named further down, and applying here is what reaches all of them at once.
-                Text = Inherited(node, "recipe") ?? "in the groups below",
-                Opacity = 0.55,
-                FontSize = 12,
-                VerticalAlignment = VerticalAlignment.Center,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            });
-
-            content.Children.Add(Buttons(
-                Apply(node),
-                Command("Add…", "Use a recipe that already exists.", async () => await ChooseRecipeAsync())));
-        }
-        else
-        {
-            content.Children.Add(new TextBlock
-            {
-                // What it would inherit, or that it has none — the same thing the watermark of an
-                // empty box says for every other setting.
-                Text = Inherited(node, "recipe") ?? "none",
-                Opacity = 0.55,
-                FontSize = 12,
-                VerticalAlignment = VerticalAlignment.Center,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            });
-
-            content.Children.Add(Buttons(
-                Command("Add…", "Use a recipe that already exists.", async () => await ChooseRecipeAsync()),
-                Command("New…", "Write an empty recipe and use it.", async () => await CreateRecipeAsync())));
-        }
-
-        return new StackPanel
-        {
-            Spacing = 2,
-            Children =
-            {
-                new TextBlock { Text = "recipe", Opacity = 0.65, FontSize = 11 },
-                content
-            }
-        };
-    }
-
-    /// <summary>Whether a recipe named here or under here reaches a drawing.</summary>
-    /// <remarks>
-    /// Not just "does this node name one": a group naming nothing itself can hold two groups that
-    /// each name their own, and applying from the top is how both are reached at once.
-    ///
-    /// Named <em>here</em> is what the row says rather than what the file says, so a recipe dropped
-    /// and not saved yet does not go on offering to be written into the drawings. One inherited
-    /// from above is deliberately not counted: it covers drawings outside this node, and the place
-    /// to apply it is the node that names it.
-    /// </remarks>
-    private bool Bakeable(SvgcProjectNode node)
-        => Shown(node, "recipe") is { }
-           || Drawings(node).Any(drawing =>
-               drawing.OwnerOf("recipe") is { } owner
-               && !ReferenceEquals(owner, node)
-               && owner.DescendsFrom(node));
-
-    private static IEnumerable<SvgcProjectDrawing> Drawings(SvgcProjectNode node)
-        => node switch
-        {
-            SvgcProjectGroup group => group.Drawings,
-            SvgcProjectDrawing drawing => new[] { drawing },
-            _ => Enumerable.Empty<SvgcProjectDrawing>()
-        };
-
-    private Button Apply(SvgcProjectNode node)
-        => Command(
-            "Apply…",
-            "Write the recipe into the drawings under this node, and stop naming it.\nThis cannot be undone.",
-            () => RecipeApplyRequested?.Invoke(this, node));
-
-    /// <summary>Where a recipe named by the project actually is.</summary>
-    private string Resolved(string recipe)
-    {
-        var directory = Workspace.Document.BaseDirectory;
-
-        return Path.GetFullPath(directory.Length == 0 ? recipe : Path.Combine(directory, recipe));
     }
 
     private static Button Command(string content, string tip, Action run)
@@ -1435,99 +1193,6 @@ public sealed class GroupPanel : UserControl
         Grid.SetColumn(panel, 1);
 
         return panel;
-    }
-
-    /// <summary>Asks which recipe to use, and uses it.</summary>
-    private async Task ChooseRecipeAsync()
-    {
-        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { CanOpen: true } storage)
-        {
-            return;
-        }
-
-        var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "Choose a recipe",
-            AllowMultiple = false,
-            FileTypeFilter = new List<FilePickerFileType> { Recipes }
-        }).ConfigureAwait(true);
-
-        if (files.Select(file => file.TryGetLocalPath()).FirstOrDefault(path => path is { Length: > 0 }) is { } chosen)
-        {
-            SetRecipe(chosen);
-        }
-    }
-
-    /// <summary>Asks where to write a recipe, writes it, and uses it.</summary>
-    private async Task CreateRecipeAsync()
-    {
-        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { CanSave: true } storage)
-        {
-            return;
-        }
-
-        var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "New recipe",
-            SuggestedFileName = Suggested(),
-            DefaultExtension = "recipe",
-            FileTypeChoices = new List<FilePickerFileType> { Recipes }
-        }).ConfigureAwait(true);
-
-        if (file?.TryGetLocalPath() is { Length: > 0 } path)
-        {
-            CreateRecipe(path);
-        }
-    }
-
-    /// <summary>What a new recipe is offered as being called: after what it would be a recipe for.</summary>
-    private string Suggested()
-    {
-        var name = Node is SvgcProjectDrawing drawing
-            ? Path.GetFileNameWithoutExtension(drawing.Input)
-            : Node.Class ?? Node.Namespace ?? Path.GetFileNameWithoutExtension(Workspace.Name);
-
-        return (string.IsNullOrWhiteSpace(name) ? "recipe" : name) + ".recipe";
-    }
-
-    /// <summary>Names <paramref name="path"/> as this node's recipe.</summary>
-    /// <remarks>
-    /// Taking the path rather than asking for it, so everything but the picker can be driven. Held
-    /// until the tab is saved, like every other setting typed here — which is also when the drawings
-    /// under it are read again through it.
-    /// </remarks>
-    public void SetRecipe(string path)
-    {
-        Edit("recipe", Workspace.Carry(path ?? throw new ArgumentNullException(nameof(path))));
-        Refresh();
-    }
-
-    /// <summary>Writes an empty recipe at <paramref name="path"/>, and names it here.</summary>
-    /// <remarks>
-    /// A file that is already there is named rather than written over. The save panel has asked
-    /// about replacing it, but replacing a recipe somebody wrote with an empty one is never what
-    /// picking its name meant.
-    /// </remarks>
-    public void CreateRecipe(string path)
-    {
-        if (path is null)
-        {
-            throw new ArgumentNullException(nameof(path));
-        }
-
-        if (!File.Exists(path))
-        {
-            File.WriteAllText(path, Skeleton);
-        }
-
-        SetRecipe(path);
-    }
-
-    /// <summary>Stops this node naming a recipe. The file itself is left alone.</summary>
-    public void RemoveRecipe()
-    {
-        Edit("recipe", null);
-        Refresh();
     }
 
     /// <summary>
@@ -1651,13 +1316,27 @@ public sealed class GroupPanel : UserControl
             // not a row the build can read.
             case "input" when string.IsNullOrWhiteSpace(value):
                 throw new SvgcProjectException("A drawing needs an input file.");
-            case "width": SvgcProject.ParseLength(value, "width"); break;
-            case "height": SvgcProject.ParseLength(value, "height"); break;
-            case "scale": SvgcProject.ParseScale(value); break;
-            case "emit": SvgcProject.ParseEmit(value); break;
-            case "cache": SvgcProject.ParseCache(value); break;
-            case "helperScope": SvgcProject.ParseHelperScope(value); break;
-            case "skiaSharp": SvgcProject.ParseSkiaSharpTarget(value); break;
+            case "width":
+                SvgcProject.ParseLength(value, "width");
+                break;
+            case "height":
+                SvgcProject.ParseLength(value, "height");
+                break;
+            case "scale":
+                SvgcProject.ParseScale(value);
+                break;
+            case "emit":
+                SvgcProject.ParseEmit(value);
+                break;
+            case "cache":
+                SvgcProject.ParseCache(value);
+                break;
+            case "helperScope":
+                SvgcProject.ParseHelperScope(value);
+                break;
+            case "skiaSharp":
+                SvgcProject.ParseSkiaSharpTarget(value);
+                break;
         }
     }
 
@@ -1680,7 +1359,6 @@ public sealed class GroupPanel : UserControl
         "output" => (node as SvgcProjectDrawing)?.Output,
         "namespace" => node.Namespace,
         "class" => node.Class,
-        "recipe" => node.Recipe,
         "padding" => node.Padding,
         "width" => node.Width is { } width ? Number(width) : null,
         "height" => node.Height is { } height ? Number(height) : null,

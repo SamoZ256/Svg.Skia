@@ -11,11 +11,10 @@ namespace Svg.Studio;
 /// A drawing's file, as somewhere declarations can be written.
 /// </summary>
 /// <remarks>
-/// The last resort, for a drawing that is under no recipe and open in no tab. Everything else that
-/// writes declarations in Studio writes a buffer — a recipe's, or the one behind a drawing's source
-/// pane — and <see cref="ISvgViewerDeclarationTarget"/> says as much: "a buffer and not a file:
-/// edits arrive one at a time as somebody works, and a host that wrote each one to disk would save
-/// on every keystroke and have nothing to take back."
+/// The last resort, for a drawing that is open in no tab. Everything else that writes declarations
+/// in Studio writes the buffer behind a drawing's tab, and <see cref="ISvgViewerDeclarationTarget"/>
+/// says as much: "a buffer and not a file: edits arrive one at a time as somebody works, and a host
+/// that wrote each one to disk would save on every keystroke and have nothing to take back."
 ///
 /// This is that exception, deliberately, and it costs what the interface says it does. Every edit is
 /// written and saved the moment it is made: there is no undo, no unsaved mark, and nothing to

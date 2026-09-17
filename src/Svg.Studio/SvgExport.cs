@@ -48,9 +48,8 @@ public static class SvgExport
         }
         else
         {
-            // Through the document, so a drawing that came in with a byte order mark keeps it, and
-            // so a project's recipe is applied — this is the drawing as the project builds it, which
-            // is the document svgc writes for `--emit svg`. The C# form gets it through Reload.
+            // Through the document, so a drawing that came in with a byte order mark keeps it. The
+            // C# form gets that through Reload.
             document.Write(document.Built(sized), target);
         }
 
