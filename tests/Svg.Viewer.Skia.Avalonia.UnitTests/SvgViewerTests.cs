@@ -1331,7 +1331,7 @@ public class SvgViewerTests
             var (window, viewer) = Host();
 
             Assert.True(await viewer.LoadAsync(path));
-                Dispatcher.UIThread.RunJobs();
+            Dispatcher.UIThread.RunJobs();
 
             Assert.Equal(new SKColor(0xFF, 0, 0), Centre(viewer));
 
@@ -1375,7 +1375,7 @@ public class SvgViewerTests
             var (window, viewer) = Host();
 
             Assert.True(await viewer.LoadAsync(path));
-                Dispatcher.UIThread.RunJobs();
+            Dispatcher.UIThread.RunJobs();
 
             Assert.False(viewer.IsSourceModified);
 
@@ -1724,6 +1724,41 @@ public class SvgViewerTests
 
         Assert.Equal(was.Value, column.Width.Value);
         Assert.True(column.MinWidth > 0d);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Text_A_Host_Holds_Is_Built_At_The_Size_The_Host_Asks_For()
+    {
+        // A project holding its drawings inline builds them at the size its groups say, which a
+        // drawing loaded from a file has taken since the size request was added and one loaded from
+        // text did not.
+        var (window, viewer) = Host();
+
+        viewer.SizeRequest = new global::Svg.Skia.SvgSizeRequest(null, null, 2f);
+
+        Assert.True(await viewer.LoadTextAsync(Plain, "Badge"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(48f, viewer.Svg!.Picture!.CullRect.Width);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Host_That_Writes_The_Text_Itself_Can_Say_So()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        Assert.True(viewer.Resize(new global::Svg.Skia.SvgSizeRequest(48f, null, null)));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.IsSourceModified);
+
+        viewer.MarkSaved();
+
+        Assert.False(viewer.IsSourceModified);
 
         window.Close();
     }

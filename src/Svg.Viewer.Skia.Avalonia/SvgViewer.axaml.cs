@@ -96,6 +96,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>What the modified flag last was, so the change can be raised rather than polled.</summary>
     private bool _sourceModified;
+    private string? _name;
 
     /// <summary>Waits for typing to stop before rebuilding the drawing.</summary>
     /// <remarks>
@@ -668,8 +669,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     public Task<bool> LoadAsync(string path)
         => LoadCoreAsync(() => SvgViewerDocument.Load(path, SizeRequest, Rewrite), Path.GetFileName(path));
 
-    public Task<bool> LoadTextAsync(string svgText)
-        => LoadCoreAsync(() => SvgViewerDocument.LoadFromSvg(svgText), null);
+    /// <summary>Opens a drawing that is held as text — one a project keeps inline.</summary>
+    /// <param name="name">What to call it, since there is no file to take a name from.</param>
+    public Task<bool> LoadTextAsync(string svgText, string? name = null)
+        => LoadCoreAsync(() => SvgViewerDocument.LoadFromSvg(svgText, null, SizeRequest), name);
 
     public Task<bool> LoadAsync(Stream stream)
         => LoadCoreAsync(() => SvgViewerDocument.Load(stream), null);
@@ -715,6 +718,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             document.Dispose();
             return false;
         }
+
+        _name = name;
 
         SetDocument(document);
         return true;
@@ -1745,6 +1750,19 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         return true;
     }
 
+    /// <summary>Marks the drawing's text saved, for a host that has written it somewhere itself.</summary>
+    /// <remarks>
+    /// <see cref="SaveSourceAsync"/> for a drawing that has no file of its own: a project holding
+    /// the drawing inline saves it by writing its own file, and then has to say so here or the tab
+    /// goes on carrying an unsaved mark. Asking that method to do it would ask for a file, which is
+    /// the one thing such a drawing has not got.
+    /// </remarks>
+    public void MarkSaved()
+    {
+        _workspace?.MarkSaved();
+        RaiseModified();
+    }
+
     /// <summary>Takes back the last edit to the drawing's text.</summary>
     /// <remarks>
     /// For a host with a menu: the canvas binds the platform's gestures itself, and a menu item
@@ -1882,7 +1900,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        var name = document.Path is { } path ? Path.GetFileName(path) : "drawing";
+        var name = document.Path is { } path ? Path.GetFileName(path) : _name ?? "drawing";
         var count = document.Declarations.Parameters.Count;
 
         _statusText.Text = count == 0
