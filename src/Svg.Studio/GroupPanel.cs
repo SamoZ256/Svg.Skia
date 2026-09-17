@@ -1117,6 +1117,16 @@ public sealed class GroupPanel : UserControl
         Add("scale");
         Add("padding");
 
+        // Where it sits on the board of the group holding it — which the project has none of, and
+        // which a node's own tab therefore shows without showing any change.
+        if (node is not ProjectRoot)
+        {
+            _properties.Children.Add(new Separator { Margin = new Thickness(0, 6) });
+
+            Add("x");
+            Add("y");
+        }
+
         void Add(string name) => _properties.Children.Add(Row(node, name));
     }
 
@@ -1145,6 +1155,16 @@ public sealed class GroupPanel : UserControl
                 break;
             case "padding":
                 node.Padding = value;
+                break;
+            case "x":
+                node.X = SvgcProject.ParseLength(value, "position");
+                // Both or neither, as the format asks. Typing one of them places the node at the
+                // board's origin on the other axis; clearing either takes the place away.
+                node.Y = node.X is { } ? node.Y ?? 0f : null;
+                break;
+            case "y":
+                node.Y = SvgcProject.ParseLength(value, "position");
+                node.X = node.Y is { } ? node.X ?? 0f : null;
                 break;
             case "width":
                 node.Width = SvgcProject.ParseLength(value, "width");
@@ -1332,6 +1352,10 @@ public sealed class GroupPanel : UserControl
             case "scale":
                 SvgcProject.ParseScale(value);
                 break;
+            case "x":
+            case "y":
+                SvgcProject.ParseLength(value, "position");
+                break;
             case "cache":
                 SvgcProject.ParseCache(value);
                 break;
@@ -1364,6 +1388,8 @@ public sealed class GroupPanel : UserControl
         "namespace" => node.Namespace,
         "class" => node.Class,
         "padding" => node.Padding,
+        "x" => node.X is { } x ? Number(x) : null,
+        "y" => node.Y is { } y ? Number(y) : null,
         "width" => node.Width is { } width ? Number(width) : null,
         "height" => node.Height is { } height ? Number(height) : null,
         "scale" => node.Scale is { } scale ? Number(scale) : null,

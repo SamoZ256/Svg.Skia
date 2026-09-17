@@ -2005,6 +2005,59 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task A_Place_Is_Typed_As_A_Pair_And_Inherited_From_Nobody()
+    {
+        var path = Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons">
+              <group name="Large" x="40" y="8">
+            {Holding("badge")}
+              </group>
+            </studio>
+            """);
+
+        var window = await Host(path);
+        var panel = await Group(window, 0);
+
+        // The group's own place, read back off the file rather than left empty — a row that shows
+        // nothing can never be typed back to what the file says, and stays pending for ever.
+        Assert.Equal("40", panel.Shown("x"));
+        Assert.Equal("8", panel.Shown("y"));
+
+        var drawing = ((ProjectGroup)panel.Node).Drawings.Single();
+
+        await window.ShowAsync(drawing);
+        Dispatcher.UIThread.RunJobs();
+
+        var settings = (GroupPanel)Assert.Single(((SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!).SidePanels).Content;
+        var box = settings.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "x"));
+
+        // Nothing behind it: a group's place is in its parent's coordinates, so offering it as this
+        // drawing's inherited x would be a number about somewhere else.
+        Assert.Null(box.Text);
+        Assert.Null(box.PlaceholderText);
+
+        // Typing one places it on the board's origin on the other axis, since half a point is not
+        // a place — and the drawing goes on building at the size its group asks for.
+        Assert.True(settings.Edit("x", "12"));
+
+        settings.Save();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(12f, drawing.X);
+        Assert.Equal(0f, drawing.Y);
+        Assert.Contains("x=\"12\" y=\"0\"", File.ReadAllText(path), StringComparison.Ordinal);
+
+        // Cleared, the place goes with it rather than leaving half of one.
+        Assert.True(settings.Edit("y", null));
+
+        settings.Save();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(drawing.X);
+        Assert.Null(drawing.Y);
+    }
+
+    [AvaloniaFact]
     public async Task A_Drawing_Is_Given_A_Class_Of_Its_Own_In_Its_Tab()
     {
         Write("home.svg", Drawing);
