@@ -291,6 +291,11 @@ public class ProjectGroup : ProjectNode
 
         Attach(index, copy);
 
+        // The place came across in the text and is about where the original sits. Two rows on one
+        // spot, one of them under the other, is worse than a row waiting beside the arrangement.
+        copy.X = null;
+        copy.Y = null;
+
         Reindent(element, was, ProjectDocument.Depth(element));
 
         return copy;
@@ -332,6 +337,13 @@ public class ProjectGroup : ProjectNode
         if (ReferenceEquals(parent, this) && index > parent._children.IndexOf(child))
         {
             index--;
+        }
+        else if (!ReferenceEquals(parent, this))
+        {
+            // Its place was about the board it has left. A reorder inside one board keeps it:
+            // document order decides nothing about where a row is drawn any more.
+            child.X = null;
+            child.Y = null;
         }
 
         // Read before the move, since detaching takes the whitespace that says it away.

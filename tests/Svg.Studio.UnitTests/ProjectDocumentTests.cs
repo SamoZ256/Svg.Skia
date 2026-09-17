@@ -361,6 +361,34 @@ public class ProjectDocumentTests : IDisposable
     }
 
     [Fact]
+    public void A_Place_Is_Forgotten_When_It_Was_About_Another_Board()
+    {
+        var document = ProjectDocument.Parse(Placed, string.Empty);
+        var group = document.Root.Children.OfType<ProjectGroup>().Single();
+        var badge = document.Root.Drawings.First();
+
+        // Into another group: the numbers were about the board it has left.
+        group.Move(badge, 0);
+
+        Assert.False(badge.HasPosition);
+
+        // A copy is the same story — two rows on one spot, one under the other.
+        var alt = group.Drawings.Last(drawing => drawing.HasPosition);
+        var copy = (ProjectDrawing)group.Copy(alt, group.Children.Count);
+
+        Assert.False(copy.HasPosition);
+        Assert.True(alt.HasPosition);
+
+        // A reorder within one board keeps it: document order decides nothing about where a row is
+        // drawn any more.
+        var was = alt.X;
+
+        group.Move(alt, 0);
+
+        Assert.Equal(was, alt.X);
+    }
+
+    [Fact]
     public void A_Place_Is_No_Business_Of_The_Build()
     {
         var placed = ProjectDocument.Parse(Placed, string.Empty).Flatten();
