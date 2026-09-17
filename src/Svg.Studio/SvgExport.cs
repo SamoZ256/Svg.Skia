@@ -116,11 +116,18 @@ public static class SvgExport
     }
 
     /// <summary>The generated class's name: the file's own, made into an identifier.</summary>
-    public static string ClassName(string path)
+    public static string ClassName(string path) => Identifier(Path.GetFileNameWithoutExtension(path) ?? string.Empty);
+
+    /// <summary>A name as C# will take it: anything else becomes an underscore.</summary>
+    /// <remarks>
+    /// Also what a project's drawing falls back on, which is why this is not simply the tail of
+    /// <see cref="ClassName"/>: a drawing is named rather than filed, and a name is not a path.
+    /// </remarks>
+    public static string Identifier(string text)
     {
         var name = new StringBuilder();
 
-        foreach (var c in Path.GetFileNameWithoutExtension(path) ?? string.Empty)
+        foreach (var c in text)
         {
             name.Append(c == '_' || char.IsLetterOrDigit(c) ? c : '_');
         }

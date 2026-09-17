@@ -112,7 +112,8 @@ public sealed class SvgcProjectItem
 /// </remarks>
 public sealed class SvgcProject
 {
-    internal SvgcProject(
+    /// <summary>A build described in memory, for a host whose project is not an svgc document.</summary>
+    public SvgcProject(
         string? recipe,
         string? namespaceName,
         string? className,
