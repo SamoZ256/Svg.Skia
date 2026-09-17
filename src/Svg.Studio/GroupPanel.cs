@@ -77,6 +77,13 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private readonly List<(SvgViewerPlacement Placement, Drawn Built)> _shown = new();
 
+    /// <summary>Each group under this one that has a place, paired with the frame drawn round it.</summary>
+    /// <remarks>
+    /// A frame is not a placement, so the canvas answers nothing about one: this is what says which
+    /// group a press on a frame took hold of.
+    /// </remarks>
+    private readonly List<(SvgViewerFrame Frame, ProjectGroup Group)> _framed = new();
+
     private readonly SvgViewerElementTree _tree = new();
 
     private readonly SvgViewerDeclarationPanel _parameters = new();
@@ -806,18 +813,135 @@ public sealed class GroupPanel : UserControl
 
         Says(Trouble(built));
 
-        // Only the ones that built: Spread lays out what it is given, so the two lists line up
-        // index for index and that is what pairs a placement with the drawing it came from.
+        // Only the ones that built, since a drawing that would not read has nothing to place.
         var drawn = built.Where(drawn => drawn.Svg is { }).ToList();
-        var placements = SvgViewerSpread.Of(
-            drawn.Select(one => new SvgViewerSpread.Item(one.Svg!, one.Size, Caption(one.Drawing))).ToList());
 
-        for (var index = 0; index < placements.Count; index++)
+        // Once for the whole tab rather than per spread, and to the number a spread of all of them
+        // would have arrived at: a board that is settled into places must not resize a caption.
+        var label = Math.Max(drawn.Max(one => Math.Max(one.Size.Width, one.Size.Height)) * 0.05f, 1f);
+
+        Lay((ProjectGroup)Node, SKPoint.Empty, label, drawn.ToDictionary(one => one.Drawing));
+
+        _canvas.Show(_shown.Select(shown => shown.Placement).ToList(), _framed.Select(framed => framed.Frame).ToList());
+    }
+
+    /// <summary>
+    /// Where everything one group holds goes, in the space the tab arranges in.
+    /// </summary>
+    /// <remarks>
+    /// One rule at every depth: the children that name a place go where they say, relative to the
+    /// board they sit on, and the rest are laid out together by the spread and put beside them. A
+    /// board where nothing names a place is the spread and nothing else, which is what a group that
+    /// has never been arranged still looks like.
+    ///
+    /// Recursive because a place is relative: a group's children are written against it, so the
+    /// offset is carried down and a frame is drawn round what comes back.
+    /// </remarks>
+    private void Lay(ProjectGroup group, SKPoint at, float label, IReadOnlyDictionary<ProjectDrawing, Drawn> made)
+    {
+        // Where this board's own items begin, so the ones with no place go beside what this board
+        // holds rather than beside everything the tab has placed so far.
+        var from = _shown.Count;
+        var framedFrom = _framed.Count;
+
+        var loose = new List<ProjectDrawing>();
+
+        foreach (var child in group.Children)
         {
-            _shown.Add((placements[index], drawn[index]));
+            if (!child.HasPosition)
+            {
+                // A group with no place of its own is not a unit on this board: what it holds joins
+                // the queue, exactly as it did before any of this.
+                loose.AddRange(child is ProjectGroup unplaced ? unplaced.Drawings : new[] { (ProjectDrawing)child });
+
+                continue;
+            }
+
+            var to = new SKPoint(at.X + child.X!.Value, at.Y + child.Y!.Value);
+
+            switch (child)
+            {
+                case ProjectDrawing drawing when made.TryGetValue(drawing, out var built):
+                    Put(new SvgViewerPlacement(built.Svg!, to, Caption(drawing), label), built);
+                    break;
+
+                case ProjectGroup inner:
+                    var shown = _shown.Count;
+                    var framed = _framed.Count;
+
+                    // Held, so the frames come out outermost first and a click on two of them at
+                    // once is the inner one's.
+                    _framed.Add((new SvgViewerFrame(default), inner));
+
+                    Lay(inner, to, label, made);
+
+                    _framed[framed] = (Around(shown, framed + 1, to, inner.Name, label), inner);
+                    break;
+            }
         }
 
-        _canvas.Show(placements);
+        if (loose.Count == 0)
+        {
+            return;
+        }
+
+        var items = loose.Where(made.ContainsKey).ToList();
+        var block = Beside(at, from, framedFrom, label);
+
+        foreach (var (placement, drawing) in SvgViewerSpread
+                     .Of(items.Select(one => new SvgViewerSpread.Item(made[one].Svg!, made[one].Size, Caption(one))).ToList())
+                     .Zip(items))
+        {
+            // The copy, and only the copy, goes into both lists: a click pairs a placement back to
+            // its drawing by reference, and `with` makes a new record.
+            Put(placement with { At = new SKPoint(placement.At.X + block.X, placement.At.Y + block.Y) }, made[drawing]);
+        }
+    }
+
+    private void Put(SvgViewerPlacement placement, Drawn built) => _shown.Add((placement, built));
+
+    /// <summary>Where the ones with no place of their own go: right of everything on this board that has one.</summary>
+    private SKPoint Beside(SKPoint at, int from, int framedFrom, float label)
+    {
+        var placed = _shown.Skip(from).Select(shown => Area(shown.Placement))
+            .Concat(_framed.Skip(framedFrom).Select(framed => framed.Frame.Bounds))
+            .Where(area => area.Width > 0f)
+            .ToList();
+
+        // The room the spread leaves between two of its own, so a queue beside an arrangement is
+        // as far off it as the queue's own columns are from each other.
+        return placed.Count == 0
+            ? at
+            : new SKPoint(placed.Max(area => area.Right) + label * 2f, at.Y);
+    }
+
+    /// <summary>The frame round what one group holds: everything placed since the mark.</summary>
+    private SvgViewerFrame Around(int shown, int framed, SKPoint at, string name, float label)
+    {
+        var held = _shown.Skip(shown).Select(one => Area(one.Placement))
+            .Concat(_framed.Skip(framed).Select(one => one.Frame.Bounds))
+            .Where(area => area.Width > 0f)
+            .ToList();
+
+        // A group holding nothing is still something to see and to take hold of, at the place it
+        // says it is.
+        var bounds = held.Count == 0
+            ? new SKRect(at.X, at.Y, at.X + label * 4f, at.Y + label * 4f)
+            : held.Aggregate(SKRect.Union);
+
+        return new SvgViewerFrame(SKRect.Inflate(bounds, label, label), name, label);
+    }
+
+    private static SKRect Area(SvgViewerPlacement placement)
+    {
+        if (placement.Svg.Picture is not { CullRect: { Width: > 0f, Height: > 0f } cull })
+        {
+            return default;
+        }
+
+        cull.Offset(placement.At);
+
+        return cull;
     }
 
     /// <summary>Rings whatever was clicked, on the drawing it was clicked in.</summary>
@@ -945,6 +1069,7 @@ public sealed class GroupPanel : UserControl
         _canvas.Show(Array.Empty<SvgViewerPlacement>());
 
         _shown.Clear();
+        _framed.Clear();
 
         // The tree holds elements of a document whose picture is about to be disposed, and the
         // parameters belong to the drawing it was showing.

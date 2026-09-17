@@ -545,6 +545,92 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(Area(placements[0]).IntersectsWith(ring.Bounds), "the ring landed on the other drawing too");
     }
 
+    /// <summary>A project whose rows say where they sit: two on the board, two inside a group.</summary>
+    private static string Board(string extra = "") => $$"""
+        <studio namespace="Demo.Icons">
+        {{Holding("home", " class=\"Home\" x=\"0\" y=\"0\"")}}
+        {{Holding("badge", " class=\"Badge\" x=\"100\" y=\"0\"")}}
+          <group name="Large" namespace="Demo.Icons.Large" scale="2" x="0" y="80">
+        {{Holding("large", " class=\"BadgeLarge\" x=\"0\" y=\"0\"")}}
+        {{extra}}
+          </group>
+        </studio>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Board_Puts_Its_Items_Where_They_Say()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var drawn = Drawn(panel);
+
+        Assert.Equal(3, drawn.Count);
+
+        // Where the file says, and not where a grid would have put them.
+        Assert.Equal(0f, Area(drawn[0]).Left, 3);
+        Assert.Equal(100f, Area(drawn[1]).Left, 3);
+
+        // The one in the group is written against the group, which sits at 0,80 — so it lands
+        // there, and the group's own scale still reaches it.
+        Assert.Equal(0f, Area(drawn[2]).Left, 3);
+        Assert.Equal(80f, Area(drawn[2]).Top, 3);
+        Assert.Equal(48f, Picture(drawn[2])!.CullRect.Width);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Group_With_A_Place_Is_Drawn_As_A_Frame_Round_What_It_Holds()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        var framed = Assert.Single(Canvas(panel).Frames);
+
+        Assert.Equal("Large", framed.Label);
+        Assert.True(
+            framed.Bounds.Contains(Area(Drawn(panel)[2])),
+            $"{framed.Bounds} is not round the drawing it holds");
+
+        // And round that one alone: the two on the board outside it are not in it.
+        Assert.False(framed.Bounds.IntersectsWith(Area(Drawn(panel)[0])));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_With_No_Place_Waits_Beside_The_Ones_That_Have_One()
+    {
+        // The state a paste or an add leaves behind, and a hand-written file can too: nothing is
+        // written at layout time, so it waits where it can be seen rather than under something.
+        var window = await Host(Write("icons.svgstudio", Board(Holding("queued"))));
+        var panel = Panel(window, "Project");
+        var drawn = Drawn(panel);
+
+        // In the order the walk places them: what the board says, then what it does not.
+        var placed = Area(drawn[2]);
+        var queued = Area(drawn[3]);
+
+        Assert.True(queued.Left >= placed.Right, $"{queued} is not beside {placed}");
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_On_A_Board_Is_Picked_Where_It_Sits()
+    {
+        // The same claim as the grid's, against places: the pairing from a click back to a node is
+        // reference identity on a placement, and a board builds those a second way.
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        var canvas = Canvas(panel);
+        var drawn = Drawn(panel);
+        var second = Area(drawn[1]);
+
+        Click(window, canvas, Over(canvas, second.MidX, second.MidY));
+
+        var ring = canvas.Highlight;
+
+        Assert.NotNull(ring);
+        Assert.True(second.Contains(ring!.Bounds), $"{ring.Bounds} is not inside {second}");
+        Assert.False(Area(drawn[0]).IntersectsWith(ring.Bounds), "the ring landed on the other drawing too");
+    }
+
     /// <summary>A group that builds the one file twice, which is what a project usually does.</summary>
     private const string Twice = """
         <studio namespace="Demo.Icons">
