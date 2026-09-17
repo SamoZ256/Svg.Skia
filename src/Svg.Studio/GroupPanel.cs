@@ -801,6 +801,11 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void ShowDrawings()
     {
+        // Which drawing was being looked at, since Release is about to forget it. Every rebuild of
+        // this tab used to empty the Parameters and Element tabs — a settings edit did it, and a
+        // drawing moved on the board would do it on every drop.
+        var was = _inspecting?.Built.Drawing;
+
         Release();
 
         var drawings = ((ProjectGroup)Node).Drawings.ToList();
@@ -825,6 +830,15 @@ public sealed class GroupPanel : UserControl
         Lay((ProjectGroup)Node, SKPoint.Empty, label, drawn.ToDictionary(one => one.Drawing));
 
         _canvas.Show(_shown.Select(shown => shown.Placement).ToList(), _framed.Select(framed => framed.Frame).ToList());
+
+        // The same row as before, which is a new placement over a new document: what is shown is
+        // rebuilt rather than restored, and that is the point — the tabs beside it are about the
+        // drawing as it now is.
+        if (was is { } picked
+            && _shown.FirstOrDefault(shown => ReferenceEquals(shown.Built.Drawing, picked)) is { Built.Svg: { } } again)
+        {
+            Inspect(again, again.Placement, again.Built.Svg!);
+        }
     }
 
     /// <summary>

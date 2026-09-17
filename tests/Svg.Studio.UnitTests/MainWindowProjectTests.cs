@@ -644,6 +644,32 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task The_Drawing_Being_Looked_At_Survives_A_Rebuild()
+    {
+        // Every rebuild of a group's tab used to empty the Parameters and Element tabs. A settings
+        // edit did it; a drawing moved on the board would do it on every drop.
+        var window = await Host(Own(Declaring, Declaring));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 1);
+
+        var picked = Declarations(panel).Parameters!.Single().Name;
+
+        Assert.Equal("tint", picked);
+
+        // A rebuild, by the route a saved setting takes.
+        panel.Refresh();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("tint", Declarations(panel).Parameters!.Single().Name);
+
+        // And the line above the canvas still names the row rather than asking for one.
+        Assert.DoesNotContain(
+            panel.GetVisualDescendants().OfType<TextBlock>(),
+            block => block.Text is { } said && said.StartsWith("Click a drawing", StringComparison.Ordinal));
+    }
+
+    [AvaloniaFact]
     public async Task A_Group_Is_Carried_By_Its_Frame()
     {
         var path = Write("icons.svgstudio", Board());
