@@ -817,6 +817,48 @@ public class MainWindowProjectTests : IDisposable
         Assert.NotSame(before[2], after[2]);
     }
 
+    /// <summary>
+    /// A drop keeps the ring, the row it came from and the Element tab, on the drawing that moved.
+    /// </summary>
+    /// <remarks>
+    /// A rebuild used to clear all three, so every drop emptied the panes beside the canvas and took
+    /// the ring off whatever was being worked on — which on a board is constant, since dragging is
+    /// how a board is arranged at all.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Drop_Keeps_The_Ring_And_The_Element_Tab()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        Pick(window, panel, 0);
+
+        Assert.NotNull(canvas.Highlight);
+        Assert.NotNull(Elements(panel).SelectedNode);
+        Assert.Equal("#00ff00", Assert.IsType<SvgViewerElementPanel>(Element(panel)).Shown("fill"));
+
+        var home = Area(Drawn(panel)[0]);
+
+        Drag(
+            window,
+            canvas,
+            Over(canvas, home.MidX, home.MidY),
+            Over(canvas, home.MidX + 40f, home.MidY));
+
+        var ring = canvas.Highlight;
+
+        Assert.NotNull(ring);
+        Assert.NotNull(Elements(panel).SelectedNode);
+        Assert.Equal("#00ff00", Assert.IsType<SvgViewerElementPanel>(Element(panel)).Shown("fill"));
+
+        // And it went with the drawing rather than staying behind on the board.
+        var moved = Area(Drawn(panel)[0]);
+
+        Assert.Equal(home.Left + 40f, moved.Left, 1);
+        Assert.True(moved.Contains(ring!.Bounds), $"{ring.Bounds} is not inside {moved}");
+    }
+
     [AvaloniaFact]
     public async Task A_Group_Is_Carried_By_Its_Frame()
     {

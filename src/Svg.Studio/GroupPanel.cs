@@ -128,6 +128,13 @@ public sealed class GroupPanel : UserControl
     /// <summary>The drawing the tree is showing, and where it sits on the canvas.</summary>
     private (SvgViewerPlacement Placement, Drawn Built)? _inspecting;
 
+    /// <summary>The element being looked at inside it, by the address that survives a rebuild.</summary>
+    /// <remarks>
+    /// The address and not the element: a drawing read again is a different graph, so the key is the
+    /// only thing the two have in common. It is what <see cref="Pick"/> already selects rows by.
+    /// </remarks>
+    private string? _picked;
+
     /// <summary>Whether this is the tab being looked at.</summary>
     /// <remarks>
     /// A tab's content leaves the visual tree when another tab is picked, so a board is laid out
@@ -192,6 +199,8 @@ public sealed class GroupPanel : UserControl
             {
                 Ring(inspecting.Placement, svg, picked.Element);
             }
+
+            _picked = node?.AddressKey;
 
             ShowElement(node?.AddressKey);
         };
@@ -830,10 +839,11 @@ public sealed class GroupPanel : UserControl
     {
         _stale = false;
 
-        // Which drawing was being looked at, since Forget is about to let go of it. Every rebuild of
-        // this tab used to empty the Parameters and Element tabs — a settings edit did it, and a
-        // drawing moved on the board would do it on every drop.
+        // What was being looked at, since Forget is about to let go of it. Every rebuild of this tab
+        // used to empty the Parameters and Element tabs — a settings edit did it, and a drawing
+        // moved on the board would do it on every drop.
         var was = _inspecting?.Built.Drawing;
+        var picked = _picked;
 
         Forget();
 
@@ -888,13 +898,18 @@ public sealed class GroupPanel : UserControl
             _canvas.Rearrange(placed, frames);
         }
 
-        // The same row as before, which is a new placement over a new document: what is shown is
-        // rebuilt rather than restored, and that is the point — the tabs beside it are about the
+        // The same row as before, over whatever it is built from now: what is shown is looked up
+        // again rather than put back, and that is the point — the tabs beside it are about the
         // drawing as it now is.
-        if (was is { } picked
-            && _shown.FirstOrDefault(shown => ReferenceEquals(shown.Built.Drawing, picked)) is { Built.Svg: { } } again)
+        if (was is { } drawing
+            && _shown.FirstOrDefault(shown => ReferenceEquals(shown.Built.Drawing, drawing)) is { Built.Svg: { } } again)
         {
             Inspect(again, again.Placement, again.Built.Svg!);
+
+            // And the element inside it, which rings the drawing and fills the Element tab through
+            // the same handler a click on a row does. A key the drawing no longer has selects
+            // nothing, which is the honest answer: the element it named has been edited away.
+            _tree.TrySelect(picked);
         }
     }
 
@@ -1180,7 +1195,9 @@ public sealed class GroupPanel : UserControl
 
         Inspect(_shown[index], placement, svg);
 
-        _tree.TrySelect(SvgElementAddress.Create(element).Key);
+        _picked = SvgElementAddress.Create(element).Key;
+
+        _tree.TrySelect(_picked);
 
         // Rung here rather than left to the row being selected. A group usually builds one file
         // several ways, so its drawings give their elements the same addresses; picking a shape in
@@ -1323,6 +1340,7 @@ public sealed class GroupPanel : UserControl
         // The tree holds elements of a document that may be about to be disposed, and the
         // parameters belong to the drawing it was showing.
         _inspecting = null;
+        _picked = null;
         _tree.Show(null);
         ShowParameters();
         ShowElement(null);
