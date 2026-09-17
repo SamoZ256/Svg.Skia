@@ -1048,8 +1048,8 @@ public sealed class GroupPanel : UserControl
 
         Settle();
 
-        node.X = Rounded((node.X ?? 0f) + move.By.X);
-        node.Y = Rounded((node.Y ?? 0f) + move.By.Y);
+        node.X = ProjectNode.Rounded((node.X ?? 0f) + move.By.X);
+        node.Y = ProjectNode.Rounded((node.Y ?? 0f) + move.By.Y);
 
         Workspace.Save();
     }
@@ -1109,8 +1109,8 @@ public sealed class GroupPanel : UserControl
                     continue;
                 }
 
-                child.X = Rounded(held.X - origin.X);
-                child.Y = Rounded(held.Y - origin.Y);
+                child.X = ProjectNode.Rounded(held.X - origin.X);
+                child.Y = ProjectNode.Rounded(held.Y - origin.Y);
 
                 if (child is ProjectGroup inner)
                 {
@@ -1119,13 +1119,6 @@ public sealed class GroupPanel : UserControl
             }
         }
     }
-
-    /// <summary>A place as the file should carry it: near enough, and readable.</summary>
-    /// <remarks>
-    /// A hundredth of a drawing unit is invisible at every zoom, and a project is meant to be read
-    /// and diffed by whoever owns it.
-    /// </remarks>
-    private static float Rounded(float value) => MathF.Round(value, 2);
 
     /// <summary>Where the ones with no place of their own go: right of everything on this board that has one.</summary>
     private SKPoint Beside(SKPoint at, int from, int framedFrom, float label)

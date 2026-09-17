@@ -209,6 +209,53 @@ public abstract class ProjectNode
     // Invariant, because a project describes the same build on every machine that reads it.
     private static string? Number(float? value)
         => value?.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>A place as the file should carry it: near enough, and readable.</summary>
+    /// <remarks>
+    /// A hundredth of a drawing unit is invisible at every zoom, and a project is meant to be read
+    /// and diffed by whoever owns it. Asked for by whatever computes a place rather than applied by
+    /// <see cref="X"/>, which would round a number somebody typed.
+    /// </remarks>
+    internal static float Rounded(float value) => MathF.Round(value, 2);
+
+    /// <summary>
+    /// How far a place must move to mean on <paramref name="to"/>'s board what it meant on
+    /// <paramref name="from"/>'s, or null where the two boards cannot say.
+    /// </summary>
+    /// <remarks>
+    /// Between the two boards only. Whatever they share cancels out of the difference, so the walk
+    /// stops at the nearest node they have in common — which is why the project itself is reached
+    /// and never read, and it can name no place to read.
+    ///
+    /// A link with no place of its own is what makes it null. A group nobody has placed is not a
+    /// board: everything under it is drawn in the grid beside the arrangement with its own numbers
+    /// ignored, so there is no coordinate to carry across.
+    /// </remarks>
+    private protected static (float X, float Y)? Shift(ProjectGroup from, ProjectGroup to)
+    {
+        var shared = to.Ancestry(true).First(from.DescendsFrom);
+
+        return Sum(from) is { } left && Sum(to) is { } right
+            ? (left.X - right.X, left.Y - right.Y)
+            : null;
+
+        (float X, float Y)? Sum(ProjectNode board)
+        {
+            var total = (X: 0f, Y: 0f);
+
+            foreach (var at in board.Ancestry(true).TakeWhile(one => !ReferenceEquals(one, shared)))
+            {
+                if (at.X is not { } x || at.Y is not { } y)
+                {
+                    return null;
+                }
+
+                total = (total.X + x, total.Y + y);
+            }
+
+            return total;
+        }
+    }
 }
 
 /// <summary>A <c>&lt;group&gt;</c>, and by inheritance the project itself.</summary>
@@ -340,10 +387,7 @@ public class ProjectGroup : ProjectNode
         }
         else if (!ReferenceEquals(parent, this))
         {
-            // Its place was about the board it has left. A reorder inside one board keeps it:
-            // document order decides nothing about where a row is drawn any more.
-            child.X = null;
-            child.Y = null;
+            Reboard(child, parent);
         }
 
         // Read before the move, since detaching takes the whitespace that says it away.
@@ -353,6 +397,37 @@ public class ProjectGroup : ProjectNode
         Attach(index, child);
 
         Reindent(child.Element, was, ProjectDocument.Depth(child.Element));
+    }
+
+    /// <summary>
+    /// Writes a row's place in the coordinates of this board, or takes it away.
+    /// </summary>
+    /// <remarks>
+    /// Where a row is dropped in the tree says which group holds it and nothing about where it
+    /// should sit, so it keeps the spot it was already on — read in the coordinates of the board it
+    /// has arrived on, which is the one thing about it that changed.
+    ///
+    /// Taken away in the two cases where those coordinates would say nothing. A board where rows sit
+    /// and none of them names a place is a grid, and the grid begins at the board's own corner: a row
+    /// arriving with a place would become the first placed row there and push every row nobody
+    /// touched out to the right of it, which is a larger jump than the one this avoids, and on rows
+    /// nobody dragged. And a row that has no place, or a board that cannot say where it is, has
+    /// nothing to carry.
+    /// </remarks>
+    private void Reboard(ProjectNode child, ProjectGroup from)
+    {
+        var grid = _children.Count > 0 && !_children.Any(one => one.HasPosition);
+
+        if (!grid && child.X is { } x && child.Y is { } y && Shift(from, this) is { } by)
+        {
+            child.X = Rounded(x + by.X);
+            child.Y = Rounded(y + by.Y);
+
+            return;
+        }
+
+        child.X = null;
+        child.Y = null;
     }
 
     /// <summary>Every drawing under this node, in document order.</summary>

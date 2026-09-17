@@ -859,6 +859,60 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(moved.Contains(ring!.Bounds), $"{ring.Bounds} is not inside {moved}");
     }
 
+    /// <summary>
+    /// A row put into another group keeps the place it had, read for the board it arrives on.
+    /// </summary>
+    /// <remarks>
+    /// Dropping a row somewhere in the tree says which group holds it. It says nothing about where
+    /// it should sit, so it must not move one — and it used to jump to the queue beside the
+    /// arrangement, because the place was thrown away rather than read again.
+    ///
+    /// Its corner, not its size: a place is deliberately no part of what owns a size, so the row is
+    /// built at the scale of the group it has joined. Here that is ×2, and the drawing doubles where
+    /// it stands.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Row_Put_In_Another_Group_Keeps_Its_Place()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        var moved = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var into = (ProjectGroup)window.Workspace.Document.Root.Children[2];
+
+        var was = Area(Shown(panel, moved));
+
+        Assert.True(window.Move(moved, into, ProjectDrop.Inside));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains(moved, into.Children);
+
+        var now = Area(Shown(panel, moved));
+
+        Assert.Equal(was.Left, now.Left, 1);
+        Assert.Equal(was.Top, now.Top, 1);
+
+        // Written against the board it is on now, which is what makes that true: the group sits at
+        // y 80, so a row that was at y 0 on the project's board is at y -80 on the group's.
+        Assert.Equal(100f, moved.X!.Value, 1);
+        Assert.Equal(-80f, moved.Y!.Value, 1);
+
+        // And it is the group's drawing now, built the way the group builds one.
+        Assert.Equal(was.Width * 2f, now.Width, 1);
+    }
+
+    /// <summary>
+    /// Which placement on the board was built from a given row.
+    /// </summary>
+    /// <remarks>
+    /// By its caption, which begins with the row's name. Not by index: the board is laid out with
+    /// the placed rows first and the ones with no place queued after them, which is not the order
+    /// the tree holds them in.
+    /// </remarks>
+    private static SvgViewerPlacement Shown(GroupPanel panel, ProjectDrawing drawing)
+        => Drawn(panel).Single(placed =>
+            placed.Label is { } caption && caption.StartsWith(drawing.Name + "\n", StringComparison.Ordinal));
+
     [AvaloniaFact]
     public async Task A_Group_Is_Carried_By_Its_Frame()
     {

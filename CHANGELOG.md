@@ -38,8 +38,11 @@
 
   A group nobody has arranged is that grid still. The first drag settles the whole tab at the
   coordinates the grid had just given it, so nothing jumps under the hand and what appears is a frame
-  round each group. Rows with no place — added, pasted, or dragged in from another board, which
-  forgets the numbers it had — wait in a grid beside the arrangement.
+  round each group. Rows with no place — added, pasted, or copied — wait in a grid beside the
+  arrangement. A row dragged into another group keeps its place, written in the coordinates of the
+  board it arrives on, so it stays where it was rather than jumping into that queue; where those
+  coordinates would say nothing — a board that is still a grid, or a group between the two that names
+  no place of its own — it joins the queue with the rest.
 
   It is layout and nothing else: the build sees exactly what it saw, which the tests assert by
   flattening one project with places and one without and comparing what comes out. Two things it is

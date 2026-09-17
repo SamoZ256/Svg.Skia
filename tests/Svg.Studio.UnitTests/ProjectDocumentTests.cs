@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Svg.CodeGen.Skia;
@@ -361,31 +362,197 @@ public class ProjectDocumentTests : IDisposable
     }
 
     [Fact]
-    public void A_Place_Is_Forgotten_When_It_Was_About_Another_Board()
+    public void A_Place_Moved_To_Another_Board_Is_Rewritten_For_It()
     {
         var document = ProjectDocument.Parse(Placed, string.Empty);
         var group = document.Root.Children.OfType<ProjectGroup>().Single();
         var badge = document.Root.Drawings.First();
 
-        // Into another group: the numbers were about the board it has left.
+        // Into another group. Where a row is dropped in the tree says which group holds it and
+        // nothing about where it should sit, so the numbers are read again for the board it has
+        // arrived on: the group sits at 120, -40, so a row at 0, 0 on the project's board is at
+        // -120, 40 on the group's, which is the same spot.
         group.Move(badge, 0);
 
-        Assert.False(badge.HasPosition);
+        Assert.Equal(-120f, badge.X);
+        Assert.Equal(40f, badge.Y);
 
-        // A copy is the same story — two rows on one spot, one under the other.
-        var alt = group.Drawings.Last(drawing => drawing.HasPosition);
-        var copy = (ProjectDrawing)group.Copy(alt, group.Children.Count);
-
-        Assert.False(copy.HasPosition);
-        Assert.True(alt.HasPosition);
-
-        // A reorder within one board keeps it: document order decides nothing about where a row is
-        // drawn any more.
+        // A reorder within one board keeps it untouched: document order decides nothing about where
+        // a row is drawn any more, so there is nothing to rewrite.
+        var alt = group.Drawings.Single(drawing => drawing.Name == "BadgeAlt");
         var was = alt.X;
 
         group.Move(alt, 0);
 
         Assert.Equal(was, alt.X);
+    }
+
+    [Fact]
+    public void A_Copy_Forgets_The_Place_It_Was_Made_From()
+    {
+        var document = ProjectDocument.Parse(Placed, string.Empty);
+        var group = document.Root.Children.OfType<ProjectGroup>().Single();
+        var alt = group.Drawings.Single(drawing => drawing.Name == "BadgeAlt");
+
+        // Not the same story as a move, though the old rule ran them together. A move leaves one row
+        // where somebody could already see it; a copy rewritten for the same board would land exactly
+        // on top of its original, and the canvas hands a press to whichever was drawn last -- so the
+        // original could no longer be picked, or dragged out from under it.
+        var copy = (ProjectDrawing)group.Copy(alt, group.Children.Count);
+
+        Assert.False(copy.HasPosition);
+        Assert.True(alt.HasPosition);
+    }
+
+    /// <summary>Boards inside boards, beside boards that nobody has arranged.</summary>
+    private const string Nested = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <studio namespace="Demo.Icons">
+
+          <drawing name="Loose" x="10" y="10">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+          </drawing>
+
+          <drawing name="Nowhere">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+          </drawing>
+
+          <group name="Outer" x="200" y="100">
+            <group name="Inner" x="30" y="10">
+              <drawing name="Deep" x="5" y="5">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+              </drawing>
+            </group>
+          </group>
+
+          <group name="Other" x="60" y="-40">
+            <drawing name="Anchor" x="0" y="0">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+            </drawing>
+          </group>
+
+          <group name="Grid" x="400" y="0">
+            <drawing name="Queued">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+            </drawing>
+          </group>
+
+          <group name="Empty" x="300" y="0" />
+
+          <group name="Board">
+            <group name="Left" x="10" y="0">
+              <drawing name="A" x="0" y="0">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+              </drawing>
+            </group>
+            <group name="Right" x="90" y="0">
+              <drawing name="B" x="0" y="0">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+              </drawing>
+            </group>
+          </group>
+
+        </studio>
+        """;
+
+    /// <summary>Every group of <see cref="Nested"/>, by name.</summary>
+    private static ProjectGroup Group(ProjectDocument document, string name)
+        => Groups(document.Root).Single(group => group.Name == name);
+
+    private static IEnumerable<ProjectGroup> Groups(ProjectGroup group)
+        => group.Children.OfType<ProjectGroup>().SelectMany(child => new[] { child }.Concat(Groups(child)));
+
+    [Fact]
+    public void A_Place_Is_Rewritten_Down_A_Chain_Of_Boards()
+    {
+        // The case that was reported: a row put into a group nested inside another one. The chain is
+        // summed, not just the group it lands in.
+        var document = ProjectDocument.Parse(Nested, string.Empty);
+        var inner = Group(document, "Inner");
+        var loose = document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Name == "Loose");
+
+        inner.Move(loose, 0);
+
+        // Outer is at 200, 100 and Inner at 30, 10, so a row at 10, 10 on the project's board is at
+        // -220, -100 on Inner's -- and 200 + 30 - 220 is 10 again.
+        Assert.Equal(-220f, loose.X);
+        Assert.Equal(-100f, loose.Y);
+    }
+
+    [Fact]
+    public void A_Group_Put_In_Another_Group_Carries_What_It_Holds()
+    {
+        // A group's own pair is the whole of it: its children are written against it, and laying a
+        // board out is a translation, so nothing under it is touched or needs to be.
+        var document = ProjectDocument.Parse(Nested, string.Empty);
+        var inner = Group(document, "Inner");
+        var other = Group(document, "Other");
+        var deep = inner.Drawings.Single();
+
+        other.Move(inner, 0);
+
+        Assert.Equal(170f, inner.X);
+        Assert.Equal(150f, inner.Y);
+
+        // Other at 60, -40 plus Inner at 170, 150 plus Deep at 5, 5 is 235, 115 -- where it was,
+        // by way of Outer at 200, 100 plus Inner at 30, 10 plus the same 5, 5.
+        Assert.Equal(5f, deep.X);
+        Assert.Equal(5f, deep.Y);
+    }
+
+    [Fact]
+    public void A_Place_Is_Rewritten_Under_A_Board_Nobody_Placed()
+    {
+        // Two arranged boards inside a group that names no place of its own. Summing each chain all
+        // the way to the project would give up here, and it does not have to: whatever the two share
+        // cancels out of the difference, so the walk stops at the nearest node they have in common.
+        var document = ProjectDocument.Parse(Nested, string.Empty);
+        var right = Group(document, "Right");
+        var a = Group(document, "Left").Drawings.Single();
+
+        right.Move(a, 0);
+
+        Assert.Equal(-80f, a.X);
+        Assert.Equal(0f, a.Y);
+    }
+
+    [Fact]
+    public void A_Row_With_No_Place_Arrives_Without_One()
+    {
+        var document = ProjectDocument.Parse(Nested, string.Empty);
+        var nowhere = document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Name == "Nowhere");
+
+        Group(document, "Other").Move(nowhere, 0);
+
+        Assert.False(nowhere.HasPosition);
+    }
+
+    [Fact]
+    public void A_Place_Is_Forgotten_When_The_Board_It_Arrives_On_Is_A_Grid()
+    {
+        var document = ProjectDocument.Parse(Nested, string.Empty);
+        var loose = document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Name == "Loose");
+
+        // Rows sit on this board and none of them names a place, so the board is a grid and the grid
+        // begins at its own corner. A row arriving with a place would be the first placed row there
+        // and would push the rest out to the right of it -- a larger jump than the one this avoids,
+        // and on rows nobody dragged.
+        Group(document, "Grid").Move(loose, 0);
+
+        Assert.False(loose.HasPosition);
+    }
+
+    [Fact]
+    public void A_Board_With_Nothing_On_It_Is_Not_A_Grid()
+    {
+        var document = ProjectDocument.Parse(Nested, string.Empty);
+        var loose = document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Name == "Loose");
+
+        // Nothing to push: a group holding no rows has no queue for an arriving one to displace.
+        Group(document, "Empty").Move(loose, 0);
+
+        Assert.Equal(-290f, loose.X);
+        Assert.Equal(10f, loose.Y);
     }
 
     [Fact]
