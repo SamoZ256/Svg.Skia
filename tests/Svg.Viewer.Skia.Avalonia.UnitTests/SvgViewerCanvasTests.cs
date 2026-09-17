@@ -649,6 +649,231 @@ public class SvgViewerCanvasTests
         });
     }
 
+    // ---- taking hold of what is on the canvas ------------------------------------------------
+
+    /// <summary>A canvas of one blue drawing at the origin, laid out in a 400x200 window.</summary>
+    private static (Window Window, SvgViewerCanvas Canvas, SvgViewerDocument Drawing) Held()
+    {
+        var drawing = SvgViewerDocument.LoadFromSvg(Blue);
+        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        canvas.Show(new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        return (window, canvas, drawing);
+    }
+
+    private static void Grab(SvgViewerCanvas canvas, object item, SKRect bounds)
+        => canvas.Grip = at => bounds.Contains(at.X, at.Y) ? (item, bounds) : null;
+
+    [AvaloniaFact]
+    public void A_Press_On_Something_Held_Moves_It_Rather_Than_Panning()
+    {
+        var (window, canvas, drawing) = Held();
+
+        using var owner = drawing;
+
+        var item = new object();
+
+        Grab(canvas, item, new SKRect(0f, 0f, 100f, 50f));
+
+        SvgViewerMove? moved = null;
+
+        canvas.Moved += (_, move) => moved = move;
+
+        var offsetX = canvas.OffsetX;
+        var offsetY = canvas.OffsetY;
+
+        // Forty control pixels at the fit's scale of four, which is ten in the arrangement.
+        Assert.Equal(4d, canvas.Scale, 6);
+
+        Press(window, canvas, new Point(20, 20));
+        Move(window, canvas, new Point(60, 20));
+        Release(window, canvas, new Point(60, 20));
+
+        Assert.NotNull(moved);
+        Assert.Same(item, moved!.Value.Item);
+        Assert.Equal(10f, moved.Value.By.X, 3);
+        Assert.Equal(0f, moved.Value.By.Y, 3);
+
+        // The view is where it was: a press on something held is not a pan.
+        Assert.Equal(offsetX, canvas.OffsetX, 6);
+        Assert.Equal(offsetY, canvas.OffsetY, 6);
+
+        // And nothing was committed — the placement still says where the host put it.
+        Assert.Equal(0f, canvas.Placements[0].At.X);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Press_On_Nothing_Held_Still_Pans()
+    {
+        var (window, canvas, drawing) = Held();
+
+        using var owner = drawing;
+
+        // A grip that answers about one corner only, pressed well outside it.
+        Grab(canvas, new object(), new SKRect(0f, 0f, 1f, 1f));
+
+        var moved = false;
+
+        canvas.Moved += (_, _) => moved = true;
+
+        var offsetX = canvas.OffsetX;
+
+        Press(window, canvas, new Point(200, 100));
+        Move(window, canvas, new Point(260, 100));
+        Release(window, canvas, new Point(260, 100));
+
+        Assert.False(moved);
+        Assert.Equal(offsetX + 60d, canvas.OffsetX, 6);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Press_That_Does_Not_Travel_Is_Still_A_Pick()
+    {
+        var (window, canvas, drawing) = Held();
+
+        using var owner = drawing;
+
+        Grab(canvas, new object(), new SKRect(0f, 0f, 100f, 50f));
+
+        var picked = 0;
+        var moved = 0;
+
+        canvas.Picked += (_, _) => picked++;
+        canvas.Moved += (_, _) => moved++;
+
+        // Inside the four pixels a hand moves while clicking.
+        Press(window, canvas, new Point(20, 20));
+        Move(window, canvas, new Point(22, 21));
+        Release(window, canvas, new Point(22, 21));
+
+        Assert.Equal(1, picked);
+        Assert.Equal(0, moved);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void What_Is_Carried_Follows_The_Pointer_And_The_Rest_Holds_Still()
+    {
+        var (window, canvas, drawing) = Held();
+
+        using var owner = drawing;
+
+        Grab(canvas, new object(), new SKRect(0f, 0f, 100f, 50f));
+
+        var offsetX = canvas.OffsetX;
+        var scale = canvas.Scale;
+
+        Press(window, canvas, new Point(20, 20));
+        Move(window, canvas, new Point(120, 20));
+
+        // Painted where the pointer has it, and not where it was: the drawing is 100 units wide at
+        // scale 4, so a hundred pixels across is a quarter of its own width.
+        var carried = Painted(window, 120, 20);
+
+        Assert.True(carried.Blue > 200 && carried.Red < 100, $"{carried} is not the drawing, carried");
+
+        // The ground did not move under it.
+        Assert.Equal(offsetX, canvas.OffsetX, 6);
+        Assert.Equal(scale, canvas.Scale, 6);
+
+        Release(window, canvas, new Point(120, 20));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Escape_Takes_A_Move_Back_And_Raises_Nothing()
+    {
+        var (window, canvas, drawing) = Held();
+
+        using var owner = drawing;
+
+        Grab(canvas, new object(), new SKRect(0f, 0f, 100f, 50f));
+
+        var moved = false;
+
+        canvas.Moved += (_, _) => moved = true;
+
+        Press(window, canvas, new Point(20, 20));
+        Move(window, canvas, new Point(120, 20));
+
+        canvas.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.Escape,
+            KeyModifiers = KeyModifiers.None
+        });
+
+        Release(window, canvas, new Point(120, 20));
+
+        Assert.False(moved);
+
+        // Back where it was, rather than left where the pointer had it.
+        var back = Painted(window, 20, 20);
+
+        Assert.True(back.Blue > 200 && back.Red < 100, $"{back} is not the drawing, put back");
+
+        window.Close();
+    }
+
+    /// <summary>Where <paramref name="at"/> — a point in the canvas's own space — is in the window's.</summary>
+    /// <remarks>
+    /// A pointer event reports its position by way of the visual root, so a control-local point
+    /// handed over as the root's is off by wherever the control sits.
+    /// </remarks>
+    private static Point Root(Window window, SvgViewerCanvas canvas, Point at)
+        => canvas.TranslatePoint(at, window) ?? at;
+
+    private static void Press(Window window, SvgViewerCanvas canvas, Point at)
+        => canvas.RaiseEvent(new PointerPressedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            Root(window, canvas, at),
+            0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+            KeyModifiers.None)
+        {
+            RoutedEvent = InputElement.PointerPressedEvent
+        });
+
+    private static void Move(Window window, SvgViewerCanvas canvas, Point at)
+        => canvas.RaiseEvent(new PointerEventArgs(
+            InputElement.PointerMovedEvent,
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            Root(window, canvas, at),
+            0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other),
+            KeyModifiers.None));
+
+    private static void Release(Window window, SvgViewerCanvas canvas, Point at)
+        => canvas.RaiseEvent(new PointerReleasedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            Root(window, canvas, at),
+            0,
+            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+            KeyModifiers.None,
+            MouseButton.Left)
+        {
+            RoutedEvent = InputElement.PointerReleasedEvent
+        });
+
     private static PointerWheelEventArgs Wheel(SvgViewerCanvas canvas, double delta, Point position)
         => new(
             canvas,
