@@ -606,9 +606,23 @@ internal sealed class PaintCodeDeclarations
             return PaintCodeDeclaration.Unusable(name, "its value could not be written as a literal");
         }
 
-        return variable.IsParameter
-            ? PaintCodeDeclaration.Parameter(name, type, literal, variable.Minimum, variable.Maximum)
-            : PaintCodeDeclaration.Constant(name, type, literal);
+        if (!variable.IsParameter)
+        {
+            return PaintCodeDeclaration.Constant(name, type, literal);
+        }
+
+        // A fraction's ends are not in the document -- no variable in a real one carries a limit at
+        // all -- so they come from the type, which is the only place PaintCode keeps them. Its own
+        // menu offers Fraction as a kind of its own and hands a new one 0.5, which is the middle of
+        // the range rather than a value clamped into it.
+        var bounded = variable.Kind is PaintCodeValueKind.Fraction && variable.Minimum is null && variable.Maximum is null;
+
+        return PaintCodeDeclaration.Parameter(
+            name,
+            type,
+            literal,
+            bounded ? 0d : variable.Minimum,
+            bounded ? 1d : variable.Maximum);
     }
 
     /// <summary>Whether a number variable is one this would write as an integer.</summary>
@@ -630,10 +644,20 @@ internal sealed class PaintCodeDeclarations
     private static bool Whole(double value)
         => value == Math.Floor(value) && value >= int.MinValue && value <= int.MaxValue;
 
+    /// <summary>What a kind is called in the expression format, or null where it has no name there.</summary>
+    /// <remarks>
+    /// PaintCode's three numeric kinds all land on <c>number</c>, which has no notion of a fraction
+    /// or an angle: what a fraction carries instead is the range its type implies, and what an angle
+    /// carries is that the translator already writes degrees where a trigonometric function wants
+    /// radians. A point, a size and a rectangle have no name here at all, the language having no such
+    /// type, and are refused by name rather than as "other".
+    /// </remarks>
     private static string? Type(PaintCodeValueKind kind)
         => kind switch
         {
             PaintCodeValueKind.Number => "number",
+            PaintCodeValueKind.Fraction => "number",
+            PaintCodeValueKind.Angle => "number",
             PaintCodeValueKind.Boolean => "boolean",
             PaintCodeValueKind.String => "string",
             PaintCodeValueKind.Color => "color",

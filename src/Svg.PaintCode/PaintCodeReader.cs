@@ -17,9 +17,25 @@ internal static class PaintCodeReader
     private const int TypeBoolean = 4;
     private const int TypeColor = 5;
     private const int TypeGradient = 6;
+    private const int TypePoint = 9;
     private const int TypeRect = 10;
+    private const int TypeSize = 11;
 
-    // A variable whose value comes from an expression rather than from the caller.
+    // PPVariable.kind: what the variable was declared as, which is a different question from how its
+    // value is stored. Read off a document carrying one variable of every kind PaintCode's menu
+    // offers: Number, Fraction and Angle all store as TypeNumber, so this is the only thing that
+    // tells them apart. There is nothing at 1 -- the menu has no entry for it.
+    private const int KindNumber = 0;
+    private const int KindFraction = 2;
+    private const int KindAngle = 3;
+    private const int KindText = 4;
+    private const int KindBoolean = 5;
+    private const int KindPoint = 6;
+    private const int KindSize = 7;
+    private const int KindRectangle = 8;
+
+    // A variable whose value comes from an expression rather than from the caller. It has no declared
+    // type of its own, so what it is is whatever the expression came out as.
     private const int KindDerived = 13;
 
     // PPColor.operation, for a colour derived from another. Read off PaintCode's own generated code,
@@ -471,7 +487,9 @@ internal static class PaintCodeReader
             TypeBoolean => PaintCodeValueKind.Boolean,
             TypeColor => PaintCodeValueKind.Color,
             TypeGradient => PaintCodeValueKind.Gradient,
+            TypePoint => PaintCodeValueKind.Point,
             TypeRect => PaintCodeValueKind.Rect,
+            TypeSize => PaintCodeValueKind.Size,
             _ => PaintCodeValueKind.Other
         };
 
@@ -526,6 +544,21 @@ internal static class PaintCodeReader
         return gradients;
     }
 
+    /// <summary>What a variable was declared as, from PPVariable.kind.</summary>
+    private static PaintCodeValueKind Declared(int kind)
+        => kind switch
+        {
+            KindNumber => PaintCodeValueKind.Number,
+            KindFraction => PaintCodeValueKind.Fraction,
+            KindAngle => PaintCodeValueKind.Angle,
+            KindText => PaintCodeValueKind.String,
+            KindBoolean => PaintCodeValueKind.Boolean,
+            KindPoint => PaintCodeValueKind.Point,
+            KindSize => PaintCodeValueKind.Size,
+            KindRectangle => PaintCodeValueKind.Rect,
+            _ => PaintCodeValueKind.Other
+        };
+
     private static IReadOnlyList<PaintCodeVariable> Variables(PaintCodeNode library)
     {
         var variables = new List<PaintCodeVariable>();
@@ -535,11 +568,13 @@ internal static class PaintCodeReader
             var provider = variable["valueProvider"];
             var limit = provider["limit"];
             var bounded = limit.ClassName is "PPLimitInterval";
+            var declared = (int)variable["kind"].NumberOr(0);
+            var derived = declared == KindDerived;
 
             variables.Add(new PaintCodeVariable(
                 variable["name"].Text ?? string.Empty,
-                Binding(provider).Kind,
-                (int)variable["kind"].NumberOr(0) == KindDerived ? provider["expression"].Text : null,
+                derived ? Binding(provider).Kind : Declared(declared),
+                derived ? provider["expression"].Text : null,
                 Binding(provider),
                 (int)variable["usage"].NumberOr(0) == 1,
                 bounded ? limit["min"].Number : null,

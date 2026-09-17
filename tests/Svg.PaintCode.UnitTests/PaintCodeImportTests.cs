@@ -52,6 +52,51 @@ public class PaintCodeImportTests
         Assert.Equal("_2State", PaintCodeSlug.Pascal("2-state"));
     }
 
+    /// <summary>The one variable a kind document declares, as the expression format would take it.</summary>
+    private static PaintCodeDeclaration Declared(int kind, int type)
+        => PaintCodeDeclarations
+            .Of(PaintCodeDocument.Parse(KindDocument.Bytes(kind, type)))
+            .ByName["test"];
+
+    [Fact]
+    public void A_Fraction_Carries_The_Range_Its_Type_Implies()
+    {
+        // Nowhere in the document — no variable in a real one carries a limit at all — so it comes
+        // from the kind, which is the only place PaintCode keeps it.
+        var fraction = Declared(kind: 2, type: 2);
+
+        Assert.Equal("number", fraction.Type);
+        Assert.Equal(0d, fraction.Minimum);
+        Assert.Equal(1d, fraction.Maximum);
+    }
+
+    [Theory]
+    // A number and an angle are both unbounded: an angle is degrees and runs past 360 as readily as
+    // a number runs past anything.
+    [InlineData(0)]
+    [InlineData(3)]
+    public void A_Number_And_An_Angle_Are_Bounded_By_Nothing(int kind)
+    {
+        var declared = Declared(kind, type: 2);
+
+        Assert.Equal("number", declared.Type);
+        Assert.Null(declared.Minimum);
+        Assert.Null(declared.Maximum);
+    }
+
+    [Theory]
+    // The expression language has no such type, so refusing is right — but it should say which.
+    [InlineData(6, 9, "point")]
+    [InlineData(7, 11, "size")]
+    [InlineData(8, 10, "rect")]
+    public void A_Kind_The_Language_Has_No_Name_For_Is_Refused_By_Name(int kind, int type, string named)
+    {
+        var declared = Declared(kind, type);
+
+        Assert.Equal(PaintCodeDeclarationKind.Unusable, declared.Kind);
+        Assert.Contains(named, declared.Refusal);
+    }
+
     /// <summary>
     /// The declared type of every variable, whether or not a drawing happens to use it.
     /// </summary>
