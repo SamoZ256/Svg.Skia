@@ -492,6 +492,52 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>Drags from one point of the canvas to another, as a hand would.</summary>
+    private static void Drag(Window window, SvgViewerCanvas canvas, Point from, Point to)
+    {
+        var start = canvas.TranslatePoint(from, window)
+                    ?? throw new InvalidOperationException("The canvas is not in the window.");
+        var end = canvas.TranslatePoint(to, window)
+                  ?? throw new InvalidOperationException("The canvas is not in the window.");
+
+        canvas.RaiseEvent(new PointerPressedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            start,
+            0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+            KeyModifiers.None)
+        {
+            RoutedEvent = InputElement.PointerPressedEvent
+        });
+
+        canvas.RaiseEvent(new PointerEventArgs(
+            InputElement.PointerMovedEvent,
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            end,
+            0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other),
+            KeyModifiers.None));
+
+        canvas.RaiseEvent(new PointerReleasedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            end,
+            0,
+            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+            KeyModifiers.None,
+            MouseButton.Left)
+        {
+            RoutedEvent = InputElement.PointerReleasedEvent
+        });
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
     /// <summary>Where a placement sits in the arrangement, as a rectangle.</summary>
     private static SKRect Area(SvgViewerPlacement placement)
     {
@@ -556,6 +602,70 @@ public class MainWindowProjectTests : IDisposable
           </group>
         </studio>
         """;
+
+    [AvaloniaFact]
+    public async Task The_First_Move_Settles_The_Whole_Board()
+    {
+        // A group nobody has arranged is the grid it always was; moving one drawing writes a place
+        // for every row at the coordinates the grid had just given them, so nothing else jumps.
+        var path = Write("icons.svgstudio", Project);
+        var window = await Host(path);
+        var panel = Panel(window, "Project");
+
+        var canvas = Canvas(panel);
+        var drawn = Drawn(panel);
+        var home = Area(drawn[0]);
+        var badge = Area(drawn[1]);
+
+        var workspace = window.Workspace!;
+
+        Assert.All(workspace.Document.Root.Children, child => Assert.False(child.HasPosition));
+
+        Drag(window, canvas, Over(canvas, home.MidX, home.MidY), Over(canvas, home.MidX + 40f, home.MidY));
+
+        // Every row of the tab, not only the one that was moved.
+        var moved = (ProjectDrawing)workspace.Document.Root.Children[0];
+        var group = (ProjectGroup)workspace.Document.Root.Children[1];
+
+        Assert.True(moved.HasPosition);
+        Assert.True(group.HasPosition);
+        Assert.Equal(home.Left + 40f, moved.X!.Value, 1);
+
+        // The group's place is the nearest corner of what it holds, and its drawing is written
+        // against it — so the one that was not moved is drawn exactly where it was.
+        Assert.Equal(badge.Left, group.X!.Value, 1);
+        Assert.Equal(0f, group.Drawings.Single().X!.Value, 1);
+
+        Assert.Equal(badge.Left, Area(Drawn(panel)[1]).Left, 1);
+
+        // Written through, as every other arrangement edit is.
+        Assert.Contains("<drawing name=\"home\"", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("y=\"", File.ReadAllText(path), StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Group_Is_Carried_By_Its_Frame()
+    {
+        var path = Write("icons.svgstudio", Board());
+        var window = await Host(path);
+        var panel = Panel(window, "Project");
+
+        var canvas = Canvas(panel);
+        var framed = Assert.Single(Canvas(panel).Frames);
+        var group = (ProjectGroup)window.Workspace!.Document.Root.Children[2];
+
+        // The frame's own margin: inside it, and outside the drawing it holds.
+        var margin = new SKPoint(framed.Bounds.Left + 1f, framed.Bounds.MidY);
+
+        Drag(window, canvas, Over(canvas, margin.X, margin.Y), Over(canvas, margin.X + 30f, margin.Y));
+
+        // One attribute, and what it holds follows without being written to.
+        Assert.Equal(30f, group.X!.Value, 1);
+        Assert.Equal(80f, group.Y!.Value, 1);
+        Assert.Equal(0f, group.Drawings.Single().X!.Value, 1);
+
+        Assert.Equal(30f, Area(Drawn(Panel(window, "Project"))[2]).Left, 1);
+    }
 
     [AvaloniaFact]
     public async Task A_Board_Puts_Its_Items_Where_They_Say()

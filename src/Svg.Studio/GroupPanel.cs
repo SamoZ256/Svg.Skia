@@ -158,6 +158,8 @@ public sealed class GroupPanel : UserControl
 
         // Harmless on a drawing's settings pane, which has no canvas and so no placements to fall on.
         _canvas.Picked += (_, at) => Pick(at);
+        _canvas.Grip = Held;
+        _canvas.Moved += (_, move) => Placed(move);
 
         _parameters.ValueChanged += (_, _) => Bind();
         _parameters.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
@@ -899,6 +901,139 @@ public sealed class GroupPanel : UserControl
     }
 
     private void Put(SvgViewerPlacement placement, Drawn built) => _shown.Add((placement, built));
+
+    /// <summary>
+    /// What a press on the board takes hold of: a drawing, or the frame round a group.
+    /// </summary>
+    /// <remarks>
+    /// A drawing before the frame it sits in, so pressing an icon moves the icon and pressing a
+    /// frame's margin or its name moves the group — and the innermost frame first, for the same
+    /// reason. Back to front among the drawings, which is the order a click resolves in.
+    /// </remarks>
+    private (object Item, SKRect Bounds)? Held(SKPoint at)
+    {
+        for (var index = _shown.Count - 1; index >= 0; index--)
+        {
+            var area = Area(_shown[index].Placement);
+
+            if (area.Width > 0f && area.Contains(at.X, at.Y))
+            {
+                return (_shown[index].Built.Drawing, area);
+            }
+        }
+
+        foreach (var (frame, group) in _framed.OrderBy(framed => framed.Frame.Bounds.Width * framed.Frame.Bounds.Height))
+        {
+            if (frame.Bounds.Contains(at.X, at.Y))
+            {
+                return (group, frame.Bounds);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Writes where something was let go, and the places of everything else while it is at it.
+    /// </summary>
+    /// <remarks>
+    /// The first move on a board that has never been arranged settles the whole tab: every row is
+    /// written at the place the spread had just given it, so the arrangement somebody was looking
+    /// at is the one that is saved and nothing jumps. What appears is a frame round each group,
+    /// which is the point of moving anything at all.
+    ///
+    /// Written through and saved, as every other arrangement edit is — a row added, removed or
+    /// dragged in the tree writes the file as it is made. It cannot be held pending: what is
+    /// pending is keyed by setting name on this tab's own node, and settling writes places on every
+    /// node under it.
+    /// </remarks>
+    private void Placed(SvgViewerMove move)
+    {
+        if (move.Item is not ProjectNode node)
+        {
+            return;
+        }
+
+        Settle();
+
+        node.X = Rounded((node.X ?? 0f) + move.By.X);
+        node.Y = Rounded((node.Y ?? 0f) + move.By.Y);
+
+        Workspace.Save();
+    }
+
+    /// <summary>Gives every row of the tab the place it is already being drawn at.</summary>
+    private void Settle()
+    {
+        var at = new Dictionary<ProjectNode, SKPoint>();
+
+        foreach (var (placement, built) in _shown)
+        {
+            at[built.Drawing] = placement.At;
+        }
+
+        // A group is where the nearest corner of what it holds is — not its frame, which is
+        // inflated and has a name above it, and not the ink, which would tie the file to how the
+        // canvas happens to paint. Bottom up, so a group's own corner is known before its parent's.
+        Corner((ProjectGroup)Node);
+
+        Rebase((ProjectGroup)Node, SKPoint.Empty);
+
+        SKPoint? Corner(ProjectNode node)
+        {
+            if (node is not ProjectGroup group)
+            {
+                return at.TryGetValue(node, out var placed) ? placed : null;
+            }
+
+            SKPoint? corner = null;
+
+            foreach (var child in group.Children)
+            {
+                if (Corner(child) is not { } held)
+                {
+                    continue;
+                }
+
+                corner = corner is { } known
+                    ? new SKPoint(MathF.Min(known.X, held.X), MathF.Min(known.Y, held.Y))
+                    : held;
+            }
+
+            if (corner is { } found)
+            {
+                at[group] = found;
+            }
+
+            return corner;
+        }
+
+        void Rebase(ProjectGroup group, SKPoint origin)
+        {
+            foreach (var child in group.Children)
+            {
+                if (!at.TryGetValue(child, out var held))
+                {
+                    continue;
+                }
+
+                child.X = Rounded(held.X - origin.X);
+                child.Y = Rounded(held.Y - origin.Y);
+
+                if (child is ProjectGroup inner)
+                {
+                    Rebase(inner, held);
+                }
+            }
+        }
+    }
+
+    /// <summary>A place as the file should carry it: near enough, and readable.</summary>
+    /// <remarks>
+    /// A hundredth of a drawing unit is invisible at every zoom, and a project is meant to be read
+    /// and diffed by whoever owns it.
+    /// </remarks>
+    private static float Rounded(float value) => MathF.Round(value, 2);
 
     /// <summary>Where the ones with no place of their own go: right of everything on this board that has one.</summary>
     private SKPoint Beside(SKPoint at, int from, int framedFrom, float label)
