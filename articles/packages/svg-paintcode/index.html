@@ -167,10 +167,12 @@ foreach (var note in result.Notes)
     Console.WriteLine(note);
 }
 </code></pre>
+<p><code>Drawings</code> hands back the same conversion without writing any of it — each desk, and each canvas as
+an <code>XDocument</code> — which is how a caller that keeps the drawings rather than filing them reads one.</p>
 <p>From the command line, <code>svgc --paintcode Icons.pcvd</code> imports beside the document and then builds the
 project it wrote, so every other flag means what it already meant. In
-<a href="/Svg.Skia/articles/guides/readme">Svg.Studio</a>, <strong>File → Import PaintCode…</strong> does the same and opens the result;
-dropping a <code>.pcvd</code> on the window imports it beside itself.</p>
+<a href="/Svg.Skia/articles/guides/svg-studio">Svg Studio</a>, <strong>File → Import PaintCode…</strong> writes one <code>.svgstudio</code> holding
+every drawing and opens it; dropping a <code>.pcvd</code> on the window imports it beside itself.</p>
 <h2 id="what-comes-across">What comes across</h2>
 <table class="table">
 <thead>
@@ -186,7 +188,7 @@ dropping a <code>.pcvd</code> on the window imports it beside itself.</p>
 </tr>
 <tr>
 <td>A canvas</td>
-<td>One <code>.svg</code>, and one row of the project</td>
+<td>One <code>.svg</code>, and one row of the project — or one drawing of a Studio project</td>
 </tr>
 <tr>
 <td>A group</td>

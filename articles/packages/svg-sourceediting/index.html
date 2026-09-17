@@ -183,7 +183,7 @@ document,</li>
 </tr>
 <tr>
 <td><code>SvgSourceDocument</code></td>
-<td>A drawing as a tree, <code>Read</code> from text and written back by <code>ToText</code></td>
+<td>A drawing as a tree, <code>Read</code> from text and written back by <code>ToText</code> — or one element of it by <code>TextOf</code></td>
 </tr>
 <tr>
 <td><code>SvgSourceWorkspace</code></td>
@@ -242,6 +242,12 @@ why undo returns the file and not merely something that renders like it. And an 
 it started from anyway — a declaration can only be checked against the language's rules after the
 tree has been changed, and one of those checks needs the state before it — so a refusal must already
 be able to put a half-made edit back. Rollback and undo are one mechanism instead of two.</p>
+<h2 id="one-document-inside-another">One document inside another</h2>
+<p><code>TextOf</code> writes a single element the way <code>ToText</code> writes the root: from the bytes that element was
+read as, with the file's own line endings put back. It is what lets a file hold a whole document
+inside it — a <a href="/Svg.Skia/articles/guides/svg-studio">Svg Studio</a> project keeps each of its drawings inline — and
+hand one out and take it back without reformatting it. The prologue stays with the file, since what
+comes back is an element.</p>
 <h2 id="it-decides-nothing-about-what-is-legal">It decides nothing about what is legal</h2>
 <p>A proposed declaration goes through <code>SvgExpressionDeclarations.Builder</code>, the rules both readers of a
 document enforce — identifier-shaped names, nothing reserved, nothing declared twice across params

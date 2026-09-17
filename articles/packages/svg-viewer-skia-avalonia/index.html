@@ -270,7 +270,7 @@
 </tr>
 <tr>
 <td><code>Canvas</code></td>
-<td>Direct access to the surface for zoom and pan; <code>Show</code> lays out several drawings at once, and <code>TryGetPlacementAt</code> says which one a click fell on</td>
+<td>Direct access to the surface for zoom and pan; <code>Show</code> lays out several drawings at once — with <code>SvgViewerFrame</code>s drawn under them where a host wants to say that some belong together — <code>TryGetPlacementAt</code> says which drawing a click fell on, and <code>Grip</code> with <code>Moved</code> lets a press take hold of something and carry it</td>
 </tr>
 <tr>
 <td><code>DocumentOpened</code> / <code>ErrorRaised</code> / <code>ParameterValueChanged</code></td>
@@ -278,7 +278,7 @@
 </tr>
 <tr>
 <td><code>SvgViewerSourceColorizer</code> / <code>SourceResourceKey</code></td>
-<td>Colouring a source view of your own the way this one is coloured — Svg.Studio paints an svgc recipe with them</td>
+<td>Colouring a source view of your own the way this one is coloured</td>
 </tr>
 </tbody>
 </table>
@@ -427,7 +427,9 @@ gestures reach the drawing's history while somebody is looking at the drawing an
 keeps its own.</p>
 <p><code>IsSourceModified</code> says whether there are edits not on disk and <code>SourceModifiedChanged</code> announces it;
 <code>SaveSourceAsync</code> writes them back, asking through <code>FileDialogService</code> when the drawing has no file
-of its own. In <code>src/Svg.Studio</code> that is Cmd/Ctrl+S, a dot on the tab, and a prompt before anything
+of its own. A host that keeps the bytes itself — a <a href="/Svg.Skia/articles/guides/svg-studio">Svg Studio</a> project holds
+each drawing inline — writes them where they live and calls <code>MarkSaved</code>, since there is no file for
+<code>SaveSourceAsync</code> to ask about. In <code>src/Svg.Studio</code> that is Cmd/Ctrl+S, a dot on the tab, and a prompt before anything
 throws work away — closing a tab asks about that drawing, closing the window asks once about every
 unsaved one it is holding. The control raises, the host decides, the same way opening works.</p>
 <p>A save keeps the byte order mark the file arrived with, and nothing changes in a part of it you did
@@ -493,21 +495,35 @@ picks or drops before any of them is read:</p>
 </code></pre>
 <p>Hand back what you started. The event is synchronous, so without <code>Completion</code> a host has no way to
 say it has not finished, and <code>OpenAsync</code> completes while the files are still being read.</p>
+<h3 id="several-drawings-and-moving-them">Several drawings, and moving them</h3>
+<p>A canvas showing an arrangement answers in the space the drawings are arranged in — the union of them
+all — rather than in control pixels, because a place a host saves has to mean the same at every zoom.
+<code>SvgViewerPlacement</code> is where one drawing goes; <code>SvgViewerFrame</code> is a named rectangle drawn under
+them, holding nothing, for a host that wants to show what belongs to what. A click resolves to
+drawings alone: a frame is furniture, and one is picked by falling through it.</p>
+<p><code>Grip</code> is how a press takes hold of something. The host answers what is at a point and how big it is
+— what counts as one thing is the arrangement's own business, and several drawings and the frame
+round them can be one item — and while it is carried the canvas draws it, and everything wholly
+inside the rectangle, where the pointer has it. Nothing else moves: the placements are not rewritten,
+the view is not refitted, and the canvas commits nothing. <code>Moved</code> is the request, raised once on
+release, and a host that does nothing about it has refused — what it drew goes back where the
+arrangement still says it is. Escape and a lost capture do the same and raise nothing. Left unset,
+every press pans as it always did.</p>
 <p><code>src/Svg.Studio</code> is that host: one viewer per tab, a new tab per file opened, and <code>Close</code> on the
-viewer whose tab goes away. A path it recognises as an svgc project opens a pane beside the tabs
-instead of a tab, which is why the request carries paths rather than drawings.</p>
+viewer whose tab goes away. A path it recognises as a project opens a pane beside the tabs instead of
+a tab, which is why the request carries paths rather than drawings. <code>LoadTextAsync</code> is how a drawing
+that is not a file of its own — one a project holds inline — reaches a viewer, at the size the host
+asks for and under the name it gives it.</p>
 <p><code>SizeRequest</code> is the seam that host opens a project's drawings through: a size applied to the parsed
 document on every build, the file left as it was written. <code>Edit → Resize…</code> is the other half of the
 pair and the opposite choice — it rewrites the drawing's own text.</p>
-<p><code>Rewrite</code> is the second such seam, and goes further: the drawing built is not the file at all. Studio
-sets it to a project's recipe, so what is on screen is the document <code>svgc</code> compiles — colours turned
-into expressions, and the recipe's parameters declared. Everything else still works from the file:
-<code>Source</code> is it and a save writes it, and every rebuild goes back through the rewrite.
-Because the declarations then belong to the recipe rather than to the drawing, a host sets
-<code>DeclarationTarget</code> to say where the parameter panel should write: the recipe is a different file
-held as a tree of its own, and <code>ISvgViewerDeclarationTarget</code> is the seam to it. Left unset the
-commands go into the drawing, which is what a drawing declaring for itself wants — and what a recipe refuses to be
-applied to. <code>Notice</code> is where a host says a rewrite could not be
+<p><code>Rewrite</code> is the second such seam, and goes further: the drawing built is not the file at all — an
+svgc recipe applied on the way to the canvas, so what is on screen is the document the tool compiles.
+Everything else still works from the text: <code>Source</code> is it and a save writes it, and every rebuild
+goes back through the rewrite. Where the declarations then belong to whatever made them rather than
+to the drawing, a host sets <code>DeclarationTarget</code> to say where the parameter panel should write;
+<code>ISvgViewerDeclarationTarget</code> is the seam to it. Left unset the commands go into the drawing, which
+is what a drawing declaring for itself wants. <code>Notice</code> is where a host says a rewrite could not be
 set up at all; it appears on the status line beside the viewer's own count of what is wrong.</p>
 <h2 id="two-things-worth-knowing">Two things worth knowing</h2>
 <p>It does <strong>not</strong> host <code>Avalonia.Svg.Skia.Svg</code>. That control sizes itself to the drawing it fits, so it cannot fill a viewport and its zoom is bounded by its own clip. The viewer draws onto <code>SKCanvasControl</code> and owns the transform, which is what makes fit and actual-size exact.</p>
