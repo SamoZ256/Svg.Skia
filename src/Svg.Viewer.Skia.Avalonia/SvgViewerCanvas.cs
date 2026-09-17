@@ -34,6 +34,7 @@ public class SvgViewerCanvas : SKCanvasControl
     private static readonly Cursor s_grabCursor = new(StandardCursorType.SizeAll);
 
     private IReadOnlyList<SvgViewerPlacement> _placed = Array.Empty<SvgViewerPlacement>();
+    private IReadOnlyList<SvgViewerFrame> _frames = Array.Empty<SvgViewerFrame>();
     private double _scale = 1d;
     private double _offsetX;
     private double _offsetY;
@@ -45,6 +46,15 @@ public class SvgViewerCanvas : SKCanvasControl
     private double _dragOffsetX;
     private double _dragOffsetY;
     private bool _dragging;
+
+    /// <summary>What a press took hold of, whatever the host said that was, or null.</summary>
+    private object? _moving;
+    private SKRect _movingBounds;
+    private SKPoint _movingFrom;
+    private SKPoint _movingBy;
+    private bool _moved;
+    private IPointer? _movingPointer;
+
     private Cursor? _restoreCursor;
     private bool _showBounds = true;
     private SKPoint _origin;
@@ -69,17 +79,19 @@ public class SvgViewerCanvas : SKCanvasControl
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
-        Array.Empty<SvgViewerPlacement>(), 1d, 0d, 0d, true, null, 0d, default);
+        Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, true, null, 0d, default, null);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
+        IReadOnlyList<SvgViewerFrame> Frames,
         double Scale,
         double OffsetX,
         double OffsetY,
         bool Bounds,
         SKPath? Highlight,
         double HighlightAge,
-        SKPoint Origin);
+        SKPoint Origin,
+        (SKRect Bounds, SKPoint By, IReadOnlySet<SvgViewerPlacement> Carried)? Moving);
 
     public SvgViewerCanvas()
     {
@@ -118,6 +130,26 @@ public class SvgViewerCanvas : SKCanvasControl
     public event EventHandler<Point>? Picked;
 
     /// <summary>What is painted behind the drawing.</summary>
+    /// <summary>
+    /// What a press at a point takes hold of, and the rectangle it covers. Null where nothing there moves.
+    /// </summary>
+    /// <remarks>
+    /// Asked of the host, in the space the drawings are arranged in, because what counts as one
+    /// thing is the arrangement's own business: several drawings and the frame round them can be
+    /// one item to whoever laid them out. The item is handed back on release and means nothing here.
+    ///
+    /// Unset, a press pans as it always did, which is what every host but a board wants.
+    /// </remarks>
+    public Func<SKPoint, (object Item, SKRect Bounds)?>? Grip { get; set; }
+
+    /// <summary>Raised when something taken hold of is let go, with how far it was carried.</summary>
+    /// <remarks>
+    /// Once, on release, and never for a press that did not travel — that is a pick, and
+    /// <see cref="Picked"/> has it. Nothing has been committed: this is the request, and a host that
+    /// does nothing about it has refused, leaving what it drew where its own arrangement says.
+    /// </remarks>
+    public event EventHandler<SvgViewerMove>? Moved;
+
     public SKColor Background { get; set; } = new(0x1A, 0x1A, 0x1E);
 
     public bool IsZoomEnabled { get; set; } = true;
@@ -216,6 +248,9 @@ public class SvgViewerCanvas : SKCanvasControl
     /// <summary>What is on show, in the order it is drawn.</summary>
     public IReadOnlyList<SvgViewerPlacement> Placements => _placed;
 
+    /// <summary>The rectangles drawn under them, or nothing where the host asked for none.</summary>
+    public IReadOnlyList<SvgViewerFrame> Frames => _frames;
+
     /// <summary>
     /// Shows several drawings at once, arranged by the caller.
     /// </summary>
@@ -224,12 +259,16 @@ public class SvgViewerCanvas : SKCanvasControl
     /// thing it is. The arrangement is expected to start at the origin, as a single drawing's own
     /// picture does — the view is fitted to the size of what is placed, not to where it was put.
     /// </remarks>
-    public void Show(IReadOnlyList<SvgViewerPlacement> placed)
+    /// <param name="frames">
+    /// Rectangles to draw under the drawings, or null for none. Handed in with them rather than set
+    /// on their own, so the two can never be a frame apart.
+    /// </param>
+    public void Show(IReadOnlyList<SvgViewerPlacement> placed, IReadOnlyList<SvgViewerFrame>? frames = null)
     {
         _hasFitted = false;
         _userAdjusted = false;
 
-        Place(placed ?? Array.Empty<SvgViewerPlacement>());
+        Place(placed ?? Array.Empty<SvgViewerPlacement>(), frames ?? Array.Empty<SvgViewerFrame>());
     }
 
     /// <summary>Swaps in a rebuild of the drawing already on show, keeping an adjusted view.</summary>
@@ -245,12 +284,18 @@ public class SvgViewerCanvas : SKCanvasControl
             return;
         }
 
-        Place(svg is { } ? new[] { new SvgViewerPlacement(svg, default) } : Array.Empty<SvgViewerPlacement>());
+        Place(
+            svg is { } ? new[] { new SvgViewerPlacement(svg, default) } : Array.Empty<SvgViewerPlacement>(),
+            Array.Empty<SvgViewerFrame>());
     }
 
-    private void Place(IReadOnlyList<SvgViewerPlacement> placed)
+    private void Place(IReadOnlyList<SvgViewerPlacement> placed, IReadOnlyList<SvgViewerFrame> frames)
     {
+        // What is being carried may not be among these.
+        EndMove();
+
         _placed = placed;
+        _frames = frames;
 
         // Where the arrangement begins, which is not always the origin: a host laying drawings out
         // centres each in a column as wide as its caption, so the first of them can start well to
@@ -351,14 +396,14 @@ public class SvgViewerCanvas : SKCanvasControl
         {
             var placed = _placed[index];
 
-            if (Frame(placed) is not { } frame)
+            if (Extent(placed) is not { } extent)
             {
                 continue;
             }
 
-            frame.Offset(placed.At);
+            extent.Offset(placed.At);
 
-            if (!frame.Contains(arranged.X, arranged.Y))
+            if (!extent.Contains(arranged.X, arranged.Y))
             {
                 continue;
             }
@@ -381,14 +426,17 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         drawingPoint = default;
 
-        if (_scale <= 0d || !TryGetCullRect(out var bounds))
+        if (_scale <= 0d || (_placed.Count == 0 && _frames.Count == 0))
         {
             return false;
         }
 
+        // The origin the draw translates by, rather than the union worked out again: one field
+        // decides where the arrangement begins, so what is painted and what is pointed at cannot
+        // come to disagree about it.
         drawingPoint = new SKPoint(
-            (float)((point.X - _offsetX) / _scale + bounds.Left),
-            (float)((point.Y - _offsetY) / _scale + bounds.Top));
+            (float)((point.X - _offsetX) / _scale + _origin.X),
+            (float)((point.Y - _offsetY) / _scale + _origin.Y));
 
         return true;
     }
@@ -414,7 +462,8 @@ public class SvgViewerCanvas : SKCanvasControl
 
     private bool TryFit(Size size)
     {
-        if (size.Width <= 0d || size.Height <= 0d || !TryGetCullRect(out var bounds))
+        // A pane resized while something is being carried must not refit under it.
+        if (_moving is { } || size.Width <= 0d || size.Height <= 0d || !TryGetCullRect(out var bounds))
         {
             return false;
         }
@@ -444,14 +493,24 @@ public class SvgViewerCanvas : SKCanvasControl
 
         foreach (var placed in _placed)
         {
-            if (Frame(placed) is not { } frame)
+            if (Extent(placed) is not { } extent)
             {
                 continue;
             }
 
-            frame.Offset(placed.At);
+            extent.Offset(placed.At);
 
-            bounds = found ? SKRect.Union(bounds, frame) : frame;
+            bounds = found ? SKRect.Union(bounds, extent) : extent;
+            found = true;
+        }
+
+        // A frame reaching past the drawings it holds is part of what is on show, name and all, or
+        // the fit would cut it off at the edge of the ink inside it.
+        foreach (var framed in _frames)
+        {
+            var around = Named(framed);
+
+            bounds = found ? SKRect.Union(bounds, around) : around;
             found = true;
         }
 
@@ -465,8 +524,18 @@ public class SvgViewerCanvas : SKCanvasControl
         => Math.Abs(moved.X - from.X) > PickSlack || Math.Abs(moved.Y - from.Y) > PickSlack;
 
     /// <summary>One placed drawing's own edges, in its own space, or null where it has none.</summary>
-    private static SKRect? Frame(SvgViewerPlacement placed)
+    private static SKRect? Extent(SvgViewerPlacement placed)
         => placed.Svg.Picture is { CullRect: { Width: > 0f, Height: > 0f } cull } ? cull : null;
+
+    /// <summary>A frame with the room its name needs above it.</summary>
+    private static SKRect Named(SvgViewerFrame framed)
+        => framed is { Label.Length: > 0, LabelSize: > 0f }
+            ? new SKRect(
+                framed.Bounds.Left,
+                framed.Bounds.Top - framed.LabelSize * 1.5f,
+                framed.Bounds.Right,
+                framed.Bounds.Bottom)
+            : framed.Bounds;
 
     private void SetView(double scale, double offsetX, double offsetY)
     {
@@ -495,13 +564,15 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         _snapshot = new Snapshot(
             _placed,
+            _frames,
             _scale,
             _offsetX,
             _offsetY,
             _showBounds,
             _highlight,
             _highlightAge.Elapsed.TotalSeconds,
-            _origin);
+            _origin,
+            _moving is { } && _moved ? (_movingBounds, _movingBy, Carried()) : null);
 
         InvalidateVisual();
     }
@@ -515,6 +586,13 @@ public class SvgViewerCanvas : SKCanvasControl
     /// </remarks>
     private void OnWheel(object? sender, PointerWheelEventArgs e)
     {
+        // The ground may not move under what is being carried, or the pointer and the thing under
+        // it part company.
+        if (_moving is { })
+        {
+            return;
+        }
+
         if (!IsZoomEnabled || _placed.Count == 0)
         {
             return;
@@ -527,6 +605,17 @@ public class SvgViewerCanvas : SKCanvasControl
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
+
+        // Before the accelerators, since this one carries no modifier. A move taken back raises
+        // nothing: what was not let go of was not moved.
+        if (e.Key == Key.Escape && _moving is { })
+        {
+            EndMove();
+            _pressed = false;
+            e.Handled = true;
+
+            return;
+        }
 
         // Command on macOS, Control elsewhere.
         var accelerator = e.KeyModifiers.HasFlag(KeyModifiers.Meta) || e.KeyModifiers.HasFlag(KeyModifiers.Control);
@@ -569,6 +658,31 @@ public class SvgViewerCanvas : SKCanvasControl
         _pressed = properties.IsLeftButtonPressed && _placed.Count > 0;
         _pressOrigin = e.GetPosition(this);
 
+        // Before the pan, which used to claim every press before anything knew what was under the
+        // pointer — so nothing on a canvas could ever be taken hold of. The middle button still
+        // pans over an item, which is the way out when a board is covered in them.
+        if (properties.IsLeftButtonPressed
+            && Grip is { } grip
+            && TryGetDrawingPoint(_pressOrigin, out var arranged)
+            && grip(arranged) is { } held)
+        {
+            Focus();
+
+            _moving = held.Item;
+            _movingBounds = held.Bounds;
+            _movingFrom = arranged;
+            _movingBy = default;
+            _moved = false;
+            _movingPointer = e.Pointer;
+            _restoreCursor = Cursor;
+
+            e.Pointer.Capture(this);
+            e.Handled = true;
+
+            // _pressed is left standing: a press that never travels is still a pick.
+            return;
+        }
+
         if (!IsPanEnabled || _placed.Count == 0 || !(properties.IsLeftButtonPressed || properties.IsMiddleButtonPressed))
         {
             return;
@@ -596,6 +710,27 @@ public class SvgViewerCanvas : SKCanvasControl
             _pressed = false;
         }
 
+        if (_moving is { })
+        {
+            if (Away(e.GetPosition(this), _pressOrigin) && TryGetDrawingPoint(e.GetPosition(this), out var carried))
+            {
+                if (!_moved)
+                {
+                    // On the first travel rather than on the press, so a click never flashes a cursor.
+                    _moved = true;
+                    Cursor = s_grabCursor;
+                }
+
+                _movingBy = new SKPoint(carried.X - _movingFrom.X, carried.Y - _movingFrom.Y);
+
+                Publish();
+            }
+
+            e.Handled = true;
+
+            return;
+        }
+
         if (!_dragging)
         {
             return;
@@ -615,6 +750,34 @@ public class SvgViewerCanvas : SKCanvasControl
 
     private void OnReleased(object? sender, PointerReleasedEventArgs e)
     {
+        if (_moving is { } held)
+        {
+            var by = _movingBy;
+            var travelled = _moved;
+
+            // Read before the release below, which gives the pointer up — and giving it up is a
+            // capture lost, which clears this on the way past.
+            var picked = _pressed;
+
+            // Let go of before the host is told, because the host calls straight back in — and a
+            // handler that throws must not leave a drag stuck to the pointer.
+            EndMove();
+
+            _pressed = false;
+            e.Handled = true;
+
+            if (travelled)
+            {
+                Moved?.Invoke(this, new SvgViewerMove(held, by));
+            }
+            else if (picked)
+            {
+                Picked?.Invoke(this, e.GetPosition(this));
+            }
+
+            return;
+        }
+
         if (_pressed)
         {
             _pressed = false;
@@ -631,6 +794,55 @@ public class SvgViewerCanvas : SKCanvasControl
         Cursor = _restoreCursor;
         e.Pointer.Capture(null);
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// What travels with the rectangle being carried: everything drawn wholly inside it.
+    /// </summary>
+    /// <remarks>
+    /// Geometry, which is all the canvas has — what belongs to what is the host's arrangement to
+    /// know, and it said as much by handing back a rectangle round the lot.
+    /// </remarks>
+    private IReadOnlySet<SvgViewerPlacement> Carried()
+    {
+        // By reference: two placements of one drawing at one spot are equal as records, and only
+        // the one under the pointer is being carried.
+        var carried = new HashSet<SvgViewerPlacement>(ReferenceEqualityComparer.Instance);
+
+        foreach (var placed in _placed)
+        {
+            if (Extent(placed) is not { } extent)
+            {
+                continue;
+            }
+
+            extent.Offset(placed.At);
+
+            if (_movingBounds.Contains(extent))
+            {
+                carried.Add(placed);
+            }
+        }
+
+        return carried;
+    }
+
+    /// <summary>Lets go of whatever was being carried, drawing it back where it was.</summary>
+    private void EndMove()
+    {
+        if (_moving is null)
+        {
+            return;
+        }
+
+        _moving = null;
+        _movingBy = default;
+        _moved = false;
+        _movingPointer?.Capture(null);
+        _movingPointer = null;
+        Cursor = _restoreCursor;
+
+        Publish();
     }
 
     /// <remarks>
@@ -650,6 +862,10 @@ public class SvgViewerCanvas : SKCanvasControl
 
         _dragging = false;
         _pressed = false;
+
+        // A drag the window took away writes nothing.
+        EndMove();
+
         Cursor = _restoreCursor;
     }
 
@@ -663,7 +879,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
         canvas.Clear(Background);
 
-        if (state.Placed.Count == 0)
+        if (state.Placed.Count == 0 && state.Frames.Count == 0)
         {
             return;
         }
@@ -684,16 +900,54 @@ public class SvgViewerCanvas : SKCanvasControl
         using var font = new SKFont(SKTypeface.Default, 1f);
         using var writing = new SKPaint { IsAntialias = true, Color = SKColors.Gray };
 
+        // Under the drawings, since a frame is a ground rather than an overlay, and outside their
+        // transforms for the reason the ring is: a frame is in the arrangement's own space.
+        foreach (var framed in state.Frames)
+        {
+            // A frame inside the one being carried goes with it, by the rule its drawings go by.
+            var by = state.Moving is { } moving && moving.Bounds.Contains(framed.Bounds)
+                ? moving.By
+                : default;
+
+            var bounds = framed.Bounds;
+
+            bounds.Offset(by);
+
+            Around(canvas, bounds, state.Scale);
+
+            if (framed is { Label: { Length: > 0 } name, LabelSize: > 0f })
+            {
+                font.Size = framed.LabelSize;
+
+                canvas.DrawText(
+                    name,
+                    bounds.Left,
+                    bounds.Top - framed.LabelSize * 0.4f,
+                    SKTextAlign.Left,
+                    font,
+                    writing);
+            }
+        }
+
         foreach (var placed in state.Placed)
         {
             canvas.Save();
+
+            // Carried, so it follows the pointer while what is not carried holds still. Nothing the
+            // host handed in is rewritten: the arrangement is still what it says it is until the
+            // host is told where this was let go.
+            if (state.Moving is { } moving && moving.Carried.Contains(placed))
+            {
+                canvas.Translate(moving.By.X, moving.By.Y);
+            }
+
             canvas.Translate(placed.At.X, placed.At.Y);
 
             // SKSvg.Draw brackets itself with BeginDraw/EndDraw, so the picture cannot be disposed
             // underneath it by a value being bound on the UI thread.
             placed.Svg.Draw(canvas);
 
-            if (Frame(placed) is { } frame)
+            if (Extent(placed) is { } frame)
             {
                 if (state.Bounds)
                 {
@@ -722,6 +976,16 @@ public class SvgViewerCanvas : SKCanvasControl
         if (state.Highlight is { } ringed)
         {
             Ring(canvas, ringed, state.Scale, state.HighlightAge);
+        }
+
+        // Over everything, since it is what the hand is on.
+        if (state.Moving is { } carried)
+        {
+            var held = carried.Bounds;
+
+            held.Offset(carried.By);
+
+            Around(canvas, held, state.Scale);
         }
 
         canvas.Restore();
@@ -791,6 +1055,25 @@ public class SvgViewerCanvas : SKCanvasControl
             (byte)(from.Red + (to.Red - from.Red) * amount),
             (byte)(from.Green + (to.Green - from.Green) * amount),
             (byte)(from.Blue + (to.Blue - from.Blue) * amount));
+
+    /// <summary>The line round a frame.</summary>
+    /// <remarks>
+    /// Solid where <see cref="Outline"/> is dashed, and drawn on the line rather than half a
+    /// hairline inside it: the dash means "these are the drawing's own edges", which is the one
+    /// thing a frame must not be read as.
+    /// </remarks>
+    private static void Around(SKCanvas canvas, SKRect frame, double scale)
+    {
+        using var paint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            Color = SKColors.Gray.WithAlpha(0x99),
+            StrokeWidth = (float)(1d / scale)
+        };
+
+        canvas.DrawRect(frame, paint);
+    }
 
     private static void Outline(SKCanvas canvas, SKRect frame, double scale)
     {

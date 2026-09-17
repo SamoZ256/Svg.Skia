@@ -9,3 +9,4 @@ guides:
   - {path: interaction-and-animation.md, title: "Interaction and Animation"}
   - {path: cli-conversion.md, title: "CLI Conversion"}
   - {path: source-generator-and-svgc.md, title: "Source Generator and svgc"}
+  - {path: svg-studio.md, title: "Svg Studio"}

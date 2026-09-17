@@ -201,7 +201,7 @@ public static class SvgcProjectBuild
         if (item.Output is not { } output)
         {
             throw new SvgcProjectException(
-                $"<svg input=\"{item.Input}\"> has no output, and the project names no singleFile to fold it into.");
+                $"'{item.Input}' has no output, and the project names no singleFile to fold it into.");
         }
 
         if (settings.Emit == SvgEmit.Svg)
@@ -210,7 +210,7 @@ public static class SvgcProjectBuild
 
             // A recipe is a text transformation, so it has no business failing because the drawing
             // uses a filter or a font the renderer cannot model. Read, rewrite, write.
-            File.WriteAllText(output, Recipe(File.ReadAllText(item.Input), item.Recipe ?? settings.Recipe!, log));
+            File.WriteAllText(output, Recipe(Read(item), item.Recipe ?? settings.Recipe!, log));
 
             return output;
         }
@@ -233,6 +233,9 @@ public static class SvgcProjectBuild
         return output;
     }
 
+    /// <summary>The drawing itself: the text an item carries, or the file it names.</summary>
+    private static string Read(SvgcProjectItem item) => item.Source ?? File.ReadAllText(item.Input);
+
     /// <summary>Reads one drawing through its recipe, if any, and builds its model.</summary>
     public static SkiaCSharpDrawing? Build(
         SvgcProjectItem item,
@@ -245,7 +248,7 @@ public static class SvgcProjectBuild
             throw new ArgumentNullException(nameof(item));
         }
 
-        var svg = File.ReadAllText(item.Input);
+        var svg = Read(item);
 
         if ((item.Recipe ?? settings.Recipe) is { } recipe)
         {

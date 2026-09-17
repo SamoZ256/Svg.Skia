@@ -25,22 +25,23 @@ namespace Svg.Studio.UnitTests;
 /// </remarks>
 public class MainWindowSearchTests : IDisposable
 {
-    private const string Drawing = """
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-          <rect width="24" height="24" fill="#00ff00" />
-        </svg>
-        """;
-
     private const string Project = """
-        <svgc>
-          <namespace>Demo.Icons</namespace>
+        <studio namespace="Demo.Icons">
 
-          <svg input="home.svg" class="Home" />
+          <drawing name="home-icon" class="Home">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect width="24" height="24" fill="#00ff00" />
+            </svg>
+          </drawing>
 
-          <group namespace="Demo.Icons.Large" scale="2">
-            <svg input="badge.svg" class="BadgeLarge" />
+          <group name="Large" namespace="Demo.Icons.Large" scale="2">
+            <drawing name="badge-icon" class="BadgeLarge">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                <rect width="24" height="24" fill="#00ff00" />
+              </svg>
+            </drawing>
           </group>
-        </svgc>
+        </studio>
         """;
 
     private readonly string _directory = Directory.CreateTempSubdirectory().FullName;
@@ -70,14 +71,8 @@ public class MainWindowSearchTests : IDisposable
         return window;
     }
 
-    /// <summary>A project, with both its drawings on disk beside it.</summary>
-    private async Task<MainWindow> Opened()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        return await Host(Write("icons.svgcproj", Project));
-    }
+    /// <summary>A project holding two drawings.</summary>
+    private async Task<MainWindow> Opened() => await Host(Write("icons.svgstudio", Project));
 
     private static SvgViewer Viewer(MainWindow window)
         => window.GetVisualDescendants().OfType<SvgViewer>().First();
@@ -120,7 +115,6 @@ public class MainWindowSearchTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
-    /// <summary>A recipe tab is the only thing left with text in it to search.</summary>
     // ---- the project tree ----------------------------------------------------------------------
 
     [AvaloniaFact]
@@ -134,7 +128,7 @@ public class MainWindowSearchTests : IDisposable
         Type(window, "badge");
 
         Assert.True(group.IsExpanded);
-        Assert.Equal("badge.svg - BadgeLarge", Selected(window));
+        Assert.Equal("badge-icon", Selected(window));
         Assert.Equal("1/1", Count(window));
     }
 
@@ -155,25 +149,25 @@ public class MainWindowSearchTests : IDisposable
     {
         var window = await Opened();
 
-        // Both drawings, and neither group.
-        Type(window, ".svg");
+        // Both drawings, and neither the group nor the project row.
+        Type(window, "icon");
 
-        Assert.Equal("home.svg - Home", Selected(window));
+        Assert.Equal("home-icon", Selected(window));
         Assert.Equal("1/2", Count(window));
 
         Press(window, Key.Enter);
 
-        Assert.Equal("badge.svg - BadgeLarge", Selected(window));
+        Assert.Equal("badge-icon", Selected(window));
         Assert.Equal("2/2", Count(window));
 
         Press(window, Key.Enter);
 
-        Assert.Equal("home.svg - Home", Selected(window));
+        Assert.Equal("home-icon", Selected(window));
         Assert.Equal("1/2", Count(window));
 
         Press(window, Key.Enter, KeyModifiers.Shift);
 
-        Assert.Equal("badge.svg - BadgeLarge", Selected(window));
+        Assert.Equal("badge-icon", Selected(window));
     }
 
     /// <summary>What was being looked at is worth more than the answer that there is no match.</summary>

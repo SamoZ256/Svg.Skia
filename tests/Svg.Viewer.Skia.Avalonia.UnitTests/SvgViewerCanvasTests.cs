@@ -211,6 +211,86 @@ public class SvgViewerCanvasTests
         Assert.True(painted.Blue > 200 && painted.Red < 100, $"{painted} is not the drawing's blue");
     }
 
+    /// <summary>
+    /// A frame is part of what is on show, so the fit holds the whole of it.
+    /// </summary>
+    /// <remarks>
+    /// Left out of the union, a frame drawn round a group of drawings would be cut off at the edge
+    /// of the ink inside it — and its name, which is written above its top edge, would be off the
+    /// top of the control.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Frame_Is_Fitted_With_What_It_Holds()
+    {
+        using var drawing = SvgViewerDocument.LoadFromSvg(Wide);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+
+        window.Show();
+
+        // The drawing is 100x50 at the origin; the frame runs 10 wider and 10 further down, with
+        // room for a name above it.
+        canvas.Show(
+            new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) },
+            new[] { new SvgViewerFrame(new SKRect(-5f, -5f, 105f, 55f), "Large", 4f) });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        Assert.Single(canvas.Frames);
+
+        // 110 across and 66 down once the name's room is counted, so the height binds. Without that
+        // room it would be 60 down and the fit would be 200/60, with the name off the top.
+        Assert.Equal(200d / 66d, canvas.Scale, 6);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Frame_Is_Drawn_Round_What_It_Holds_And_Is_Not_A_Drawing()
+    {
+        using var drawing = SvgViewerDocument.LoadFromSvg(Blue);
+
+        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        canvas.Show(
+            new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(20f, 20f)) },
+            new[] { new SvgViewerFrame(new SKRect(0f, 0f, 140f, 90f)) });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // The frame decides the fit: 140x90 in 400x200 is bounded by height.
+        Assert.Equal(200d / 90d, canvas.Scale, 6);
+
+        // A click inside the frame but off the ink falls through it: a frame is furniture, and the
+        // host asks the canvas which drawing was hit.
+        Assert.False(canvas.TryGetPlacementAt(new Point(20, 20), out var placement, out _));
+        Assert.Null(placement);
+
+        // Drawn, though — the top edge of the frame runs along the top of what is on show, and the
+        // middle of it is still the ground rather than a fill.
+        var edge = 0;
+
+        for (var x = 100; x < 300; x++)
+        {
+            var pixel = Painted(window, x, (int)canvas.OffsetY + 1);
+
+            if (pixel.Red < 220 && pixel.Blue < 220)
+            {
+                edge++;
+            }
+        }
+
+        Assert.True(edge > 10, "the frame's top edge was not painted");
+
+        window.Close();
+    }
+
     /// <summary>A drawing that is not orange, so the ring cannot be confused with its ink.</summary>
     private const string Blue = """
         <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50">
@@ -568,6 +648,231 @@ public class SvgViewerCanvasTests
             KeyModifiers = KeyModifiers.Control
         });
     }
+
+    // ---- taking hold of what is on the canvas ------------------------------------------------
+
+    /// <summary>A canvas of one blue drawing at the origin, laid out in a 400x200 window.</summary>
+    private static (Window Window, SvgViewerCanvas Canvas, SvgViewerDocument Drawing) Held()
+    {
+        var drawing = SvgViewerDocument.LoadFromSvg(Blue);
+        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        canvas.Show(new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        return (window, canvas, drawing);
+    }
+
+    private static void Grab(SvgViewerCanvas canvas, object item, SKRect bounds)
+        => canvas.Grip = at => bounds.Contains(at.X, at.Y) ? (item, bounds) : null;
+
+    [AvaloniaFact]
+    public void A_Press_On_Something_Held_Moves_It_Rather_Than_Panning()
+    {
+        var (window, canvas, drawing) = Held();
+
+        using var owner = drawing;
+
+        var item = new object();
+
+        Grab(canvas, item, new SKRect(0f, 0f, 100f, 50f));
+
+        SvgViewerMove? moved = null;
+
+        canvas.Moved += (_, move) => moved = move;
+
+        var offsetX = canvas.OffsetX;
+        var offsetY = canvas.OffsetY;
+
+        // Forty control pixels at the fit's scale of four, which is ten in the arrangement.
+        Assert.Equal(4d, canvas.Scale, 6);
+
+        Press(window, canvas, new Point(20, 20));
+        Move(window, canvas, new Point(60, 20));
+        Release(window, canvas, new Point(60, 20));
+
+        Assert.NotNull(moved);
+        Assert.Same(item, moved!.Value.Item);
+        Assert.Equal(10f, moved.Value.By.X, 3);
+        Assert.Equal(0f, moved.Value.By.Y, 3);
+
+        // The view is where it was: a press on something held is not a pan.
+        Assert.Equal(offsetX, canvas.OffsetX, 6);
+        Assert.Equal(offsetY, canvas.OffsetY, 6);
+
+        // And nothing was committed — the placement still says where the host put it.
+        Assert.Equal(0f, canvas.Placements[0].At.X);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Press_On_Nothing_Held_Still_Pans()
+    {
+        var (window, canvas, drawing) = Held();
+
+        using var owner = drawing;
+
+        // A grip that answers about one corner only, pressed well outside it.
+        Grab(canvas, new object(), new SKRect(0f, 0f, 1f, 1f));
+
+        var moved = false;
+
+        canvas.Moved += (_, _) => moved = true;
+
+        var offsetX = canvas.OffsetX;
+
+        Press(window, canvas, new Point(200, 100));
+        Move(window, canvas, new Point(260, 100));
+        Release(window, canvas, new Point(260, 100));
+
+        Assert.False(moved);
+        Assert.Equal(offsetX + 60d, canvas.OffsetX, 6);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Press_That_Does_Not_Travel_Is_Still_A_Pick()
+    {
+        var (window, canvas, drawing) = Held();
+
+        using var owner = drawing;
+
+        Grab(canvas, new object(), new SKRect(0f, 0f, 100f, 50f));
+
+        var picked = 0;
+        var moved = 0;
+
+        canvas.Picked += (_, _) => picked++;
+        canvas.Moved += (_, _) => moved++;
+
+        // Inside the four pixels a hand moves while clicking.
+        Press(window, canvas, new Point(20, 20));
+        Move(window, canvas, new Point(22, 21));
+        Release(window, canvas, new Point(22, 21));
+
+        Assert.Equal(1, picked);
+        Assert.Equal(0, moved);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void What_Is_Carried_Follows_The_Pointer_And_The_Rest_Holds_Still()
+    {
+        var (window, canvas, drawing) = Held();
+
+        using var owner = drawing;
+
+        Grab(canvas, new object(), new SKRect(0f, 0f, 100f, 50f));
+
+        var offsetX = canvas.OffsetX;
+        var scale = canvas.Scale;
+
+        Press(window, canvas, new Point(20, 20));
+        Move(window, canvas, new Point(120, 20));
+
+        // Painted where the pointer has it, and not where it was: the drawing is 100 units wide at
+        // scale 4, so a hundred pixels across is a quarter of its own width.
+        var carried = Painted(window, 120, 20);
+
+        Assert.True(carried.Blue > 200 && carried.Red < 100, $"{carried} is not the drawing, carried");
+
+        // The ground did not move under it.
+        Assert.Equal(offsetX, canvas.OffsetX, 6);
+        Assert.Equal(scale, canvas.Scale, 6);
+
+        Release(window, canvas, new Point(120, 20));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Escape_Takes_A_Move_Back_And_Raises_Nothing()
+    {
+        var (window, canvas, drawing) = Held();
+
+        using var owner = drawing;
+
+        Grab(canvas, new object(), new SKRect(0f, 0f, 100f, 50f));
+
+        var moved = false;
+
+        canvas.Moved += (_, _) => moved = true;
+
+        Press(window, canvas, new Point(20, 20));
+        Move(window, canvas, new Point(120, 20));
+
+        canvas.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.Escape,
+            KeyModifiers = KeyModifiers.None
+        });
+
+        Release(window, canvas, new Point(120, 20));
+
+        Assert.False(moved);
+
+        // Back where it was, rather than left where the pointer had it.
+        var back = Painted(window, 20, 20);
+
+        Assert.True(back.Blue > 200 && back.Red < 100, $"{back} is not the drawing, put back");
+
+        window.Close();
+    }
+
+    /// <summary>Where <paramref name="at"/> — a point in the canvas's own space — is in the window's.</summary>
+    /// <remarks>
+    /// A pointer event reports its position by way of the visual root, so a control-local point
+    /// handed over as the root's is off by wherever the control sits.
+    /// </remarks>
+    private static Point Root(Window window, SvgViewerCanvas canvas, Point at)
+        => canvas.TranslatePoint(at, window) ?? at;
+
+    private static void Press(Window window, SvgViewerCanvas canvas, Point at)
+        => canvas.RaiseEvent(new PointerPressedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            Root(window, canvas, at),
+            0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+            KeyModifiers.None)
+        {
+            RoutedEvent = InputElement.PointerPressedEvent
+        });
+
+    private static void Move(Window window, SvgViewerCanvas canvas, Point at)
+        => canvas.RaiseEvent(new PointerEventArgs(
+            InputElement.PointerMovedEvent,
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            Root(window, canvas, at),
+            0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other),
+            KeyModifiers.None));
+
+    private static void Release(Window window, SvgViewerCanvas canvas, Point at)
+        => canvas.RaiseEvent(new PointerReleasedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            Root(window, canvas, at),
+            0,
+            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+            KeyModifiers.None,
+            MouseButton.Left)
+        {
+            RoutedEvent = InputElement.PointerReleasedEvent
+        });
 
     private static PointerWheelEventArgs Wheel(SvgViewerCanvas canvas, double delta, Point position)
         => new(

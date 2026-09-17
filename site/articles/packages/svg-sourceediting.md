@@ -32,7 +32,7 @@ dotnet add package Svg.SourceEditing
 | `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `MoveParameter` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
 | `SvgRecipeRuleEditor` | `SetRule` and `RemoveRule` for an svgc recipe's replacement rules — the half of a recipe that is not declarations |
 | `SvgAttributeEditor` | `SetAttribute` on any element, named by its address, and `Attributes` to read what one is written with |
-| `SvgSourceDocument` | A drawing as a tree, `Read` from text and written back by `ToText` |
+| `SvgSourceDocument` | A drawing as a tree, `Read` from text and written back by `ToText` — or one element of it by `TextOf` |
 | `SvgSourceWorkspace` | That drawing and its history: `Commit`, `Undo`, `Redo`, `IsModified`, `MarkSaved` |
 | `SvgElementEditor` | `Move` an element to where a drop puts it, and `NewGroup` to put things in |
 | `SvgTextEdit` | One span to replace, and `ApplyAll` for a caller holding only a string |
@@ -85,6 +85,14 @@ why undo returns the file and not merely something that renders like it. And an 
 it started from anyway — a declaration can only be checked against the language's rules after the
 tree has been changed, and one of those checks needs the state before it — so a refusal must already
 be able to put a half-made edit back. Rollback and undo are one mechanism instead of two.
+
+## One document inside another
+
+`TextOf` writes a single element the way `ToText` writes the root: from the bytes that element was
+read as, with the file's own line endings put back. It is what lets a file hold a whole document
+inside it — a [Svg Studio](../guides/svg-studio) project keeps each of its drawings inline — and
+hand one out and take it back without reformatting it. The prologue stays with the file, since what
+comes back is an element.
 
 ## It decides nothing about what is legal
 

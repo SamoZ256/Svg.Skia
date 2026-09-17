@@ -27,9 +27,10 @@
     <ProjectReference Include="..\Svg.Viewer.Skia.Avalonia\Svg.Viewer.Skia.Avalonia.csproj" />
     <!-- Exporting a drawing as the C# that draws it goes through the generator svgc calls. -->
     <ProjectReference Include="..\Svg.CodeGen.Skia\Svg.CodeGen.Skia.csproj" />
-    <!-- Opening a .svgcproj reads it with the same parser svgc builds from. -->
+    <!-- Building a project runs the build svgc runs, and opening a .svgcproj reads it with the
+         parser svgc reads it with. -->
     <ProjectReference Include="..\Svg.CodeGen.Skia.Projects\Svg.CodeGen.Skia.Projects.csproj" />
-    <!-- Importing a .pcvd writes the drawings and the project that File → Open then reads. -->
+    <!-- Importing a .pcvd reads the drawings the project is then written with. -->
     <ProjectReference Include="..\Svg.PaintCode\Svg.PaintCode.csproj" />
   </ItemGroup>
 

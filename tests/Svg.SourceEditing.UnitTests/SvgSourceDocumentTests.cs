@@ -410,6 +410,55 @@ public class SvgSourceDocumentTests
         Assert.Equal(source, document.ToText());
     }
 
+    /// <summary>A document holding another one inside it, as a Svg.Studio project holds a drawing.</summary>
+    private const string Inlined = """
+        <studio>
+          <drawing name="Badge">
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 viewBox="0 0 24 24">
+              <path d="M 0 0
+                       L 24 24" />
+              <g></g>
+              <rect/>
+              <text>a &#38; b</text>
+            </svg>
+          </drawing>
+        </studio>
+        """;
+
+    private static XElement Drawing(SvgSourceDocument source)
+        => source.Document.Root!
+            .Element("drawing")!
+            .Element(XName.Get("svg", "http://www.w3.org/2000/svg"))!;
+
+    [Fact]
+    public void An_Element_Is_Handed_Out_As_The_File_Wrote_It()
+    {
+        var source = SvgSourceDocument.Read(Inlined, out _)!;
+
+        var start = Inlined.IndexOf("<svg", StringComparison.Ordinal);
+        var end = Inlined.IndexOf("</svg>", StringComparison.Ordinal) + "</svg>".Length;
+
+        // Attributes one to a line, a d spanning two, <g></g>, <rect/> and an escape spelled as a
+        // number: each of them something re-serialising the tree the ordinary way would change.
+        Assert.Equal(Inlined[start..end], source.TextOf(Drawing(source)));
+    }
+
+    [Fact]
+    public void An_Element_Read_Back_And_Put_Back_Leaves_The_File_As_It_Was()
+    {
+        var source = SvgSourceDocument.Read(Inlined, out _)!;
+        var read = SvgSourceDocument.Read(source.TextOf(Drawing(source)), out _)!;
+        var root = read.Document.Root!;
+
+        // Detached first: XLinq copies a node that still has a parent, and the bytes each element
+        // was read as are annotations, which a copy does not carry.
+        root.Remove();
+        Drawing(source).ReplaceWith(root);
+
+        Assert.Equal(Inlined, source.ToText());
+    }
+
     private static IEnumerable<string> Suites()
     {
         foreach (var suite in new[] { "W3C_SVG_11_TestSuite", "resvg" })

@@ -48,10 +48,9 @@ public static class SvgExport
         }
         else
         {
-            // Through the document, so a drawing that came in with a byte order mark keeps it, and
-            // so a project's recipe is applied — this is the drawing as the project builds it, which
-            // is the document svgc writes for `--emit svg`. The C# form gets it through Reload.
-            document.Write(document.Built(sized), target);
+            // Through the document, so a drawing that came in with a byte order mark keeps it. The
+            // C# form gets that through Reload.
+            document.Write(Flat(document.Built(sized)), target);
         }
 
         return target;
@@ -86,6 +85,50 @@ public static class SvgExport
         return document.Resize(tree, size) is null ? tree.ToText() : source;
     }
 
+    /// <summary>
+    /// The drawing without the indentation it was written at inside something else.
+    /// </summary>
+    /// <remarks>
+    /// A drawing a project holds inline carries the project's indentation, which is the project's
+    /// business and not the drawing's: written out as a file of its own it should read as one. The
+    /// shallowest line decides, and only lines that have that much are shifted, so a line inside a
+    /// stylesheet or a run of text keeps what it says.
+    /// </remarks>
+    private static string Flat(string svgText)
+    {
+        var lines = svgText.Split('\n');
+        var depth = int.MaxValue;
+
+        for (var line = 1; line < lines.Length; line++)
+        {
+            var text = lines[line];
+
+            if (text.Trim().Length == 0)
+            {
+                continue;
+            }
+
+            depth = Math.Min(depth, text.Length - text.TrimStart(' ').Length);
+        }
+
+        if (depth is 0 or int.MaxValue)
+        {
+            return svgText;
+        }
+
+        var indent = new string(' ', depth);
+
+        for (var line = 1; line < lines.Length; line++)
+        {
+            if (lines[line].StartsWith(indent, StringComparison.Ordinal))
+            {
+                lines[line] = lines[line].Substring(depth);
+            }
+        }
+
+        return string.Join("\n", lines);
+    }
+
     /// <summary>The C# that draws <paramref name="source"/>.</summary>
     /// <remarks>
     /// Built again rather than generated from the open picture: the viewer binds the panel's values
@@ -116,11 +159,18 @@ public static class SvgExport
     }
 
     /// <summary>The generated class's name: the file's own, made into an identifier.</summary>
-    public static string ClassName(string path)
+    public static string ClassName(string path) => Identifier(Path.GetFileNameWithoutExtension(path) ?? string.Empty);
+
+    /// <summary>A name as C# will take it: anything else becomes an underscore.</summary>
+    /// <remarks>
+    /// Also what a project's drawing falls back on, which is why this is not simply the tail of
+    /// <see cref="ClassName"/>: a drawing is named rather than filed, and a name is not a path.
+    /// </remarks>
+    public static string Identifier(string text)
     {
         var name = new StringBuilder();
 
-        foreach (var c in Path.GetFileNameWithoutExtension(path) ?? string.Empty)
+        foreach (var c in text)
         {
             name.Append(c == '_' || char.IsLetterOrDigit(c) ? c : '_');
         }
