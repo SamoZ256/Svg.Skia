@@ -62,12 +62,13 @@ public sealed class GroupPanel : UserControl
         Opacity = 0.65
     };
 
-    /// <summary>The drawings on the canvas.</summary>
+    /// <summary>What each drawing of the group was last built into, in the group's own order.</summary>
     /// <remarks>
     /// Held because a picture belongs to the document that built it: the canvas only borrows one, so
-    /// both have to be let go together, in that order.
+    /// both have to be let go together, in that order. And held against the next build, which reuses
+    /// whatever it would only have built again.
     /// </remarks>
-    private readonly List<SvgViewerDocument> _loaded = new();
+    private IReadOnlyList<Drawn> _built = Array.Empty<Drawn>();
 
     /// <summary>Each drawing on the canvas, paired with where the spread put it.</summary>
     /// <remarks>
@@ -806,22 +807,36 @@ public sealed class GroupPanel : UserControl
         // drawing moved on the board would do it on every drop.
         var was = _inspecting?.Built.Drawing;
 
-        Release();
+        Forget();
 
-        var drawings = ((ProjectGroup)Node).Drawings.ToList();
+        var had = _built.ToDictionary(one => one.Drawing);
 
-        if (drawings.Count == 0)
-        {
-            Says("This group holds no drawings.");
-            return;
-        }
+        var built = ((ProjectGroup)Node).Drawings
+            .Select(drawing => Draw(drawing, had.GetValueOrDefault(drawing)))
+            .ToList();
 
-        var built = drawings.Select(Draw).ToList();
+        Discard(built);
+
+        _built = built;
 
         Says(Trouble(built));
 
-        // Only the ones that built, since a drawing that would not read has nothing to place.
+        // Only the ones that built, since a drawing that would not read has nothing to place. None
+        // of them is a board: the notice says what is wrong with each, and the spread below reads
+        // the largest of no drawings at all.
         var drawn = built.Where(drawn => drawn.Svg is { }).ToList();
+
+        if (drawn.Count == 0)
+        {
+            _canvas.Show(Array.Empty<SvgViewerPlacement>());
+
+            if (built.Count == 0)
+            {
+                Says("This group holds no drawings.");
+            }
+
+            return;
+        }
 
         // Once for the whole tab rather than per spread, and to the number a spread of all of them
         // would have arrived at: a board that is settled into places must not resize a caption.
@@ -829,7 +844,21 @@ public sealed class GroupPanel : UserControl
 
         Lay((ProjectGroup)Node, SKPoint.Empty, label, drawn.ToDictionary(one => one.Drawing));
 
-        _canvas.Show(_shown.Select(shown => shown.Placement).ToList(), _framed.Select(framed => framed.Frame).ToList());
+        var placed = _shown.Select(shown => shown.Placement).ToList();
+        var frames = _framed.Select(framed => framed.Frame).ToList();
+
+        // Fitted the first time the tab has a board and never again on its own, because everything
+        // else is this board being laid out afresh -- a drawing dropped somewhere, a setting typed,
+        // a parameter added -- and a fit there would take away whatever was being looked at and move
+        // the thing that was just let go.
+        if (_canvas.Placements.Count == 0)
+        {
+            _canvas.Show(placed, frames);
+        }
+        else
+        {
+            _canvas.Rearrange(placed, frames);
+        }
 
         // The same row as before, which is a new placement over a new document: what is shown is
         // rebuilt rather than restored, and that is the point — the tabs beside it are about the
@@ -1173,18 +1202,36 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>One drawing built the way the project builds it, or why it could not be.</summary>
-    private Drawn Draw(ProjectDrawing drawing)
+    /// <summary>
+    /// Builds a drawing, or hands back the build it already has where nothing it reads has changed.
+    /// </summary>
+    /// <remarks>
+    /// The two things a build reads are the text and the size it is asked for, so agreeing about
+    /// both is agreeing about the picture. Most of what refreshes this tab changes neither: a drop
+    /// writes x and y, a tree move writes an order, a root setting writes what the code generator
+    /// does -- and re-parsing forty drawings to answer any of them cost the zoom, the ring and a
+    /// tenth of a second each time.
+    ///
+    /// Comparing what was read beats classifying what happened: there are eleven ways into
+    /// <see cref="ProjectWorkspace.Save"/> and the event they raise says nothing about which fired.
+    /// </remarks>
+    private Drawn Draw(ProjectDrawing drawing, Drawn? was)
     {
+        // Through the host where a tab is holding this drawing, so the canvas shows what that tab
+        // shows rather than what the project was last saved with.
+        var text = TargetOf?.Invoke(drawing)?.Text ?? drawing.Text;
+        var sizing = Sizing(drawing);
+
+        if (was is { } already
+            && string.Equals(already.Text, text, StringComparison.Ordinal)
+            && already.Sizing == sizing)
+        {
+            return already;
+        }
+
         try
         {
-            // Through the host where a tab is holding this drawing, so the canvas shows what that
-            // tab shows rather than what the project was last saved with.
-            var document = SvgViewerDocument.LoadFromSvg(
-                TargetOf?.Invoke(drawing)?.Text ?? drawing.Text,
-                null,
-                ProjectWorkspace.SizeOf(drawing));
-
-            _loaded.Add(document);
+            var document = SvgViewerDocument.LoadFromSvg(text, null, ProjectWorkspace.SizeOf(drawing));
 
             // What the panel would show for this drawing on opening it, which is what a viewer
             // binds and so what the drawing's own tab renders.
@@ -1196,16 +1243,24 @@ public sealed class GroupPanel : UserControl
             {
             }
 
-            return new Drawn(drawing, document, document.Svg.Picture?.CullRect.Size ?? default, null);
+            return new Drawn(drawing, text, sizing, document, null);
         }
         catch (Exception failure)
         {
             // Anything: this is user data reaching a parser, and it arrives as an XmlException, a
             // FormatException, one of the IO exceptions or the loader's own refusal. A narrower set
             // would eventually let one through, and one bad drawing would cost the whole tab.
-            return new Drawn(drawing, null, default, failure.Message);
+            return new Drawn(drawing, text, sizing, null, failure.Message);
         }
     }
+
+    /// <summary>Everything the size of a build depends on, as the four settings that decide it.</summary>
+    /// <remarks>
+    /// The settings rather than the <see cref="SvgSizeRequest"/> they are folded into: that is a
+    /// plain struct with no equality of its own, and these are what it is made of anyway.
+    /// </remarks>
+    private static (float?, float?, float?, string?) Sizing(ProjectNode node)
+        => (node.EffectiveWidth, node.EffectiveHeight, node.EffectiveScale, node.EffectivePadding);
 
     /// <summary>Lets go of the drawings, and of the documents that own them.</summary>
     /// <remarks>
@@ -1214,13 +1269,29 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void Release()
     {
-        _canvas.Highlight = null;
+        Forget();
+
         _canvas.Show(Array.Empty<SvgViewerPlacement>());
+
+        Discard(Array.Empty<Drawn>());
+
+        _built = Array.Empty<Drawn>();
+    }
+
+    /// <summary>Lets go of everything a build is about to say again.</summary>
+    /// <remarks>
+    /// Not the canvas: blanking it is what told it a new board had arrived, and a new board is
+    /// fitted. What is placed is replaced by the build a moment later, so there is nothing for it
+    /// to be holding in between.
+    /// </remarks>
+    private void Forget()
+    {
+        _canvas.Highlight = null;
 
         _shown.Clear();
         _framed.Clear();
 
-        // The tree holds elements of a document whose picture is about to be disposed, and the
+        // The tree holds elements of a document that may be about to be disposed, and the
         // parameters belong to the drawing it was showing.
         _inspecting = null;
         _tree.Show(null);
@@ -1228,14 +1299,21 @@ public sealed class GroupPanel : UserControl
         ShowElement(null);
         _showing.Text = "Click a drawing to see what it is made of.";
 
-        foreach (var document in _loaded)
-        {
-            document.Dispose();
-        }
-
-        _loaded.Clear();
-
         Says(null);
+    }
+
+    /// <summary>Disposes every document the build being kept did not take over.</summary>
+    private void Discard(IReadOnlyList<Drawn> kept)
+    {
+        var keeping = kept.Where(one => one.Document is { }).Select(one => one.Document!).ToHashSet();
+
+        foreach (var built in _built)
+        {
+            if (built.Document is { } document && !keeping.Contains(document))
+            {
+                document.Dispose();
+            }
+        }
     }
 
     /// <summary>Puts a line above the canvas, or takes it away.</summary>
@@ -1321,9 +1399,24 @@ public sealed class GroupPanel : UserControl
     /// The document and not just its picture: the declarations shown on the panel and the text the
     /// colours are surveyed from are both read off it.
     /// </remarks>
-    private sealed record Drawn(ProjectDrawing Drawing, SvgViewerDocument? Document, SKSize Size, string? Fault)
+    private sealed record Drawn(
+        ProjectDrawing Drawing,
+        string Text,
+        (float?, float?, float?, string?) Sizing,
+        SvgViewerDocument? Document,
+        string? Fault)
     {
         public SKSvg? Svg => Document?.Svg;
+
+        /// <summary>
+        /// How big the picture is now.
+        /// </summary>
+        /// <remarks>
+        /// Read rather than held: binding a parameter rewrites the recorded picture in place, extent
+        /// and all, so a size taken at build time describes a drawing that has since changed shape.
+        /// It was right only because every lay used to follow a build.
+        /// </remarks>
+        public SKSize Size => Document?.Svg.Picture?.CullRect.Size ?? default;
     }
 
     /// <summary>What the sizing comes to, said the way the project says it.</summary>

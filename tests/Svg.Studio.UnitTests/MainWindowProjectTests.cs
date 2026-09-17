@@ -669,6 +669,105 @@ public class MainWindowProjectTests : IDisposable
             block => block.Text is { } said && said.StartsWith("Click a drawing", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// A drop leaves the view exactly where it was, and every picture on the board alone.
+    /// </summary>
+    /// <remarks>
+    /// Zooming in on one icon to line it up with another is the reason a board can be arranged at
+    /// all, and until now the drop threw the zoom away: the tab re-read every drawing from text and
+    /// handed the canvas what reads as a new board. A drop writes x and y and nothing else, so
+    /// there is nothing to read again.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Drop_Leaves_The_View_And_The_Pictures_Alone()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        var canvas = Canvas(panel);
+        var home = Area(Drawn(panel)[0]);
+
+        // About the middle of what is being dragged, so the point it is grabbed by does not move.
+        var at = Over(canvas, home.MidX, home.MidY);
+
+        canvas.ZoomTo(canvas.Scale * 2d, at);
+
+        var scale = canvas.Scale;
+        var offsetX = canvas.OffsetX;
+        var offsetY = canvas.OffsetY;
+        var pictures = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        Drag(window, canvas, at, at + new Point(40d, 0d));
+
+        Assert.Equal(scale, canvas.Scale, 6);
+        Assert.Equal(offsetX, canvas.OffsetX, 6);
+        Assert.Equal(offsetY, canvas.OffsetY, 6);
+
+        // The same drawings, not merely drawings that look the same: a rebuild is what cost the
+        // zoom, so the pictures being the very ones is the evidence none happened.
+        var again = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        Assert.Equal(pictures.Count, again.Count);
+        Assert.All(pictures.Zip(again), pair => Assert.Same(pair.First, pair.Second));
+
+        // And it did move: the board is what was rearranged.
+        Assert.Equal(40d / scale, ((ProjectDrawing)window.Workspace!.Document.Root.Children[0]).X!.Value, 1);
+    }
+
+    /// <summary>
+    /// An edit to one drawing rebuilds that one and leaves its neighbours as they were.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the same rule: the build reads a drawing's text and the size it is asked
+    /// for, so a drawing whose text changed is rebuilt and one whose text did not is not. Both are
+    /// asserted here, because a tab that reused everything would pass the first assertion of the
+    /// test above while showing a stale picture.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task An_Edit_Rebuilds_The_Drawing_It_Changed_And_No_Other()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        var before = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        var edited = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+
+        edited.SetText(edited.Text.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+
+        window.Workspace.Save();
+        Dispatcher.UIThread.RunJobs();
+
+        var after = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        Assert.NotSame(before[0], after[0]);
+        Assert.Same(before[1], after[1]);
+        Assert.Same(before[2], after[2]);
+    }
+
+    /// <summary>A setting that changes the size a drawing is built at rebuilds it.</summary>
+    [AvaloniaFact]
+    public async Task A_Size_A_Drawing_Inherits_Rebuilds_It()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        var before = Drawn(panel).Select(placed => placed.Svg).ToList();
+        var group = (ProjectGroup)window.Workspace!.Document.Root.Children[2];
+
+        group.Scale = 4f;
+
+        window.Workspace.Save();
+        Dispatcher.UIThread.RunJobs();
+
+        var after = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        // The one inside the group, and nothing outside it.
+        Assert.Same(before[0], after[0]);
+        Assert.Same(before[1], after[1]);
+        Assert.NotSame(before[2], after[2]);
+    }
+
     [AvaloniaFact]
     public async Task A_Group_Is_Carried_By_Its_Frame()
     {
