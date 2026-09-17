@@ -211,6 +211,86 @@ public class SvgViewerCanvasTests
         Assert.True(painted.Blue > 200 && painted.Red < 100, $"{painted} is not the drawing's blue");
     }
 
+    /// <summary>
+    /// A frame is part of what is on show, so the fit holds the whole of it.
+    /// </summary>
+    /// <remarks>
+    /// Left out of the union, a frame drawn round a group of drawings would be cut off at the edge
+    /// of the ink inside it — and its name, which is written above its top edge, would be off the
+    /// top of the control.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Frame_Is_Fitted_With_What_It_Holds()
+    {
+        using var drawing = SvgViewerDocument.LoadFromSvg(Wide);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+
+        window.Show();
+
+        // The drawing is 100x50 at the origin; the frame runs 10 wider and 10 further down, with
+        // room for a name above it.
+        canvas.Show(
+            new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) },
+            new[] { new SvgViewerFrame(new SKRect(-5f, -5f, 105f, 55f), "Large", 4f) });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        Assert.Single(canvas.Frames);
+
+        // 110 across and 66 down once the name's room is counted, so the height binds. Without that
+        // room it would be 60 down and the fit would be 200/60, with the name off the top.
+        Assert.Equal(200d / 66d, canvas.Scale, 6);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Frame_Is_Drawn_Round_What_It_Holds_And_Is_Not_A_Drawing()
+    {
+        using var drawing = SvgViewerDocument.LoadFromSvg(Blue);
+
+        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        canvas.Show(
+            new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(20f, 20f)) },
+            new[] { new SvgViewerFrame(new SKRect(0f, 0f, 140f, 90f)) });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // The frame decides the fit: 140x90 in 400x200 is bounded by height.
+        Assert.Equal(200d / 90d, canvas.Scale, 6);
+
+        // A click inside the frame but off the ink falls through it: a frame is furniture, and the
+        // host asks the canvas which drawing was hit.
+        Assert.False(canvas.TryGetPlacementAt(new Point(20, 20), out var placement, out _));
+        Assert.Null(placement);
+
+        // Drawn, though — the top edge of the frame runs along the top of what is on show, and the
+        // middle of it is still the ground rather than a fill.
+        var edge = 0;
+
+        for (var x = 100; x < 300; x++)
+        {
+            var pixel = Painted(window, x, (int)canvas.OffsetY + 1);
+
+            if (pixel.Red < 220 && pixel.Blue < 220)
+            {
+                edge++;
+            }
+        }
+
+        Assert.True(edge > 10, "the frame's top edge was not painted");
+
+        window.Close();
+    }
+
     /// <summary>A drawing that is not orange, so the ring cannot be confused with its ink.</summary>
     private const string Blue = """
         <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50">

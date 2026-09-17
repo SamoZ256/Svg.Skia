@@ -34,6 +34,7 @@ public class SvgViewerCanvas : SKCanvasControl
     private static readonly Cursor s_grabCursor = new(StandardCursorType.SizeAll);
 
     private IReadOnlyList<SvgViewerPlacement> _placed = Array.Empty<SvgViewerPlacement>();
+    private IReadOnlyList<SvgViewerFrame> _frames = Array.Empty<SvgViewerFrame>();
     private double _scale = 1d;
     private double _offsetX;
     private double _offsetY;
@@ -69,10 +70,11 @@ public class SvgViewerCanvas : SKCanvasControl
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
-        Array.Empty<SvgViewerPlacement>(), 1d, 0d, 0d, true, null, 0d, default);
+        Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, true, null, 0d, default);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
+        IReadOnlyList<SvgViewerFrame> Frames,
         double Scale,
         double OffsetX,
         double OffsetY,
@@ -216,6 +218,9 @@ public class SvgViewerCanvas : SKCanvasControl
     /// <summary>What is on show, in the order it is drawn.</summary>
     public IReadOnlyList<SvgViewerPlacement> Placements => _placed;
 
+    /// <summary>The rectangles drawn under them, or nothing where the host asked for none.</summary>
+    public IReadOnlyList<SvgViewerFrame> Frames => _frames;
+
     /// <summary>
     /// Shows several drawings at once, arranged by the caller.
     /// </summary>
@@ -224,12 +229,16 @@ public class SvgViewerCanvas : SKCanvasControl
     /// thing it is. The arrangement is expected to start at the origin, as a single drawing's own
     /// picture does — the view is fitted to the size of what is placed, not to where it was put.
     /// </remarks>
-    public void Show(IReadOnlyList<SvgViewerPlacement> placed)
+    /// <param name="frames">
+    /// Rectangles to draw under the drawings, or null for none. Handed in with them rather than set
+    /// on their own, so the two can never be a frame apart.
+    /// </param>
+    public void Show(IReadOnlyList<SvgViewerPlacement> placed, IReadOnlyList<SvgViewerFrame>? frames = null)
     {
         _hasFitted = false;
         _userAdjusted = false;
 
-        Place(placed ?? Array.Empty<SvgViewerPlacement>());
+        Place(placed ?? Array.Empty<SvgViewerPlacement>(), frames ?? Array.Empty<SvgViewerFrame>());
     }
 
     /// <summary>Swaps in a rebuild of the drawing already on show, keeping an adjusted view.</summary>
@@ -245,12 +254,15 @@ public class SvgViewerCanvas : SKCanvasControl
             return;
         }
 
-        Place(svg is { } ? new[] { new SvgViewerPlacement(svg, default) } : Array.Empty<SvgViewerPlacement>());
+        Place(
+            svg is { } ? new[] { new SvgViewerPlacement(svg, default) } : Array.Empty<SvgViewerPlacement>(),
+            Array.Empty<SvgViewerFrame>());
     }
 
-    private void Place(IReadOnlyList<SvgViewerPlacement> placed)
+    private void Place(IReadOnlyList<SvgViewerPlacement> placed, IReadOnlyList<SvgViewerFrame> frames)
     {
         _placed = placed;
+        _frames = frames;
 
         // Where the arrangement begins, which is not always the origin: a host laying drawings out
         // centres each in a column as wide as its caption, so the first of them can start well to
@@ -351,14 +363,14 @@ public class SvgViewerCanvas : SKCanvasControl
         {
             var placed = _placed[index];
 
-            if (Frame(placed) is not { } frame)
+            if (Extent(placed) is not { } extent)
             {
                 continue;
             }
 
-            frame.Offset(placed.At);
+            extent.Offset(placed.At);
 
-            if (!frame.Contains(arranged.X, arranged.Y))
+            if (!extent.Contains(arranged.X, arranged.Y))
             {
                 continue;
             }
@@ -381,14 +393,17 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         drawingPoint = default;
 
-        if (_scale <= 0d || !TryGetCullRect(out var bounds))
+        if (_scale <= 0d || (_placed.Count == 0 && _frames.Count == 0))
         {
             return false;
         }
 
+        // The origin the draw translates by, rather than the union worked out again: one field
+        // decides where the arrangement begins, so what is painted and what is pointed at cannot
+        // come to disagree about it.
         drawingPoint = new SKPoint(
-            (float)((point.X - _offsetX) / _scale + bounds.Left),
-            (float)((point.Y - _offsetY) / _scale + bounds.Top));
+            (float)((point.X - _offsetX) / _scale + _origin.X),
+            (float)((point.Y - _offsetY) / _scale + _origin.Y));
 
         return true;
     }
@@ -444,14 +459,24 @@ public class SvgViewerCanvas : SKCanvasControl
 
         foreach (var placed in _placed)
         {
-            if (Frame(placed) is not { } frame)
+            if (Extent(placed) is not { } extent)
             {
                 continue;
             }
 
-            frame.Offset(placed.At);
+            extent.Offset(placed.At);
 
-            bounds = found ? SKRect.Union(bounds, frame) : frame;
+            bounds = found ? SKRect.Union(bounds, extent) : extent;
+            found = true;
+        }
+
+        // A frame reaching past the drawings it holds is part of what is on show, name and all, or
+        // the fit would cut it off at the edge of the ink inside it.
+        foreach (var framed in _frames)
+        {
+            var around = Named(framed);
+
+            bounds = found ? SKRect.Union(bounds, around) : around;
             found = true;
         }
 
@@ -465,8 +490,18 @@ public class SvgViewerCanvas : SKCanvasControl
         => Math.Abs(moved.X - from.X) > PickSlack || Math.Abs(moved.Y - from.Y) > PickSlack;
 
     /// <summary>One placed drawing's own edges, in its own space, or null where it has none.</summary>
-    private static SKRect? Frame(SvgViewerPlacement placed)
+    private static SKRect? Extent(SvgViewerPlacement placed)
         => placed.Svg.Picture is { CullRect: { Width: > 0f, Height: > 0f } cull } ? cull : null;
+
+    /// <summary>A frame with the room its name needs above it.</summary>
+    private static SKRect Named(SvgViewerFrame framed)
+        => framed is { Label.Length: > 0, LabelSize: > 0f }
+            ? new SKRect(
+                framed.Bounds.Left,
+                framed.Bounds.Top - framed.LabelSize * 1.5f,
+                framed.Bounds.Right,
+                framed.Bounds.Bottom)
+            : framed.Bounds;
 
     private void SetView(double scale, double offsetX, double offsetY)
     {
@@ -495,6 +530,7 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         _snapshot = new Snapshot(
             _placed,
+            _frames,
             _scale,
             _offsetX,
             _offsetY,
@@ -663,7 +699,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
         canvas.Clear(Background);
 
-        if (state.Placed.Count == 0)
+        if (state.Placed.Count == 0 && state.Frames.Count == 0)
         {
             return;
         }
@@ -684,6 +720,26 @@ public class SvgViewerCanvas : SKCanvasControl
         using var font = new SKFont(SKTypeface.Default, 1f);
         using var writing = new SKPaint { IsAntialias = true, Color = SKColors.Gray };
 
+        // Under the drawings, since a frame is a ground rather than an overlay, and outside their
+        // transforms for the reason the ring is: a frame is in the arrangement's own space.
+        foreach (var framed in state.Frames)
+        {
+            Around(canvas, framed.Bounds, state.Scale);
+
+            if (framed is { Label: { Length: > 0 } name, LabelSize: > 0f })
+            {
+                font.Size = framed.LabelSize;
+
+                canvas.DrawText(
+                    name,
+                    framed.Bounds.Left,
+                    framed.Bounds.Top - framed.LabelSize * 0.4f,
+                    SKTextAlign.Left,
+                    font,
+                    writing);
+            }
+        }
+
         foreach (var placed in state.Placed)
         {
             canvas.Save();
@@ -693,7 +749,7 @@ public class SvgViewerCanvas : SKCanvasControl
             // underneath it by a value being bound on the UI thread.
             placed.Svg.Draw(canvas);
 
-            if (Frame(placed) is { } frame)
+            if (Extent(placed) is { } frame)
             {
                 if (state.Bounds)
                 {
@@ -791,6 +847,25 @@ public class SvgViewerCanvas : SKCanvasControl
             (byte)(from.Red + (to.Red - from.Red) * amount),
             (byte)(from.Green + (to.Green - from.Green) * amount),
             (byte)(from.Blue + (to.Blue - from.Blue) * amount));
+
+    /// <summary>The line round a frame.</summary>
+    /// <remarks>
+    /// Solid where <see cref="Outline"/> is dashed, and drawn on the line rather than half a
+    /// hairline inside it: the dash means "these are the drawing's own edges", which is the one
+    /// thing a frame must not be read as.
+    /// </remarks>
+    private static void Around(SKCanvas canvas, SKRect frame, double scale)
+    {
+        using var paint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            Color = SKColors.Gray.WithAlpha(0x99),
+            StrokeWidth = (float)(1d / scale)
+        };
+
+        canvas.DrawRect(frame, paint);
+    }
 
     private static void Outline(SKCanvas canvas, SKRect frame, double scale)
     {
