@@ -62,7 +62,11 @@ internal static class ScopeDocument
                 ("name", archive.Text(name)),
                 ("valueProvider", archive.Object("PPValueProviderConstant", new[] { ("value", value) }, ("type", type)))
             },
-            ("kind", 2), ("usage", 1));
+            // The kind PaintCode's menu gives a variable storing this type, rather than one constant
+            // for all of them: 0 is Number, 4 is Text, 5 is Boolean. It used to be 2 throughout --
+            // anything but 13 -- from when kind was read only to tell a derived variable from an
+            // input, which left every one of these claiming to be a fraction.
+            ("kind", type switch { 3 => 4, 4 => 5, _ => 0 }), ("usage", 1));
 
     private static int Rect(KeyedArchiveBuilder archive, string name, string rectangle)
         => archive.Object(
