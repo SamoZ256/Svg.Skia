@@ -307,33 +307,82 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
-    /// The pictures live exactly as long as the tab is the one being looked at.
+    /// The pictures live as long as the tab does, not as long as it is the one being looked at.
     /// </summary>
     /// <remarks>
-    /// Written down because it is what keeps the canvas cheap: every save refreshes every open
-    /// panel, and a group tab nobody is looking at would otherwise re-read every drawing under it.
+    /// They used to be let go the moment another tab was picked and read again on the way back, so
+    /// a glance at a neighbouring tab re-parsed the whole group and fitted the board afresh — and so
+    /// did dragging this tab along the strip, which removes the item and puts it back. A tab nobody
+    /// edited while it was away has nothing to do on its return.
     /// </remarks>
     [AvaloniaFact]
-    public async Task Drawings_Are_Let_Go_While_The_Tab_Is_Not_Looked_At()
+    public async Task Drawings_Are_Let_Go_When_The_Tab_Goes()
     {
-
         var window = await Host(Write("icons.svgstudio", Project));
         var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
 
         Assert.Equal(2, Drawn(panel).Count);
+
+        canvas.ZoomTo(canvas.Scale * 3d, new Point(10, 10));
+
+        var scale = canvas.Scale;
+        var offsetX = canvas.OffsetX;
+        var pictures = Drawn(panel).Select(placed => placed.Svg).ToList();
 
         var root = (TreeViewItem)Tree(window).Items[0]!;
 
         await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
+        Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>()
+            .Single(item => ReferenceEquals(item.Content, panel));
+        Dispatcher.UIThread.RunJobs();
+
+        // The same drawings, still built, and the view still on them.
+        Assert.All(Drawn(panel), placed => Assert.NotNull(Picture(placed)));
+        Assert.All(pictures.Zip(Drawn(panel).Select(placed => placed.Svg)), pair => Assert.Same(pair.First, pair.Second));
+
+        Assert.Equal(scale, canvas.Scale, 6);
+        Assert.Equal(offsetX, canvas.OffsetX, 6);
+
+        // Closing the project closes its tabs, and that is what lets the pictures go.
+        Assert.True(await window.CloseProjectAsync());
+
         Assert.Empty(Drawn(panel));
+        Assert.All(pictures, svg => Assert.Null(svg.Picture));
+    }
+
+    /// <summary>An edit that arrives while a tab is away is waiting for it when it comes back.</summary>
+    /// <remarks>
+    /// The other side of keeping the pictures: a tab that skipped its rebuild on the way back would
+    /// go on showing a drawing the project no longer holds.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task An_Edit_While_A_Tab_Is_Away_Is_Read_On_Its_Return()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var panel = Panel(window, "Project");
+
+        var before = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var edited = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+
+        edited.SetText(edited.Text.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+
+        window.Workspace.Save();
+        Dispatcher.UIThread.RunJobs();
 
         Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>()
             .Single(item => ReferenceEquals(item.Content, panel));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.All(Drawn(panel), placed => Assert.NotNull(Picture(placed)));
+        Assert.NotSame(before[0], Drawn(panel)[0].Svg);
     }
 
     /// <summary>
@@ -668,6 +717,201 @@ public class MainWindowProjectTests : IDisposable
             panel.GetVisualDescendants().OfType<TextBlock>(),
             block => block.Text is { } said && said.StartsWith("Click a drawing", StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// A drop leaves the view exactly where it was, and every picture on the board alone.
+    /// </summary>
+    /// <remarks>
+    /// Zooming in on one icon to line it up with another is the reason a board can be arranged at
+    /// all, and until now the drop threw the zoom away: the tab re-read every drawing from text and
+    /// handed the canvas what reads as a new board. A drop writes x and y and nothing else, so
+    /// there is nothing to read again.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Drop_Leaves_The_View_And_The_Pictures_Alone()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        var canvas = Canvas(panel);
+        var home = Area(Drawn(panel)[0]);
+
+        // About the middle of what is being dragged, so the point it is grabbed by does not move.
+        var at = Over(canvas, home.MidX, home.MidY);
+
+        canvas.ZoomTo(canvas.Scale * 2d, at);
+
+        var scale = canvas.Scale;
+        var offsetX = canvas.OffsetX;
+        var offsetY = canvas.OffsetY;
+        var pictures = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        Drag(window, canvas, at, at + new Point(40d, 0d));
+
+        Assert.Equal(scale, canvas.Scale, 6);
+        Assert.Equal(offsetX, canvas.OffsetX, 6);
+        Assert.Equal(offsetY, canvas.OffsetY, 6);
+
+        // The same drawings, not merely drawings that look the same: a rebuild is what cost the
+        // zoom, so the pictures being the very ones is the evidence none happened.
+        var again = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        Assert.Equal(pictures.Count, again.Count);
+        Assert.All(pictures.Zip(again), pair => Assert.Same(pair.First, pair.Second));
+
+        // And it did move: the board is what was rearranged.
+        Assert.Equal(40d / scale, ((ProjectDrawing)window.Workspace!.Document.Root.Children[0]).X!.Value, 1);
+    }
+
+    /// <summary>
+    /// An edit to one drawing rebuilds that one and leaves its neighbours as they were.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the same rule: the build reads a drawing's text and the size it is asked
+    /// for, so a drawing whose text changed is rebuilt and one whose text did not is not. Both are
+    /// asserted here, because a tab that reused everything would pass the first assertion of the
+    /// test above while showing a stale picture.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task An_Edit_Rebuilds_The_Drawing_It_Changed_And_No_Other()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        var before = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        var edited = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+
+        edited.SetText(edited.Text.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+
+        window.Workspace.Save();
+        Dispatcher.UIThread.RunJobs();
+
+        var after = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        Assert.NotSame(before[0], after[0]);
+        Assert.Same(before[1], after[1]);
+        Assert.Same(before[2], after[2]);
+    }
+
+    /// <summary>A setting that changes the size a drawing is built at rebuilds it.</summary>
+    [AvaloniaFact]
+    public async Task A_Size_A_Drawing_Inherits_Rebuilds_It()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        var before = Drawn(panel).Select(placed => placed.Svg).ToList();
+        var group = (ProjectGroup)window.Workspace!.Document.Root.Children[2];
+
+        group.Scale = 4f;
+
+        window.Workspace.Save();
+        Dispatcher.UIThread.RunJobs();
+
+        var after = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        // The one inside the group, and nothing outside it.
+        Assert.Same(before[0], after[0]);
+        Assert.Same(before[1], after[1]);
+        Assert.NotSame(before[2], after[2]);
+    }
+
+    /// <summary>
+    /// A drop keeps the ring, the row it came from and the Element tab, on the drawing that moved.
+    /// </summary>
+    /// <remarks>
+    /// A rebuild used to clear all three, so every drop emptied the panes beside the canvas and took
+    /// the ring off whatever was being worked on — which on a board is constant, since dragging is
+    /// how a board is arranged at all.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Drop_Keeps_The_Ring_And_The_Element_Tab()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        Pick(window, panel, 0);
+
+        Assert.NotNull(canvas.Highlight);
+        Assert.NotNull(Elements(panel).SelectedNode);
+        Assert.Equal("#00ff00", Assert.IsType<SvgViewerElementPanel>(Element(panel)).Shown("fill"));
+
+        var home = Area(Drawn(panel)[0]);
+
+        Drag(
+            window,
+            canvas,
+            Over(canvas, home.MidX, home.MidY),
+            Over(canvas, home.MidX + 40f, home.MidY));
+
+        var ring = canvas.Highlight;
+
+        Assert.NotNull(ring);
+        Assert.NotNull(Elements(panel).SelectedNode);
+        Assert.Equal("#00ff00", Assert.IsType<SvgViewerElementPanel>(Element(panel)).Shown("fill"));
+
+        // And it went with the drawing rather than staying behind on the board.
+        var moved = Area(Drawn(panel)[0]);
+
+        Assert.Equal(home.Left + 40f, moved.Left, 1);
+        Assert.True(moved.Contains(ring!.Bounds), $"{ring.Bounds} is not inside {moved}");
+    }
+
+    /// <summary>
+    /// A row put into another group keeps the place it had, read for the board it arrives on.
+    /// </summary>
+    /// <remarks>
+    /// Dropping a row somewhere in the tree says which group holds it. It says nothing about where
+    /// it should sit, so it must not move one — and it used to jump to the queue beside the
+    /// arrangement, because the place was thrown away rather than read again.
+    ///
+    /// Its corner, not its size: a place is deliberately no part of what owns a size, so the row is
+    /// built at the scale of the group it has joined. Here that is ×2, and the drawing doubles where
+    /// it stands.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Row_Put_In_Another_Group_Keeps_Its_Place()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        var moved = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var into = (ProjectGroup)window.Workspace.Document.Root.Children[2];
+
+        var was = Area(Shown(panel, moved));
+
+        Assert.True(window.Move(moved, into, ProjectDrop.Inside));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains(moved, into.Children);
+
+        var now = Area(Shown(panel, moved));
+
+        Assert.Equal(was.Left, now.Left, 1);
+        Assert.Equal(was.Top, now.Top, 1);
+
+        // Written against the board it is on now, which is what makes that true: the group sits at
+        // y 80, so a row that was at y 0 on the project's board is at y -80 on the group's.
+        Assert.Equal(100f, moved.X!.Value, 1);
+        Assert.Equal(-80f, moved.Y!.Value, 1);
+
+        // And it is the group's drawing now, built the way the group builds one.
+        Assert.Equal(was.Width * 2f, now.Width, 1);
+    }
+
+    /// <summary>
+    /// Which placement on the board was built from a given row.
+    /// </summary>
+    /// <remarks>
+    /// By its caption, which begins with the row's name. Not by index: the board is laid out with
+    /// the placed rows first and the ones with no place queued after them, which is not the order
+    /// the tree holds them in.
+    /// </remarks>
+    private static SvgViewerPlacement Shown(GroupPanel panel, ProjectDrawing drawing)
+        => Drawn(panel).Single(placed =>
+            placed.Label is { } caption && caption.StartsWith(drawing.Name + "\n", StringComparison.Ordinal));
 
     [AvaloniaFact]
     public async Task A_Group_Is_Carried_By_Its_Frame()

@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+* **A group's board in Svg.Studio holds still while it is edited.** A tab was fitted afresh on
+  almost every change -- a drawing dropped somewhere, a parameter added, an attribute typed, a
+  glance at another tab -- so zooming in on one icon of forty to line it up with another lasted
+  exactly until the drop. A board is fitted when it first opens and never again on its own; **Fit**
+  is what asks for the whole of it back, and also what to press when a row with no place lands
+  outside a zoomed view.
+
+  The ring, the row in the element tree and the Element tab stay on the drawing that moved, where a
+  rebuild used to empty all three -- on a board that happened every time you dragged anything, which
+  is how a board is arranged at all.
+
+  Underneath, a tab reads a drawing again only when something the build reads has changed: its text,
+  or the size its groups ask for. So arranging a board rebuilds nothing, editing one drawing rebuilds
+  that one, and a tab keeps what it built when it is not the one on screen -- a tab switch, or a tab
+  dragged along the strip, used to re-parse the whole group. Every save also refreshed every open
+  board twice, through two subscribers to one event.
+
+* `Svg.Viewer.Skia.Avalonia`'s canvas gained **`Rearrange`**, which lays the same set of drawings out
+  again without re-fitting -- what `Replace` is for one drawing, for several. It holds the view
+  whether or not anybody has zoomed, because a board's neighbours must not move when one of them
+  does; `Show` goes on meaning a new arrangement has arrived, and fits it.
+
+  The view is now anchored in the arrangement's own coordinates rather than on the top left of what
+  is placed, which is what makes that possible: an arrangement that grows to the left used to move
+  its own anchor and slide every drawing that had not moved. `Canvas.OffsetX` and `OffsetY` therefore
+  read differently for an arrangement that does not begin at the origin -- they say where arranged
+  `(0,0)` goes, not where the ink starts.
+
 * Every item of a group in Svg.Studio can say where it sits: **`x` and `y`** on a `<drawing>` and on
   a `<group>`, relative to the board the group holds. A group's tab lays its rows out there instead
   of in the near-square grid the count decided, and a group with a place of its own is drawn as a
@@ -10,8 +38,11 @@
 
   A group nobody has arranged is that grid still. The first drag settles the whole tab at the
   coordinates the grid had just given it, so nothing jumps under the hand and what appears is a frame
-  round each group. Rows with no place — added, pasted, or dragged in from another board, which
-  forgets the numbers it had — wait in a grid beside the arrangement.
+  round each group. Rows with no place — added, pasted, or copied — wait in a grid beside the
+  arrangement. A row dragged into another group keeps its place, written in the coordinates of the
+  board it arrives on, so it stays where it was rather than jumping into that queue; where those
+  coordinates would say nothing — a board that is still a grid, or a group between the two that names
+  no place of its own — it joins the queue with the rest.
 
   It is layout and nothing else: the build sees exactly what it saw, which the tests assert by
   flattening one project with places and one without and comparing what comes out. Two things it is

@@ -1690,22 +1690,14 @@ public partial class MainWindow : Window
     /// <remarks>
     /// A drawing with unsaved edits of its own is left alone: reloading it would throw
     /// them away, and following a setting is not worth that.
+    ///
+    /// Viewers only. A group's tab follows the same event itself, so refreshing it from here was a
+    /// second call to the one method, and every save rebuilt every open board twice.
     /// </remarks>
     private void Rebuild()
     {
         foreach (var item in _tabs.Items.OfType<TabItem>())
         {
-            // A group builds its own drawings, so it goes stale for exactly the reason a viewer
-            // does. It was left out of this, so a setting written from a group's own tab repainted
-            // nothing until the tab was left and come back to. Only the tab on screen does the
-            // work; the rest rebuild when they are next attached.
-            if (item.Content is GroupPanel group)
-            {
-                group.Refresh();
-
-                continue;
-            }
-
             if (item.Tag is not ProjectDrawing drawing || item.Content is not SvgViewer viewer)
             {
                 continue;
@@ -2752,8 +2744,10 @@ public partial class MainWindow : Window
         _tabs.Items.Remove(item);
         _stale.Remove(item);
 
-        // Nothing else disposes the document a discarded viewer is holding.
+        // Nothing else disposes the documents a discarded tab is holding — a viewer's one, or the
+        // whole group a board was built from, which is kept now while the tab is merely not on top.
         (item.Content as SvgViewer)?.Close();
+        (item.Content as GroupPanel)?.Close();
 
         UpdateTitle();
         UpdateMenu();

@@ -100,12 +100,32 @@ A **group with a place of its own is drawn as a labelled frame** round what it h
 the frame carries the lot — its children are written against it, so that is one attribute. A group
 with no place is not a unit on the board: what it holds joins the drawings that have no place yet,
 which wait in a grid beside the arrangement until somebody puts them somewhere. That is where a
-drawing added, dropped or pasted arrives, and a row dragged into another group or copied forgets the
-place it had, because the numbers were about the board it came from.
+drawing added, dropped or pasted arrives, and where a copy arrives, since two rows on one spot would
+hide each other.
+
+**A row dragged into another group keeps the place it had**, written in the coordinates of the board
+it arrives on — where you dropped it in the tree says what holds it and nothing about where it should
+sit, so it does not move. A group's outline grows to reach it, which is the outline saying what it
+holds. It keeps its corner and not its size: the group it has joined is what builds it now, so a row
+dropped into one that doubles its drawings doubles where it stands. Two boards cannot say where a row
+is, and there it waits in the grid with the rest: one that is still a grid itself, where the arriving
+row would be the first placed one and would push everything nobody touched out to the right of it,
+and one with a group between them that names no place of its own.
 
 A drag writes the file as it is made, like every other arrangement edit, and like those it cannot be
 undone. And nothing sizes a column to hold a caption once a board is explicit, so two rows put close
 together can have their captions overlap — move one.
+
+**The board holds still while you work on it.** A tab is fitted when it first opens and never again
+on its own: a drop leaves what you dropped where you let go of it, and zooming in on one icon to line
+it up with another survives the drop, the parameter you add, the attribute you type and the trip to
+another tab and back. **Fit** is what asks for the whole of it again — which is also what to press
+when something lands out of sight, since a row with no place arrives beside the arrangement and a
+zoomed board may not reach that far.
+
+What is being looked at survives too: the ring, the row in the element tree and the Element tab are
+all still on the drawing that moved. What a drawing is built from decides whether it is read again,
+so arranging a board rebuilds nothing at all, and editing one drawing rebuilds that one.
 
 Dragging a parameter there moves **every drawing that declares the same thing**, which is what makes
 a family of icons worth looking at side by side. Sharing is decided by what a drawing declares rather

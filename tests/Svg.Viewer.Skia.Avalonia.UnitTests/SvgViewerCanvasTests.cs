@@ -88,6 +88,129 @@ public class SvgViewerCanvasTests
         window.Close();
     }
 
+    /// <summary>
+    /// Laying the same board out again keeps the view on it, where showing a new one fits it.
+    /// </summary>
+    /// <remarks>
+    /// A host that rearranges what it is holding -- a drawing moved on a board, or one of them
+    /// rebuilt after an edit -- is not opening anything, and re-fitting there throws away whatever
+    /// was being looked at. The two are separate calls rather than a flag, so neither can be had by
+    /// accident.
+    /// </remarks>
+    [AvaloniaFact]
+    public void Rearranging_Keeps_The_View_And_Showing_Fits_It()
+    {
+        using var first = SvgViewerDocument.LoadFromSvg(Wide);
+        using var second = SvgViewerDocument.LoadFromSvg(Wide);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+
+        window.Show();
+
+        canvas.Show(new[]
+        {
+            new SvgViewerPlacement(first.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(second.Svg, new SKPoint(100f, 0f))
+        });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        canvas.ZoomTo(9d, new Point(30, 40));
+
+        var scale = canvas.Scale;
+        var offsetX = canvas.OffsetX;
+        var offsetY = canvas.OffsetY;
+
+        canvas.Rearrange(new[]
+        {
+            new SvgViewerPlacement(first.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(second.Svg, new SKPoint(100f, 60f))
+        });
+
+        Assert.Equal(scale, canvas.Scale, 6);
+        Assert.Equal(offsetX, canvas.OffsetX, 6);
+        Assert.Equal(offsetY, canvas.OffsetY, 6);
+
+        // A board nobody has zoomed is held too: a drop that re-fitted would move the thing that
+        // was just let go. Fit is what asks for the whole of it back.
+        canvas.Fit();
+
+        var fitted = canvas.Scale;
+
+        canvas.Rearrange(new[]
+        {
+            new SvgViewerPlacement(first.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(second.Svg, new SKPoint(300f, 0f))
+        });
+
+        Assert.Equal(fitted, canvas.Scale, 6);
+
+        // And Show still means a board has arrived.
+        canvas.Show(new[]
+        {
+            new SvgViewerPlacement(first.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(second.Svg, new SKPoint(300f, 0f))
+        });
+
+        Assert.Equal(1d, canvas.Scale, 6);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A board that grows at its top left leaves everything that did not move where it was.
+    /// </summary>
+    /// <remarks>
+    /// The case the view is anchored in the arrangement's own coordinates for. Asserted on a painted
+    /// pixel rather than through the mapping, because the mapping and the draw agreeing with each
+    /// other is exactly what a view anchored on the union's corner would go on doing while it slid
+    /// everything across the control.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Board_That_Grows_Leftwards_Holds_The_Rest_Still()
+    {
+        using var stays = SvgViewerDocument.LoadFromSvg(Blue);
+        using var moves = SvgViewerDocument.LoadFromSvg(Wide);
+
+        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        canvas.Show(new[]
+        {
+            new SvgViewerPlacement(moves.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(stays.Svg, new SKPoint(200f, 0f))
+        });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // 300x50 in 400x200 fits at 4/3, so the middle of the drawing that stays -- arranged 250,25
+        // -- is painted a third of the way down the right-hand third of the control.
+        var on = new Point(250d * canvas.Scale + canvas.OffsetX, 25d * canvas.Scale + canvas.OffsetY);
+
+        var was = Painted(window, (int)on.X, (int)on.Y);
+
+        Assert.True(was.Blue > 200 && was.Red < 100, $"{was} is not the drawing that stays");
+
+        // The other one is dragged well to the left of everything, so the union's corner moves by
+        // 250 units. Anchored on that corner, the whole board would slide 333 pixels right.
+        canvas.Rearrange(new[]
+        {
+            new SvgViewerPlacement(moves.Svg, new SKPoint(-250f, 0f)),
+            new SvgViewerPlacement(stays.Svg, new SKPoint(200f, 0f))
+        });
+
+        var now = Painted(window, (int)on.X, (int)on.Y);
+
+        Assert.True(now.Blue > 200 && now.Red < 100, $"{now} is not the drawing that stays");
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public void A_Point_Says_Which_Drawing_It_Fell_On_And_Where()
     {

@@ -57,7 +57,6 @@ public class SvgViewerCanvas : SKCanvasControl
 
     private Cursor? _restoreCursor;
     private bool _showBounds = true;
-    private SKPoint _origin;
     private SKPath? _highlight;
 
     /// <summary>How long the ring has been up, which is what the pulse is a function of.</summary>
@@ -79,7 +78,7 @@ public class SvgViewerCanvas : SKCanvasControl
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
-        Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, true, null, 0d, default, null);
+        Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, true, null, 0d, null);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -90,7 +89,6 @@ public class SvgViewerCanvas : SKCanvasControl
         bool Bounds,
         SKPath? Highlight,
         double HighlightAge,
-        SKPoint Origin,
         (SKRect Bounds, SKPoint By, IReadOnlySet<SvgViewerPlacement> Carried)? Moving);
 
     public SvgViewerCanvas()
@@ -268,8 +266,23 @@ public class SvgViewerCanvas : SKCanvasControl
         _hasFitted = false;
         _userAdjusted = false;
 
-        Place(placed ?? Array.Empty<SvgViewerPlacement>(), frames ?? Array.Empty<SvgViewerFrame>());
+        Place(placed ?? Array.Empty<SvgViewerPlacement>(), frames ?? Array.Empty<SvgViewerFrame>(), mayFit: true);
     }
+
+    /// <summary>Lays out the arrangement already on show again, keeping the view on it.</summary>
+    /// <remarks>
+    /// What <see cref="Replace"/> is for one drawing, for several: <see cref="Show"/> means a board
+    /// has arrived and re-fits, which is wrong for the same board being rearranged under the hand --
+    /// a drop that re-fits moves the thing that was just dropped away from where it was let go.
+    ///
+    /// It holds the view whether or not anybody has zoomed, where <see cref="Replace"/> re-fits an
+    /// untouched one. A single drawing has nothing beside it to hold still against and its own size
+    /// is usually what the edit changed; a board has neighbours, and they must not move because one
+    /// of them did. A board rearranged before the control has a size is still fitted once, since
+    /// this leaves <c>_hasFitted</c> alone for the arrange pass to see.
+    /// </remarks>
+    public void Rearrange(IReadOnlyList<SvgViewerPlacement> placed, IReadOnlyList<SvgViewerFrame>? frames = null)
+        => Place(placed ?? Array.Empty<SvgViewerPlacement>(), frames ?? Array.Empty<SvgViewerFrame>(), mayFit: false);
 
     /// <summary>Swaps in a rebuild of the drawing already on show, keeping an adjusted view.</summary>
     /// <remarks>
@@ -286,22 +299,17 @@ public class SvgViewerCanvas : SKCanvasControl
 
         Place(
             svg is { } ? new[] { new SvgViewerPlacement(svg, default) } : Array.Empty<SvgViewerPlacement>(),
-            Array.Empty<SvgViewerFrame>());
+            Array.Empty<SvgViewerFrame>(),
+            mayFit: true);
     }
 
-    private void Place(IReadOnlyList<SvgViewerPlacement> placed, IReadOnlyList<SvgViewerFrame> frames)
+    private void Place(IReadOnlyList<SvgViewerPlacement> placed, IReadOnlyList<SvgViewerFrame> frames, bool mayFit)
     {
         // What is being carried may not be among these.
         EndMove();
 
         _placed = placed;
         _frames = frames;
-
-        // Where the arrangement begins, which is not always the origin: a host laying drawings out
-        // centres each in a column as wide as its caption, so the first of them can start well to
-        // the right of nothing. Held rather than recomputed, since it changes only with the
-        // placements while the view changes with every scroll of a wheel.
-        _origin = TryGetCullRect(out var bounds) ? new SKPoint(bounds.Left, bounds.Top) : default;
 
         // Published because the drawing changed, whatever the view does about it. The fit below
         // publishes only when it moves the view, so a drawing swapped for one that fits exactly as
@@ -310,7 +318,7 @@ public class SvgViewerCanvas : SKCanvasControl
         // moved the view.
         Publish();
 
-        if (_userAdjusted)
+        if (!mayFit || _userAdjusted)
         {
             return;
         }
@@ -431,12 +439,9 @@ public class SvgViewerCanvas : SKCanvasControl
             return false;
         }
 
-        // The origin the draw translates by, rather than the union worked out again: one field
-        // decides where the arrangement begins, so what is painted and what is pointed at cannot
-        // come to disagree about it.
         drawingPoint = new SKPoint(
-            (float)((point.X - _offsetX) / _scale + _origin.X),
-            (float)((point.Y - _offsetY) / _scale + _origin.Y));
+            (float)((point.X - _offsetX) / _scale),
+            (float)((point.Y - _offsetY) / _scale));
 
         return true;
     }
@@ -476,10 +481,14 @@ public class SvgViewerCanvas : SKCanvasControl
         _hasFitted = true;
         _fittedTo = size;
 
+        // The offset is where the arrangement's own origin goes, not where its ink begins, so the
+        // fit takes the union's corner off here rather than the draw taking it off every frame.
+        // That is what lets the view outlive a change to what is placed: an arrangement that grows
+        // to the left moves its own corner, and anchoring on that would slide everything else.
         SetView(
             scale,
-            (size.Width - bounds.Width * scale) / 2d,
-            (size.Height - bounds.Height * scale) / 2d);
+            (size.Width - bounds.Width * scale) / 2d - bounds.Left * scale,
+            (size.Height - bounds.Height * scale) / 2d - bounds.Top * scale);
 
         return true;
     }
@@ -571,7 +580,6 @@ public class SvgViewerCanvas : SKCanvasControl
             _showBounds,
             _highlight,
             _highlightAge.Elapsed.TotalSeconds,
-            _origin,
             _moving is { } && _moved ? (_movingBounds, _movingBy, Carried()) : null);
 
         InvalidateVisual();
@@ -887,13 +895,6 @@ public class SvgViewerCanvas : SKCanvasControl
         canvas.Save();
         canvas.Translate((float)state.OffsetX, (float)state.OffsetY);
         canvas.Scale((float)state.Scale);
-
-        // The fit centres the arrangement's size and the offset is where its top left goes, so the
-        // arrangement has to be moved to start there. Without this the drawings are painted further
-        // right and further down than everything else believes them to be, by however far from the
-        // origin they were laid out — which is nothing at all for one drawing at the origin, and
-        // several hundred units for a group whose first drawing is narrower than its caption.
-        canvas.Translate(-state.Origin.X, -state.Origin.Y);
 
         // One font for the frame rather than one per label: the sizes differ, and setting the size
         // on a font costs nothing next to building one.
