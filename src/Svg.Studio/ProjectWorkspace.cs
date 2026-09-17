@@ -3,8 +3,6 @@
 #nullable enable
 using System;
 using System.IO;
-using System.Linq;
-using Svg.CodeGen.Skia.Projects;
 using Svg.Skia;
 
 namespace Svg.Studio;
@@ -19,10 +17,10 @@ namespace Svg.Studio;
 /// </remarks>
 public sealed class ProjectWorkspace
 {
-    public ProjectWorkspace(SvgcProjectDocument document)
+    public ProjectWorkspace(ProjectDocument document)
         => Document = document ?? throw new ArgumentNullException(nameof(document));
 
-    public SvgcProjectDocument Document { get; }
+    public ProjectDocument Document { get; }
 
     /// <summary>Raised when the document has changed on disk, so every view of it can follow.</summary>
     /// <remarks>
@@ -39,9 +37,7 @@ public sealed class ProjectWorkspace
         Edited?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>
-    /// A path as the project should carry it: relative to the project's own directory.
-    /// </summary>
+    /// <summary>A path as the project should carry it: relative to the project's own directory.</summary>
     /// <remarks>
     /// A project that named an absolute path would build on the machine it was written on and
     /// nowhere else, so a walk out of the directory is kept in preference — it survives the whole
@@ -64,48 +60,17 @@ public sealed class ProjectWorkspace
     }
 
     /// <summary>The size a drawing is built at once every group above it has had its say.</summary>
-    public static SvgSizeRequest SizeOf(SvgcProjectNode node)
+    public static SvgSizeRequest SizeOf(ProjectNode node)
         => new(node.EffectiveWidth, node.EffectiveHeight, node.EffectiveScale, SvgPadding.Parse(node.EffectivePadding));
 
     /// <summary>How a node is named, in the tree and on its tab.</summary>
-    public static string Label(SvgcProjectNode node) => node switch
+    /// <remarks>
+    /// Its own name, which is what the format asks every drawing and group for. The project has
+    /// none: it is named by the file it is, and that is the window title's business.
+    /// </remarks>
+    public static string Label(ProjectNode node) => node switch
     {
-        SvgcProjectDrawing drawing => Drawn(drawing),
-        SvgcProjectRoot root => Named(root) ?? "Project",
-        _ => Named(node) ?? "group"
+        ProjectRoot => "Project",
+        _ => node.Name is { Length: > 0 } name ? name : "unnamed"
     };
-
-    /// <summary>
-    /// What a drawing is called: its file, and what that file becomes.
-    /// </summary>
-    /// <remarks>
-    /// The class it ends up with rather than the one it sets, because a project usually builds the
-    /// same file more than once and the entry that differs may name nothing itself — the third
-    /// drawing of the sample project takes its class from the group holding it. By the file alone
-    /// all three were rows reading "badge.svg".
-    /// </remarks>
-    private static string Drawn(SvgcProjectDrawing drawing)
-    {
-        var file = Path.GetFileName(drawing.Input);
-
-        return drawing.EffectiveClass is { } becomes ? $"{file} - {becomes}" : file;
-    }
-
-    /// <summary>What a group calls itself: its namespace, its class, or both.</summary>
-    /// <remarks>
-    /// <para>
-    /// Neither is a name — they are settings a group hands down to its drawings — but the format
-    /// has nothing else to tell one group from another, and rows all reading "group" tell them
-    /// apart no better than nothing would. Taking only the first meant two groups beside each other
-    /// could be named off different attributes.
-    /// </para>
-    /// <para>
-    /// Joined with a hyphen rather than the dash used elsewhere, because the window title puts this
-    /// beside the project's name with a dash of its own.
-    /// </para>
-    /// </remarks>
-    private static string? Named(SvgcProjectNode node)
-        => string.Join(" - ", new[] { node.Namespace, node.Class }.Where(part => part is { })) is { Length: > 0 } name
-            ? name
-            : null;
 }

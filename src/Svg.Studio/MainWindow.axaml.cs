@@ -298,8 +298,12 @@ public partial class MainWindow : Window
             .Select(path => path!)
             .ToList();
 
-    /// <summary>Whether a path names an svgc project rather than a drawing.</summary>
+    /// <summary>Whether a path names a project rather than a drawing.</summary>
     private static bool IsProject(string path)
+        => Path.GetExtension(path).Equals(".svgstudio", StringComparison.OrdinalIgnoreCase) || IsSvgc(path);
+
+    /// <summary>Whether a path names an svgc project, which opens by being converted into one.</summary>
+    private static bool IsSvgc(string path)
         => Path.GetExtension(path).Equals(".svgcproj", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether a path names a PaintCode document, which an import reads.</summary>
@@ -331,8 +335,8 @@ public partial class MainWindow : Window
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "New project",
-            SuggestedFileName = "project.svgcproj",
-            DefaultExtension = "svgcproj",
+            SuggestedFileName = "project.svgstudio",
+            DefaultExtension = "svgstudio",
             FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
         }).ConfigureAwait(true);
 
@@ -359,7 +363,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                SvgcProjectDocument.Empty(Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty).Save(path);
+                ProjectDocument.Empty(Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty).Save(path);
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
@@ -393,76 +397,83 @@ public partial class MainWindow : Window
             return;
         }
 
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "Where the drawings go",
-            AllowMultiple = false
+            Title = "Where the project goes",
+            SuggestedFileName = Path.GetFileNameWithoutExtension(source) + ".svgstudio",
+            DefaultExtension = "svgstudio",
+            FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
         }).ConfigureAwait(true);
 
-        if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } directory)
+        if (file?.TryGetLocalPath() is not { Length: > 0 } target)
         {
             return;
         }
 
-        await ImportPaintCodeAsync(source, Path.Combine(directory, Path.GetFileNameWithoutExtension(source))).ConfigureAwait(true);
+        await ImportPaintCodeAsync(source, target).ConfigureAwait(true);
     }
 
     /// <summary>
-    /// Converts <paramref name="source"/> into drawings and a project under
-    /// <paramref name="directory"/>, and opens what it wrote.
+    /// Converts <paramref name="source"/> into a project at <paramref name="target"/>, and opens it.
     /// </summary>
     /// <remarks>
-    /// Taking the paths rather than asking for them, so everything but the two pickers can be driven.
+    /// One file, with the drawings in it: what the document has to say is what a project is made of
+    /// now, so nothing is written beside it. Taking the paths rather than asking for them, so
+    /// everything but the two pickers can be driven.
     /// </remarks>
-    public async Task<bool> ImportPaintCodeAsync(string source, string directory)
+    public async Task<bool> ImportPaintCodeAsync(string source, string target)
     {
         if (source is null)
         {
             throw new ArgumentNullException(nameof(source));
         }
 
-        if (directory is null)
+        if (target is null)
         {
-            throw new ArgumentNullException(nameof(directory));
+            throw new ArgumentNullException(nameof(target));
         }
 
-        var options = new PaintCodeImportOptions(directory)
-        {
-            ProjectPath = Path.Combine(directory, Path.GetFileNameWithoutExtension(source) + ".svgcproj")
-        };
+        var notes = new List<PaintCodeImportNote>();
+        var directory = Path.GetDirectoryName(Path.GetFullPath(target)) ?? string.Empty;
+        var options = new PaintCodeImportOptions(directory);
 
-        PaintCodeImportResult result;
+        ProjectDocument document;
 
         try
         {
             // Off the UI thread: the document this was written for is 16 MB and a thousand drawings.
-            result = await Task.Run(() => PaintCodeImport.Run(source, options)).ConfigureAwait(true);
+            document = await Task.Run(
+                () => ProjectImport.FromPaintCode(PaintCodeDocument.Load(source), options, notes, directory))
+                .ConfigureAwait(true);
+
+            document.Save(target);
         }
-        catch (Exception failure) when (failure is PaintCodeException or IOException or UnauthorizedAccessException)
+        catch (Exception failure) when (failure is PaintCodeException or SvgcProjectException or IOException or UnauthorizedAccessException)
         {
             await Announce("The document couldn't be imported", failure.Message).ConfigureAwait(true);
 
             return false;
         }
 
-        await OpenProjectAsync(result.ProjectPath!).ConfigureAwait(true);
+        await OpenProjectAsync(target).ConfigureAwait(true);
 
         // Only when something could not be carried across. The project opening on what was written
         // is the rest of the answer, and a dialog saying so would be one click for nothing.
-        if (result.Notes.Count > 0)
+        if (notes.Count > 0)
         {
-            await Announce("Imported", Said(result)).ConfigureAwait(true);
+            await Announce("Imported", Said(document, notes)).ConfigureAwait(true);
         }
 
         return true;
     }
 
-    private static string Said(PaintCodeImportResult result)
+    private static string Said(ProjectDocument document, IReadOnlyList<PaintCodeImportNote> notes)
     {
-        var wrote = $"{result.Files.Count} drawing{(result.Files.Count == 1 ? string.Empty : "s")}.";
-        var missing = result.Notes.Where(note => note.Severity is PaintCodeImportSeverity.Missing).ToList();
-        var rest = result.Notes.Where(note => note.Severity is not PaintCodeImportSeverity.Missing).ToList();
-        var lines = new List<string> { $"{wrote} {result.Notes.Count} could not be carried across:" };
+        var drawn = document.Root.Drawings.Count();
+        var wrote = $"{drawn} drawing{(drawn == 1 ? string.Empty : "s")}.";
+        var missing = notes.Where(note => note.Severity is PaintCodeImportSeverity.Missing).ToList();
+        var rest = notes.Where(note => note.Severity is not PaintCodeImportSeverity.Missing).ToList();
+        var lines = new List<string> { $"{wrote} {notes.Count} could not be carried across:" };
 
         // First, and never trimmed away: this is the document asking for a canvas it does not have,
         // which is the one thing in here to take back to PaintCode rather than to this converter.
@@ -482,16 +493,16 @@ public partial class MainWindow : Window
         return string.Join(Environment.NewLine, lines);
     }
 
-    /// <summary>Where an import writes when nobody was asked: a folder beside the document.</summary>
+    /// <summary>Where an import writes when nobody was asked: a project beside the document.</summary>
     private static string Beside(string source)
     {
         var directory = Path.GetDirectoryName(Path.GetFullPath(source)) ?? ".";
         var name = Path.GetFileNameWithoutExtension(source);
-        var candidate = Path.Combine(directory, name);
+        var candidate = Path.Combine(directory, name + ".svgstudio");
 
-        for (var index = 2; Directory.Exists(candidate); index++)
+        for (var index = 2; File.Exists(candidate); index++)
         {
-            candidate = Path.Combine(directory, name + "-" + index.ToString(CultureInfo.InvariantCulture));
+            candidate = Path.Combine(directory, $"{name}-{index.ToString(CultureInfo.InvariantCulture)}.svgstudio");
         }
 
         return candidate;
@@ -512,13 +523,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        SvgcProjectDocument document;
+        ProjectDocument document;
+        var notes = new List<string>();
 
         try
         {
-            document = SvgcProjectDocument.Load(path);
+            document = IsSvgc(path) ? Converted(path, notes) : ProjectDocument.Load(path);
         }
-        catch (Exception failure) when (failure is SvgcProjectException or IOException or UnauthorizedAccessException)
+        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or IOException or UnauthorizedAccessException)
         {
             await Announce("The project couldn't be opened", failure.Message).ConfigureAwait(true);
             return;
@@ -547,7 +559,35 @@ public partial class MainWindow : Window
         await ShowAsync(workspace.Document.Root).ConfigureAwait(true);
 
         UpdateMenu();
-        Remember(path);
+        Remember(document.Path ?? path);
+
+        if (notes.Count > 0)
+        {
+            await Announce("Converted", string.Join(Environment.NewLine + Environment.NewLine, notes)).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// An svgc project as one of these, written beside it.
+    /// </summary>
+    /// <remarks>
+    /// One way, and the old project is left exactly as it was: the two formats say different things
+    /// about where a drawing lives, and a conversion that wrote back would have to put the drawings
+    /// out into files again. What it does lose is said in the notes — a recipe is baked into the
+    /// drawings it painted, and a file the old project named twice becomes two drawings.
+    /// </remarks>
+    private static ProjectDocument Converted(string path, ICollection<string> notes)
+    {
+        var document = ProjectImport.FromSvgc(SvgcProjectDocument.Load(path), notes);
+        var written = Path.ChangeExtension(Path.GetFullPath(path), ".svgstudio");
+
+        document.Save(written);
+
+        notes.Add(
+            $"{Path.GetFileName(path)} was converted and written as {Path.GetFileName(written)}, which holds the drawings "
+            + "themselves. The project it came from and the drawings it named are left where they are.");
+
+        return document;
     }
 
     /// <summary>Closes the open project and everything it opened.</summary>
@@ -588,7 +628,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Whether a tab belongs to the open project, and goes when the project does.</summary>
-    private static bool Owned(TabItem item) => item.Tag is SvgcProjectNode;
+    private static bool Owned(TabItem item) => item.Tag is ProjectNode;
 
     private async void OnCloseProject(object? sender, EventArgs e) => await CloseProjectAsync();
 
@@ -700,7 +740,7 @@ public partial class MainWindow : Window
     }
 
     /// <param name="select">The node to leave selected, or null to keep whatever was.</param>
-    private void BuildTree(SvgcProjectNode? select = null)
+    private void BuildTree(ProjectNode? select = null)
     {
         if (_workspace is not { } workspace)
         {
@@ -730,13 +770,13 @@ public partial class MainWindow : Window
     /// buried the ten rows anybody would start from. The root is the exception, because folding the
     /// only row that is always there would leave the pane showing one word.
     /// </remarks>
-    private TreeViewItem Branch(SvgcProjectNode node, object? selected)
+    private TreeViewItem Branch(ProjectNode node, object? selected)
     {
         var item = new TreeViewItem
         {
             Header = ProjectWorkspace.Label(node),
             Tag = node,
-            IsExpanded = node is SvgcProjectRoot || _expanded.Contains(node),
+            IsExpanded = node is ProjectRoot || _expanded.Contains(node),
             IsSelected = ReferenceEquals(node, selected)
         };
 
@@ -788,7 +828,7 @@ public partial class MainWindow : Window
 
         item.ContextMenu = Commands(node);
 
-        if (node is SvgcProjectGroup group)
+        if (node is ProjectGroup group)
         {
             foreach (var child in group.Children)
             {
@@ -804,7 +844,7 @@ public partial class MainWindow : Window
     /// Per row, so what is acted on is what was clicked — a right click does not select, and a menu
     /// reading the selection would act on whatever was opened last.
     /// </remarks>
-    private ContextMenu Commands(SvgcProjectNode node)
+    private ContextMenu Commands(ProjectNode node)
     {
         var menu = new ContextMenu();
         var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
@@ -853,16 +893,14 @@ public partial class MainWindow : Window
 
     /// <summary>What the file manager would be pointed at for this row, or null where nothing would.</summary>
     /// <remarks>
-    /// A drawing is a file; a group is not, and neither is the project row, so both answer with the
-    /// project file they are written in. A project parsed from text rather than opened has no file
-    /// at all, and no row of it offers the command.
+    /// The project, whatever the row: a drawing is in it rather than beside it, so there is no other
+    /// file to show. A project parsed from text rather than opened has none at all, and no row of it
+    /// offers the command.
     /// </remarks>
-    private string? OnDisk(SvgcProjectNode node) => node is SvgcProjectDrawing drawing
-        ? drawing.ResolvedInput
-        : _workspace?.Document.Path;
+    private string? OnDisk(ProjectNode node) => _workspace?.Document.Path;
 
     /// <summary>Takes a row, to be pasted somewhere else.</summary>
-    private void Hold(SvgcProjectNode node, bool cut)
+    private void Hold(ProjectNode node, bool cut)
     {
         _held = node;
         _heldCut = cut;
@@ -881,7 +919,7 @@ public partial class MainWindow : Window
     ///
     /// A row cut and then removed is gone, and the hold goes with it rather than waiting to fail.
     /// </remarks>
-    private void Paste(SvgcProjectNode target)
+    private void Paste(ProjectNode target)
     {
         if (_workspace is not { } workspace || _held is not { } held)
         {
@@ -892,7 +930,7 @@ public partial class MainWindow : Window
         {
             if (held.Parent is { })
             {
-                Move(held, target, target is SvgcProjectGroup ? ProjectDrop.Inside : ProjectDrop.After);
+                Move(held, target, target is ProjectGroup ? ProjectDrop.Inside : ProjectDrop.After);
             }
 
             _held = null;
@@ -921,7 +959,7 @@ public partial class MainWindow : Window
     /// ranked by age — nothing says when a clipboard was written — so the one this window was told
     /// about wins, and it is spent by the paste that takes it rather than staying to answer the next.
     /// </remarks>
-    private async Task PasteAsync(SvgcProjectNode target)
+    private async Task PasteAsync(ProjectNode target)
     {
         if (_workspace is not { } workspace)
         {
@@ -948,58 +986,14 @@ public partial class MainWindow : Window
 
         if (carried.Drawing is { } drawing)
         {
-            if (await WrittenAsync(workspace, drawing).ConfigureAwait(true) is { } written)
-            {
-                await AddDrawingsAsync(parent, index, new[] { written }).ConfigureAwait(true);
-            }
+            // Straight in, with no file written anywhere: the project holds the drawings, so a
+            // pasted one needs nowhere to live but the row it lands on.
+            await AddTextAsync(parent, index, "drawing", drawing).ConfigureAwait(true);
 
             return;
         }
 
         await Announce("There is nothing to paste", Offering(carried)).ConfigureAwait(true);
-    }
-
-    /// <summary>
-    /// Writes a pasted drawing beside the project, under a name nothing there has yet.
-    /// </summary>
-    /// <remarks>
-    /// A file because that is what a project is a list of — it names inputs, and there is nowhere in
-    /// the format to keep a drawing that has none. Beside the project rather than through a save
-    /// panel: a paste is one gesture, and a panel in the middle of it asks for more than the name is
-    /// worth, which the row shows and a rename settles.
-    /// </remarks>
-    /// <returns>The file written, or null when nothing was — which has been said already.</returns>
-    private async Task<string?> WrittenAsync(ProjectWorkspace workspace, string drawing)
-    {
-        if (workspace.Document.BaseDirectory is not { Length: > 0 } directory)
-        {
-            await Announce(
-                    "The drawing couldn't be pasted",
-                    "This project has no file of its own, so there is nowhere beside it to write one.")
-                .ConfigureAwait(true);
-
-            return null;
-        }
-
-        var path = Path.Combine(directory, "drawing.svg");
-
-        for (var next = 2; File.Exists(path); next++)
-        {
-            path = Path.Combine(directory, $"drawing-{next}.svg");
-        }
-
-        try
-        {
-            File.WriteAllText(path, drawing);
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-        {
-            await Announce("The drawing couldn't be pasted", failure.Message).ConfigureAwait(true);
-
-            return null;
-        }
-
-        return path;
     }
 
     /// <summary>Why a paste did nothing, in terms of what the clipboard actually had on it.</summary>
@@ -1030,14 +1024,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Where something added beside <paramref name="node"/> goes: in a group, after a drawing.</summary>
-    private static (SvgcProjectGroup Parent, int Index) Beside(SvgcProjectNode node)
-        => node is SvgcProjectGroup group
+    private static (ProjectGroup Parent, int Index) Beside(ProjectNode node)
+        => node is ProjectGroup group
             ? (group, group.Children.Count)
             : (node.Parent!, node.Parent!.Children.ToList().IndexOf(node) + 1);
 
     /// <summary>Adds an empty group, and opens it so it can be given a name.</summary>
     /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the menu.</remarks>
-    public async Task AddGroupAsync(SvgcProjectNode beside)
+    public async Task AddGroupAsync(ProjectNode beside)
     {
         if (_workspace is not { } workspace)
         {
@@ -1045,18 +1039,18 @@ public partial class MainWindow : Window
         }
 
         var (parent, index) = Beside(beside);
-        var group = parent.AddGroup(index);
+        var group = parent.AddGroup("group", index);
 
         workspace.Save();
         BuildTree(group);
 
-        // A group with nothing on it is named by neither of its settings, so it opens as "group"
-        // until one is typed — which is what the tab is for.
+        // Named "group" until something better is typed into its settings, which is what the tab
+        // it opens on is for.
         await ShowAsync(group).ConfigureAwait(true);
     }
 
     /// <summary>Asks which drawing to add, and adds it.</summary>
-    private async Task AddDrawingAsync(SvgcProjectNode beside)
+    private async Task AddDrawingAsync(ProjectNode beside)
     {
         if (_workspace is null || !StorageProvider.CanOpen)
         {
@@ -1084,7 +1078,7 @@ public partial class MainWindow : Window
 
     /// <summary>Adds <paramref name="path"/> to the project, and opens it.</summary>
     /// <remarks>Taking the path rather than asking for it, so everything but the panel can be driven.</remarks>
-    public Task AddDrawingAsync(SvgcProjectNode beside, string path)
+    public Task AddDrawingAsync(ProjectNode beside, string path)
     {
         var (parent, index) = Beside(beside);
 
@@ -1106,24 +1100,63 @@ public partial class MainWindow : Window
     /// is one act, and it has no business opening twenty of them.
     /// </remarks>
     /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
-    public async Task AddDrawingsAsync(SvgcProjectGroup parent, int index, IReadOnlyList<string> paths)
+    public async Task AddDrawingsAsync(ProjectGroup parent, int index, IReadOnlyList<string> paths)
     {
         if (_workspace is not { } workspace || paths.Count == 0)
         {
             return;
         }
 
-        SvgcProjectDrawing? added = null;
+        ProjectDrawing? added = null;
 
         foreach (var path in paths)
         {
-            added = parent.AddDrawing(workspace.Carry(path), index++);
+            try
+            {
+                added = parent.AddDrawing(Path.GetFileNameWithoutExtension(path), File.ReadAllText(path), index++);
+            }
+            catch (Exception failure) when (failure is SvgcProjectException or IOException or UnauthorizedAccessException)
+            {
+                await Announce("That drawing couldn't be added", $"{Path.GetFileName(path)}: {failure.Message}").ConfigureAwait(true);
+            }
+        }
+
+        if (added is null)
+        {
+            return;
         }
 
         workspace.Save();
         BuildTree(added);
 
-        await ShowAsync(added!).ConfigureAwait(true);
+        await ShowAsync(added).ConfigureAwait(true);
+    }
+
+    /// <summary>Adds one drawing the window has the text of rather than a file for.</summary>
+    private async Task AddTextAsync(ProjectGroup parent, int index, string name, string svgText)
+    {
+        if (_workspace is not { } workspace)
+        {
+            return;
+        }
+
+        ProjectDrawing added;
+
+        try
+        {
+            added = parent.AddDrawing(name, svgText, index);
+        }
+        catch (SvgcProjectException failure)
+        {
+            await Announce("That drawing couldn't be added", failure.Message).ConfigureAwait(true);
+
+            return;
+        }
+
+        workspace.Save();
+        BuildTree(added);
+
+        await ShowAsync(added).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -1135,7 +1168,7 @@ public partial class MainWindow : Window
     /// removed node goes on writing settings into a detached element and reporting itself saved.
     /// </remarks>
     /// <returns>Whether it was removed, or false when the question was answered against it.</returns>
-    public async Task<bool> RemoveAsync(SvgcProjectNode node)
+    public async Task<bool> RemoveAsync(ProjectNode node)
     {
         if (_workspace is not { } workspace || node.Parent is not { } parent)
         {
@@ -1144,14 +1177,14 @@ public partial class MainWindow : Window
 
         // Only when it takes something with it. A row removed by mistake is one add away; a branch
         // is not, and there is no undo.
-        if (node is SvgcProjectGroup { Children.Count: > 0 } group
+        if (node is ProjectGroup { Children.Count: > 0 } group
             && !await ConfirmRemove(Removing(group)).ConfigureAwait(true))
         {
             return false;
         }
 
         foreach (var item in _tabs.Items.OfType<TabItem>()
-                     .Where(item => item.Tag is SvgcProjectNode held && held.DescendsFrom(node))
+                     .Where(item => item.Tag is ProjectNode held && held.DescendsFrom(node))
                      .ToList())
         {
             if (!await CloseTabAsync(item).ConfigureAwait(true))
@@ -1177,9 +1210,9 @@ public partial class MainWindow : Window
     /// and took the application with it. As a field it is a type initialiser instead, which is a
     /// failure every test that opens a window sees.
     /// </remarks>
-    private static readonly DataFormat<string> RowFormat = DataFormat.CreateStringApplicationFormat("SvgcProjectNode");
+    private static readonly DataFormat<string> RowFormat = DataFormat.CreateStringApplicationFormat("ProjectNode");
 
-    private SvgcProjectNode? _row;
+    private ProjectNode? _row;
     private PointerPressedEventArgs? _rowPressed;
     private Point _rowPressedAt;
 
@@ -1193,17 +1226,17 @@ public partial class MainWindow : Window
     /// it. Held by node rather than by name because two groups can be called the same thing, and the
     /// document's nodes are the same objects across a rebuild: only the rows are new.
     /// </remarks>
-    private readonly HashSet<SvgcProjectNode> _expanded = new();
+    private readonly HashSet<ProjectNode> _expanded = new();
 
     /// <summary>The row waiting to be pasted, and whether taking it was a cut rather than a copy.</summary>
     /// <remarks>
     /// The window's own, not the machine's: what is held is a row of this project, and pasting one
     /// into a text editor would mean nothing. Nothing in the app touches the system clipboard.
     /// </remarks>
-    private SvgcProjectNode? _held;
+    private ProjectNode? _held;
     private bool _heldCut;
 
-    private SvgcProjectNode? _dropOn;
+    private ProjectNode? _dropOn;
     private ProjectDrop _dropWhere;
 
     private void OnRowPressed(object? sender, PointerPressedEventArgs e)
@@ -1215,9 +1248,9 @@ public partial class MainWindow : Window
         if (e.Source is not Visual source
             // The chevron folds the row; it does not pick it up.
             || source.FindAncestorOfType<ToggleButton>(true) is { }
-            || source.FindAncestorOfType<TreeViewItem>(true)?.Tag is not SvgcProjectNode node
+            || source.FindAncestorOfType<TreeViewItem>(true)?.Tag is not ProjectNode node
             // The project is the file. There is nowhere to put it.
-            || node is SvgcProjectRoot
+            || node is ProjectRoot
             || !e.GetCurrentPoint(_projectTree).Properties.IsLeftButtonPressed)
         {
             return;
@@ -1286,7 +1319,7 @@ public partial class MainWindow : Window
 
         if (_row is { } dragged)
         {
-            if (over is not { Tag: SvgcProjectNode node })
+            if (over is not { Tag: ProjectNode node })
             {
                 HideDrop();
 
@@ -1322,7 +1355,7 @@ public partial class MainWindow : Window
         // runs after this one.
         var target = over ?? _projectTree.Items.OfType<TreeViewItem>().FirstOrDefault();
 
-        if (target is not { Tag: SvgcProjectNode into } || Land(target, into, e) is null)
+        if (target is not { Tag: ProjectNode into } || Land(target, into, e) is null)
         {
             HideDrop();
 
@@ -1333,7 +1366,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Takes down where a drop on this row would go, and says where that is.</summary>
-    private (SvgcProjectGroup Parent, int Index)? Land(TreeViewItem row, SvgcProjectNode node, DragEventArgs e)
+    private (ProjectGroup Parent, int Index)? Land(TreeViewItem row, ProjectNode node, DragEventArgs e)
     {
         _dropOn = node;
         _dropWhere = Bands(e.GetPosition(row).Y, RowHeight(row), node);
@@ -1378,7 +1411,7 @@ public partial class MainWindow : Window
     /// </summary>
     /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the pointer.</remarks>
     /// <returns>Whether it moved. A drop that would take a group into itself does not.</returns>
-    public bool Move(SvgcProjectNode node, SvgcProjectNode target, ProjectDrop where)
+    public bool Move(ProjectNode node, ProjectNode target, ProjectDrop where)
     {
         if (_workspace is not { } workspace || Landing(target, where) is not { } landing)
         {
@@ -1401,11 +1434,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Which group a drop lands in, and where among its children. Null when it lands nowhere.</summary>
-    private static (SvgcProjectGroup Parent, int Index)? Landing(SvgcProjectNode target, ProjectDrop where)
+    private static (ProjectGroup Parent, int Index)? Landing(ProjectNode target, ProjectDrop where)
     {
         if (where == ProjectDrop.Inside)
         {
-            return target is SvgcProjectGroup group ? (group, group.Children.Count) : null;
+            return target is ProjectGroup group ? (group, group.Children.Count) : null;
         }
 
         if (target.Parent is not { } parent)
@@ -1424,9 +1457,9 @@ public partial class MainWindow : Window
     /// so its middle is not a place, and halves put every drop somewhere it can go. The project has
     /// no siblings to sit beside, so the whole of its row means inside it.
     /// </remarks>
-    private static ProjectDrop Bands(double y, double height, SvgcProjectNode target)
+    private static ProjectDrop Bands(double y, double height, ProjectNode target)
     {
-        if (target is not SvgcProjectGroup)
+        if (target is not ProjectGroup)
         {
             return y < height / 2 ? ProjectDrop.Before : ProjectDrop.After;
         }
@@ -1487,7 +1520,7 @@ public partial class MainWindow : Window
         _dropOn = null;
     }
 
-    private static string Removing(SvgcProjectGroup group)
+    private static string Removing(ProjectGroup group)
     {
         var rows = group.Children.Count;
 
@@ -1496,17 +1529,17 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Every drawing under <paramref name="node"/>, whatever kind of node it is.</summary>
-    private static IEnumerable<SvgcProjectDrawing> Drawings(SvgcProjectNode node)
+    private static IEnumerable<ProjectDrawing> Drawings(ProjectNode node)
         => node switch
         {
-            SvgcProjectGroup group => group.Drawings,
-            SvgcProjectDrawing drawing => new[] { drawing },
-            _ => Enumerable.Empty<SvgcProjectDrawing>()
+            ProjectGroup group => group.Drawings,
+            ProjectDrawing drawing => new[] { drawing },
+            _ => Enumerable.Empty<ProjectDrawing>()
         };
 
     private async void OnProjectTreeKeyDown(object? sender, KeyEventArgs e)
     {
-        if ((_projectTree.SelectedItem as TreeViewItem)?.Tag is not SvgcProjectNode node)
+        if ((_projectTree.SelectedItem as TreeViewItem)?.Tag is not ProjectNode node)
         {
             return;
         }
@@ -1559,7 +1592,7 @@ public partial class MainWindow : Window
     /// and opens as its settings and what they come to. Public because a modal-free way in is what
     /// a test drives, the same as <see cref="ExportAsync"/>.
     /// </remarks>
-    public async Task ShowAsync(SvgcProjectNode node)
+    public async Task ShowAsync(ProjectNode node)
     {
         if (node is null)
         {
@@ -1577,13 +1610,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (node is SvgcProjectGroup group)
+        if (node is ProjectGroup group)
         {
             AddNodeTab(new GroupPanel(workspace, group) { TargetOf = DrawingOf }, node, ProjectWorkspace.Label(node));
             return;
         }
 
-        var drawing = (SvgcProjectDrawing)node;
+        var drawing = (ProjectDrawing)node;
 
         var viewer = AddTab();
 
@@ -1603,7 +1636,7 @@ public partial class MainWindow : Window
 
         viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
 
-        await viewer.LoadAsync(drawing.ResolvedInput).ConfigureAwait(true);
+        await viewer.LoadTextAsync(drawing.Text, drawing.Name).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -1611,26 +1644,11 @@ public partial class MainWindow : Window
     /// </summary>
     /// <remarks>
     /// The tab it is open in, so the edit lands in a buffer somebody can take back and saves when
-    /// they ask — and so two tabs on one file cannot end up disagreeing about it. Null is answered
-    /// by the caller with the file itself.
+    /// they ask. Null is answered by the caller with the project, which writes the edit as it is
+    /// made. By the row rather than by a file: a drawing is one row of the project, so one tab.
     /// </remarks>
-    private ISvgViewerDeclarationTarget? DrawingOf(SvgcProjectDrawing drawing)
-    {
-        var path = drawing.ResolvedInput;
-
-        // The comparison Rebuild and Reread already use. Not normalised, so two spellings of one
-        // path do not meet — their limitation, and not one to fix from here.
-        foreach (var item in _tabs.Items.OfType<TabItem>())
-        {
-            if (item.Content is SvgViewer viewer
-                && string.Equals(viewer.DocumentPath, path, StringComparison.Ordinal))
-            {
-                return viewer;
-            }
-        }
-
-        return null;
-    }
+    private ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
+        => Tab(drawing)?.Content as SvgViewer;
 
     /// <summary>A tab for something that is not a drawing, which the viewer's own tab does not fit.</summary>
     private void AddNodeTab(Control content, object tag, string name)
@@ -1663,7 +1681,7 @@ public partial class MainWindow : Window
 
     }
 
-    private TabItem? Tab(SvgcProjectNode node)
+    private TabItem? Tab(ProjectNode node)
         => _tabs.Items.OfType<TabItem>().FirstOrDefault(item => ReferenceEquals(item.Tag, node));
 
     /// <summary>
@@ -1688,17 +1706,18 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            if (item.Tag is not SvgcProjectDrawing drawing || item.Content is not SvgViewer viewer)
+            if (item.Tag is not ProjectDrawing drawing || item.Content is not SvgViewer viewer)
             {
                 continue;
             }
 
             var request = ProjectWorkspace.SizeOf(drawing);
 
-            // The input is editable too, so a tab can be left showing a file the row no longer names.
-            var elsewhere = !string.Equals(viewer.DocumentPath, drawing.ResolvedInput, StringComparison.Ordinal);
+            // The drawing itself can have been written from somewhere else — a group's Element tab,
+            // which writes into the project as it goes.
+            var changed = !string.Equals(viewer.Source, drawing.Text, StringComparison.Ordinal);
 
-            if ((request.Equals(viewer.SizeRequest) && !elsewhere) || viewer.IsSourceModified)
+            if ((request.Equals(viewer.SizeRequest) && !changed) || viewer.IsSourceModified)
             {
                 continue;
             }
@@ -1712,7 +1731,7 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            Read(viewer, drawing.ResolvedInput, elsewhere);
+            Read(viewer, drawing, changed);
         }
     }
 
@@ -1727,7 +1746,7 @@ public partial class MainWindow : Window
     /// </remarks>
     private void Reveal()
     {
-        if ((_tabs.SelectedItem as TabItem)?.Tag is SvgcProjectNode node)
+        if ((_tabs.SelectedItem as TabItem)?.Tag is ProjectNode node)
         {
             Reveal(node);
         }
@@ -1735,7 +1754,7 @@ public partial class MainWindow : Window
 
     /// <summary>Opens the tree down to one node and puts its row in sight.</summary>
     /// <remarks>The jump a search makes, and the one picking a tab makes: the same one.</remarks>
-    private void Reveal(SvgcProjectNode node)
+    private void Reveal(ProjectNode node)
     {
         if (_projectTree.Items.OfType<TreeViewItem>().FirstOrDefault() is not { } root
             || Route(root, node) is not { } path)
@@ -1805,7 +1824,7 @@ public partial class MainWindow : Window
         var at = matches.IndexOf((_projectTree.SelectedItem as TreeViewItem)!);
         var index = at < 0 ? 0 : (at + step + matches.Count) % matches.Count;
 
-        if (matches[index].Tag is SvgcProjectNode node)
+        if (matches[index].Tag is ProjectNode node)
         {
             Reveal(node);
         }
@@ -1849,7 +1868,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>The rows from the root down to <paramref name="node"/>, or null when it has none.</summary>
-    private static List<TreeViewItem>? Route(TreeViewItem item, SvgcProjectNode node)
+    private static List<TreeViewItem>? Route(TreeViewItem item, ProjectNode node)
     {
         if (ReferenceEquals(item.Tag, node))
         {
@@ -1874,32 +1893,39 @@ public partial class MainWindow : Window
     {
         if (_tabs.SelectedItem is not TabItem item
             || !_stale.Remove(item)
-            || item.Content is not SvgViewer viewer
-            || viewer.DocumentPath is not { } path)
+            || item.Content is not SvgViewer viewer)
         {
             return;
         }
 
-        // Off the disk, always: this is also how a save in one tab reaches the others showing the
-        // same file, and what those are out of date about is the file itself.
-        _ = viewer.LoadAsync(path);
+        if (item.Tag is ProjectDrawing drawing)
+        {
+            _ = viewer.LoadTextAsync(drawing.Text, drawing.Name);
+
+            return;
+        }
+
+        // A drawing of its own, so off the disk.
+        if (viewer.DocumentPath is { } path)
+        {
+            _ = viewer.LoadAsync(path);
+        }
     }
 
     /// <summary>
     /// Brings the drawing being looked at up to date, off the disk only where it has to be.
     /// </summary>
     /// <remarks>
-    /// A size changes what the same text comes to, not the text, so the drawing is
-    /// built again from what the pane is already holding. Reading the file for that dropped the
-    /// pane's buffer and its caret on every keystroke somebody made elsewhere, and flashed a
-    /// load in the status line while they typed. Only a tab now naming another file has to be
-    /// opened.
+    /// A size changes what the same text comes to, not the text, so the drawing is built again
+    /// from what the pane is already holding. Reading it in again for that dropped the pane's
+    /// buffer and its caret on every keystroke somebody made elsewhere, and flashed a load in the
+    /// status line while they typed. Only text that has actually changed is taken again.
     /// </remarks>
-    private static void Read(SvgViewer viewer, string path, bool elsewhere)
+    private static void Read(SvgViewer viewer, ProjectDrawing drawing, bool changed)
     {
-        if (elsewhere || !viewer.Rebuild())
+        if (changed || !viewer.Rebuild())
         {
-            _ = viewer.LoadAsync(path);
+            _ = viewer.LoadTextAsync(drawing.Text, drawing.Name);
         }
     }
 
@@ -2207,9 +2233,11 @@ public partial class MainWindow : Window
             save.IsEnabled = _tabs.SelectedItem is TabItem tab && Unsaved(tab) is { };
         }
 
+        // Not for a drawing the project holds: Save As points a tab at the file it wrote, and one
+        // of those has no file to be pointed at. Export writes it out instead.
         if (Item(menu, "Save As…") is { } saveAs)
         {
-            saveAs.IsEnabled = Selected() is { Document: { } };
+            saveAs.IsEnabled = Selected() is { Document: { } } && _tabs.SelectedItem is not TabItem { Tag: ProjectDrawing };
         }
 
         // Both act on the project, and both did nothing at all when picked without one.
@@ -2314,9 +2342,11 @@ public partial class MainWindow : Window
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Export drawing",
-            SuggestedFileName = viewer.DocumentPath is { } path
-                ? Path.GetFileNameWithoutExtension(path)
-                : "drawing",
+            SuggestedFileName = _tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing }
+                ? drawing.Name
+                : viewer.DocumentPath is { } path
+                    ? Path.GetFileNameWithoutExtension(path)
+                    : "drawing",
             FileTypeChoices = new List<FilePickerFileType> { SvgFileType, CSharpFileType }
         });
 
@@ -2557,8 +2587,13 @@ public partial class MainWindow : Window
         UpdateMenu();
     }
 
-    private static string Named(SvgViewer viewer)
-        => viewer.DocumentPath is { } path ? Path.GetFileName(path) : "A drawing";
+    private string Named(SvgViewer viewer) => Tabbed(viewer) is { Tag: ProjectDrawing drawing }
+        ? drawing.Name
+        : viewer.DocumentPath is { } path ? Path.GetFileName(path) : "A drawing";
+
+    /// <summary>The tab a viewer is the content of, or null where it is in none.</summary>
+    private TabItem? Tabbed(SvgViewer viewer)
+        => _tabs.Items.OfType<TabItem>().FirstOrDefault(item => ReferenceEquals(item.Content, viewer));
 
 
 
@@ -2644,7 +2679,7 @@ public partial class MainWindow : Window
         /// </remarks>
         private static readonly FilePickerFileType OpenableFileType = new("Drawings and projects")
         {
-            Patterns = new[] { "*.svg", "*.svgz", "*.svgcproj", "*.pcvd" },
+            Patterns = new[] { "*.svg", "*.svgz", "*.svgstudio", "*.svgcproj", "*.pcvd" },
             MimeTypes = new[] { "image/svg+xml", "application/gzip", "application/xml" }
         };
 
@@ -2659,14 +2694,16 @@ public partial class MainWindow : Window
 
         /// <remarks>
         /// No Apple type identifier, unlike the drawings below. macOS decides a file's type from
-        /// its extension, and <c>.svgcproj</c> is whatever the machine happens to have claimed it —
+        /// its extension, and <c>.svgstudio</c> is whatever the machine happens to have claimed it —
         /// on this one, the editor it was last opened with. Either way it conforms to nothing, and
         /// <c>public.xml</c> was a claim about it that no machine agrees with, narrowing the filter
         /// to files macOS reads as XML rather than widening it. The extension is what matches.
+        ///
+        /// The svgc project is here too, since Open takes one by converting it.
         /// </remarks>
-        internal static readonly FilePickerFileType Projects = new("Svgc Projects")
+        internal static readonly FilePickerFileType Projects = new("Svg Studio Projects")
         {
-            Patterns = new[] { "*.svgcproj" },
+            Patterns = new[] { "*.svgstudio", "*.svgcproj" },
             MimeTypes = new[] { "application/xml" }
         };
 
@@ -2846,42 +2883,34 @@ public partial class MainWindow : Window
             }
         }
 
-        if (await viewer.SaveSourceAsync().ConfigureAwait(true))
+        if (_tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing } && _workspace is { } workspace)
         {
-            Reread(viewer);
-        }
-    }
+            if (drawing.SetText(viewer.Source) is { } refusal)
+            {
+                await Announce("The drawing couldn't be saved", refusal).ConfigureAwait(true);
 
-    /// <summary>
-    /// Marks every other tab showing the same file as needing to be read again.
-    /// </summary>
-    /// <remarks>
-    /// A project builds one drawing more than once, so the same file is often open in several tabs
-    /// at once, each holding its own copy of it. A save in one left the others showing what the
-    /// file used to say until they were closed and opened again. They are marked rather than read
-    /// now because none of them is the tab on screen — only one can be — and reading a drawing into
-    /// a viewer that is not presented is what left it blank.
-    ///
-    /// A tab holding edits of its own is left alone: reading the file again would throw them away,
-    /// and two tabs disagreeing is the smaller harm.
-    /// </remarks>
-    private void Reread(SvgViewer saved)
-    {
-        if (saved.DocumentPath is not { } path)
-        {
+                return;
+            }
+
+            try
+            {
+                workspace.Save();
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            {
+                await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
+
+                return;
+            }
+
+            // The bytes are the project's now, so the tab is told rather than asked to write them:
+            // SaveSourceAsync would go looking for a file this drawing has not got.
+            viewer.MarkSaved();
+
             return;
         }
 
-        foreach (var item in _tabs.Items.OfType<TabItem>())
-        {
-            if (item.Content is SvgViewer viewer
-                && !ReferenceEquals(viewer, saved)
-                && !viewer.IsSourceModified
-                && string.Equals(viewer.DocumentPath, path, StringComparison.Ordinal))
-            {
-                _stale.Add(item);
-            }
-        }
+        await viewer.SaveSourceAsync().ConfigureAwait(true);
     }
 
     private void UpdateTitle()
@@ -2896,10 +2925,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        var open = Selected();
-        var path = open?.DocumentPath;
         var mark = _tabs.SelectedItem is TabItem tab && Unsaved(tab) is { } ? "• " : string.Empty;
 
-        Title = path is { } ? $"{mark}{Path.GetFileName(path)} — SVG viewer" : "SVG viewer";
+        if (_tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing } && _workspace is { } workspace)
+        {
+            Title = $"{mark}{drawing.Name} — {workspace.Name}";
+            return;
+        }
+
+        Title = Selected()?.DocumentPath is { } path ? $"{mark}{Path.GetFileName(path)} — SVG viewer" : "SVG viewer";
     }
 }

@@ -50,7 +50,7 @@ public static class SvgExport
         {
             // Through the document, so a drawing that came in with a byte order mark keeps it. The
             // C# form gets that through Reload.
-            document.Write(document.Built(sized), target);
+            document.Write(Flat(document.Built(sized)), target);
         }
 
         return target;
@@ -83,6 +83,50 @@ public static class SvgExport
         // The size it was asked for where the drawing can take it, and the size it has where it
         // cannot: an export is not the place to report that.
         return document.Resize(tree, size) is null ? tree.ToText() : source;
+    }
+
+    /// <summary>
+    /// The drawing without the indentation it was written at inside something else.
+    /// </summary>
+    /// <remarks>
+    /// A drawing a project holds inline carries the project's indentation, which is the project's
+    /// business and not the drawing's: written out as a file of its own it should read as one. The
+    /// shallowest line decides, and only lines that have that much are shifted, so a line inside a
+    /// stylesheet or a run of text keeps what it says.
+    /// </remarks>
+    private static string Flat(string svgText)
+    {
+        var lines = svgText.Split('\n');
+        var depth = int.MaxValue;
+
+        for (var line = 1; line < lines.Length; line++)
+        {
+            var text = lines[line];
+
+            if (text.Trim().Length == 0)
+            {
+                continue;
+            }
+
+            depth = Math.Min(depth, text.Length - text.TrimStart(' ').Length);
+        }
+
+        if (depth is 0 or int.MaxValue)
+        {
+            return svgText;
+        }
+
+        var indent = new string(' ', depth);
+
+        for (var line = 1; line < lines.Length; line++)
+        {
+            if (lines[line].StartsWith(indent, StringComparison.Ordinal))
+            {
+                lines[line] = lines[line].Substring(depth);
+            }
+        }
+
+        return string.Join("\n", lines);
     }
 
     /// <summary>The C# that draws <paramref name="source"/>.</summary>

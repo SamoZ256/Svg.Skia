@@ -135,7 +135,7 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private readonly Dictionary<string, string?> _pending = new(StringComparer.Ordinal);
 
-    public GroupPanel(ProjectWorkspace workspace, SvgcProjectNode node)
+    public GroupPanel(ProjectWorkspace workspace, ProjectNode node)
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         Node = node ?? throw new ArgumentNullException(nameof(node));
@@ -147,7 +147,7 @@ public sealed class GroupPanel : UserControl
             Source = new Uri("avares://Svg.Viewer.Skia.Avalonia/SvgViewerPaneTabs.axaml")
         });
 
-        Content = node is SvgcProjectGroup ? Built() : Alone();
+        Content = node is ProjectGroup ? Built() : Alone();
 
         // Harmless on a drawing's settings pane, which has no canvas and so no placements to fall on.
         _canvas.Picked += (_, at) => Pick(at);
@@ -301,7 +301,7 @@ public sealed class GroupPanel : UserControl
     public ProjectWorkspace Workspace { get; }
 
     /// <summary>The node this is about.</summary>
-    public SvgcProjectNode Node { get; }
+    public ProjectNode Node { get; }
 
     /// <summary>Whether anything typed here has not been written to the project.</summary>
     public bool IsModified => _pending.Count > 0;
@@ -315,7 +315,7 @@ public sealed class GroupPanel : UserControl
     /// knows about none of them. Null is answered with the file, which the panel holds the document
     /// for.
     /// </remarks>
-    public Func<SvgcProjectDrawing, ISvgViewerDeclarationTarget?>? TargetOf { get; set; }
+    public Func<ProjectDrawing, ISvgViewerDeclarationTarget?>? TargetOf { get; set; }
 
     /// <summary>How the parameters tab asks what to declare. Replaceable, and faked in tests.</summary>
     public ISvgViewerParameterDialogService ParameterDialogService { get; set; } =
@@ -416,7 +416,7 @@ public sealed class GroupPanel : UserControl
     {
         _heading.Text = ProjectWorkspace.Label(Node);
 
-        if (Node is SvgcProjectGroup && _watched)
+        if (Node is ProjectGroup && _watched)
         {
             ShowDrawings();
         }
@@ -430,7 +430,7 @@ public sealed class GroupPanel : UserControl
 
         _watched = true;
 
-        if (Node is SvgcProjectGroup)
+        if (Node is ProjectGroup)
         {
             ShowDrawings();
         }
@@ -473,7 +473,7 @@ public sealed class GroupPanel : UserControl
         // the document that was read from it is here rather than there.
         _target = TargetOf?.Invoke(inspecting.Built.Drawing)
                   ?? (document.SourceText is { } text
-                      ? new DrawingFile(document, inspecting.Built.Drawing.ResolvedInput, text)
+                      ? new DrawingTarget(Workspace, inspecting.Built.Drawing)
                       : null);
 
         if (_target is null)
@@ -664,8 +664,7 @@ public sealed class GroupPanel : UserControl
 
         var drawing = inspecting.Built.Drawing;
 
-        var target = TargetOf?.Invoke(drawing)
-                     ?? new DrawingFile(document, drawing.ResolvedInput, source);
+        var target = TargetOf?.Invoke(drawing) ?? new DrawingTarget(Workspace, drawing);
 
         var panel = new SvgViewerElementPanel(
             () => target.Text,
@@ -795,7 +794,7 @@ public sealed class GroupPanel : UserControl
     {
         Release();
 
-        var drawings = ((SvgcProjectGroup)Node).Drawings.ToList();
+        var drawings = ((ProjectGroup)Node).Drawings.ToList();
 
         if (drawings.Count == 0)
         {
@@ -901,11 +900,16 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>One drawing built the way the project builds it, or why it could not be.</summary>
-    private Drawn Draw(SvgcProjectDrawing drawing)
+    private Drawn Draw(ProjectDrawing drawing)
     {
         try
         {
-            var document = SvgViewerDocument.Load(drawing.ResolvedInput, ProjectWorkspace.SizeOf(drawing));
+            // Through the host where a tab is holding this drawing, so the canvas shows what that
+            // tab shows rather than what the project was last saved with.
+            var document = SvgViewerDocument.LoadFromSvg(
+                TargetOf?.Invoke(drawing)?.Text ?? drawing.Text,
+                null,
+                ProjectWorkspace.SizeOf(drawing));
 
             _loaded.Add(document);
 
@@ -977,7 +981,7 @@ public sealed class GroupPanel : UserControl
             return null;
         }
 
-        var first = $"{Path.GetFileName(faults[0].Drawing.Input)} could not be read: {faults[0].Fault}";
+        var first = $"{faults[0].Drawing.Name} could not be read: {faults[0].Fault}";
 
         return faults.Count == 1 ? first : $"{first} And {faults.Count - 1} more could not be read.";
     }
@@ -1028,13 +1032,13 @@ public sealed class GroupPanel : UserControl
     /// Two, because one is about twice as wide as the drawings it sits under and the columns are
     /// sized to hold it.
     /// </remarks>
-    private static string Caption(SvgcProjectDrawing drawing)
+    private static string Caption(ProjectDrawing drawing)
     {
         var name = drawing.EffectiveNamespace is { } space && drawing.EffectiveClass is { } className
             ? $"{space}.{className}"
             : drawing.EffectiveClass ?? drawing.EffectiveNamespace ?? "(unnamed)";
 
-        return $"{Path.GetFileName(drawing.Input)}\n{name}   {Size(drawing)}";
+        return $"{drawing.Name}\n{name}   {Size(drawing)}";
     }
 
     private static readonly Uri Home = new("avares://Svg.Studio/");
@@ -1043,13 +1047,13 @@ public sealed class GroupPanel : UserControl
     /// The document and not just its picture: the declarations shown on the panel and the text the
     /// colours are surveyed from are both read off it.
     /// </remarks>
-    private sealed record Drawn(SvgcProjectDrawing Drawing, SvgViewerDocument? Document, SKSize Size, string? Fault)
+    private sealed record Drawn(ProjectDrawing Drawing, SvgViewerDocument? Document, SKSize Size, string? Fault)
     {
         public SKSvg? Svg => Document?.Svg;
     }
 
     /// <summary>What the sizing comes to, said the way the project says it.</summary>
-    private static string Size(SvgcProjectNode node)
+    private static string Size(ProjectNode node)
     {
         var parts = new List<string>();
 
@@ -1076,25 +1080,31 @@ public sealed class GroupPanel : UserControl
         return parts.Count == 0 ? "as written" : string.Join(" ", parts);
     }
 
-    private void ShowProperties(SvgcProjectNode node)
+    private void ShowProperties(ProjectNode node)
     {
         _properties.Children.Clear();
 
-        if (node is SvgcProjectDrawing)
+        if (node is not ProjectRoot)
         {
-            Add("input");
-            Add("output");
+            Add("name");
+        }
 
+        if (node is ProjectDrawing)
+        {
+            Add("output");
+        }
+
+        if (node is not ProjectRoot)
+        {
             _properties.Children.Add(new Separator { Margin = new Thickness(0, 6) });
         }
 
         Add("namespace");
         Add("class");
 
-        if (node is SvgcProjectRoot)
+        if (node is ProjectRoot)
         {
             Add("singleFile");
-            Add("emit");
             Add("cache");
             Add("helperScope");
             Add("skiaSharp");
@@ -1113,19 +1123,19 @@ public sealed class GroupPanel : UserControl
     /// <summary>What the box shows: what was typed here if anything, and what the file says if not.</summary>
     public string? Shown(string name) => Shown(Node, name);
 
-    private string? Shown(SvgcProjectNode node, string name)
+    private string? Shown(ProjectNode node, string name)
         => _pending.TryGetValue(name, out var pending) ? pending : Value(node, name);
 
     /// <summary>Writes one setting onto <paramref name="node"/>, or throws if the value is not one.</summary>
-    private static void Write(SvgcProjectNode node, string name, string? value)
+    private static void Write(ProjectNode node, string name, string? value)
     {
         switch (name)
         {
-            case "input":
-                ((SvgcProjectDrawing)node).Input = value!;
+            case "name":
+                node.Name = value!;
                 break;
             case "output":
-                ((SvgcProjectDrawing)node).Output = value;
+                ((ProjectDrawing)node).Output = value;
                 break;
             case "namespace":
                 node.Namespace = value;
@@ -1146,19 +1156,16 @@ public sealed class GroupPanel : UserControl
                 node.Scale = SvgcProject.ParseScale(value);
                 break;
             case "singleFile":
-                ((SvgcProjectRoot)node).SingleFile = value;
-                break;
-            case "emit":
-                ((SvgcProjectRoot)node).Emit = SvgcProject.ParseEmit(value);
+                ((ProjectRoot)node).SingleFile = value;
                 break;
             case "cache":
-                ((SvgcProjectRoot)node).Cache = SvgcProject.ParseCache(value);
+                ((ProjectRoot)node).Cache = SvgcProject.ParseCache(value);
                 break;
             case "helperScope":
-                ((SvgcProjectRoot)node).HelperScope = SvgcProject.ParseHelperScope(value);
+                ((ProjectRoot)node).HelperScope = SvgcProject.ParseHelperScope(value);
                 break;
             case "skiaSharp":
-                ((SvgcProjectRoot)node).SkiaSharp = SvgcProject.ParseSkiaSharpTarget(value);
+                ((ProjectRoot)node).SkiaSharp = SvgcProject.ParseSkiaSharpTarget(value);
                 break;
         }
     }
@@ -1202,7 +1209,7 @@ public sealed class GroupPanel : UserControl
     /// An empty box means "inherited", so clearing one is how an override is taken back — which is
     /// why the watermark carries the inherited value rather than a hint.
     /// </remarks>
-    private Control Row(SvgcProjectNode node, string name)
+    private Control Row(ProjectNode node, string name)
     {
         var value = Shown(node, name);
 
@@ -1312,10 +1319,10 @@ public sealed class GroupPanel : UserControl
     {
         switch (name)
         {
-            // The one setting with no empty form: a drawing is a file, and a row naming none is
-            // not a row the build can read.
-            case "input" when string.IsNullOrWhiteSpace(value):
-                throw new SvgcProjectException("A drawing needs an input file.");
+            // The one setting with no empty form: a row that says nothing is a row nobody can
+            // tell from the one beside it.
+            case "name" when string.IsNullOrWhiteSpace(value):
+                throw new SvgcProjectException("A drawing or group needs a name.");
             case "width":
                 SvgcProject.ParseLength(value, "width");
                 break;
@@ -1324,9 +1331,6 @@ public sealed class GroupPanel : UserControl
                 break;
             case "scale":
                 SvgcProject.ParseScale(value);
-                break;
-            case "emit":
-                SvgcProject.ParseEmit(value);
                 break;
             case "cache":
                 SvgcProject.ParseCache(value);
@@ -1341,7 +1345,7 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>What the node would take for <paramref name="name"/> if it said nothing itself.</summary>
-    private static string? Inherited(SvgcProjectNode node, string name)
+    private static string? Inherited(ProjectNode node, string name)
     {
         if (node.Parent is not { } parent)
         {
@@ -1353,10 +1357,10 @@ public sealed class GroupPanel : UserControl
         return owner is null ? null : $"{Value(owner, name)} — from {ProjectWorkspace.Label(owner)}";
     }
 
-    private static string? Value(SvgcProjectNode node, string name) => name switch
+    private static string? Value(ProjectNode node, string name) => name switch
     {
-        "input" => (node as SvgcProjectDrawing)?.Input,
-        "output" => (node as SvgcProjectDrawing)?.Output,
+        "name" => node.Name,
+        "output" => (node as ProjectDrawing)?.Output,
         "namespace" => node.Namespace,
         "class" => node.Class,
         "padding" => node.Padding,
@@ -1366,11 +1370,10 @@ public sealed class GroupPanel : UserControl
         // The project's own five. Left out, they showed empty however the file was written, and an
         // edit to one could never be recognised as typed back to what the file says — so it stayed
         // pending for ever.
-        "singleFile" => (node as SvgcProjectRoot)?.SingleFile,
-        "emit" => Text((node as SvgcProjectRoot)?.Emit),
-        "cache" => Text((node as SvgcProjectRoot)?.Cache),
-        "helperScope" => Text((node as SvgcProjectRoot)?.HelperScope),
-        "skiaSharp" => (node as SvgcProjectRoot)?.SkiaSharp is { } target
+        "singleFile" => (node as ProjectRoot)?.SingleFile,
+        "cache" => Text((node as ProjectRoot)?.Cache),
+        "helperScope" => Text((node as ProjectRoot)?.HelperScope),
+        "skiaSharp" => (node as ProjectRoot)?.SkiaSharp is { } target
             ? (target == SkiaSharpTarget.V3 ? "3" : "4")
             : null,
         _ => null

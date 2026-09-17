@@ -10,8 +10,8 @@ using Xunit;
 namespace Svg.Studio.UnitTests;
 
 /// <summary>
-/// Importing a PaintCode document: the drawings and the project it writes, and the project pane it
-/// leaves open on them.
+/// Importing a PaintCode document: the project it writes, with the drawings in it, and the project
+/// pane it leaves open on them.
 /// </summary>
 /// <remarks>
 /// The fixture is two canvases, one of them used as a symbol by the other, with a bound fill and a
@@ -29,14 +29,17 @@ public class MainWindowImportTests : IDisposable
     public async Task An_Import_Opens_The_Project_It_Wrote()
     {
         var window = Shown();
+        var target = Path.Combine(_directory, "icons.svgstudio");
 
-        Assert.True(await window.ImportPaintCodeAsync(Sample(), Path.Combine(_directory, "icons")));
+        Assert.True(await window.ImportPaintCodeAsync(Sample(), target));
 
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal("sample.svgcproj", window.Workspace!.Name);
-        Assert.True(File.Exists(Path.Combine(_directory, "icons", "desk", "badge.svg")));
-        Assert.True(File.Exists(Path.Combine(_directory, "icons", "desk", "host.svg")));
+        Assert.Equal("icons.svgstudio", window.Workspace!.Name);
+
+        // One file, with the drawings in it: nothing is written beside it.
+        Assert.Equal(new[] { "badge", "host" }, window.Workspace.Document.Root.Drawings.Select(drawing => drawing.Name).OrderBy(name => name).ToArray());
+        Assert.Equal(new[] { "icons.svgstudio", "sample.pcvd" }, Directory.EnumerateFileSystemEntries(_directory).Select(Path.GetFileName).OrderBy(name => name).ToArray());
     }
 
     [AvaloniaFact]
@@ -49,8 +52,8 @@ public class MainWindowImportTests : IDisposable
 
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal("sample.svgcproj", window.Workspace!.Name);
-        Assert.True(File.Exists(Path.Combine(_directory, "sample", "sample.svgcproj")));
+        Assert.Equal("sample.svgstudio", window.Workspace!.Name);
+        Assert.True(File.Exists(Path.Combine(_directory, "sample.svgstudio")));
     }
 
     [AvaloniaFact]
@@ -58,9 +61,9 @@ public class MainWindowImportTests : IDisposable
     {
         var window = Shown();
 
-        await window.ImportPaintCodeAsync(Sample(), Path.Combine(_directory, "icons"));
+        await window.ImportPaintCodeAsync(Sample(), Path.Combine(_directory, "icons.svgstudio"));
 
-        var text = File.ReadAllText(Path.Combine(_directory, "icons", "desk", "badge.svg"));
+        var text = window.Workspace!.Document.Root.Drawings.First(drawing => drawing.Name == "badge").Text;
 
         Assert.Contains("<e:param name=\"colorPurple\" type=\"color\"", text);
         Assert.Contains("fill=\"{{ isLight ? colorPurple : colorPurple }}\"", text);
@@ -71,7 +74,7 @@ public class MainWindowImportTests : IDisposable
     {
         var window = Shown();
 
-        await window.ImportPaintCodeAsync(Sample(), Path.Combine(_directory, "icons"));
+        await window.ImportPaintCodeAsync(Sample(), Path.Combine(_directory, "icons.svgstudio"));
 
         Assert.Contains("could not be carried across", _said);
 
