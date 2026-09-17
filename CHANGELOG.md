@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+* `src/Svg.Studio` has a project format of its own: **`.svgstudio`**, one XML file holding the
+  settings, the tree and the drawings themselves. A project is a thing you can move, diff or hand to
+  somebody, rather than a file plus a scattering of `.svg` files around it that have to travel with
+  it.
+
+  It replaces `.svgcproj` **in the editor only**. `svgc --projectFile`, the
+  `Svg.CodeGen.Skia.Projects` package and the PaintCode library go on reading and writing the svgc
+  format, and Studio builds through the same `SvgcProjectBuild` the tool runs — a build item can now
+  carry its drawing rather than point at one, which is all that took.
+
+  Opening an `.svgcproj` converts it: the drawings are read in, written beside the original as
+  `.svgstudio`, and what the conversion cost is said once. It is one way and deliberately lossy in
+  two places. A **recipe is baked into the drawings it painted**, because the parameters it declared
+  were what drove them and a conversion that dropped them would hand back a set of flat pictures;
+  and a file the old project named twice becomes two drawings, which no longer edit each other.
+  Importing a PaintCode document writes one file rather than a folder of drawings and a project
+  naming them.
+
+  Every row of a project is named now — `name` on a `<drawing>` and on a `<group>` — and that is what
+  the tree, the tab and a drawing's fallback class read. The old format had nothing to tell one group
+  from another, so a row was labelled by the settings it handed down: two groups beside each other
+  could be named off different attributes, and one that set neither read "group".
+
+  The file is held as an `SvgSourceDocument` rather than as a plain tree, which is the whole reason
+  it is not the svgc document with different element names. That type re-serialises, and
+  re-serialising somebody's drawing reformats it — measured over the 2,988 drawings in the two
+  suites, writing a tree back the ordinary way returned 28 of them unchanged. What a `.svgstudio`
+  reads it writes, drawings included.
+
+* **Recipes are out of Svg.Studio.** A recipe existed so a family of drawings could be parameterised
+  without editing them; the project holds the drawings now, so an edit can go where the value is.
+  The recipe tab, the Replacements pane, `Apply…` and the `recipe` setting are gone from the editor,
+  and a drawing's declarations are written where its elements already were.
+
+  `svgc` keeps them: `-r`, `--emit svg`, `Svg.Expressions.Recipes` and the demo are untouched. A
+  slider on a group's tab still moves every drawing that declares the same parameters, which is what
+  that panel always read — a recipe was one way of making them declare it, and writing the block in
+  each drawing is another.
+
 * A drawing that declares a parameter with no default after one that has a default now generates,
   rather than being refused. C# takes optional arguments last, so such a document cannot keep both
   its order and its defaults — it keeps the order and gives up the defaults: every argument is

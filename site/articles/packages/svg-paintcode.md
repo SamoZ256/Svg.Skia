@@ -35,17 +35,20 @@ foreach (var note in result.Notes)
 }
 ```
 
+`Drawings` hands back the same conversion without writing any of it — each desk, and each canvas as
+an `XDocument` — which is how a caller that keeps the drawings rather than filing them reads one.
+
 From the command line, `svgc --paintcode Icons.pcvd` imports beside the document and then builds the
 project it wrote, so every other flag means what it already meant. In
-[Svg.Studio](../guides/readme), **File → Import PaintCode…** does the same and opens the result;
-dropping a `.pcvd` on the window imports it beside itself.
+[Svg Studio](../guides/svg-studio), **File → Import PaintCode…** writes one `.svgstudio` holding
+every drawing and opens it; dropping a `.pcvd` on the window imports it beside itself.
 
 ## What comes across
 
 | PaintCode | SVG |
 | --- | --- |
 | A desk | A folder |
-| A canvas | One `.svg`, and one row of the project |
+| A canvas | One `.svg`, and one row of the project — or one drawing of a Studio project |
 | A group | `<g>`, with its clip as a `<clipPath>` |
 | Bezier, rectangle, rounded rectangle, oval, star, polygon | `<path>`, or `<rect>` and `<ellipse>` where those say it |
 | A symbol instance | `<use>` of a copy in the same file's `<defs>` |
