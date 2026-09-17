@@ -23,6 +23,57 @@ public class SvgViewerParameterFactoryTests
     private static SvgViewerNumberParameter Number(string param)
         => Assert.IsType<SvgViewerNumberParameter>(SvgViewerParameterFactory.Create(Declare(param)));
 
+    // ---- a row takes a value back -----------------------------------------------------------
+
+    [Theory]
+    // Every type, because the switch this replaced had three of the five and dropped a string or an
+    // integer value on the floor wherever a row was asked to take one back.
+    [InlineData("""<e:param name="p" type="number" default="0.25" />""")]
+    [InlineData("""<e:param name="p" type="integer" default="4" />""")]
+    [InlineData("""<e:param name="p" type="color" default="#22c55e" />""")]
+    [InlineData("""<e:param name="p" type="boolean" default="true" />""")]
+    [InlineData("""<e:param name="p" type="string" default="'dark'" />""")]
+    public void A_Row_Takes_Back_What_It_Gave(string param)
+    {
+        var row = SvgViewerParameterFactory.Create(Declare(param));
+        var carried = SvgViewerParameterFactory.Create(Declare(param));
+
+        Assert.True(carried.TrySet(row.ToExprValue()));
+        Assert.Equal(row.ToExprValue(), carried.ToExprValue());
+    }
+
+    [Theory]
+    [InlineData("""<e:param name="p" type="number" default="0.25" />""")]
+    [InlineData("""<e:param name="p" type="integer" default="4" />""")]
+    [InlineData("""<e:param name="p" type="color" default="#22c55e" />""")]
+    [InlineData("""<e:param name="p" type="boolean" default="true" />""")]
+    [InlineData("""<e:param name="p" type="string" default="'dark'" />""")]
+    public void A_Row_Refuses_A_Value_Of_Another_Type(string param)
+    {
+        var row = SvgViewerParameterFactory.Create(Declare(param));
+        var was = row.ToExprValue();
+
+        // Refused rather than coerced: rounding a number into an integer row would put a value into
+        // the drawing that nobody chose, and the evaluator would refuse the lot anyway.
+        foreach (var other in new[]
+                 {
+                     ExprValue.Number(9f),
+                     ExprValue.Integer(9),
+                     ExprValue.Color(1, 2, 3, 4),
+                     ExprValue.Boolean(false),
+                     ExprValue.String("other"),
+                 })
+        {
+            if (other.Type == row.Type)
+            {
+                continue;
+            }
+
+            Assert.False(row.TrySet(other));
+            Assert.Equal(was, row.ToExprValue());
+        }
+    }
+
     [Fact]
     public void A_Declared_Range_Is_Used_As_Declared()
     {

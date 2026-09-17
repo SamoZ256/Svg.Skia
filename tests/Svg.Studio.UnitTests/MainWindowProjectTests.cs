@@ -1088,6 +1088,117 @@ public class MainWindowProjectTests : IDisposable
         }
     }
 
+    /// <summary>What <see cref="Declaring"/> declares, seeded differently — the same parameter.</summary>
+    private const string DeclaringSeededDifferently = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="tint" type="color" default="#0000ff" /></e:code></defs>
+          <circle cx="12" cy="12" r="10" fill="{{ tint }}" />
+        </svg>
+        """;
+
+    /// <summary>Another parameter altogether, sharing nothing with it but the type.</summary>
+    private const string DeclaringAnother = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="shade" type="color" default="#00ff00" /></e:code></defs>
+          <path d="M12 2 L22 22 L2 22 Z" fill="{{ shade }}" />
+        </svg>
+        """;
+
+    /// <summary>The same name and type, on a slider with different ends.</summary>
+    private const string DeclaringBounded = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="hue" type="number" default="120" min="0" max="360" /></e:code></defs>
+          <rect width="24" height="24" fill="{{ hsl(hue, 100%, 50%) }}" />
+        </svg>
+        """;
+
+    private const string DeclaringBoundedDifferently = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="hue" type="number" default="120" min="0" max="180" /></e:code></defs>
+          <circle cx="12" cy="12" r="10" fill="{{ hsl(hue, 100%, 50%) }}" />
+        </svg>
+        """;
+
+    /// <summary>Three drawings that declare for themselves, with no recipe anywhere.</summary>
+    private const string DeclaringProject = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+          <group namespace="Demo.Icons.Own">
+            <svg input="one.svg" class="One" />
+            <svg input="two.svg" class="Two" />
+            <svg input="three.svg" class="Three" />
+          </group>
+        </svgc>
+        """;
+
+    private const string DeclaringPairProject = """
+        <svgc>
+          <namespace>Demo.Icons</namespace>
+          <group namespace="Demo.Icons.Own">
+            <svg input="one.svg" class="One" />
+            <svg input="two.svg" class="Two" />
+          </group>
+        </svgc>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Value_Reaches_Every_Drawing_Declaring_The_Same_Thing()
+    {
+        // No recipe anywhere, and not the same file either -- a rect and a circle, seeded at two
+        // different colours. What pairs them is what they declare: a default is where a drawing
+        // starts rather than what it takes, so a family caught at two points is still one family.
+        Write("one.svg", Declaring);
+        Write("two.svg", DeclaringSeededDifferently);
+        Write("three.svg", DeclaringAnother);
+
+        var window = await Host(Write("icons.svgcproj", DeclaringProject));
+        var panel = await Group(window, 0);
+
+        var placements = Drawn(panel);
+
+        Assert.Equal(3, placements.Count);
+
+        Pick(window, panel, 0);
+
+        var before = placements.Select(placed => placed.Svg.Picture).ToArray();
+
+        ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotSame(before[0], placements[0].Svg.Picture);
+        Assert.NotSame(before[1], placements[1].Svg.Picture);
+
+        // Another name, so another parameter, and it moves alone.
+        Assert.Same(before[2], placements[2].Svg.Picture);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Parameter_On_A_Different_Slider_Is_A_Different_Parameter()
+    {
+        // The bounds are advice to a host rather than a constraint on the value, so the value would
+        // have gone in either way -- but they are what the control offering it looks like, and two
+        // parameters somebody would be given different sliders for are not the one parameter.
+        Write("one.svg", DeclaringBounded);
+        Write("two.svg", DeclaringBoundedDifferently);
+
+        var window = await Host(Write("icons.svgcproj", DeclaringPairProject));
+        var panel = await Group(window, 0);
+
+        var placements = Drawn(panel);
+
+        Assert.Equal(2, placements.Count);
+
+        Pick(window, panel, 0);
+
+        var before = placements.Select(placed => placed.Svg.Picture).ToArray();
+
+        ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single()).Value = 300d;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotSame(before[0], placements[0].Svg.Picture);
+        Assert.Same(before[1], placements[1].Svg.Picture);
+    }
+
     [AvaloniaFact]
     public async Task A_Value_Reaches_Every_Drawing_Sharing_The_Declaration()
     {

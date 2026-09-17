@@ -861,16 +861,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>Whether a row already standing was built from this declaration.</summary>
     /// <remarks>
-    /// All four expressions, not the name and type alone: with the source editable, changing a
-    /// <c>step</c> or a bound leaves those two untouched and the panel showed the pre-edit range.
+    /// The declaration answers this itself. With the source editable, changing a <c>step</c> or a
+    /// bound leaves the name and type untouched, which is why it is not those two alone -- see
+    /// <see cref="SvgExpressionParameter.Equals(SvgExpressionParameter)"/>.
     /// </remarks>
     private static bool Same(SvgViewerParameter row, SvgExpressionParameter declared)
-        => row.Type == declared.Type
-           && string.Equals(row.Name, declared.Name, StringComparison.Ordinal)
-           && string.Equals(row.Declaration.DefaultExpression, declared.DefaultExpression, StringComparison.Ordinal)
-           && string.Equals(row.Declaration.MinExpression, declared.MinExpression, StringComparison.Ordinal)
-           && string.Equals(row.Declaration.MaxExpression, declared.MaxExpression, StringComparison.Ordinal)
-           && string.Equals(row.Declaration.StepExpression, declared.StepExpression, StringComparison.Ordinal);
+        => row.Declaration.Equals(declared);
 
     public void ResetParameters()
     {
@@ -878,38 +874,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         RequestApply();
     }
 
+    /// <remarks>
+    /// False for a name nothing declares and for a value of the wrong type alike, which a caller
+    /// cannot tell apart -- and does not need to, both being the same mistake about this drawing.
+    /// </remarks>
     public bool TrySetParameterValue(string name, ExprValue value)
-    {
-        var row = _rows.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.Ordinal));
-
-        switch (row)
-        {
-            case SvgViewerNumberParameter number when value.Type == ExprType.Number:
-                // The same widening the seed took: compared plainly, the float's binary tail would
-                // leave the row modified for ever over a difference nobody made.
-                number.Value = SvgViewerParameterFactory.Widen(value.AsNumber);
-                return true;
-
-            case SvgViewerIntegerParameter integer when value.Type == ExprType.Integer:
-                integer.Value = value.AsInteger;
-                return true;
-
-            case SvgViewerBooleanParameter boolean when value.Type == ExprType.Boolean:
-                boolean.Value = value.AsBoolean;
-                return true;
-
-            case SvgViewerStringParameter text when value.Type == ExprType.String:
-                text.Value = value.AsString;
-                return true;
-
-            case SvgViewerColorParameter colour when value.Type == ExprType.Color:
-                colour.Color = global::Avalonia.Media.Color.FromArgb(value.Alpha, value.Red, value.Green, value.Blue);
-                return true;
-
-            default:
-                return false;
-        }
-    }
+        => _rows.FirstOrDefault(row => string.Equals(row.Name, name, StringComparison.Ordinal))
+               ?.TrySet(value)
+           ?? false;
 
     private Dictionary<string, ExprValue> BuildValues()
     {

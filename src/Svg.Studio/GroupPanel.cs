@@ -94,8 +94,6 @@ public sealed class GroupPanel : UserControl
     /// <summary>Where the selected drawing keeps its declarations, or null when nothing is selected.</summary>
     private ISvgViewerDeclarationTarget? _target;
 
-    /// <summary>Which drawing the rows on the panel belong to, so a value is not carried across drawings.</summary>
-    private SvgcProjectDrawing? _showingParameters;
 
     private SvgViewerDeclarationCommands? _commands;
 
@@ -552,9 +550,7 @@ public sealed class GroupPanel : UserControl
 
         // Empty and not null. Null reads as "no document" and takes the Add button away with it,
         // which is the one button a drawing declaring nothing yet needs.
-        _parameters.Parameters = Carried(
-            inspecting.Built.Drawing,
-            SvgViewerParameterFactory.Create(document.Declarations.Parameters));
+        _parameters.Parameters = Carried(SvgViewerParameterFactory.Create(document.Declarations.Parameters));
 
         _parameters.ShowLets(document.Declarations.Lets);
 
@@ -579,57 +575,33 @@ public sealed class GroupPanel : UserControl
     /// <remarks>
     /// The rows are built again whenever the declarations change, and adding a parameter is a
     /// change; a slider somebody had dragged would otherwise snap back because they pressed a button
-    /// about a different parameter. Carried across a change of drawing only where the two share
-    /// their declarations, since that is exactly when the value was bound into both.
+    /// about a different parameter. Carried across a change of drawing only where the two declare
+    /// the same parameters, since that is exactly when the value was bound into both.
     /// </remarks>
-    private IReadOnlyList<SvgViewerParameter> Carried(
-        SvgcProjectDrawing drawing,
-        IReadOnlyList<SvgViewerParameter> rebuilt)
+    /// <remarks>
+    /// Asked of the two row lists rather than of the two drawings, which is the same question one
+    /// step nearer: a row carries the declaration it was built from, and these are the rows whose
+    /// values are actually in play.
+    /// </remarks>
+    private IReadOnlyList<SvgViewerParameter> Carried(IReadOnlyList<SvgViewerParameter> rebuilt)
     {
         var was = _parameters.Parameters;
 
-        var before = _showingParameters;
-
-        _showingParameters = drawing;
-
-        // Across drawings that share their declarations as well as across a rebuild of one: the
-        // values were bound into all of them, so showing the next one its declared defaults would
-        // have the panel disagreeing with the picture beside it.
-        if (was is null || before is null || !Shares(before, drawing))
+        if (was is null || !Same(was.Select(row => row.Declaration).ToList(), rebuilt.Select(row => row.Declaration).ToList()))
         {
             return rebuilt;
         }
 
-        foreach (var row in rebuilt)
+        // Known one for one by the check above, so the rows pair by position.
+        for (var index = 0; index < rebuilt.Count; index++)
         {
-            var had = was.FirstOrDefault(
-                old => string.Equals(old.Name, row.Name, StringComparison.Ordinal) && old.Type == row.Type);
-
-            if (had is { IsModified: true })
+            if (was[index] is { IsModified: true } had)
             {
-                Restore(row, had);
+                rebuilt[index].TrySet(had.ToExprValue());
             }
         }
 
         return rebuilt;
-    }
-
-    private static void Restore(SvgViewerParameter row, SvgViewerParameter before)
-    {
-        switch (row)
-        {
-            case SvgViewerNumberParameter number when before is SvgViewerNumberParameter had:
-                number.Value = had.Value;
-                break;
-
-            case SvgViewerColorParameter colour when before is SvgViewerColorParameter had:
-                colour.Color = had.Color;
-                break;
-
-            case SvgViewerBooleanParameter boolean when before is SvgViewerBooleanParameter had:
-                boolean.Value = had.Value;
-                break;
-        }
     }
 
     /// <summary>Puts a declaration edit where the drawing keeps them, or says why it would not go.</summary>
@@ -839,10 +811,9 @@ public sealed class GroupPanel : UserControl
     /// Binds the values on the panel into every drawing that shares the declarations, and repaints.
     /// </summary>
     /// <remarks>
-    /// A value belongs where its declaration does. Under a recipe that is every drawing built
-    /// through it, so moving one slider moves the family — which is the whole reason to look at them
-    /// side by side. A drawing declaring its own <c>&lt;e:code&gt;</c> shares with nothing, and moves
-    /// alone.
+    /// A value belongs to the declaration it is for, and every drawing declaring that takes it. So
+    /// moving one slider moves the family — which is the whole reason to look at them side by side —
+    /// whether the family was built through one recipe or each wrote the same block by hand.
     ///
     /// Cheap for a drag: the pictures are the ones already built, and <c>SetExpressionValues</c>
     /// re-evaluates a model each has cached rather than reading or compiling anything again.
@@ -854,12 +825,12 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        var picked = inspecting.Built.Drawing;
+        var picked = inspecting.Built;
         var values = Values();
 
         foreach (var shown in _shown)
         {
-            if (shown.Built.Svg is not { } svg || !Shares(picked, shown.Built.Drawing))
+            if (shown.Built.Svg is not { } svg || !Shares(picked, shown.Built))
             {
                 continue;
             }
@@ -877,16 +848,39 @@ public sealed class GroupPanel : UserControl
         _canvas.Publish();
     }
 
-    /// <summary>Whether two drawings take their declarations from the same place.</summary>
+    /// <summary>Whether two drawings declare the same parameters, and so take the same values.</summary>
     /// <remarks>
-    /// Which is a recipe or nothing. Two drawings that each declare their own happen to have the
-    /// same names about as often as two files do, and sharing values between them would be a
-    /// coincidence acted on.
+    /// What a drawing declares rather than where it declared it. Every drawing built through one
+    /// recipe has the recipe's block put into it before it is built, so those still share -- that
+    /// case is not lost, it is the same answer reached by reading what came out. What it adds is two
+    /// drawings that each wrote the same block by hand, which are as much a family as two built from
+    /// one recipe and had been moving alone.
+    ///
+    /// The whole parameter list, in order, and not the names: a bound is as much of what a parameter
+    /// is as its type, so two drawings agreeing on all of them have agreed about something, where two
+    /// that merely both say <c>hue</c> would be a coincidence acted on.
+    ///
+    /// The default is the one thing left out, because it is where a drawing starts rather than what
+    /// it takes. A set of icons seeded at different colours is the case this is for, and counting the
+    /// seed would have been exactly the rule that broke it.
+    ///
+    /// A drawing declaring nothing shares with nothing but itself -- it has no value anyone could be
+    /// moving, and an empty set means "every default", which would put a neighbour that has values
+    /// back to its placeholders.
     /// </remarks>
-    private static bool Shares(SvgcProjectDrawing picked, SvgcProjectDrawing other)
-        => ReferenceEquals(picked, other)
-           || (picked.EffectiveResolvedRecipe is { } recipe
-               && string.Equals(recipe, other.EffectiveResolvedRecipe, StringComparison.Ordinal));
+    private static bool Shares(Drawn picked, Drawn other)
+        => ReferenceEquals(picked.Drawing, other.Drawing)
+           || (picked.Document is { } mine
+               && other.Document is { } theirs
+               && mine.Declarations.Parameters.Count > 0
+               && Same(mine.Declarations.Parameters, theirs.Declarations.Parameters));
+
+    /// <summary>Whether two parameter lists take the same values, in the same order.</summary>
+    private static bool Same(
+        IReadOnlyList<SvgExpressionParameter> mine,
+        IReadOnlyList<SvgExpressionParameter> theirs)
+        => mine.Count == theirs.Count
+           && !mine.Where((parameter, index) => !parameter.SharesValuesWith(theirs[index])).Any();
 
     /// <summary>What the group builds, drawn on one canvas.</summary>
     /// <remarks>

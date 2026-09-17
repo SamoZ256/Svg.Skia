@@ -35,7 +35,15 @@ public enum SvgDeclarationPart
 /// </remarks>
 public readonly record struct SvgDeclarationDiagnostic(int Position, string Message);
 
-public sealed class SvgExpressionParameter
+/// <remarks>
+/// Compared by what it says rather than by which document said it, so two drawings declaring the
+/// same thing are declaring the same thing. There are two questions worth asking of that and this
+/// answers both, because a field added later is a question for each:
+/// <see cref="Equals(SvgExpressionParameter)"/> is whether the declarations are the same declaration,
+/// and <see cref="SharesValuesWith"/> is the weaker one of whether a value for one is a value for the
+/// other. They differ by the default alone.
+/// </remarks>
+public sealed class SvgExpressionParameter : IEquatable<SvgExpressionParameter>
 {
     public SvgExpressionParameter(string name, ExprType type, string? defaultExpression)
         : this(name, type, defaultExpression, null, null, null)
@@ -73,6 +81,59 @@ public sealed class SvgExpressionParameter
 
     /// <summary>Author supplied increment, in the expression language.</summary>
     public string? StepExpression { get; }
+
+    /// <summary>Whether a value for this parameter is a value for <paramref name="other"/> too.</summary>
+    /// <remarks>
+    /// Everything but the default, which is where a parameter starts rather than what it will take:
+    /// two drawings declaring the same slider, one seeded at 4 and one at 7, are one family caught at
+    /// two points, and a value dragged into either belongs in both.
+    ///
+    /// The bounds do count. They are advice to a host rather than a constraint on the value, so a
+    /// value would go in either way — but they are what the control offering it looks like, and two
+    /// parameters a person would be given different sliders for are not the one parameter.
+    /// </remarks>
+    public bool SharesValuesWith(SvgExpressionParameter? other)
+        => other is { }
+           && Type == other.Type
+           && string.Equals(Name, other.Name, StringComparison.Ordinal)
+           && string.Equals(MinExpression, other.MinExpression, StringComparison.Ordinal)
+           && string.Equals(MaxExpression, other.MaxExpression, StringComparison.Ordinal)
+           && string.Equals(StepExpression, other.StepExpression, StringComparison.Ordinal);
+
+    /// <summary>Whether the two are the same declaration, the default included.</summary>
+    /// <remarks>
+    /// Written over <see cref="SharesValuesWith"/> rather than beside it, so the one field they
+    /// differ by is the whole of the difference and stays that way.
+    /// </remarks>
+    public bool Equals(SvgExpressionParameter? other)
+        => SharesValuesWith(other)
+           && string.Equals(DefaultExpression, other!.DefaultExpression, StringComparison.Ordinal);
+
+    public override bool Equals(object? obj) => Equals(obj as SvgExpressionParameter);
+
+    /// <remarks>
+    /// The 397 is <see cref="ExprValue.GetHashCode"/>'s, in this same assembly: one hash shape rather
+    /// than two. Not System.HashCode, which arrived after netstandard2.0 and this still targets it.
+    /// </remarks>
+    public override int GetHashCode()
+    {
+        unchecked
+        {
+            var hash = (int)Type * 397;
+
+            hash = (hash * 397) ^ StringComparer.Ordinal.GetHashCode(Name);
+            hash = (hash * 397) ^ Hash(DefaultExpression);
+            hash = (hash * 397) ^ Hash(MinExpression);
+            hash = (hash * 397) ^ Hash(MaxExpression);
+            hash = (hash * 397) ^ Hash(StepExpression);
+
+            return hash;
+        }
+    }
+
+    // StringComparer.Ordinal.GetHashCode throws on null, and four of the six may be.
+    private static int Hash(string? value)
+        => value is { } text ? StringComparer.Ordinal.GetHashCode(text) : 0;
 
     /// <summary>Whether the author declared any of <c>min</c>, <c>max</c> or <c>step</c>.</summary>
     /// <remarks>
