@@ -266,8 +266,23 @@ public class SvgViewerCanvas : SKCanvasControl
         _hasFitted = false;
         _userAdjusted = false;
 
-        Place(placed ?? Array.Empty<SvgViewerPlacement>(), frames ?? Array.Empty<SvgViewerFrame>());
+        Place(placed ?? Array.Empty<SvgViewerPlacement>(), frames ?? Array.Empty<SvgViewerFrame>(), mayFit: true);
     }
+
+    /// <summary>Lays out the arrangement already on show again, keeping the view on it.</summary>
+    /// <remarks>
+    /// What <see cref="Replace"/> is for one drawing, for several: <see cref="Show"/> means a board
+    /// has arrived and re-fits, which is wrong for the same board being rearranged under the hand --
+    /// a drop that re-fits moves the thing that was just dropped away from where it was let go.
+    ///
+    /// It holds the view whether or not anybody has zoomed, where <see cref="Replace"/> re-fits an
+    /// untouched one. A single drawing has nothing beside it to hold still against and its own size
+    /// is usually what the edit changed; a board has neighbours, and they must not move because one
+    /// of them did. A board rearranged before the control has a size is still fitted once, since
+    /// this leaves <c>_hasFitted</c> alone for the arrange pass to see.
+    /// </remarks>
+    public void Rearrange(IReadOnlyList<SvgViewerPlacement> placed, IReadOnlyList<SvgViewerFrame>? frames = null)
+        => Place(placed ?? Array.Empty<SvgViewerPlacement>(), frames ?? Array.Empty<SvgViewerFrame>(), mayFit: false);
 
     /// <summary>Swaps in a rebuild of the drawing already on show, keeping an adjusted view.</summary>
     /// <remarks>
@@ -284,10 +299,11 @@ public class SvgViewerCanvas : SKCanvasControl
 
         Place(
             svg is { } ? new[] { new SvgViewerPlacement(svg, default) } : Array.Empty<SvgViewerPlacement>(),
-            Array.Empty<SvgViewerFrame>());
+            Array.Empty<SvgViewerFrame>(),
+            mayFit: true);
     }
 
-    private void Place(IReadOnlyList<SvgViewerPlacement> placed, IReadOnlyList<SvgViewerFrame> frames)
+    private void Place(IReadOnlyList<SvgViewerPlacement> placed, IReadOnlyList<SvgViewerFrame> frames, bool mayFit)
     {
         // What is being carried may not be among these.
         EndMove();
@@ -302,7 +318,7 @@ public class SvgViewerCanvas : SKCanvasControl
         // moved the view.
         Publish();
 
-        if (_userAdjusted)
+        if (!mayFit || _userAdjusted)
         {
             return;
         }
