@@ -107,6 +107,17 @@ A drag writes the file as it is made, like every other arrangement edit, and lik
 undone. And nothing sizes a column to hold a caption once a board is explicit, so two rows put close
 together can have their captions overlap — move one.
 
+**The board holds still while you work on it.** A tab is fitted when it first opens and never again
+on its own: a drop leaves what you dropped where you let go of it, and zooming in on one icon to line
+it up with another survives the drop, the parameter you add, the attribute you type and the trip to
+another tab and back. **Fit** is what asks for the whole of it again — which is also what to press
+when something lands out of sight, since a row with no place arrives beside the arrangement and a
+zoomed board may not reach that far.
+
+What is being looked at survives too: the ring, the row in the element tree and the Element tab are
+all still on the drawing that moved. What a drawing is built from decides whether it is read again,
+so arranging a board rebuilds nothing at all, and editing one drawing rebuilds that one.
+
 Dragging a parameter there moves **every drawing that declares the same thing**, which is what makes
 a family of icons worth looking at side by side. Sharing is decided by what a drawing declares rather
 than by where it declared it: the whole parameter list, in order, with each one's type and bounds.
