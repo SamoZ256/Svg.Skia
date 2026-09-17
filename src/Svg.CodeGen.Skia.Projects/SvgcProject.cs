@@ -23,7 +23,8 @@ public sealed class SvgcProjectItem
         float? width = null,
         float? height = null,
         float? scale = null,
-        string? padding = null)
+        string? padding = null,
+        string? source = null)
     {
         Input = input;
         Output = output;
@@ -34,9 +35,19 @@ public sealed class SvgcProjectItem
         Height = height;
         Scale = scale;
         Padding = padding;
+        Source = source;
     }
 
+    /// <summary>The drawing's file, or what to call it where <see cref="Source"/> says there is none.</summary>
     public string Input { get; }
+
+    /// <summary>The drawing itself, for a project that holds it rather than pointing at it.</summary>
+    /// <remarks>
+    /// Svg.Studio keeps its drawings inline in the project file, so there is no file to read and
+    /// <see cref="Input"/> carries the drawing's name instead — which is what the build says it is
+    /// reading and what a refusal names. Null is the ordinary case: the drawing is a file.
+    /// </remarks>
+    public string? Source { get; }
 
     public string? Output { get; }
 
