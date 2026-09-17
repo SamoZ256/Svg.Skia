@@ -913,6 +913,108 @@ public class MainWindowProjectTests : IDisposable
         => Drawn(panel).Single(placed =>
             placed.Label is { } caption && caption.StartsWith(drawing.Name + "\n", StringComparison.Ordinal));
 
+    /// <summary>
+    /// On a board, Edit mode drags the shape inside a drawing and leaves the drawing where it is.
+    /// </summary>
+    /// <remarks>
+    /// The one place the two gestures meet. A board hands the canvas a grip that answers for
+    /// anywhere inside a whole drawing, and Edit mode wants the same button over the same pixels, so
+    /// the toggle takes the grip away for as long as it is on: one toggle, one meaning. Neither the
+    /// viewer's suite nor the canvas's can see this — both run with a grip that is never set.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Edit_Mode_Moves_The_Shape_And_Leaves_The_Board_Alone()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        // Picked first: handles are what a selection has, so there is nothing to grab until then.
+        Pick(window, panel, 0);
+
+        Editing(panel, true);
+
+        Assert.NotNull(canvas.Gizmo);
+
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var was = (X: home.X, Y: home.Y);
+        var area = Area(Shown(panel, home));
+
+        Drag(
+            window,
+            canvas,
+            Over(canvas, area.MidX, area.MidY),
+            Over(canvas, area.MidX + 30f, area.MidY));
+
+        // Into the drawing's own text, as one edit...
+        Assert.Contains("transform=", home.Text, StringComparison.Ordinal);
+
+        // ...and the row is on the same spot on the board it was on: the grip never saw the press.
+        Assert.Equal(was.X, home.X);
+        Assert.Equal(was.Y, home.Y);
+    }
+
+    /// <summary>
+    /// While Edit mode is on, a press that is not on the handles pans — it does not carry a drawing.
+    /// </summary>
+    /// <remarks>
+    /// The press is on the drawing BESIDE the one being edited, which is the case that decides it.
+    /// The canvas offers the edit claim before the grip, so the handles are reachable either way;
+    /// what the toggle settles is everything else on the board. Letting the grip through would make
+    /// a press mean two different things depending on which drawing it landed on, told apart only by
+    /// which one happens to be selected.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Edit_Mode_Takes_The_Board_Out_Of_Reach()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        Pick(window, panel, 0);
+        Editing(panel, true);
+
+        // The one that is NOT being edited.
+        var other = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var was = other.X;
+        var offsetX = canvas.OffsetX;
+
+        var area = Area(Shown(panel, other));
+
+        Drag(
+            window,
+            canvas,
+            Over(canvas, area.MidX, area.MidY),
+            Over(canvas, area.MidX + 30f, area.MidY));
+
+        // The view moved under the hand, and the row did not.
+        Assert.NotEqual(offsetX, canvas.OffsetX);
+        Assert.Equal(was, other.X);
+
+        // And with the toggle off it is a board again.
+        Editing(panel, false);
+
+        Drag(
+            window,
+            canvas,
+            Over(canvas, area.MidX, area.MidY),
+            Over(canvas, area.MidX + 30f, area.MidY));
+
+        Assert.Equal(was!.Value + 30f, other.X!.Value, 1);
+    }
+
+    /// <summary>Turns the group tab's Edit toggle on or off.</summary>
+    private static void Editing(GroupPanel panel, bool on)
+    {
+        var toggle = panel.GetVisualDescendants()
+            .OfType<ToggleButton>()
+            .First(button => Equals(button.Content, "Edit"));
+
+        toggle.IsChecked = on;
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
     [AvaloniaFact]
     public async Task A_Group_Is_Carried_By_Its_Frame()
     {

@@ -19,6 +19,7 @@ using Avalonia.VisualTree;
 using SkiaSharp;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
+using Svg.Editor.Skia;
 using Svg.Expressions;
 using Svg.Highlighting;
 using Svg.Skia;
@@ -156,6 +157,12 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private readonly Dictionary<string, string?> _pending = new(StringComparer.Ordinal);
 
+    /// <summary>Moving, turning and scaling the picked element by dragging it on the canvas.</summary>
+    private readonly SvgViewerGizmo _gizmo = new();
+
+    /// <summary>Whether a drag moves the element under it rather than the view.</summary>
+    private ToggleButton? _edit;
+
     public GroupPanel(ProjectWorkspace workspace, ProjectNode node)
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
@@ -172,8 +179,25 @@ public sealed class GroupPanel : UserControl
 
         // Harmless on a drawing's settings pane, which has no canvas and so no placements to fall on.
         _canvas.Picked += (_, at) => Pick(at);
-        _canvas.Grip = Held;
         _canvas.Moved += (_, move) => Placed(move);
+
+        // The board is not draggable while the element under the pointer is. The canvas would let
+        // the two share a press -- it offers the edit first, and a miss falls through -- but on a
+        // board a grip answers for anywhere inside a whole drawing, so every press that missed a
+        // handle would carry the drawing instead. One toggle, one meaning.
+        _canvas.Grip = at => _edit?.IsChecked == true ? null : Held(at);
+
+        _canvas.IsEditTarget = at =>
+            _edit?.IsChecked == true
+            && Aimed(at) is { } aimed
+            && _gizmo.Hits(aimed, (float)_canvas.Scale);
+
+        _canvas.EditBegun += (_, at) => BeginEdit(at);
+        _canvas.EditMoved += (_, at) => DragEdit(at);
+        _canvas.EditEnded += (_, _) => EndEdit();
+        _canvas.EditCancelled += (_, _) => CancelEdit();
+
+        _canvas.ViewChanged += (_, _) => ShowGizmo();
 
         _parameters.ValueChanged += (_, _) => Bind();
         _parameters.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
@@ -202,6 +226,7 @@ public sealed class GroupPanel : UserControl
 
             _picked = node?.AddressKey;
 
+            TrackGizmo();
             ShowElement(node?.AddressKey);
         };
 
@@ -916,6 +941,8 @@ public sealed class GroupPanel : UserControl
             // the same handler a click on a row does. A key the drawing no longer has selects
             // nothing, which is the honest answer: the element it named has been edited away.
             _tree.TrySelect(picked);
+
+            TrackGizmo();
         }
     }
 
@@ -1206,6 +1233,10 @@ public sealed class GroupPanel : UserControl
 
         // And shown here for the same reason: the drawing changed even where the address did not.
         ShowElement(SvgElementAddress.Create(element).Key);
+
+        // Tracked here for it too. The handles are measured from one drawing's scene, so picking the
+        // same shape in a second copy has to move them even though the row did not change.
+        TrackGizmo();
     }
 
     /// <summary>Puts <paramref name="svg"/> in the tree, if it is not the one already there.</summary>
@@ -1237,13 +1268,200 @@ public sealed class GroupPanel : UserControl
     /// drawings are arranged in, so the path is moved by the placement's offset on the way across.
     /// </remarks>
     private void Ring(SvgViewerPlacement placement, SKSvg svg, SvgElement element)
+        => _canvas.Highlight = Outline(placement, svg, element);
+
+    /// <summary>
+    /// Traces the ring again for an element that has moved under it.
+    /// </summary>
+    /// <remarks>
+    /// The ring comes off the scene, so a drag that moves the shape leaves it behind on the
+    /// silhouette the shape used to have. Retrace rather than <see cref="Ring"/>, which restarts the
+    /// pulse announcing a new selection: at one frame per pointer move that is a ring flashing for
+    /// as long as the drag lasts, about something nobody just picked.
+    /// </remarks>
+    private void Retrace()
+    {
+        if (_inspecting is { } inspecting
+            && inspecting.Built.Svg is { } svg
+            && _tree.SelectedNode?.Element is { } element)
+        {
+            _canvas.Retrace(Outline(inspecting.Placement, svg, element));
+        }
+    }
+
+    private static SKPath? Outline(SvgViewerPlacement placement, SKSvg svg, SvgElement element)
     {
         var outline = SvgViewerOutline.Of(svg, element);
 
         outline?.Transform(SKMatrix.CreateTranslation(placement.At.X, placement.At.Y));
 
-        _canvas.Highlight = outline;
+        return outline;
     }
+
+    // ---- editing on the canvas ---------------------------------------------------------------
+
+    /// <summary>
+    /// Where a control point falls in the space of the drawing being inspected.
+    /// </summary>
+    /// <remarks>
+    /// The canvas answers in the space the drawings are <em>arranged</em> in, and the gizmo works in
+    /// one drawing's own — the same difference <see cref="Ring"/> crosses the other way.
+    /// </remarks>
+    private ShimSkiaSharp.SKPoint? Aimed(Point at)
+        => _inspecting is { } inspecting && _canvas.TryGetDrawingPoint(at, out var point)
+            ? new ShimSkiaSharp.SKPoint(point.X - inspecting.Placement.At.X, point.Y - inspecting.Placement.At.Y)
+            : null;
+
+    /// <summary>Puts the handles on the picked element of the picked drawing, or takes them off.</summary>
+    private void TrackGizmo()
+    {
+        var editing = _edit?.IsChecked == true;
+
+        _gizmo.Track(
+            editing ? _inspecting?.Built.Svg : null,
+            editing ? _tree.SelectedNode?.Element : null);
+
+        ShowGizmo();
+    }
+
+    private void ShowGizmo()
+        => _canvas.Gizmo = _inspecting is { } inspecting && _gizmo.Box((float)_canvas.Scale) is { } box
+            ? Beside(box, inspecting.Placement.At)
+            : null;
+
+    /// <summary>The same box, where its drawing actually sits on the canvas.</summary>
+    private static BoundsInfo Beside(BoundsInfo box, SKPoint at)
+        => new(
+            Over(box.TL, at),
+            Over(box.TR, at),
+            Over(box.BR, at),
+            Over(box.BL, at),
+            Over(box.TopMid, at),
+            Over(box.RightMid, at),
+            Over(box.BottomMid, at),
+            Over(box.LeftMid, at),
+            Over(box.Center, at),
+            Over(box.RotHandle, at));
+
+    private static SKPoint Over(SKPoint point, SKPoint at) => new(point.X + at.X, point.Y + at.Y);
+
+    /// <summary>
+    /// What a drag would be written into: the drawing's own file, at the address it spells there.
+    /// </summary>
+    /// <remarks>
+    /// The translation <see cref="ShowElement"/> does, for the same reason — the tree is of the
+    /// drawing as the project built it, and the file it came from spells the row differently. Null
+    /// where the row is the recipe's own invention and the file has nowhere to put it.
+    /// </remarks>
+    private (ISvgViewerDeclarationTarget Target, string Address)? Writing()
+    {
+        if (_inspecting is not { } inspecting
+            || inspecting.Built.Document is not { } document
+            || document.SourceText is not { } source
+            || _tree.SelectedNode?.AddressKey is not { } addressKey)
+        {
+            return null;
+        }
+
+        var drawing = inspecting.Built.Drawing;
+        var target = TargetOf?.Invoke(drawing) ?? new DrawingTarget(Workspace, drawing);
+
+        return SvgSourceElements.Addresses(target.Text, document.Built(target.Text))
+            .TryGetValue(addressKey, out var mine)
+            ? (target, mine)
+            : null;
+    }
+
+    private void BeginEdit(Point at)
+    {
+        if (Aimed(at) is not { } aimed)
+        {
+            return;
+        }
+
+        if (Writing() is not { } writing)
+        {
+            Says(Unwritten);
+
+            return;
+        }
+
+        if (SvgSourceDocument.Read(writing.Target.Text, out _) is { } source
+            && SvgAttributeEditor.Attributes(source, writing.Address).Any(
+                attribute => string.Equals(attribute.Name, "transform", StringComparison.Ordinal)
+                             && attribute.Value.Contains("{{", StringComparison.Ordinal)))
+        {
+            Says(Expressed);
+
+            return;
+        }
+
+        Says(_gizmo.Begin(aimed, (float)_canvas.Scale));
+
+        ShowGizmo();
+    }
+
+    private void DragEdit(Point at)
+    {
+        if (Aimed(at) is not { } aimed)
+        {
+            return;
+        }
+
+        _gizmo.Drag(aimed);
+
+        ShowGizmo();
+        Retrace();
+        _canvas.Publish();
+    }
+
+    /// <remarks>
+    /// The commit reads every drawing again, which drops the pick and the handles with it. That is
+    /// what an element edit already does here, and the alternative — restoring a selection into
+    /// documents that have all just been replaced — is a second thing to get wrong for the sake of
+    /// keeping a box on screen.
+    /// </remarks>
+    private void EndEdit()
+    {
+        if (_gizmo.End() is not { } edit)
+        {
+            ShowGizmo();
+
+            return;
+        }
+
+        if (Writing() is not { } writing)
+        {
+            Says(Unwritten);
+
+            return;
+        }
+
+        var refusal = writing.Target.Commit(
+            edit.Label,
+            source => SvgAttributeEditor.SetAttribute(source, writing.Address, "transform", edit.Transform));
+
+        Says(refusal);
+
+        if (refusal is null)
+        {
+            Written();
+        }
+    }
+
+    private void CancelEdit()
+    {
+        _gizmo.Cancel();
+
+        ShowGizmo();
+        Retrace();
+        _canvas.Publish();
+    }
+
+    private const string Unwritten = "That row is not written in this drawing's file, so it cannot be dragged.";
+
+    private const string Expressed =
+        "That element's transform is written by an expression, so dragging it would overwrite what moves it.";
 
     /// <summary>One drawing built the way the project builds it, or why it could not be.</summary>
     /// <summary>
@@ -1333,6 +1551,11 @@ public sealed class GroupPanel : UserControl
     {
         _canvas.Highlight = null;
 
+        // With the ring, and for its reason: the handles are measured from a scene node of a
+        // document this build may be about to dispose.
+        _gizmo.Track(null, null);
+        _canvas.Gizmo = null;
+
         _shown.Clear();
         _framed.Clear();
 
@@ -1416,6 +1639,25 @@ public sealed class GroupPanel : UserControl
         bar.Children.Add(_zoom);
         bar.Children.Add(Tool("+", "Zoom in, or scroll up", () => _canvas.ZoomIn()));
         bar.Children.Add(bounds);
+
+        _edit = new ToggleButton
+        {
+            Content = "Edit",
+            [ToolTip.TipProperty] =
+                "Drag the picked element to move it, its handles to scale it, and the stalk above to turn it"
+        };
+
+        _edit.IsCheckedChanged += (_, _) =>
+        {
+            if (_edit.IsChecked != true)
+            {
+                CancelEdit();
+            }
+
+            TrackGizmo();
+        };
+
+        bar.Children.Add(_edit);
 
         return bar;
     }

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+* **An Edit mode**, on the viewer and on a group's tab in Svg.Studio. Turn it on and the picked
+  element is drawn with handles: drag the body to move it, a handle to scale it, the stalk above to
+  turn it. What a drag comes to is written into that element's own `transform` attribute as one undo
+  step, and a press that never travels writes nothing at all.
+
+  It is a mode rather than a gesture because a left drag already pans and the two cannot share the
+  button. With the mode off, every press is exactly the press it was. With it on, the canvas offers
+  the element first and anything the element does not claim falls through, so the handles are always
+  reachable — and on a board, where a press anywhere inside a drawing would otherwise pick the whole
+  drawing up, the toggle takes the board out of reach for as long as it is on, so one toggle means
+  one thing.
+
+  `SvgViewerGizmo` holds the arithmetic and nothing else: it draws nothing and writes nothing,
+  composing every gesture in the element's own geometry space through the inverse of its total
+  transform, captured once at the press. An element whose transform is written by an expression is
+  refused rather than silently flattened.
+
 * **A group's board in Svg.Studio holds still while it is edited.** A tab was fitted afresh on
   almost every change -- a drawing dropped somewhere, a parameter added, an attribute typed, a
   glance at another tab -- so zooming in on one icon of forty to line it up with another lasted
