@@ -210,7 +210,7 @@ dropping a <code>.pcvd</code> on the window imports it beside itself.</p>
 </tr>
 <tr>
 <td>A variable marked as used</td>
-<td><code>&lt;e:param&gt;</code>, with its range as <code>min</code> and <code>max</code></td>
+<td><code>&lt;e:param&gt;</code> of the type it was declared as — see below</td>
 </tr>
 <tr>
 <td>A variable derived from others</td>
@@ -244,20 +244,72 @@ dropping a <code>.pcvd</code> on the window imports it beside itself.</p>
 </table>
 <p>PaintCode is y-up and SVG is y-down, so everything is turned over on the way: a point at <code>(x, y)</code>
 is written at <code>(x, -y)</code>, and an angle with it.</p>
+<h3 id="the-types-a-variable-can-have">The types a variable can have</h3>
+<p>PaintCode's own menu offers eight, plus Expression for a variable derived from others:</p>
+<table class="table">
+<thead>
+<tr>
+<th>PaintCode</th>
+<th>Becomes</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Number</td>
+<td><code>number</code></td>
+<td></td>
+</tr>
+<tr>
+<td>Fraction</td>
+<td><code>number</code>, <code>min=&quot;0&quot; max=&quot;1&quot;</code></td>
+<td>The range is <strong>not in the document</strong> — no variable carries a limit — so it comes from the type, which is the only place PaintCode keeps it.</td>
+</tr>
+<tr>
+<td>Angle</td>
+<td><code>number</code></td>
+<td>Degrees, which is what the translator already assumes where a trigonometric function wants radians.</td>
+</tr>
+<tr>
+<td>Text</td>
+<td><code>string</code></td>
+<td></td>
+</tr>
+<tr>
+<td>Boolean</td>
+<td><code>boolean</code></td>
+<td></td>
+</tr>
+<tr>
+<td>Point, Size, Rectangle</td>
+<td><em>refused</em></td>
+<td>The expression language has no such type. The declaration is named as unusable rather than flattened into something it is not.</td>
+</tr>
+<tr>
+<td>Expression</td>
+<td><code>&lt;e:let&gt;</code></td>
+<td>It declares no type of its own, so it is whatever the expression came out as.</td>
+</tr>
+</tbody>
+</table>
+<p>The distinction lives on the variable, not on the value: Number, Fraction and Angle are all stored as
+one double, so a reader going by storage sees one numeric type where PaintCode has three. This used
+to, which is why a fraction arrived indistinguishable from a number and lost its range on the way.</p>
 <h3 id="whole-numbers-if-you-ask">Whole numbers, if you ask</h3>
-<p>PaintCode has one numeric kind. A value is stored as a real whether or not it is whole — a width of
-15 and an alpha of 1 both are — and a variable's bounds are a minimum and a maximum with no step. So
-nothing in the document distinguishes a step enum from a slider that happens to sit on a whole
-number, and by default every one of them becomes <code>&lt;e:param type=&quot;number&quot;&gt;</code>.</p>
+<p>None of those three is whole. A value is stored as a real whether or not it looks like an integer — a
+width of 15 and an alpha of 1 both are — and a variable's bounds are a minimum and a maximum with no
+step, so nothing in the document distinguishes a step enum from a slider that happens to sit on a
+whole number.</p>
 <p>That leaves the shape PaintCode documents keep reaching for unsaid: a parameter compared with <code>==</code>
 against 0, 1, 2 and so on, which is an integer carried as a float.</p>
 <pre><code class="language-bash">svgc --paintcode Icons.pcvd --paintcodeIntegers
 </code></pre>
-<p>writes a number variable as <code>&lt;e:param type=&quot;integer&quot;&gt;</code> where its value is whole and its bounds are
-whole. It is <strong>a guess, and it is yours to make</strong>: a continuous 0 to 1 fade that happened to be saved
-at 1 is retyped too, and only the author knows which it was. A derived variable is never retyped —
-its body is PaintCode's arithmetic in PaintCode's one numeric type, and retyping the answer without
-the working would refuse the document rather than improve it.</p>
+<p>writes a <strong>Number</strong> variable as <code>&lt;e:param type=&quot;integer&quot;&gt;</code> where its value is whole and its bounds are
+whole. A Fraction and an Angle are left alone whatever their values, being continuous by declaration.
+It is still <strong>a guess, and yours to make</strong>: a Number slider that happens to sit on whole ends is
+retyped too, and only the author knows which it was. A derived variable is never retyped — its body is
+PaintCode's arithmetic, and retyping the answer without the working would refuse the document rather
+than improve it.</p>
 <h2 id="what-does-not-and-what-happens-instead">What does not, and what happens instead</h2>
 <p>The rule is that the converter never writes a binding it cannot say. It writes the value the drawing
 had, and records a <code>PaintCodeImportNote</code> naming the canvas, the element and the property. Nothing
