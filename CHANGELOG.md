@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+* Every item of a group in Svg.Studio can say where it sits: **`x` and `y`** on a `<drawing>` and on
+  a `<group>`, relative to the board the group holds. A group's tab lays its rows out there instead
+  of in the near-square grid the count decided, and a group with a place of its own is drawn as a
+  labelled frame round what it holds and carried as a unit — its children are written against it, so
+  moving a group is one attribute.
+
+  A group nobody has arranged is that grid still. The first drag settles the whole tab at the
+  coordinates the grid had just given it, so nothing jumps under the hand and what appears is a frame
+  round each group. Rows with no place — added, pasted, or dragged in from another board, which
+  forgets the numbers it had — wait in a grid beside the arrangement.
+
+  It is layout and nothing else: the build sees exactly what it saw, which the tests assert by
+  flattening one project with places and one without and comparing what comes out. Two things it is
+  deliberately not. It does not inherit, since a group's place is in its parent's coordinates and
+  offering that as a drawing's own default would be a number about somewhere else. And it is not part
+  of the size trio, or a drawing would become its own size owner and stop inheriting the scale its
+  group builds it at — which would show up only as every icon dropping to its natural size the moment
+  somebody moved one.
+
+* `Svg.Viewer.Skia.Avalonia`'s canvas can be taken hold of. `Show` takes `SvgViewerFrame`s beside the
+  placements — named rectangles drawn under the drawings, for a host that wants to show what belongs
+  to what — and `Grip` gives a host first refusal on a press, which until now the pan claimed before
+  anything knew what was under the pointer. What is carried is drawn where the pointer has it while
+  everything else holds still, and `Moved` is a request rather than a change: the canvas commits
+  nothing, so a host that does nothing about it has refused. Unset, a press pans exactly as it did.
+
 * `src/Svg.Studio` has a project format of its own: **`.svgstudio`**, one XML file holding the
   settings, the tree and the drawings themselves. A project is a thing you can move, diff or hand to
   somebody, rather than a file plus a scattering of `.svg` files around it that have to travel with

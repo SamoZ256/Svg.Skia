@@ -39,6 +39,10 @@ that project is one file — the settings, the tree and the drawings themselves.
   it: `namespace`, `class`, `padding` and the `width`/`height`/`scale` trio, which moves as one. The
   project also carries `singleFile`, `cache`, `helperScope` and `skiaSharp`, and a drawing carries
   the `output` its C# goes to.
+- `x` and `y` say where a row sits on the board of the group holding it — both or neither, and
+  relative to that board, so a group carries what it holds. They are the one pair that is inherited
+  by nobody, and the build never sees them: a group is still folded into its drawings rather than
+  composed out of them.
 - The file is written back as it was found — comments, attribute order, indentation and the
   drawings' own bytes. Editing one attribute rewrites that attribute.
 
@@ -84,6 +88,24 @@ Clicking a shape on it — or a row in the **element tree** beside it — picks 
 **Parameters** and **Element** tabs then behave as they would on that drawing's own tab. Until
 something is picked they say so, because a group builds several drawings and cannot guess which is
 meant.
+
+### The board
+
+A group that has never been arranged is laid out in a near-square grid. **Drag anything on it** and
+that stops: every row of the tab is written at the place the grid had just given it, so nothing
+jumps, and from then on the board is what the file says. `x` and `y` in the settings pane are the
+same thing typed rather than dragged.
+
+A **group with a place of its own is drawn as a labelled frame** round what it holds, and dragging
+the frame carries the lot — its children are written against it, so that is one attribute. A group
+with no place is not a unit on the board: what it holds joins the drawings that have no place yet,
+which wait in a grid beside the arrangement until somebody puts them somewhere. That is where a
+drawing added, dropped or pasted arrives, and a row dragged into another group or copied forgets the
+place it had, because the numbers were about the board it came from.
+
+A drag writes the file as it is made, like every other arrangement edit, and like those it cannot be
+undone. And nothing sizes a column to hold a caption once a board is explicit, so two rows put close
+together can have their captions overlap — move one.
 
 Dragging a parameter there moves **every drawing that declares the same thing**, which is what makes
 a family of icons worth looking at side by side. Sharing is decided by what a drawing declares rather
