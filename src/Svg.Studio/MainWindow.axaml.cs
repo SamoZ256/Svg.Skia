@@ -2744,8 +2744,10 @@ public partial class MainWindow : Window
         _tabs.Items.Remove(item);
         _stale.Remove(item);
 
-        // Nothing else disposes the document a discarded viewer is holding.
+        // Nothing else disposes the documents a discarded tab is holding — a viewer's one, or the
+        // whole group a board was built from, which is kept now while the tab is merely not on top.
         (item.Content as SvgViewer)?.Close();
+        (item.Content as GroupPanel)?.Close();
 
         UpdateTitle();
         UpdateMenu();

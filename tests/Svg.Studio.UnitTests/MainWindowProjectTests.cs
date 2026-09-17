@@ -307,33 +307,82 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
-    /// The pictures live exactly as long as the tab is the one being looked at.
+    /// The pictures live as long as the tab does, not as long as it is the one being looked at.
     /// </summary>
     /// <remarks>
-    /// Written down because it is what keeps the canvas cheap: every save refreshes every open
-    /// panel, and a group tab nobody is looking at would otherwise re-read every drawing under it.
+    /// They used to be let go the moment another tab was picked and read again on the way back, so
+    /// a glance at a neighbouring tab re-parsed the whole group and fitted the board afresh — and so
+    /// did dragging this tab along the strip, which removes the item and puts it back. A tab nobody
+    /// edited while it was away has nothing to do on its return.
     /// </remarks>
     [AvaloniaFact]
-    public async Task Drawings_Are_Let_Go_While_The_Tab_Is_Not_Looked_At()
+    public async Task Drawings_Are_Let_Go_When_The_Tab_Goes()
     {
-
         var window = await Host(Write("icons.svgstudio", Project));
         var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
 
         Assert.Equal(2, Drawn(panel).Count);
+
+        canvas.ZoomTo(canvas.Scale * 3d, new Point(10, 10));
+
+        var scale = canvas.Scale;
+        var offsetX = canvas.OffsetX;
+        var pictures = Drawn(panel).Select(placed => placed.Svg).ToList();
 
         var root = (TreeViewItem)Tree(window).Items[0]!;
 
         await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
+        Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>()
+            .Single(item => ReferenceEquals(item.Content, panel));
+        Dispatcher.UIThread.RunJobs();
+
+        // The same drawings, still built, and the view still on them.
+        Assert.All(Drawn(panel), placed => Assert.NotNull(Picture(placed)));
+        Assert.All(pictures.Zip(Drawn(panel).Select(placed => placed.Svg)), pair => Assert.Same(pair.First, pair.Second));
+
+        Assert.Equal(scale, canvas.Scale, 6);
+        Assert.Equal(offsetX, canvas.OffsetX, 6);
+
+        // Closing the project closes its tabs, and that is what lets the pictures go.
+        Assert.True(await window.CloseProjectAsync());
+
         Assert.Empty(Drawn(panel));
+        Assert.All(pictures, svg => Assert.Null(svg.Picture));
+    }
+
+    /// <summary>An edit that arrives while a tab is away is waiting for it when it comes back.</summary>
+    /// <remarks>
+    /// The other side of keeping the pictures: a tab that skipped its rebuild on the way back would
+    /// go on showing a drawing the project no longer holds.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task An_Edit_While_A_Tab_Is_Away_Is_Read_On_Its_Return()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var panel = Panel(window, "Project");
+
+        var before = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var edited = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+
+        edited.SetText(edited.Text.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+
+        window.Workspace.Save();
+        Dispatcher.UIThread.RunJobs();
 
         Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>()
             .Single(item => ReferenceEquals(item.Content, panel));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.All(Drawn(panel), placed => Assert.NotNull(Picture(placed)));
+        Assert.NotSame(before[0], Drawn(panel)[0].Svg);
     }
 
     /// <summary>

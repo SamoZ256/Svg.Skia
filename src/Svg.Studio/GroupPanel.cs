@@ -130,10 +130,16 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>Whether this is the tab being looked at.</summary>
     /// <remarks>
-    /// A tab's content leaves the visual tree when another tab is picked, so this is the whole of
-    /// when the pictures are worth having — and every save refreshes every open panel.
+    /// A tab's content leaves the visual tree when another tab is picked, so a board is laid out
+    /// only while it is on screen — and every save refreshes every open panel.
     /// </remarks>
     private bool _watched;
+
+    /// <summary>Whether an edit arrived while this tab was not the one being looked at.</summary>
+    /// <remarks>
+    /// True to begin with, since a tab that has never been attached has never built anything.
+    /// </remarks>
+    private bool _stale = true;
 
     /// <summary>Edits typed here and not yet written to the project, by setting name.</summary>
     /// <remarks>
@@ -426,9 +432,16 @@ public sealed class GroupPanel : UserControl
     {
         _heading.Text = ProjectWorkspace.Label(Node);
 
-        if (Node is ProjectGroup && _watched)
+        if (Node is ProjectGroup)
         {
-            ShowDrawings();
+            if (_watched)
+            {
+                ShowDrawings();
+            }
+            else
+            {
+                _stale = true;
+            }
         }
 
         ShowProperties(Node);
@@ -440,20 +453,33 @@ public sealed class GroupPanel : UserControl
 
         _watched = true;
 
-        if (Node is ProjectGroup)
+        if (Node is ProjectGroup && _stale)
         {
             ShowDrawings();
         }
     }
 
+    /// <summary>
+    /// Stops laying the board out, and keeps it.
+    /// </summary>
+    /// <remarks>
+    /// The drawings used to be disposed here and read again on the way back, so picking another tab
+    /// and returning re-parsed the whole group and fitted the board afresh — and so did dragging
+    /// this tab along the strip, which removes the item and puts it back. A tab nobody edited while
+    /// it was away has nothing to do on its return.
+    ///
+    /// The price is that every open group tab holds its pictures rather than only the one on screen.
+    /// <see cref="Close"/> is what lets them go, from the one place a tab is discarded.
+    /// </remarks>
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
 
         _watched = false;
-
-        Release();
     }
+
+    /// <summary>Lets go of the drawings this tab built. The tab is finished with after it.</summary>
+    public void Close() => Release();
 
     /// <summary>
     /// Shows the parameters of the drawing that is selected, and points the commands at wherever
@@ -802,7 +828,9 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void ShowDrawings()
     {
-        // Which drawing was being looked at, since Release is about to forget it. Every rebuild of
+        _stale = false;
+
+        // Which drawing was being looked at, since Forget is about to let go of it. Every rebuild of
         // this tab used to empty the Parameters and Element tabs — a settings edit did it, and a
         // drawing moved on the board would do it on every drop.
         var was = _inspecting?.Built.Drawing;
@@ -1276,6 +1304,7 @@ public sealed class GroupPanel : UserControl
         Discard(Array.Empty<Drawn>());
 
         _built = Array.Empty<Drawn>();
+        _stale = true;
     }
 
     /// <summary>Lets go of everything a build is about to say again.</summary>
