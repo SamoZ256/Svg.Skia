@@ -99,6 +99,34 @@ public abstract class ProjectNode
     /// <summary>Whether this node asks for a size of its own. <see cref="SvgcProjectItem.HasSize"/>.</summary>
     public bool HasSize => Width is { } || Height is { } || Scale is { };
 
+    /// <summary>Where this sits on the board of the group holding it, in drawing units.</summary>
+    /// <remarks>
+    /// Layout, and only layout: the build never sees it, and a group is still folded into its
+    /// drawings as settings rather than composed out of them.
+    /// </remarks>
+    public float? X
+    {
+        get => SvgcProject.ParseLength(ProjectDocument.Attribute(Element, "x"), "position");
+        set => Element.SetAttributeValue("x", Number(value));
+    }
+
+    /// <inheritdoc cref="X" />
+    public float? Y
+    {
+        get => SvgcProject.ParseLength(ProjectDocument.Attribute(Element, "y"), "position");
+        set => Element.SetAttributeValue("y", Number(value));
+    }
+
+    /// <summary>
+    /// Whether this node names a place of its own.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not part of <see cref="HasSize"/>: a node that names a place would otherwise
+    /// become its own size owner and stop inheriting the scale its group builds it at, so every
+    /// drawing would drop to its natural size the moment somebody moved it.
+    /// </remarks>
+    public bool HasPosition => X is { } && Y is { };
+
     public string? EffectiveNamespace => Nearest("namespace", true);
 
     public string? EffectiveClass => Nearest("class", true);
@@ -129,6 +157,9 @@ public abstract class ProjectNode
     public ProjectNode? OwnerOf(string setting) => setting switch
     {
         "width" or "height" or "scale" => SizeOwner(true),
+        // Where a thing sits is its own. A group's place is on its parent's board, in its parent's
+        // coordinates, so offered as a drawing's inherited x it would be a number about somewhere else.
+        "x" or "y" => null,
         _ => Ancestry(true).FirstOrDefault(node => node.Setting(setting) is { })
     };
 
@@ -616,13 +647,13 @@ public sealed class ProjectDocument
 
     private static readonly string[] s_groupAttributes =
     {
-        "name", "namespace", "class", "width", "height", "scale", "padding"
+        "name", "namespace", "class", "width", "height", "scale", "padding", "x", "y"
     };
 
     // Everything a group can name, and where the generated file goes, which is about one drawing.
     private static readonly string[] s_drawingAttributes =
     {
-        "name", "output", "namespace", "class", "width", "height", "scale", "padding"
+        "name", "output", "namespace", "class", "width", "height", "scale", "padding", "x", "y"
     };
 
     private ProjectDocument(SvgSourceDocument source, string? path, string baseDirectory)
@@ -691,7 +722,7 @@ public sealed class ProjectDocument
         _ = document.Root.Cache;
         _ = document.Root.HelperScope;
         _ = document.Root.SkiaSharp;
-        ValidateSize(document.Root);
+        Validate(document.Root);
 
         return document;
     }
@@ -772,7 +803,7 @@ public sealed class ProjectDocument
 
         var group = ProjectGroup.Group(element, parent, this);
 
-        ValidateSize(group);
+        Validate(group);
         ReadChildren(element, group);
 
         return group;
@@ -794,7 +825,7 @@ public sealed class ProjectDocument
 
         var drawing = new ProjectDrawing(element, parent, this);
 
-        ValidateSize(drawing);
+        Validate(drawing);
 
         return drawing;
     }
@@ -821,11 +852,20 @@ public sealed class ProjectDocument
         => Attribute(element, "name")
            ?? throw new SvgcProjectException($"<{elementName}> is missing a name.");
 
-    private static void ValidateSize(ProjectNode node)
+    /// <summary>Touches every parsed setting, so a bad value is a parse error rather than a surprise later.</summary>
+    private static void Validate(ProjectNode node)
     {
         _ = node.Width;
         _ = node.Height;
         _ = node.Scale;
+
+        // Half a point is not a place. The size trio allows a lone width because a width alone is a
+        // request the build understands; a lone x is a board with no rule for where the item goes.
+        if (node.X is { } != node.Y is { })
+        {
+            throw new SvgcProjectException(
+                $"<{node.Element.Name.LocalName} name=\"{node.Name}\"> names one of x and y. A place needs both, or neither.");
+        }
     }
 
     private static void RequireKnownAttributes(XElement element, string[] allowed, string elementName)

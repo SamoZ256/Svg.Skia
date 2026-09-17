@@ -289,11 +289,96 @@ public class ProjectDocumentTests : IDisposable
     [InlineData("<studio><group><drawing name=\"x\"><svg /></drawing></group></studio>", "missing a name")]
     [InlineData("<svgc />", "must be <studio>")]
     [InlineData("<studio scale=\"nope\" />", "scale")]
+    [InlineData("<studio x=\"0\" />", "not a <studio> attribute")]
+    [InlineData("<studio><drawing name=\"x\" x=\"8\"><svg /></drawing></studio>", "needs both, or neither")]
+    [InlineData("<studio><drawing name=\"x\" x=\"left\" y=\"0\"><svg /></drawing></studio>", "is not a position")]
     public void A_Project_That_Says_Something_Unreadable_Is_Refused(string xml, string says)
     {
         var refusal = Assert.ThrowsAny<Exception>(() => ProjectDocument.Parse(xml, string.Empty));
 
         Assert.Contains(says, refusal.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>The same project as the one above, with every row given a place on its board.</summary>
+    /// <remarks>
+    /// Its own fixture rather than a place added to <see cref="Project"/>, which a dozen tests above
+    /// compare verbatim.
+    /// </remarks>
+    private const string Placed = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <studio namespace="Demo.Icons">
+
+          <drawing name="Badge" x="0" y="0">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+          </drawing>
+
+          <group name="Large" scale="2" x="120" y="-40">
+            <drawing name="BadgeLarge" x="0" y="0">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+            </drawing>
+            <drawing name="BadgeAlt" x="60" y="8">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+            </drawing>
+          </group>
+
+        </studio>
+        """;
+
+    [Fact]
+    public void A_Place_Is_Read_And_Written_Where_It_Was()
+    {
+        var document = ProjectDocument.Parse(Placed, string.Empty);
+        var group = document.Root.Children.OfType<ProjectGroup>().Single();
+        var alt = group.Drawings.Last();
+
+        Assert.Equal(120f, group.X);
+        Assert.Equal(-40f, group.Y);
+        Assert.True(group.HasPosition);
+        Assert.Equal(60f, alt.X);
+
+        // Relative to the board it sits on, so moving the group is one attribute.
+        group.X = 130f;
+
+        Assert.Equal(Placed.Replace("x=\"120\"", "x=\"130\"", StringComparison.Ordinal), document.ToXml());
+    }
+
+    [Fact]
+    public void A_Place_Is_Nobody_Elses_To_Inherit()
+    {
+        var document = ProjectDocument.Parse(Placed, string.Empty);
+        var group = document.Root.Children.OfType<ProjectGroup>().Single();
+        var large = group.Drawings.First();
+
+        // A group's place is on its parent's board, in its parent's coordinates: offered as this
+        // drawing's inherited x it would be a number about somewhere else.
+        Assert.Null(large.OwnerOf("x"));
+        Assert.Null(large.OwnerOf("y"));
+
+        // And a place is not a size, or a drawing would stop inheriting the scale it builds at the
+        // moment somebody moved it.
+        Assert.False(large.HasSize);
+        Assert.Equal(2f, large.EffectiveScale);
+    }
+
+    [Fact]
+    public void A_Place_Is_No_Business_Of_The_Build()
+    {
+        var placed = ProjectDocument.Parse(Placed, string.Empty).Flatten();
+        var plain = ProjectDocument.Parse(
+            Placed.Replace(" x=\"0\" y=\"0\"", string.Empty, StringComparison.Ordinal)
+                .Replace(" x=\"120\" y=\"-40\"", string.Empty, StringComparison.Ordinal)
+                .Replace(" x=\"60\" y=\"8\"", string.Empty, StringComparison.Ordinal),
+            string.Empty).Flatten();
+
+        Assert.Equal(plain.Items.Count, placed.Items.Count);
+
+        foreach (var (one, other) in placed.Items.Zip(plain.Items))
+        {
+            Assert.Equal(other.Input, one.Input);
+            Assert.Equal(other.Class, one.Class);
+            Assert.Equal(other.Scale, one.Scale);
+            Assert.Equal(other.Source, one.Source);
+        }
     }
 
     [Fact]
