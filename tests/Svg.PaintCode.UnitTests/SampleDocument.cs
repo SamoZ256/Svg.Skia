@@ -76,8 +76,11 @@ internal static class SampleDocument
         var desk = archive.Object("PPDesk", ("name", archive.Text("Overlays")), ("canvases", archive.Array(canvas)));
 
         var library = archive.Object("PPLibrary", ("colors", archive.Array(purple)), ("variables", archive.Array(
-            Variable(archive, "state", 0, Constant(archive, 4, archive.Value(true))),
-            Variable(archive, "level", 2, Constant(archive, 2, archive.Value(1d), Interval(archive, 0, 1))),
+            // The kinds PaintCode's own menu gives these: 5 is Boolean, 0 is Number. They used to be
+            // 0 and 2 -- anything but 13 -- from when kind was read only to tell a derived variable
+            // from an input, which made a boolean claim to be a number and a number a fraction.
+            Variable(archive, "state", 5, Constant(archive, 4, archive.Value(true))),
+            Variable(archive, "level", 0, Constant(archive, 2, archive.Value(1d), Interval(archive, 0, 1))),
             Variable(archive, "off", 13, Expression(archive, "!state", 4, archive.Value(false))),
             Variable(archive, "purple70", 13, Expression(archive, "withAlpha(colorPurple, 0.7)", 5, purple70)))));
 

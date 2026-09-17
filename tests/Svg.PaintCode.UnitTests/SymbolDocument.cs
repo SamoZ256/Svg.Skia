@@ -15,7 +15,7 @@ internal static class SymbolDocument
         var archive = new KeyedArchiveBuilder();
 
         var purple = Color(archive, "colorPurple", "0.3725490196 0.0 0.7882352941 1");
-        var light = Variable(archive, "isLight", 4, archive.Value(false), 2, 1);
+        var light = Variable(archive, "isLight", 4, archive.Value(false), 5, 1);
         var dark = Variable(archive, "isNotLight", 4, archive.Value(true), 13, 0, "!isLight");
 
         var target = Canvas(archive, "badge", archive.Array(

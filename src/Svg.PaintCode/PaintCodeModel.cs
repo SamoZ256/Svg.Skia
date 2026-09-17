@@ -627,13 +627,24 @@ public sealed class PaintCodeShapeMetrics
     public double InnerRadiusPercentage { get; }
 }
 
+/// <summary>What a value is: a variable's declared type, or what a binding holds.</summary>
+/// <remarks>
+/// The two are not the same question. A variable says what it is -- PaintCode's own menu offers
+/// Number, Fraction, Angle, Text, Boolean, Point, Size and Rectangle -- while a binding only knows
+/// how the value was stored, and Number, Fraction and Angle are all stored as one double. So a
+/// binding is never a fraction or an angle, and a variable is only what it was declared as.
+/// </remarks>
 public enum PaintCodeValueKind
 {
     Number,
+    Fraction,
+    Angle,
     String,
     Boolean,
     Color,
     Gradient,
+    Point,
+    Size,
     Rect,
     Other
 }

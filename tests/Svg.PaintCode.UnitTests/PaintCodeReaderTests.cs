@@ -93,6 +93,44 @@ public class PaintCodeReaderTests
         Assert.True(off.IsDerived);
     }
 
+    [Theory]
+    // PaintCode's own menu, as its archive numbers it. Number, Fraction and Angle are all stored as
+    // one double, so kind is the only thing that tells them apart — which is what this reads and what
+    // the storage type cannot say. There is nothing at 1: the menu has no entry for it.
+    [InlineData(0, 2, PaintCodeValueKind.Number)]
+    [InlineData(2, 2, PaintCodeValueKind.Fraction)]
+    [InlineData(3, 2, PaintCodeValueKind.Angle)]
+    [InlineData(4, 3, PaintCodeValueKind.String)]
+    [InlineData(5, 4, PaintCodeValueKind.Boolean)]
+    [InlineData(6, 9, PaintCodeValueKind.Point)]
+    [InlineData(7, 11, PaintCodeValueKind.Size)]
+    [InlineData(8, 10, PaintCodeValueKind.Rect)]
+    [InlineData(1, 2, PaintCodeValueKind.Other)]
+    public void A_Variable_Is_What_It_Was_Declared_As(int kind, int type, PaintCodeValueKind expected)
+    {
+        var variable = PaintCodeDocument
+            .Parse(KindDocument.Bytes(kind, type))
+            .Variables
+            .Single(v => v.Name == "test");
+
+        Assert.Equal(expected, variable.Kind);
+        Assert.False(variable.IsDerived);
+    }
+
+    [Fact]
+    public void A_Derived_Variable_Is_Whatever_Its_Expression_Came_Out_As()
+    {
+        // Kind 13 is Expression, which declares no type of its own — so here, and only here, the
+        // stored type is the answer.
+        var variable = PaintCodeDocument
+            .Parse(SampleDocument.Bytes())
+            .Variables
+            .Single(v => v.Name == "purple70");
+
+        Assert.True(variable.IsDerived);
+        Assert.Equal(PaintCodeValueKind.Color, variable.Kind);
+    }
+
     [Fact]
     public void A_Bound_Property_Keeps_The_Expression_That_Drives_It()
     {

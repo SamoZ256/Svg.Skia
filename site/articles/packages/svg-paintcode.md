@@ -51,7 +51,7 @@ dropping a `.pcvd` on the window imports it beside itself.
 | A symbol instance | `<use>` of a copy in the same file's `<defs>` |
 | A library colour marked as used | `<e:param type="color">` |
 | A colour derived from one | `<e:let>` over `withAlpha` |
-| A variable marked as used | `<e:param>`, with its range as `min` and `max` |
+| A variable marked as used | `<e:param>` of the type it was declared as — see below |
 | A variable derived from others | `<e:let>` |
 | `fill`, `strokeColor`, `fontColor` | `fill`, `stroke`, and the text's own `fill` |
 | `alpha`, `visibilityMode` | `opacity`, `display` |
@@ -63,12 +63,30 @@ dropping a `.pcvd` on the window imports it beside itself.
 PaintCode is y-up and SVG is y-down, so everything is turned over on the way: a point at `(x, y)`
 is written at `(x, -y)`, and an angle with it.
 
+### The types a variable can have
+
+PaintCode's own menu offers eight, plus Expression for a variable derived from others:
+
+| PaintCode | Becomes | Notes |
+| --- | --- | --- |
+| Number | `number` | |
+| Fraction | `number`, `min="0" max="1"` | The range is **not in the document** — no variable carries a limit — so it comes from the type, which is the only place PaintCode keeps it. |
+| Angle | `number` | Degrees, which is what the translator already assumes where a trigonometric function wants radians. |
+| Text | `string` | |
+| Boolean | `boolean` | |
+| Point, Size, Rectangle | *refused* | The expression language has no such type. The declaration is named as unusable rather than flattened into something it is not. |
+| Expression | `<e:let>` | It declares no type of its own, so it is whatever the expression came out as. |
+
+The distinction lives on the variable, not on the value: Number, Fraction and Angle are all stored as
+one double, so a reader going by storage sees one numeric type where PaintCode has three. This used
+to, which is why a fraction arrived indistinguishable from a number and lost its range on the way.
+
 ### Whole numbers, if you ask
 
-PaintCode has one numeric kind. A value is stored as a real whether or not it is whole — a width of
-15 and an alpha of 1 both are — and a variable's bounds are a minimum and a maximum with no step. So
-nothing in the document distinguishes a step enum from a slider that happens to sit on a whole
-number, and by default every one of them becomes `<e:param type="number">`.
+None of those three is whole. A value is stored as a real whether or not it looks like an integer — a
+width of 15 and an alpha of 1 both are — and a variable's bounds are a minimum and a maximum with no
+step, so nothing in the document distinguishes a step enum from a slider that happens to sit on a
+whole number.
 
 That leaves the shape PaintCode documents keep reaching for unsaid: a parameter compared with `==`
 against 0, 1, 2 and so on, which is an integer carried as a float.
@@ -77,11 +95,12 @@ against 0, 1, 2 and so on, which is an integer carried as a float.
 svgc --paintcode Icons.pcvd --paintcodeIntegers
 ```
 
-writes a number variable as `<e:param type="integer">` where its value is whole and its bounds are
-whole. It is **a guess, and it is yours to make**: a continuous 0 to 1 fade that happened to be saved
-at 1 is retyped too, and only the author knows which it was. A derived variable is never retyped —
-its body is PaintCode's arithmetic in PaintCode's one numeric type, and retyping the answer without
-the working would refuse the document rather than improve it.
+writes a **Number** variable as `<e:param type="integer">` where its value is whole and its bounds are
+whole. A Fraction and an Angle are left alone whatever their values, being continuous by declaration.
+It is still **a guess, and yours to make**: a Number slider that happens to sit on whole ends is
+retyped too, and only the author knows which it was. A derived variable is never retyped — its body is
+PaintCode's arithmetic, and retyping the answer without the working would refuse the document rather
+than improve it.
 
 ## What does not, and what happens instead
 
