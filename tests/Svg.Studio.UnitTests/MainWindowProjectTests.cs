@@ -496,7 +496,7 @@ public class MainWindowProjectTests : IDisposable
 
         edited.SetText(edited.Text.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
 
-        window.Workspace.Save();
+        window.Workspace.Edit();
         Dispatcher.UIThread.RunJobs();
 
         Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>()
@@ -808,9 +808,17 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.Equal(badge.Left, Area(Drawn(panel)[1]).Left, 1);
 
-        // Written through, as every other arrangement edit is.
+        // The project's edit and not the tab's: nothing is typed into a board, so the tab wears no
+        // mark for it, and the file is untouched until somebody saves.
+        Assert.True(workspace.IsEdited);
+        Assert.Equal(0d, Marker((TabItem)Tabs(window).SelectedItem!).Opacity);
+        Assert.Equal(Project, File.ReadAllText(path));
+
+        await window.SaveAsync();
+
         Assert.Contains("<drawing name=\"home\"", File.ReadAllText(path), StringComparison.Ordinal);
         Assert.Contains("y=\"", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.False(workspace.IsEdited);
     }
 
     [AvaloniaFact]
@@ -905,7 +913,7 @@ public class MainWindowProjectTests : IDisposable
 
         edited.SetText(edited.Text.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
 
-        window.Workspace.Save();
+        window.Workspace.Edit();
         Dispatcher.UIThread.RunJobs();
 
         var after = Drawn(panel).Select(placed => placed.Svg).ToList();
@@ -927,7 +935,7 @@ public class MainWindowProjectTests : IDisposable
 
         group.Scale = 4f;
 
-        window.Workspace.Save();
+        window.Workspace.Edit();
         Dispatcher.UIThread.RunJobs();
 
         var after = Drawn(panel).Select(placed => placed.Svg).ToList();
@@ -1421,6 +1429,501 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(save.IsEnabled);
     }
 
+    /// <summary>
+    /// The whole of the change: a gesture edits the project and stops there, and the file is what
+    /// Save writes.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Nothing_Is_Written_Until_The_Project_Is_Saved()
+    {
+        Write("badge.svg", Drawing);
+
+        var path = Write("icons.svgstudio", Project);
+        var window = await Host(path);
+        var workspace = window.Workspace!;
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.AddGroupAsync((ProjectNode)root.Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        await window.AddDrawingAsync((ProjectNode)root.Tag!, Write("extra.svg", Drawing));
+        Dispatcher.UIThread.RunJobs();
+
+        var moved = workspace.Document.Root.Children.OfType<ProjectDrawing>().First();
+        var into = workspace.Document.Root.Children.OfType<ProjectGroup>().First();
+
+        Assert.True(window.Move(moved, into, ProjectDrop.Inside));
+        Dispatcher.UIThread.RunJobs();
+
+        // One per gesture, whatever each of them touched, and the file exactly as it was found.
+        Assert.Equal(3, workspace.Edits);
+        Assert.Equal(Project, File.ReadAllText(path));
+
+        await window.SaveAsync();
+
+        Assert.False(workspace.IsEdited);
+        Assert.Equal(workspace.Document.ToXml(), File.ReadAllText(path));
+        Assert.Contains("<drawing name=\"extra\">", File.ReadAllText(path), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Work that belongs to no tab is still work: the window wears the mark for it, offers to save
+    /// it, and asks about it on the way out.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Project_Edit_Marks_The_Window_And_Offers_Save()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var save = Menu(window, "Save");
+
+        Assert.False(save.IsEnabled);
+        Assert.DoesNotContain("•", window.Title, StringComparison.Ordinal);
+
+        Assert.True(window.Move(
+            window.Workspace!.Document.Root.Children[0],
+            window.Workspace.Document.Root.Children[1],
+            ProjectDrop.Inside));
+
+        Dispatcher.UIThread.RunJobs();
+
+        // On the window and on no tab: closing a tab would not lose it, so no tab warns about it.
+        Assert.StartsWith("• ", window.Title, StringComparison.Ordinal);
+        Assert.True(save.IsEnabled);
+        Assert.All(Tabs(window).Items.OfType<TabItem>(), item => Assert.Equal(0d, Marker(item).Opacity));
+
+        await window.SaveAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain("•", window.Title, StringComparison.Ordinal);
+        Assert.False(save.IsEnabled);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Project_With_Unwritten_Edits_Asks_Before_It_Closes()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var asked = new List<string>();
+
+        window.ConfirmDiscard = message =>
+        {
+            asked.Add(message);
+
+            return Task.FromResult(false);
+        };
+
+        Assert.True(window.Move(
+            window.Workspace!.Document.Root.Children[0],
+            window.Workspace.Document.Root.Children[1],
+            ProjectDrop.Inside));
+
+        Dispatcher.UIThread.RunJobs();
+
+        // Named rather than counted, since it is the file and not one of the things open over it.
+        Assert.False(await window.CloseProjectAsync());
+        Assert.Equal("icons.svgstudio has changes that have not been saved.", Assert.Single(asked));
+        Assert.True(window.Workspace!.IsEdited);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Tab_And_The_Project_Are_Named_Together()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        Panel(window, "Large").Edit("scale", "4");
+
+        Assert.True(window.Move(
+            window.Workspace!.Document.Root.Children[0],
+            window.Workspace.Document.Root.Children[1],
+            ProjectDrop.Inside));
+
+        Dispatcher.UIThread.RunJobs();
+
+        var asked = new List<string>();
+
+        window.ConfirmDiscard = message =>
+        {
+            asked.Add(message);
+
+            return Task.FromResult(false);
+        };
+
+        Assert.False(await window.CloseProjectAsync());
+        Assert.Equal("icons.svgstudio and Large have changes that have not been saved.", Assert.Single(asked));
+    }
+
+    /// <summary>
+    /// The other half of a tab saving what was typed in it: the write carries what the project was
+    /// given as well, because the project is one file.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Save_From_One_Tab_Writes_What_No_Tab_Is_Holding()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = Panel(window, "Large");
+
+        panel.Edit("scale", "4");
+
+        Assert.True(window.Move(
+            window.Workspace!.Document.Root.Children[0],
+            window.Workspace.Document.Root.Children[1],
+            ProjectDrop.Inside));
+
+        Dispatcher.UIThread.RunJobs();
+
+        await Save(window, panel);
+
+        var saved = File.ReadAllText(Path.Combine(_directory, "icons.svgstudio"));
+
+        Assert.Contains("scale=\"4\"", saved, StringComparison.Ordinal);
+        Assert.Contains("    <drawing name=\"home\" class=\"Home\">", saved, StringComparison.Ordinal);
+        Assert.False(window.Workspace.IsEdited);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Save_With_No_Tabs_Open_Writes_The_Project()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        foreach (var item in Tabs(window).Items.OfType<TabItem>().ToList())
+        {
+            ((StackPanel)item.Header!).Children.OfType<Button>().Single()
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        }
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(Tabs(window).Items);
+
+        Assert.True(window.Move(
+            window.Workspace!.Document.Root.Children[0],
+            window.Workspace.Document.Root.Children[1],
+            ProjectDrop.Inside));
+
+        Dispatcher.UIThread.RunJobs();
+
+        await window.SaveAsync();
+
+        Assert.False(window.Workspace.IsEdited);
+        Assert.Contains("    <drawing name=\"home\" class=\"Home\">", File.ReadAllText(Path.Combine(_directory, "icons.svgstudio")), StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Failed_Write_Leaves_The_Project_Unsaved()
+    {
+        var path = Write("icons.svgstudio", Project);
+        var window = await Host(path);
+        var said = new List<string>();
+
+        window.Announce = (title, _) =>
+        {
+            said.Add(title);
+
+            return Task.CompletedTask;
+        };
+
+        Assert.True(window.Move(
+            window.Workspace!.Document.Root.Children[0],
+            window.Workspace.Document.Root.Children[1],
+            ProjectDrop.Inside));
+
+        Dispatcher.UIThread.RunJobs();
+
+        File.SetAttributes(path, FileAttributes.ReadOnly);
+
+        try
+        {
+            await window.SaveAsync();
+        }
+        finally
+        {
+            File.SetAttributes(path, FileAttributes.Normal);
+        }
+
+        // Said, and still unsaved: a project that reported itself written when the write threw
+        // would drop its mark and let the window close over the lot.
+        Assert.Equal("The project couldn't be saved", Assert.Single(said));
+        Assert.True(window.Workspace.IsEdited);
+        Assert.StartsWith("• ", window.Title, StringComparison.Ordinal);
+        Assert.Equal(Project, File.ReadAllText(path));
+    }
+
+    /// <summary>
+    /// An svgc project opens by being converted, and the conversion is unsaved work like any other:
+    /// the old project and its drawings are where they were, and nothing is beside them yet.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Converted_Svgc_Project_Writes_Nothing_Until_It_Is_Saved()
+    {
+        Write("badge.svg", Drawing);
+
+        var source = Write("icons.svgcproj", """
+            <svgc namespace="Demo.Icons">
+              <svg input="badge.svg" class="Badge" />
+            </svgc>
+            """);
+
+        var window = Empty();
+        var said = new List<string>();
+        var target = Path.Combine(_directory, "icons.svgstudio");
+        string? offered = null;
+
+        window.Announce = (_, message) =>
+        {
+            said.Add(message);
+
+            return Task.CompletedTask;
+        };
+
+        window.AskWhereToSave = suggested =>
+        {
+            offered = suggested;
+
+            return Task.FromResult<string?>(target);
+        };
+
+        await window.OpenAsync(new[] { source });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Untitled", window.Workspace!.Name);
+        Assert.Equal("badge", Assert.Single(window.Workspace.Document.Root.Drawings).Name);
+
+        // Said, and true: the conversion is in the window, unnamed and nowhere else.
+        Assert.Contains("nothing is named yet", Assert.Single(said), StringComparison.Ordinal);
+        Assert.True(window.Workspace.IsEdited);
+        Assert.Null(window.Workspace.Document.Path);
+        Assert.False(File.Exists(target));
+
+        await window.SaveAsync();
+
+        // Asked where, with the old project's name offered.
+        Assert.Equal("icons.svgstudio", offered);
+        Assert.True(File.Exists(target));
+        Assert.Equal("badge", Assert.Single(ProjectDocument.Load(target).Root.Drawings).Name);
+        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "badge.svg")));
+    }
+
+    /// <summary>
+    /// A build needs somewhere to put what it writes, and a project with no file has no directory
+    /// to be relative to — so building one asks where it goes first, rather than writing beside
+    /// whatever Studio was started from.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Build_From_An_Unnamed_Project_Saves_It_First()
+    {
+        Write("badge.svg", Drawing);
+
+        var source = Write("icons.svgcproj", """
+            <svgc namespace="Demo.Icons">
+              <svg input="badge.svg" class="Badge" output="Badge.cs" />
+            </svgc>
+            """);
+
+        var window = Empty();
+
+        // Somewhere the conversion did not come from, so where the output lands says which
+        // directory the build resolved it against.
+        var elsewhere = Directory.CreateDirectory(Path.Combine(_directory, "moved")).FullName;
+        var target = Path.Combine(elsewhere, "icons.svgstudio");
+
+        window.Announce = (_, _) => Task.CompletedTask;
+        window.AskWhereToSave = _ => Task.FromResult<string?>(target);
+
+        await window.OpenAsync(new[] { source });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(await window.BuildAsync());
+
+        Assert.True(File.Exists(target));
+        Assert.True(File.Exists(Path.Combine(elsewhere, "Badge.cs")));
+        Assert.False(File.Exists(Path.Combine(_directory, "Badge.cs")));
+        Assert.False(File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "Badge.cs")));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Build_Nobody_Names_The_Project_For_Writes_Nothing()
+    {
+        Write("badge.svg", Drawing);
+
+        var source = Write("icons.svgcproj", """
+            <svgc namespace="Demo.Icons">
+              <svg input="badge.svg" class="Badge" output="Badge.cs" />
+            </svgc>
+            """);
+
+        var window = Empty();
+
+        window.Announce = (_, _) => Task.CompletedTask;
+        window.AskWhereToSave = _ => Task.FromResult<string?>(null);
+
+        await window.OpenAsync(new[] { source });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(await window.BuildAsync());
+
+        Assert.False(File.Exists(Path.Combine(_directory, "Badge.cs")));
+        Assert.False(File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "Badge.cs")));
+    }
+
+    /// <summary>
+    /// A project that cannot be read leaves the one that is open alone. It used to close it first
+    /// and then say so, which cost somebody their project for dropping the wrong file on a window.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Project_That_Cannot_Be_Read_Leaves_The_One_That_Is_Open()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var said = new List<string>();
+
+        window.Announce = (title, _) =>
+        {
+            said.Add(title);
+
+            return Task.CompletedTask;
+        };
+
+        await window.OpenAsync(new[] { Write("broken.svgstudio", "<studio><drawing /></studio>") });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("The project couldn't be opened", Assert.Single(said));
+        Assert.Equal("icons.svgstudio", window.Workspace!.Name);
+        Assert.Equal(new[] { "Project", "home", "Large", "badge" }, Rows((TreeViewItem)Tree(window).Items[0]!));
+    }
+
+    [AvaloniaFact]
+    public async Task An_Unnamed_Project_Is_Named_In_The_Question_On_The_Way_Out()
+    {
+        var window = Empty();
+        var asked = new List<string>();
+
+        window.ConfirmDiscard = message =>
+        {
+            asked.Add(message);
+
+            return Task.FromResult(false);
+        };
+
+        await window.NewProjectAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        await window.AddGroupAsync(window.Workspace!.Document.Root);
+        Dispatcher.UIThread.RunJobs();
+
+        // It has no name to be asked about by, and Untitled is the honest one — the sentence is all
+        // that stands between an author and losing work that is nowhere else.
+        Assert.False(await window.CloseProjectAsync());
+        Assert.Equal("Untitled has changes that have not been saved.", Assert.Single(asked));
+    }
+
+    /// <summary>
+    /// Saving a drawing that is open beside an unnamed project saves the drawing. Answering a save
+    /// of somebody else's file with a panel about where the project goes is not what was asked.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Saving_A_Drawing_Beside_An_Unnamed_Project_Asks_Nothing_About_It()
+    {
+        var drawing = Write("loose.svg", Drawing);
+        var window = Empty();
+        var asked = 0;
+
+        window.AskWhereToSave = _ =>
+        {
+            asked++;
+
+            return Task.FromResult<string?>(null);
+        };
+
+        await window.NewProjectAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        await window.OpenAsync(new[] { drawing });
+        await Settle(window, "loose.svg");
+
+        await window.SaveAsync();
+
+        Assert.Equal(0, asked);
+        Assert.Null(window.Workspace!.Document.Path);
+    }
+
+    /// <summary>
+    /// A drawing saved beside an unnamed project that is holding edits still asks nothing about the
+    /// project — the tab being saved decides what the save is about.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Saving_A_Drawing_Beside_An_Edited_Unnamed_Project_Asks_Nothing_About_It()
+    {
+        var drawing = Write("loose.svg", Drawing);
+        var window = Empty();
+        var asked = 0;
+
+        window.AskWhereToSave = _ =>
+        {
+            asked++;
+
+            return Task.FromResult<string?>(null);
+        };
+
+        await window.NewProjectAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        await window.AddGroupAsync(window.Workspace!.Document.Root);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(window.Workspace.IsEdited);
+
+        await window.OpenAsync(new[] { drawing });
+        await Settle(window, "loose.svg");
+
+        await window.SaveAsync();
+
+        Assert.Equal(0, asked);
+        Assert.True(window.Workspace.IsEdited);
+        Assert.Null(window.Workspace.Document.Path);
+    }
+
+    /// <summary>
+    /// A save panel nobody goes through with leaves the drawing marked. The tab is told it is saved
+    /// only after the write, or its text would exist in the viewer and on no disk with nothing
+    /// saying so.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Declined_Save_Leaves_An_Unnamed_Project_Drawing_Marked()
+    {
+        var window = Empty();
+
+        window.Announce = (_, _) => Task.CompletedTask;
+        window.AskWhereToSave = _ => Task.FromResult<string?>(null);
+
+        await window.NewProjectAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        await window.AddDrawingAsync(window.Workspace!.Document.Root, Write("extra.svg", Drawing));
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = await Settle(window, "extra");
+
+        Assert.True(viewer.Resize(new SvgSizeRequest(48f, null, null)));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.IsSourceModified);
+
+        await window.SaveAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        // Nowhere on disk, so nothing is clean: the mark and the dot both stay.
+        Assert.True(viewer.IsSourceModified);
+        Assert.True(window.Workspace.IsEdited);
+        Assert.StartsWith("• ", window.Title, StringComparison.Ordinal);
+    }
+
     /// <summary>The declaration panel on a group's Parameters tab, which the tab must be on to hold.</summary>
     private static SvgViewerDeclarationPanel Declarations(GroupPanel panel)
     {
@@ -1659,10 +2162,10 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task A_Drawing_Open_In_No_Tab_Is_Written_Into_The_Project()
+    public async Task A_Drawing_Open_In_No_Tab_Is_Edited_Through_The_Project()
     {
-        // The last resort, and the one that has no buffer behind it: the edit is written and saved
-        // at once, because there is nothing else holding the drawing.
+        // The last resort, and the one with no buffer behind it: the edit goes straight into the
+        // project, with nothing to take it back — but not onto disk, which waits for a save.
         var path = Own(Declaring, Declaring);
         var window = await Host(path);
         var panel = await Group(window, 0);
@@ -1676,6 +2179,14 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(await panel.AddParameterAsync());
         Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("sweep", window.Workspace!.Document.ToXml());
+        Assert.DoesNotContain("sweep", File.ReadAllText(path));
+
+        // No tab is holding it, so the project is what says it is unsaved, and what saves it.
+        Assert.True(window.Workspace.IsEdited);
+
+        await window.SaveAsync();
 
         Assert.Contains("sweep", File.ReadAllText(path));
     }
@@ -1966,6 +2477,7 @@ public class MainWindowProjectTests : IDisposable
         var workspace = window.Workspace!;
 
         ((ProjectGroup)workspace.Document.Root.Children[1]).Scale = 4f;
+        workspace.Edit();
         workspace.Save();
 
         // Saved as XML, with the comment and the layout the author wrote still there.
@@ -2015,7 +2527,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(large.IsModified);
         Assert.True(small.IsModified);
 
-        large.Save();
+        await Save(window, large);
 
         // Only the tab that saved is clean, and only its edit reached the file.
         Assert.False(large.IsModified);
@@ -2026,7 +2538,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("scale=\"0.5\"", saved);
         Assert.DoesNotContain("scale=\"8\"", saved);
 
-        small.Save();
+        await Save(window, small);
         Assert.Contains("scale=\"8\"", File.ReadAllText(path));
     }
 
@@ -2055,7 +2567,9 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(1d, marker.Opacity);
 
-        Panel(window, "Large").Save();
+        // Committed rather than saved: the mark is about what the tab is holding, and handing it
+        // to the project is what the tab has to do with it.
+        Panel(window, "Large").Commit();
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(0d, marker.Opacity);
 
@@ -2086,7 +2600,7 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(panel.Edit("name", "Huge"));
 
-        panel.Save();
+        await Save(window, panel);
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal("Huge", title.Text);
@@ -2146,7 +2660,7 @@ public class MainWindowProjectTests : IDisposable
         panel.Edit("singleFile", "Other.cs");
         Assert.True(panel.IsModified);
 
-        panel.Save();
+        await Save(window, panel);
 
         // Saved, said to be saved, and nothing left behind to be asked about.
         Assert.False(panel.IsModified);
@@ -2194,7 +2708,7 @@ public class MainWindowProjectTests : IDisposable
         box.Text = "Typed.Icons";
         Dispatcher.UIThread.RunJobs();
 
-        panel.Save();
+        await Save(window, panel);
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(panel.IsModified);
@@ -2269,7 +2783,7 @@ public class MainWindowProjectTests : IDisposable
         box.CaretIndex = 1;
         Dispatcher.UIThread.RunJobs();
 
-        panel.Save();
+        await Save(window, panel);
         Dispatcher.UIThread.RunJobs();
 
         Assert.Contains("scale=\"6\"", File.ReadAllText(path));
@@ -2442,7 +2956,7 @@ public class MainWindowProjectTests : IDisposable
 
     /// <summary>The open group tab whose node is labelled <paramref name="label"/>.</summary>
     [AvaloniaFact]
-    public async Task A_Drawing_Added_Reaches_The_Tree_And_The_File()
+    public async Task A_Drawing_Added_Reaches_The_Tree_And_The_Project()
     {
         Write("home.svg", Drawing);
         Write("badge.svg", Drawing);
@@ -2460,12 +2974,18 @@ public class MainWindowProjectTests : IDisposable
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
         // The drawing itself, on lines of its own rather than sharing the closing tag's — and the
-        // rest of the file exactly as it was.
-        var written = File.ReadAllText(path);
+        // rest of the project exactly as it was. What the project holds, not what is on disk: an
+        // add is an edit like any other and waits to be saved.
+        var written = window.Workspace!.Document.ToXml();
 
         Assert.Contains("\n  <drawing name=\"extra\">\n    <svg", written, StringComparison.Ordinal);
         Assert.Contains("<rect width=\"24\" height=\"24\" fill=\"#00ff00\" />", written, StringComparison.Ordinal);
         Assert.StartsWith(Project[..Project.IndexOf("</studio>", StringComparison.Ordinal)], written, StringComparison.Ordinal);
+        Assert.Equal(Project, File.ReadAllText(path));
+
+        await window.SaveAsync();
+
+        Assert.Equal(written, File.ReadAllText(path));
 
         // And it opens, at the size the project it just joined builds it at.
         Assert.Equal("extra", Named(Tab(window, "extra")));
@@ -2484,8 +3004,10 @@ public class MainWindowProjectTests : IDisposable
         await window.AddGroupAsync((ProjectNode)group.Tag!);
         Dispatcher.UIThread.RunJobs();
 
-        // Inside the group it was asked from, indented a level in from it.
-        Assert.Contains("    </drawing>\n    <group name=\"group\" />", File.ReadAllText(path), StringComparison.Ordinal);
+        // Inside the group it was asked from, indented a level in from it, and not on disk until
+        // somebody saves it.
+        Assert.Contains("    </drawing>\n    <group name=\"group\" />", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.Equal(Project, File.ReadAllText(path));
 
         // Named by neither of its settings until one is typed, which is what the tab is for.
         Assert.Equal("group", ProjectWorkspace.Label(Panel(window, "group").Node));
@@ -2575,7 +3097,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(new[] { "Project", "home" }, Rows((TreeViewItem)Tree(window).Items[0]!));
 
         // The comment stays. It is a sibling of the group, not part of it.
-        var written = File.ReadAllText(path);
+        var written = window.Workspace!.Document.ToXml();
 
         Assert.Contains("<!-- kept, so an edit is proven not to reformat the file -->", written, StringComparison.Ordinal);
         Assert.DoesNotContain("<group", written, StringComparison.Ordinal);
@@ -2652,7 +3174,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(2f, home.EffectiveScale);
 
         // And the row moved with everything it holds, written at its new depth.
-        var written = File.ReadAllText(path);
+        var written = window.Workspace!.Document.ToXml();
 
         Assert.Contains("    <drawing name=\"home\" class=\"Home\">\n      <svg", written, StringComparison.Ordinal);
         Assert.DoesNotContain("\n  <drawing name=\"home\"", written, StringComparison.Ordinal);
@@ -2729,7 +3251,7 @@ public class MainWindowProjectTests : IDisposable
         // a place — and the drawing goes on building at the size its group asks for.
         Assert.True(settings.Edit("x", "12"));
 
-        settings.Save();
+        await window.SaveAsync();
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(12f, drawing.X);
@@ -2739,7 +3261,7 @@ public class MainWindowProjectTests : IDisposable
         // Cleared, the place goes with it rather than leaving half of one.
         Assert.True(settings.Edit("y", null));
 
-        settings.Save();
+        await window.SaveAsync();
         Dispatcher.UIThread.RunJobs();
 
         Assert.Null(drawing.X);
@@ -2839,6 +3361,17 @@ public class MainWindowProjectTests : IDisposable
     }
 
     private static TextBlock Marker(TabItem item) => (TextBlock)((StackPanel)item.Header!).Children[0];
+
+    /// <summary>Saves the way ⌘S does, with this panel's tab the one being looked at.</summary>
+    private static async Task Save(MainWindow window, GroupPanel panel)
+    {
+        Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>()
+            .Single(item => ReferenceEquals(item.Content, panel));
+
+        Dispatcher.UIThread.RunJobs();
+
+        await window.SaveAsync();
+    }
 
     private static GroupPanel Panel(MainWindow window, string label)
         => Tabs(window).Items.OfType<TabItem>()
@@ -3021,7 +3554,7 @@ public class MainWindowProjectTests : IDisposable
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
         // In the project and nowhere else: nothing is written beside it.
-        Assert.Contains("<drawing name=\"drawing\">", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("<drawing name=\"drawing\">", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
         Assert.False(File.Exists(Path.Combine(_directory, "drawing.svg")));
     }
 
@@ -3334,8 +3867,10 @@ public class MainWindowProjectTests : IDisposable
             new[] { "Project", "home", "Large", "badge", "extra" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
-        Assert.Contains("<drawing name=\"badge\" class=\"BadgeLarge\">", File.ReadAllText(path), StringComparison.Ordinal);
-        Assert.Contains("<drawing name=\"extra\">", File.ReadAllText(path), StringComparison.Ordinal);
+        var written = window.Workspace!.Document.ToXml();
+
+        Assert.Contains("<drawing name=\"badge\" class=\"BadgeLarge\">", written, StringComparison.Ordinal);
+        Assert.Contains("<drawing name=\"extra\">", written, StringComparison.Ordinal);
 
         Assert.Equal("extra", Named(Tab(window, "extra")));
     }
@@ -3473,24 +4008,25 @@ public class MainWindowProjectTests : IDisposable
     /// New: the project Open cannot reach, because it is not written yet.
     /// </summary>
     [AvaloniaFact]
-    public async Task A_New_Project_Is_Written_And_Opened()
+    public async Task A_New_Project_Is_Opened_Without_A_File()
     {
-        var path = Path.Combine(_directory, "fresh.svgstudio");
         var window = Empty();
 
-        await window.NewProjectAsync(path);
+        await window.NewProjectAsync();
 
         Dispatcher.UIThread.RunJobs();
 
-        Assert.True(File.Exists(path));
-        Assert.Equal("fresh.svgstudio", window.Workspace!.Name);
+        // Nothing written and nothing named: naming a file is what saving is for.
+        Assert.Empty(Directory.EnumerateFileSystemEntries(_directory));
+        Assert.Null(window.Workspace!.Document.Path);
+        Assert.Equal("Untitled", window.Workspace.Name);
         Assert.Empty(window.Workspace.Document.Root.Drawings);
 
         // The tree is the project row and nothing under it: a new project holds no drawings.
         Assert.Equal(new[] { "Project" }, Rows((TreeViewItem)Tree(window).Items[0]!));
 
-        // Written, opened, and open on its own settings — which for a project with nothing in it
-        // yet is the only thing there is to be on.
+        // Opened on its own settings, which for a project with nothing in it yet is the only thing
+        // there is to be on.
         var tab = Assert.IsType<TabItem>(Assert.Single(Tabs(window).Items));
 
         Assert.Same(window.Workspace.Document.Root, Assert.IsType<GroupPanel>(tab.Content).Node);
@@ -3506,7 +4042,9 @@ public class MainWindowProjectTests : IDisposable
         var path = Path.Combine(_directory, "fresh.svgstudio");
         var window = Empty();
 
-        await window.NewProjectAsync(path);
+        window.AskWhereToSave = _ => Task.FromResult<string?>(path);
+
+        await window.NewProjectAsync();
 
         Dispatcher.UIThread.RunJobs();
 
@@ -3519,26 +4057,47 @@ public class MainWindowProjectTests : IDisposable
         }
 
         Assert.Single(window.Workspace!.Document.Root.Drawings);
+        Assert.Contains("\n  <drawing name=\"dropped\">\n    <svg ", window.Workspace.Document.ToXml(), StringComparison.Ordinal);
+
+        // Nothing on disk at all yet — the drop went into a project that is not a file.
+        Assert.False(File.Exists(path));
+
+        await window.SaveAsync();
+
         Assert.Contains("\n  <drawing name=\"dropped\">\n    <svg ", File.ReadAllText(path), StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// New over a project that is already there opens it. The save panel asked about replacing the
-    /// file; emptying somebody's project is not what answering yes to that meant.
+    /// A new project can be saved with nothing in it — that is how it gets a name — while a project
+    /// that has one is only written when something has changed.
     /// </summary>
     [AvaloniaFact]
-    public async Task A_New_Project_Over_One_That_Exists_Opens_It()
+    public async Task An_Empty_New_Project_Can_Still_Be_Saved()
     {
-
-        var path = Write("icons.svgstudio", Project);
+        var path = Path.Combine(_directory, "fresh.svgstudio");
         var window = Empty();
 
-        await window.NewProjectAsync(path);
+        window.AskWhereToSave = _ => Task.FromResult<string?>(path);
+
+        await window.NewProjectAsync();
 
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(Project, File.ReadAllText(path));
-        Assert.Equal("Demo.Icons", window.Workspace!.Document.Root.Namespace);
+        // Offered, though nothing is unsaved: there is nothing to lose and everything to name.
+        Assert.True(Menu(window, "Save").IsEnabled);
+        Assert.DoesNotContain("•", window.Title, StringComparison.Ordinal);
+
+        await window.SaveAsync();
+
+        Assert.Equal("fresh.svgstudio", window.Workspace!.Name);
+        Assert.Contains("<studio>", File.ReadAllText(path), StringComparison.Ordinal);
+
+        // And now that it is a file, a save with nothing to write leaves it alone.
+        var written = File.GetLastWriteTimeUtc(path);
+
+        await window.SaveAsync();
+
+        Assert.Equal(written, File.GetLastWriteTimeUtc(path));
     }
 
     /// <summary>Waits for the tab holding <paramref name="name"/> to have finished loading.</summary>

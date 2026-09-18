@@ -59,6 +59,12 @@ public partial class MainWindow : Window
     /// <summary>The open project, or null. The window works on one at a time, as a workspace is.</summary>
     private ProjectWorkspace? _workspace;
 
+    /// <summary>The copy kept of the open project while it has work that is not on disk.</summary>
+    private ProjectRecovery? _recovery;
+
+    /// <summary>The settings window while one is open, so a second asking brings that one forward.</summary>
+    private SettingsWindow? _settings;
+
     /// <summary>Tabs holding a drawing the project has resized since it was last on screen.</summary>
     /// <remarks>
     /// Rebuilt when the tab is next looked at rather than the moment the project changes. A tab
@@ -87,7 +93,10 @@ public partial class MainWindow : Window
         AvaloniaXamlLoader.Load(this);
 
         ConfirmDiscard = AskDiscard;
+        ConfirmDiscardRecovery = message => Ask("Recovered work", message, "Discard the copy", "Restore");
         ConfirmConvert = AskConvert;
+        AskWhereToSave = AskSaveProject;
+        ShowSettings = ShowSettingsWindow;
         ConfirmRemove = message => Ask("Remove from the project", message, "Remove", "Cancel");
         Announce = (title, message) => Ask(title, message, null, "Close");
         ShowOnDisk = Reveal;
@@ -140,6 +149,10 @@ public partial class MainWindow : Window
         ShowMenuGestures();
         UpdateMenu();
         ShowRecent();
+
+        // Once a session, and here rather than in a static constructor: this touches the disk, and
+        // a static one runs on whichever thread happens to reach the type first.
+        ProjectRecovery.Sweep();
 
         // Nothing open, and no tab standing in for nothing. A window used to start on a bundled
         // sample in a tab called Untitled, which meant a project opened from the command line came
@@ -240,15 +253,13 @@ public partial class MainWindow : Window
             }
 
             // Opening one converts it, which is a different thing from opening a drawing and is
-            // asked about rather than done. Where it goes is not asked: the dialog names the project
-            // beside the document, the way a pasted drawing goes beside itself.
+            // asked about rather than done. Where it goes is not asked here: a conversion is held in
+            // the window until it is saved, and the save panel is what asks that.
             if (IsPaintCode(path))
             {
-                var target = Beside(path);
-
-                if (await ConfirmConvert(path, target).ConfigureAwait(true) is { } integers)
+                if (await ConfirmConvert(path).ConfigureAwait(true) is { } integers)
                 {
-                    await ImportPaintCodeAsync(path, target, integers).ConfigureAwait(true);
+                    await ImportPaintCodeAsync(path, integers).ConfigureAwait(true);
                 }
 
                 continue;
@@ -330,85 +341,44 @@ public partial class MainWindow : Window
     /// <summary>The open project, for a test to read. Null while none is open.</summary>
     public ProjectWorkspace? Workspace => _workspace;
 
+    /// <summary>The copy being kept of the open project, for a test to drive. Null while none is.</summary>
+    public ProjectRecovery? Recovery => _recovery;
+
     private async void OnNewProject(object? sender, EventArgs e) => await NewProjectAsync();
 
-    /// <summary>Asks where to write a project, writes it, and opens it.</summary>
-    private async Task NewProjectAsync()
-    {
-        if (StorageProvider is not { CanSave: true })
-        {
-            return;
-        }
-
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "New project",
-            SuggestedFileName = "project.svgstudio",
-            DefaultExtension = "svgstudio",
-            FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
-        }).ConfigureAwait(true);
-
-        if (file?.TryGetLocalPath() is { Length: > 0 } path)
-        {
-            await NewProjectAsync(path).ConfigureAwait(true);
-        }
-    }
-
-    /// <summary>Writes an empty project at <paramref name="path"/> and opens it.</summary>
-    /// <remarks>
-    /// Taking the path rather than asking for it, so everything but the picker can be driven. A file
-    /// already there is opened rather than written over — the save panel has asked about replacing
-    /// it, but emptying a project somebody wrote is never what picking its name meant.
-    /// </remarks>
-    public async Task NewProjectAsync(string path)
-    {
-        if (path is null)
-        {
-            throw new ArgumentNullException(nameof(path));
-        }
-
-        if (!File.Exists(path))
-        {
-            try
-            {
-                ProjectDocument.Empty(Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty).Save(path);
-            }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-            {
-                await Announce("The project couldn't be created", failure.Message).ConfigureAwait(true);
-                return;
-            }
-        }
-
-        await OpenProjectAsync(path).ConfigureAwait(true);
-    }
-
     /// <summary>
-    /// Converts <paramref name="source"/> into a project at <paramref name="target"/>, and opens it.
+    /// Opens a project that is nothing yet.
     /// </summary>
     /// <remarks>
-    /// One file, with the drawings in it: what the document has to say is what a project is made of
-    /// now, so nothing is written beside it. Taking the paths rather than asking for them, so
-    /// everything but the dialog can be driven.
+    /// Nothing is asked and nothing is written: naming a file is what saving is for, and a project
+    /// named before there was anything in it left an empty file behind whenever somebody changed
+    /// their mind. Public for the reason <see cref="ExportAsync"/> is: a way in without the menu.
+    /// </remarks>
+    public async Task NewProjectAsync()
+        => await OpenProjectAsync(ProjectDocument.Empty(string.Empty), false, Array.Empty<string>(), null)
+            .ConfigureAwait(true);
+
+    /// <summary>
+    /// Converts <paramref name="source"/> into a project, and opens it.
+    /// </summary>
+    /// <remarks>
+    /// One project, with the drawings in it: what the document has to say is what a project is made
+    /// of now, so nothing is written beside it and nothing is named — the conversion is held in the
+    /// window until somebody has looked at it and been asked where it goes.
     /// </remarks>
     /// <param name="integers">
     /// Whether a whole-valued number variable becomes an <c>integer</c> parameter -- a guess the
     /// author makes, which is why the dialog asks rather than this deciding.
     /// </param>
-    public async Task<bool> ImportPaintCodeAsync(string source, string target, bool integers = false)
+    public async Task<bool> ImportPaintCodeAsync(string source, bool integers = false)
     {
         if (source is null)
         {
             throw new ArgumentNullException(nameof(source));
         }
 
-        if (target is null)
-        {
-            throw new ArgumentNullException(nameof(target));
-        }
-
         var notes = new List<PaintCodeImportNote>();
-        var directory = Path.GetDirectoryName(Path.GetFullPath(target)) ?? string.Empty;
+        var directory = Path.GetDirectoryName(Path.GetFullPath(source)) ?? string.Empty;
         var options = new PaintCodeImportOptions(directory) { Integers = integers };
 
         ProjectDocument document;
@@ -419,8 +389,6 @@ public partial class MainWindow : Window
             document = await Task.Run(
                 () => ProjectImport.FromPaintCode(PaintCodeDocument.Load(source), options, notes, directory))
                 .ConfigureAwait(true);
-
-            document.Save(target);
         }
         catch (Exception failure) when (failure is PaintCodeException or SvgcProjectException or IOException or UnauthorizedAccessException)
         {
@@ -429,10 +397,13 @@ public partial class MainWindow : Window
             return false;
         }
 
-        await OpenProjectAsync(target).ConfigureAwait(true);
+        // Opened on what was just built rather than written and read back: nothing goes to disk
+        // until the author has seen the conversion and saved it, and a thousand drawings are not
+        // serialised and parsed again to show them.
+        await OpenProjectAsync(document, true, Array.Empty<string>(), Named(source)).ConfigureAwait(true);
 
-        // Only when something could not be carried across. The project opening on what was written
-        // is the rest of the answer, and a dialog saying so would be one click for nothing.
+        // Only when something could not be carried across. The project opening on the drawings is
+        // the rest of the answer, and a dialog saying so would be one click for nothing.
         if (notes.Count > 0)
         {
             await Announce("Imported", Said(document, notes)).ConfigureAwait(true);
@@ -444,10 +415,10 @@ public partial class MainWindow : Window
     private static string Said(ProjectDocument document, IReadOnlyList<PaintCodeImportNote> notes)
     {
         var drawn = document.Root.Drawings.Count();
-        var wrote = $"{drawn} drawing{(drawn == 1 ? string.Empty : "s")}.";
+        var carried = $"{drawn} drawing{(drawn == 1 ? string.Empty : "s")}.";
         var missing = notes.Where(note => note.Severity is PaintCodeImportSeverity.Missing).ToList();
         var rest = notes.Where(note => note.Severity is not PaintCodeImportSeverity.Missing).ToList();
-        var lines = new List<string> { $"{wrote} {notes.Count} could not be carried across:" };
+        var lines = new List<string> { $"{carried} {notes.Count} could not be carried across:" };
 
         // First, and never trimmed away: this is the document asking for a canvas it does not have,
         // which is the one thing in here to take back to PaintCode rather than to this converter.
@@ -467,20 +438,12 @@ public partial class MainWindow : Window
         return string.Join(Environment.NewLine, lines);
     }
 
-    /// <summary>Where an import writes when nobody was asked: a project beside the document.</summary>
-    private static string Beside(string source)
-    {
-        var directory = Path.GetDirectoryName(Path.GetFullPath(source)) ?? ".";
-        var name = Path.GetFileNameWithoutExtension(source);
-        var candidate = Path.Combine(directory, name + ".svgstudio");
-
-        for (var index = 2; File.Exists(candidate); index++)
-        {
-            candidate = Path.Combine(directory, $"{name}-{index.ToString(CultureInfo.InvariantCulture)}.svgstudio");
-        }
-
-        return candidate;
-    }
+    /// <summary>What to call a project converted from <paramref name="source"/>, when somebody is asked.</summary>
+    /// <remarks>
+    /// A suggestion and not a decision: where it goes is the save panel's question, and the panel is
+    /// what asks about a name already taken.
+    /// </remarks>
+    private static string Named(string source) => Path.GetFileNameWithoutExtension(source) + ".svgstudio";
 
     /// <summary>
     /// Opens a project into the pane.
@@ -492,11 +455,6 @@ public partial class MainWindow : Window
     /// </remarks>
     private async Task OpenProjectAsync(string path)
     {
-        if (!await CloseProjectAsync().ConfigureAwait(true))
-        {
-            return;
-        }
-
         ProjectDocument document;
         var notes = new List<string>();
 
@@ -506,22 +464,96 @@ public partial class MainWindow : Window
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or IOException or UnauthorizedAccessException)
         {
+            // Before anything is closed: a file that cannot be read is no reason to take away the
+            // project somebody is working on.
             await Announce("The project couldn't be opened", failure.Message).ConfigureAwait(true);
             return;
         }
 
-        var workspace = new ProjectWorkspace(document);
+        await OpenProjectAsync(document, IsSvgc(path), notes, IsSvgc(path) ? Named(path) : null)
+            .ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Opens a project the window is holding, whether or not it is on disk.
+    /// </summary>
+    /// <remarks>
+    /// The document rather than a path, because an import and a conversion build one that no file
+    /// holds yet. It is also the one place a document becomes a workspace, which is what lets the
+    /// recovery copy be asked about once rather than at every way in.
+    /// </remarks>
+    /// <param name="edited">Whether what is being opened is already unsaved work.</param>
+    /// <param name="suggested">What to call it when it is saved, for a project that has no file.</param>
+    private async Task OpenProjectAsync(
+        ProjectDocument document,
+        bool edited,
+        IReadOnlyList<string> notes,
+        string? suggested)
+    {
+        if (!await CloseProjectAsync().ConfigureAwait(true))
+        {
+            return;
+        }
+
+        if (document.Path is { } named && ProjectRecovery.Waiting(named, document.ToXml()) is { } waiting)
+        {
+            if (await ConfirmDiscardRecovery(Recovered(named, waiting)).ConfigureAwait(true))
+            {
+                ProjectRecovery.Delete(waiting);
+            }
+            else if (Restored(named, waiting) is { } recovered)
+            {
+                document = recovered;
+
+                // Given back, not saved: the file is still what it was, and the window says so
+                // until somebody writes it.
+                edited = true;
+            }
+        }
+
+        var workspace = new ProjectWorkspace(document, edited, suggested);
 
         _workspace = workspace;
 
-        // A saved setting decides what everything under it inherits, so the tree's names and the
+        // An edited setting decides what everything under it inherits, so the tree's names and the
         // drawings already open both have to follow it.
         workspace.Edited += (_, _) =>
         {
             BuildTree();
             Retitle();
             Rebuild();
+            UpdateMenu();
         };
+
+        // A write changes nothing the tree or the boards are showing — only whether there is
+        // anything left to write, which is all the chrome is asking.
+        var remembered = false;
+
+        workspace.Saved += (_, _) =>
+        {
+            // The pane's name is written where the tree is built, which a save deliberately does
+            // not do — but the first save is where a project stops being Untitled.
+            _projectName.Text = workspace.Name;
+
+            UpdateTitle();
+            UpdateMenu();
+
+            // A project that existed only in memory — an import, a conversion, a new one — has
+            // nowhere to be remembered from, and nothing to key a copy of unsaved work by, until it
+            // has been written once. One opened from a file is already in the list.
+            if (!remembered && workspace.Document.Path is { } written)
+            {
+                remembered = true;
+
+                Remember(written);
+                Cover(workspace, written);
+            }
+        };
+
+        if (document.Path is { } kept)
+        {
+            Cover(workspace, kept);
+        }
 
         ShowProjectPane(true);
         BuildTree();
@@ -533,7 +565,16 @@ public partial class MainWindow : Window
         await ShowAsync(workspace.Document.Root).ConfigureAwait(true);
 
         UpdateMenu();
-        Remember(document.Path ?? path);
+
+        // Only a file that is there. A project written nowhere yet would be offered by Open Recent
+        // and then quietly dropped from it, since the list keeps only what exists; the save that
+        // writes it is what remembers it.
+        if (document.Path is { } opened && File.Exists(opened))
+        {
+            remembered = true;
+
+            Remember(opened);
+        }
 
         if (notes.Count > 0)
         {
@@ -542,7 +583,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// An svgc project as one of these, written beside it.
+    /// An svgc project as one of these, held in the window.
     /// </summary>
     /// <remarks>
     /// One way, and the old project is left exactly as it was: the two formats say different things
@@ -553,16 +594,77 @@ public partial class MainWindow : Window
     private static ProjectDocument Converted(string path, ICollection<string> notes)
     {
         var document = ProjectImport.FromSvgc(SvgcProjectDocument.Load(path), notes);
-        var written = Path.ChangeExtension(Path.GetFullPath(path), ".svgstudio");
-
-        document.Save(written);
 
         notes.Add(
-            $"{Path.GetFileName(path)} was converted and written as {Path.GetFileName(written)}, which holds the drawings "
-            + "themselves. The project it came from and the drawings it named are left where they are.");
+            $"{Path.GetFileName(path)} was converted into a project holding the drawings themselves. Nothing has "
+            + "been written and nothing is named yet — saving it asks where it goes. The project it came from and "
+            + "the drawings it named are left where they are.");
 
         return document;
     }
+
+    /// <summary>Starts keeping a copy of this project's unsaved work, under the file it now has.</summary>
+    /// <remarks>
+    /// A project is covered from the moment it has a file to be keyed by — when it is opened from
+    /// one, or when it is first saved to one. Before that there is nothing to look a copy up under
+    /// again, and a copy nobody can find is worse than none.
+    /// </remarks>
+    private void Cover(ProjectWorkspace workspace, string path)
+    {
+        _recovery?.Stop();
+
+        _recovery = new ProjectRecovery(workspace, path)
+        {
+            // Posted for the reason the close prompt is: a dialog opened from inside a timer tick
+            // would run the window's message loop from under the tick.
+            Trouble = (title, message) =>
+                Dispatcher.UIThread.Post(async () => await Announce(title, message).ConfigureAwait(true))
+        };
+    }
+
+    /// <summary>The project a recovered copy holds, or null when it cannot be read.</summary>
+    /// <remarks>
+    /// Parsed at the project's own path rather than loaded from where the copy lives, so what opens
+    /// is the project and not a file in application data. A copy that cannot be read is said once
+    /// and then ignored — the project itself is still there to open.
+    /// </remarks>
+    private ProjectDocument? Restored(string path, string recovery)
+    {
+        try
+        {
+            return ProjectRecovery.Read(recovery) is { } text
+                ? ProjectDocument.Parse(text, Path.GetDirectoryName(path) ?? string.Empty, path)
+                : null;
+        }
+        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException)
+        {
+            _ = Announce("The copy couldn't be read", failure.Message);
+
+            return null;
+        }
+    }
+
+    /// <summary>What a copy of unsaved work says for itself when the project is opened again.</summary>
+    private static string Recovered(string path, string recovery)
+    {
+        var copied = File.GetLastWriteTime(recovery);
+        var name = Path.GetFileName(path);
+
+        if (!File.Exists(path))
+        {
+            return $"Svg Studio kept a copy of {name} from {Stamp(copied)}, holding changes that were never saved. "
+                   + "Nothing has been written at that name yet.";
+        }
+
+        var saved = File.GetLastWriteTime(path);
+
+        return $"Svg Studio kept a copy of {name} from {Stamp(copied)}, holding changes that were never saved. "
+               + $"The file itself was last saved {Stamp(saved)}"
+               + (saved > copied ? ", so something else has written it since. " : ". ")
+               + "Restoring puts those changes back in the window; the file is not touched until you save.";
+    }
+
+    private static string Stamp(DateTime at) => at.ToString("g", CultureInfo.CurrentCulture);
 
     /// <summary>Closes the open project and everything it opened.</summary>
     /// <remarks>Public for the reason <see cref="ExportAsync"/> is: it is the way in without a menu.</remarks>
@@ -579,8 +681,10 @@ public partial class MainWindow : Window
         var owned = _tabs.Items.OfType<TabItem>().Where(Owned).ToList();
 
         var unsaved = Unsaved();
+        var project = Unwritten;
 
-        if (unsaved.Count > 0 && !await ConfirmDiscard(Describe(unsaved)).ConfigureAwait(true))
+        if ((unsaved.Count > 0 || project is { })
+            && !await ConfirmDiscard(Describe(unsaved, project)).ConfigureAwait(true))
         {
             return false;
         }
@@ -590,6 +694,12 @@ public partial class MainWindow : Window
         {
             CloseTab(item);
         }
+
+        // Whatever was not saved has just been thrown away on purpose, so the copy of it goes too:
+        // offering it back on the next open would be handing back what somebody declined to keep.
+        _recovery?.Drop();
+        _recovery?.Stop();
+        _recovery = null;
 
         _workspace = null;
 
@@ -620,6 +730,14 @@ public partial class MainWindow : Window
     public async Task<bool> BuildAsync()
     {
         if (_workspace is not { } workspace)
+        {
+            return false;
+        }
+
+        // A project with no file has no directory either, so an output written relative to it would
+        // land wherever Studio was started from. Saving first is the question that answers where —
+        // and it comes before the flatten, which resolves every output against that answer.
+        if (workspace.Document.Path is null && !await WriteAsync(workspace).ConfigureAwait(true))
         {
             return false;
         }
@@ -868,10 +986,11 @@ public partial class MainWindow : Window
     /// <summary>What the file manager would be pointed at for this row, or null where nothing would.</summary>
     /// <remarks>
     /// The project, whatever the row: a drawing is in it rather than beside it, so there is no other
-    /// file to show. A project parsed from text rather than opened has none at all, and no row of it
-    /// offers the command.
+    /// file to show. A project parsed from text, and one converted but not saved yet, have no file
+    /// at all, and no row of either offers the command — it would point a file manager at nothing.
     /// </remarks>
-    private string? OnDisk(ProjectNode node) => _workspace?.Document.Path;
+    private string? OnDisk(ProjectNode node)
+        => _workspace?.Document.Path is { } path && File.Exists(path) ? path : null;
 
     /// <summary>Takes a row, to be pasted somewhere else.</summary>
     private void Hold(ProjectNode node, bool cut)
@@ -921,7 +1040,7 @@ public partial class MainWindow : Window
         // the one meant for an icon copied in another program. Twice is Copy, Paste, Copy, Paste.
         _held = null;
 
-        workspace.Save();
+        workspace.Edit();
         BuildTree(copy);
     }
 
@@ -1015,7 +1134,7 @@ public partial class MainWindow : Window
         var (parent, index) = Beside(beside);
         var group = parent.AddGroup("group", index);
 
-        workspace.Save();
+        workspace.Edit();
         BuildTree(group);
 
         // Named "group" until something better is typed into its settings, which is what the tab
@@ -1100,7 +1219,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        workspace.Save();
+        workspace.Edit();
         BuildTree(added);
 
         await ShowAsync(added).ConfigureAwait(true);
@@ -1127,7 +1246,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        workspace.Save();
+        workspace.Edit();
         BuildTree(added);
 
         await ShowAsync(added).ConfigureAwait(true);
@@ -1169,7 +1288,7 @@ public partial class MainWindow : Window
 
         parent.Remove(node);
 
-        workspace.Save();
+        workspace.Edit();
         BuildTree();
 
         return true;
@@ -1401,7 +1520,7 @@ public partial class MainWindow : Window
             return false;
         }
 
-        workspace.Save();
+        workspace.Edit();
         BuildTree(node);
 
         return true;
@@ -1617,9 +1736,9 @@ public partial class MainWindow : Window
     /// Where a drawing's text is written, for a host that wants to edit one.
     /// </summary>
     /// <remarks>
-    /// The tab it is open in, so the edit lands in a buffer somebody can take back and saves when
-    /// they ask. Null is answered by the caller with the project, which writes the edit as it is
-    /// made. By the row rather than by a file: a drawing is one row of the project, so one tab.
+    /// The tab it is open in, so the edit lands in a buffer somebody can take back. Null is answered
+    /// by the caller with the project itself, which takes the edit with nothing to take it back.
+    /// By the row rather than by a file: a drawing is one row of the project, so one tab.
     /// </remarks>
     private ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
         => Tab(drawing)?.Content as SvgViewer;
@@ -2124,6 +2243,59 @@ public partial class MainWindow : Window
         item.IsEnabled = recent.Items.Count > 0;
     }
 
+    private async void OnSettings(object? sender, EventArgs e) => await ShowSettingsAsync();
+
+    /// <summary>The settings, as a window, and only ever one of them.</summary>
+    /// <remarks>
+    /// Held while it is open because it can be asked for twice: on macOS the application menu keeps
+    /// its gesture live over the window it opened, and a second modal on the same owner is a dialog
+    /// nobody can reach the first of.
+    /// </remarks>
+    private async Task ShowSettingsWindow()
+    {
+        if (_settings is { } open)
+        {
+            open.Activate();
+
+            return;
+        }
+
+        var window = new SettingsWindow();
+
+        _settings = window;
+
+        try
+        {
+            await window.ShowDialog(this).ConfigureAwait(true);
+        }
+        finally
+        {
+            _settings = null;
+        }
+    }
+
+    /// <summary>
+    /// Shows the settings, and does what the window cannot about what was changed in it.
+    /// </summary>
+    /// <remarks>
+    /// The window writes the setting itself and this asks it again afterwards, rather than the two
+    /// of them agreeing a value between them: what has to happen when the copies are switched off is
+    /// that the ones already kept go, and only the window that keeps them can do that.
+    ///
+    /// Public because the application menu on macOS is the application's and not this window's, so
+    /// something outside has to be able to ask for it.
+    /// </remarks>
+    public async Task ShowSettingsAsync()
+    {
+        await ShowSettings().ConfigureAwait(true);
+
+        if (!StudioSettings.Autosave)
+        {
+            _recovery?.Drop();
+            ProjectRecovery.Clear();
+        }
+    }
+
     private async void OnSave(object? sender, EventArgs e) => await SaveAsync();
 
     private async void OnSaveAs(object? sender, EventArgs e) => await SaveAsAsync();
@@ -2192,11 +2364,17 @@ public partial class MainWindow : Window
             export.IsEnabled = Selected() is { Document: { } };
         }
 
-        // What the tab's own dot is drawn from, so it covers the drawing's text and the project's
-        // say over it without asking either of them separately.
         if (Item(menu, "Save") is { } save)
         {
-            save.IsEnabled = _tabs.SelectedItem is TabItem tab && Unsaved(tab) is { };
+            save.IsEnabled = Savable();
+        }
+
+        // Not among the items below: it is the application's settings and not a command on a
+        // project, so it is live whether or not one is open — and absent on macOS, where the
+        // application menu has it.
+        if (Item(menu, "Settings…") is { } settings)
+        {
+            settings.IsVisible = !OperatingSystem.IsMacOS();
         }
 
         // Not for a drawing the project holds: Save As points a tab at the file it wrote, and one
@@ -2371,16 +2549,47 @@ public partial class MainWindow : Window
     public Func<string, string, Task> Announce { get; set; }
 
     /// <summary>
+    /// How the window asks whether a copy of unsaved work may be thrown away.
+    /// </summary>
+    /// <remarks>
+    /// Replaceable for the reason <see cref="ConfirmDiscard"/> is, and answering the same way round:
+    /// true throws the copy away. Restoring is the button that loses nothing, so it is the one the
+    /// panel dismisses with — Enter and the close box both land on it.
+    /// </remarks>
+    public Func<string, Task<bool>> ConfirmDiscardRecovery { get; set; }
+
+    /// <summary>
+    /// How the window shows the settings.
+    /// </summary>
+    /// <remarks>
+    /// Replaceable for the reason <see cref="ConfirmDiscard"/> is: a window shown over this one is
+    /// another thing a test cannot drive. What a test wants from it is the setting, which the window
+    /// writes, so a test sets that and answers this with nothing.
+    /// </remarks>
+    public Func<Task> ShowSettings { get; set; }
+
+    /// <summary>
+    /// How the window asks where a project that has no file yet should go.
+    /// </summary>
+    /// <remarks>
+    /// Replaceable for the reason <see cref="ConfirmDiscard"/> is: a panel is the one thing a test
+    /// cannot drive. Given the name to offer, and answering with the path chosen or null for a save
+    /// nobody went through with.
+    /// </remarks>
+    public Func<string?, Task<string?>> AskWhereToSave { get; set; }
+
+    /// <summary>
     /// How the window asks whether a PaintCode document may be converted, and on what terms.
     /// </summary>
     /// <remarks>
-    /// Replaceable for the reason <see cref="Announce"/> is. Given the document and the project it
-    /// would write, since the dialog's whole job is to say that opening one produces the other.
+    /// Replaceable for the reason <see cref="Announce"/> is. Given the document alone: there is no
+    /// second file to name, since what the conversion produces is held in the window until it is
+    /// saved.
     /// </remarks>
     /// <returns>
     /// Whether whole numbers become integers, or null where the document is not to be converted.
     /// </returns>
-    public Func<string, string, Task<bool?>> ConfirmConvert { get; set; }
+    public Func<string, Task<bool?>> ConfirmConvert { get; set; }
 
     /// <summary>
     /// How the window asks whether a branch of the project may go.
@@ -2444,7 +2653,8 @@ public partial class MainWindow : Window
     private async Task<bool> CloseTabAsync(TabItem item)
     {
         // A close button is one click away from losing an edit, and nothing else would have said so.
-        if (Unsaved(item) is { } name && !await ConfirmDiscard(Describe(new[] { name })))
+        // Only what this tab is holding: the project's own unsaved work is not lost by closing a tab.
+        if (Unsaved(item) is { } name && !await ConfirmDiscard(Describe(new[] { name }, null)))
         {
             return false;
         }
@@ -2474,8 +2684,9 @@ public partial class MainWindow : Window
         }
 
         var unsaved = Unsaved();
+        var project = Unwritten;
 
-        if (unsaved.Count == 0)
+        if (unsaved.Count == 0 && project is null)
         {
             return;
         }
@@ -2484,12 +2695,28 @@ public partial class MainWindow : Window
 
         // Posted, so the close finishes being called off first: a prompt that answered immediately
         // would re-enter Close from inside OnClosing, as a test's stub does.
-        Dispatcher.UIThread.Post(async () => await ConfirmThenClose(unsaved));
+        Dispatcher.UIThread.Post(async () => await ConfirmThenClose(Describe(unsaved, project)));
     }
 
-    private async Task ConfirmThenClose(IReadOnlyList<string> unsaved)
+    /// <summary>
+    /// Leaves nothing behind for a window that closed on purpose.
+    /// </summary>
+    /// <remarks>
+    /// What gives the copy its meaning: closing runs this and crashing does not, so a copy waiting
+    /// on the next open is one Studio never got to throw away.
+    /// </remarks>
+    protected override void OnClosed(EventArgs e)
     {
-        if (!await ConfirmDiscard(Describe(unsaved)))
+        _recovery?.Drop();
+        _recovery?.Stop();
+        _recovery = null;
+
+        base.OnClosed(e);
+    }
+
+    private async Task ConfirmThenClose(string message)
+    {
+        if (!await ConfirmDiscard(message))
         {
             return;
         }
@@ -2502,7 +2729,7 @@ public partial class MainWindow : Window
     /// <summary>The viewer in the selected tab, or null while there is none.</summary>
     private SvgViewer? Selected() => (_tabs.SelectedItem as TabItem)?.Content as SvgViewer;
 
-    /// <summary>Everything open with changes that are not on disk.</summary>
+    /// <summary>The tabs holding changes that are not on disk.</summary>
     private IReadOnlyList<string> Unsaved()
         => _tabs.Items.OfType<TabItem>()
             .Select(Unsaved)
@@ -2510,6 +2737,25 @@ public partial class MainWindow : Window
             .Select(name => name!)
             .Distinct(StringComparer.Ordinal)
             .ToList();
+
+    /// <summary>The project's own unwritten work, named by its file, or null where there is none.</summary>
+    /// <remarks>
+    /// Beside the tabs rather than among them, because it is not one: a row dragged in the tree or a
+    /// board arranged belongs to the project, and there is no tab to close to get it back.
+    /// </remarks>
+    private string? Unwritten => _workspace is { IsEdited: true } workspace ? workspace.Name : null;
+
+    /// <summary>Whether the dot belongs on the window: work that is not on disk, wherever it sits.</summary>
+    private bool Marked()
+        => Unwritten is { } || (_tabs.SelectedItem is TabItem tab && Unsaved(tab) is { });
+
+    /// <summary>Whether Save has anything to do.</summary>
+    /// <remarks>
+    /// Wider than the dot by one case: a project that has never been written can be saved even with
+    /// nothing typed into it, because saving is how it gets a name. It wears no dot for that — there
+    /// is nothing to lose — so the two questions stop being the same one here.
+    /// </remarks>
+    private bool Savable() => Marked() || _workspace is { Document.Path: null };
 
     /// <summary>
     /// What a tab is holding that is not on disk, named, or null when it is holding nothing.
@@ -2575,12 +2821,43 @@ public partial class MainWindow : Window
 
 
 
-    private static string Describe(IReadOnlyList<string> unsaved)
-        => unsaved.Count == 1
-            ? $"{unsaved[0]} has changes that have not been saved."
-            // Not "drawings": a group's settings are unsaved work too, and the window closes over
-            // both.
-            : $"{unsaved.Count} tabs have changes that have not been saved.";
+    /// <summary>What is about to be thrown away, in a sentence.</summary>
+    /// <remarks>
+    /// The project is named and the tabs are counted: it is one thing wearing a file's name, and
+    /// counting it among them would be wrong twice over. "Tabs" and not "drawings", since a group's
+    /// settings are unsaved work too and the window closes over both.
+    /// </remarks>
+    private static string Describe(IReadOnlyList<string> tabs, string? project) => (tabs.Count, project) switch
+    {
+        (0, { } named) => $"{named} has changes that have not been saved.",
+        (1, { } named) => $"{named} and {tabs[0]} have changes that have not been saved.",
+        (_, { } named) => $"{named} and {tabs.Count} tabs have changes that have not been saved.",
+        (1, null) => $"{tabs[0]} has changes that have not been saved.",
+        _ => $"{tabs.Count} tabs have changes that have not been saved."
+    };
+
+    /// <summary>Asks where a project goes, the first time anybody saves it.</summary>
+    /// <remarks>
+    /// <see cref="FilePickerSaveOptions.DefaultExtension"/> is set, unlike the drawing panel's,
+    /// because there is one type here and nothing for it to override.
+    /// </remarks>
+    private async Task<string?> AskSaveProject(string? suggested)
+    {
+        if (StorageProvider is not { CanSave: true })
+        {
+            return null;
+        }
+
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save project",
+            SuggestedFileName = suggested ?? "Untitled.svgstudio",
+            DefaultExtension = "svgstudio",
+            FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
+        }).ConfigureAwait(true);
+
+        return file?.TryGetLocalPath() is { Length: > 0 } path ? path : null;
+    }
 
     /// <summary>Asks whether edits that are not on disk may be thrown away.</summary>
     private Task<bool> AskDiscard(string message)
@@ -2592,7 +2869,7 @@ public partial class MainWindow : Window
     /// PaintCode stores every number as a real, so a slider that happens to sit on whole ends is
     /// retyped along with the step enum this is for, and only the author knows which it was.
     /// </remarks>
-    private async Task<bool?> AskConvert(string source, string target)
+    private async Task<bool?> AskConvert(string source)
     {
         var integers = new CheckBox
         {
@@ -2602,8 +2879,9 @@ public partial class MainWindow : Window
 
         var asked = await Ask(
             "Convert to a project",
-            $"{Path.GetFileName(source)} is a PaintCode document. Opening it writes a Svg Studio project "
-                + $"at {Path.GetFileName(target)}, beside the document, and opens that. The document itself is left alone.",
+            $"{Path.GetFileName(source)} is a PaintCode document. Opening it converts the document into a Svg "
+                + "Studio project, which is held here until you save it — saving asks where it goes. The document "
+                + "itself is left alone.",
             "Convert",
             "Cancel",
             integers).ConfigureAwait(true);
@@ -2851,86 +3129,134 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Saves whatever the selected tab is holding.
+    /// Hands what the selected tab is holding to the project, and writes the project.
     /// </summary>
-    /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the keyboard.</remarks>
+    /// <remarks>
+    /// One write, wherever the work was typed: the project is one file, so committing the tab and
+    /// then writing once is the whole of a save. A tab still hands over only what was typed in it —
+    /// what another tab is holding is in its own boxes and cannot be written from here — and the
+    /// write carries whatever else the document has been given since, which is what a save has
+    /// always carried.
+    ///
+    /// Public for the reason <see cref="ExportAsync"/> is: a way in without the keyboard.
+    /// </remarks>
     public async Task SaveAsync()
     {
-        if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel panel)
-        {
-            try
-            {
-                panel.Save();
-            }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-            {
-                await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
-            }
+        var selected = _tabs.SelectedItem as TabItem;
 
+        // A drawing with a file of its own: the viewer writes it, and no project is involved.
+        var elsewhere = selected is { Tag: not ProjectNode, Content: SvgViewer };
+
+        if (selected is { Tag: not ProjectNode, Content: SvgViewer alone })
+        {
+            await alone.SaveSourceAsync().ConfigureAwait(true);
+        }
+        else if (selected?.Content is GroupPanel panel)
+        {
+            panel.Commit();
+        }
+        else if (selected?.Content is SvgViewer viewer && _workspace is { } holder)
+        {
+            // Both halves, since both are the tab's: the project's say over the drawing, and its text.
+            Settings(viewer)?.Commit();
+
+            if (viewer.IsSourceModified && selected.Tag is ProjectDrawing drawing)
+            {
+                if (drawing.SetText(viewer.Source) is { } refusal)
+                {
+                    await Announce("The drawing couldn't be saved", refusal).ConfigureAwait(true);
+
+                    return;
+                }
+
+                holder.Edit();
+            }
+        }
+
+        if (_workspace is not { } workspace)
+        {
             return;
         }
 
-        if (Selected() is not { } viewer)
+        // A project that is a file is written when it is holding something, since a save that
+        // touched the file's date for no edit would be a change to a file nobody edited. One that is
+        // not a file is written whether or not anything has been typed into it, because that is how
+        // it gets a name — but never from another drawing's tab, which would answer a save of that
+        // drawing with a panel about the project.
+        if (workspace.Document.Path is { } ? !workspace.IsEdited : elsewhere)
         {
             return;
         }
 
-        // Both halves, since both are the tab's: the drawing's text and the project's say over it.
-        if (Settings(viewer) is { IsModified: true } settings)
+        if (!await WriteAsync(workspace).ConfigureAwait(true))
         {
-            try
+            return;
+        }
+
+        // The bytes are the project's now, so the tab is told rather than asked to write them:
+        // SaveSourceAsync would go looking for a file this drawing has not got.
+        if (selected is { Tag: ProjectDrawing, Content: SvgViewer held })
+        {
+            held.MarkSaved();
+        }
+    }
+
+    /// <summary>
+    /// Writes the project, asking where it goes when it has nowhere yet.
+    /// </summary>
+    /// <remarks>
+    /// The one place a project is written, so the panel in front of it is asked once however the
+    /// save was reached — a tab, the menu, or a build that needs somewhere to put its outputs.
+    /// </remarks>
+    /// <returns>Whether it was written.</returns>
+    private async Task<bool> WriteAsync(ProjectWorkspace workspace)
+    {
+        string? target = null;
+
+        if (workspace.Document.Path is null)
+        {
+            target = await AskWhereToSave(workspace.Suggested).ConfigureAwait(true);
+
+            if (target is null)
             {
-                settings.Save();
-            }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-            {
-                await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
+                return false;
             }
         }
 
-        if (_tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing } && _workspace is { } workspace)
+        try
         {
-            if (drawing.SetText(viewer.Source) is { } refusal)
+            if (target is { })
             {
-                await Announce("The drawing couldn't be saved", refusal).ConfigureAwait(true);
-
-                return;
+                workspace.Save(target);
             }
-
-            try
+            else
             {
                 workspace.Save();
             }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-            {
-                await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
+        }
+        catch (Exception failure)
+            when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
 
-                return;
-            }
-
-            // The bytes are the project's now, so the tab is told rather than asked to write them:
-            // SaveSourceAsync would go looking for a file this drawing has not got.
-            viewer.MarkSaved();
-
-            return;
+            return false;
         }
 
-        await viewer.SaveSourceAsync().ConfigureAwait(true);
+        return true;
     }
 
     private void UpdateTitle()
     {
         // Before the name, as on the tab: the two say the same thing about the same file and
-        // should be read the same way round.
+        // should be read the same way round. The window answers for the project as well as for the
+        // tab, since work dragged into the project wears no tab's mark.
+        var mark = Marked() ? "• " : string.Empty;
+
         if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel group)
         {
-            var edited = group.IsModified ? "• " : string.Empty;
-
-            Title = $"{edited}{ProjectWorkspace.Label(group.Node)} — {group.Workspace.Name}";
+            Title = $"{mark}{ProjectWorkspace.Label(group.Node)} — {group.Workspace.Name}";
             return;
         }
-
-        var mark = _tabs.SelectedItem is TabItem tab && Unsaved(tab) is { } ? "• " : string.Empty;
 
         if (_tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing } && _workspace is { } workspace)
         {

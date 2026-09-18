@@ -57,13 +57,17 @@ and the project itself takes no tab, one project at a time, closed with `Project
 
 Two other things open as a project, by being converted into one:
 
-- An **svgc project** (`.svgcproj`) is read with its drawings and written beside itself as
-  `.svgstudio`. It is one way, and the window says what the conversion cost: a recipe is baked into
-  the drawings it painted — the parameters it declared were what drove them — and a file the old
-  project named twice becomes two drawings that no longer edit each other. What it came from is left
-  where it is.
-- A **PaintCode document** (`.pcvd`), through `File → Import PaintCode…`, becomes one project with
-  every canvas in it. What could not be carried across is listed afterwards.
+- An **svgc project** (`.svgcproj`) is read with its drawings and opened as a project. It is one
+  way, and the window says what the conversion cost: a recipe is baked into the drawings it painted
+  — the parameters it declared were what drove them — and a file the old project named twice becomes
+  two drawings that no longer edit each other. What it came from is left where it is.
+- A **PaintCode document** (`.pcvd`) becomes one project with every canvas in it. What could not be
+  carried across is listed afterwards.
+
+Neither is written, and neither is named. A conversion opens as unsaved work called **Untitled**, so
+the first thing you do with it is look at it; saving asks where it goes, offering the name of the
+document it came from. `Project → New` is the same: a project with nothing in it and no file, which
+⌘S names. Nothing appears beside the document you opened until you say so.
 
 ## The tree, and the tabs
 
@@ -76,7 +80,7 @@ The tree is editable. Each row carries **Add group**, **Add SVG…** and **Remov
 the selected row, and a row is dragged to move it — dropped on the top or bottom quarter of a group
 it lands beside it, and in the middle it goes inside. Adding an `.svg` file reads it in; so does
 pasting one, or pasting the SVG a drawing program puts on the clipboard. Adding, removing and moving
-write the file as they are made; settings are held until the tab is saved.
+edit the project; nothing reaches the file until you save it.
 
 A drawing's tab has its settings in the right pane, in front of the parameters the drawing declares —
 the same pane a group keeps its settings in, and the tab a drawing opened from the tree lands on.
@@ -135,17 +139,36 @@ seeded at different colours is still one family.
 
 ## Where an edit lands
 
-- A drawing **open in a tab** is edited through that tab's buffer, so the edit can be taken back with
-  ⌘Z and is saved when you ask.
-- A drawing **open in no tab** — one edited from a group's canvas — is written into the project and
-  saved as the edit is made. There is no buffer to hold it, so there is nothing to undo and nothing
-  to confirm on the way out.
-- A node's **settings** are held on the tab they were typed in until it is saved. A tab saves what
-  was typed in it and nothing else.
+Nothing reaches the `.svgstudio` file except through `File → Save`. Between the two there is the
+project itself, held in the window, which is what every view of it reads.
 
-`File → Save` writes whatever the selected tab is holding. `File → Export…` writes the drawing
-being looked at somewhere else — as `.svg`, at the size the project builds it at and without the
-indentation the project wrote it at, or as `.cs` if the name says so.
+- A node's **settings** are held on the tab they were typed in until it is committed. A tab hands
+  over what was typed in it and nothing else.
+- A drawing **open in a tab** is edited through that tab's buffer, so the edit can be taken back
+  with ⌘Z.
+- A drawing **open in no tab** — one edited from a group's canvas — goes straight into the project.
+  There is no buffer to hold it, so there is nothing to undo; it is still unsaved, and the window
+  says so.
+- **Arranging** — a row added, removed or dragged in the tree, a drawing dragged on a board — is the
+  project's own edit. No tab wears a mark for it, because closing a tab would not lose it; the
+  window title does, and closing the project asks about it by name.
+
+`File → Save` hands the selected tab's work to the project and writes the project — one file, so one
+write, whatever was typed where. `File → Export…` writes the drawing being looked at somewhere else
+— as `.svg`, at the size the project builds it at and without the indentation the project wrote it
+at, or as `.cs` if the name says so.
+
+## The recovery copy
+
+Studio keeps a copy of the project under your application data while it has work that is not on disk
+— sooner as more piles up behind it, and never the project's own file. Saving throws the copy away,
+and so does closing the window, so a copy waiting when you open a project again is one Studio never
+got to throw away. It offers it back, and restoring puts the work in the window without touching the
+file.
+
+The copy is keyed by the project's own file, so a project that has never been saved has nothing to
+look one up under again and is not covered until you name it. Switch the copies off in
+**Settings** — the application menu on macOS, `File → Settings…` elsewhere.
 
 ## The Element tab
 

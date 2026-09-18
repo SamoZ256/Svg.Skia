@@ -23,8 +23,11 @@ internal sealed class TestApplication : Application
     {
         Styles.Add(new FluentTheme());
 
-        // Every test that opens a drawing adds it to Open Recent. Pointed at a file of its own so a
-        // run does not rewrite the list belonging to whoever is running it.
+        // Every test that opens a drawing adds it to Open Recent, and every test that edits a
+        // project has a copy of it kept. Pointed at files of their own so a run does not rewrite
+        // what belongs to whoever is running it.
         RecentFiles.Store = Path.Combine(Path.GetTempPath(), $"svg-studio-recent-{Guid.NewGuid():N}");
+        StudioSettings.Store = Path.Combine(Path.GetTempPath(), $"svg-studio-settings-{Guid.NewGuid():N}");
+        ProjectRecovery.Store = Path.Combine(Path.GetTempPath(), $"svg-studio-recovery-{Guid.NewGuid():N}");
     }
 }

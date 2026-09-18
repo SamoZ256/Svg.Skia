@@ -10,8 +10,8 @@ using Xunit;
 namespace Svg.Studio.UnitTests;
 
 /// <summary>
-/// Importing a PaintCode document: the project it writes, with the drawings in it, and the project
-/// pane it leaves open on them.
+/// Importing a PaintCode document: the project it makes, with the drawings in it, and the project
+/// pane it leaves open on them — unsaved, until somebody who has seen it writes it.
 /// </summary>
 /// <remarks>
 /// The fixture is two canvases, one of them used as a symbol by the other, with a bound fill and a
@@ -26,24 +26,80 @@ public class MainWindowImportTests : IDisposable
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
     [AvaloniaFact]
-    public async Task An_Import_Opens_The_Project_It_Wrote()
+    public async Task An_Import_Opens_The_Project_It_Made()
+    {
+        var window = Shown();
+
+        Assert.True(await window.ImportPaintCodeAsync(Sample()));
+
+        Dispatcher.UIThread.RunJobs();
+
+        // Nothing is named until somebody says where it goes.
+        Assert.Equal("Untitled", window.Workspace!.Name);
+        Assert.Null(window.Workspace.Document.Path);
+
+        Assert.Equal(new[] { "badge", "host" }, window.Workspace.Document.Root.Drawings.Select(drawing => drawing.Name).OrderBy(name => name).ToArray());
+    }
+
+    /// <summary>
+    /// A conversion is unsaved work like any other, and unnamed as well. It is held in the window
+    /// until somebody has looked at it and said where it goes, and the document it came from is the
+    /// only file in the directory until they do.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task An_Import_Writes_Nothing_Until_It_Is_Saved()
     {
         var window = Shown();
         var target = Path.Combine(_directory, "icons.svgstudio");
 
-        Assert.True(await window.ImportPaintCodeAsync(Sample(), target));
+        window.AskWhereToSave = suggested =>
+        {
+            _offered = suggested;
+
+            return Task.FromResult<string?>(target);
+        };
+
+        Assert.True(await window.ImportPaintCodeAsync(Sample()));
 
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal("icons.svgstudio", window.Workspace!.Name);
+        Assert.True(window.Workspace!.IsEdited);
+        Assert.StartsWith("• ", window.Title, StringComparison.Ordinal);
+        Assert.Equal(new[] { "sample.pcvd" }, Directory.EnumerateFileSystemEntries(_directory).Select(Path.GetFileName).ToArray());
 
-        // One file, with the drawings in it: nothing is written beside it.
-        Assert.Equal(new[] { "badge", "host" }, window.Workspace.Document.Root.Drawings.Select(drawing => drawing.Name).OrderBy(name => name).ToArray());
+        await window.SaveAsync();
+
+        // Asked where, with the document's own name offered — and written there and nowhere else.
+        Assert.Equal("sample.svgstudio", _offered);
+        Assert.False(window.Workspace.IsEdited);
+        Assert.Equal("icons.svgstudio", window.Workspace.Name);
         Assert.Equal(new[] { "icons.svgstudio", "sample.pcvd" }, Directory.EnumerateFileSystemEntries(_directory).Select(Path.GetFileName).OrderBy(name => name).ToArray());
+        Assert.Equal(
+            new[] { "badge", "host" },
+            ProjectDocument.Load(target).Root.Drawings.Select(drawing => drawing.Name).OrderBy(name => name).ToArray());
     }
 
     [AvaloniaFact]
-    public async Task An_Opened_Document_Is_Converted_Beside_Itself()
+    public async Task A_Save_Nobody_Goes_Through_With_Writes_Nothing()
+    {
+        var window = Shown();
+
+        window.AskWhereToSave = _ => Task.FromResult<string?>(null);
+
+        Assert.True(await window.ImportPaintCodeAsync(Sample()));
+
+        Dispatcher.UIThread.RunJobs();
+
+        await window.SaveAsync();
+
+        // Still in the window, still unsaved, and the directory as it was.
+        Assert.True(window.Workspace!.IsEdited);
+        Assert.Null(window.Workspace.Document.Path);
+        Assert.Equal(new[] { "sample.pcvd" }, Directory.EnumerateFileSystemEntries(_directory).Select(Path.GetFileName).ToArray());
+    }
+
+    [AvaloniaFact]
+    public async Task An_Opened_Document_Is_Converted_Into_The_Window()
     {
         var window = Shown();
         var source = Sample();
@@ -52,12 +108,10 @@ public class MainWindowImportTests : IDisposable
 
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal("sample.svgstudio", window.Workspace!.Name);
-        Assert.True(File.Exists(Path.Combine(_directory, "sample.svgstudio")));
+        Assert.Equal("Untitled", window.Workspace!.Name);
 
-        // Both names, because the dialog's whole job is to say that opening the one writes the other.
-        Assert.Equal(source, _asked.Source);
-        Assert.Equal(Path.Combine(_directory, "sample.svgstudio"), _asked.Target);
+        // The document, because that is all the dialog has to name: what it produces is not a file.
+        Assert.Equal(source, _asked);
     }
 
     [AvaloniaFact]
@@ -100,7 +154,7 @@ public class MainWindowImportTests : IDisposable
     {
         var window = Shown();
 
-        await window.ImportPaintCodeAsync(Sample(), Path.Combine(_directory, "icons.svgstudio"));
+        await window.ImportPaintCodeAsync(Sample());
 
         var text = window.Workspace!.Document.Root.Drawings.First(drawing => drawing.Name == "badge").Text;
 
@@ -113,7 +167,7 @@ public class MainWindowImportTests : IDisposable
     {
         var window = Shown();
 
-        await window.ImportPaintCodeAsync(Sample(), Path.Combine(_directory, "icons.svgstudio"));
+        await window.ImportPaintCodeAsync(Sample());
 
         Assert.Contains("could not be carried across", _said);
 
@@ -128,7 +182,10 @@ public class MainWindowImportTests : IDisposable
 
     private bool? _convert = false;
 
-    private (string? Source, string? Target) _asked;
+    private string? _asked;
+
+    /// <summary>The name the save panel was told to offer, for the test that reads it.</summary>
+    private string? _offered;
 
     // Every one of these imports has something to report, and the dialogs -- the one that reports it
     // and the one that asks whether to convert at all -- wait for a click a headless run never makes.
@@ -142,9 +199,9 @@ public class MainWindowImportTests : IDisposable
             return Task.CompletedTask;
         };
 
-        window.ConfirmConvert = (source, target) =>
+        window.ConfirmConvert = source =>
         {
-            _asked = (source, target);
+            _asked = source;
 
             return Task.FromResult(_convert);
         };

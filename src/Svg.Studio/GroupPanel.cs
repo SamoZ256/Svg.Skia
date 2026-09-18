@@ -149,11 +149,11 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private bool _stale = true;
 
-    /// <summary>Edits typed here and not yet written to the project, by setting name.</summary>
+    /// <summary>Edits typed here and not yet put into the project, by setting name.</summary>
     /// <remarks>
     /// Held rather than applied, so a tab saves what was typed in it and nothing else. The cost is
     /// that the tree, the values other tabs inherit and the drawings already open all go on showing
-    /// what is in the file until this is saved — the document is the one thing they all read.
+    /// what the document says until this is committed — the document is the one thing they all read.
     /// </remarks>
     private readonly Dictionary<string, string?> _pending = new(StringComparer.Ordinal);
 
@@ -233,9 +233,9 @@ public sealed class GroupPanel : UserControl
             ShowElement(node?.AddressKey);
         };
 
-        // A group saved in another tab changes what this one inherits, so every tab follows the
-        // one document rather than the copy it was opened with. Anything typed here and not saved
-        // survives it.
+        // A group edited in another tab changes what this one inherits, so every tab follows the
+        // one document rather than the copy it was opened with. Anything typed here and not
+        // committed survives it.
         workspace.Edited += (_, _) => Refresh();
 
         Refresh();
@@ -365,8 +365,8 @@ public sealed class GroupPanel : UserControl
     /// <summary>Where a drawing's text is written: the tab it is open in, or nothing.</summary>
     /// <remarks>
     /// Answered by the host, because deciding it means knowing which tabs are open and this panel
-    /// knows about none of them. Null is answered with the file, which the panel holds the document
-    /// for.
+    /// knows about none of them. Null is answered with the project itself, which the panel holds the
+    /// document for.
     /// </remarks>
     public Func<ProjectDrawing, ISvgViewerDeclarationTarget?>? TargetOf { get; set; }
 
@@ -374,10 +374,10 @@ public sealed class GroupPanel : UserControl
     public ISvgViewerParameterDialogService ParameterDialogService { get; set; } =
         new SvgViewerParameterDialogService();
 
-    /// <summary>Writes what was typed here into the project, and the project to its file.</summary>
-    public void Save()
+    /// <summary>Puts what was typed here into the project, which somebody else then saves.</summary>
+    public void Commit()
     {
-        // What is in the box being typed in, before deciding there is nothing to save. Recording
+        // What is in the box being typed in, before deciding there is nothing to commit. Recording
         // an edit when the box loses focus is what lets a half-typed value be rejected while it is
         // still on screen, but it also meant Ctrl+S did nothing at all until the caret left.
         var typing = Typing();
@@ -411,14 +411,14 @@ public sealed class GroupPanel : UserControl
 
         _pending.Clear();
 
-        // The file first: a tab that reports itself saved when the write threw would be lying, and
-        // the edits are already in the document either way.
-        Workspace.Save();
+        // Cleared before the project hears about it, which is honest now that this does not write:
+        // the tab really is holding nothing, and what it handed over is the project's to report.
+        Workspace.Edit();
 
-        // What is true, not the false this used to announce. Saving rebuilds the rows, which
-        // detaches whichever box had focus, and a box losing focus records what is in it — so a
-        // save can end with something pending again, and saying "saved" there left the tab with
-        // no mark and an unsaved warning waiting at the close button.
+        // What is true, not the false this used to announce. Committing rebuilds the rows, which
+        // detaches whichever box had focus, and a box losing focus records what is in it — so this
+        // can end with something pending again, and saying "saved" there left the tab with no mark
+        // and an unsaved warning waiting at the close button.
         Announce(was);
 
         // The rows were rebuilt under whoever was typing, so put them back where they were rather
@@ -1064,10 +1064,10 @@ public sealed class GroupPanel : UserControl
     /// at is the one that is saved and nothing jumps. What appears is a frame round each group,
     /// which is the point of moving anything at all.
     ///
-    /// Written through and saved, as every other arrangement edit is — a row added, removed or
-    /// dragged in the tree writes the file as it is made. It cannot be held pending: what is
-    /// pending is keyed by setting name on this tab's own node, and settling writes places on every
-    /// node under it.
+    /// Written straight into the project rather than held pending: what is pending is keyed by
+    /// setting name on this tab's own node, and settling writes places on every node under it. So
+    /// it is the project's edit and not the tab's, the same as a row dragged in the tree — the tab
+    /// wears no mark for it, the window does, and any save writes it.
     /// </remarks>
     private void Placed(SvgViewerMove move)
     {
@@ -1081,7 +1081,7 @@ public sealed class GroupPanel : UserControl
         node.X = ProjectNode.Rounded((node.X ?? 0f) + move.By.X);
         node.Y = ProjectNode.Rounded((node.Y ?? 0f) + move.By.Y);
 
-        Workspace.Save();
+        Workspace.Edit();
     }
 
     /// <summary>Gives every row of the tab the place it is already being drawn at.</summary>
@@ -1495,13 +1495,13 @@ public sealed class GroupPanel : UserControl
     /// does -- and re-parsing forty drawings to answer any of them cost the zoom, the ring and a
     /// tenth of a second each time.
     ///
-    /// Comparing what was read beats classifying what happened: there are eleven ways into
-    /// <see cref="ProjectWorkspace.Save"/> and the event they raise says nothing about which fired.
+    /// Comparing what was read beats classifying what happened: there are ten ways into
+    /// <see cref="ProjectWorkspace.Edit"/> and the event they raise says nothing about which fired.
     /// </remarks>
     private Drawn Draw(ProjectDrawing drawing, Drawn? was)
     {
         // Through the host where a tab is holding this drawing, so the canvas shows what that tab
-        // shows rather than what the project was last saved with.
+        // shows rather than what the project itself holds.
         var text = TargetOf?.Invoke(drawing)?.Text ?? drawing.Text;
         var sizing = Sizing(drawing);
 

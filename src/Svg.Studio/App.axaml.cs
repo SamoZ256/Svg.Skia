@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -8,6 +9,20 @@ namespace Svg.Studio;
 public partial class App : Application
 {
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
+
+    /// <summary>Opens the settings, from the macOS application menu.</summary>
+    /// <remarks>
+    /// Handled here because the menu is the application's rather than a window's, and passed to the
+    /// window it is shown over — settings belong to the application, but a window is what a window
+    /// opens in front of.
+    /// </remarks>
+    private async void OnSettings(object? sender, EventArgs e)
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: MainWindow window })
+        {
+            await window.ShowSettingsAsync();
+        }
+    }
 
     public override void OnFrameworkInitializationCompleted()
     {

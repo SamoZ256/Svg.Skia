@@ -189,6 +189,13 @@
               answer, so nothing here has to ask twice.
             -->
             <NativeMenuItem Header="Export…" Click="OnExport" />
+            <!--
+              Hidden on macOS, where the same item is in the application menu and a second copy in a
+              window's own File menu is the thing a Mac application does not do. No rule above it:
+              a separator is not a NativeMenuItem to be hidden with it, and a menu ending in one is
+              worse than a menu with one grouping fewer.
+            -->
+            <NativeMenuItem Header="Settings…" Click="OnSettings" />
           </NativeMenu>
         </NativeMenuItem.Menu>
       </NativeMenuItem>
@@ -223,7 +230,7 @@
               Here rather than in File, which opens drawings: a project is not one, and File's New
               would have had to ask which of the two was meant.
             -->
-            <NativeMenuItem Header="New…" Click="OnNewProject" />
+            <NativeMenuItem Header="New" Click="OnNewProject" />
             <NativeMenuItemSeparator />
             <NativeMenuItem Header="Build" Click="OnBuild" />
             <NativeMenuItemSeparator />

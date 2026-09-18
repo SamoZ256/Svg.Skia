@@ -67,6 +67,10 @@ public class ProjectImportTests : IDisposable
         var notes = new List<string>();
         var project = ProjectImport.FromSvgc(source, notes);
 
+        // Held rather than written, and not named either: where it goes is asked when it is saved.
+        Assert.Null(project.Path);
+        Assert.Equal(_directory, project.BaseDirectory);
+
         Assert.Empty(notes);
         Assert.Equal("Demo.Icons", project.Root.Namespace);
         Assert.Equal("Icons.cs", project.Root.SingleFile);

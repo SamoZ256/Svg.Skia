@@ -48,6 +48,8 @@ public static class ProjectImport
             throw new ArgumentNullException(nameof(notes));
         }
 
+        // The old project's directory: what it carries over — an output, a single file — was written
+        // relative to that, and stays true until somebody saves this one somewhere else.
         var document = ProjectDocument.Empty(source.BaseDirectory);
 
         Carry(source.Root, document.Root);
@@ -63,6 +65,7 @@ public static class ProjectImport
     }
 
     /// <summary>A PaintCode document as a project: a group per desk, and every canvas drawn into it.</summary>
+    /// <param name="baseDirectory">Where the document came from, which its outputs resolve against.</param>
     public static ProjectDocument FromPaintCode(
         PaintCodeDocument source,
         PaintCodeImportOptions options,

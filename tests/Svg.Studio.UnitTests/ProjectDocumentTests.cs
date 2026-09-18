@@ -607,7 +607,9 @@ public class ProjectDocumentTests : IDisposable
     {
         var document = ProjectDocument.Empty(_directory);
 
+        // Not a file, and not named one: it becomes one when somebody says where it goes.
         Assert.Empty(document.Root.Children);
+        Assert.Null(document.Path);
 
         document.Root.AddDrawing("Dot", Drawing, 0);
 
