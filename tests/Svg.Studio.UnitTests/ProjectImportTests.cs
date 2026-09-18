@@ -201,6 +201,27 @@ public class ProjectImportTests : IDisposable
         Assert.Single(reloaded.Root.Drawings, drawing => !drawing.HasPosition);
     }
 
+    /// <summary>
+    /// The desks go down the board in the document's own order, far enough apart to read as two.
+    /// </summary>
+    /// <remarks>
+    /// Which is what makes the arrangement visible at all: a group nobody placed is not a board, so
+    /// its drawings would be poured into the grid beside everything else with their own numbers
+    /// ignored — and the first drag would then write those grid places over the imported ones.
+    /// </remarks>
+    [Fact]
+    public void Desks_Are_Stacked_Down_The_Project()
+    {
+        var groups = Placed().Root.Children.OfType<ProjectGroup>().ToList();
+
+        Assert.Equal(new[] { "Overlays", "Controls" }, groups.Select(group => group.Name).ToArray());
+
+        // The largest canvas is 60, so a caption is 3 and the gap between desks is 18. Overlays is
+        // 80 tall, which puts Controls at 98.
+        Assert.Equal((0f, 0f), (groups[0].X!.Value, groups[0].Y!.Value));
+        Assert.Equal((0f, 98f), (groups[1].X!.Value, groups[1].Y!.Value));
+    }
+
     /// <summary>The two desks of <see cref="DeskDocument"/>, imported.</summary>
     private ProjectDocument Placed()
         => ProjectImport.FromPaintCode(
@@ -245,5 +266,10 @@ public class ProjectImportTests : IDisposable
         Assert.Equal("badge", badge.Name);
         Assert.Equal("Badge", badge.Class);
         Assert.Contains("<e:param name=\"colorPurple\" type=\"color\"", badge.Text, StringComparison.Ordinal);
+
+        // This asset's canvases all sit on one spot, so every place comes out at the corner — and a
+        // desk at the board's own origin is still placed, which is what keeps it a board.
+        Assert.True(group.HasPosition);
+        Assert.Equal((0f, 0f), (badge.X!.Value, badge.Y!.Value));
     }
 }
