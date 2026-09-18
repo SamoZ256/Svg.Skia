@@ -191,14 +191,17 @@ A project opens as a workspace rather than as a document: the tree goes in a pan
 and the project itself takes no tab, one project at a time, closed with <code>Project → Close</code>.</p>
 <p>Two other things open as a project, by being converted into one:</p>
 <ul>
-<li>An <strong>svgc project</strong> (<code>.svgcproj</code>) is read with its drawings and written beside itself as
-<code>.svgstudio</code>. It is one way, and the window says what the conversion cost: a recipe is baked into
-the drawings it painted — the parameters it declared were what drove them — and a file the old
-project named twice becomes two drawings that no longer edit each other. What it came from is left
-where it is.</li>
-<li>A <strong>PaintCode document</strong> (<code>.pcvd</code>), through <code>File → Import PaintCode…</code>, becomes one project with
-every canvas in it. What could not be carried across is listed afterwards.</li>
+<li>An <strong>svgc project</strong> (<code>.svgcproj</code>) is read with its drawings and opened as a project. It is one
+way, and the window says what the conversion cost: a recipe is baked into the drawings it painted
+— the parameters it declared were what drove them — and a file the old project named twice becomes
+two drawings that no longer edit each other. What it came from is left where it is.</li>
+<li>A <strong>PaintCode document</strong> (<code>.pcvd</code>) becomes one project with every canvas in it. What could not be
+carried across is listed afterwards.</li>
 </ul>
+<p>Neither is written, and neither is named. A conversion opens as unsaved work called <strong>Untitled</strong>, so
+the first thing you do with it is look at it; saving asks where it goes, offering the name of the
+document it came from. <code>Project → New</code> is the same: a project with nothing in it and no file, which
+⌘S names. Nothing appears beside the document you opened until you say so.</p>
 <h2 id="the-tree-and-the-tabs">The tree, and the tabs</h2>
 <p>Clicking a row opens it: a drawing in a viewer <strong>at the size its groups build it at</strong> rather than the
 one it was written with, a group as its settings and what they come to. A double click is left to the
@@ -208,7 +211,7 @@ marks it, so a group folded away still says where the tab you are looking at liv
 the selected row, and a row is dragged to move it — dropped on the top or bottom quarter of a group
 it lands beside it, and in the middle it goes inside. Adding an <code>.svg</code> file reads it in; so does
 pasting one, or pasting the SVG a drawing program puts on the clipboard. Adding, removing and moving
-write the file as they are made; settings are held until the tab is saved.</p>
+edit the project; nothing reaches the file until you save it.</p>
 <p>A drawing's tab has its settings in the right pane, in front of the parameters the drawing declares —
 the same pane a group keeps its settings in, and the tab a drawing opened from the tree lands on.</p>
 <h2 id="a-groups-tab-several-icons-at-once">A group's tab: several icons at once</h2>
@@ -254,18 +257,33 @@ than by where it declared it: the whole parameter list, in order, with each one'
 The default is left out of that — it is where a drawing starts rather than what it takes, so a set
 seeded at different colours is still one family.</p>
 <h2 id="where-an-edit-lands">Where an edit lands</h2>
+<p>Nothing reaches the <code>.svgstudio</code> file except through <code>File → Save</code>. Between the two there is the
+project itself, held in the window, which is what every view of it reads.</p>
 <ul>
-<li>A drawing <strong>open in a tab</strong> is edited through that tab's buffer, so the edit can be taken back with
-⌘Z and is saved when you ask.</li>
-<li>A drawing <strong>open in no tab</strong> — one edited from a group's canvas — is written into the project and
-saved as the edit is made. There is no buffer to hold it, so there is nothing to undo and nothing
-to confirm on the way out.</li>
-<li>A node's <strong>settings</strong> are held on the tab they were typed in until it is saved. A tab saves what
-was typed in it and nothing else.</li>
+<li>A node's <strong>settings</strong> are held on the tab they were typed in until it is committed. A tab hands
+over what was typed in it and nothing else.</li>
+<li>A drawing <strong>open in a tab</strong> is edited through that tab's buffer, so the edit can be taken back
+with ⌘Z.</li>
+<li>A drawing <strong>open in no tab</strong> — one edited from a group's canvas — goes straight into the project.
+There is no buffer to hold it, so there is nothing to undo; it is still unsaved, and the window
+says so.</li>
+<li><strong>Arranging</strong> — a row added, removed or dragged in the tree, a drawing dragged on a board — is the
+project's own edit. No tab wears a mark for it, because closing a tab would not lose it; the
+window title does, and closing the project asks about it by name.</li>
 </ul>
-<p><code>File → Save</code> writes whatever the selected tab is holding. <code>File → Export…</code> writes the drawing
-being looked at somewhere else — as <code>.svg</code>, at the size the project builds it at and without the
-indentation the project wrote it at, or as <code>.cs</code> if the name says so.</p>
+<p><code>File → Save</code> hands the selected tab's work to the project and writes the project — one file, so one
+write, whatever was typed where. <code>File → Export…</code> writes the drawing being looked at somewhere else
+— as <code>.svg</code>, at the size the project builds it at and without the indentation the project wrote it
+at, or as <code>.cs</code> if the name says so.</p>
+<h2 id="the-recovery-copy">The recovery copy</h2>
+<p>Studio keeps a copy of the project under your application data while it has work that is not on disk
+— sooner as more piles up behind it, and never the project's own file. Saving throws the copy away,
+and so does closing the window, so a copy waiting when you open a project again is one Studio never
+got to throw away. It offers it back, and restoring puts the work in the window without touching the
+file.</p>
+<p>The copy is keyed by the project's own file, so a project that has never been saved has nothing to
+look one up under again and is not covered until you name it. Switch the copies off in
+<strong>Settings</strong> — the application menu on macOS, <code>File → Settings…</code> elsewhere.</p>
 <h2 id="the-element-tab">The Element tab</h2>
 <p>It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
 own tab or on a group's — in the order the file writes them, then the ones an expression could drive
