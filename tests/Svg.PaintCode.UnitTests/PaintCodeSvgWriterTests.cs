@@ -390,6 +390,46 @@ public class PaintCodeSvgWriterTests
         Assert.Contains("a compositing operation rather than a blend", note.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A shadow is reported rather than passed over, so a document using one says what it lost.
+    /// </summary>
+    /// <remarks>
+    /// Nothing read them at all until now: the sample has none, so the silence was never tested,
+    /// and the census row that said so was a field nothing ever assigned.
+    /// </remarks>
+    [Theory]
+    [InlineData(PaintCodeShadows.Fill, "the fill's shadow")]
+    [InlineData(PaintCodeShadows.FillInner, "the fill's inner shadow")]
+    [InlineData(PaintCodeShadows.Stroke, "the stroke's shadow")]
+    public void A_Shadow_Is_Reported_Rather_Than_Passed_Over(PaintCodeShadows shadows, string said)
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var shape = new PaintCodeShape(
+            "Rectangle",
+            PaintCodeShapeKind.Rectangle,
+            new PaintCodeFrame(0, -10, 10, 10, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            null,
+            new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 255, 0, 0, 1), null),
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            null,
+            PaintCodeShapeMetrics.Default,
+            false,
+            -90,
+            null,
+            0,
+            shadows);
+
+        WriteTree(Only(shape), notes);
+
+        var note = Assert.Single(notes);
+
+        Assert.Equal("shadow", note.Property);
+        Assert.Contains(said, note.Message, StringComparison.Ordinal);
+    }
+
     private static PaintCodeShape Blended(int mode)
         => new(
             "Rectangle",

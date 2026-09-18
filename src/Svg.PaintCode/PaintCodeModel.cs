@@ -1,5 +1,6 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
 using System.Collections.Generic;
 
 namespace Svg.PaintCode;
@@ -146,15 +147,42 @@ public enum PaintCodeShapeKind
     Polygon
 }
 
+/// <summary>The shadows PaintCode can put on one item, as the flags of the ones it has.</summary>
+/// <remarks>
+/// Read but not drawn: what they are worth is that a document using one says so, rather than
+/// importing a drawing quietly missing it. The sample uses none, which is why it took this long to
+/// notice nothing read them.
+/// </remarks>
+[Flags]
+public enum PaintCodeShadows
+{
+    None = 0,
+
+    /// <summary>A shadow cast by the fill, outside the shape.</summary>
+    Fill = 1,
+
+    /// <summary>The same thrown inwards, which SVG has no single filter for.</summary>
+    FillInner = 2,
+
+    Stroke = 4,
+
+    /// <summary>A group's own, which falls on everything it holds.</summary>
+    Item = 8
+}
+
 /// <summary>The frame and the bindings every drawable item carries.</summary>
 public abstract class PaintCodeItem
 {
-    private protected PaintCodeItem(string name, PaintCodeFrame frame, IReadOnlyDictionary<string, PaintCodeBinding> bindings)
+    private protected PaintCodeItem(string name, PaintCodeFrame frame, IReadOnlyDictionary<string, PaintCodeBinding> bindings, PaintCodeShadows shadows = PaintCodeShadows.None)
     {
         Name = name;
         Frame = frame;
         Bindings = bindings;
+        Shadows = shadows;
     }
+
+    /// <summary>Which shadows this item carries, none of which the conversion draws.</summary>
+    public PaintCodeShadows Shadows { get; }
 
     public string Name { get; }
 
@@ -228,8 +256,9 @@ public sealed class PaintCodeGroup : PaintCodeItem
         PaintCodeFrame frame,
         IReadOnlyDictionary<string, PaintCodeBinding> bindings,
         IReadOnlyList<PaintCodeItem> children,
-        PaintCodeShape? clip)
-        : base(name, frame, bindings)
+        PaintCodeShape? clip,
+        PaintCodeShadows shadows = PaintCodeShadows.None)
+        : base(name, frame, bindings, shadows)
     {
         Children = children;
         Clip = clip;
@@ -258,8 +287,9 @@ public sealed class PaintCodeShape : PaintCodeItem
         bool isRadialFill = false,
         double fillGradientAngle = -90,
         PaintCodeGradientEnds? fillGradientEnds = null,
-        int blendMode = 0)
-        : base(name, frame, bindings)
+        int blendMode = 0,
+        PaintCodeShadows shadows = PaintCodeShadows.None)
+        : base(name, frame, bindings, shadows)
     {
         Kind = kind;
         Path = path;

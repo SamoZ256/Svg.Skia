@@ -121,6 +121,8 @@ internal sealed class PaintCodeSvgWriter
         var element = new XElement(Svg + "g", children);
         element.SetAttributeValue("id", Identifier(group.Name));
 
+        Shadowed(group);
+
         if (group.Clip is { } clip)
         {
             var path = new XElement(Svg + "path");
@@ -205,6 +207,8 @@ internal sealed class PaintCodeSvgWriter
 
         var written = shape.Text is { } text ? WithText(element, shape, text) : element;
         Frame(written, shape);
+
+        Shadowed(shape);
 
         if (Blend(shape.BlendMode) is { } blend)
         {
@@ -1160,6 +1164,30 @@ internal sealed class PaintCodeSvgWriter
         _code.Use(expression);
 
         return expression;
+    }
+
+    /// <summary>Reports the shadows an item carries, none of which are drawn.</summary>
+    /// <remarks>
+    /// Read and reported rather than ignored: the sample uses none, so a document that does would
+    /// have imported quietly short of one. Drawing them wants feDropShadow for the two cast
+    /// outwards and something composed for the inner one, which is a piece of work to do against a
+    /// document that actually has them.
+    /// </remarks>
+    private void Shadowed(PaintCodeItem item)
+    {
+        foreach (var shadow in new[]
+                 {
+                     (PaintCodeShadows.Fill, "the fill's shadow"),
+                     (PaintCodeShadows.FillInner, "the fill's inner shadow"),
+                     (PaintCodeShadows.Stroke, "the stroke's shadow"),
+                     (PaintCodeShadows.Item, "the shadow it casts")
+                 })
+        {
+            if ((item.Shadows & shadow.Item1) != 0)
+            {
+                Note(PaintCodeImportSeverity.Dropped, item.Name, "shadow", $"{shadow.Item2} is not drawn, so the drawing is flat where PaintCode shades it.");
+            }
+        }
     }
 
     /// <summary>
