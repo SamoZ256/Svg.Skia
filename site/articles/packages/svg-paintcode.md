@@ -40,8 +40,9 @@ an `XDocument` — which is how a caller that keeps the drawings rather than fil
 
 From the command line, `svgc --paintcode Icons.pcvd` imports beside the document and then builds the
 project it wrote, so every other flag means what it already meant. In
-[Svg Studio](../guides/svg-studio), **File → Import PaintCode…** writes one `.svgstudio` holding
-every drawing and opens it; dropping a `.pcvd` on the window imports it beside itself.
+[Svg Studio](../guides/svg-studio), opening or dropping a `.pcvd` converts it into one `.svgstudio`
+holding every drawing, named beside the document and opened unsaved — nothing is written there until
+you save it.
 
 ## What comes across
 
