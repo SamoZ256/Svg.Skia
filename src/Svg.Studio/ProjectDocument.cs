@@ -756,7 +756,13 @@ public sealed class ProjectDocument
 
     public ProjectRoot Root { get; }
 
-    /// <summary>The file this was read from, or null when it was parsed from text.</summary>
+    /// <summary>The file this project is: what it was read from, or where it is to be written.</summary>
+    /// <remarks>
+    /// A project has one before it has a file. An import is converted into the name the author
+    /// picked and then held until they save it, and everything relative in it — an output, the
+    /// single file — resolves against that name in the meantime. Null only for a project parsed
+    /// from text with nowhere in mind.
+    /// </remarks>
     public string? Path { get; private set; }
 
     public string BaseDirectory { get; private set; }
@@ -779,8 +785,23 @@ public sealed class ProjectDocument
     /// No namespace, because the build already defaults one and a guess written into the file would
     /// have to be found and corrected rather than simply typed.
     /// </remarks>
-    public static ProjectDocument Empty(string baseDirectory)
-        => Parse("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<studio>\n</studio>\n", baseDirectory);
+    private const string Blank = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<studio>\n</studio>\n";
+
+    /// <inheritdoc cref="For(string, string)"/>
+    public static ProjectDocument For(string path) => For(path, Blank);
+
+    /// <summary>The project <paramref name="xml"/> holds, at the file it is to be written to.</summary>
+    /// <remarks>
+    /// The path and not the directory it sits in, which is what a caller has and what the project is
+    /// named by. Nothing is written: the file appears when somebody saves, and until then this is
+    /// the only copy there is.
+    /// </remarks>
+    public static ProjectDocument For(string path, string xml)
+    {
+        var full = System.IO.Path.GetFullPath(path);
+
+        return Parse(xml, System.IO.Path.GetDirectoryName(full) ?? string.Empty, full);
+    }
 
     private static ProjectDocument Parse(string xml, string baseDirectory, string? path)
     {

@@ -1656,6 +1656,105 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(Project, File.ReadAllText(path));
     }
 
+    /// <summary>
+    /// An svgc project opens by being converted, and the conversion is unsaved work like any other:
+    /// the old project and its drawings are where they were, and nothing is beside them yet.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Converted_Svgc_Project_Writes_Nothing_Until_It_Is_Saved()
+    {
+        Write("badge.svg", Drawing);
+
+        var source = Write("icons.svgcproj", """
+            <svgc namespace="Demo.Icons">
+              <svg input="badge.svg" class="Badge" />
+            </svgc>
+            """);
+
+        var window = Empty();
+        var said = new List<string>();
+
+        window.Announce = (_, message) =>
+        {
+            said.Add(message);
+
+            return Task.CompletedTask;
+        };
+
+        await window.OpenAsync(new[] { source });
+        Dispatcher.UIThread.RunJobs();
+
+        var target = Path.Combine(_directory, "icons.svgstudio");
+
+        Assert.Equal("icons.svgstudio", window.Workspace!.Name);
+        Assert.Equal("badge", Assert.Single(window.Workspace.Document.Root.Drawings).Name);
+
+        // Said, and true: the conversion is in the window and nowhere else.
+        Assert.Contains("Nothing has been written yet", Assert.Single(said), StringComparison.Ordinal);
+        Assert.True(window.Workspace.IsEdited);
+        Assert.False(File.Exists(target));
+
+        await window.SaveAsync();
+
+        Assert.True(File.Exists(target));
+        Assert.Equal("badge", Assert.Single(ProjectDocument.Load(target).Root.Drawings).Name);
+        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "badge.svg")));
+    }
+
+    /// <summary>
+    /// A build reads the window rather than the file, so a project that has never been written
+    /// still builds — beside the name it is to be written to, and nowhere else.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Build_From_An_Unsaved_Project_Writes_Its_Outputs()
+    {
+        Write("badge.svg", Drawing);
+
+        var source = Write("icons.svgcproj", """
+            <svgc namespace="Demo.Icons">
+              <svg input="badge.svg" class="Badge" output="Badge.cs" />
+            </svgc>
+            """);
+
+        var window = Empty();
+
+        window.Announce = (_, _) => Task.CompletedTask;
+
+        await window.OpenAsync(new[] { source });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(await window.BuildAsync());
+
+        Assert.True(File.Exists(Path.Combine(_directory, "Badge.cs")));
+        Assert.False(File.Exists(Path.Combine(_directory, "icons.svgstudio")));
+        Assert.False(File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "Badge.cs")));
+    }
+
+    /// <summary>
+    /// A project that cannot be read leaves the one that is open alone. It used to close it first
+    /// and then say so, which cost somebody their project for dropping the wrong file on a window.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Project_That_Cannot_Be_Read_Leaves_The_One_That_Is_Open()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var said = new List<string>();
+
+        window.Announce = (title, _) =>
+        {
+            said.Add(title);
+
+            return Task.CompletedTask;
+        };
+
+        await window.OpenAsync(new[] { Write("broken.svgstudio", "<studio><drawing /></studio>") });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("The project couldn't be opened", Assert.Single(said));
+        Assert.Equal("icons.svgstudio", window.Workspace!.Name);
+        Assert.Equal(new[] { "Project", "home", "Large", "badge" }, Rows((TreeViewItem)Tree(window).Items[0]!));
+    }
+
     /// <summary>The declaration panel on a group's Parameters tab, which the tab must be on to hold.</summary>
     private static SvgViewerDeclarationPanel Declarations(GroupPanel panel)
     {

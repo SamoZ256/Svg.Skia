@@ -10,8 +10,8 @@ using Xunit;
 namespace Svg.Studio.UnitTests;
 
 /// <summary>
-/// Importing a PaintCode document: the project it writes, with the drawings in it, and the project
-/// pane it leaves open on them.
+/// Importing a PaintCode document: the project it makes, with the drawings in it, and the project
+/// pane it leaves open on them — unsaved, until somebody who has seen it writes it.
 /// </summary>
 /// <remarks>
 /// The fixture is two canvases, one of them used as a symbol by the other, with a bound fill and a
@@ -26,7 +26,7 @@ public class MainWindowImportTests : IDisposable
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
     [AvaloniaFact]
-    public async Task An_Import_Opens_The_Project_It_Wrote()
+    public async Task An_Import_Opens_The_Project_It_Made()
     {
         var window = Shown();
         var target = Path.Combine(_directory, "icons.svgstudio");
@@ -35,11 +35,39 @@ public class MainWindowImportTests : IDisposable
 
         Dispatcher.UIThread.RunJobs();
 
+        // Named by the file it is to be written to, before there is one.
         Assert.Equal("icons.svgstudio", window.Workspace!.Name);
 
-        // One file, with the drawings in it: nothing is written beside it.
         Assert.Equal(new[] { "badge", "host" }, window.Workspace.Document.Root.Drawings.Select(drawing => drawing.Name).OrderBy(name => name).ToArray());
+    }
+
+    /// <summary>
+    /// A conversion is unsaved work like any other. It is held in the window until somebody has
+    /// looked at it and saved it, and the document it came from is the only file in the directory
+    /// until they do.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task An_Import_Writes_Nothing_Until_It_Is_Saved()
+    {
+        var window = Shown();
+        var target = Path.Combine(_directory, "icons.svgstudio");
+
+        Assert.True(await window.ImportPaintCodeAsync(Sample(), target));
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(window.Workspace!.IsEdited);
+        Assert.StartsWith("• ", window.Title, StringComparison.Ordinal);
+        Assert.Equal(new[] { "sample.pcvd" }, Directory.EnumerateFileSystemEntries(_directory).Select(Path.GetFileName).ToArray());
+
+        await window.SaveAsync();
+
+        // One file, with the drawings in it: nothing is written beside it.
+        Assert.False(window.Workspace.IsEdited);
         Assert.Equal(new[] { "icons.svgstudio", "sample.pcvd" }, Directory.EnumerateFileSystemEntries(_directory).Select(Path.GetFileName).OrderBy(name => name).ToArray());
+        Assert.Equal(
+            new[] { "badge", "host" },
+            ProjectDocument.Load(target).Root.Drawings.Select(drawing => drawing.Name).OrderBy(name => name).ToArray());
     }
 
     [AvaloniaFact]
@@ -53,9 +81,8 @@ public class MainWindowImportTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal("sample.svgstudio", window.Workspace!.Name);
-        Assert.True(File.Exists(Path.Combine(_directory, "sample.svgstudio")));
 
-        // Both names, because the dialog's whole job is to say that opening the one writes the other.
+        // Both names, because the dialog's whole job is to say what opening the one produces.
         Assert.Equal(source, _asked.Source);
         Assert.Equal(Path.Combine(_directory, "sample.svgstudio"), _asked.Target);
     }

@@ -371,7 +371,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                ProjectDocument.Empty(Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty).Save(path);
+                ProjectDocument.For(path).Save();
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
@@ -417,10 +417,8 @@ public partial class MainWindow : Window
         {
             // Off the UI thread: the document this was written for is 16 MB and a thousand drawings.
             document = await Task.Run(
-                () => ProjectImport.FromPaintCode(PaintCodeDocument.Load(source), options, notes, directory))
+                () => ProjectImport.FromPaintCode(PaintCodeDocument.Load(source), options, notes, target))
                 .ConfigureAwait(true);
-
-            document.Save(target);
         }
         catch (Exception failure) when (failure is PaintCodeException or SvgcProjectException or IOException or UnauthorizedAccessException)
         {
@@ -429,10 +427,13 @@ public partial class MainWindow : Window
             return false;
         }
 
-        await OpenProjectAsync(target).ConfigureAwait(true);
+        // Opened on what was just built rather than written and read back: nothing goes to disk
+        // until the author has seen the conversion and saved it, and a thousand drawings are not
+        // serialised and parsed again to show them.
+        await OpenProjectAsync(document, true, Array.Empty<string>()).ConfigureAwait(true);
 
-        // Only when something could not be carried across. The project opening on what was written
-        // is the rest of the answer, and a dialog saying so would be one click for nothing.
+        // Only when something could not be carried across. The project opening on the drawings is
+        // the rest of the answer, and a dialog saying so would be one click for nothing.
         if (notes.Count > 0)
         {
             await Announce("Imported", Said(document, notes)).ConfigureAwait(true);
@@ -444,10 +445,10 @@ public partial class MainWindow : Window
     private static string Said(ProjectDocument document, IReadOnlyList<PaintCodeImportNote> notes)
     {
         var drawn = document.Root.Drawings.Count();
-        var wrote = $"{drawn} drawing{(drawn == 1 ? string.Empty : "s")}.";
+        var carried = $"{drawn} drawing{(drawn == 1 ? string.Empty : "s")}.";
         var missing = notes.Where(note => note.Severity is PaintCodeImportSeverity.Missing).ToList();
         var rest = notes.Where(note => note.Severity is not PaintCodeImportSeverity.Missing).ToList();
-        var lines = new List<string> { $"{wrote} {notes.Count} could not be carried across:" };
+        var lines = new List<string> { $"{carried} {notes.Count} could not be carried across:" };
 
         // First, and never trimmed away: this is the document asking for a canvas it does not have,
         // which is the one thing in here to take back to PaintCode rather than to this converter.
@@ -467,7 +468,7 @@ public partial class MainWindow : Window
         return string.Join(Environment.NewLine, lines);
     }
 
-    /// <summary>Where an import writes when nobody was asked: a project beside the document.</summary>
+    /// <summary>Where a conversion goes when nobody was asked: a project beside the document.</summary>
     private static string Beside(string source)
     {
         var directory = Path.GetDirectoryName(Path.GetFullPath(source)) ?? ".";
@@ -492,11 +493,6 @@ public partial class MainWindow : Window
     /// </remarks>
     private async Task OpenProjectAsync(string path)
     {
-        if (!await CloseProjectAsync().ConfigureAwait(true))
-        {
-            return;
-        }
-
         ProjectDocument document;
         var notes = new List<string>();
 
@@ -506,11 +502,32 @@ public partial class MainWindow : Window
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or IOException or UnauthorizedAccessException)
         {
+            // Before anything is closed: a file that cannot be read is no reason to take away the
+            // project somebody is working on.
             await Announce("The project couldn't be opened", failure.Message).ConfigureAwait(true);
             return;
         }
 
-        var workspace = new ProjectWorkspace(document);
+        await OpenProjectAsync(document, IsSvgc(path), notes).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Opens a project the window is holding, whether or not it is on disk.
+    /// </summary>
+    /// <remarks>
+    /// The document rather than a path, because an import and a conversion build one that no file
+    /// holds yet. It is also the one place a document becomes a workspace, which is what lets the
+    /// recovery copy be asked about once rather than at every way in.
+    /// </remarks>
+    /// <param name="edited">Whether what is being opened is already unsaved work.</param>
+    private async Task OpenProjectAsync(ProjectDocument document, bool edited, IReadOnlyList<string> notes)
+    {
+        if (!await CloseProjectAsync().ConfigureAwait(true))
+        {
+            return;
+        }
+
+        var workspace = new ProjectWorkspace(document, edited);
 
         _workspace = workspace;
 
@@ -526,10 +543,22 @@ public partial class MainWindow : Window
 
         // A write changes nothing the tree or the boards are showing — only whether there is
         // anything left to write, which is all the chrome is asking.
+        var remembered = false;
+
         workspace.Saved += (_, _) =>
         {
             UpdateTitle();
             UpdateMenu();
+
+            // A project that existed only in memory — an import, a conversion — has nowhere to be
+            // remembered from until it has been written once. One opened from a file is already in
+            // the list.
+            if (!remembered && workspace.Document.Path is { } written)
+            {
+                remembered = true;
+
+                Remember(written);
+            }
         };
 
         ShowProjectPane(true);
@@ -542,7 +571,16 @@ public partial class MainWindow : Window
         await ShowAsync(workspace.Document.Root).ConfigureAwait(true);
 
         UpdateMenu();
-        Remember(document.Path ?? path);
+
+        // Only a file that is there. A project written nowhere yet would be offered by Open Recent
+        // and then quietly dropped from it, since the list keeps only what exists; the save that
+        // writes it is what remembers it.
+        if (document.Path is { } opened && File.Exists(opened))
+        {
+            remembered = true;
+
+            Remember(opened);
+        }
 
         if (notes.Count > 0)
         {
@@ -551,24 +589,26 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// An svgc project as one of these, written beside it.
+    /// An svgc project as one of these, named beside it.
     /// </summary>
     /// <remarks>
     /// One way, and the old project is left exactly as it was: the two formats say different things
     /// about where a drawing lives, and a conversion that wrote back would have to put the drawings
     /// out into files again. What it does lose is said in the notes — a recipe is baked into the
     /// drawings it painted, and a file the old project named twice becomes two drawings.
+    ///
+    /// Named through <see cref="Beside"/>, as an import is: it never takes a name something already
+    /// answers to, which is what stops a second opening from writing over the first conversion.
     /// </remarks>
     private static ProjectDocument Converted(string path, ICollection<string> notes)
     {
-        var document = ProjectImport.FromSvgc(SvgcProjectDocument.Load(path), notes);
-        var written = Path.ChangeExtension(Path.GetFullPath(path), ".svgstudio");
-
-        document.Save(written);
+        var target = Beside(path);
+        var document = ProjectImport.FromSvgc(SvgcProjectDocument.Load(path), notes, target);
 
         notes.Add(
-            $"{Path.GetFileName(path)} was converted and written as {Path.GetFileName(written)}, which holds the drawings "
-            + "themselves. The project it came from and the drawings it named are left where they are.");
+            $"{Path.GetFileName(path)} was converted into a project called {Path.GetFileName(target)}, which holds "
+            + "the drawings themselves. Nothing has been written yet — save it when you are happy with it. The "
+            + "project it came from and the drawings it named are left where they are.");
 
         return document;
     }
@@ -660,6 +700,13 @@ public partial class MainWindow : Window
         // The warnings are the half worth reading — a recipe that matched nothing, a default that
         // will not reach a signature — and there is nowhere else they would be seen.
         var said = log.Where(line => line.StartsWith("warning:", StringComparison.Ordinal)).ToList();
+
+        // The outputs are beside a project that is not there yet, which is worth saying once: the
+        // build reads what is in the window, so it needs no file, but the paths it names imply one.
+        if (OnDisk(workspace.Document.Root) is null)
+        {
+            said.Add("The project itself has not been saved yet.");
+        }
 
         await Announce(
             "Built",
@@ -879,10 +926,11 @@ public partial class MainWindow : Window
     /// <summary>What the file manager would be pointed at for this row, or null where nothing would.</summary>
     /// <remarks>
     /// The project, whatever the row: a drawing is in it rather than beside it, so there is no other
-    /// file to show. A project parsed from text rather than opened has none at all, and no row of it
-    /// offers the command.
+    /// file to show. A project parsed from text, and one converted but not saved yet, have no file
+    /// at all, and no row of either offers the command — it would point a file manager at nothing.
     /// </remarks>
-    private string? OnDisk(ProjectNode node) => _workspace?.Document.Path;
+    private string? OnDisk(ProjectNode node)
+        => _workspace?.Document.Path is { } path && File.Exists(path) ? path : null;
 
     /// <summary>Takes a row, to be pasted somewhere else.</summary>
     private void Hold(ProjectNode node, bool cut)
@@ -2638,8 +2686,9 @@ public partial class MainWindow : Window
 
         var asked = await Ask(
             "Convert to a project",
-            $"{Path.GetFileName(source)} is a PaintCode document. Opening it writes a Svg Studio project "
-                + $"at {Path.GetFileName(target)}, beside the document, and opens that. The document itself is left alone.",
+            $"{Path.GetFileName(source)} is a PaintCode document. Opening it converts the document into a Svg "
+                + $"Studio project called {Path.GetFileName(target)}, beside it. Nothing is written until you save "
+                + "it, and the document itself is left alone.",
             "Convert",
             "Cancel",
             integers).ConfigureAwait(true);

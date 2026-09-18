@@ -605,9 +605,11 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void An_Empty_Project_Is_A_Project_A_Drawing_Can_Be_Added_To()
     {
-        var document = ProjectDocument.Empty(_directory);
+        var document = ProjectDocument.For(Path.Combine(_directory, "icons.svgstudio"));
 
+        // Named, and nowhere on disk: the file appears when somebody saves it.
         Assert.Empty(document.Root.Children);
+        Assert.False(File.Exists(document.Path!));
 
         document.Root.AddDrawing("Dot", Drawing, 0);
 

@@ -65,7 +65,12 @@ public class ProjectImportTests : IDisposable
             """));
 
         var notes = new List<string>();
-        var project = ProjectImport.FromSvgc(source, notes);
+        var target = Path.Combine(_directory, "icons.svgstudio");
+        var project = ProjectImport.FromSvgc(source, notes, target);
+
+        // Named before it is written: the conversion is held until somebody saves it.
+        Assert.Equal(target, project.Path);
+        Assert.False(File.Exists(target));
 
         Assert.Empty(notes);
         Assert.Equal("Demo.Icons", project.Root.Namespace);
@@ -106,7 +111,8 @@ public class ProjectImportTests : IDisposable
             """));
 
         var notes = new List<string>();
-        var text = ProjectImport.FromSvgc(source, notes).Root.Drawings.Single().Text;
+        var text = ProjectImport.FromSvgc(source, notes, Path.Combine(_directory, "icons.svgstudio"))
+            .Root.Drawings.Single().Text;
 
         Assert.Empty(notes);
 
@@ -126,7 +132,7 @@ public class ProjectImportTests : IDisposable
             """));
 
         var notes = new List<string>();
-        var project = ProjectImport.FromSvgc(source, notes);
+        var project = ProjectImport.FromSvgc(source, notes, Path.Combine(_directory, "icons.svgstudio"));
 
         Assert.Empty(project.Root.Drawings);
         Assert.Contains("missing.svg could not be read", Assert.Single(notes), StringComparison.Ordinal);
@@ -146,7 +152,7 @@ public class ProjectImportTests : IDisposable
             document,
             new PaintCodeImportOptions(_directory),
             notes,
-            _directory);
+            Path.Combine(_directory, "symbols.svgstudio"));
 
         var group = Assert.IsType<ProjectGroup>(Assert.Single(project.Root.Children));
 
