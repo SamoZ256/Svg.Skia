@@ -24,8 +24,8 @@ internal static class DeskDocument
         // carry across. It still becomes a drawing.
         var nowhere = Canvas(archive, "nowhere", null);
 
-        // Controls: one canvas above the desk's own origin and a smaller one below it, so a desk
-        // whose numbers go negative is in here too.
+        // Controls: one canvas below the desk's own origin — a desk's y points up — and a smaller
+        // one above it, so a desk whose numbers go negative is in here too.
         var four = Canvas(archive, "four", "{{200, -40}, {60, 60}}");
         var five = Canvas(archive, "five", "{{200, 40}, {30, 30}}");
 

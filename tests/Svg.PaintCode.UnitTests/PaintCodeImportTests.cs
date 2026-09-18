@@ -229,7 +229,7 @@ public class PaintCodeImportTests
         Assert.Equal(30d, one.Place!.Value.Width);
         Assert.Equal(30d, one.Place!.Value.Height);
 
-        // Negative, and carried as such: a desk is free to have things above its own origin.
+        // Negative, and carried as such: a desk is free to have things below its own origin.
         Assert.Equal(-40d, desks.Single(desk => desk.Name == "Controls")
             .Drawings.Single(drawing => drawing.Name == "four").Place!.Value.Y);
     }

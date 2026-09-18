@@ -142,18 +142,23 @@ public class ProjectImportTests : IDisposable
     /// numbers: a place is read against the board holding it, and normalising is what the board
     /// itself would write the moment anybody dragged anything.
     /// </summary>
+    /// <remarks>
+    /// Turned over on the way across, a desk's y pointing up and a board's down. "three" is the one
+    /// at the larger y of the L, so it is the row along the top of the board; subtracting on both
+    /// axes put it along the bottom and mirrored every desk in the project.
+    /// </remarks>
     [Fact]
     public void A_PaintCode_Canvas_Keeps_Where_It_Sat_On_Its_Desk()
     {
         var project = Placed();
 
-        Assert.Equal((0f, 0f), At(project, "Overlays", "one"));
-        Assert.Equal((40f, 0f), At(project, "Overlays", "two"));
-        Assert.Equal((0f, 50f), At(project, "Overlays", "three"));
+        Assert.Equal((0f, 0f), At(project, "Overlays", "three"));
+        Assert.Equal((0f, 50f), At(project, "Overlays", "one"));
+        Assert.Equal((40f, 50f), At(project, "Overlays", "two"));
 
-        // A desk whose canvases sit above its own origin comes out the same way round.
-        Assert.Equal((0f, 0f), At(project, "Controls", "four"));
-        Assert.Equal((0f, 80f), At(project, "Controls", "five"));
+        // A desk whose canvases sit below its own origin comes out the same way round.
+        Assert.Equal((0f, 0f), At(project, "Controls", "five"));
+        Assert.Equal((0f, 50f), At(project, "Controls", "four"));
     }
 
     [Fact]

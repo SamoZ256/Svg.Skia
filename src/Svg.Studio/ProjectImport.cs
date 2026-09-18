@@ -150,20 +150,18 @@ public static class ProjectImport
     /// Where a canvas goes on its desk's board, against the desk's own corner.
     /// </summary>
     /// <remarks>
-    /// A subtraction on both axes, which assumes a canvas's bounds name its top left corner and
-    /// that a desk's y grows downwards as a board's does. PaintCode is y-up inside a canvas — see
-    /// <c>PaintCodeGeometry</c> — but that is about path points, which the writer has already turned
-    /// over; the rect here is the same one whose width and height become a drawing measured from its
-    /// top left, and the canvas carries isFlipped, which is a y-down view. Read the wrong way round
-    /// this mirrors each desk vertically, and the second line below is the whole of the fix:
-    /// (from.Y + from.Height) - (place.Y + place.Height).
+    /// A desk's y grows upwards, as everything a PaintCode document measures does, so its bounds
+    /// name a canvas's bottom left corner. A board's y grows down: x subtracts, y is measured from
+    /// the desk's top edge instead, which is <c>from.Y + from.Height</c>. Subtracting on both axes
+    /// reads the desk as y-down and mirrors it — the rows a designer wrote below the first, at the
+    /// lower y, came out above it.
     ///
     /// Board units are canvas points one for one: an imported drawing names no size, so what it is
     /// drawn at is the width and height of this same rect.
     /// </remarks>
     private static (float X, float Y) At(PaintCodeRect place, PaintCodeRect from)
         => (ProjectNode.Rounded((float)(place.X - from.X)),
-            ProjectNode.Rounded((float)(place.Y - from.Y)));
+            ProjectNode.Rounded((float)(from.Y + from.Height - (place.Y + place.Height))));
 
     /// <summary>
     /// What a desk comes to: the union of what is placed on it, or null where nothing is.
@@ -176,18 +174,20 @@ public static class ProjectImport
     /// </remarks>
     private static PaintCodeRect? Corner(PaintCodeImportDesk desk)
     {
-        double? left = null, top = null, right = null, bottom = null;
+        double? left = null, bottom = null, right = null, top = null;
 
         foreach (var place in desk.Drawings.Select(drawing => drawing.Place).OfType<PaintCodeRect>())
         {
             left = left is { } x ? Math.Min(x, place.X) : place.X;
-            top = top is { } y ? Math.Min(y, place.Y) : place.Y;
+            bottom = bottom is { } y ? Math.Min(y, place.Y) : place.Y;
             right = right is { } far ? Math.Max(far, place.X + place.Width) : place.X + place.Width;
-            bottom = bottom is { } low ? Math.Max(low, place.Y + place.Height) : place.Y + place.Height;
+            top = top is { } high ? Math.Max(high, place.Y + place.Height) : place.Y + place.Height;
         }
 
-        return left is { } && top is { } && right is { } && bottom is { }
-            ? new PaintCodeRect(left.Value, top.Value, right.Value - left.Value, bottom.Value - top.Value)
+        // Named for a desk's own axis, which points up: the smallest y is the bottom of the union,
+        // and a PaintCode rect is written from there.
+        return left is { } && bottom is { } && right is { } && top is { }
+            ? new PaintCodeRect(left.Value, bottom.Value, right.Value - left.Value, top.Value - bottom.Value)
             : null;
     }
 
