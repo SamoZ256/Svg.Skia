@@ -514,13 +514,22 @@ public partial class MainWindow : Window
 
         _workspace = workspace;
 
-        // A saved setting decides what everything under it inherits, so the tree's names and the
+        // An edited setting decides what everything under it inherits, so the tree's names and the
         // drawings already open both have to follow it.
         workspace.Edited += (_, _) =>
         {
             BuildTree();
             Retitle();
             Rebuild();
+            UpdateMenu();
+        };
+
+        // A write changes nothing the tree or the boards are showing — only whether there is
+        // anything left to write, which is all the chrome is asking.
+        workspace.Saved += (_, _) =>
+        {
+            UpdateTitle();
+            UpdateMenu();
         };
 
         ShowProjectPane(true);
@@ -579,8 +588,10 @@ public partial class MainWindow : Window
         var owned = _tabs.Items.OfType<TabItem>().Where(Owned).ToList();
 
         var unsaved = Unsaved();
+        var project = Unwritten;
 
-        if (unsaved.Count > 0 && !await ConfirmDiscard(Describe(unsaved)).ConfigureAwait(true))
+        if ((unsaved.Count > 0 || project is { })
+            && !await ConfirmDiscard(Describe(unsaved, project)).ConfigureAwait(true))
         {
             return false;
         }
@@ -921,7 +932,7 @@ public partial class MainWindow : Window
         // the one meant for an icon copied in another program. Twice is Copy, Paste, Copy, Paste.
         _held = null;
 
-        workspace.Save();
+        workspace.Edit();
         BuildTree(copy);
     }
 
@@ -1015,7 +1026,7 @@ public partial class MainWindow : Window
         var (parent, index) = Beside(beside);
         var group = parent.AddGroup("group", index);
 
-        workspace.Save();
+        workspace.Edit();
         BuildTree(group);
 
         // Named "group" until something better is typed into its settings, which is what the tab
@@ -1100,7 +1111,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        workspace.Save();
+        workspace.Edit();
         BuildTree(added);
 
         await ShowAsync(added).ConfigureAwait(true);
@@ -1127,7 +1138,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        workspace.Save();
+        workspace.Edit();
         BuildTree(added);
 
         await ShowAsync(added).ConfigureAwait(true);
@@ -1169,7 +1180,7 @@ public partial class MainWindow : Window
 
         parent.Remove(node);
 
-        workspace.Save();
+        workspace.Edit();
         BuildTree();
 
         return true;
@@ -1401,7 +1412,7 @@ public partial class MainWindow : Window
             return false;
         }
 
-        workspace.Save();
+        workspace.Edit();
         BuildTree(node);
 
         return true;
@@ -1617,9 +1628,9 @@ public partial class MainWindow : Window
     /// Where a drawing's text is written, for a host that wants to edit one.
     /// </summary>
     /// <remarks>
-    /// The tab it is open in, so the edit lands in a buffer somebody can take back and saves when
-    /// they ask. Null is answered by the caller with the project, which writes the edit as it is
-    /// made. By the row rather than by a file: a drawing is one row of the project, so one tab.
+    /// The tab it is open in, so the edit lands in a buffer somebody can take back. Null is answered
+    /// by the caller with the project itself, which takes the edit with nothing to take it back.
+    /// By the row rather than by a file: a drawing is one row of the project, so one tab.
     /// </remarks>
     private ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
         => Tab(drawing)?.Content as SvgViewer;
@@ -2192,11 +2203,9 @@ public partial class MainWindow : Window
             export.IsEnabled = Selected() is { Document: { } };
         }
 
-        // What the tab's own dot is drawn from, so it covers the drawing's text and the project's
-        // say over it without asking either of them separately.
         if (Item(menu, "Save") is { } save)
         {
-            save.IsEnabled = _tabs.SelectedItem is TabItem tab && Unsaved(tab) is { };
+            save.IsEnabled = Marked();
         }
 
         // Not for a drawing the project holds: Save As points a tab at the file it wrote, and one
@@ -2444,7 +2453,8 @@ public partial class MainWindow : Window
     private async Task<bool> CloseTabAsync(TabItem item)
     {
         // A close button is one click away from losing an edit, and nothing else would have said so.
-        if (Unsaved(item) is { } name && !await ConfirmDiscard(Describe(new[] { name })))
+        // Only what this tab is holding: the project's own unsaved work is not lost by closing a tab.
+        if (Unsaved(item) is { } name && !await ConfirmDiscard(Describe(new[] { name }, null)))
         {
             return false;
         }
@@ -2474,8 +2484,9 @@ public partial class MainWindow : Window
         }
 
         var unsaved = Unsaved();
+        var project = Unwritten;
 
-        if (unsaved.Count == 0)
+        if (unsaved.Count == 0 && project is null)
         {
             return;
         }
@@ -2484,12 +2495,12 @@ public partial class MainWindow : Window
 
         // Posted, so the close finishes being called off first: a prompt that answered immediately
         // would re-enter Close from inside OnClosing, as a test's stub does.
-        Dispatcher.UIThread.Post(async () => await ConfirmThenClose(unsaved));
+        Dispatcher.UIThread.Post(async () => await ConfirmThenClose(Describe(unsaved, project)));
     }
 
-    private async Task ConfirmThenClose(IReadOnlyList<string> unsaved)
+    private async Task ConfirmThenClose(string message)
     {
-        if (!await ConfirmDiscard(Describe(unsaved)))
+        if (!await ConfirmDiscard(message))
         {
             return;
         }
@@ -2502,7 +2513,7 @@ public partial class MainWindow : Window
     /// <summary>The viewer in the selected tab, or null while there is none.</summary>
     private SvgViewer? Selected() => (_tabs.SelectedItem as TabItem)?.Content as SvgViewer;
 
-    /// <summary>Everything open with changes that are not on disk.</summary>
+    /// <summary>The tabs holding changes that are not on disk.</summary>
     private IReadOnlyList<string> Unsaved()
         => _tabs.Items.OfType<TabItem>()
             .Select(Unsaved)
@@ -2510,6 +2521,23 @@ public partial class MainWindow : Window
             .Select(name => name!)
             .Distinct(StringComparer.Ordinal)
             .ToList();
+
+    /// <summary>The project's own unwritten work, named by its file, or null where there is none.</summary>
+    /// <remarks>
+    /// Beside the tabs rather than among them, because it is not one: a row dragged in the tree or a
+    /// board arranged belongs to the project, and there is no tab to close to get it back.
+    /// </remarks>
+    private string? Unwritten => _workspace is { IsEdited: true } workspace ? workspace.Name : null;
+
+    /// <summary>
+    /// Whether the dot belongs on the window, and so whether Save has anything to write.
+    /// </summary>
+    /// <remarks>
+    /// The two answer the same question and are read a line apart, so they ask it once here rather
+    /// than each composing it and drifting.
+    /// </remarks>
+    private bool Marked()
+        => Unwritten is { } || (_tabs.SelectedItem is TabItem tab && Unsaved(tab) is { });
 
     /// <summary>
     /// What a tab is holding that is not on disk, named, or null when it is holding nothing.
@@ -2575,12 +2603,20 @@ public partial class MainWindow : Window
 
 
 
-    private static string Describe(IReadOnlyList<string> unsaved)
-        => unsaved.Count == 1
-            ? $"{unsaved[0]} has changes that have not been saved."
-            // Not "drawings": a group's settings are unsaved work too, and the window closes over
-            // both.
-            : $"{unsaved.Count} tabs have changes that have not been saved.";
+    /// <summary>What is about to be thrown away, in a sentence.</summary>
+    /// <remarks>
+    /// The project is named and the tabs are counted: it is one thing wearing a file's name, and
+    /// counting it among them would be wrong twice over. "Tabs" and not "drawings", since a group's
+    /// settings are unsaved work too and the window closes over both.
+    /// </remarks>
+    private static string Describe(IReadOnlyList<string> tabs, string? project) => (tabs.Count, project) switch
+    {
+        (0, { } named) => $"{named} has changes that have not been saved.",
+        (1, { } named) => $"{named} and {tabs[0]} have changes that have not been saved.",
+        (_, { } named) => $"{named} and {tabs.Count} tabs have changes that have not been saved.",
+        (1, null) => $"{tabs[0]} has changes that have not been saved.",
+        _ => $"{tabs.Count} tabs have changes that have not been saved."
+    };
 
     /// <summary>Asks whether edits that are not on disk may be thrown away.</summary>
     private Task<bool> AskDiscard(string message)
@@ -2851,86 +2887,87 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Saves whatever the selected tab is holding.
+    /// Hands what the selected tab is holding to the project, and writes the project.
     /// </summary>
-    /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the keyboard.</remarks>
+    /// <remarks>
+    /// One write, wherever the work was typed: the project is one file, so committing the tab and
+    /// then writing once is the whole of a save. A tab still hands over only what was typed in it —
+    /// what another tab is holding is in its own boxes and cannot be written from here — and the
+    /// write carries whatever else the document has been given since, which is what a save has
+    /// always carried.
+    ///
+    /// Public for the reason <see cref="ExportAsync"/> is: a way in without the keyboard.
+    /// </remarks>
     public async Task SaveAsync()
     {
-        if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel panel)
+        var selected = _tabs.SelectedItem as TabItem;
+
+        // A drawing with a file of its own: the viewer writes it, and no project is involved.
+        if (selected is { Tag: not ProjectNode, Content: SvgViewer alone })
         {
-            try
+            await alone.SaveSourceAsync().ConfigureAwait(true);
+        }
+        else if (selected?.Content is GroupPanel panel)
+        {
+            panel.Commit();
+        }
+        else if (selected?.Content is SvgViewer viewer && _workspace is { } holder)
+        {
+            // Both halves, since both are the tab's: the project's say over the drawing, and its text.
+            Settings(viewer)?.Commit();
+
+            if (viewer.IsSourceModified && selected.Tag is ProjectDrawing drawing)
             {
-                panel.Save();
+                if (drawing.SetText(viewer.Source) is { } refusal)
+                {
+                    await Announce("The drawing couldn't be saved", refusal).ConfigureAwait(true);
+
+                    return;
+                }
+
+                holder.Edit();
             }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-            {
-                await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
-            }
+        }
+
+        // Nothing the project is holding, so nothing to write: a save that touched the file's date
+        // for no edit would be a change to a file nobody edited.
+        if (_workspace is not { IsEdited: true } workspace)
+        {
+            return;
+        }
+
+        try
+        {
+            workspace.Save();
+        }
+        catch (Exception failure)
+            when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
 
             return;
         }
 
-        if (Selected() is not { } viewer)
+        // The bytes are the project's now, so the tab is told rather than asked to write them:
+        // SaveSourceAsync would go looking for a file this drawing has not got.
+        if (selected is { Tag: ProjectDrawing, Content: SvgViewer held })
         {
-            return;
+            held.MarkSaved();
         }
-
-        // Both halves, since both are the tab's: the drawing's text and the project's say over it.
-        if (Settings(viewer) is { IsModified: true } settings)
-        {
-            try
-            {
-                settings.Save();
-            }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-            {
-                await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
-            }
-        }
-
-        if (_tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing } && _workspace is { } workspace)
-        {
-            if (drawing.SetText(viewer.Source) is { } refusal)
-            {
-                await Announce("The drawing couldn't be saved", refusal).ConfigureAwait(true);
-
-                return;
-            }
-
-            try
-            {
-                workspace.Save();
-            }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-            {
-                await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
-
-                return;
-            }
-
-            // The bytes are the project's now, so the tab is told rather than asked to write them:
-            // SaveSourceAsync would go looking for a file this drawing has not got.
-            viewer.MarkSaved();
-
-            return;
-        }
-
-        await viewer.SaveSourceAsync().ConfigureAwait(true);
     }
 
     private void UpdateTitle()
     {
         // Before the name, as on the tab: the two say the same thing about the same file and
-        // should be read the same way round.
+        // should be read the same way round. The window answers for the project as well as for the
+        // tab, since work dragged into the project wears no tab's mark.
+        var mark = Marked() ? "• " : string.Empty;
+
         if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel group)
         {
-            var edited = group.IsModified ? "• " : string.Empty;
-
-            Title = $"{edited}{ProjectWorkspace.Label(group.Node)} — {group.Workspace.Name}";
+            Title = $"{mark}{ProjectWorkspace.Label(group.Node)} — {group.Workspace.Name}";
             return;
         }
-
-        var mark = _tabs.SelectedItem is TabItem tab && Unsaved(tab) is { } ? "• " : string.Empty;
 
         if (_tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing } && _workspace is { } workspace)
         {

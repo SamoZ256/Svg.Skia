@@ -10,14 +10,12 @@ namespace Svg.Studio;
 /// <summary>A drawing in the project, as somewhere declarations can be written.</summary>
 /// <remarks>
 /// The last resort, for a drawing that is open in no tab. Everything else that writes into a drawing
-/// in Studio writes the buffer behind its tab, and <see cref="ISvgViewerDeclarationTarget"/> says as
-/// much: "a buffer and not a file: edits arrive one at a time as somebody works, and a host that
-/// wrote each one to disk would save on every gesture and have nothing to take back."
+/// in Studio writes the buffer behind its tab; there is no buffer here, so the edit goes straight
+/// into the project, where the tree and every other view read it.
 ///
-/// This is that exception, deliberately, and it costs what the interface says it does. Every edit is
-/// written into the project and saved the moment it is made: there is no undo, no unsaved mark, and
-/// nothing to confirm on the way out because the file has already changed. It is the honest answer
-/// for a drawing nothing else is holding — the alternative was refusing to edit it at all.
+/// What that costs is the buffer's two services: there is nothing to take back with ⌘Z, and no mark
+/// of its own, since no tab is holding it. The project carries it as it carries a row dragged in the
+/// tree, so it is not on disk and not silent — the title says the project is unsaved.
 /// </remarks>
 public sealed class DrawingTarget : ISvgViewerDeclarationTarget
 {
@@ -69,7 +67,7 @@ public sealed class DrawingTarget : ISvgViewerDeclarationTarget
             return bad;
         }
 
-        _workspace.Save();
+        _workspace.Edit();
 
         return null;
     }

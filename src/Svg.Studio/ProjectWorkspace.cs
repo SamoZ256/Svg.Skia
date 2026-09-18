@@ -8,33 +8,79 @@ using Svg.Skia;
 namespace Svg.Studio;
 
 /// <summary>
-/// The open project: the tree in the pane, and whether it has edits that are not on disk.
+/// The open project: the tree in the pane, and the edits made to it that are not on disk yet.
 /// </summary>
 /// <remarks>
 /// Not a control and not a tab. A project is the thing the window is working on rather than one of
 /// the things it is showing, so nothing about it belongs to a tab that can be closed — which is what
 /// lets a group and a drawing both open as ordinary tabs over it.
+///
+/// It is also where unsaved work that belongs to no tab is counted. A row added, moved or removed,
+/// and a board arranged, edit the document itself rather than a buffer behind some tab, so there is
+/// nowhere else for them to be remembered between the gesture and the save.
 /// </remarks>
 public sealed class ProjectWorkspace
 {
-    public ProjectWorkspace(ProjectDocument document)
-        => Document = document ?? throw new ArgumentNullException(nameof(document));
+    /// <param name="edited">
+    /// Whether what is being opened is already unsaved — an import, a conversion or a recovered copy,
+    /// none of which exist anywhere but in memory. Only the caller knows which of those it is doing.
+    /// </param>
+    public ProjectWorkspace(ProjectDocument document, bool edited = false)
+    {
+        Document = document ?? throw new ArgumentNullException(nameof(document));
+        Edits = edited ? 1 : 0;
+    }
 
     public ProjectDocument Document { get; }
 
-    /// <summary>Raised when the document has changed on disk, so every view of it can follow.</summary>
-    /// <remarks>
-    /// Unsaved work belongs to the tab it was typed in, not here — a project is one file, but each
-    /// tab saves only what was typed in it, so there is no single dirty state to keep.
-    /// </remarks>
+    /// <summary>Raised when the document has changed, so every view of it can follow.</summary>
     public event EventHandler? Edited;
+
+    /// <summary>Raised when the file has caught up with the document.</summary>
+    /// <remarks>
+    /// Its own event rather than another <see cref="Edited"/>: nothing the document says has changed,
+    /// so a save must not cost a tree rebuild and a re-lay of every open board. What follows this is
+    /// the chrome that reports whether there is anything left to write.
+    /// </remarks>
+    public event EventHandler? Saved;
 
     public string Name => Document.Path is { } path ? Path.GetFileName(path) : "A project";
 
+    /// <summary>Gestures made since the document was last written.</summary>
+    /// <remarks>
+    /// One per gesture and not per attribute: settling a board writes a place on every row under it,
+    /// and what a crash would cost is the one drag, not the rows. Counted rather than flagged because
+    /// how much is at stake is what decides how soon a recovery copy is worth writing.
+    /// </remarks>
+    public int Edits { get; private set; }
+
+    /// <summary>Whether the document holds work its file does not.</summary>
+    /// <remarks>
+    /// A project edited back to what it was still counts as edited. Answering otherwise means
+    /// comparing the whole document against the bytes last written, on a file an import can size in
+    /// the tens of megabytes, to spare somebody a save they were about to make anyway.
+    /// </remarks>
+    public bool IsEdited => Edits > 0;
+
+    /// <summary>Records one edit to the document, which is left for somebody to save.</summary>
+    public void Edit()
+    {
+        Edits++;
+        Edited?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Writes the document, and says so.</summary>
+    /// <remarks>
+    /// Counted down only once the write has returned: a project that reported itself saved when the
+    /// write threw would drop its mark, stop offering Save and let the window close over the lot.
+    /// </remarks>
     public void Save()
     {
         Document.Save();
-        Edited?.Invoke(this, EventArgs.Empty);
+
+        Edits = 0;
+
+        Saved?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>The size a drawing is built at once every group above it has had its say.</summary>
