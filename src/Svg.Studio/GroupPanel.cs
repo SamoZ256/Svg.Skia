@@ -594,29 +594,27 @@ public sealed class GroupPanel : UserControl
     /// <remarks>
     /// The rows are built again whenever the declarations change, and adding a parameter is a
     /// change; a slider somebody had dragged would otherwise snap back because they pressed a button
-    /// about a different parameter. Carried across a change of drawing only where the two declare
-    /// the same parameters, since that is exactly when the value was bound into both.
-    /// </remarks>
-    /// <remarks>
-    /// Asked of the two row lists rather than of the two drawings, which is the same question one
-    /// step nearer: a row carries the declaration it was built from, and these are the rows whose
-    /// values are actually in play.
+    /// about a different parameter. Across a change of drawing it is what keeps the panel agreeing
+    /// with the picture beside it, since the value was bound into both.
+    ///
+    /// Row by row, matched by declaration rather than by position, because that is the rule the
+    /// values were bound by: a drawing sharing one parameter of three shows the one it shares at
+    /// what the drag left it, and the other two at what it declares.
     /// </remarks>
     private IReadOnlyList<SvgViewerParameter> Carried(IReadOnlyList<SvgViewerParameter> rebuilt)
     {
         var was = _parameters.Parameters;
 
-        if (was is null || !Same(was.Select(row => row.Declaration).ToList(), rebuilt.Select(row => row.Declaration).ToList()))
+        if (was is null)
         {
             return rebuilt;
         }
 
-        // Known one for one by the check above, so the rows pair by position.
-        for (var index = 0; index < rebuilt.Count; index++)
+        foreach (var row in rebuilt)
         {
-            if (was[index] is { IsModified: true } had)
+            if (was.FirstOrDefault(had => had.IsModified && had.Declaration.SharesValuesWith(row.Declaration)) is { } carried)
             {
-                rebuilt[index].TrySet(had.ToExprValue());
+                row.TrySet(carried.ToExprValue());
             }
         }
 
@@ -883,13 +881,6 @@ public sealed class GroupPanel : UserControl
 
         return shares ? bound : null;
     }
-
-    /// <summary>Whether two parameter lists take the same values, in the same order.</summary>
-    private static bool Same(
-        IReadOnlyList<SvgExpressionParameter> mine,
-        IReadOnlyList<SvgExpressionParameter> theirs)
-        => mine.Count == theirs.Count
-           && !mine.Where((parameter, index) => !parameter.SharesValuesWith(theirs[index])).Any();
 
     /// <summary>What the group builds, drawn on one canvas.</summary>
     /// <remarks>

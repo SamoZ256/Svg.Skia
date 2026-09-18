@@ -2183,6 +2183,29 @@ public class MainWindowProjectTests : IDisposable
         Assert.NotNull(placements[0].Svg.Picture);
     }
 
+    /// <summary>
+    /// Picking a drawing that shares one of several shows that one where the drag left it, and the
+    /// rest at what it declares.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Picking_A_Drawing_That_Shares_One_Keeps_That_One()
+    {
+        var window = await Host(Own(Declaring, DeclaringMore));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
+        Dispatcher.UIThread.RunJobs();
+
+        Pick(window, panel, 1);
+
+        var rows = Declarations(panel).Parameters!;
+
+        Assert.Equal(Colors.Red, ((SvgViewerColorParameter)rows.Single(row => row.Name == "tint")).Color);
+        Assert.Equal(2d, ((SvgViewerNumberParameter)rows.Single(row => row.Name == "ring")).Value);
+    }
+
     [AvaloniaFact]
     public async Task A_Parameter_On_A_Different_Slider_Is_A_Different_Parameter()
     {
