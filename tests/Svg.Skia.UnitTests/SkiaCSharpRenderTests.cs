@@ -706,6 +706,71 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void A_Dash_Offset_Expression_Value_Reaches_The_Paint()
+        // The whole of what a driven arc needs: a ring dashed at its own circumference shows only
+        // what the phase leaves, so the offset is the sweep.
+        => AssertExpressionsRenderTheSame(
+            "ExprDashOffset",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="shift" type="number" default="0" /></e:code></defs>
+              <circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="3"
+                      stroke-dasharray="50.2655 50.2655" stroke-dashoffset="{{ shift }}" />
+            </svg>
+            """,
+            new object?[] { 25f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="3"
+                      stroke-dasharray="50.2655 50.2655" stroke-dashoffset="25" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Dash_Offset_Expression_Is_Inherited_The_Way_A_Written_One_Is()
+        => AssertExpressionsRenderTheSame(
+            "ExprDashOffsetInherited",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="shift" type="number" default="0" /></e:code></defs>
+              <g stroke="#b45309" fill="none" stroke-width="3" stroke-dasharray="50.2655 50.2655" stroke-dashoffset="{{ shift * 2 }}">
+                <circle cx="12" cy="12" r="8" />
+              </g>
+            </svg>
+            """,
+            new object?[] { 6f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g stroke="#b45309" fill="none" stroke-width="3" stroke-dasharray="50.2655 50.2655" stroke-dashoffset="12">
+                <circle cx="12" cy="12" r="8" />
+              </g>
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Driven_Dash_Offset_Is_Normalised_By_PathLength()
+        // pathLength scales every length along the path, and a literal offset goes through that
+        // scale while it is being recorded. An expression is substituted into the recorded paint
+        // afterwards, so the same scale has to be carried in the node or the two disagree: here the
+        // path is 2.5 times its declared length, and 8 has to land where 20 does.
+        => AssertExpressionsRenderTheSame(
+            "ExprDashOffsetPathLength",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="shift" type="number" default="0" /></e:code></defs>
+              <circle cx="12" cy="12" r="8" pathLength="20" fill="none" stroke="#0f766e" stroke-width="3"
+                      stroke-dasharray="20 20" stroke-dashoffset="{{ shift }}" />
+            </svg>
+            """,
+            new object?[] { 8f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="8" pathLength="20" fill="none" stroke="#0f766e" stroke-width="3"
+                      stroke-dasharray="20 20" stroke-dashoffset="8" />
+            </svg>
+            """);
+
+    [Fact]
     public void A_False_Visibility_Expression_Draws_Nothing()
         // The conditional becomes `if (shown)`, so the subtree has to disappear from the drawing
         // rather than merely be painted differently.

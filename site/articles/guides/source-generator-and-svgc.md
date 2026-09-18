@@ -217,13 +217,14 @@ stand for them:
 </recipe>
 ```
 
-A rule names one of the attributes whose whole value an expression can drive, and there are eleven
+A rule names one of the attributes whose whole value an expression can drive, and there are thirteen
 of them:
 
 | Rule | Replaces | The expression is a |
 | --- | --- | --- |
 | `color` | `fill`, `stroke`, `stop-color`, `flood-color`, `lighting-color` | colour |
 | `opacity`, `fill-opacity`, `stroke-opacity`, `stop-opacity` | that attribute | number |
+| `stroke-width`, `stroke-dashoffset` | that attribute | number |
 | `visibility`, `display` | that attribute | boolean |
 
 `color` is the only name that is not an attribute. A colour means the same thing wherever it is
@@ -234,7 +235,7 @@ Writing `<replace fill="…">` is refused for the same reason, pointing at `colo
 
 `transform` takes an expression but no rule: an expression there drives one function argument rather
 than the whole value, and a rule names one whole value and swaps it for one whole expression — half a
-transform is not a rule. Anything else — `stroke-width`, `d`, the geometry attributes — takes no
+transform is not a rule. Anything else — `d`, `stroke-dasharray`, the geometry attributes — takes no
 expression anywhere in the pipeline, so a rule naming one is refused rather than written and silently
 ignored.
 

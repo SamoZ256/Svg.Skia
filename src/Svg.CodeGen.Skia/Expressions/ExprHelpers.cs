@@ -30,6 +30,7 @@ internal static class ExprHelpers
     public const string Int = "SvgInt";
     public const string Num = "SvgNum";
     public const string Tangent = "SvgTangent";
+    public const string Dash = "SvgDash";
 
     // Ordered so generated output is stable.
     public static IReadOnlyList<KeyValuePair<string, string[]>> All { get; } = new List<KeyValuePair<string, string[]>>
@@ -210,6 +211,14 @@ internal static class ExprHelpers
         new(Tangent, new[]
         {
             $"private static float {Tangent}(float degrees) => (float)Math.Tan(Math.PI * degrees / 180d);"
+        }),
+
+        // What SvgSceneExpressionEvaluator does with a bound phase, so the two agree about a
+        // binding that comes to nothing: a pattern shifted by nothing is the dash as written.
+        new(Dash, new[]
+        {
+            $"private static SKPathEffect {Dash}(float[] intervals, float phase)",
+            "    => SKPathEffect.CreateDash(intervals, float.IsNaN(phase) || float.IsInfinity(phase) ? 0f : phase);"
         })
     };
 }

@@ -1332,6 +1332,18 @@ public static class SkiaCSharpModelExtensions
                         return;
                     }
 
+                    if (dashPathEffect.PhaseExpression is { } driven)
+                    {
+                        // Through the helper rather than CreateDash, because what the phase binds to
+                        // is not known here and the renderer answers a nonsense one with nought.
+                        sb.Append($"{indent}var {counter.PathEffectVarName}{counterPathEffect} = ");
+                        sb.AppendLine($"{ExprHelpers.Dash}(");
+                        sb.AppendLine($"{indent}    {dashPathEffect.Intervals.ToFloatArray()},");
+                        sb.AppendLine($"{indent}    {SymCSharpEmitter.Emit(driven, ExprType.Number)});");
+
+                        return;
+                    }
+
                     sb.Append($"{indent}var {counter.PathEffectVarName}{counterPathEffect} = ");
                     sb.AppendLine($"SKPathEffect.CreateDash(");
                     sb.AppendLine($"{indent}    {dashPathEffect.Intervals.ToFloatArray()},");

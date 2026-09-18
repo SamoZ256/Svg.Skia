@@ -134,7 +134,7 @@ opens, renders wrong, and says nothing.
 The converter is asked directly, so the verdict and the wording are the parser's; only the sentence
 naming the attribute and the value is added, because a converter is answering about a bare string and
 its own message names neither. An expression written in an attribute that does not take one —
-`stroke-width="{%{{{ w }}}%}"` — is reported too, and says which attributes do.
+`stroke-dasharray="{%{{{ w }}}%}"` — is reported too, and says which attributes do.
 
 **Inline styles are checked the same way**, since a declaration reaches the same converter — the
 parser stages it and `SvgElement.FlushStyles` hands it back once the document is read. So

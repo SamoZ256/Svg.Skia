@@ -827,7 +827,16 @@ internal static class SvgScenePaintingService
         }
 
         var phase = normalization.ToActualDistance(strokeDashOffset.ToDeviceValue(UnitRenderingType.Other, svgElement, skBounds));
-        return SKPathEffect.CreateDash(intervals, phase);
+
+        // What drives the phase, where anything does. A number carries no unit, so ToDeviceValue is
+        // the identity on one: the single thing a literal gets that an expression would miss is
+        // pathLength's own scale, and folding it in here is what lands the two on the same distance.
+        // Multiply folds itself away where the document names no pathLength, which is almost all.
+        var driven = SvgSceneExpressions.TryGet(svgElement, SvgSceneExpressions.StrokeDashOffset) is { } shift
+            ? SymNode.Multiply(shift, SymNode.Literal(normalization.AuthorToActualScale))
+            : null;
+
+        return SKPathEffect.CreateDash(intervals, phase, driven);
     }
 
     private static void SetDash(SvgVisualElement svgVisualElement, SKPaint skPaint, SKRect skBounds, SKPath? geometryPath)
