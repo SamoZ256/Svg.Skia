@@ -62,6 +62,8 @@ public partial class MainWindow : Window
     /// <summary>The copy kept of the open project while it has work that is not on disk.</summary>
     private ProjectRecovery? _recovery;
 
+    /// <summary>The settings window while one is open, so a second asking brings that one forward.</summary>
+    private SettingsWindow? _settings;
 
     /// <summary>Tabs holding a drawing the project has resized since it was last on screen.</summary>
     /// <remarks>
@@ -94,6 +96,7 @@ public partial class MainWindow : Window
         ConfirmDiscardRecovery = message => Ask("Recovered work", message, "Discard the copy", "Restore");
         ConfirmConvert = AskConvert;
         AskWhereToSave = AskSaveProject;
+        ShowSettings = ShowSettingsWindow;
         ConfirmRemove = message => Ask("Remove from the project", message, "Remove", "Cancel");
         Announce = (title, message) => Ask(title, message, null, "Close");
         ShowOnDisk = Reveal;
@@ -2240,24 +2243,57 @@ public partial class MainWindow : Window
         item.IsEnabled = recent.Items.Count > 0;
     }
 
-    /// <summary>Turns the recovery copy on or off, for good.</summary>
+    private async void OnSettings(object? sender, EventArgs e) => await ShowSettingsAsync();
+
+    /// <summary>The settings, as a window, and only ever one of them.</summary>
     /// <remarks>
-    /// The setting rather than the item's own state: whether the platform has already toggled the
-    /// item by the time this runs is the menu exporter's business, and reading it back would depend
-    /// on that. Switching it off throws away what has been kept, since a copy offered back weeks
-    /// later would be the feature working after being told not to.
+    /// Held while it is open because it can be asked for twice: on macOS the application menu keeps
+    /// its gesture live over the window it opened, and a second modal on the same owner is a dialog
+    /// nobody can reach the first of.
     /// </remarks>
-    private void OnAutosave(object? sender, EventArgs e)
+    private async Task ShowSettingsWindow()
     {
-        StudioSettings.Autosave = !StudioSettings.Autosave;
+        if (_settings is { } open)
+        {
+            open.Activate();
+
+            return;
+        }
+
+        var window = new SettingsWindow();
+
+        _settings = window;
+
+        try
+        {
+            await window.ShowDialog(this).ConfigureAwait(true);
+        }
+        finally
+        {
+            _settings = null;
+        }
+    }
+
+    /// <summary>
+    /// Shows the settings, and does what the window cannot about what was changed in it.
+    /// </summary>
+    /// <remarks>
+    /// The window writes the setting itself and this asks it again afterwards, rather than the two
+    /// of them agreeing a value between them: what has to happen when the copies are switched off is
+    /// that the ones already kept go, and only the window that keeps them can do that.
+    ///
+    /// Public because the application menu on macOS is the application's and not this window's, so
+    /// something outside has to be able to ask for it.
+    /// </remarks>
+    public async Task ShowSettingsAsync()
+    {
+        await ShowSettings().ConfigureAwait(true);
 
         if (!StudioSettings.Autosave)
         {
             _recovery?.Drop();
             ProjectRecovery.Clear();
         }
-
-        UpdateMenu();
     }
 
     private async void OnSave(object? sender, EventArgs e) => await SaveAsync();
@@ -2333,11 +2369,12 @@ public partial class MainWindow : Window
             save.IsEnabled = Savable();
         }
 
-        // Not among the items below: it is a preference and not a command on a project, so it is
-        // live whether or not one is open.
-        if (Item(menu, "Autosave Recovery") is { } autosave)
+        // Not among the items below: it is the application's settings and not a command on a
+        // project, so it is live whether or not one is open — and absent on macOS, where the
+        // application menu has it.
+        if (Item(menu, "Settings…") is { } settings)
         {
-            autosave.IsChecked = StudioSettings.Autosave;
+            settings.IsVisible = !OperatingSystem.IsMacOS();
         }
 
         // Not for a drawing the project holds: Save As points a tab at the file it wrote, and one
@@ -2520,6 +2557,16 @@ public partial class MainWindow : Window
     /// panel dismisses with — Enter and the close box both land on it.
     /// </remarks>
     public Func<string, Task<bool>> ConfirmDiscardRecovery { get; set; }
+
+    /// <summary>
+    /// How the window shows the settings.
+    /// </summary>
+    /// <remarks>
+    /// Replaceable for the reason <see cref="ConfirmDiscard"/> is: a window shown over this one is
+    /// another thing a test cannot drive. What a test wants from it is the setting, which the window
+    /// writes, so a test sets that and answers this with nothing.
+    /// </remarks>
+    public Func<Task> ShowSettings { get; set; }
 
     /// <summary>
     /// How the window asks where a project that has no file yet should go.

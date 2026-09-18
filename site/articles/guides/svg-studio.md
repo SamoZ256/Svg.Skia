@@ -167,8 +167,8 @@ got to throw away. It offers it back, and restoring puts the work in the window 
 file.
 
 The copy is keyed by the project's own file, so a project that has never been saved has nothing to
-look one up under again and is not covered until you name it. `Project → Autosave Recovery` switches
-the copies off.
+look one up under again and is not covered until you name it. Switch the copies off in
+**Settings** — the application menu on macOS, `File → Settings…` elsewhere.
 
 ## The Element tab
 

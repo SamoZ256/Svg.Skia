@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Avalonia.Controls;
 using System.Threading.Tasks;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
@@ -314,7 +313,7 @@ public class MainWindowAutosaveTests : IDisposable
         _now = _now.AddSeconds(31d);
         Assert.True(Recovery(window).Pulse());
 
-        Toggle(window);
+        await Toggle(window);
 
         Assert.False(StudioSettings.Autosave);
         Assert.False(File.Exists(ProjectRecovery.For(path)));
@@ -332,12 +331,70 @@ public class MainWindowAutosaveTests : IDisposable
     {
         var window = await Host(Write("icons.svgstudio", Project));
 
-        Toggle(window);
+        await Toggle(window);
 
-        var second = Empty();
-
-        Assert.False(Item(second).IsChecked);
         Assert.False(StudioSettings.Autosave);
+
+        // A second window reads the file rather than anything the first one is holding.
+        var settings = new SettingsWindow();
+
+        settings.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(settings.Autosave.IsChecked);
+
+        settings.Close();
+    }
+
+    /// <summary>
+    /// Settings looked at and closed with nothing touched keeps the copies. What throws them away is
+    /// the setting going off, not the window having been open.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Settings_Closed_With_Nothing_Touched_Keeps_The_Copies()
+    {
+        var path = Write("icons.svgstudio", Project);
+        var window = await Host(path);
+
+        Move(window);
+
+        _now = _now.AddSeconds(31d);
+        Assert.True(Recovery(window).Pulse());
+
+        window.ShowSettings = () => Task.CompletedTask;
+
+        await window.ShowSettingsAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(StudioSettings.Autosave);
+        Assert.True(File.Exists(ProjectRecovery.For(path)));
+    }
+
+    /// <summary>
+    /// The window writes the setting as the box is ticked, and the host asks it again afterwards —
+    /// which is what makes switching the copies off throw away the ones already kept.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_Settings_Window_Writes_The_Setting_As_It_Is_Switched()
+    {
+        var window = new SettingsWindow();
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(window.Autosave.IsChecked);
+
+        window.Autosave.IsChecked = false;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(StudioSettings.Autosave);
+
+        window.Autosave.IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(StudioSettings.Autosave);
+
+        window.Close();
     }
 
     [AvaloniaFact]
@@ -412,17 +469,21 @@ public class MainWindowAutosaveTests : IDisposable
     private static ProjectRecovery Recovery(MainWindow window)
         => window.Recovery ?? throw new InvalidOperationException("The window is keeping no copy.");
 
-    private static NativeMenuItem Item(MainWindow window)
-        => NativeMenu.GetMenu(window)!.Items
-            .OfType<NativeMenuItem>()
-            .SelectMany(item => item.Menu?.Items.OfType<NativeMenuItem>() ?? Enumerable.Empty<NativeMenuItem>())
-            .Single(item => item.Header == "Autosave Recovery");
-
-    private static void Toggle(MainWindow window)
+    /// <summary>Switches the copies off the way somebody would: in the settings, and out again.</summary>
+    /// <remarks>
+    /// Through the window's own seam rather than a real settings window, which a headless run
+    /// cannot show — what the window does to the setting is tested on the window itself.
+    /// </remarks>
+    private static async Task Toggle(MainWindow window)
     {
-        // The way the platform's menu bar picks one: the item's own Click is raised through the
-        // seam the exporter uses, since a NativeMenuItem is not a control to be clicked.
-        ((INativeMenuItemExporterEventsImplBridge)Item(window)).RaiseClicked();
+        window.ShowSettings = () =>
+        {
+            StudioSettings.Autosave = !StudioSettings.Autosave;
+
+            return Task.CompletedTask;
+        };
+
+        await window.ShowSettingsAsync();
 
         Dispatcher.UIThread.RunJobs();
     }

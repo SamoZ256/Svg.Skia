@@ -5,4 +5,16 @@
   <Application.Styles>
     <FluentTheme />
   </Application.Styles>
+
+  <!--
+    The application's own menu, which on macOS is the one under the app's name — where a Mac keeps
+    its settings, with the shortcut every Mac application answers to. Avalonia adds Services, Hide
+    and Quit after whatever is put here. It reaches nothing on Windows or Linux, which have no such
+    menu, so the window carries the same item there instead.
+  -->
+  <NativeMenu.Menu>
+    <NativeMenu>
+      <NativeMenuItem Header="Settings…" Gesture="Cmd+," Click="OnSettings" />
+    </NativeMenu>
+  </NativeMenu.Menu>
 </Application>

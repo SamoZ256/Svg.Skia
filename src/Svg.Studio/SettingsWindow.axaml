@@ -1,0 +1,29 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Svg.Studio.SettingsWindow"
+        Title="Settings"
+        Width="420"
+        SizeToContent="Height"
+        CanResize="False"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+
+  <!--
+    Applied as it is switched, with nothing to confirm: a settings window with OK and Cancel is a
+    Windows habit, and on macOS a preference takes effect where it is set. There is one setting, so
+    there is also nothing here to lay out against anything else yet.
+  -->
+  <StackPanel Margin="20" Spacing="6">
+    <CheckBox x:Name="AutosaveBox" Content="Keep a copy of unsaved work" />
+
+    <!--
+      What it does rather than what it is: the copy is the part nobody would guess, and the sentence
+      has to say that the project's own file is still the author's to write.
+    -->
+    <TextBlock Text="Studio keeps a copy of the project while it holds work that is not on disk, under your application data, and offers it back if Studio does not close cleanly. The project's own file is written only when you save it."
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11"
+               Margin="26,0,0,0" />
+  </StackPanel>
+</Window>
