@@ -117,8 +117,13 @@ row would be the first placed one and would push everything nobody touched out t
 and one with a group between them that names no place of its own.
 
 A drag writes the file as it is made, like every other arrangement edit, and like those it cannot be
-undone. And nothing sizes a column to hold a caption once a board is explicit, so two rows put close
-together can have their captions overlap — move one.
+undone.
+
+**Captions** writes each drawing's name and the class it builds as underneath it. A board comes up
+without them — a set of icons is read as pictures, and two lines of text under every one is what the
+eye has to get past — and the rows close up to suit, so turning them on makes the board taller.
+Nothing sizes a column to hold a caption once a board is explicit, so two rows put close together can
+have their captions overlap — move one.
 
 **The board holds still while you work on it.** A tab is fitted when it first opens and never again
 on its own: a drop leaves what you dropped where you let go of it, and zooming in on one icon to line

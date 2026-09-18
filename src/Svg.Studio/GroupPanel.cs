@@ -163,7 +163,7 @@ public sealed class GroupPanel : UserControl
     /// <summary>Whether a drag moves the element under it rather than the view.</summary>
     private ToggleButton? _edit;
 
-    /// <summary>Whether each drawing is named under it.</summary>
+    /// <summary>Whether each drawing is named under it, which it is not until somebody asks.</summary>
     private ToggleButton? _captions;
 
     public GroupPanel(ProjectWorkspace workspace, ProjectNode node)
@@ -1687,12 +1687,14 @@ public sealed class GroupPanel : UserControl
         bar.Children.Add(Tool("+", "Zoom in, or scroll up", () => _canvas.ZoomIn()));
         bar.Children.Add(bounds);
 
-        // Checked before anything is subscribed: the handler lays the board out again, and there is
-        // no board to lay out while the bar it will sit on is still being built.
+        // Off, because a board of icons is read as pictures: two lines of text under every one of
+        // them is what the eye has to get past to see what the tab is for, and a name is a click
+        // away in the tree. Set before anything is subscribed either way, since the handler lays the
+        // board out again and there is no board while the bar it will sit on is still being built.
         _captions = new ToggleButton
         {
             Content = "Captions",
-            IsChecked = true,
+            IsChecked = false,
             [ToolTip.TipProperty] = "Write each drawing's name and class under it"
         };
 

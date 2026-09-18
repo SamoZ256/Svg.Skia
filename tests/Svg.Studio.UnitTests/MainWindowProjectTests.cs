@@ -213,6 +213,9 @@ public class MainWindowProjectTests : IDisposable
 
         var window = await Host(Write("icons.svgstudio", Project));
 
+        // Asked for, since a board comes up bare.
+        Toggle(Panel(window, "Project"), "Captions");
+
         // Named against the board, which is the project itself here: its own Demo.Icons is what
         // every row on it shares, so what is left of each is what tells them apart.
         Assert.Equal(
@@ -235,6 +238,8 @@ public class MainWindowProjectTests : IDisposable
 
         await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
         Dispatcher.UIThread.RunJobs();
+
+        Toggle(Panel(window, "Large"), "Captions");
 
         // The reported case: on its own board the group's namespace is under every icon and beside
         // none of them, so the class is the whole of what is left to say.
@@ -259,6 +264,8 @@ public class MainWindowProjectTests : IDisposable
     {
         var window = await Host(Write("icons.svgstudio", Neighbours()));
 
+        Toggle(Panel(window, "Project"), "Captions");
+
         var drawn = Drawn(Panel(window, "Project")).Select(placed => placed.Label).ToArray();
 
         // Demo.IconsExtra starts with Demo.Icons and is not under it. Dropping a prefix rather than
@@ -271,14 +278,18 @@ public class MainWindowProjectTests : IDisposable
     // The trim empties the namespace and there is no class to fall back on, so the whole one comes
     // back: a row with an identity does not lose it to having nothing of its own to add.
     public async Task A_Drawing_With_No_Class_Still_Says_Where_It_Sits()
-        => Assert.Contains(
+    {
+        var panel = Panel(await Host(Write("icons.svgstudio", Neighbours())), "Project");
+
+        Toggle(panel, "Captions");
+
+        Assert.Contains(
             "plain\nDemo.Icons   as written",
-            Drawn(Panel(await Host(Write("icons.svgstudio", Neighbours())), "Project"))
-                .Select(placed => placed.Label)
-                .ToArray());
+            Drawn(panel).Select(placed => placed.Label).ToArray());
+    }
 
     [AvaloniaFact]
-    public async Task Turning_Captions_Off_Leaves_The_Board_Bare()
+    public async Task A_Board_Comes_Up_Bare()
     {
         Write("home.svg", Drawing);
         Write("badge.svg", Drawing);
@@ -287,19 +298,23 @@ public class MainWindowProjectTests : IDisposable
         var panel = Panel(window, "Project");
         var scale = Canvas(panel).Scale;
 
-        Toggle(panel, "Captions");
-
+        // A board of icons is read as pictures, so nothing is written under them until it is asked
+        // for -- and asking lays the board out again.
         Assert.All(Drawn(panel), placed => Assert.Null(placed.Label));
 
-        // The board is laid out again to drop them, and a lay-out that fitted would throw away
-        // wherever the reader had got to -- which is the half of this most likely to regress.
+        Toggle(panel, "Captions");
+
+        Assert.All(Drawn(panel), placed => Assert.NotNull(placed.Label));
+
+        // A lay-out that fitted would throw away wherever the reader had got to, which is the half
+        // of this most likely to regress.
         Assert.Equal(scale, Canvas(panel).Scale);
     }
 
     [AvaloniaFact]
     // And the same captions, not merely some: the drawings are reused across the lay-out rather
     // than built again, so this is also the reuse path.
-    public async Task Captions_Come_Back_When_The_Toggle_Does()
+    public async Task Captions_Go_Again_When_The_Toggle_Does()
     {
         Write("home.svg", Drawing);
         Write("badge.svg", Drawing);
@@ -308,11 +323,14 @@ public class MainWindowProjectTests : IDisposable
         var panel = Panel(window, "Project");
 
         Toggle(panel, "Captions");
-        Toggle(panel, "Captions");
 
         Assert.Equal(
             new[] { "home\nHome   as written", "badge\nLarge.BadgeLarge   ×2" },
             Drawn(panel).Select(placed => placed.Label).ToArray());
+
+        Toggle(panel, "Captions");
+
+        Assert.All(Drawn(panel), placed => Assert.Null(placed.Label));
     }
 
     /// <summary>Five rows nobody has placed, so the spread is three columns and two of them.</summary>
@@ -332,15 +350,16 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Rows()));
         var panel = Panel(window, "Project");
 
-        var pitch = Area(Drawn(panel)[3]).Top - Area(Drawn(panel)[0]).Top;
+        var bare = Area(Drawn(panel)[3]).Top - Area(Drawn(panel)[0]).Top;
 
         Toggle(panel, "Captions");
 
         // Room kept for writing that is not there reads as a board of icons with holes in it, which
-        // is what a spread reserving two lines whatever it was handed used to leave.
+        // is what a spread reserving two lines whatever it was handed used to leave. Asked the way
+        // round the board now opens: bare first, and the room appears with the writing.
         Assert.True(
-            Area(Drawn(panel)[3]).Top - Area(Drawn(panel)[0]).Top < pitch,
-            "the rows kept the room the captions had");
+            Area(Drawn(panel)[3]).Top - Area(Drawn(panel)[0]).Top > bare,
+            "the rows left no room for the captions");
     }
 
     /// <summary>The whole branch, which is what the group builds.</summary>
@@ -417,6 +436,8 @@ public class MainWindowProjectTests : IDisposable
             """));
 
         var panel = Panel(window, "Project");
+
+        Toggle(panel, "Captions");
 
         // The one that reads is still drawn, and the one that does not is said out loud.
         Assert.Single(Drawn(panel));
@@ -1006,6 +1027,9 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Board()));
         var panel = Panel(window, "Project");
 
+        // So a row can be found by what is written under it; this is about where it sits.
+        Toggle(panel, "Captions");
+
         var moved = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
         var into = (ProjectGroup)window.Workspace.Document.Root.Children[2];
 
@@ -1036,7 +1060,8 @@ public class MainWindowProjectTests : IDisposable
     /// <remarks>
     /// By its caption, which begins with the row's name. Not by index: the board is laid out with
     /// the placed rows first and the ones with no place queued after them, which is not the order
-    /// the tree holds them in.
+    /// the tree holds them in. A board comes up bare, so a test asking this turns captions on
+    /// first -- which costs those tests nothing, none of them being about what is written.
     /// </remarks>
     private static SvgViewerPlacement Shown(GroupPanel panel, ProjectDrawing drawing)
         => Drawn(panel).Single(placed =>
@@ -1067,6 +1092,9 @@ public class MainWindowProjectTests : IDisposable
 
         var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
         var was = (X: home.X, Y: home.Y);
+
+        Toggle(panel, "Captions");
+
         var area = Area(Shown(panel, home));
 
         Drag(
@@ -1107,6 +1135,8 @@ public class MainWindowProjectTests : IDisposable
         var other = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
         var was = other.X;
         var offsetX = canvas.OffsetX;
+
+        Toggle(panel, "Captions");
 
         var area = Area(Shown(panel, other));
 
@@ -1334,6 +1364,8 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Project));
 
         // The project row opens as a tab of its own, and it is a group like any other.
+        Toggle(Panel(window, "Project"), "Captions");
+
         var drawn = Drawn(Panel(window, "Project"));
 
         Assert.Equal(2, drawn.Count);
