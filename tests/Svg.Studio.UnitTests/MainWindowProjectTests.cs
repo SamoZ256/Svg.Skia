@@ -213,13 +213,134 @@ public class MainWindowProjectTests : IDisposable
 
         var window = await Host(Write("icons.svgstudio", Project));
 
+        // Named against the board, which is the project itself here: its own Demo.Icons is what
+        // every row on it shares, so what is left of each is what tells them apart.
         Assert.Equal(
             new[]
             {
-                "home\nDemo.Icons.Home   as written",
-                "badge\nDemo.Icons.Large.BadgeLarge   ×2"
+                "home\nHome   as written",
+                "badge\nLarge.BadgeLarge   ×2"
             },
             Drawn(Panel(window, "Project")).Select(placed => placed.Label).ToArray());
+    }
+
+    [AvaloniaFact]
+    public async Task A_Group_Names_Its_Drawings_From_Where_It_Starts()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgstudio", Project));
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        // The reported case: on its own board the group's namespace is under every icon and beside
+        // none of them, so the class is the whole of what is left to say.
+        Assert.Equal("badge\nBadgeLarge   ×2", Assert.Single(Drawn(Panel(window, "Large"))).Label);
+    }
+
+    /// <summary>A project whose groups sit just outside the board's namespace, two ways.</summary>
+    private static string Neighbours() => $$"""
+        <studio namespace="Demo.Icons">
+        {{Holding("plain")}}
+          <group name="Extra" namespace="Demo.IconsExtra">
+        {{Holding("odd", " class=\"Odd\"")}}
+          </group>
+          <group name="Far" namespace="Other.Icons">
+        {{Holding("far", " class=\"Far\"")}}
+          </group>
+        </studio>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Namespace_The_Board_Only_Seems_To_Start_Is_Written_Whole()
+    {
+        var window = await Host(Write("icons.svgstudio", Neighbours()));
+
+        var drawn = Drawn(Panel(window, "Project")).Select(placed => placed.Label).ToArray();
+
+        // Demo.IconsExtra starts with Demo.Icons and is not under it. Dropping a prefix rather than
+        // whole segments would write this one as "Extra.Odd", naming a group that is not there.
+        Assert.Contains("odd\nDemo.IconsExtra.Odd   as written", drawn);
+        Assert.Contains("far\nOther.Icons.Far   as written", drawn);
+    }
+
+    [AvaloniaFact]
+    // The trim empties the namespace and there is no class to fall back on, so the whole one comes
+    // back: a row with an identity does not lose it to having nothing of its own to add.
+    public async Task A_Drawing_With_No_Class_Still_Says_Where_It_Sits()
+        => Assert.Contains(
+            "plain\nDemo.Icons   as written",
+            Drawn(Panel(await Host(Write("icons.svgstudio", Neighbours())), "Project"))
+                .Select(placed => placed.Label)
+                .ToArray());
+
+    [AvaloniaFact]
+    public async Task Turning_Captions_Off_Leaves_The_Board_Bare()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgstudio", Project));
+        var panel = Panel(window, "Project");
+        var scale = Canvas(panel).Scale;
+
+        Toggle(panel, "Captions");
+
+        Assert.All(Drawn(panel), placed => Assert.Null(placed.Label));
+
+        // The board is laid out again to drop them, and a lay-out that fitted would throw away
+        // wherever the reader had got to -- which is the half of this most likely to regress.
+        Assert.Equal(scale, Canvas(panel).Scale);
+    }
+
+    [AvaloniaFact]
+    // And the same captions, not merely some: the drawings are reused across the lay-out rather
+    // than built again, so this is also the reuse path.
+    public async Task Captions_Come_Back_When_The_Toggle_Does()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgstudio", Project));
+        var panel = Panel(window, "Project");
+
+        Toggle(panel, "Captions");
+        Toggle(panel, "Captions");
+
+        Assert.Equal(
+            new[] { "home\nHome   as written", "badge\nLarge.BadgeLarge   ×2" },
+            Drawn(panel).Select(placed => placed.Label).ToArray());
+    }
+
+    /// <summary>Five rows nobody has placed, so the spread is three columns and two of them.</summary>
+    private static string Rows() => $$"""
+        <studio namespace="Demo.Icons">
+        {{Holding("one")}}
+        {{Holding("two")}}
+        {{Holding("three")}}
+        {{Holding("four")}}
+        {{Holding("five")}}
+        </studio>
+        """;
+
+    [AvaloniaFact]
+    public async Task Rows_Close_Up_When_Nothing_Is_Written_Under_Them()
+    {
+        var window = await Host(Write("icons.svgstudio", Rows()));
+        var panel = Panel(window, "Project");
+
+        var pitch = Area(Drawn(panel)[3]).Top - Area(Drawn(panel)[0]).Top;
+
+        Toggle(panel, "Captions");
+
+        // Room kept for writing that is not there reads as a board of icons with holes in it, which
+        // is what a spread reserving two lines whatever it was handed used to leave.
+        Assert.True(
+            Area(Drawn(panel)[3]).Top - Area(Drawn(panel)[0]).Top < pitch,
+            "the rows kept the room the captions had");
     }
 
     /// <summary>The whole branch, which is what the group builds.</summary>

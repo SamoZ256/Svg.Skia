@@ -163,6 +163,9 @@ public sealed class GroupPanel : UserControl
     /// <summary>Whether a drag moves the element under it rather than the view.</summary>
     private ToggleButton? _edit;
 
+    /// <summary>Whether each drawing is named under it.</summary>
+    private ToggleButton? _captions;
+
     public GroupPanel(ProjectWorkspace workspace, ProjectNode node)
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
@@ -1658,6 +1661,22 @@ public sealed class GroupPanel : UserControl
         bar.Children.Add(Tool("+", "Zoom in, or scroll up", () => _canvas.ZoomIn()));
         bar.Children.Add(bounds);
 
+        // Checked before anything is subscribed: the handler lays the board out again, and there is
+        // no board to lay out while the bar it will sit on is still being built.
+        _captions = new ToggleButton
+        {
+            Content = "Captions",
+            IsChecked = true,
+            [ToolTip.TipProperty] = "Write each drawing's name and class under it"
+        };
+
+        // Not a render flag like Bounds -- a caption is written into the placement when the board is
+        // laid out, so turning it off is a fresh lay-out. ShowDrawings keeps what is being inspected
+        // and rearranges rather than fits, so nothing jumps.
+        _captions.IsCheckedChanged += (_, _) => ShowDrawings();
+
+        bar.Children.Add(_captions);
+
         _edit = new ToggleButton
         {
             Content = "Edit",
@@ -1693,14 +1712,48 @@ public sealed class GroupPanel : UserControl
     /// <remarks>
     /// Two, because one is about twice as wide as the drawings it sits under and the columns are
     /// sized to hold it.
+    ///
+    /// Named against the board rather than absolutely. A group everything under it inherits its
+    /// namespace from would otherwise write that namespace under every icon, where it distinguishes
+    /// none of them and the heading above the board has already said it.
     /// </remarks>
-    private static string Caption(ProjectDrawing drawing)
+    private string? Caption(ProjectDrawing drawing)
     {
-        var name = drawing.EffectiveNamespace is { } space && drawing.EffectiveClass is { } className
+        if (_captions?.IsChecked == false)
+        {
+            return null;
+        }
+
+        var space = Relative(drawing.EffectiveNamespace);
+
+        var name = space is { } && drawing.EffectiveClass is { } className
             ? $"{space}.{className}"
-            : drawing.EffectiveClass ?? drawing.EffectiveNamespace ?? "(unnamed)";
+            : drawing.EffectiveClass ?? space ?? drawing.EffectiveNamespace ?? "(unnamed)";
 
         return $"{drawing.Name}\n{name}   {Size(drawing)}";
+    }
+
+    /// <summary>A namespace with the board's own dropped off the front, or null where nothing is left.</summary>
+    /// <remarks>
+    /// Whole segments, which is the whole of the care needed here: a board of Icons.Nav must leave
+    /// Icons.Navigation alone, and a prefix test on its own would shorten it to "igation".
+    ///
+    /// Against this board and never against the group a drawing sits in, which for a placed group is
+    /// not the same node -- its drawings are still on this board, and trimming each against its own
+    /// group would have two icons side by side naming themselves at different depths. The group's
+    /// frame already carries its name.
+    /// </remarks>
+    private string? Relative(string? space)
+    {
+        if (space is null || Node.EffectiveNamespace is not { Length: > 0 } board
+            || !space.StartsWith(board, StringComparison.Ordinal))
+        {
+            return space;
+        }
+
+        return space.Length == board.Length ? null
+            : space[board.Length] == '.' ? space[(board.Length + 1)..]
+            : space;
     }
 
     private static readonly Uri Home = new("avares://Svg.Studio/");

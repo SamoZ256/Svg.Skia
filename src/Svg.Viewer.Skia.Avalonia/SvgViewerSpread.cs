@@ -21,7 +21,12 @@ namespace Svg.Viewer.Skia.Avalonia;
 public static class SvgViewerSpread
 {
     /// <summary>One drawing to place: the picture, how big it is, and what to write under it.</summary>
-    public readonly record struct Item(SKSvg Svg, SKSize Size, string Caption);
+    /// <remarks>
+    /// A caption is optional here for the reason it is on <see cref="SvgViewerPlacement.Label"/>: a
+    /// host showing pictures and not names asks for nothing under them, and a row that has nothing
+    /// under it keeps no room for it.
+    /// </remarks>
+    public readonly record struct Item(SKSvg Svg, SKSize Size, string? Caption = null);
 
     /// <summary>
     /// Places <paramref name="items"/> in reading order, left to right and top to bottom.
@@ -57,6 +62,7 @@ public static class SvgViewerSpread
 
         var widths = new float[columns];
         var heights = new float[rows];
+        var captioned = new bool[rows];
 
         for (var index = 0; index < items.Count; index++)
         {
@@ -64,6 +70,7 @@ public static class SvgViewerSpread
 
             widths[index % columns] = Math.Max(widths[index % columns], wanted);
             heights[index / columns] = Math.Max(heights[index / columns], items[index].Size.Height);
+            captioned[index / columns] |= items[index].Caption is { Length: > 0 };
         }
 
         var placed = new List<SvgViewerPlacement>(items.Count);
@@ -93,13 +100,15 @@ public static class SvgViewerSpread
                 x += widths[column] + gap;
             }
 
-            // Two lines of caption under the row, and a gap before the next.
-            y += heights[row] + label * 3.4f + gap;
+            // Two lines of caption under the row that writes any, and a gap before the next. Per
+            // row rather than per spread because that is where it is measured, and a caller that
+            // captions some of what it hands over would otherwise space all of it as though it did.
+            y += heights[row] + (captioned[row] ? label * 3.4f : 0f) + gap;
         }
 
         return placed;
     }
 
-    private static float Widest(SKFont font, string caption)
-        => caption.Split('\n').Max(line => font.MeasureText(line));
+    private static float Widest(SKFont font, string? caption)
+        => caption is { Length: > 0 } ? caption.Split('\n').Max(line => font.MeasureText(line)) : 0f;
 }
