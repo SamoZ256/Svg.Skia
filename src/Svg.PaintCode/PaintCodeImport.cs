@@ -72,6 +72,12 @@ public static class PaintCodeImport
                 // Beside the drawing is the answer that needs no decision; a project meant to fold
                 // into one file says so afterwards, by naming a singleFile and clearing these.
                 drawing.Output = desk.Folder + "/" + canvas.Name + ".cs";
+
+                // Where the canvas sat is carried on the drawing and nothing here reads it: an svgc
+                // project describes a build and has no board to put anything on, and its loader
+                // refuses an attribute it does not know -- so a place written here would produce a
+                // file svgc itself could not open.
+
             }
         }
 
@@ -137,6 +143,7 @@ public static class PaintCodeImport
                 drawings.Add(new PaintCodeImportDrawing(
                     Unique(taken, PaintCodeSlug.Of(canvas.Name)),
                     PaintCodeSlug.Pascal(canvas.Name),
+                    Place(canvas, notes),
                     PaintCodeSvgWriter.Write(canvas, declarations, symbols, notes)));
             }
 
@@ -182,6 +189,29 @@ public static class PaintCodeImport
         group.Namespace = project.Root.Namespace is { } root ? root + "." + name : name;
 
         return group;
+    }
+
+    /// <summary>Where a canvas sat on its desk, or null where the document does not say.</summary>
+    /// <remarks>
+    /// The reader hands back an empty rect for a bounds it could not read, which is also the one
+    /// rect no canvas of a real document has: a canvas with no size is a drawing with no size, and
+    /// neither has a place to be put at.
+    /// </remarks>
+    private static PaintCodeRect? Place(PaintCodeCanvas canvas, ICollection<PaintCodeImportNote> notes)
+    {
+        if (canvas.Bounds is { Width: > 0d, Height: > 0d })
+        {
+            return canvas.Bounds;
+        }
+
+        notes.Add(new PaintCodeImportNote(
+            PaintCodeImportSeverity.Missing,
+            canvas.Name,
+            "canvas",
+            "bounds",
+            "the canvas does not say where it sat or how big it is, so it was left unplaced"));
+
+        return null;
     }
 
     private static string Unique(HashSet<string> taken, string name)

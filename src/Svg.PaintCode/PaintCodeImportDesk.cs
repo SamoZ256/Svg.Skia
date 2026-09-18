@@ -27,10 +27,11 @@ public sealed class PaintCodeImportDesk
 /// <summary>One canvas, converted.</summary>
 public sealed class PaintCodeImportDrawing
 {
-    internal PaintCodeImportDrawing(string name, string className, XDocument document)
+    internal PaintCodeImportDrawing(string name, string className, PaintCodeRect? place, XDocument document)
     {
         Name = name;
         Class = className;
+        Place = place;
         Document = document;
     }
 
@@ -39,6 +40,17 @@ public sealed class PaintCodeImportDrawing
 
     /// <summary>The canvas's name as code spells it.</summary>
     public string Class { get; }
+
+    /// <summary>
+    /// Where the canvas sat on its desk, in PaintCode points, or null where the document did not say.
+    /// </summary>
+    /// <remarks>
+    /// The whole rect and not the corner alone: what a desk comes to is the union of what is on it,
+    /// so a consumer laying the desks out needs the sizes as well. As the document wrote it, with
+    /// nothing normalised — where a desk's corner should be is a question for whoever is arranging
+    /// them, and the answer differs between a folder of files and a board.
+    /// </remarks>
+    public PaintCodeRect? Place { get; }
 
     /// <summary>The drawing itself.</summary>
     public XDocument Document { get; }

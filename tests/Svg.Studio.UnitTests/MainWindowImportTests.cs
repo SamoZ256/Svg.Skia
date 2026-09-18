@@ -74,9 +74,34 @@ public class MainWindowImportTests : IDisposable
         Assert.False(window.Workspace.IsEdited);
         Assert.Equal("icons.svgstudio", window.Workspace.Name);
         Assert.Equal(new[] { "icons.svgstudio", "sample.pcvd" }, Directory.EnumerateFileSystemEntries(_directory).Select(Path.GetFileName).OrderBy(name => name).ToArray());
+        var written = ProjectDocument.Load(target);
+
         Assert.Equal(
             new[] { "badge", "host" },
-            ProjectDocument.Load(target).Root.Drawings.Select(drawing => drawing.Name).OrderBy(name => name).ToArray());
+            written.Root.Drawings.Select(drawing => drawing.Name).OrderBy(name => name).ToArray());
+
+        // Where each canvas sat survives the write and the read, which is what the format's
+        // both-or-neither rule is checked by: a lone x would not have loaded at all.
+        Assert.All(written.Root.Drawings, drawing => Assert.True(drawing.HasPosition));
+    }
+
+    /// <summary>
+    /// The window's own path takes the arrangement too — the conversion runs off the UI thread, and
+    /// a place dropped on the way back would show as a board that is a grid again.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task An_Import_Opens_On_A_Placed_Project()
+    {
+        var window = Shown();
+
+        Assert.True(await window.ImportPaintCodeAsync(Sample()));
+
+        Dispatcher.UIThread.RunJobs();
+
+        var root = window.Workspace!.Document.Root;
+
+        Assert.All(root.Children.OfType<ProjectGroup>(), group => Assert.True(group.HasPosition));
+        Assert.All(root.Drawings, drawing => Assert.True(drawing.HasPosition));
     }
 
     [AvaloniaFact]

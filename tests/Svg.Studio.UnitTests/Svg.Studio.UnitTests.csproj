@@ -26,6 +26,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      Linked rather than committed as a second .pcvd: what these tests assert is the numbers a
+      document was built with, and a binary asset says none of them. The archive builder is the only
+      way to write one, and it lives with the reader it was written for.
+    -->
+    <Compile Include="..\Svg.PaintCode.UnitTests\Bplist.cs" Link="Fixtures\Bplist.cs" />
+    <Compile Include="..\Svg.PaintCode.UnitTests\KeyedArchiveBuilder.cs" Link="Fixtures\KeyedArchiveBuilder.cs" />
+    <Compile Include="..\Svg.PaintCode.UnitTests\DeskDocument.cs" Link="Fixtures\DeskDocument.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Avalonia.Headless.XUnit" />
     <!-- Named rather than left transitive: making a tab dirty means typing into the pane's editor. -->
   </ItemGroup>

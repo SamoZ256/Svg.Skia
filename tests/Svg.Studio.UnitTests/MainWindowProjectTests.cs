@@ -20,6 +20,8 @@ using Avalonia.VisualTree;
 using SkiaSharp;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
+using Svg.PaintCode;
+using Svg.PaintCode.UnitTests;
 using Svg.Skia;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
@@ -1954,6 +1956,66 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(viewer.IsSourceModified);
         Assert.True(window.Workspace.IsEdited);
         Assert.StartsWith("• ", window.Title, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A board that came in arranged stays arranged. Settling writes a place for every row from
+    /// where the board is drawing it, so on an imported project it has to write back the numbers
+    /// already there — which it does only because each desk was normalised to its own corner, that
+    /// being how a group's place is defined.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Move_On_An_Imported_Board_Leaves_The_Rest_Where_It_Was()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+        var window = Empty();
+
+        window.Announce = (_, _) => Task.CompletedTask;
+        window.AskWhereToSave = _ => Task.FromResult<string?>(path);
+
+        ProjectImport
+            .FromPaintCode(
+                PaintCodeDocument.Parse(DeskDocument.Bytes()),
+                new PaintCodeImportOptions(_directory),
+                new List<PaintCodeImportNote>(),
+                _directory)
+            .Save(path);
+
+        await window.OpenAsync(new[] { path });
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+        var workspace = window.Workspace!;
+
+        // The one the document never placed is left out: it is in the grid rather than the
+        // arrangement, so settling is where it finally gets a place, which is the point of settling.
+        var was = workspace.Document.Root.Drawings
+            .Where(drawing => drawing.Name is not ("one" or "nowhere"))
+            .ToDictionary(drawing => drawing.Name, drawing => (drawing.X, drawing.Y));
+
+        var desks = workspace.Document.Root.Children.OfType<ProjectGroup>()
+            .ToDictionary(group => group.Name, group => (group.X, group.Y));
+
+        var moved = workspace.Document.Root.Drawings.Single(drawing => drawing.Name == "one");
+        var area = Area(Drawn(panel).First());
+
+        Drag(window, canvas, Over(canvas, area.MidX, area.MidY), Over(canvas, area.MidX + 40f, area.MidY));
+        Dispatcher.UIThread.RunJobs();
+
+        // The one dragged moved, and it is the only thing that did.
+        Assert.NotEqual(0f, moved.X!.Value);
+
+        Assert.All(
+            workspace.Document.Root.Drawings.Where(drawing => drawing.Name is not ("one" or "nowhere")),
+            drawing => Assert.Equal(was[drawing.Name], (drawing.X, drawing.Y)));
+
+        // And the one that had none now has one, rather than being left out of the board it is on.
+        Assert.True(workspace.Document.Root.Drawings.Single(drawing => drawing.Name == "nowhere").HasPosition);
+
+        Assert.All(
+            workspace.Document.Root.Children.OfType<ProjectGroup>(),
+            group => Assert.Equal(desks[group.Name], (group.X, group.Y)));
     }
 
     /// <summary>The declaration panel on a group's Parameters tab, which the tab must be on to hold.</summary>

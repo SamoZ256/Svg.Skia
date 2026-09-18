@@ -10,6 +10,11 @@ namespace Svg.PaintCode.UnitTests;
 
 public class PaintCodeSvgWriterTests
 {
+    /// <summary>
+    /// The fixture's canvas sits at (54, 136) on its desk, which is what makes this worth asserting:
+    /// a canvas's bounds place it on the desk, and its contents are measured from its own corner, so
+    /// the drawing starts at zero however far across the desk it was put.
+    /// </summary>
     [Fact]
     public void A_Canvas_Becomes_A_Drawing_Of_Its_Own_Size_Measured_From_Its_Own_Corner()
     {
@@ -18,6 +23,9 @@ public class PaintCodeSvgWriterTests
         Assert.Equal("30", root.Attribute("width")!.Value);
         Assert.Equal("30", root.Attribute("height")!.Value);
         Assert.Equal("0 0 30 30", root.Attribute("viewBox")!.Value);
+
+        // Nor is the origin carried in as a shift of everything inside it.
+        Assert.Null(root.Attribute("transform"));
     }
 
     [Fact]
