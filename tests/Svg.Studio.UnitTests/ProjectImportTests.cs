@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Svg.CodeGen.Skia.Projects;
 using Svg.PaintCode;
+using Svg.PaintCode.UnitTests;
 using Xunit;
 
 namespace Svg.Studio.UnitTests;
@@ -134,6 +135,86 @@ public class ProjectImportTests : IDisposable
 
         Assert.Empty(project.Root.Drawings);
         Assert.Contains("missing.svg could not be read", Assert.Single(notes), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A canvas keeps where it sat, measured from its desk's own corner rather than the desk's
+    /// numbers: a place is read against the board holding it, and normalising is what the board
+    /// itself would write the moment anybody dragged anything.
+    /// </summary>
+    [Fact]
+    public void A_PaintCode_Canvas_Keeps_Where_It_Sat_On_Its_Desk()
+    {
+        var project = Placed();
+
+        Assert.Equal((0f, 0f), At(project, "Overlays", "one"));
+        Assert.Equal((40f, 0f), At(project, "Overlays", "two"));
+        Assert.Equal((0f, 50f), At(project, "Overlays", "three"));
+
+        // A desk whose canvases sit above its own origin comes out the same way round.
+        Assert.Equal((0f, 0f), At(project, "Controls", "four"));
+        Assert.Equal((0f, 80f), At(project, "Controls", "five"));
+    }
+
+    [Fact]
+    public void A_Desk_Starts_Where_Its_Own_Canvases_Do()
+    {
+        var project = Placed();
+
+        foreach (var group in project.Root.Children.OfType<ProjectGroup>())
+        {
+            var placed = group.Children.Where(child => child.HasPosition).ToList();
+
+            Assert.Equal(0f, placed.Min(child => child.X!.Value));
+            Assert.Equal(0f, placed.Min(child => child.Y!.Value));
+        }
+
+        // Nothing negative reaches the file, though a desk is free to use negatives.
+        Assert.DoesNotContain("=\"-", project.ToXml(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Canvas_With_No_Bounds_Is_Left_Unplaced()
+    {
+        var drawing = Placed().Root.Drawings.Single(one => one.Name == "nowhere");
+
+        Assert.False(drawing.HasPosition);
+        Assert.Null(drawing.Element.Attribute("x"));
+        Assert.Null(drawing.Element.Attribute("y"));
+    }
+
+    /// <summary>
+    /// Both or neither, which the format asks for and the loader enforces — so saving what the
+    /// import wrote and reading it back is the assertion.
+    /// </summary>
+    [Fact]
+    public void A_Place_Is_Written_As_Both_Or_Neither()
+    {
+        var path = Path.Combine(_directory, "placed.svgstudio");
+
+        Placed().Save(path);
+
+        var reloaded = ProjectDocument.Load(path);
+
+        // Five of the six: the one the document never placed is the sixth.
+        Assert.Equal(5, reloaded.Root.Drawings.Count(drawing => drawing.HasPosition));
+        Assert.Single(reloaded.Root.Drawings, drawing => !drawing.HasPosition);
+    }
+
+    /// <summary>The two desks of <see cref="DeskDocument"/>, imported.</summary>
+    private ProjectDocument Placed()
+        => ProjectImport.FromPaintCode(
+            PaintCodeDocument.Parse(DeskDocument.Bytes()),
+            new PaintCodeImportOptions(_directory),
+            new List<PaintCodeImportNote>(),
+            _directory);
+
+    private static (float X, float Y) At(ProjectDocument project, string desk, string drawing)
+    {
+        var row = project.Root.Children.OfType<ProjectGroup>().Single(group => group.Name == desk)
+            .Drawings.Single(one => one.Name == drawing);
+
+        return (row.X!.Value, row.Y!.Value);
     }
 
     [Fact]
