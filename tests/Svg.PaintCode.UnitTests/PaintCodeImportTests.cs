@@ -1,5 +1,6 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
@@ -210,6 +211,82 @@ public class PaintCodeImportTests
         Assert.Equal("boolean", TypeOf("off", integers: true));
         Assert.Equal("color", TypeOf("colorPurple", integers: true));
     }
+
+    /// <summary>
+    /// Where a canvas sat comes across as the document wrote it, with nothing normalised: what a
+    /// desk's corner should be is a question for whoever arranges them, and a folder of files has
+    /// no answer to it.
+    /// </summary>
+    [Fact]
+    public void A_Canvas_Carries_Where_It_Sat_On_Its_Desk()
+    {
+        var desks = Desks();
+        var overlays = desks.Single(desk => desk.Name == "Overlays");
+        var one = overlays.Drawings.Single(drawing => drawing.Name == "one");
+
+        Assert.Equal(54d, one.Place!.Value.X);
+        Assert.Equal(136d, one.Place!.Value.Y);
+        Assert.Equal(30d, one.Place!.Value.Width);
+        Assert.Equal(30d, one.Place!.Value.Height);
+
+        // Negative, and carried as such: a desk is free to have things above its own origin.
+        Assert.Equal(-40d, desks.Single(desk => desk.Name == "Controls")
+            .Drawings.Single(drawing => drawing.Name == "four").Place!.Value.Y);
+    }
+
+    [Fact]
+    public void A_Canvas_With_No_Bounds_Carries_No_Place()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var drawings = Desks(notes).Single(desk => desk.Name == "Overlays").Drawings;
+
+        Assert.Null(drawings.Single(drawing => drawing.Name == "nowhere").Place);
+        Assert.All(
+            drawings.Where(drawing => drawing.Name != "nowhere"),
+            drawing => Assert.NotNull(drawing.Place));
+
+        // Said out loud, and as the document's own omission rather than a limit of the conversion.
+        var note = Assert.Single(notes, one => one.Canvas == "nowhere");
+
+        Assert.Equal(PaintCodeImportSeverity.Missing, note.Severity);
+        Assert.Equal("bounds", note.Property);
+    }
+
+    /// <summary>
+    /// The folder import writes a project svgc can still open, which is the whole reason a place
+    /// goes no further than the drawing it is carried on: an svgcproj has no board, and its loader
+    /// refuses an attribute it does not know.
+    /// </summary>
+    [Fact]
+    public void The_Folder_Import_Writes_No_Places()
+    {
+        var directory = Directory.CreateTempSubdirectory("paintcode");
+
+        try
+        {
+            var options = new PaintCodeImportOptions(directory.FullName)
+            {
+                ProjectPath = Path.Combine(directory.FullName, "icons.svgcproj")
+            };
+
+            var result = PaintCodeImport.Run(PaintCodeDocument.Parse(DeskDocument.Bytes()), options);
+
+            SvgcProjectDocument.Load(result.ProjectPath!);
+
+            Assert.DoesNotContain(" x=\"", File.ReadAllText(result.ProjectPath!), System.StringComparison.Ordinal);
+            Assert.DoesNotContain(" y=\"", File.ReadAllText(result.ProjectPath!), System.StringComparison.Ordinal);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    private static IReadOnlyList<PaintCodeImportDesk> Desks(List<PaintCodeImportNote>? notes = null)
+        => PaintCodeImport.Desks(
+            PaintCodeDocument.Parse(DeskDocument.Bytes()),
+            new PaintCodeImportOptions(Path.GetTempPath()),
+            notes ?? new List<PaintCodeImportNote>());
 
     private static void Imported(System.Action<PaintCodeImportResult, string> assert)
     {
