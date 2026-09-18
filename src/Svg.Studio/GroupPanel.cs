@@ -1416,10 +1416,14 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <remarks>
-    /// The commit reads every drawing again, which drops the pick and the handles with it. That is
-    /// what an element edit already does here, and the alternative — restoring a selection into
-    /// documents that have all just been replaced — is a second thing to get wrong for the sake of
-    /// keeping a box on screen.
+    /// The commit rebuilds the one drawing whose text it changed, which is what replaces the live
+    /// mutation with a drawing read from the file.
+    ///
+    /// Every exit that does not commit has to put the element back. The drag is applied to the built
+    /// document as it is made, so a release the file will not take — an element whose transform is
+    /// spelt in its style attribute, which is refused on the way in — would otherwise leave the
+    /// drawing carrying a transform its own text does not have, for good: nothing rebuilds a drawing
+    /// whose text did not change.
     /// </remarks>
     private void EndEdit()
     {
@@ -1432,7 +1436,7 @@ public sealed class GroupPanel : UserControl
 
         if (Writing() is not { } writing)
         {
-            Says(Unwritten);
+            Undo(Unwritten);
 
             return;
         }
@@ -1441,12 +1445,26 @@ public sealed class GroupPanel : UserControl
             edit.Label,
             source => SvgAttributeEditor.SetAttribute(source, writing.Address, "transform", edit.Transform));
 
-        Says(refusal);
-
-        if (refusal is null)
+        if (refusal is { })
         {
-            Written();
+            Undo(refusal);
+
+            return;
         }
+
+        Says(null);
+        Written();
+    }
+
+    /// <summary>Puts the element back where the drag found it, and says why.</summary>
+    private void Undo(string? note)
+    {
+        _gizmo.Revert();
+
+        Says(note);
+        ShowGizmo();
+        Retrace();
+        _canvas.Publish();
     }
 
     private void CancelEdit()

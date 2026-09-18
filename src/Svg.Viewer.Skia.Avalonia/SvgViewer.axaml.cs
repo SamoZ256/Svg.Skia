@@ -713,17 +713,39 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         if (SourceAddress(_elementTree.SelectedNode?.AddressKey) is not { } address)
         {
-            ShowNote(Unwritten);
+            Undo(Unwritten);
 
             return;
         }
 
-        ShowNote(
-            Written(
-                edit.Label,
-                source => SvgAttributeEditor.SetAttribute(source, address, "transform", edit.Transform)));
+        // Every exit that does not commit puts the element back. The drag is applied to the built
+        // document as it is made, so a release the file will not take — an element whose transform
+        // is spelt in its style attribute, which is refused on the way in — would otherwise leave
+        // the drawing carrying a transform its own text does not have.
+        var refusal = Written(
+            edit.Label,
+            source => SvgAttributeEditor.SetAttribute(source, address, "transform", edit.Transform));
 
+        if (refusal is { })
+        {
+            Undo(refusal);
+
+            return;
+        }
+
+        ShowNote(null);
         ShowGizmo();
+    }
+
+    /// <summary>Puts the element back where the drag found it, and says why.</summary>
+    private void Undo(string? note)
+    {
+        _gizmo.Revert();
+
+        ShowNote(note);
+        ShowGizmo();
+        RetraceOutline();
+        _canvas.Publish();
     }
 
     private void CancelEdit()

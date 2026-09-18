@@ -197,7 +197,6 @@ public sealed class SvgViewerGizmo
         var before = _restore.ToString();
 
         _dragging = false;
-        _restore = new SvgTransformCollection();
 
         return string.Equals(written, before, StringComparison.Ordinal)
             ? null
@@ -216,13 +215,26 @@ public sealed class SvgViewerGizmo
 
         _dragging = false;
 
+        Revert();
+    }
+
+    /// <summary>Puts the element back after a release whose edit the host could not write.</summary>
+    /// <remarks>
+    /// <see cref="Cancel"/> answers only while a drag is live, and whether the file will take the
+    /// edit is found out after <see cref="End"/> — a transform the element spells in its style
+    /// attribute is refused there, and the check before the drag catches only the expression case.
+    /// Without a way back the drawing keeps a transform its own text does not have, and a host that
+    /// rebuilds only what changed has no reason ever to read it again.
+    ///
+    /// <see cref="Begin"/> is what sets what this restores, so it is not cleared on the way out.
+    /// </remarks>
+    public void Revert()
+    {
         if (_element is { })
         {
             _element.Transforms = _restore;
             Redraw();
         }
-
-        _restore = new SvgTransformCollection();
     }
 
     // ---- the three gestures, all in the element's own geometry space --------------------------

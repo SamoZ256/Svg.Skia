@@ -262,6 +262,90 @@ public class SvgViewerCanvasTests
         window.Close();
     }
 
+    /// <summary>A drawing whose only shape has been moved clean off its own page.</summary>
+    private const string Escaped = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50">
+          <rect x="0" y="0" width="100" height="50" fill="#ff0000" transform="translate(120, 0)" />
+        </svg>
+        """;
+
+    /// <summary>
+    /// Ink moved off a drawing is cut at the drawing's own edge.
+    /// </summary>
+    /// <remarks>
+    /// A drawing is its page. Every other way one of these pictures is rendered records at the cull
+    /// rect and so cuts off ink beyond it — an export, the replay a generated class does. This canvas
+    /// draws into a surface the size of the control, so without a clip it is the one renderer that
+    /// shows what nothing else will, over whatever is placed beside it and answering no hit test.
+    /// </remarks>
+    [AvaloniaFact]
+    public void Ink_Moved_Off_A_Drawing_Is_Cut_At_Its_Edge()
+    {
+        using var escaped = SvgViewerDocument.LoadFromSvg(Escaped);
+        using var neighbour = SvgViewerDocument.LoadFromSvg(Blue);
+
+        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        // The second sits exactly where the first one's shape has been dragged to.
+        canvas.Show(new[]
+        {
+            new SvgViewerPlacement(escaped.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(neighbour.Svg, new SKPoint(120f, 0f))
+        });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // The middle of the neighbour, which the escaped red rect covers exactly.
+        var on = new Point(170d * canvas.Scale + canvas.OffsetX, 25d * canvas.Scale + canvas.OffsetY);
+
+        var painted = Painted(window, (int)on.X, (int)on.Y);
+
+        Assert.True(painted.Blue > 200 && painted.Red < 100, $"{painted} is the escaped ink, not the drawing placed there");
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A press past a drawing's edge falls on whatever is drawn there, not on the ink that escaped.
+    /// </summary>
+    /// <remarks>
+    /// The companion to the clip, and the reason the answer is to clip rather than to widen the hit
+    /// rectangle to the ink: two drawings whose ink overlaps would then both answer for the same
+    /// point, and which of them won would be decided by the order the project happens to list them
+    /// in rather than by what is on the screen.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Press_Past_A_Drawings_Edge_Falls_On_What_Is_Drawn_There()
+    {
+        using var escaped = SvgViewerDocument.LoadFromSvg(Escaped);
+        using var neighbour = SvgViewerDocument.LoadFromSvg(Blue);
+
+        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+
+        window.Show();
+
+        canvas.Show(new[]
+        {
+            new SvgViewerPlacement(escaped.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(neighbour.Svg, new SKPoint(120f, 0f))
+        });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        var on = new Point(170d * canvas.Scale + canvas.OffsetX, 25d * canvas.Scale + canvas.OffsetY);
+
+        Assert.True(canvas.TryGetPlacementAt(on, out var placement, out _));
+        Assert.Same(canvas.Placements[1], placement);
+
+        window.Close();
+    }
+
     /// <summary>What the frame is painted at one point of the control.</summary>
     private static SKColor Painted(Window window, int x, int y)
     {
@@ -910,6 +994,46 @@ public class SvgViewerCanvasTests
         // The ground did not move under it.
         Assert.Equal(offsetX, canvas.OffsetX, 6);
         Assert.Equal(scale, canvas.Scale, 6);
+
+        Release(window, canvas, new Point(120, 20));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// The ring travels with the drawing it is on, while that drawing is being carried.
+    /// </summary>
+    /// <remarks>
+    /// It is drawn once, outside the loop that draws the drawings, so that a canvas holding several
+    /// does not put one on each of them — and that also put it outside the offset a carry is drawn
+    /// at, so it stayed behind on the board while the drawing it belongs to moved out from under it.
+    /// Only visible mid-drag: the drop re-lays the board and traces the ring again, so by then it is
+    /// in the right place either way.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Ring_Is_Carried_With_What_It_Is_Drawn_On()
+    {
+        var (window, canvas, drawing) = Held();
+
+        using var owner = drawing;
+
+        // A square well inside the drawing, so it is unambiguously part of what is carried.
+        var ring = new SKPath();
+
+        ring.AddRect(new SKRect(10f, 10f, 40f, 40f));
+
+        canvas.Highlight = ring;
+
+        Grab(canvas, new object(), new SKRect(0f, 0f, 100f, 50f));
+
+        Press(window, canvas, new Point(20, 20));
+        Move(window, canvas, new Point(120, 20));
+
+        // The pointer has taken the drawing a hundred pixels across, so the ring's own square — 10
+        // to 40 in drawing units, which is 40 to 160 on a control at scale 4 — is now 140 to 260.
+        // Sampled across its left edge, since a ring is a stroke and its middle is the drawing.
+        Assert.True(Ringed(window, new PixelRect(132, 60, 18, 80)) > 0, "the ring was not carried with the drawing");
+        Assert.Equal(0, Ringed(window, new PixelRect(32, 60, 18, 80)));
 
         Release(window, canvas, new Point(120, 20));
 

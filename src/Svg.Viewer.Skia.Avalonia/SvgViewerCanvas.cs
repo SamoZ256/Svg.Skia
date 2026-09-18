@@ -1120,11 +1120,32 @@ public class SvgViewerCanvas : SKCanvasControl
 
             canvas.Translate(placed.At.X, placed.At.Y);
 
+            var page = Extent(placed);
+
+            // A drawing is its page. Every other way this picture is rendered records at the cull
+            // rect and so cuts off ink that has been moved beyond it — an export, the replay a
+            // generated class does, a thumbnail. This draws into a surface the size of the control,
+            // so without the clip it is the one renderer in the repository that shows what nothing
+            // else will, painted over whatever is placed beside it and answering no hit test.
+            //
+            // Its own save, because the outline below is stroked ON that rectangle and a shared clip
+            // would shave the outer half of the stroke off.
+            if (page is { } sheet)
+            {
+                canvas.Save();
+                canvas.ClipRect(sheet);
+            }
+
             // SKSvg.Draw brackets itself with BeginDraw/EndDraw, so the picture cannot be disposed
             // underneath it by a value being bound on the UI thread.
             placed.Svg.Draw(canvas);
 
-            if (Extent(placed) is { } frame)
+            if (page is { })
+            {
+                canvas.Restore();
+            }
+
+            if (page is { } frame)
             {
                 if (state.Bounds)
                 {
@@ -1152,7 +1173,18 @@ public class SvgViewerCanvas : SKCanvasControl
         // top of each of them.
         if (state.Highlight is { } ringed)
         {
+            // Carried with the drawing it is on. A ring is drawn round a shape of one drawing, so a
+            // ring inside what is being carried is a ring on it — decided the way everything else
+            // being carried is decided, by what the moving rectangle holds. Without this the ring
+            // stays behind on the board while the drawing it belongs to moves out from under it.
+            var on = state.Moving is { } move && move.Bounds.Contains(ringed.Bounds) ? move.By : default;
+
+            canvas.Save();
+            canvas.Translate(on.X, on.Y);
+
             Ring(canvas, ringed, state.Scale, state.HighlightAge);
+
+            canvas.Restore();
         }
 
         // Over everything, since it is what the hand is on.

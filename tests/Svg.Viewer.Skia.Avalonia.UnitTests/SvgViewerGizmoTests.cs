@@ -174,6 +174,107 @@ public class SvgViewerGizmoTests
         return element.Substring(value, element.IndexOf('"', value) - value);
     }
 
+    /// <summary>A shape whose transform is spelt in its style attribute, where the attribute cannot win.</summary>
+    private const string Shadowed = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <rect id="box" x="20" y="20" width="20" height="20" fill="#3366cc" style="transform: translate(0px, 0px)" />
+        </svg>
+        """;
+
+    /// <summary>
+    /// A release the file will not take puts the element back where the drag found it.
+    /// </summary>
+    /// <remarks>
+    /// The drag is applied to the built document as it is made, and whether the file will take it is
+    /// only found out on release — a style declaration beats the attribute under it, so writing the
+    /// attribute is refused. Without a way back the drawing keeps a transform its own text does not
+    /// have, and it keeps it for good: a host that rebuilds only what changed has no reason to read
+    /// a file whose text never moved.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Release_The_File_Refuses_Puts_The_Element_Back()
+    {
+        var (window, viewer) = await Host(Shadowed);
+
+        Select(window, viewer, 30f, 30f);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var before = Element(viewer).Transforms?.ToString() ?? string.Empty;
+        var text = viewer.Source;
+
+        Drag(window, viewer, (30f, 30f), (50f, 30f));
+
+        // Refused, and said so.
+        Assert.Equal(text, viewer.Source);
+
+        // And the drawing is not left carrying what the file does not say.
+        Assert.Equal(before, Element(viewer).Transforms?.ToString() ?? string.Empty);
+
+        window.Close();
+    }
+
+    /// <summary>A refused drag can be made again, and composes from where it started.</summary>
+    [AvaloniaFact]
+    public async Task An_Element_Put_Back_Can_Be_Dragged_Again()
+    {
+        var (window, viewer) = await Host(Shadowed);
+
+        Select(window, viewer, 30f, 30f);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(window, viewer, (30f, 30f), (50f, 30f));
+        Drag(window, viewer, (30f, 30f), (50f, 30f));
+
+        // Not doubled: the second drag starts from what the first put back, not from what it drew.
+        Assert.Equal(string.Empty, Element(viewer).Transforms?.ToString() ?? string.Empty);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// The handles stay on an element dragged past its drawing's own edge.
+    /// </summary>
+    /// <remarks>
+    /// The canvas cuts a drawing's ink at its page, so a shape dragged off it is not painted there.
+    /// The handles are drawn outside that clip on purpose: clipped with it, a shape pushed off the
+    /// page could never be taken hold of and dragged back, which would make an easy mistake
+    /// permanent.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Handles_Stay_On_An_Element_Dragged_Past_The_Page_Edge()
+    {
+        var (window, viewer) = await Host(Plain);
+
+        Select(window, viewer, 30f, 30f);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        // Clean off a 100x100 page.
+        Drag(window, viewer, (30f, 30f), (95f, 30f));
+
+        var box = viewer.Canvas.Gizmo;
+
+        Assert.NotNull(box);
+        Assert.True(box!.Value.TL.X > 80f, $"the handles are at {box.Value.TL}, not on the shape that was dragged off");
+
+        window.Close();
+    }
+
+    /// <summary>The element the tests drag, as the live document holds it.</summary>
+    private static Svg.SvgElement Element(SvgViewer viewer, string id = "box")
+    {
+        var element = viewer.Canvas.Svg?.SourceDocument?.GetElementById(id);
+
+        Assert.NotNull(element);
+
+        return element!;
+    }
+
     [AvaloniaFact]
     public async Task A_Drag_Moves_The_Element_By_What_The_Pointer_Moved()
     {
