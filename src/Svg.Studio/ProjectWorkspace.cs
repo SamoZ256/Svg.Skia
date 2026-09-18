@@ -25,10 +25,15 @@ public sealed class ProjectWorkspace
     /// Whether what is being opened is already unsaved — an import, a conversion or a recovered copy,
     /// none of which exist anywhere but in memory. Only the caller knows which of those it is doing.
     /// </param>
-    public ProjectWorkspace(ProjectDocument document, bool edited = false)
+    /// <param name="suggested">
+    /// What to call the file when somebody is asked where to put it. A conversion is named after the
+    /// document it came from; a project made from nothing has nothing to suggest.
+    /// </param>
+    public ProjectWorkspace(ProjectDocument document, bool edited = false, string? suggested = null)
     {
         Document = document ?? throw new ArgumentNullException(nameof(document));
         Edits = edited ? 1 : 0;
+        Suggested = suggested;
     }
 
     public ProjectDocument Document { get; }
@@ -44,7 +49,15 @@ public sealed class ProjectWorkspace
     /// </remarks>
     public event EventHandler? Saved;
 
-    public string Name => Document.Path is { } path ? Path.GetFileName(path) : "A project";
+    /// <summary>What the project is called: its file, or that it has not got one.</summary>
+    /// <remarks>
+    /// Not the name it is going to be saved under — a project that reads as a file it is not would
+    /// be a worse lie than an honest Untitled, since that name is exactly what has not been decided.
+    /// </remarks>
+    public string Name => Document.Path is { } path ? Path.GetFileName(path) : "Untitled";
+
+    /// <summary>The name to offer when somebody is asked where to put this, or null for none.</summary>
+    public string? Suggested { get; }
 
     /// <summary>Gestures made since the document was last written.</summary>
     /// <remarks>
@@ -69,7 +82,7 @@ public sealed class ProjectWorkspace
         Edited?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>Writes the document, and says so.</summary>
+    /// <summary>Writes the document to the file it is, and says so.</summary>
     /// <remarks>
     /// Counted down only once the write has returned: a project that reported itself saved when the
     /// write threw would drop its mark, stop offering Save and let the window close over the lot.
@@ -78,6 +91,20 @@ public sealed class ProjectWorkspace
     {
         Document.Save();
 
+        Settle();
+    }
+
+    /// <summary>Writes the document to <paramref name="path"/>, which it becomes.</summary>
+    /// <remarks>Where a project with no file of its own gets one, having been asked about.</remarks>
+    public void Save(string path)
+    {
+        Document.Save(path);
+
+        Settle();
+    }
+
+    private void Settle()
+    {
         Edits = 0;
 
         Saved?.Invoke(this, EventArgs.Empty);

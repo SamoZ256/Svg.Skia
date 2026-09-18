@@ -23,8 +23,8 @@ namespace Svg.Studio;
 /// The copy is a project file, byte for byte what a save would write. Nothing is stored inside it —
 /// a <c>&lt;studio&gt;</c> refuses attributes it does not know, and a wrapper element would throw
 /// away the byte-exact round trip the format is held in. The project's own path is the key instead,
-/// so the copy is found by computing a name rather than by reading an index, and a project that has
-/// never been written is covered like any other.
+/// so the copy is found by computing a name rather than by reading an index — and a project with no
+/// file yet has nothing to be looked up under, so it is covered only from its first save.
 /// </para>
 /// <para>
 /// What it holds is the project. Text typed into a drawing's editor is that tab's buffer and does

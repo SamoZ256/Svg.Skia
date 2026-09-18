@@ -36,8 +36,7 @@ public static class ProjectImport
     /// family of them share a slider again.
     /// </para>
     /// </remarks>
-    /// <param name="path">The file the project is to be written to, which nothing writes here.</param>
-    public static ProjectDocument FromSvgc(SvgcProjectDocument source, ICollection<string> notes, string path)
+    public static ProjectDocument FromSvgc(SvgcProjectDocument source, ICollection<string> notes)
     {
         if (source is null)
         {
@@ -49,7 +48,9 @@ public static class ProjectImport
             throw new ArgumentNullException(nameof(notes));
         }
 
-        var document = ProjectDocument.For(path);
+        // The old project's directory: what it carries over — an output, a single file — was written
+        // relative to that, and stays true until somebody saves this one somewhere else.
+        var document = ProjectDocument.Empty(source.BaseDirectory);
 
         Carry(source.Root, document.Root);
 
@@ -64,19 +65,19 @@ public static class ProjectImport
     }
 
     /// <summary>A PaintCode document as a project: a group per desk, and every canvas drawn into it.</summary>
-    /// <param name="path">The file the project is to be written to, which nothing writes here.</param>
+    /// <param name="baseDirectory">Where the document came from, which its outputs resolve against.</param>
     public static ProjectDocument FromPaintCode(
         PaintCodeDocument source,
         PaintCodeImportOptions options,
         ICollection<PaintCodeImportNote> notes,
-        string path)
+        string baseDirectory)
     {
         if (source is null)
         {
             throw new ArgumentNullException(nameof(source));
         }
 
-        var document = ProjectDocument.For(path);
+        var document = ProjectDocument.Empty(baseDirectory);
 
         document.Root.Namespace = PaintCodeImport.NamespaceOf(source, options);
 

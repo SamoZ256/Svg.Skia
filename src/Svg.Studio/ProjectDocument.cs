@@ -756,15 +756,19 @@ public sealed class ProjectDocument
 
     public ProjectRoot Root { get; }
 
-    /// <summary>The file this project is: what it was read from, or where it is to be written.</summary>
+    /// <summary>The file this project is, or null while it is not one yet.</summary>
     /// <remarks>
-    /// A project has one before it has a file. An import is converted into the name the author
-    /// picked and then held until they save it, and everything relative in it — an output, the
-    /// single file — resolves against that name in the meantime. Null only for a project parsed
-    /// from text with nowhere in mind.
+    /// Null is the ordinary state of a project nobody has saved: a conversion and a new project are
+    /// both made in the window and are not named until somebody is asked where to put them.
     /// </remarks>
     public string? Path { get; private set; }
 
+    /// <summary>What every relative path in the project resolves against.</summary>
+    /// <remarks>
+    /// The project's own directory once it has one. Before that it is where the project came from —
+    /// the directory of the document it was converted from — so a carried-over output still means
+    /// what it meant, and empty for a project that came from nowhere.
+    /// </remarks>
     public string BaseDirectory { get; private set; }
 
     public static ProjectDocument Load(string path)
@@ -780,30 +784,21 @@ public sealed class ProjectDocument
 
     public static ProjectDocument Parse(string xml, string baseDirectory) => Parse(xml, baseDirectory, null);
 
-    /// <summary>A project holding nothing, on the two lines a first drawing is written between.</summary>
+    /// <summary>A project holding nothing, not yet a file.</summary>
     /// <remarks>
     /// No namespace, because the build already defaults one and a guess written into the file would
     /// have to be found and corrected rather than simply typed.
     /// </remarks>
+    public static ProjectDocument Empty(string baseDirectory) => Parse(Blank, baseDirectory);
+
     private const string Blank = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<studio>\n</studio>\n";
 
-    /// <inheritdoc cref="For(string, string)"/>
-    public static ProjectDocument For(string path) => For(path, Blank);
-
-    /// <summary>The project <paramref name="xml"/> holds, at the file it is to be written to.</summary>
+    /// <summary>The project <paramref name="xml"/> holds, read as the file at <paramref name="path"/>.</summary>
     /// <remarks>
-    /// The path and not the directory it sits in, which is what a caller has and what the project is
-    /// named by. Nothing is written: the file appears when somebody saves, and until then this is
-    /// the only copy there is.
+    /// For text that is a project's but is not the project's file — a copy of unsaved work, which is
+    /// restored as the project it is a copy of rather than as the file it was kept in.
     /// </remarks>
-    public static ProjectDocument For(string path, string xml)
-    {
-        var full = System.IO.Path.GetFullPath(path);
-
-        return Parse(xml, System.IO.Path.GetDirectoryName(full) ?? string.Empty, full);
-    }
-
-    private static ProjectDocument Parse(string xml, string baseDirectory, string? path)
+    public static ProjectDocument Parse(string xml, string baseDirectory, string? path)
     {
         if (SvgSourceDocument.Read(xml, out var refusal) is not { } source)
         {

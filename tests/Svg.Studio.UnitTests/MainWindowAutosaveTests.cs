@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using Avalonia.Controls;
+using System.Threading.Tasks;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Xunit;
@@ -271,18 +271,31 @@ public class MainWindowAutosaveTests : IDisposable
         Assert.Contains("scale=\"6\"", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A project with no file is not covered, and is covered the moment it has one. The copy is
+    /// keyed by the project's path, and a project nobody has named has nothing to be looked up
+    /// under again — a copy that cannot be found is worse than none.
+    /// </summary>
     [AvaloniaFact]
-    public async Task An_Import_Nobody_Saved_Is_Copied_Under_The_Name_It_Was_Given()
+    public async Task A_Project_Is_Copied_Once_It_Has_A_File()
     {
         var target = Path.Combine(_directory, "fresh.svgstudio");
         var window = Empty();
 
-        await window.NewProjectAsync(target);
+        window.AskWhereToSave = _ => Task.FromResult<string?>(target);
+
+        await window.NewProjectAsync();
         Dispatcher.UIThread.RunJobs();
 
-        // Keyed by where the project goes rather than by a file, which a project made in a window
-        // has not got until somebody saves it.
-        Move(window);
+        window.Workspace!.Edit();
+
+        _now = _now.AddSeconds(31d);
+
+        Assert.Null(window.Recovery);
+
+        await window.SaveAsync();
+
+        window.Workspace.Edit();
 
         _now = _now.AddSeconds(31d);
 

@@ -223,7 +223,7 @@
               Here rather than in File, which opens drawings: a project is not one, and File's New
               would have had to ask which of the two was meant.
             -->
-            <NativeMenuItem Header="New…" Click="OnNewProject" />
+            <NativeMenuItem Header="New" Click="OnNewProject" />
             <NativeMenuItemSeparator />
             <NativeMenuItem Header="Build" Click="OnBuild" />
             <NativeMenuItemSeparator />

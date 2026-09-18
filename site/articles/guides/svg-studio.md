@@ -57,17 +57,17 @@ and the project itself takes no tab, one project at a time, closed with `Project
 
 Two other things open as a project, by being converted into one:
 
-- An **svgc project** (`.svgcproj`) is read with its drawings and opened as a `.svgstudio` named
-  beside it. It is one way, and the window says what the conversion cost: a recipe is baked into the
-  drawings it painted — the parameters it declared were what drove them — and a file the old project
-  named twice becomes two drawings that no longer edit each other. What it came from is left where
-  it is.
+- An **svgc project** (`.svgcproj`) is read with its drawings and opened as a project. It is one
+  way, and the window says what the conversion cost: a recipe is baked into the drawings it painted
+  — the parameters it declared were what drove them — and a file the old project named twice becomes
+  two drawings that no longer edit each other. What it came from is left where it is.
 - A **PaintCode document** (`.pcvd`) becomes one project with every canvas in it. What could not be
   carried across is listed afterwards.
 
-Neither is written. A conversion opens as unsaved work, under the name it will be saved as, so the
-first thing you do with it is look at it — and nothing appears beside the document you opened until
-you save.
+Neither is written, and neither is named. A conversion opens as unsaved work called **Untitled**, so
+the first thing you do with it is look at it; saving asks where it goes, offering the name of the
+document it came from. `Project → New` is the same: a project with nothing in it and no file, which
+⌘S names. Nothing appears beside the document you opened until you say so.
 
 ## The tree, and the tabs
 
@@ -160,11 +160,15 @@ at, or as `.cs` if the name says so.
 
 ## The recovery copy
 
-`Project → Autosave Recovery`, on unless you turn it off, keeps a copy of the project under your
-application data while it has work that is not on disk — sooner as more piles up behind it, and
-never the project's own file. Saving throws the copy away, and so does closing the window, so a copy
-waiting when you open a project again is one Studio never got to throw away. It offers it back, and
-restoring puts the work in the window without touching the file.
+Studio keeps a copy of the project under your application data while it has work that is not on disk
+— sooner as more piles up behind it, and never the project's own file. Saving throws the copy away,
+and so does closing the window, so a copy waiting when you open a project again is one Studio never
+got to throw away. It offers it back, and restoring puts the work in the window without touching the
+file.
+
+The copy is keyed by the project's own file, so a project that has never been saved has nothing to
+look one up under again and is not covered until you name it. `Project → Autosave Recovery` switches
+the copies off.
 
 ## The Element tab
 
