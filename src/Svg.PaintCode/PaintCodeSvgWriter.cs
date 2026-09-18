@@ -206,11 +206,13 @@ internal sealed class PaintCodeSvgWriter
         var written = shape.Text is { } text ? WithText(element, shape, text) : element;
         Frame(written, shape);
 
-        // One shape in the sample. Named rather than guessed at: PaintCode's own numbering is not
-        // SVG's, and a blend mode that is nearly right is worse than one that is reported.
-        if (shape.BlendMode != 0)
+        if (Blend(shape.BlendMode) is { } blend)
         {
-            Note(PaintCodeImportSeverity.Dropped, shape.Name, "blendMode", $"PaintCode's blend mode {shape.BlendMode} has no name here, so the shape is drawn over what is under it.");
+            written.SetAttributeValue("style", $"mix-blend-mode:{blend}");
+        }
+        else if (shape.BlendMode != 0)
+        {
+            Note(PaintCodeImportSeverity.Dropped, shape.Name, "blendMode", $"PaintCode's blend mode {shape.BlendMode} is a compositing operation rather than a blend, and SVG has no name for it, so the shape is drawn over what is under it.");
         }
 
         return written;
@@ -1159,6 +1161,41 @@ internal sealed class PaintCodeSvgWriter
 
         return expression;
     }
+
+    /// <summary>
+    /// The CSS name for one of PaintCode's blend modes, or null where SVG has none.
+    /// </summary>
+    /// <remarks>
+    /// The number is Core Graphics' own <c>CGBlendMode</c>, whose first sixteen values line up
+    /// one for one with the CSS blend keywords. Read off PaintCode's generated code rather than
+    /// guessed: the sample's one blended shape is drawn there with SKBlendMode.Multiply, which is 1.
+    ///
+    /// Past 15 they are Porter-Duff compositing operations -- clear, copy, source-in and the rest --
+    /// which are how one drawing replaces another rather than how two colours mix, and
+    /// <c>mix-blend-mode</c> has no word for any of them.
+    /// </remarks>
+    private static string? Blend(int mode) => mode switch
+    {
+        1 => "multiply",
+        2 => "screen",
+        3 => "overlay",
+        4 => "darken",
+        5 => "lighten",
+        6 => "color-dodge",
+        7 => "color-burn",
+
+        // Soft before hard here, and the other way round in the CSS list: the one place a table
+        // written from the keyword order would be wrong.
+        8 => "soft-light",
+        9 => "hard-light",
+        10 => "difference",
+        11 => "exclusion",
+        12 => "hue",
+        13 => "saturation",
+        14 => "color",
+        15 => "luminosity",
+        _ => null
+    };
 
     /// <summary>An arc whose sweep an expression drives, as the dashed circle that draws it.</summary>
     /// <remarks>

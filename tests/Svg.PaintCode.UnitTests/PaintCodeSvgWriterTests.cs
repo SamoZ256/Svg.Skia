@@ -353,6 +353,61 @@ public class PaintCodeSvgWriterTests
         Assert.Empty(notes);
     }
 
+    /// <summary>
+    /// A blended shape carries the mode PaintCode gave it, which SVG has its own name for.
+    /// </summary>
+    /// <remarks>
+    /// The number is Core Graphics' CGBlendMode, and 1 is multiply -- PaintCode's own generated code
+    /// draws the sample's one blended shape with SKBlendMode.Multiply. Everything after 15 is a
+    /// compositing operation with no CSS keyword, which is still reported.
+    /// </remarks>
+    [Theory]
+    [InlineData(1, "multiply")]
+    [InlineData(5, "lighten")]
+    [InlineData(8, "soft-light")]
+    [InlineData(9, "hard-light")]
+    [InlineData(15, "luminosity")]
+    public void A_Blended_Shape_Carries_The_Mode_It_Was_Given(int mode, string keyword)
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var written = WriteTree(Only(Blended(mode)), notes).Descendants().First(one => one.Name.LocalName == "rect");
+
+        Assert.Equal($"mix-blend-mode:{keyword}", written.Attribute("style")!.Value);
+        Assert.Empty(notes);
+    }
+
+    [Fact]
+    public void A_Compositing_Operation_Is_Reported_Rather_Than_Guessed_At()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var written = WriteTree(Only(Blended(16)), notes).Descendants().First(one => one.Name.LocalName == "rect");
+
+        Assert.Null(written.Attribute("style"));
+
+        var note = Assert.Single(notes);
+
+        Assert.Equal("blendMode", note.Property);
+        Assert.Contains("a compositing operation rather than a blend", note.Message, StringComparison.Ordinal);
+    }
+
+    private static PaintCodeShape Blended(int mode)
+        => new(
+            "Rectangle",
+            PaintCodeShapeKind.Rectangle,
+            new PaintCodeFrame(0, -10, 10, 10, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            null,
+            new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 255, 0, 0, 1), null),
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            null,
+            PaintCodeShapeMetrics.Default,
+            false,
+            -90,
+            null,
+            mode);
+
     [Fact]
     public void A_Shape_Carrying_Words_Is_Written_As_A_Run_Placed_In_Its_Box()
     {
