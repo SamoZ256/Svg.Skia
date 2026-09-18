@@ -260,7 +260,7 @@ is written at <code>(x, -y)</code>, and an angle with it.</p>
 <tr>
 <td>Number</td>
 <td><code>number</code></td>
-<td></td>
+<td>Whatever limit the variable carries, which in a real document is none.</td>
 </tr>
 <tr>
 <td>Fraction</td>
@@ -269,8 +269,8 @@ is written at <code>(x, -y)</code>, and an angle with it.</p>
 </tr>
 <tr>
 <td>Angle</td>
-<td><code>number</code></td>
-<td>Degrees, which is what the translator already assumes where a trigonometric function wants radians.</td>
+<td><code>number</code>, <code>min=&quot;0&quot; max=&quot;360&quot; step=&quot;1&quot;</code></td>
+<td>Degrees, which is what the translator already assumes where a trigonometric function wants radians — so the range is PaintCode's own dial, a turn a degree at a time.</td>
 </tr>
 <tr>
 <td>Text</td>
@@ -295,8 +295,15 @@ is written at <code>(x, -y)</code>, and an angle with it.</p>
 </tbody>
 </table>
 <p>The distinction lives on the variable, not on the value: Number, Fraction and Angle are all stored as
-one double, so a reader going by storage sees one numeric type where PaintCode has three. This used
-to, which is why a fraction arrived indistinguishable from a number and lost its range on the way.</p>
+one double, so a reader going by storage sees one numeric type where PaintCode has three — and a
+fraction or an angle read that way arrives indistinguishable from a number, its range lost.</p>
+<p>Where a variable does carry a limit, that is the author's own answer to the question the type only
+implies, so it displaces the implied ends — a fraction limited to 0.2..0.8 is written that way. An
+angle keeps its <code>step=&quot;1&quot;</code> either way, a step being granularity rather than an end.</p>
+<p>The ends are advice rather than a constraint, so an angle saved outside its turn — PaintCode writes
+those, its own gradients defaulting to -90 — still arrives as it was written, and a host widens the
+dial to reach it. The step is not advice: a slider offering one snaps to it, so a fractional angle is
+off the dial as soon as it is dragged.</p>
 <h3 id="whole-numbers-if-you-ask">Whole numbers, if you ask</h3>
 <p>None of those three is whole. A value is stored as a real whether or not it looks like an integer — a
 width of 15 and an alpha of 1 both are — and a variable's bounds are a minimum and a maximum with no
@@ -307,11 +314,11 @@ against 0, 1, 2 and so on, which is an integer carried as a float.</p>
 <pre><code class="language-bash">svgc --paintcode Icons.pcvd --paintcodeIntegers
 </code></pre>
 <p>writes a <strong>Number</strong> variable as <code>&lt;e:param type=&quot;integer&quot;&gt;</code> where its value is whole and its bounds are
-whole. A Fraction and an Angle are left alone whatever their values, being continuous by declaration.
-It is still <strong>a guess, and yours to make</strong>: a Number slider that happens to sit on whole ends is
-retyped too, and only the author knows which it was. A derived variable is never retyped — its body is
-PaintCode's arithmetic, and retyping the answer without the working would refuse the document rather
-than improve it.</p>
+whole. A Fraction and an Angle keep the type they were given whatever their values, being continuous
+by declaration — the range above is theirs either way. It is still <strong>a guess, and yours to make</strong>: a
+Number slider that happens to sit on whole ends is retyped too, and only the author knows which it
+was. A derived variable is never retyped — its body is PaintCode's arithmetic, and retyping the
+answer without the working would refuse the document rather than improve it.</p>
 <h2 id="what-does-not-and-what-happens-instead">What does not, and what happens instead</h2>
 <p>The rule is that the converter never writes a binding it cannot say. It writes the value the drawing
 had, and records a <code>PaintCodeImportNote</code> naming the canvas, the element and the property. Nothing
