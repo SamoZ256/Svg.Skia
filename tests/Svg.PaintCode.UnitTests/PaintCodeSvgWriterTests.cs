@@ -329,6 +329,30 @@ public class PaintCodeSvgWriterTests
             gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
     }
 
+    /// <summary>
+    /// A gradient an expression names the way PaintCode's own code does is still that gradient.
+    /// </summary>
+    /// <remarks>
+    /// The library holds the name as it was typed and PaintCode's generator emits it with the first
+    /// letter lowered, which is how its expressions spell it. Keyed by what was typed, the lookup
+    /// missed, the chooser could not be read, and the note blamed the format for having no gradient
+    /// type -- six of them in the sample, on every icon that shades by temperature.
+    /// </remarks>
+    [Fact]
+    public void A_Gradient_Named_The_Way_PaintCodes_Own_Code_Names_It_Is_Still_Found()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var shape = Filled(Gradient(), -90, "state ? cool : warm");
+        var gradient = WriteTree(Only(shape), notes)
+            .Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal(
+            new[] { "{{ state ? #ff0000ff : #ff0000ff }}", "{{ state ? #0000ffff : #0000ffff }}" },
+            gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
+
+        Assert.Empty(notes);
+    }
+
     [Fact]
     public void A_Shape_Carrying_Words_Is_Written_As_A_Run_Placed_In_Its_Box()
     {

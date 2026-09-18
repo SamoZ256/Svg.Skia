@@ -14,11 +14,8 @@ pendantlight-level,StaleOracle,0.5896,draws an Oval 3 the archive holds and neit
 pendantlight-state,StaleOracle,0.5263,"the same Oval 3, and this one measures 0.526 at every setting, which is the disc alone"
 presence-state,StaleOracle,0.7037,a 29x29 disc between OffGroup and OnGroup that the export's cache has no path for; removing that one element leaves 0.0227
 scene-on,ReferenceRadial,0.0310,"we draw the two circles the document describes and the export's runtime cannot, collapsing them; imitating it would leave 0.0067 and a less faithful drawing"
-scene-state,GradientChoice,0.0510,the gradient is not driven: 'stateGradientTemperature' cannot be declared: a gradient has no type in the expression format.
 septic2-tank-level,StaleOracle,0.4976,"the archive gates its Group on accent and anchors Group 3 four units lower; the export does neither, and the x of that same translate agrees exactly"
 sr-alarm-2,DerivedColour,0.0866,"accentColorOff is derived at import so it follows the canvas, not the caller that hands the symbol another colour; PaintCode's own per-setting shade leaves 0.0031"
-sr-lighting-timer,GradientChoice,0.0496,the gradient is not driven: 'stateGradientTemperature' cannot be declared: a gradient has no type in the expression format.
-sr-lightscene,GradientChoice,0.0510,the gradient is not driven: 'stateGradientTemperature' cannot be declared: a gradient has no type in the expression format.
 symbol-addlocation,OracleRounding,0.0352,the same rounded group scale; rounding ours to 2dp leaves 0.0012
 symbol-allusers,OracleRounding,0.0396,the same rounded group scale; rounding ours to 2dp leaves 0.0020
 symbol-calendarwithclock,TextMetrics,0.0635,the run is placed from the shape's box rather than measured the way PaintCode measures it.

@@ -11,9 +11,9 @@
       <stop offset="1" stop-color="{{ ((enabled and state) ? accent ? #ffd73cff : isLight ? whiteColor_ : blackColor70 : isLight ? whiteColor30 : blackColor10) }}" />
     </linearGradient>
     <linearGradient id="gradienttemperature" gradientUnits="userSpaceOnUse" x1="7" y1="14" x2="7" y2="0">
-      <stop offset="0" stop-color="#fb002b" />
-      <stop offset="0.6217" stop-color="#904395" />
-      <stop offset="1" stop-color="#2586ff" />
+      <stop offset="0" stop-color="{{ ((enabled and state) ? accent ? #fb002bff : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30) }}" />
+      <stop offset="0.6217" stop-color="{{ ((enabled and state) ? accent ? #904395ff : isLight ? #ffffffff : #1f2123d9 : isLight ? #ffffff4d : #1f212333) }}" />
+      <stop offset="1" stop-color="{{ ((enabled and state) ? accent ? #2586ffff : isLight ? whiteColor_ : blackColor70 : isLight ? whiteColor30 : blackColor10) }}" />
     </linearGradient>
     <e:code>
       <e:param name="step" type="number" default="2" />

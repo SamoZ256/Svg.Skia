@@ -223,7 +223,32 @@ internal sealed class PaintCodeDeclarations
 
     /// <summary>The gradient a name stands for, where the library names one.</summary>
     internal PaintCodeGradient? Gradient(string name)
-        => _gradients.TryGetValue(name, out var gradient) ? gradient : null;
+        => _gradients.TryGetValue(Spelled(name, _gradients), out var gradient) ? gradient : null;
+
+    /// <summary>
+    /// The name a table holds, where an expression spelled the same item the other way.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode's own code generator emits a library item as a local whose first letter is lowered
+    /// -- the gradient GradientTemperature becomes gradientTemperature -- and its expressions name
+    /// it the way the code does, while the library goes on holding the capital. Tried as written
+    /// first, so a document naming both keeps them apart; the sample has one gradient chosen by an
+    /// expression that could not be read at all for want of this, and every icon using it drew the
+    /// gradient it was saved with rather than the one the caller asked for.
+    /// </remarks>
+    private static string Spelled<T>(string name, Dictionary<string, T> table)
+    {
+        if (name.Length == 0 || table.ContainsKey(name))
+        {
+            return name;
+        }
+
+        var swapped = char.IsUpper(name[0])
+            ? char.ToLowerInvariant(name[0]) + name.Substring(1)
+            : char.ToUpperInvariant(name[0]) + name.Substring(1);
+
+        return table.ContainsKey(swapped) ? swapped : name;
+    }
 
     /// <summary>
     /// The colour each stop of <paramref name="source"/> takes, where the expression chooses between
@@ -320,16 +345,20 @@ internal sealed class PaintCodeDeclarations
     /// <summary>Every gradient an expression can end up reading, through as many variables as it takes.</summary>
     private bool Reach(string source, Dictionary<string, PaintCodeGradient> found, HashSet<string> seen, ref string refusal)
     {
-        foreach (var name in Names(source))
+        foreach (var written in Names(source))
         {
+            var name = Spelled(written, _gradients);
+
             if (_gradients.TryGetValue(name, out var gradient))
             {
-                found[name] = gradient;
+                // Keyed by the name the expression used, since that is what the per-stop scope has
+                // to answer to when the translation reaches it.
+                found[written] = gradient;
 
                 continue;
             }
 
-            if (!_gradientExpressions.TryGetValue(name, out var chooses) || !seen.Add(name))
+            if (!_gradientExpressions.TryGetValue(written, out var chooses) || !seen.Add(written))
             {
                 continue;
             }
