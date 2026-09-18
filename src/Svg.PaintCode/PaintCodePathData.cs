@@ -1,6 +1,7 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
@@ -22,8 +23,7 @@ internal static class PaintCodePathData
             PaintCodeShapeKind.Bezier => Bezier(shape),
             PaintCodeShapeKind.Rectangle or PaintCodeShapeKind.RoundedRectangle => Rectangle(shape),
             PaintCodeShapeKind.Oval => Oval(shape),
-            PaintCodeShapeKind.Star => Star(shape),
-            PaintCodeShapeKind.Polygon => Polygon(shape),
+            PaintCodeShapeKind.Star or PaintCodeShapeKind.Polygon => Outline(Corners(shape)),
             _ => null
         };
 
@@ -34,6 +34,247 @@ internal static class PaintCodePathData
 
         return new PaintCodeRect(frame.X, -(frame.Y + frame.Height), frame.Width, frame.Height);
     }
+
+    /// <summary>
+    /// How far the shape reaches along <paramref name="direction"/>, as the two ends of that reach.
+    /// </summary>
+    /// <remarks>
+    /// What PaintCode lays a gradient between when it was given an angle rather than two handles:
+    /// the two lines across the direction that touch the outline. Measured against its own generated
+    /// code -- a star at -45 degrees is drawn between the two points its outline touches, 8.59 from
+    /// the middle, where its box's corners are 12.93.
+    ///
+    /// The outline and not the box, which are the same thing only for a plain rectangle. Null where
+    /// the outline is one this does not measure -- an arc of an oval -- and the caller falls back.
+    /// </remarks>
+    internal static (double Low, double High)? Span(PaintCodeShape shape, PaintCodePoint direction)
+        => shape.Kind switch
+        {
+            PaintCodeShapeKind.Bezier => BezierSpan(shape, direction),
+            PaintCodeShapeKind.Rectangle or PaintCodeShapeKind.RoundedRectangle => RectangleSpan(shape, direction),
+            PaintCodeShapeKind.Oval when IsWholeEllipse(shape) => EllipseSpan(shape, direction),
+            PaintCodeShapeKind.Star or PaintCodeShapeKind.Polygon => CornerSpan(shape, direction),
+            _ => null
+        };
+
+    private static (double, double)? BezierSpan(PaintCodeShape shape, PaintCodePoint direction)
+    {
+        if (shape.Path is not { } path)
+        {
+            return null;
+        }
+
+        var reach = default((double Low, double High)?);
+
+        foreach (var contour in path.Contours)
+        {
+            var points = contour.Points;
+
+            if (points.Count == 0)
+            {
+                continue;
+            }
+
+            Reach(ref reach, At(Flip(points[0].Position), direction));
+
+            for (var index = 1; index < points.Count; index++)
+            {
+                SegmentSpan(ref reach, points[index - 1], points[index], direction);
+            }
+
+            if (contour.IsClosed)
+            {
+                SegmentSpan(ref reach, points[points.Count - 1], points[0], direction);
+            }
+        }
+
+        return reach;
+    }
+
+    /// <summary>Where one segment reaches, which for a curve is not where either of its ends is.</summary>
+    /// <remarks>
+    /// Projected first and solved in one dimension: a cubic's own turning points are where its
+    /// derivative -- a quadratic -- is nought, and the same roots answer for the curve's reach along
+    /// any direction once the four points are projected onto it.
+    /// </remarks>
+    private static void SegmentSpan(
+        ref (double Low, double High)? reach,
+        PaintCodePathPoint from,
+        PaintCodePathPoint to,
+        PaintCodePoint direction)
+    {
+        Reach(ref reach, At(Flip(to.Position), direction));
+
+        if (IsZero(from.Exiting) && IsZero(to.Entering))
+        {
+            return;
+        }
+
+        var start = At(Flip(from.Position), direction);
+        var first = At(Flip(Add(from.Position, from.Exiting)), direction);
+        var second = At(Flip(Add(to.Position, to.Entering)), direction);
+        var end = At(Flip(to.Position), direction);
+
+        var a = end - (3 * second) + (3 * first) - start;
+        var b = 2 * (second - (2 * first) + start);
+        var c = first - start;
+
+        foreach (var t in Roots(a, b, c))
+        {
+            var rest = 1 - t;
+
+            Reach(
+                ref reach,
+                (start * rest * rest * rest) + (3 * first * t * rest * rest) + (3 * second * t * t * rest) + (end * t * t * t));
+        }
+    }
+
+    /// <summary>The roots of <c>at² + bt + c</c> that fall inside the segment.</summary>
+    private static IEnumerable<double> Roots(double a, double b, double c)
+    {
+        if (Math.Abs(a) < 1e-12)
+        {
+            if (Math.Abs(b) > 1e-12 && Inside(-c / b, out var straight))
+            {
+                yield return straight;
+            }
+
+            yield break;
+        }
+
+        var square = (b * b) - (4 * a * c);
+
+        if (square < 0)
+        {
+            yield break;
+        }
+
+        var root = Math.Sqrt(square);
+
+        if (Inside((-b + root) / (2 * a), out var first))
+        {
+            yield return first;
+        }
+
+        if (Inside((-b - root) / (2 * a), out var second))
+        {
+            yield return second;
+        }
+    }
+
+    private static bool Inside(double t, out double inside)
+    {
+        inside = t;
+
+        return t > 0 && t < 1;
+    }
+
+    /// <summary>
+    /// A rectangle's reach, which at a rounded corner is the arc rather than the corner itself.
+    /// </summary>
+    /// <remarks>
+    /// Corner by corner: a rounded one reaches its own circle's centre plus the radius, in whatever
+    /// direction is asked for, and the straight sides between them end on those same arcs.
+    /// </remarks>
+    private static (double, double)? RectangleSpan(PaintCodeShape shape, PaintCodePoint direction)
+    {
+        var box = Box(shape);
+        var radius = Radius(shape, box);
+        var metrics = shape.Metrics;
+        var reach = default((double Low, double High)?);
+
+        // The flip turns the box upside down and the corner flags with it, as the path data says.
+        var corners = new[]
+        {
+            (X: box.X, Y: box.Y, Rounded: metrics.TopLeftRounded, Towards: new PaintCodePoint(1, 1)),
+            (X: box.X + box.Width, Y: box.Y, Rounded: metrics.TopRightRounded, Towards: new PaintCodePoint(-1, 1)),
+            (X: box.X + box.Width, Y: box.Y + box.Height, Rounded: metrics.BottomRightRounded, Towards: new PaintCodePoint(-1, -1)),
+            (X: box.X, Y: box.Y + box.Height, Rounded: metrics.BottomLeftRounded, Towards: new PaintCodePoint(1, -1))
+        };
+
+        foreach (var corner in corners)
+        {
+            if (corner.Rounded && radius > 0)
+            {
+                var middle = At(
+                    new PaintCodePoint(corner.X + (corner.Towards.X * radius), corner.Y + (corner.Towards.Y * radius)),
+                    direction);
+
+                Reach(ref reach, middle + radius);
+                Reach(ref reach, middle - radius);
+            }
+            else
+            {
+                Reach(ref reach, At(new PaintCodePoint(corner.X, corner.Y), direction));
+            }
+        }
+
+        return reach;
+    }
+
+    /// <summary>An ellipse's reach, which is the one shape with a closed form for it.</summary>
+    private static (double, double)? EllipseSpan(PaintCodeShape shape, PaintCodePoint direction)
+    {
+        var box = Box(shape);
+        var radiusX = box.Width / 2;
+        var radiusY = box.Height / 2;
+
+        if (radiusX <= 0 || radiusY <= 0)
+        {
+            return null;
+        }
+
+        var middle = At(new PaintCodePoint(box.X + radiusX, box.Y + radiusY), direction);
+        var reach = Math.Sqrt(Square(radiusX * direction.X) + Square(radiusY * direction.Y));
+
+        return (middle - reach, middle + reach);
+    }
+
+    /// <summary>A star's or a polygon's reach: its corners, which are all it is made of.</summary>
+    private static (double, double)? CornerSpan(PaintCodeShape shape, PaintCodePoint direction)
+    {
+        var reach = default((double Low, double High)?);
+
+        foreach (var corner in Corners(shape))
+        {
+            Reach(ref reach, At(corner, direction));
+        }
+
+        return reach;
+    }
+
+    /// <summary>Where a star's or a polygon's points sit, in the order the path data writes them.</summary>
+    private static IEnumerable<PaintCodePoint> Corners(PaintCodeShape shape)
+    {
+        var box = Box(shape);
+        var metrics = shape.Metrics;
+        var star = shape.Kind is PaintCodeShapeKind.Star;
+        var sides = Math.Max(3, metrics.Sides);
+        var count = star ? sides * 2 : sides;
+
+        for (var index = 0; index < count; index++)
+        {
+            // A percentage, not a fraction: the sample's stars carry 37 to 52, and reading one as a
+            // multiplier puts the inner vertices forty times beyond the tips.
+            var scale = star && index % 2 == 1 ? Math.Max(0, metrics.InnerRadiusPercentage / 100) : 1d;
+
+            yield return OnEllipse(
+                box.X + (box.Width / 2),
+                box.Y + (box.Height / 2),
+                box.Width / 2 * scale,
+                box.Height / 2 * scale,
+                -90 + (index * (star ? 180d : 360d) / sides));
+        }
+    }
+
+    private static void Reach(ref (double Low, double High)? reach, double at)
+        => reach = reach is { } held ? (Math.Min(held.Low, at), Math.Max(held.High, at)) : (at, at);
+
+    /// <summary>Where a point falls along a direction, which is all a linear gradient reads of it.</summary>
+    private static double At(PaintCodePoint point, PaintCodePoint direction)
+        => (point.X * direction.X) + (point.Y * direction.Y);
+
+    private static double Square(double value) => value * value;
 
     /// <summary>Whether the shape is a plain rectangle, which SVG has an element for.</summary>
     internal static bool IsPlainRectangle(PaintCodeShape shape)
@@ -140,7 +381,7 @@ internal static class PaintCodePathData
     {
         var box = Box(shape);
         var metrics = shape.Metrics;
-        var radius = Math.Max(0, Math.Min(metrics.CornerRadius, Math.Min(box.Width, box.Height) / 2));
+        var radius = Radius(shape, box);
         var left = box.X;
         var top = box.Y;
         var right = box.X + box.Width;
@@ -162,6 +403,10 @@ internal static class PaintCodePathData
 
         return data.Append('Z').ToString();
     }
+
+    /// <summary>The corner radius the shape is drawn with, which its own box can be too small for.</summary>
+    private static double Radius(PaintCodeShape shape, PaintCodeRect box)
+        => Math.Max(0, Math.Min(shape.Metrics.CornerRadius, Math.Min(box.Width, box.Height) / 2));
 
     private static void Side(StringBuilder data, double x, double y, double radius, double cornerX, double cornerY)
     {
@@ -239,44 +484,14 @@ internal static class PaintCodePathData
             .Append('Z')
             .ToString();
 
-    private static string Star(PaintCodeShape shape)
+    /// <summary>A shape that is only its corners: the line round them, closed.</summary>
+    private static string Outline(IEnumerable<PaintCodePoint> corners)
     {
-        var box = Box(shape);
-        var metrics = shape.Metrics;
-        var points = Math.Max(3, metrics.Sides);
         var data = new StringBuilder();
 
-        for (var index = 0; index < points * 2; index++)
+        foreach (var corner in corners)
         {
-            // A percentage, not a fraction: the sample's stars carry 37 to 52, and reading one as a
-            // multiplier puts the inner vertices forty times beyond the tips.
-            var scale = index % 2 == 0 ? 1d : Math.Max(0, metrics.InnerRadiusPercentage / 100);
-
-            data.Append(index == 0 ? 'M' : 'L').Append(Pair(OnEllipse(
-                box.X + box.Width / 2,
-                box.Y + box.Height / 2,
-                box.Width / 2 * scale,
-                box.Height / 2 * scale,
-                -90 + index * 180d / points)));
-        }
-
-        return data.Append('Z').ToString();
-    }
-
-    private static string Polygon(PaintCodeShape shape)
-    {
-        var box = Box(shape);
-        var sides = Math.Max(3, shape.Metrics.Sides);
-        var data = new StringBuilder();
-
-        for (var index = 0; index < sides; index++)
-        {
-            data.Append(index == 0 ? 'M' : 'L').Append(Pair(OnEllipse(
-                box.X + box.Width / 2,
-                box.Y + box.Height / 2,
-                box.Width / 2,
-                box.Height / 2,
-                -90 + index * 360d / sides)));
+            data.Append(data.Length == 0 ? 'M' : 'L').Append(Pair(corner));
         }
 
         return data.Append('Z').ToString();

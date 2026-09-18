@@ -718,6 +718,15 @@ internal sealed class PaintCodeSvgWriter
             element.SetAttributeValue("x2", Number(middle.X + ends.End.X));
             element.SetAttributeValue("y2", Number(middle.Y - ends.End.Y));
         }
+        else if (Laid(shape, angle) is { } laid)
+        {
+            // Across the shape rather than across its box, which is what PaintCode draws.
+            element.SetAttributeValue("gradientUnits", "userSpaceOnUse");
+            element.SetAttributeValue("x1", Number(laid.Start.X));
+            element.SetAttributeValue("y1", Number(laid.Start.Y));
+            element.SetAttributeValue("x2", Number(laid.End.X));
+            element.SetAttributeValue("y2", Number(laid.End.Y));
+        }
         else
         {
             // The angle points the way PaintCode measures it, which the flip turns over.
@@ -745,6 +754,40 @@ internal sealed class PaintCodeSvgWriter
 
         return identifier;
     }
+
+    /// <summary>
+    /// The two ends of a gradient given an angle, or null for an outline this cannot measure.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode draws one from one side of the shape to the other along the angle -- not across the
+    /// shape's box, which is the same thing only for a plain rectangle. Its own generated code says
+    /// so: tv-state's rounded rectangle, 18.85 by 9.85 at -45 degrees, is drawn 8.91 out from the
+    /// middle rather than the 10.15 its box's corner is at.
+    ///
+    /// Only the reach along the direction matters to a linear gradient, so the ends are written on a
+    /// line through the shape's middle -- any line along it paints identically.
+    /// </remarks>
+    private static (PaintCodePoint Start, PaintCodePoint End)? Laid(PaintCodeShape shape, double angle)
+    {
+        // The angle points the way PaintCode measures it, which the flip turns over.
+        var radians = -angle * Math.PI / 180;
+        var direction = new PaintCodePoint(Math.Cos(radians), Math.Sin(radians));
+
+        // A reach of nothing is a shape with no outline along the angle, which nothing can be laid
+        // between: SVG paints a gradient of zero length in its last stop's colour alone.
+        if (PaintCodePathData.Span(shape, direction) is not { } span || span.High - span.Low < 1e-6)
+        {
+            return null;
+        }
+
+        var middle = Middle(shape);
+        var at = (middle.X * direction.X) + (middle.Y * direction.Y);
+
+        return (Along(middle, direction, span.Low - at), Along(middle, direction, span.High - at));
+    }
+
+    private static PaintCodePoint Along(PaintCodePoint from, PaintCodePoint direction, double by)
+        => new(from.X + (direction.X * by), from.Y + (direction.Y * by));
 
     /// <summary>The shape's own middle, which its gradient handles are measured from.</summary>
     private static PaintCodePoint Middle(PaintCodeShape shape)
