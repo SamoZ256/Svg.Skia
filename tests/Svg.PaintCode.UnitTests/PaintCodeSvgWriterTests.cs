@@ -356,6 +356,184 @@ public class PaintCodeSvgWriterTests
         Assert.Equal("3", run.Value);
     }
 
+    /// <summary>An oval whose sweep an expression drives, for the tests below to vary.</summary>
+    private static PaintCodeShape Arc(
+        string property,
+        string expression,
+        double value,
+        double start,
+        double end,
+        bool closed,
+        double size = 28,
+        PaintCodePaint? fill = null,
+        PaintCodePaint? stroke = null)
+        => new(
+            "Selected",
+            PaintCodeShapeKind.Oval,
+            new PaintCodeFrame(0, -size, size, size, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>
+            {
+                [property] = new(expression, PaintCodeValueKind.Number, value, null, null, null, null, null)
+            },
+            null,
+            fill ?? PaintCodePaint.None,
+            stroke ?? PaintCodePaint.None,
+            stroke is { } ? new PaintCodeStroke(1.5, 0, 0, 10, false, 0, 0, 0) : PaintCodeStroke.None,
+            false,
+            null,
+            new PaintCodeShapeMetrics(0, true, true, true, true, start, end, closed, 0, 0));
+
+    private static XElement Written(PaintCodeShape shape, List<PaintCodeImportNote> notes)
+        => WriteTree(Only(shape), notes).Descendants().First(one => one.Name.LocalName == "path");
+
+    /// <summary>
+    /// A driven arc is the whole circle, cut to length by a dash.
+    /// </summary>
+    /// <remarks>
+    /// SVG bakes an arc into path data, where no expression can reach, so the sweep was written at
+    /// whatever angle the document was saved with and a level indicator never moved. What a dash
+    /// leaves showing is a length along the path, and on a circle a length is an angle.
+    ///
+    /// The numbers are PaintCode's own for analog-level: a 28-unit circle, the arc starting at 270
+    /// and running clockwise, so the path starts at six o'clock and the ring is 87.9646 round.
+    /// </remarks>
+    [Fact]
+    public void A_Driven_Arc_Is_A_Circle_A_Dash_Cuts_To_Length()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var stroke = new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 0, 0, 0, 1), null);
+        var written = Written(Arc("endAngle", "x", 1, 270, 270, closed: false, stroke: stroke), notes);
+
+        Assert.Equal("M14,28A14 14 0 1 1 14,0A14 14 0 1 1 14,28", written.Attribute("d")!.Value);
+        Assert.Equal("87.9646 87.9646", written.Attribute("stroke-dasharray")!.Value);
+
+        // The part of the circle the arc does not cover, in PaintCode's own sum: the sweep from the
+        // angle that stays put to the driven one, a whole turn for each one it has gone past, and
+        // the offset back to the angle the drawing was saved at.
+        Assert.Equal(
+            "{{ clamp(360 - (270 - ((x) + 269) + 360 * max(0, ceil((((x) + 269) - 270) / 360))), 0, 360) * 0.2443 }}",
+            written.Attribute("stroke-dashoffset")!.Value);
+
+        Assert.Empty(notes);
+    }
+
+    /// <summary>
+    /// A wedge is a circle of half the radius stroked its whole width, which is exactly a pie.
+    /// </summary>
+    /// <remarks>
+    /// The stroke covers every radius from the middle to the rim, and a butt cap on a circle is
+    /// perpendicular to the tangent, which is the radial direction — so the caps are the wedge's two
+    /// straight edges rather than an approximation of them. The fill moves to the stroke because the
+    /// stroke is what draws it now.
+    /// </remarks>
+    [Fact]
+    public void A_Driven_Wedge_Is_A_Half_Size_Circle_Stroked_Its_Own_Width()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var fill = new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 255, 0, 0, 1), null);
+        var written = Written(Arc("endAngle", "x", 1, 90, 90, closed: true, size: 16, fill: fill), notes);
+
+        Assert.Equal("M8,4A4 4 0 1 1 8,12A4 4 0 1 1 8,4", written.Attribute("d")!.Value);
+        Assert.Equal("none", written.Attribute("fill")!.Value);
+        Assert.Equal("#ff0000", written.Attribute("stroke")!.Value);
+        Assert.Equal("8", written.Attribute("stroke-width")!.Value);
+        Assert.Equal("25.1327 25.1327", written.Attribute("stroke-dasharray")!.Value);
+        Assert.Empty(notes);
+    }
+
+    /// <summary>A driven start runs from the end that stays put, which is the other way round.</summary>
+    [Fact]
+    public void A_Driven_Start_Turns_From_The_End_That_Stays_Put()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var stroke = new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 0, 0, 0, 1), null);
+        var written = Written(Arc("startAngle", "x", 1, 270, -90, closed: false, stroke: stroke), notes);
+
+        // Anticlockwise, from the fixed end at -90.
+        Assert.Equal("M14,28A14 14 0 1 0 14,0A14 14 0 1 0 14,28", written.Attribute("d")!.Value);
+        Assert.StartsWith("{{ clamp(360 - (((x) + 269) - -90", written.Attribute("stroke-dashoffset")!.Value, StringComparison.Ordinal);
+        Assert.Empty(notes);
+    }
+
+    /// <summary>A group clipped by a driven wedge is masked by it, since a clip takes no stroke.</summary>
+    [Fact]
+    public void A_Driven_Wedge_Clipping_A_Group_Becomes_A_Mask()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var clip = Arc("endAngle", "x", 1, 90, 90, closed: true, size: 16);
+        var shape = new PaintCodeShape(
+            "Body",
+            PaintCodeShapeKind.Rectangle,
+            new PaintCodeFrame(0, -10, 10, 10, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            null,
+            new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 0, 0, 255, 1), null),
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            null,
+            PaintCodeShapeMetrics.Default);
+
+        var group = new PaintCodeGroup("Group", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { (PaintCodeItem)shape }, clip);
+        var document = WriteTree(new PaintCodeGroup("Root", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { (PaintCodeItem)group }, null), notes);
+
+        var mask = Assert.Single(document.Descendants().Where(one => one.Name.LocalName == "mask"));
+        var path = mask.Elements().Single();
+
+        Assert.Empty(document.Descendants().Where(one => one.Name.LocalName == "clipPath"));
+        Assert.Equal("userSpaceOnUse", mask.Attribute("maskUnits")!.Value);
+        Assert.Equal("#ffffff", path.Attribute("stroke")!.Value);
+        Assert.Equal("8", path.Attribute("stroke-width")!.Value);
+
+        var masked = document.Descendants().Single(one => one.Name.LocalName == "g" && one.Attribute("mask") is { });
+
+        Assert.Equal($"url(#{mask.Attribute("id")!.Value})", masked.Attribute("mask")!.Value);
+        Assert.Null(masked.Attribute("clip-path"));
+        Assert.Empty(notes);
+    }
+
+    /// <summary>
+    /// A sweep a dash cannot draw keeps the angle it was saved with, and says which one it was.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, 28, 20, "an ellipse's arc is not proportional")]
+    [InlineData(true, true, 28, 28, "a closed arc is outlined round its two straight edges")]
+    [InlineData(false, false, 28, 28, "an open arc closes across its chord")]
+    public void A_Sweep_A_Dash_Cannot_Draw_Keeps_The_Angle_It_Was_Saved_With(
+        bool stroked,
+        bool closed,
+        double width,
+        double height,
+        string because)
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var paint = new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 0, 0, 0, 1), null);
+        var shape = new PaintCodeShape(
+            "Selected",
+            PaintCodeShapeKind.Oval,
+            new PaintCodeFrame(0, -height, width, height, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>
+            {
+                ["endAngle"] = new("x", PaintCodeValueKind.Number, 1, null, null, null, null, null)
+            },
+            null,
+            stroked ? PaintCodePaint.None : paint,
+            stroked ? paint : PaintCodePaint.None,
+            stroked ? new PaintCodeStroke(1.5, 0, 0, 10, false, 0, 0, 0) : PaintCodeStroke.None,
+            false,
+            null,
+            new PaintCodeShapeMetrics(0, true, true, true, true, 270, 250, closed, 0, 0));
+
+        var written = WriteTree(Only(shape), notes).Descendants().First(one => one.Name.LocalName is "path" or "ellipse");
+
+        Assert.Null(written.Attribute("stroke-dashoffset"));
+
+        var note = Assert.Single(notes, one => one.Property == "endAngle");
+
+        Assert.Contains(because, note.Message, StringComparison.Ordinal);
+        Assert.Contains("the drawing's own angle is written", note.Message, StringComparison.Ordinal);
+    }
+
     // The one arc the conversion was checked against: PaintCode's own C# turns these two angles into
     // AddArc(rect, -117, 139), which is the same arc said the other way round.
     [Fact]

@@ -1,30 +1,18 @@
 canvas,cause,measured,why
-analog-level,DrivenSweep,0.2240,"the expression format keeps this value literal, so the drawing's own is written."
 analogminmedmax2-level,TextMetrics,0.0670,the run is placed from the shape's box rather than measured the way PaintCode measures it.
 circle-calendarwithclock,TextMetrics,0.0495,the run is placed from the shape's box rather than measured the way PaintCode measures it.
-detail-analogoutput-level,DrivenSweep,0.1592,"the expression format keeps this value literal, so the drawing's own is written."
 detail-mix-valve-cold-level,TextMetrics,0.0424,the run is placed from the shape's box rather than measured the way PaintCode measures it.
 detail-mix-valve-cold-level-backup,TextMetrics,0.1133,the run is placed from the shape's box rather than measured the way PaintCode measures it.
 detail-mix-valve-dynamic-level,TextMetrics,0.0426,the run is placed from the shape's box rather than measured the way PaintCode measures it.
 detail-mix-valve-hot-level,TextMetrics,0.0424,the run is placed from the shape's box rather than measured the way PaintCode measures it.
-detail-setpoint-level,DrivenSweep,0.1592,"the expression format keeps this value literal, so the drawing's own is written."
 donotdisturb,AliasedClip,0.0348,the export's ClipPath does not antialias; masking the clip boundary leaves 0.0031
 filter-remaining,AliasedClip,0.0381,"the same hard clip on the blinds group, worst at the level that exposes most of its perimeter"
-floorlamp-level,DrivenSweep,0.2106,"the expression format keeps this value literal, so the drawing's own is written."
-huebulb-level,DrivenSweep,0.2240,"the expression format keeps this value literal, so the drawing's own is written."
 lightbulb-empty-2,AliasedClip,0.0366,the same hard clip round the bulb ring; shape-rendering=crispEdges leaves 0.0084
 message,TextMetrics,0.2163,the run is placed from the shape's box rather than measured the way PaintCode measures it.
-orientationlight-level,DrivenSweep,0.2726,"the expression format keeps this value literal, so the drawing's own is written."
-orientationlight-state,DrivenSweep,0.2726,"the expression format keeps this value literal, so the drawing's own is written."
 overlay-number-step,TextMetrics,0.1039,the run is placed from the shape's box rather than measured the way PaintCode measures it.
-pendantlight-level,StaleOracle,0.6190,"draws an Oval 3 the archive holds and neither PaintCode export has; also a driven sweep, worth 0.09 of it at level 0"
+pendantlight-level,StaleOracle,0.5896,draws an Oval 3 the archive holds and neither PaintCode export has; its sweep is carried now and what is left is that one shape
 pendantlight-state,StaleOracle,0.5263,"the same Oval 3, and this one measures 0.526 at every setting, which is the disc alone"
 presence-state,StaleOracle,0.7037,a 29x29 disc between OffGroup and OnGroup that the export's cache has no path for; removing that one element leaves 0.0227
-pump-cooling-level,DrivenSweep,0.0581,"the expression format keeps this value literal, so the drawing's own is written."
-pump-heating-cooling-level,DrivenSweep,0.0580,"the expression format keeps this value literal, so the drawing's own is written."
-pump-heating-level,DrivenSweep,0.0603,"the expression format keeps this value literal, so the drawing's own is written."
-pump-level,DrivenSweep,0.1311,"the expression format keeps this value literal, so the drawing's own is written."
-pump-state,DrivenSweep,0.1434,"the expression format keeps this value literal, so the drawing's own is written."
 scene-on,ReferenceRadial,0.0310,"we draw the two circles the document describes and the export's runtime cannot, collapsing them; imitating it would leave 0.0067 and a less faithful drawing"
 scene-state,GradientChoice,0.0510,the gradient is not driven: 'stateGradientTemperature' cannot be declared: a gradient has no type in the expression format.
 septic2-tank-level,StaleOracle,0.4976,"the archive gates its Group on accent and anchors Group 3 four units lower; the export does neither, and the x of that same translate agrees exactly"
@@ -47,10 +35,6 @@ symbol-permissions,OracleRounding,0.0489,the same rounded group scale; rounding 
 symbol-pin-code,TextMetrics,0.0777,the run is placed from the shape's box rather than measured the way PaintCode measures it.
 symbol-updates,OracleRounding,0.0323,the same rounded group scale; rounding ours to 2dp leaves 0.0009
 symbol-variables,OracleRounding,0.0369,the same rounded group scale; rounding ours to 2dp leaves 0.0013
-symbol-vent4-level,DrivenSweep,0.6486,"the expression format keeps this value literal, so the drawing's own is written."
-tablelamp-level,DrivenSweep,0.2607,"the expression format keeps this value literal, so the drawing's own is written."
-thermostat-temperature-level,DrivenSweep,0.1441,"the expression format keeps this value literal, so the drawing's own is written."
 thermostatdetailed-temperature-temperature2-level,TextMetrics,0.2418,the run is placed from the shape's box rather than measured the way PaintCode measures it.
 thermostatsquare-temperature-level,TextMetrics,0.1123,the run is placed from the shape's box rather than measured the way PaintCode measures it.
 valve-cold-state,MissingCanvas,0.1513,"the document has no canvas called 'cooling-state', so nothing is drawn where this symbol was placed."
-ventilation,DrivenSweep,0.4358,"the expression format keeps this value literal, so the drawing's own is written."

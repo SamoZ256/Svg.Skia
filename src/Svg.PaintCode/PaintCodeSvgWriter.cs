@@ -123,21 +123,56 @@ internal sealed class PaintCodeSvgWriter
 
         if (group.Clip is { } clip)
         {
-            var identifier = Identifier(clip.Name + "-clip");
             var path = new XElement(Svg + "path");
-            Geometry(path, clip);
 
-            // The clip shape is placed like any other shape. Transform rather than Frame: a clip has
-            // no opacity and cannot be hidden, and copying those over would suppress the clip
-            // wherever the shape it was drawn from is marked invisible.
-            Transform(path, clip, null);
+            // A clip carries a driven sweep as readily as a drawn shape does: a level indicator is
+            // very often an arc masking what is under it.
+            var sweeping = Sweep(clip, clipped: true);
 
-            // A clip carries a driven sweep as readily as a drawn shape does, and says nothing about
-            // it unless asked: a level indicator is very often an arc masking what is under it, and
-            // those went unreported while every drawn one was named.
-            Sweep(clip);
-            _definitions.Add(new XElement(Svg + "clipPath", new XAttribute("id", identifier), path));
-            element.SetAttributeValue("clip-path", $"url(#{identifier})");
+            if (sweeping is { } dashed)
+            {
+                // A clip path takes fill geometry and a stroke is not part of it, so the wedge a
+                // dash draws has to mask rather than clip. White against nothing, which is opaque
+                // under any luminance, and the region is the circle's own box so the mask cuts
+                // exactly where the clip did rather than at the fifth the default would add.
+                var box = PaintCodePathData.Box(clip);
+                var mask = Identifier(clip.Name + "-mask");
+
+                path.SetAttributeValue("d", dashed.Data);
+                path.SetAttributeValue("fill", "none");
+                path.SetAttributeValue("stroke", "#ffffff");
+                path.SetAttributeValue("stroke-width", Number(dashed.Width ?? 0));
+                path.SetAttributeValue("stroke-dasharray", $"{Number(dashed.Circumference)} {Number(dashed.Circumference)}");
+                path.SetAttributeValue("stroke-dashoffset", dashed.Offset);
+
+                Transform(path, clip, null);
+
+                _definitions.Add(new XElement(
+                    Svg + "mask",
+                    new XAttribute("id", mask),
+                    new XAttribute("maskUnits", "userSpaceOnUse"),
+                    new XAttribute("x", Number(box.X - 1)),
+                    new XAttribute("y", Number(box.Y - 1)),
+                    new XAttribute("width", Number(box.Width + 2)),
+                    new XAttribute("height", Number(box.Height + 2)),
+                    path));
+
+                element.SetAttributeValue("mask", $"url(#{mask})");
+            }
+            else
+            {
+                var identifier = Identifier(clip.Name + "-clip");
+
+                Geometry(path, clip);
+
+                // The clip shape is placed like any other shape. Transform rather than Frame: a clip
+                // has no opacity and cannot be hidden, and copying those over would suppress the clip
+                // wherever the shape it was drawn from is marked invisible.
+                Transform(path, clip, null);
+
+                _definitions.Add(new XElement(Svg + "clipPath", new XAttribute("id", identifier), path));
+                element.SetAttributeValue("clip-path", $"url(#{identifier})");
+            }
         }
 
         // Only the canvas's own root group is exempt from carrying its anchor: that anchor is
@@ -150,11 +185,23 @@ internal sealed class PaintCodeSvgWriter
 
     private XElement Shape(PaintCodeShape shape)
     {
-        var element = Element(shape);
+        // Asked first, because a driven sweep decides what the element is: the whole circle it is
+        // drawn as is a path, whatever the angles it was saved with would otherwise have made it.
+        var sweeping = Sweep(shape);
+        var element = sweeping is { } ? new XElement(Svg + "path") : Element(shape);
+
         element.SetAttributeValue("id", Identifier(shape.Name));
-        Geometry(element, shape);
-        Fill(element, shape);
-        Stroke(element, shape);
+
+        if (sweeping is { } dashed)
+        {
+            Dashed(element, shape, dashed);
+        }
+        else
+        {
+            Geometry(element, shape);
+            Fill(element, shape);
+            Stroke(element, shape);
+        }
 
         var written = shape.Text is { } text ? WithText(element, shape, text) : element;
         Frame(written, shape);
@@ -165,8 +212,6 @@ internal sealed class PaintCodeSvgWriter
         {
             Note(PaintCodeImportSeverity.Dropped, shape.Name, "blendMode", $"PaintCode's blend mode {shape.BlendMode} has no name here, so the shape is drawn over what is under it.");
         }
-
-        Sweep(shape);
 
         return written;
     }
@@ -564,6 +609,36 @@ internal sealed class PaintCodeSvgWriter
         {
             element.SetAttributeValue("fill-rule", "evenodd");
         }
+    }
+
+    /// <summary>The circle a driven arc is drawn as, and the dash that cuts it to length.</summary>
+    /// <remarks>
+    /// A wedge takes the shape's fill on its stroke, since the stroke is what draws it -- which
+    /// keeps a driven colour driven, because the same Paint writes it either way.
+    /// </remarks>
+    private void Dashed(XElement element, PaintCodeShape shape, Sweeping sweeping)
+    {
+        element.SetAttributeValue("d", sweeping.Data);
+
+        if (sweeping.Width is { } width)
+        {
+            element.SetAttributeValue("fill", "none");
+
+            if (shape.Fill.Color is { } color)
+            {
+                Paint(element, "stroke", shape, "fill", color);
+            }
+
+            element.SetAttributeValue("stroke-width", Number(width));
+        }
+        else
+        {
+            Fill(element, shape);
+            Stroke(element, shape);
+        }
+
+        element.SetAttributeValue("stroke-dasharray", $"{Number(sweeping.Circumference)} {Number(sweeping.Circumference)}");
+        element.SetAttributeValue("stroke-dashoffset", sweeping.Offset);
     }
 
     private void Fill(XElement element, PaintCodeShape shape)
@@ -1085,16 +1160,128 @@ internal sealed class PaintCodeSvgWriter
         return expression;
     }
 
-    /// <summary>Reports an oval whose sweep an expression drives, which path data cannot carry.</summary>
-    private void Sweep(PaintCodeShape shape)
+    /// <summary>An arc whose sweep an expression drives, as the dashed circle that draws it.</summary>
+    /// <remarks>
+    /// <see cref="Data"/> is the whole circle from the arc's own start; <see cref="Offset"/> is what
+    /// the dash is shifted by, which is the part of the circle the arc does not cover;
+    /// <see cref="Width"/> is set for a wedge, which is drawn as a circle of half the radius stroked
+    /// its whole width, and null for an arc that was already a stroke.
+    /// </remarks>
+    private readonly struct Sweeping
     {
-        foreach (var property in new[] { "startAngle", "endAngle" })
+        internal Sweeping(string data, double circumference, string offset, double? width)
         {
-            if (shape.Bindings.ContainsKey(property))
-            {
-                Note(PaintCodeImportSeverity.Dropped, shape.Name, property, "the expression format keeps this value literal, so the drawing's own is written.");
-            }
+            Data = data;
+            Circumference = circumference;
+            Offset = offset;
+            Width = width;
         }
+
+        internal string Data { get; }
+
+        internal double Circumference { get; }
+
+        internal string Offset { get; }
+
+        internal double? Width { get; }
+    }
+
+    /// <summary>
+    /// How to draw an oval whose sweep an expression drives, or null with a note saying why not.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode turns an arc from a fixed angle to a driven one; SVG bakes an arc into path data,
+    /// where no expression can reach. A circle dashed at its own circumference draws the same arc,
+    /// because what a dash leaves showing is a length along the path and a length along a circle is
+    /// an angle -- so the sweep becomes the dash's offset, which an expression <em>can</em> drive.
+    ///
+    /// Only a circle. On an ellipse arc length is not proportional to angle, the outline offset by
+    /// half a stroke is not an ellipse, and neither the rim nor a wedge's straight edges would land
+    /// where PaintCode puts them.
+    /// </remarks>
+    private Sweeping? Sweep(PaintCodeShape shape, bool clipped = false)
+    {
+        var start = shape.Bindings.ContainsKey("startAngle");
+        var end = shape.Bindings.ContainsKey("endAngle");
+
+        if (!start && !end)
+        {
+            return null;
+        }
+
+        var property = start ? "startAngle" : "endAngle";
+        var metrics = shape.Metrics;
+
+        // A clip is geometry, so what it is filled or stroked with says nothing about it: it is the
+        // wedge its own closed flag makes it.
+        var stroked = !clipped && shape.Stroke.Kind is PaintCodePaintKind.Color;
+        var filled = clipped || shape.Fill.Kind is not PaintCodePaintKind.None;
+
+        string? refusal =
+            !PaintCodePathData.IsRound(shape)
+                ? "an ellipse's arc is not proportional to its angle, so a dash cannot place its end"
+            : start && end
+                ? "both ends of the arc are driven and a dash can only measure one of them"
+            : metrics.IsClosed && stroked
+                ? "a closed arc is outlined round its two straight edges as well, which one dashed circle cannot draw"
+            : !metrics.IsClosed && !stroked
+                ? "an open arc closes across its chord when it is filled, which a dash cannot draw"
+            : stroked && shape.StrokeStyle.HasPattern
+                ? "the shape already carries a dash, and one stroke can only have one"
+            : metrics.IsClosed && !clipped && shape.Fill.Kind is PaintCodePaintKind.Gradient
+                ? "a gradient is laid across the wedge's own box, which a circle stroked half its width is not"
+                : null;
+
+        if (refusal is { })
+        {
+            Note(PaintCodeImportSeverity.Dropped, shape.Name, property, refusal + ", so the drawing's own angle is written.");
+
+            return null;
+        }
+
+        // The angle that stays put, and the expression that moves.
+        var fixedAngle = start ? metrics.EndAngle : metrics.StartAngle;
+
+        // Expression and Produced have already said why, where they answer nothing, and the arc
+        // keeps the angle it was saved with.
+        if (Expression(shape, property, shape.Name) is not { } written ||
+            Produced(shape, property, shape.Name) is not { } produced)
+        {
+            return null;
+        }
+
+        // The difference between what the expression comes to and the angle the drawing was saved
+        // at, added back the way a driven transform's is.
+        var shift = Number((start ? metrics.StartAngle : metrics.EndAngle) - produced);
+        var code = shift == "0" ? written : $"({written}) + {shift}";
+
+        var box = PaintCodePathData.Box(shape);
+        var radius = box.Width / 2;
+
+        // A pie of radius r is exactly a circle of radius r/2 stroked r wide: the stroke covers
+        // every radius from the middle to the rim, and a butt cap on a circle is perpendicular to
+        // the tangent, which is the radial direction -- so the caps are the wedge's straight edges
+        // rather than an approximation of them.
+        var drawn = metrics.IsClosed ? radius / 2 : radius;
+        var circumference = 2 * Math.PI * drawn;
+
+        // PaintCode's own sum, written out: the sweep from the fixed angle to the driven one, and a
+        // whole turn for every one the driven end has gone past it. Ceil of nought or less is nought
+        // or less, so max(0, ...) is the ternary its generated code writes.
+        var sweep = start
+            ? $"({code}) - {Number(fixedAngle)} + 360 * max(0, ceil(({Number(fixedAngle)} - ({code})) / 360))"
+            : $"{Number(fixedAngle)} - ({code}) + 360 * max(0, ceil((({code}) - {Number(fixedAngle)}) / 360))";
+
+        // What the dash hides, which is the rest of the circle. Clamped for the reason Skia clamps
+        // its own sweep: past a whole turn it draws the whole of it, and below nothing it draws
+        // nothing.
+        var offset = Braces($"clamp(360 - ({sweep}), 0, 360) * {Number(circumference / 360)}");
+
+        return new Sweeping(
+            PaintCodePathData.Ring(box.X + radius, box.Y + radius, drawn, fixedAngle, !start),
+            circumference,
+            offset,
+            metrics.IsClosed ? radius : null);
     }
 
     /// <summary>Binds <paramref name="attribute"/> to what drives <paramref name="property"/>.</summary>

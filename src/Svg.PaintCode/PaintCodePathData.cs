@@ -286,6 +286,43 @@ internal static class PaintCodePathData
                 (metrics.TopLeftRounded && metrics.TopRightRounded && metrics.BottomLeftRounded && metrics.BottomRightRounded));
     }
 
+    /// <summary>Whether the shape is an oval whose two radii are the same.</summary>
+    /// <remarks>
+    /// Compared as the numbers are written, which is the rule the rest of this file compares by: a
+    /// hundredth of a millionth of a unit apart is the same circle to everything downstream.
+    /// </remarks>
+    internal static bool IsRound(PaintCodeShape shape)
+    {
+        var box = Box(shape);
+
+        return shape.Kind is PaintCodeShapeKind.Oval &&
+               box.Width > 0 &&
+               string.Equals(Number(box.Width), Number(box.Height), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The whole circle, starting where an arc at <paramref name="degrees"/> would and running the
+    /// way PaintCode turns.
+    /// </summary>
+    /// <remarks>
+    /// Two half arcs for the reason <see cref="Ellipse"/> is written that way: one arc of 360
+    /// degrees starts and ends at the same point and draws nothing. Left open rather than closed,
+    /// because what this is for is a dash measured from the start point, and a Z would add a
+    /// zero-length segment for the dash to count.
+    /// </remarks>
+    internal static string Ring(double centerX, double centerY, double radius, double degrees, bool clockwise)
+    {
+        var start = OnEllipse(centerX, centerY, radius, radius, -degrees);
+        var across = OnEllipse(centerX, centerY, radius, radius, -degrees + 180);
+        var sweep = clockwise ? '1' : '0';
+
+        return new StringBuilder()
+            .Append('M').Append(Pair(start))
+            .Append('A').Append(Number(radius)).Append(' ').Append(Number(radius)).Append(" 0 1 ").Append(sweep).Append(' ').Append(Pair(across))
+            .Append('A').Append(Number(radius)).Append(' ').Append(Number(radius)).Append(" 0 1 ").Append(sweep).Append(' ').Append(Pair(start))
+            .ToString();
+    }
+
     /// <summary>
     /// Whether the shape is a whole ellipse rather than an arc of one.
     /// </summary>
