@@ -227,6 +227,13 @@
             <NativeMenuItemSeparator />
             <NativeMenuItem Header="Build" Click="OnBuild" />
             <NativeMenuItemSeparator />
+            <!--
+              About the project rather than about this window, and kept between sessions, so it is
+              live whether or not one is open. It copies the project somewhere safe as it is edited;
+              the project's own file is written by Save and by nothing else.
+            -->
+            <NativeMenuItem Header="Autosave Recovery" ToggleType="CheckBox" Click="OnAutosave" />
+            <NativeMenuItemSeparator />
             <NativeMenuItem Header="Close" Click="OnCloseProject" />
           </NativeMenu>
         </NativeMenuItem.Menu>

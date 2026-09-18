@@ -59,6 +59,9 @@ public partial class MainWindow : Window
     /// <summary>The open project, or null. The window works on one at a time, as a workspace is.</summary>
     private ProjectWorkspace? _workspace;
 
+    /// <summary>The copy kept of the open project while it has work that is not on disk.</summary>
+    private ProjectRecovery? _recovery;
+
     /// <summary>Tabs holding a drawing the project has resized since it was last on screen.</summary>
     /// <remarks>
     /// Rebuilt when the tab is next looked at rather than the moment the project changes. A tab
@@ -87,6 +90,7 @@ public partial class MainWindow : Window
         AvaloniaXamlLoader.Load(this);
 
         ConfirmDiscard = AskDiscard;
+        ConfirmDiscardRecovery = message => Ask("Recovered work", message, "Discard the copy", "Restore");
         ConfirmConvert = AskConvert;
         ConfirmRemove = message => Ask("Remove from the project", message, "Remove", "Cancel");
         Announce = (title, message) => Ask(title, message, null, "Close");
@@ -140,6 +144,10 @@ public partial class MainWindow : Window
         ShowMenuGestures();
         UpdateMenu();
         ShowRecent();
+
+        // Once a session, and here rather than in a static constructor: this touches the disk, and
+        // a static one runs on whichever thread happens to reach the type first.
+        ProjectRecovery.Sweep();
 
         // Nothing open, and no tab standing in for nothing. A window used to start on a bundled
         // sample in a tab called Untitled, which meant a project opened from the command line came
@@ -329,6 +337,9 @@ public partial class MainWindow : Window
 
     /// <summary>The open project, for a test to read. Null while none is open.</summary>
     public ProjectWorkspace? Workspace => _workspace;
+
+    /// <summary>The copy being kept of the open project, for a test to drive. Null while none is.</summary>
+    public ProjectRecovery? Recovery => _recovery;
 
     private async void OnNewProject(object? sender, EventArgs e) => await NewProjectAsync();
 
@@ -527,6 +538,22 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (document.Path is { } named && ProjectRecovery.Waiting(named, document.ToXml()) is { } waiting)
+        {
+            if (await ConfirmDiscardRecovery(Recovered(named, waiting)).ConfigureAwait(true))
+            {
+                ProjectRecovery.Delete(waiting);
+            }
+            else if (Restored(named, waiting) is { } recovered)
+            {
+                document = recovered;
+
+                // Given back, not saved: the file is still what it was, and the window says so
+                // until somebody writes it.
+                edited = true;
+            }
+        }
+
         var workspace = new ProjectWorkspace(document, edited);
 
         _workspace = workspace;
@@ -560,6 +587,17 @@ public partial class MainWindow : Window
                 Remember(written);
             }
         };
+
+        if (document.Path is { } kept)
+        {
+            _recovery = new ProjectRecovery(workspace, kept)
+            {
+                // Posted for the reason the close prompt is: a dialog opened from inside a timer
+                // tick would run the window's message loop from under the tick.
+                Trouble = (title, message) =>
+                    Dispatcher.UIThread.Post(async () => await Announce(title, message).ConfigureAwait(true))
+            };
+        }
 
         ShowProjectPane(true);
         BuildTree();
@@ -613,6 +651,48 @@ public partial class MainWindow : Window
         return document;
     }
 
+    /// <summary>The project a recovered copy holds, or null when it cannot be read.</summary>
+    /// <remarks>
+    /// Parsed at the project's own path rather than loaded from where the copy lives, so what opens
+    /// is the project and not a file in application data. A copy that cannot be read is said once
+    /// and then ignored — the project itself is still there to open.
+    /// </remarks>
+    private ProjectDocument? Restored(string path, string recovery)
+    {
+        try
+        {
+            return ProjectRecovery.Read(recovery) is { } text ? ProjectDocument.For(path, text) : null;
+        }
+        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException)
+        {
+            _ = Announce("The copy couldn't be read", failure.Message);
+
+            return null;
+        }
+    }
+
+    /// <summary>What a copy of unsaved work says for itself when the project is opened again.</summary>
+    private static string Recovered(string path, string recovery)
+    {
+        var copied = File.GetLastWriteTime(recovery);
+        var name = Path.GetFileName(path);
+
+        if (!File.Exists(path))
+        {
+            return $"Svg Studio kept a copy of {name} from {Stamp(copied)}, holding changes that were never saved. "
+                   + "Nothing has been written at that name yet.";
+        }
+
+        var saved = File.GetLastWriteTime(path);
+
+        return $"Svg Studio kept a copy of {name} from {Stamp(copied)}, holding changes that were never saved. "
+               + $"The file itself was last saved {Stamp(saved)}"
+               + (saved > copied ? ", so something else has written it since. " : ". ")
+               + "Restoring puts those changes back in the window; the file is not touched until you save.";
+    }
+
+    private static string Stamp(DateTime at) => at.ToString("g", CultureInfo.CurrentCulture);
+
     /// <summary>Closes the open project and everything it opened.</summary>
     /// <remarks>Public for the reason <see cref="ExportAsync"/> is: it is the way in without a menu.</remarks>
     /// <returns>Whether it closed, or false when unsaved work was kept.</returns>
@@ -641,6 +721,12 @@ public partial class MainWindow : Window
         {
             CloseTab(item);
         }
+
+        // Whatever was not saved has just been thrown away on purpose, so the copy of it goes too:
+        // offering it back on the next open would be handing back what somebody declined to keep.
+        _recovery?.Drop();
+        _recovery?.Stop();
+        _recovery = null;
 
         _workspace = null;
 
@@ -2183,6 +2269,26 @@ public partial class MainWindow : Window
         item.IsEnabled = recent.Items.Count > 0;
     }
 
+    /// <summary>Turns the recovery copy on or off, for good.</summary>
+    /// <remarks>
+    /// The setting rather than the item's own state: whether the platform has already toggled the
+    /// item by the time this runs is the menu exporter's business, and reading it back would depend
+    /// on that. Switching it off throws away what has been kept, since a copy offered back weeks
+    /// later would be the feature working after being told not to.
+    /// </remarks>
+    private void OnAutosave(object? sender, EventArgs e)
+    {
+        StudioSettings.Autosave = !StudioSettings.Autosave;
+
+        if (!StudioSettings.Autosave)
+        {
+            _recovery?.Drop();
+            ProjectRecovery.Clear();
+        }
+
+        UpdateMenu();
+    }
+
     private async void OnSave(object? sender, EventArgs e) => await SaveAsync();
 
     private async void OnSaveAs(object? sender, EventArgs e) => await SaveAsAsync();
@@ -2254,6 +2360,13 @@ public partial class MainWindow : Window
         if (Item(menu, "Save") is { } save)
         {
             save.IsEnabled = Marked();
+        }
+
+        // Not among the items below: it is a preference and not a command on a project, so it is
+        // live whether or not one is open.
+        if (Item(menu, "Autosave Recovery") is { } autosave)
+        {
+            autosave.IsChecked = StudioSettings.Autosave;
         }
 
         // Not for a drawing the project holds: Save As points a tab at the file it wrote, and one
@@ -2428,6 +2541,16 @@ public partial class MainWindow : Window
     public Func<string, string, Task> Announce { get; set; }
 
     /// <summary>
+    /// How the window asks whether a copy of unsaved work may be thrown away.
+    /// </summary>
+    /// <remarks>
+    /// Replaceable for the reason <see cref="ConfirmDiscard"/> is, and answering the same way round:
+    /// true throws the copy away. Restoring is the button that loses nothing, so it is the one the
+    /// panel dismisses with — Enter and the close box both land on it.
+    /// </remarks>
+    public Func<string, Task<bool>> ConfirmDiscardRecovery { get; set; }
+
+    /// <summary>
     /// How the window asks whether a PaintCode document may be converted, and on what terms.
     /// </summary>
     /// <remarks>
@@ -2544,6 +2667,22 @@ public partial class MainWindow : Window
         // Posted, so the close finishes being called off first: a prompt that answered immediately
         // would re-enter Close from inside OnClosing, as a test's stub does.
         Dispatcher.UIThread.Post(async () => await ConfirmThenClose(Describe(unsaved, project)));
+    }
+
+    /// <summary>
+    /// Leaves nothing behind for a window that closed on purpose.
+    /// </summary>
+    /// <remarks>
+    /// What gives the copy its meaning: closing runs this and crashing does not, so a copy waiting
+    /// on the next open is one Studio never got to throw away.
+    /// </remarks>
+    protected override void OnClosed(EventArgs e)
+    {
+        _recovery?.Drop();
+        _recovery?.Stop();
+        _recovery = null;
+
+        base.OnClosed(e);
     }
 
     private async Task ConfirmThenClose(string message)
