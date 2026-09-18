@@ -121,6 +121,13 @@ internal sealed class PaintCodeCode
             element.SetAttributeValue("max", maximum.ToString("0.####", CultureInfo.InvariantCulture));
         }
 
+        // Alone rather than with the pair, the format allowing a step without ends where it refuses
+        // one end without the other.
+        if (declaration.Step is { } step)
+        {
+            element.SetAttributeValue("step", step.ToString("0.####", CultureInfo.InvariantCulture));
+        }
+
         return element;
     }
 

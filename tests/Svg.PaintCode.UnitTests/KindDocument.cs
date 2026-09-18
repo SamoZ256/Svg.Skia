@@ -11,9 +11,16 @@ namespace Svg.PaintCode.UnitTests;
 /// </remarks>
 internal static class KindDocument
 {
-    internal static byte[] Bytes(int kind, int type)
+    internal static byte[] Bytes(int kind, int type, bool limited = false)
     {
         var archive = new KeyedArchiveBuilder();
+
+        // PaintCode stores a limit on the value provider, where nothing ties it to the kind -- so a
+        // boolean or a text variable can carry one, and the importer has to decide not to pass it on.
+        // The value follows the type, a declaration whose literal cannot be written being refused
+        // before its range is ever looked at.
+        var value = ("value", archive.Value(type switch { 3 => "on", 4 => true, _ => (object)1d }));
+        var limit = ("limit", archive.Object("PPLimitInterval", System.Array.Empty<(string, int)>(), ("min", 0d), ("max", 1d)));
 
         var library = archive.Object(
             "PPLibrary",
@@ -25,7 +32,7 @@ internal static class KindDocument
                         ("name", archive.Text("test")),
                         ("valueProvider", archive.Object(
                             "PPValueProviderConstant",
-                            new[] { ("value", archive.Value(1d)) },
+                            limited ? new[] { value, limit } : new[] { value },
                             ("type", type)))
                     },
                     ("kind", kind), ("usage", 1)))));

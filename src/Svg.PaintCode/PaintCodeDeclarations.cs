@@ -611,18 +611,37 @@ internal sealed class PaintCodeDeclarations
             return PaintCodeDeclaration.Constant(name, type, literal);
         }
 
-        // A fraction's ends are not in the document -- no variable in a real one carries a limit at
-        // all -- so they come from the type, which is the only place PaintCode keeps them. Its own
-        // menu offers Fraction as a kind of its own and hands a new one 0.5, which is the middle of
-        // the range rather than a value clamped into it.
-        var bounded = variable.Kind is PaintCodeValueKind.Fraction && variable.Minimum is null && variable.Maximum is null;
+        var range = Range(variable);
 
-        return PaintCodeDeclaration.Parameter(
-            name,
-            type,
-            literal,
-            bounded ? 0d : variable.Minimum,
-            bounded ? 1d : variable.Maximum);
+        return PaintCodeDeclaration.Parameter(name, type, literal, range.Minimum, range.Maximum, range.Step);
+    }
+
+    /// <summary>The range a parameter is offered over: the document's own, or the one its kind implies.</summary>
+    /// <remarks>
+    /// The ends a fraction and an angle imply are nowhere in the document -- no variable in a real one
+    /// carries a limit at all -- so they come from the kind, which is the only place PaintCode keeps
+    /// them: its menu hands a new Fraction 0.5, the middle of its range, and offers an Angle as a dial
+    /// round a turn. A limit displaces them where there is one, being the author's own answer to the
+    /// same question.
+    ///
+    /// The reader takes that limit off the value provider without looking at the kind, so a boolean or
+    /// a string can arrive carrying one -- and a min on either is refused outright by
+    /// <see cref="SvgExpressionDeclarations"/> when the drawing is read back, not merely ignored.
+    /// </remarks>
+    private static (double? Minimum, double? Maximum, double? Step) Range(PaintCodeVariable variable)
+    {
+        // Both ends or neither, matching the reader, which writes a limit's min and max together.
+        var limited = variable.Minimum is { } || variable.Maximum is { };
+
+        return variable.Kind switch
+        {
+            PaintCodeValueKind.Number => (variable.Minimum, variable.Maximum, null),
+            PaintCodeValueKind.Fraction => limited ? (variable.Minimum, variable.Maximum, null) : (0d, 1d, null),
+
+            // A step is granularity rather than an end, so the author's limit does not displace it.
+            PaintCodeValueKind.Angle => limited ? (variable.Minimum, variable.Maximum, 1d) : (0d, 360d, 1d),
+            _ => (null, null, null)
+        };
     }
 
     /// <summary>Whether a number variable is one this would write as an integer.</summary>
@@ -647,10 +666,10 @@ internal sealed class PaintCodeDeclarations
     /// <summary>What a kind is called in the expression format, or null where it has no name there.</summary>
     /// <remarks>
     /// PaintCode's three numeric kinds all land on <c>number</c>, which has no notion of a fraction
-    /// or an angle: what a fraction carries instead is the range its type implies, and what an angle
-    /// carries is that the translator already writes degrees where a trigonometric function wants
-    /// radians. A point, a size and a rectangle have no name here at all, the language having no such
-    /// type, and are refused by name rather than as "other".
+    /// or an angle: what each carries instead is the range its kind implies, which <see cref="Range"/>
+    /// supplies. An angle keeps the degrees the translator already writes where a trigonometric
+    /// function wants radians. A point, a size and a rectangle have no name here at all, the language
+    /// having no such type, and are refused by name rather than as "other".
     /// </remarks>
     private static string? Type(PaintCodeValueKind kind)
         => kind switch
@@ -725,6 +744,9 @@ internal sealed class PaintCodeDeclaration
 
     internal double? Maximum { get; private set; }
 
+    /// <summary>The increment a host should offer the value in, or null to leave that to the host.</summary>
+    internal double? Step { get; private set; }
+
     internal string? Refusal { get; private set; }
 
     internal void Refuse(string reason) => Refusal = reason;
@@ -741,8 +763,8 @@ internal sealed class PaintCodeDeclaration
 
     internal bool IsApproximate { get; private set; }
 
-    internal static PaintCodeDeclaration Parameter(string name, string type, string? @default, double? minimum = null, double? maximum = null)
-        => new(PaintCodeDeclarationKind.Parameter, name, type, @default) { Minimum = minimum, Maximum = maximum };
+    internal static PaintCodeDeclaration Parameter(string name, string type, string? @default, double? minimum = null, double? maximum = null, double? step = null)
+        => new(PaintCodeDeclarationKind.Parameter, name, type, @default) { Minimum = minimum, Maximum = maximum, Step = step };
 
     internal static PaintCodeDeclaration Local(string name, string body, string type, bool translate = false)
         => new(PaintCodeDeclarationKind.Local, name, type, body) { NeedsTranslation = translate };

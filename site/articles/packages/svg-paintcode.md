@@ -72,17 +72,26 @@ PaintCode's own menu offers eight, plus Expression for a variable derived from o
 
 | PaintCode | Becomes | Notes |
 | --- | --- | --- |
-| Number | `number` | |
+| Number | `number` | Whatever limit the variable carries, which in a real document is none. |
 | Fraction | `number`, `min="0" max="1"` | The range is **not in the document** — no variable carries a limit — so it comes from the type, which is the only place PaintCode keeps it. |
-| Angle | `number` | Degrees, which is what the translator already assumes where a trigonometric function wants radians. |
+| Angle | `number`, `min="0" max="360" step="1"` | Degrees, which is what the translator already assumes where a trigonometric function wants radians — so the range is PaintCode's own dial, a turn a degree at a time. |
 | Text | `string` | |
 | Boolean | `boolean` | |
 | Point, Size, Rectangle | *refused* | The expression language has no such type. The declaration is named as unusable rather than flattened into something it is not. |
 | Expression | `<e:let>` | It declares no type of its own, so it is whatever the expression came out as. |
 
 The distinction lives on the variable, not on the value: Number, Fraction and Angle are all stored as
-one double, so a reader going by storage sees one numeric type where PaintCode has three. This used
-to, which is why a fraction arrived indistinguishable from a number and lost its range on the way.
+one double, so a reader going by storage sees one numeric type where PaintCode has three — and a
+fraction or an angle read that way arrives indistinguishable from a number, its range lost.
+
+Where a variable does carry a limit, that is the author's own answer to the question the type only
+implies, so it displaces the implied ends — a fraction limited to 0.2..0.8 is written that way. An
+angle keeps its `step="1"` either way, a step being granularity rather than an end.
+
+The ends are advice rather than a constraint, so an angle saved outside its turn — PaintCode writes
+those, its own gradients defaulting to -90 — still arrives as it was written, and a host widens the
+dial to reach it. The step is not advice: a slider offering one snaps to it, so a fractional angle is
+off the dial as soon as it is dragged.
 
 ### Whole numbers, if you ask
 
@@ -99,11 +108,11 @@ svgc --paintcode Icons.pcvd --paintcodeIntegers
 ```
 
 writes a **Number** variable as `<e:param type="integer">` where its value is whole and its bounds are
-whole. A Fraction and an Angle are left alone whatever their values, being continuous by declaration.
-It is still **a guess, and yours to make**: a Number slider that happens to sit on whole ends is
-retyped too, and only the author knows which it was. A derived variable is never retyped — its body is
-PaintCode's arithmetic, and retyping the answer without the working would refuse the document rather
-than improve it.
+whole. A Fraction and an Angle keep the type they were given whatever their values, being continuous
+by declaration — the range above is theirs either way. It is still **a guess, and yours to make**: a
+Number slider that happens to sit on whole ends is retyped too, and only the author knows which it
+was. A derived variable is never retyped — its body is PaintCode's arithmetic, and retyping the
+answer without the working would refuse the document rather than improve it.
 
 ## What does not, and what happens instead
 

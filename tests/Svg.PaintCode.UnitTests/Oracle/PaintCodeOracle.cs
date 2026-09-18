@@ -151,8 +151,9 @@ internal static class PaintCodeOracle
     /// <remarks>
     /// Any value probes honestly, since both sides are handed the same one -- the range only decides
     /// how representative the probe is. Where nothing was declared this is 0 to 1, which is what
-    /// <c>level</c> means and what most of these are; an angle or a step is weakly probed by it, and
-    /// is the thing to improve if one of those turns out to hide a fault.
+    /// <c>level</c> means and what most of these are; a step enum carried as a number is weakly
+    /// probed by it, and is the thing to improve if one turns out to hide a fault. An angle declares
+    /// its own turn, so it is probed at 0, 180 and 360.
     /// </remarks>
     internal static IReadOnlyList<float> Turns(SKSvg svg, string name)
     {

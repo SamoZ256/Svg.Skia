@@ -87,6 +87,7 @@ public partial class MainWindow : Window
         AvaloniaXamlLoader.Load(this);
 
         ConfirmDiscard = AskDiscard;
+        ConfirmConvert = AskConvert;
         ConfirmRemove = message => Ask("Remove from the project", message, "Remove", "Cancel");
         Announce = (title, message) => Ask(title, message, null, "Close");
         ShowOnDisk = Reveal;
@@ -238,11 +239,18 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            // A dropped document is unambiguous in a way a menu command is not: there is nowhere to
-            // ask where it should go, so it goes beside itself, the way a pasted drawing does.
+            // Opening one converts it, which is a different thing from opening a drawing and is
+            // asked about rather than done. Where it goes is not asked: the dialog names the project
+            // beside the document, the way a pasted drawing goes beside itself.
             if (IsPaintCode(path))
             {
-                await ImportPaintCodeAsync(path, Beside(path)).ConfigureAwait(true);
+                var target = Beside(path);
+
+                if (await ConfirmConvert(path, target).ConfigureAwait(true) is { } integers)
+                {
+                    await ImportPaintCodeAsync(path, target, integers).ConfigureAwait(true);
+                }
+
                 continue;
             }
 
@@ -375,53 +383,19 @@ public partial class MainWindow : Window
         await OpenProjectAsync(path).ConfigureAwait(true);
     }
 
-    private async void OnImportPaintCode(object? sender, EventArgs e) => await ImportPaintCodeAsync();
-
-    /// <summary>Asks for a PaintCode document and somewhere to put it, and imports it there.</summary>
-    private async Task ImportPaintCodeAsync()
-    {
-        if (StorageProvider is not { CanOpen: true })
-        {
-            return;
-        }
-
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "Import PaintCode",
-            AllowMultiple = false,
-            FileTypeFilter = new[] { StudioFileDialogService.PaintCode }
-        }).ConfigureAwait(true);
-
-        if (files.Count == 0 || files[0].TryGetLocalPath() is not { } source)
-        {
-            return;
-        }
-
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "Where the project goes",
-            SuggestedFileName = Path.GetFileNameWithoutExtension(source) + ".svgstudio",
-            DefaultExtension = "svgstudio",
-            FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
-        }).ConfigureAwait(true);
-
-        if (file?.TryGetLocalPath() is not { Length: > 0 } target)
-        {
-            return;
-        }
-
-        await ImportPaintCodeAsync(source, target).ConfigureAwait(true);
-    }
-
     /// <summary>
     /// Converts <paramref name="source"/> into a project at <paramref name="target"/>, and opens it.
     /// </summary>
     /// <remarks>
     /// One file, with the drawings in it: what the document has to say is what a project is made of
     /// now, so nothing is written beside it. Taking the paths rather than asking for them, so
-    /// everything but the two pickers can be driven.
+    /// everything but the dialog can be driven.
     /// </remarks>
-    public async Task<bool> ImportPaintCodeAsync(string source, string target)
+    /// <param name="integers">
+    /// Whether a whole-valued number variable becomes an <c>integer</c> parameter -- a guess the
+    /// author makes, which is why the dialog asks rather than this deciding.
+    /// </param>
+    public async Task<bool> ImportPaintCodeAsync(string source, string target, bool integers = false)
     {
         if (source is null)
         {
@@ -435,7 +409,7 @@ public partial class MainWindow : Window
 
         var notes = new List<PaintCodeImportNote>();
         var directory = Path.GetDirectoryName(Path.GetFullPath(target)) ?? string.Empty;
-        var options = new PaintCodeImportOptions(directory);
+        var options = new PaintCodeImportOptions(directory) { Integers = integers };
 
         ProjectDocument document;
 
@@ -2397,6 +2371,18 @@ public partial class MainWindow : Window
     public Func<string, string, Task> Announce { get; set; }
 
     /// <summary>
+    /// How the window asks whether a PaintCode document may be converted, and on what terms.
+    /// </summary>
+    /// <remarks>
+    /// Replaceable for the reason <see cref="Announce"/> is. Given the document and the project it
+    /// would write, since the dialog's whole job is to say that opening one produces the other.
+    /// </remarks>
+    /// <returns>
+    /// Whether whole numbers become integers, or null where the document is not to be converted.
+    /// </returns>
+    public Func<string, string, Task<bool?>> ConfirmConvert { get; set; }
+
+    /// <summary>
     /// How the window asks whether a branch of the project may go.
     /// </summary>
     /// <remarks>
@@ -2600,6 +2586,31 @@ public partial class MainWindow : Window
     private Task<bool> AskDiscard(string message)
         => Ask("Unsaved changes", message, "Discard changes", "Keep editing");
 
+    /// <summary>Says what opening a PaintCode document does, and asks the one question it cannot.</summary>
+    /// <remarks>
+    /// The integers box is here rather than in a setting because it is a guess about one document:
+    /// PaintCode stores every number as a real, so a slider that happens to sit on whole ends is
+    /// retyped along with the step enum this is for, and only the author knows which it was.
+    /// </remarks>
+    private async Task<bool?> AskConvert(string source, string target)
+    {
+        var integers = new CheckBox
+        {
+            Content = "Write whole numbers as integers",
+            IsChecked = false
+        };
+
+        var asked = await Ask(
+            "Convert to a project",
+            $"{Path.GetFileName(source)} is a PaintCode document. Opening it writes a Svg Studio project "
+                + $"at {Path.GetFileName(target)}, beside the document, and opens that. The document itself is left alone.",
+            "Convert",
+            "Cancel",
+            integers).ConfigureAwait(true);
+
+        return asked ? integers.IsChecked is true : null;
+    }
+
     /// <summary>
     /// Puts a message up and waits for an answer.
     /// </summary>
@@ -2607,8 +2618,12 @@ public partial class MainWindow : Window
     /// One button when <paramref name="accept"/> is null: an export that failed is to be read, not
     /// answered, and a second button would offer a choice that is not there.
     /// </remarks>
+    /// <param name="extra">
+    /// A control put between the message and the buttons, for a question that is part of the answer
+    /// rather than another dialog. The caller reads it once this returns.
+    /// </param>
     /// <returns>Whether <paramref name="accept"/> was the answer.</returns>
-    private async Task<bool> Ask(string title, string message, string? accept, string dismiss)
+    private async Task<bool> Ask(string title, string message, string? accept, string dismiss, Control? extra = null)
     {
         var buttons = new StackPanel
         {
@@ -2635,6 +2650,11 @@ public partial class MainWindow : Window
                 }
             }
         };
+
+        if (extra is { })
+        {
+            ((StackPanel)dialog.Content).Children.Insert(1, extra);
+        }
 
         if (accept is { })
         {
@@ -2673,15 +2693,6 @@ public partial class MainWindow : Window
         {
             Patterns = new[] { "*.svg", "*.svgz", "*.svgstudio", "*.svgcproj", "*.pcvd" },
             MimeTypes = new[] { "image/svg+xml", "application/gzip", "application/xml" }
-        };
-
-        /// <remarks>
-        /// No Apple type identifier, for the reason the projects below carry none: the machine reads
-        /// a <c>.pcvd</c> as whatever claimed the extension, and it conforms to nothing.
-        /// </remarks>
-        internal static readonly FilePickerFileType PaintCode = new("PaintCode Documents")
-        {
-            Patterns = new[] { "*.pcvd" }
         };
 
         /// <remarks>

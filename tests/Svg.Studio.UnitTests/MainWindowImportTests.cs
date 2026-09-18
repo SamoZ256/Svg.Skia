@@ -43,7 +43,7 @@ public class MainWindowImportTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task A_Dropped_Document_Is_Imported_Beside_Itself()
+    public async Task An_Opened_Document_Is_Converted_Beside_Itself()
     {
         var window = Shown();
         var source = Sample();
@@ -54,6 +54,45 @@ public class MainWindowImportTests : IDisposable
 
         Assert.Equal("sample.svgstudio", window.Workspace!.Name);
         Assert.True(File.Exists(Path.Combine(_directory, "sample.svgstudio")));
+
+        // Both names, because the dialog's whole job is to say that opening the one writes the other.
+        Assert.Equal(source, _asked.Source);
+        Assert.Equal(Path.Combine(_directory, "sample.svgstudio"), _asked.Target);
+    }
+
+    [AvaloniaFact]
+    // Opening a drawing cannot be declined, so the document that is converted instead of opened is
+    // the one thing here that has to be, and declining has to leave the disk as it was.
+    public async Task A_Conversion_That_Is_Declined_Writes_Nothing()
+    {
+        var window = Shown();
+
+        _convert = null;
+
+        await window.OpenAsync(new[] { Sample() });
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(window.Workspace);
+        Assert.Equal(new[] { "sample.pcvd" }, Directory.EnumerateFileSystemEntries(_directory).Select(Path.GetFileName).ToArray());
+    }
+
+    [AvaloniaTheory]
+    [InlineData(false, "type=\"number\"")]
+    [InlineData(true, "type=\"integer\"")]
+    public async Task The_Box_The_Dialog_Offers_Decides_How_A_Whole_Number_Is_Written(bool integers, string written)
+    {
+        var window = Shown();
+
+        _convert = integers;
+
+        await window.OpenAsync(new[] { Sample() });
+
+        Dispatcher.UIThread.RunJobs();
+
+        var text = window.Workspace!.Document.Root.Drawings.First(drawing => drawing.Name == "badge").Text;
+
+        Assert.Contains("<e:param name=\"level\" " + written, text, StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -87,8 +126,12 @@ public class MainWindowImportTests : IDisposable
 
     private string _said = string.Empty;
 
-    // Every one of these imports has something to report, and the dialog that reports it waits for a
-    // click that a headless run never makes.
+    private bool? _convert = false;
+
+    private (string? Source, string? Target) _asked;
+
+    // Every one of these imports has something to report, and the dialogs -- the one that reports it
+    // and the one that asks whether to convert at all -- wait for a click a headless run never makes.
     private MainWindow Shown()
     {
         var window = new MainWindow();
@@ -97,6 +140,13 @@ public class MainWindowImportTests : IDisposable
             _said = message;
 
             return Task.CompletedTask;
+        };
+
+        window.ConfirmConvert = (source, target) =>
+        {
+            _asked = (source, target);
+
+            return Task.FromResult(_convert);
         };
 
         window.Show();
