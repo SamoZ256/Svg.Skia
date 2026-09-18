@@ -131,11 +131,16 @@ What is being looked at survives too: the ring, the row in the element tree and 
 all still on the drawing that moved. What a drawing is built from decides whether it is read again,
 so arranging a board rebuilds nothing at all, and editing one drawing rebuilds that one.
 
-Dragging a parameter there moves **every drawing that declares the same thing**, which is what makes
-a family of icons worth looking at side by side. Sharing is decided by what a drawing declares rather
-than by where it declared it: the whole parameter list, in order, with each one's type and bounds.
-The default is left out of that — it is where a drawing starts rather than what it takes, so a set
-seeded at different colours is still one family.
+Dragging a parameter there moves **every drawing that declares that parameter**, which is what makes
+a family of icons worth looking at side by side. Sharing is decided one parameter at a time, by what
+a drawing declares rather than by where it declared it: the name, the type and the bounds. Two
+drawings sharing a `tint` share it whatever else either of them declares, so a drawing with a knob
+of its own is still part of the palette — and what it does not share it keeps, at whatever it was
+last set to.
+
+The default is left out of the comparison — it is where a drawing starts rather than what it takes,
+so a set seeded at different colours is still one family. The bounds are in: two parameters you would
+be given different sliders for are not the one parameter, however alike their names.
 
 ## Where an edit lands
 
