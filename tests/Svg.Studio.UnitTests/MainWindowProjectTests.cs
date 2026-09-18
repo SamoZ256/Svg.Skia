@@ -2031,13 +2031,22 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
-    /// <summary>The declaration panel on a group's Parameters tab, which the tab must be on to hold.</summary>
-    private static SvgViewerDeclarationPanel Declarations(GroupPanel panel)
+    /// <summary>Opens one pane of a group tab's strip, by the name on its tab.</summary>
+    /// <remarks>Same reason as the viewer's: an unselected tab has nothing in the visual tree.</remarks>
+    private static TabControl Open(GroupPanel panel, string pane)
     {
         var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
 
-        tabs.SelectedIndex = 1;
+        tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, pane));
         Dispatcher.UIThread.RunJobs();
+
+        return tabs;
+    }
+
+    /// <summary>The declaration panel on a group's Parameters tab, which the tab must be on to hold.</summary>
+    private static SvgViewerDeclarationPanel Declarations(GroupPanel panel)
+    {
+        Open(panel, "Parameters");
 
         return panel.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
     }
@@ -2065,6 +2074,28 @@ public class MainWindowProjectTests : IDisposable
         var area = Area(Drawn(panel)[index]);
 
         Click(window, canvas, Over(canvas, area.MidX, area.MidY));
+    }
+
+    /// <summary>
+    /// A group's tab opens on its parameters, the way a drawing's own tab does.
+    /// </summary>
+    /// <remarks>
+    /// The settings are first in the strip, and were what it opened on: they are filled in once
+    /// when a group is set up, where the parameters are what a board is looked at with.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Groups_Tab_Opens_On_Its_Parameters()
+    {
+        var window = await Host(Write("icons.svgstudio", Pair));
+        var panel = await Group(window, 0);
+
+        var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
+
+        Assert.Equal(
+            new[] { "Project", "Parameters", "Element" },
+            tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+
+        Assert.Equal("Parameters", (string)((TabItem)tabs.SelectedItem!).Header!);
     }
 
     [AvaloniaFact]
@@ -2485,14 +2516,7 @@ public class MainWindowProjectTests : IDisposable
 
     /// <summary>The Element tab's content, whatever it currently is.</summary>
     private static object? Element(GroupPanel panel)
-    {
-        var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
-
-        tabs.SelectedIndex = 2;
-        Dispatcher.UIThread.RunJobs();
-
-        return ((TabItem)tabs.Items[2]!).Content is ContentControl host ? host.Content : null;
-    }
+        => ((TabItem)Open(panel, "Element").SelectedItem!).Content is ContentControl host ? host.Content : null;
 
     [AvaloniaFact]
     public async Task Picking_A_Shape_Shows_What_It_Is_Written_With()
@@ -2961,7 +2985,7 @@ public class MainWindowProjectTests : IDisposable
         // A second setting left in a box with the caret still in it. Saving takes that too, so
         // nothing is left pending behind a tab that has just reported itself saved — which is what
         // used to leave a tab with no mark and an unsaved warning waiting at the close button.
-        var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "namespace"));
+        var box = Open(panel, "Project").GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "namespace"));
 
         box.Focus();
         Dispatcher.UIThread.RunJobs();
@@ -2996,7 +3020,7 @@ public class MainWindowProjectTests : IDisposable
         var panel = (GroupPanel)item.Content!;
         var marker = (TextBlock)((StackPanel)item.Header!).Children[0];
 
-        var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
+        var box = Open(panel, "Project").GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
 
         box.Focus();
         Dispatcher.UIThread.RunJobs();
@@ -3035,7 +3059,7 @@ public class MainWindowProjectTests : IDisposable
 
         // Typed into, and the caret left where it is. An edit is recorded when the box loses focus,
         // so a save used to find nothing pending and write nothing at all.
-        var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
+        var box = Open(panel, "Project").GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
 
         box.Focus();
         Dispatcher.UIThread.RunJobs();
@@ -3050,7 +3074,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(panel.IsModified);
 
         // And the caret is still in the box it was in, not thrown out by the rows being rebuilt.
-        var resumed = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
+        var resumed = Open(panel, "Project").GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
 
         Assert.True(resumed.IsFocused);
         Assert.Equal(1, resumed.CaretIndex);

@@ -318,8 +318,15 @@ public sealed class GroupPanel : UserControl
         parameters.Children.Add(_parameterNote);
         parameters.Children.Add(_parameters);
 
-        tabs.Items.Add(new TabItem { Header = "Parameters", Content = parameters });
+        var showing = new TabItem { Header = "Parameters", Content = parameters };
+
+        tabs.Items.Add(showing);
         tabs.Items.Add(new TabItem { Header = "Element", Content = _elementHost });
+
+        // Opened on, rather than the settings that come first in the strip: what a drawing declares
+        // is what moves the board, and the settings are read when a row is set up and then left.
+        // The same tab a drawing's own strip opens on, which is the point of the two being alike.
+        tabs.SelectedItem = showing;
 
         side.Children.Add(tabs);
 
