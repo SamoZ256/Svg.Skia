@@ -103,6 +103,14 @@ public sealed class GroupPanel : UserControl
     /// <summary>Where the selected drawing keeps its declarations, or null when nothing is selected.</summary>
     private ISvgViewerDeclarationTarget? _target;
 
+    /// <summary>The rows the panel last held, kept for <see cref="Carried"/> past it being emptied.</summary>
+    /// <remarks>
+    /// A rebuild lets go of the selection before it takes it again, and letting go empties the
+    /// panel. Reading the values off the panel therefore read them after they had been thrown away,
+    /// so any edit at all — a drawing dragged across the board — put every parameter back to what
+    /// its drawing declares.
+    /// </remarks>
+    private IReadOnlyList<SvgViewerParameter>? _carried;
 
     private SvgViewerDeclarationCommands? _commands;
 
@@ -569,7 +577,9 @@ public sealed class GroupPanel : UserControl
 
         // Empty and not null. Null reads as "no document" and takes the Add button away with it,
         // which is the one button a drawing declaring nothing yet needs.
-        _parameters.Parameters = Carried(SvgViewerParameterFactory.Create(document.Declarations.Parameters));
+        _carried = Carried(SvgViewerParameterFactory.Create(document.Declarations.Parameters));
+
+        _parameters.Parameters = _carried;
 
         _parameters.ShowLets(document.Declarations.Lets);
 
@@ -603,9 +613,7 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private IReadOnlyList<SvgViewerParameter> Carried(IReadOnlyList<SvgViewerParameter> rebuilt)
     {
-        var was = _parameters.Parameters;
-
-        if (was is null)
+        if (_carried is not { } was)
         {
             return rebuilt;
         }
@@ -972,6 +980,14 @@ public sealed class GroupPanel : UserControl
             _tree.TrySelect(picked);
 
             TrackGizmo();
+
+            // The rows keep what somebody dragged them to, and a drawing read again comes back at
+            // what it declares — so without this the panel and the picture beside it disagree about
+            // every value, until the next drag happens to say one of them again.
+            if ((_parameters.Parameters ?? Array.Empty<SvgViewerParameter>()).Any(row => row.IsModified))
+            {
+                Bind();
+            }
         }
     }
 

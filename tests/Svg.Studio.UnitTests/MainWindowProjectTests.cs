@@ -2188,6 +2188,66 @@ public class MainWindowProjectTests : IDisposable
             """);
     }
 
+    /// <summary>
+    /// A value dragged on the panel survives everything else that happens to the board.
+    /// </summary>
+    /// <remarks>
+    /// Reported against a real project: a parameter moved on a group's panel went back to what the
+    /// drawing declares the moment anything else was edited, and moving a drawing across the board
+    /// is an edit. A rebuild lets go of the selection before it takes it again, and letting go
+    /// empties the panel -- which was where the values were being kept between the two.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Value_Survives_A_Drawing_Being_Moved()
+    {
+        var window = await Host(Own(Declaring, Declaring));
+        var panel = await Group(window, 0);
+        var canvas = Canvas(panel);
+
+        Pick(window, panel, 0);
+
+        ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
+        Dispatcher.UIThread.RunJobs();
+
+        var area = Area(Drawn(panel)[1]);
+
+        Drag(window, canvas, Over(canvas, area.MidX, area.MidY), Over(canvas, area.MidX + 40f, area.MidY));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(Colors.Red, ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color);
+    }
+
+    /// <summary>
+    /// And the pictures keep it too, when the edit is one that has the drawings read again.
+    /// </summary>
+    /// <remarks>
+    /// A build that reads a drawing again seeds it at what it declares, so the panel kept the value
+    /// and the picture beside it did not -- the two disagreeing until somebody moved a row again.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Value_Survives_The_Drawings_Being_Read_Again()
+    {
+        var window = await Host(Own(Declaring, Declaring));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
+        Dispatcher.UIThread.RunJobs();
+
+        // A setting the size depends on, which is what a build reads: every drawing is built afresh.
+        Assert.True(panel.Edit("scale", "2"));
+
+        await Save(window, panel);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(Colors.Red, ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color);
+
+        Assert.All(
+            Drawn(panel),
+            placed => Assert.Equal("#ff0000ff", placed.Svg.ExpressionValues!["tint"].ToString()));
+    }
+
     [AvaloniaFact]
     public async Task A_Value_Reaches_Every_Drawing_Declaring_The_Same_Thing()
     {
