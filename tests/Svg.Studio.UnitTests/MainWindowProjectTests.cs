@@ -213,14 +213,69 @@ public class MainWindowProjectTests : IDisposable
 
         var window = await Host(Write("icons.svgstudio", Project));
 
+        // Named against the board, which is the project itself here: its own Demo.Icons is what
+        // every row on it shares, so what is left of each is what tells them apart.
         Assert.Equal(
             new[]
             {
-                "home\nDemo.Icons.Home   as written",
-                "badge\nDemo.Icons.Large.BadgeLarge   ×2"
+                "home\nHome   as written",
+                "badge\nLarge.BadgeLarge   ×2"
             },
             Drawn(Panel(window, "Project")).Select(placed => placed.Label).ToArray());
     }
+
+    [AvaloniaFact]
+    public async Task A_Group_Names_Its_Drawings_From_Where_It_Starts()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgstudio", Project));
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        // The reported case: on its own board the group's namespace is under every icon and beside
+        // none of them, so the class is the whole of what is left to say.
+        Assert.Equal("badge\nBadgeLarge   ×2", Assert.Single(Drawn(Panel(window, "Large"))).Label);
+    }
+
+    /// <summary>A project whose groups sit just outside the board's namespace, two ways.</summary>
+    private static string Neighbours() => $$"""
+        <studio namespace="Demo.Icons">
+        {{Holding("plain")}}
+          <group name="Extra" namespace="Demo.IconsExtra">
+        {{Holding("odd", " class=\"Odd\"")}}
+          </group>
+          <group name="Far" namespace="Other.Icons">
+        {{Holding("far", " class=\"Far\"")}}
+          </group>
+        </studio>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Namespace_The_Board_Only_Seems_To_Start_Is_Written_Whole()
+    {
+        var window = await Host(Write("icons.svgstudio", Neighbours()));
+
+        var drawn = Drawn(Panel(window, "Project")).Select(placed => placed.Label).ToArray();
+
+        // Demo.IconsExtra starts with Demo.Icons and is not under it. Dropping a prefix rather than
+        // whole segments would write this one as "Extra.Odd", naming a group that is not there.
+        Assert.Contains("odd\nDemo.IconsExtra.Odd   as written", drawn);
+        Assert.Contains("far\nOther.Icons.Far   as written", drawn);
+    }
+
+    [AvaloniaFact]
+    // The trim empties the namespace and there is no class to fall back on, so the whole one comes
+    // back: a row with an identity does not lose it to having nothing of its own to add.
+    public async Task A_Drawing_With_No_Class_Still_Says_Where_It_Sits()
+        => Assert.Contains(
+            "plain\nDemo.Icons   as written",
+            Drawn(Panel(await Host(Write("icons.svgstudio", Neighbours())), "Project"))
+                .Select(placed => placed.Label)
+                .ToArray());
 
     /// <summary>The whole branch, which is what the group builds.</summary>
     [AvaloniaFact]

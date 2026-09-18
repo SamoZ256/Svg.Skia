@@ -1693,14 +1693,43 @@ public sealed class GroupPanel : UserControl
     /// <remarks>
     /// Two, because one is about twice as wide as the drawings it sits under and the columns are
     /// sized to hold it.
+    ///
+    /// Named against the board rather than absolutely. A group everything under it inherits its
+    /// namespace from would otherwise write that namespace under every icon, where it distinguishes
+    /// none of them and the heading above the board has already said it.
     /// </remarks>
-    private static string Caption(ProjectDrawing drawing)
+    private string Caption(ProjectDrawing drawing)
     {
-        var name = drawing.EffectiveNamespace is { } space && drawing.EffectiveClass is { } className
+        var space = Relative(drawing.EffectiveNamespace);
+
+        var name = space is { } && drawing.EffectiveClass is { } className
             ? $"{space}.{className}"
-            : drawing.EffectiveClass ?? drawing.EffectiveNamespace ?? "(unnamed)";
+            : drawing.EffectiveClass ?? space ?? drawing.EffectiveNamespace ?? "(unnamed)";
 
         return $"{drawing.Name}\n{name}   {Size(drawing)}";
+    }
+
+    /// <summary>A namespace with the board's own dropped off the front, or null where nothing is left.</summary>
+    /// <remarks>
+    /// Whole segments, which is the whole of the care needed here: a board of Icons.Nav must leave
+    /// Icons.Navigation alone, and a prefix test on its own would shorten it to "igation".
+    ///
+    /// Against this board and never against the group a drawing sits in, which for a placed group is
+    /// not the same node -- its drawings are still on this board, and trimming each against its own
+    /// group would have two icons side by side naming themselves at different depths. The group's
+    /// frame already carries its name.
+    /// </remarks>
+    private string? Relative(string? space)
+    {
+        if (space is null || Node.EffectiveNamespace is not { Length: > 0 } board
+            || !space.StartsWith(board, StringComparison.Ordinal))
+        {
+            return space;
+        }
+
+        return space.Length == board.Length ? null
+            : space[board.Length] == '.' ? space[(board.Length + 1)..]
+            : space;
     }
 
     private static readonly Uri Home = new("avares://Svg.Studio/");
