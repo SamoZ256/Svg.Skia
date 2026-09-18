@@ -267,10 +267,10 @@ public class SvgViewerTests
 
         var tabs = Assert.IsType<TabControl>(host.Child);
 
-        // First, and so the one shown, rather than filed behind the parameters: a host sets one
-        // because it has something to say.
+        // First in the strip, and still not the one shown: what a drawing is for is what it
+        // declares, so the pane a host adds is one to click rather than one to be moved onto.
         Assert.Equal(new[] { "Project", "Parameters", "Element" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
-        Assert.Equal(0, tabs.SelectedIndex);
+        Assert.Equal("Parameters", (string)((TabItem)tabs.SelectedItem!).Header!);
         Assert.Same(mine, ((TabItem)tabs.Items[0]!).Content);
 
         // Several of them, in the order they were given, and the parameters still last.
@@ -285,6 +285,9 @@ public class SvgViewerTests
             new[] { "Project", "Replacements", "Parameters", "Element" },
             tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
         Assert.Same(second, ((TabItem)tabs.Items[1]!).Content);
+
+        // And a strip rebuilt around another pane is still showing the same one.
+        Assert.Equal("Parameters", (string)((TabItem)tabs.SelectedItem!).Header!);
 
         viewer.SidePanels = System.Array.Empty<SvgViewerPane>();
         Dispatcher.UIThread.RunJobs();

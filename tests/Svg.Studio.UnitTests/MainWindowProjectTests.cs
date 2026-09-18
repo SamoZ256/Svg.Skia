@@ -2018,6 +2018,19 @@ public class MainWindowProjectTests : IDisposable
             group => Assert.Equal(desks[group.Name], (group.X, group.Y)));
     }
 
+    /// <summary>Opens one pane of a drawing's right-hand strip, by the name on its tab.</summary>
+    /// <remarks>
+    /// A tab that is not selected has no visual tree, so what is in one cannot be found until it is.
+    /// </remarks>
+    private static void Open(SvgViewer viewer, string pane)
+    {
+        var panes = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
+
+        panes.SelectedItem = panes.Items.OfType<TabItem>().Single(item => Equals(item.Header, pane));
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
     /// <summary>The declaration panel on a group's Parameters tab, which the tab must be on to hold.</summary>
     private static SvgViewerDeclarationPanel Declarations(GroupPanel panel)
     {
@@ -3486,7 +3499,11 @@ public class MainWindowProjectTests : IDisposable
         await window.ShowAsync(drawing);
         Dispatcher.UIThread.RunJobs();
 
-        var settings = (GroupPanel)Assert.Single(((SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!).SidePanels).Content;
+        var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
+        var settings = (GroupPanel)Assert.Single(viewer.SidePanels).Content;
+
+        Open(viewer, "Project");
+
         var box = settings.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "x"));
 
         // Nothing behind it: a group's place is in its parent's coordinates, so offering it as this
@@ -3543,10 +3560,12 @@ public class MainWindowProjectTests : IDisposable
         var panel = Assert.IsType<GroupPanel>(Assert.Single(viewer.SidePanels).Content);
         var panes = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
 
-        // First of the two, and so the one shown: a drawing opened from the tree is being looked at
-        // as part of a project, so what the project says about it is what to open on.
+        // First of the three, and not the one shown: a drawing is opened to be looked at, and what
+        // it declares is what moves the picture, so the project's say over it is a click away.
         Assert.Equal(new[] { "Project", "Parameters", "Element" }, panes.Items.OfType<TabItem>().Select(item => (string)item.Header!));
-        Assert.Equal(0, panes.SelectedIndex);
+        Assert.Equal("Parameters", (string)((TabItem)panes.SelectedItem!).Header!);
+
+        Open(viewer, "Project");
 
         var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "class"));
 

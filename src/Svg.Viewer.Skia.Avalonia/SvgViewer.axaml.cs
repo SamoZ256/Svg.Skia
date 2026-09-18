@@ -42,8 +42,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     private readonly SvgViewerElementPanel _element;
 
-    /// <summary>How many panes the host had when the strip was last filled.</summary>
-    private int _hosted;
     private readonly Border _toolBar;
     private readonly Border _statusPanel;
     private readonly Border _panelHost;
@@ -352,9 +350,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <remarks>
     /// The pane becomes a strip of tabs while there are any and holds the parameters alone again
     /// when there are none, so a host that sets nothing sees what it always saw. The host's come
-    /// first, in the order given, and so the pane opens on the first of them: a host sets a panel
-    /// because it has something to say about the drawing, and one filed behind a tab nobody clicks
-    /// may as well not be there. See <see cref="SvgViewerPane"/> for what belongs in one.
+    /// first, in the order given, but the strip goes on showing whatever it was showing — the
+    /// parameters, on a viewer nobody has touched. What a drawing is for is what it declares, and a
+    /// host's own pane arriving is not somebody asking to be taken off it. See
+    /// <see cref="SvgViewerPane"/> for what belongs in one.
     /// </remarks>
     public IReadOnlyList<SvgViewerPane> SidePanels
     {
@@ -387,15 +386,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         // What was being looked at, so a strip that gains or loses a pane does not also change the
         // subject. Only by name: the pane it was is not always one of the panes it now is.
-        //
-        // Except where the host had none and now has some. The viewer's own tabs are what a strip
-        // falls back to rather than what somebody chose, and keeping one selected would file a
-        // host's first pane behind them — a host sets one because it has something to say.
-        var looking = _hosted > 0 && _panelHost.Child is TabControl showing && showing.SelectedItem is TabItem selected
+        var looking = _panelHost.Child is TabControl showing && showing.SelectedItem is TabItem selected
             ? selected.Header as string
             : null;
-
-        _hosted = _sidePanels.Count;
 
         // Emptied first, and the tabs with it: a control cannot be added to a second parent, and
         // the parameters panel is moving between the host and a tab inside it.
