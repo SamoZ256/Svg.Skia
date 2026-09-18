@@ -785,7 +785,7 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>
-    /// Binds the values on the panel into every drawing that shares the declarations, and repaints.
+    /// Binds the values on the panel into every drawing declaring any of them, and repaints.
     /// </summary>
     /// <remarks>
     /// A value belongs to the declaration it is for, and every drawing declaring that takes it. So
@@ -806,14 +806,14 @@ public sealed class GroupPanel : UserControl
 
         foreach (var shown in _shown)
         {
-            if (shown.Built.Svg is not { } svg || !Shares(picked, shown.Built))
+            if (shown.Built.Svg is not { } svg || Taken(picked, shown.Built, values) is not { } bound)
             {
                 continue;
             }
 
             try
             {
-                svg.SetExpressionValues(values);
+                svg.SetExpressionValues(bound);
             }
             catch (ExprException)
             {
@@ -824,30 +824,65 @@ public sealed class GroupPanel : UserControl
         _canvas.Publish();
     }
 
-    /// <summary>Whether two drawings declare the same parameters, and so take the same values.</summary>
+    /// <summary>
+    /// What to bind into <paramref name="other"/> when the panel is showing
+    /// <paramref name="picked"/>, or null where it declares none of it.
+    /// </summary>
     /// <remarks>
+    /// Parameter by parameter, not list by list. Two drawings sharing a tint share it whatever else
+    /// either of them declares, which is what a set of icons actually looks like — one common
+    /// palette, and a drawing here and there with a knob of its own. Asking them to agree about
+    /// everything meant one extra parameter on one drawing took it out of the family for all of
+    /// them.
+    ///
     /// What a drawing declares rather than where it declared it, read off the drawing as built. So
-    /// two drawings that each wrote the same block by hand are a family, which is what a set of
-    /// icons written from one template is.
+    /// two drawings that each wrote the same block by hand share, which is what a set of icons
+    /// written from one template is.
     ///
-    /// The whole parameter list, in order, and not the names: a bound is as much of what a parameter
-    /// is as its type, so two drawings agreeing on all of them have agreed about something, where two
-    /// that merely both say <c>hue</c> would be a coincidence acted on.
+    /// A parameter is matched by everything but its default: the name, the type and the bounds. The
+    /// default is left out because it is where a drawing starts rather than what it takes, and a set
+    /// of icons seeded at different colours is the case this is for. The bounds are in because two
+    /// parameters somebody would be given different sliders for are not the one parameter, however
+    /// alike their names.
     ///
-    /// The default is the one thing left out, because it is where a drawing starts rather than what
-    /// it takes. A set of icons seeded at different colours is the case this is for, and counting the
-    /// seed would have been exactly the rule that broke it.
-    ///
-    /// A drawing declaring nothing shares with nothing but itself -- it has no value anyone could be
-    /// moving, and an empty set means "every default", which would put a neighbour that has values
-    /// back to its placeholders.
+    /// The drawing's own values go in around what it shares: the call replaces everything bound, so
+    /// sending one parameter alone would take the rest back to their defaults — and a drawing is
+    /// entitled to declare one with no default at all, which would then refuse the lot.
     /// </remarks>
-    private static bool Shares(Drawn picked, Drawn other)
-        => ReferenceEquals(picked.Drawing, other.Drawing)
-           || (picked.Document is { } mine
-               && other.Document is { } theirs
-               && mine.Declarations.Parameters.Count > 0
-               && Same(mine.Declarations.Parameters, theirs.Declarations.Parameters));
+    private static Dictionary<string, ExprValue>? Taken(
+        Drawn picked,
+        Drawn other,
+        Dictionary<string, ExprValue> values)
+    {
+        // The drawing being dragged takes the panel whole: the rows are its own.
+        if (ReferenceEquals(picked.Drawing, other.Drawing))
+        {
+            return values;
+        }
+
+        if (picked.Document is not { } mine || other.Document is not { } theirs)
+        {
+            return null;
+        }
+
+        var bound = new Dictionary<string, ExprValue>(
+            other.Svg?.ExpressionValues ?? Seeded(theirs),
+            StringComparer.Ordinal);
+
+        var shares = false;
+
+        foreach (var parameter in theirs.Declarations.Parameters)
+        {
+            if (values.TryGetValue(parameter.Name, out var value)
+                && mine.Declarations.Parameters.Any(one => one.SharesValuesWith(parameter)))
+            {
+                bound[parameter.Name] = value;
+                shares = true;
+            }
+        }
+
+        return shares ? bound : null;
+    }
 
     /// <summary>Whether two parameter lists take the same values, in the same order.</summary>
     private static bool Same(

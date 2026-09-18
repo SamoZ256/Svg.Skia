@@ -2050,6 +2050,14 @@ public class MainWindowProjectTests : IDisposable
         </svg>
         """;
 
+    /// <summary>The same tint as <see cref="Declaring"/>, beside a parameter of its own.</summary>
+    private const string DeclaringMore = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="tint" type="color" default="#00ff00" /><e:param name="ring" type="number" default="2" min="0" max="10" /></e:code></defs>
+          <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke-width="{{ ring }}" stroke="#000000" />
+        </svg>
+        """;
+
     /// <summary>The same name and type, on a slider with different ends.</summary>
     private const string DeclaringBounded = """
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
@@ -2111,6 +2119,68 @@ public class MainWindowProjectTests : IDisposable
 
         // Another name, so another parameter, and it moves alone.
         Assert.Same(before[2], placements[2].Svg.Picture);
+    }
+
+    /// <summary>
+    /// One parameter in common is enough. A set of icons is one palette and a knob here and there,
+    /// so asking two drawings to agree about everything took a drawing out of the family for owning
+    /// a parameter nobody else had.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Value_Reaches_A_Drawing_Declaring_More_Besides()
+    {
+        var window = await Host(Own(Declaring, DeclaringMore, DeclaringAnother));
+        var panel = await Group(window, 0);
+
+        var placements = Drawn(panel);
+
+        Pick(window, panel, 0);
+
+        var before = placements.Select(placed => placed.Svg.Picture).ToArray();
+
+        ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
+        Dispatcher.UIThread.RunJobs();
+
+        // The one that declares tint and a ring of its own takes the tint.
+        Assert.NotSame(before[0], placements[0].Svg.Picture);
+        Assert.NotSame(before[1], placements[1].Svg.Picture);
+
+        // The one that declares neither is left alone.
+        Assert.Same(before[2], placements[2].Svg.Picture);
+    }
+
+    /// <summary>
+    /// What a drawing does not share it keeps. The call binding a value replaces everything bound,
+    /// so the parameters it declares alone have to go back in around the one that moved.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Drawing_Keeps_The_Parameters_It_Does_Not_Share()
+    {
+        var window = await Host(Own(DeclaringMore, Declaring));
+        var panel = await Group(window, 0);
+
+        var placements = Drawn(panel);
+
+        // Dragged on the drawing that has both, so the other takes the tint and knows nothing of
+        // the ring.
+        Pick(window, panel, 0);
+
+        var rows = Declarations(panel).Parameters!;
+
+        ((SvgViewerNumberParameter)rows.Single(row => row.Name == "ring")).Value = 6d;
+        Dispatcher.UIThread.RunJobs();
+
+        var before = placements.Select(placed => placed.Svg.Picture).ToArray();
+
+        ((SvgViewerColorParameter)rows.Single(row => row.Name == "tint")).Color = Colors.Red;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotSame(before[0], placements[0].Svg.Picture);
+        Assert.NotSame(before[1], placements[1].Svg.Picture);
+
+        // The ring is still where it was dragged, and the drawing still renders.
+        Assert.Equal(6d, ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single(row => row.Name == "ring")).Value);
+        Assert.NotNull(placements[0].Svg.Picture);
     }
 
     [AvaloniaFact]
