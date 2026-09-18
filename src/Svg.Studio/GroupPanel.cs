@@ -163,6 +163,9 @@ public sealed class GroupPanel : UserControl
     /// <summary>Whether a drag moves the element under it rather than the view.</summary>
     private ToggleButton? _edit;
 
+    /// <summary>Whether each drawing is named under it.</summary>
+    private ToggleButton? _captions;
+
     public GroupPanel(ProjectWorkspace workspace, ProjectNode node)
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
@@ -1658,6 +1661,22 @@ public sealed class GroupPanel : UserControl
         bar.Children.Add(Tool("+", "Zoom in, or scroll up", () => _canvas.ZoomIn()));
         bar.Children.Add(bounds);
 
+        // Checked before anything is subscribed: the handler lays the board out again, and there is
+        // no board to lay out while the bar it will sit on is still being built.
+        _captions = new ToggleButton
+        {
+            Content = "Captions",
+            IsChecked = true,
+            [ToolTip.TipProperty] = "Write each drawing's name and class under it"
+        };
+
+        // Not a render flag like Bounds -- a caption is written into the placement when the board is
+        // laid out, so turning it off is a fresh lay-out. ShowDrawings keeps what is being inspected
+        // and rearranges rather than fits, so nothing jumps.
+        _captions.IsCheckedChanged += (_, _) => ShowDrawings();
+
+        bar.Children.Add(_captions);
+
         _edit = new ToggleButton
         {
             Content = "Edit",
@@ -1698,8 +1717,13 @@ public sealed class GroupPanel : UserControl
     /// namespace from would otherwise write that namespace under every icon, where it distinguishes
     /// none of them and the heading above the board has already said it.
     /// </remarks>
-    private string Caption(ProjectDrawing drawing)
+    private string? Caption(ProjectDrawing drawing)
     {
+        if (_captions?.IsChecked == false)
+        {
+            return null;
+        }
+
         var space = Relative(drawing.EffectiveNamespace);
 
         var name = space is { } && drawing.EffectiveClass is { } className

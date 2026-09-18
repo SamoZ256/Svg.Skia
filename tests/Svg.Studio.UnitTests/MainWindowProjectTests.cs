@@ -277,6 +277,72 @@ public class MainWindowProjectTests : IDisposable
                 .Select(placed => placed.Label)
                 .ToArray());
 
+    [AvaloniaFact]
+    public async Task Turning_Captions_Off_Leaves_The_Board_Bare()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgstudio", Project));
+        var panel = Panel(window, "Project");
+        var scale = Canvas(panel).Scale;
+
+        Toggle(panel, "Captions");
+
+        Assert.All(Drawn(panel), placed => Assert.Null(placed.Label));
+
+        // The board is laid out again to drop them, and a lay-out that fitted would throw away
+        // wherever the reader had got to -- which is the half of this most likely to regress.
+        Assert.Equal(scale, Canvas(panel).Scale);
+    }
+
+    [AvaloniaFact]
+    // And the same captions, not merely some: the drawings are reused across the lay-out rather
+    // than built again, so this is also the reuse path.
+    public async Task Captions_Come_Back_When_The_Toggle_Does()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgstudio", Project));
+        var panel = Panel(window, "Project");
+
+        Toggle(panel, "Captions");
+        Toggle(panel, "Captions");
+
+        Assert.Equal(
+            new[] { "home\nHome   as written", "badge\nLarge.BadgeLarge   ×2" },
+            Drawn(panel).Select(placed => placed.Label).ToArray());
+    }
+
+    /// <summary>Five rows nobody has placed, so the spread is three columns and two of them.</summary>
+    private static string Rows() => $$"""
+        <studio namespace="Demo.Icons">
+        {{Holding("one")}}
+        {{Holding("two")}}
+        {{Holding("three")}}
+        {{Holding("four")}}
+        {{Holding("five")}}
+        </studio>
+        """;
+
+    [AvaloniaFact]
+    public async Task Rows_Close_Up_When_Nothing_Is_Written_Under_Them()
+    {
+        var window = await Host(Write("icons.svgstudio", Rows()));
+        var panel = Panel(window, "Project");
+
+        var pitch = Area(Drawn(panel)[3]).Top - Area(Drawn(panel)[0]).Top;
+
+        Toggle(panel, "Captions");
+
+        // Room kept for writing that is not there reads as a board of icons with holes in it, which
+        // is what a spread reserving two lines whatever it was handed used to leave.
+        Assert.True(
+            Area(Drawn(panel)[3]).Top - Area(Drawn(panel)[0]).Top < pitch,
+            "the rows kept the room the captions had");
+    }
+
     /// <summary>The whole branch, which is what the group builds.</summary>
     [AvaloniaFact]
     public async Task A_Group_Draws_The_Drawings_Of_The_Groups_Under_It()
