@@ -70,7 +70,7 @@ internal static class SampleDocument
 
         var canvas = archive.Object(
             "PPCanvas",
-            new[] { ("name", archive.Text("overlay-error")), ("bounds", archive.Text("{{0, 0}, {30, 30}}")), ("rootGroup", group) },
+            new[] { ("name", archive.Text("overlay-error")), ("bounds", archive.Text("{{54, 136}, {30, 30}}")), ("rootGroup", group) },
             ("isExported", true), ("isAvailableAsSymbol", true));
 
         var desk = archive.Object("PPDesk", ("name", archive.Text("Overlays")), ("canvases", archive.Array(canvas)));
