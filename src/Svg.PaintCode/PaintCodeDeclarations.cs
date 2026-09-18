@@ -600,18 +600,39 @@ internal sealed class PaintCodeDeclarations
         // change. Derived from a value nothing drives, it is itself a value nothing drives, and the
         // reader has already worked out what it is.
         if (color.ParentName is { } parent &&
-            color.Alpha is { } alpha &&
             _byName.TryGetValue(PaintCodeSlug.Identifier(parent), out var declaration) &&
-            declaration.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local)
+            declaration.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local &&
+            Derivation(declaration.Name, color) is { } derived)
         {
-            return PaintCodeDeclaration.Local(
-                name,
-                $"withAlpha({declaration.Name}, {Number(alpha)})",
-                "color");
+            return PaintCodeDeclaration.Local(name, derived, "color");
         }
 
         return PaintCodeDeclaration.Constant(name, "color", Literal(color.Value), color.Value.IsApproximate);
     }
+
+    /// <summary>
+    /// The derived colour written as what it is derived by, or null where nothing can say it.
+    /// </summary>
+    /// <remarks>
+    /// All three of PaintCode's operations have a name in the expression language now, so a whole
+    /// chain of them follows the colour a caller passes: accentColorOff is accentColorOn
+    /// desaturated, shadowed and given an alpha, and each step is one declaration reading the one
+    /// below it. Worked out at import before this, it followed the canvas instead -- so a symbol
+    /// handed another accent drew the shade the document was saved with.
+    ///
+    /// A shade is a blend towards black that leaves the alpha alone, and mix moves all four
+    /// channels -- so it is only the same thing where the colour is opaque, and a translucent one
+    /// keeps the shade the reader worked out rather than being written a shade that would fade it.
+    /// </remarks>
+    private static string? Derivation(string parent, PaintCodeLibraryColor color) => color.Operation switch
+    {
+        PaintCodeReader.OperationAlpha when color.Alpha is { } alpha => $"withAlpha({parent}, {Number(alpha)})",
+        PaintCodeReader.OperationShadow when color.Value.Alpha >= 1 => $"mix({parent}, #000000ff, {Number(color.Amount)})",
+
+        // A percentage, as PaintCode stores it, against a fraction as the language takes it.
+        PaintCodeReader.OperationSaturation => $"withSaturation({parent}, {Number(color.Amount / 100)})",
+        _ => null
+    };
 
     private static PaintCodeDeclaration Variable(PaintCodeVariable variable, bool integers)
     {

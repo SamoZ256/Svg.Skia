@@ -497,6 +497,7 @@ Colour:
 | `hsla(h, s, l, a)` | As `hsl`, alpha 0..1. |
 | `mix(a, b, t)` | Per-channel linear blend including alpha. `t` clamped to 0..1. |
 | `withAlpha(c, a)` | Replaces alpha; `a` is 0..1, clamped. |
+| `withSaturation(c, s)` | Replaces saturation, keeping the hue, the brightness and the alpha; `s` is 0..1, clamped. Hue, saturation and **value**, not `hsl`'s lightness: a colour desaturated here keeps the brightness the eye reads, where the same move through `hsl` would drag it towards the midpoint. |
 
 String:
 

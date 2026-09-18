@@ -19,6 +19,23 @@ internal static class SampleDocument
             new[] { ("name", archive.Text("purple70")), ("parentColor", purple) },
             ("isDerived", true), ("operation", 2), ("operationAmount", 0.7d));
 
+        // The other two operations PaintCode derives a colour by, so a chain of all three is in
+        // here: the sample's own accentColorOff is desaturated, then shadowed, then given an alpha.
+        var purpleFade = archive.Object(
+            "PPColor",
+            new[] { ("name", archive.Text("purpleFade")), ("parentColor", purple) },
+            ("isDerived", true), ("operation", 2), ("operationAmount", 0.7d));
+
+        var purpleGrey = archive.Object(
+            "PPColor",
+            new[] { ("name", archive.Text("purpleGrey")), ("parentColor", purple) },
+            ("isDerived", true), ("operation", 3), ("operationAmount", 0.2d));
+
+        var purpleShade = archive.Object(
+            "PPColor",
+            new[] { ("name", archive.Text("purpleShade")), ("parentColor", purple) },
+            ("isDerived", true), ("operation", 1), ("operationAmount", 0.2d));
+
         var point = archive.Object(
             "PPPathPoint",
             ("position", archive.Text("{9.8047, -1.5499}")),
@@ -75,7 +92,7 @@ internal static class SampleDocument
 
         var desk = archive.Object("PPDesk", ("name", archive.Text("Overlays")), ("canvases", archive.Array(canvas)));
 
-        var library = archive.Object("PPLibrary", ("colors", archive.Array(purple)), ("variables", archive.Array(
+        var library = archive.Object("PPLibrary", ("colors", archive.Array(purple, purpleFade, purpleGrey, purpleShade)), ("variables", archive.Array(
             // The kinds PaintCode's own menu gives these: 5 is Boolean, 0 is Number. They used to be
             // 0 and 2 -- anything but 13 -- from when kind was read only to tell a derived variable
             // from an input, which made a boolean claim to be a number and a number a fraction.

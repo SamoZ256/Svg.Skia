@@ -42,9 +42,9 @@ internal static class PaintCodeReader
     // which writes the chain out: accentColorGray is colorByChangingSaturation(accentColorOn, 0.2),
     // accentColorGrayShadow is colorByApplyingShadow of that, and accentColorOff an alpha over it.
     // Those three are the only operations the sample's 29 derived colours use.
-    private const int OperationShadow = 1;
-    private const int OperationAlpha = 2;
-    private const int OperationSaturation = 3;
+    internal const int OperationShadow = 1;
+    internal const int OperationAlpha = 2;
+    internal const int OperationSaturation = 3;
 
     internal static PaintCodeDocument Load(string path)
     {
@@ -523,7 +523,14 @@ internal static class PaintCodeReader
 
             // usage 1 is what PaintCode itself takes as a parameter of the drawing: the five colours
             // marked it in the sample are exactly the five its generated methods ask for.
-            colors.Add(new PaintCodeLibraryColor(value.Name, value, (int)color["usage"].NumberOr(0) == 1, parent, alpha));
+            colors.Add(new PaintCodeLibraryColor(
+                value.Name,
+                value,
+                (int)color["usage"].NumberOr(0) == 1,
+                parent,
+                alpha,
+                derived ? (int)color["operation"].NumberOr(0) : 0,
+                derived ? color["operationAmount"].NumberOr(1) : 0));
         }
 
         return colors;

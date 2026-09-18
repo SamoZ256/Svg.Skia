@@ -8,14 +8,18 @@
       <e:param name="isLight" type="boolean" default="false" />
       <e:param name="whiteColor_" type="color" default="#ffffffff" />
       <e:param name="blackColor_" type="color" default="#1f2123ff" />
+      <e:param name="accentColorOn" type="color" default="#fb3e72ff" />
       <e:let name="whiteColor30">withAlpha(whiteColor_, 0.3)</e:let>
       <e:let name="blackColor30">withAlpha(blackColor_, 0.3)</e:let>
       <e:let name="stateGreenColor">(enabled and state) ? accent ? colorGreen : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30</e:let>
+      <e:let name="accentColorGray">withSaturation(accentColorOn, 0.002)</e:let>
+      <e:let name="accentColorGrayShadow">mix(accentColorGray, #000000ff, 0.2)</e:let>
+      <e:let name="accentColorOff">withAlpha(accentColorGrayShadow, 0.6)</e:let>
       <e:let name="notState">not state</e:let>
       <e:let name="stateWhiteColor">(enabled and state) ? not isLight ? whiteColor_ : blackColor_ : not isLight ? whiteColor30 : blackColor30</e:let>
     </e:code>
   </defs>
   <ellipse id="oval" cx="11.35" cy="11.35" rx="11.35" ry="11.35" fill="{{ stateGreenColor }}" display="{{ state }}" transform="translate(3.62,3.6683)" />
-  <ellipse id="oval-2" cx="11.35" cy="11.35" rx="11.35" ry="11.35" fill="#c8c7c7" fill-opacity="0.6" display="{{ notState }}" transform="translate(3.62,3.6683)" />
+  <ellipse id="oval-2" cx="11.35" cy="11.35" rx="11.35" ry="11.35" fill="{{ accentColorOff }}" display="{{ notState }}" transform="translate(3.62,3.6683)" />
   <path id="bezier" d="M0,3.9904L5.6201,9.9808L14.2915,0" fill="none" stroke="{{ stateWhiteColor }}" stroke-width="1.5" stroke-linejoin="round" transform="translate(7.7437,10.1943)" />
 </svg>

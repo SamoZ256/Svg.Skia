@@ -60,13 +60,15 @@ public sealed class PaintCodeDocument
 /// <summary>A colour the library names, and how a drawing gets at it.</summary>
 public sealed class PaintCodeLibraryColor
 {
-    internal PaintCodeLibraryColor(string name, PaintCodeColor value, bool isParameter, string? parentName, double? alpha)
+    internal PaintCodeLibraryColor(string name, PaintCodeColor value, bool isParameter, string? parentName, double? alpha, int operation = 0, double amount = 0)
     {
         Name = name;
         Value = value;
         IsParameter = isParameter;
         ParentName = parentName;
         Alpha = alpha;
+        Operation = operation;
+        Amount = amount;
     }
 
     public string Name { get; }
@@ -81,6 +83,12 @@ public sealed class PaintCodeLibraryColor
 
     /// <summary>The alpha a derived colour replaces its parent's with, where that is the derivation.</summary>
     public double? Alpha { get; }
+
+    /// <summary>PaintCode's own operation number, where this colour is derived from another.</summary>
+    public int Operation { get; }
+
+    /// <summary>What that operation was given: an alpha, a shade or a saturation.</summary>
+    public double Amount { get; }
 }
 
 public sealed class PaintCodeDesk

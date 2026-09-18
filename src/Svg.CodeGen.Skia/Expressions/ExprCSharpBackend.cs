@@ -42,6 +42,7 @@ internal static class ExprCSharpBackend
         [ExprFunction.Hsla] = ExprHelpers.Hsla,
         [ExprFunction.Mix] = ExprHelpers.Mix,
         [ExprFunction.WithAlpha] = ExprHelpers.WithAlpha,
+        [ExprFunction.WithSaturation] = ExprHelpers.WithSaturation,
         [ExprFunction.Upper] = ExprHelpers.Upper,
         [ExprFunction.Lower] = ExprHelpers.Lower,
         [ExprFunction.Len] = ExprHelpers.Len,

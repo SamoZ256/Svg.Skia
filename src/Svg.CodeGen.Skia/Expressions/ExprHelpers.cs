@@ -20,6 +20,7 @@ internal static class ExprHelpers
     public const string Hsla = "SvgHsla";
     public const string Mix = "SvgMix";
     public const string WithAlpha = "SvgWithAlpha";
+    public const string WithSaturation = "SvgWithSaturation";
     public const string Upper = "SvgUpper";
     public const string Lower = "SvgLower";
     public const string Len = "SvgLen";
@@ -131,6 +132,55 @@ internal static class ExprHelpers
         {
             $"private static SKColor {WithAlpha}(SKColor color, float a)",
             "    => color.WithAlpha((byte)Math.Round(Math.Clamp(a, 0f, 1f) * 255f));"
+        }),
+
+        // Written out rather than through SkiaSharp's own round trip, and in doubles: its ToHsv
+        // answers 60.000008 for yellow, which lands the far side of a sector boundary and turns one
+        // channel a byte darker. Character for character what ExprValueBackend computes, because
+        // ExprEvaluatorDifferentialTests holds the two to the same byte.
+        new(WithSaturation, new[]
+        {
+            $"private static SKColor {WithSaturation}(SKColor color, float s)",
+            "{",
+            "    var red = color.Red / 255d;",
+            "    var green = color.Green / 255d;",
+            "    var blue = color.Blue / 255d;",
+            "    var max = Math.Max(red, Math.Max(green, blue));",
+            "    var min = Math.Min(red, Math.Min(green, blue));",
+            "    var delta = max - min;",
+            "    var hue = 0d;",
+            "",
+            "    if (delta > 0d)",
+            "    {",
+            "        hue = max == red ? 60d * (((green - blue) / delta) % 6d)",
+            "            : max == green ? 60d * (((blue - red) / delta) + 2d)",
+            "            : 60d * (((red - green) / delta) + 4d);",
+            "    }",
+            "",
+            "    if (hue < 0d)",
+            "    {",
+            "        hue += 360d;",
+            "    }",
+            "",
+            "    var chroma = max * Math.Min(1d, Math.Max(0d, s));",
+            "    var sector = ((hue % 360d) + 360d) % 360d / 60d;",
+            "    var second = chroma * (1d - Math.Abs((sector % 2d) - 1d));",
+            "    var match = max - chroma;",
+            "",
+            "    var (r, g, b) = (int)sector switch",
+            "    {",
+            "        0 => (chroma, second, 0d),",
+            "        1 => (second, chroma, 0d),",
+            "        2 => (0d, chroma, second),",
+            "        3 => (0d, second, chroma),",
+            "        4 => (second, 0d, chroma),",
+            "        _ => (chroma, 0d, second)",
+            "    };",
+            "",
+            $"    return new SKColor({WithSaturation}Channel(r + match), {WithSaturation}Channel(g + match), {WithSaturation}Channel(b + match), color.Alpha);",
+            "}",
+            "",
+            $"private static byte {WithSaturation}Channel(double value) => (byte)(Math.Min(1d, Math.Max(0d, value)) * 255d);"
         }),
 
         // Invariant, or the generated code would fold a Turkish dotless i where the interpreter

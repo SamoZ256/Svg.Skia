@@ -39,6 +39,7 @@ public enum ExprFunction
     Hsla,
     Mix,
     WithAlpha,
+    WithSaturation,
     Upper,
     Lower,
     Len,
@@ -119,6 +120,12 @@ public static class ExprFunctions
         ["hsla"] = new[] { new ExprSignature(ExprFunction.Hsla, C, N, N, N, N) },
         ["mix"] = new[] { new ExprSignature(ExprFunction.Mix, C, C, C, N) },
         ["withAlpha"] = new[] { new ExprSignature(ExprFunction.WithAlpha, C, C, N) },
+
+        // Value, not lightness: this is the space SkiaSharp's own ToHsv works in, and a colour
+        // desaturated there keeps the brightness the eye reads rather than the midpoint hsl would
+        // move it to. Written beside withAlpha because it is the same shape of thing -- one channel
+        // of a colour replaced, the rest of it left alone.
+        ["withSaturation"] = new[] { new ExprSignature(ExprFunction.WithSaturation, C, C, N) },
         ["upper"] = new[] { new ExprSignature(ExprFunction.Upper, S, S) },
         ["lower"] = new[] { new ExprSignature(ExprFunction.Lower, S, S) },
 
