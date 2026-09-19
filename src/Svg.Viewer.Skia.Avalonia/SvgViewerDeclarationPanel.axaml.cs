@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -128,11 +128,20 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// all. A file that would not open has no parameters the way it has no colours, and a note that
     /// it declares none reads as a fact about the file rather than about the failure to read it.
     /// </remarks>
+    /// <summary>What to say on a row about where it was declared, or null to say nothing.</summary>
+    /// <remarks>
+    /// Asked by name, of every row, whenever the rows are shown. Here rather than on the rows the
+    /// host builds, because the lets are built in this panel and the two have to read alike.
+    /// </remarks>
+    public Func<string, string?>? DeclaredBy { get; set; }
+
     public IReadOnlyList<SvgViewerParameter>? Parameters
     {
         get => _source;
         set
         {
+            ShowOwners(value);
+
             if (ReferenceEquals(_source, value))
             {
                 // The same rows again, which is a reload that changed none of them: rebuilding the
@@ -160,6 +169,15 @@ public partial class SvgViewerDeclarationPanel : UserControl
             ShowEmpty();
 
             ShowActions();
+        }
+    }
+
+    /// <summary>Says on each row where it was declared, for the rows that came from elsewhere.</summary>
+    private void ShowOwners(IReadOnlyList<SvgViewerParameter>? rows)
+    {
+        foreach (var row in rows ?? Array.Empty<SvgViewerParameter>())
+        {
+            row.OwnerLabel = DeclaredBy?.Invoke(row.Name);
         }
     }
 
@@ -198,6 +216,13 @@ public partial class SvgViewerDeclarationPanel : UserControl
             .Where(let => let.IsDraft && !Declares(declared, let.Name.Trim()))
             .ToList();
 
+        // Before the unchanged check as well as after it: the same lets can be held somewhere else
+        // than they were, which is what renaming a group above this drawing does.
+        foreach (var let in _lets)
+        {
+            let.OwnerLabel = DeclaredBy?.Invoke(let.Name);
+        }
+
         if (Unchanged(declared, drafts.Count))
         {
             _emptyLetLabel.IsVisible = _hasDocument && _lets.Count == 0;
@@ -213,7 +238,7 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
         foreach (var let in declared ?? Array.Empty<SvgExpressionLet>())
         {
-            Add(new SvgViewerLet(let));
+            Add(new SvgViewerLet(let) { OwnerLabel = DeclaredBy?.Invoke(let.Name) });
         }
 
         foreach (var draft in drafts)

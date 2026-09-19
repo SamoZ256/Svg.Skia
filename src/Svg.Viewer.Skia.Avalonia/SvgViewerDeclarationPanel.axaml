@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia"
              x:Class="Svg.Viewer.Skia.Avalonia.SvgViewerDeclarationPanel">
@@ -89,7 +89,11 @@
                   ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
             <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
-          <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding OwnerLabel}" IsVisible="{Binding HasOwnerLabel}"
+                       Opacity="0.55" FontSize="11" VerticalAlignment="Center" />
+          </StackPanel>
           <NumericUpDown Grid.Column="2"
                          Width="110"
                          Value="{Binding Value, Mode=TwoWay}"
@@ -119,7 +123,11 @@
                   ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
             <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
-          <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding OwnerLabel}" IsVisible="{Binding HasOwnerLabel}"
+                       Opacity="0.55" FontSize="11" VerticalAlignment="Center" />
+          </StackPanel>
           <NumericUpDown Grid.Column="2"
                          Width="110"
                          Value="{Binding Value, Mode=TwoWay}"
@@ -150,7 +158,11 @@
                 ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
           <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
-        <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding OwnerLabel}" IsVisible="{Binding HasOwnerLabel}"
+                     Opacity="0.55" FontSize="11" VerticalAlignment="Center" />
+        </StackPanel>
         <CheckBox Grid.Column="2" IsChecked="{Binding Value, Mode=TwoWay}" />
         <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
                 ToolTip.Tip="Edit this parameter" />
@@ -166,7 +178,11 @@
                 ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
           <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
-        <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding OwnerLabel}" IsVisible="{Binding HasOwnerLabel}"
+                     Opacity="0.55" FontSize="11" VerticalAlignment="Center" />
+        </StackPanel>
         <!-- Plain text, not the expression box: the row holds the value, not an expression for it. -->
         <TextBox Grid.Column="2" Width="140" FontFamily="monospace"
                  Text="{Binding Value, Mode=TwoWay}" />
@@ -184,7 +200,11 @@
                 ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
           <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
-        <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding OwnerLabel}" IsVisible="{Binding HasOwnerLabel}"
+                     Opacity="0.55" FontSize="11" VerticalAlignment="Center" />
+        </StackPanel>
         <ColorPicker Grid.Column="2" Color="{Binding Color, Mode=TwoWay}" />
         <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
                 ToolTip.Tip="Edit this parameter" />
@@ -212,10 +232,16 @@
                    Text="{Binding Name, Mode=TwoWay}"
                    PlaceholderText="name"
                    KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
-          <TextBlock Grid.Column="2" Text="{Binding Readout}" Opacity="0.55" FontSize="11"
-                     FontFamily="monospace" TextTrimming="CharacterEllipsis"
-                     HorizontalAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0"
-                     IsVisible="{Binding !HasTrouble}" />
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
+                      HorizontalAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0">
+            <!-- Where the let is written, for a row that came from further up than this drawing. -->
+            <TextBlock Text="{Binding OwnerLabel}" IsVisible="{Binding HasOwnerLabel}"
+                       Opacity="0.55" FontSize="11" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding Readout}" Opacity="0.55" FontSize="11"
+                       FontFamily="monospace" TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center"
+                       IsVisible="{Binding !HasTrouble}" />
+          </StackPanel>
           <Button Grid.Column="3" Classes="edit" Content="✕" Click="OnRemoveLetClick"
                   ToolTip.Tip="Remove this let. Refused while the drawing still uses it." />
         </Grid>

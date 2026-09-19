@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -34,6 +34,17 @@ public sealed class SvgViewerLet : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public SvgExpressionLet? Declaration { get; }
+
+    /// <summary>Where this was declared, where that is worth saying on the row.</summary>
+    /// <remarks>
+    /// Null for a row the document declares itself, which is the ordinary case. A host whose drawing
+    /// inherits — a Svg.Studio project, where a group declares for everything under it — names the
+    /// group here, and the row says so. Set before the row is handed over, so it raises no change.
+    /// </remarks>
+    public string? OwnerLabel { get; set; }
+
+    /// <summary>Whether there is an owner worth naming on the row.</summary>
+    public bool HasOwnerLabel => OwnerLabel is { Length: > 0 };
 
     public string Name
     {

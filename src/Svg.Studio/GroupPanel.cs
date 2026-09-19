@@ -576,9 +576,10 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
+        // The name a command is about is not read here yet: every row on this panel comes from the
+        // one drawing that is picked.
         _commands = new SvgViewerDeclarationCommands(
-            () => _target?.Text ?? string.Empty,
-            Splice,
+            (_, label, edit) => Splice(label, edit),
             () => _parameters.Parameters ?? Array.Empty<SvgViewerParameter>(),
             () => ParameterDialogService);
 

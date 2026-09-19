@@ -201,14 +201,18 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _canvas.EditEnded += (_, _) => EndEdit();
         _canvas.EditCancelled += (_, _) => CancelEdit();
         _panel.ValueChanged += (_, _) => RequestApply();
+        _panel.DeclaredBy = name => DeclaredBy?.Invoke(name);
 
         // Fired and forgotten: a click is not something to await, and the two report what they did
         // through the note and the drawing like every other edit.
         _commands = new SvgViewerDeclarationCommands(
-            Declarations,
             Write,
             () => _rows,
-            () => ParameterDialogService);
+            () => ParameterDialogService)
+        {
+            Holder = name => DeclarationTargetOf?.Invoke(name) ?? DeclarationTarget,
+            UsedElsewhere = name => TargetFor(name)?.UsesElsewhere(name) ?? 0
+        };
 
         _panel.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
         _panel.CommitRequested += (_, _) => CommitParameterDefaults();
@@ -268,10 +272,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <remarks>
     /// For a host whose drawing is derived from its file — a Svg.Studio project, where a group
     /// declares an <c>&lt;e:code&gt;</c> block into everything under it, or an svgc project applying
-    /// a recipe. What is built is not what the file says. <see cref="Source"/> is still the file itself, and
-    /// saving writes that, so a document set up this way declares things its own text does not;
-    /// where the panel's commands
-    /// should write those is <see cref="DeclarationTarget"/>.
+    /// a recipe. What is built is not what the file says. <see cref="Source"/> is still the file
+    /// itself, and saving writes that, so a document set up this way declares things its own text
+    /// does not; where the panel's commands should write those is <see cref="DeclarationTargetOf"/>,
+    /// and failing that <see cref="DeclarationTarget"/>.
     ///
     /// Applies to a drawing loaded from a path, and to every rebuild of it. It takes effect on the
     /// next load, which is the caller's to make.
@@ -579,9 +583,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// What a row cannot be edited by, where the drawing is not the file it came from.
     /// </summary>
     /// <remarks>
-    /// A drawing built through <see cref="Rewrite"/> — an svgc recipe — has rows its file has never
-    /// heard of, and the rest sit at addresses the file spells differently. An edit goes to the
-    /// file, so a row is written by the address it has there and not by the one it has here.
+    /// A drawing built through <see cref="Rewrite"/> — a Svg.Studio group's block, an svgc recipe —
+    /// has rows its file has never heard of, and the rest sit at addresses the file spells
+    /// differently. An edit goes to the file, so a row is written by the address it has there and
+    /// not by the one it has here.
     /// </remarks>
     private const string Unwritten = "That row is not written in this file, so it cannot be moved here.";
 
@@ -1419,14 +1424,35 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// Where the declaration commands write, when that is not the drawing itself.
     /// </summary>
     /// <remarks>
-    /// For a host whose drawing declares things its own text does not: an svgc project applying a
-    /// recipe puts the parameters in the recipe file, and every command below would otherwise write
-    /// them into the drawing — which would also give it a declaration block of its own, and a recipe
-    /// refuses a document that already has one.
+    /// For a host whose drawing declares things its own text does not, and keeps all of them in one
+    /// other place: an svgc project applying a recipe puts the parameters in the recipe file, and
+    /// every command below would otherwise write them into the drawing — which would also give it a
+    /// declaration block of its own, and a recipe refuses a document that already has one.
     ///
-    /// Set alongside <see cref="Rewrite"/>, which is what put the declarations there to begin with.
+    /// <see cref="DeclarationTargetOf"/> is the same idea per declaration, for a drawing that keeps
+    /// some of them itself; it is asked first. Both are set alongside <see cref="Rewrite"/>, which is
+    /// what put the declarations there to begin with.
     /// </remarks>
     public ISvgViewerDeclarationTarget? DeclarationTarget { get; set; }
+
+    /// <summary>
+    /// Where one declaration is written, for a drawing that inherits some of what it declares.
+    /// </summary>
+    /// <remarks>
+    /// Asked of each declaration by name, and answering null leaves it to
+    /// <see cref="DeclarationTarget"/> and then to the drawing itself. For a host whose drawing is
+    /// built with blocks written above it — a Svg.Studio project, where a group declares for
+    /// everything under it — so that editing an inherited row changes the group that holds it, and
+    /// therefore every drawing that inherits the same block.
+    ///
+    /// Set alongside <see cref="Rewrite"/>, which is what put those declarations here, and
+    /// <see cref="DeclaredBy"/>, which is what says so on the row.
+    /// </remarks>
+    public Func<string, ISvgViewerDeclarationTarget?>? DeclarationTargetOf { get; set; }
+
+    /// <summary>What to say on a row about where it was declared, or null to say nothing.</summary>
+    /// <remarks>Read as each row is built, and shown beside the name.</remarks>
+    public Func<string, string?>? DeclaredBy { get; set; }
 
     /// <summary>The drawing as it stands, for a host writing declarations into it.</summary>
     /// <remarks>
@@ -1468,10 +1494,18 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private string Declarations()
         => _document is { } document ? document.Built(PaneSource()) : PaneSource();
 
+    /// <summary>Where the declaration called <paramref name="name"/> is written.</summary>
+    /// <remarks>
+    /// The row's own document where a host says so, this drawing's <see cref="DeclarationTarget"/>
+    /// otherwise, and the drawing itself where there is neither.
+    /// </remarks>
+    private ISvgViewerDeclarationTarget? TargetFor(string name)
+        => DeclarationTargetOf?.Invoke(name) ?? DeclarationTarget;
+
     /// <summary>Whether there is anywhere to write a declaration, saying so when there is not.</summary>
     private bool Editable()
     {
-        if (DeclarationTarget is { })
+        if (DeclarationTarget is { } || DeclarationTargetOf is { })
         {
             return true;
         }
@@ -1484,9 +1518,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// The refusal is reported here either way, so a host supplying a target has one thing to do
     /// with an edit and nothing to say about it.
     /// </remarks>
-    private bool Write(string label, Func<SvgSourceDocument, string?> edit)
+    private bool Write(string name, string label, Func<SvgSourceDocument, string?> edit)
     {
-        if (DeclarationTarget is not { } target)
+        if (TargetFor(name) is not { } target)
         {
             return Commit(label, edit);
         }
@@ -2064,9 +2098,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     /// <summary>The brush key a token kind is painted from.</summary>
     /// <remarks>
-    /// Public because a host paints expressions of its own — Svg.Studio's recipe rules do: a host
-    /// colouring its own source view has to reach the same brush for the same kind, or two panes in
-    /// one window paint the same text differently.
+    /// Public because a host paints expressions of its own: one colouring its own source view has to
+    /// reach the same brush for the same kind, or two panes in one window paint the same text
+    /// differently.
     /// </remarks>
     public static string SourceResourceKey(SvgSourceTokenKind kind) => kind switch
     {

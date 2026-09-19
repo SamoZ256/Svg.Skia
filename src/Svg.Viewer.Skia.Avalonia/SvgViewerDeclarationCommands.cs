@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -19,41 +19,58 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// committing to it means, so both are handed in and the commands themselves are host-agnostic.
 ///
 /// Here rather than in <see cref="SvgViewer"/> because the viewer is no longer the only thing that
-/// shows a panel: a project group's tab shows the parameters of the recipe its drawings are built
-/// through, and the commands there have to write into the same recipe in the same way. A second copy
-/// would be a second set of answers about what a rename does.
+/// shows a panel: a project group's tab shows what the group declares for the drawings under it, and
+/// the commands there have to write into the group in the same way. A second copy would be a second
+/// set of answers about what a rename does.
+///
+/// One instance per document, so a panel whose rows come from several — a drawing and the groups it
+/// inherits from — keeps one of these per owner and picks by the row.
 /// </remarks>
 public sealed class SvgViewerDeclarationCommands
 {
-    private readonly Func<string> _text;
-    private readonly Func<string, Func<SvgSourceDocument, string?>, bool> _write;
+    private readonly Func<string, string, Func<SvgSourceDocument, string?>, bool> _write;
     private readonly Func<IReadOnlyList<SvgViewerParameter>> _rows;
     private readonly Func<ISvgViewerParameterDialogService> _dialogs;
 
-    /// <param name="text">The document the declarations are in, as it currently stands.</param>
     /// <param name="write">
     /// What to do with the edit a command comes to, and where a refusal is reported. It is handed
-    /// what the person did, for a menu to name, and answers whether the document changed.
+    /// the declaration the edit is about, so a host whose rows come from several documents knows
+    /// which of them to write; what the person did, for a menu to name; and the edit. It answers
+    /// whether the document changed.
     /// </param>
     /// <param name="rows">
-    /// The rows on show. They are what a name has to avoid clashing with and what a commit reads;
-    /// a function rather than a list because they are rebuilt whenever the declarations change.
+    /// The rows on show — every one of them, inherited or not. They are what a name has to avoid
+    /// clashing with and what a commit reads; a function rather than a list because they are rebuilt
+    /// whenever the declarations change.
     /// </param>
     /// <param name="dialogs">
     /// How to ask what to declare. Read at the moment of asking, since a host may replace it — a
     /// test does exactly that.
     /// </param>
     public SvgViewerDeclarationCommands(
-        Func<string> text,
-        Func<string, Func<SvgSourceDocument, string?>, bool> write,
+        Func<string, string, Func<SvgSourceDocument, string?>, bool> write,
         Func<IReadOnlyList<SvgViewerParameter>> rows,
         Func<ISvgViewerParameterDialogService> dialogs)
     {
-        _text = text ?? throw new ArgumentNullException(nameof(text));
         _write = write ?? throw new ArgumentNullException(nameof(write));
         _rows = rows ?? throw new ArgumentNullException(nameof(rows));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
     }
+
+    /// <summary>How often a name is used outside the document that declares it, or null.</summary>
+    /// <remarks>
+    /// Set by a host whose documents declare on one another's behalf — a Svg.Studio group, whose
+    /// drawings are where its parameters are used. Removal is the only command that asks.
+    /// </remarks>
+    public Func<string, int>? UsedElsewhere { get; set; }
+
+    /// <summary>What holds a declaration, for a host whose rows come from several documents.</summary>
+    /// <remarks>
+    /// Only <see cref="SetDefaults"/> asks, because it is the one command about several rows at
+    /// once and has to make one write per document rather than one for the lot. Null answers that
+    /// every row is held in the same place, which is the ordinary case.
+    /// </remarks>
+    public Func<string, object?>? Holder { get; set; }
 
     /// <summary>Asks for a parameter and writes it where the declarations live.</summary>
     public async Task<bool> AddAsync(TopLevel? owner)
@@ -64,7 +81,8 @@ public sealed class SvgViewerDeclarationCommands
             .AskAsync(owner, taken)
             .ConfigureAwait(true);
 
-        return parameter is { } declared && _write($"add {declared.Name}", source => SvgDeclarationEditor.Add(source, declared));
+        return parameter is { } declared
+               && _write(declared.Name, $"add {declared.Name}", source => SvgDeclarationEditor.Add(source, declared));
     }
 
     /// <summary>Asks what one parameter should declare, and writes the answer.</summary>
@@ -86,7 +104,7 @@ public sealed class SvgViewerDeclarationCommands
             .ConfigureAwait(true);
 
         return replacement is { } wanted
-            && _write($"change {parameter.Name}", source => SvgDeclarationEditor.Update(source, parameter.Name, wanted));
+            && _write(parameter.Name, $"change {parameter.Name}", source => SvgDeclarationEditor.Update(source, parameter.Name, wanted));
     }
 
     /// <summary>Takes one parameter out.</summary>
@@ -97,7 +115,7 @@ public sealed class SvgViewerDeclarationCommands
             throw new ArgumentNullException(nameof(parameter));
         }
 
-        return _write($"remove {parameter.Name}", source => SvgDeclarationEditor.Remove(source, parameter.Name));
+        return _write(parameter.Name, $"remove {parameter.Name}", source => SvgDeclarationEditor.Remove(source, parameter.Name, UsedElsewhere));
     }
 
     /// <summary>Writes every value somebody chose in as the declared default.</summary>
@@ -107,14 +125,22 @@ public sealed class SvgViewerDeclarationCommands
     /// </remarks>
     public bool SetDefaults()
     {
-        var changed = new Dictionary<string, string>(StringComparer.Ordinal);
+        var wrote = false;
 
-        foreach (var row in _rows().Where(row => row.IsModified))
+        // One write per document rather than one for the lot: a panel showing what a drawing
+        // declares beside what it inherits has rows from several, and SetDefaults refuses a name the
+        // document it is given does not declare.
+        foreach (var held in _rows().Where(row => row.IsModified).GroupBy(row => Holder?.Invoke(row.Name)))
         {
-            changed[row.Name] = row.ToExpression();
+            var changed = held.ToDictionary(row => row.Name, row => row.ToExpression(), StringComparer.Ordinal);
+
+            wrote |= _write(
+                held.First().Name,
+                "keep these values",
+                source => SvgDeclarationEditor.SetDefaults(source, changed));
         }
 
-        return changed.Count > 0 && _write("keep these values", source => SvgDeclarationEditor.SetDefaults(source, changed));
+        return wrote;
     }
 
     /// <summary>Writes what a let row says, declaring it if it is not there yet.</summary>
@@ -129,8 +155,8 @@ public sealed class SvgViewerDeclarationCommands
         var expression = let.Expression.Trim();
 
         return let.Declaration is { } declared
-            ? _write($"change {declared.Name}", source => SvgDeclarationEditor.UpdateLet(source, declared.Name, name, expression))
-            : _write($"add {name}", source => SvgDeclarationEditor.AddLet(source, name, expression));
+            ? _write(declared.Name, $"change {declared.Name}", source => SvgDeclarationEditor.UpdateLet(source, declared.Name, name, expression))
+            : _write(name, $"add {name}", source => SvgDeclarationEditor.AddLet(source, name, expression));
     }
 
     /// <summary>Moves a let to <paramref name="to"/> among the lets.</summary>
@@ -142,7 +168,7 @@ public sealed class SvgViewerDeclarationCommands
         }
 
         return let.Declaration is { } declared
-               && _write($"move {declared.Name}", source => SvgDeclarationEditor.MoveLet(source, declared.Name, to));
+               && _write(declared.Name, $"move {declared.Name}", source => SvgDeclarationEditor.MoveLet(source, declared.Name, to));
     }
 
     /// <summary>Takes one let out.</summary>
@@ -154,7 +180,7 @@ public sealed class SvgViewerDeclarationCommands
         }
 
         return let.Declaration is { } declared
-               && _write($"remove {declared.Name}", source => SvgDeclarationEditor.RemoveLet(source, declared.Name));
+               && _write(declared.Name, $"remove {declared.Name}", source => SvgDeclarationEditor.RemoveLet(source, declared.Name, UsedElsewhere));
     }
 
     /// <summary>Moves a parameter to <paramref name="to"/> among the parameters.</summary>
@@ -165,6 +191,6 @@ public sealed class SvgViewerDeclarationCommands
             throw new ArgumentNullException(nameof(parameter));
         }
 
-        return _write($"move {parameter.Name}", source => SvgDeclarationEditor.MoveParameter(source, parameter.Name, to));
+        return _write(parameter.Name, $"move {parameter.Name}", source => SvgDeclarationEditor.MoveParameter(source, parameter.Name, to));
     }
 }
