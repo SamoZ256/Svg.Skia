@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -849,14 +849,12 @@ public class MainWindowProjectTests : IDisposable
     {
         // Every rebuild of a group's tab used to empty the Parameters and Element tabs. A settings
         // edit did it; a drawing moved on the board would do it on every drop.
-        var window = await Host(Own(Declaring, Declaring));
+        var window = await Host(Owned(GroupTint, Using, UsingRound));
         var panel = await Group(window, 0);
 
         Pick(window, panel, 1);
 
-        var picked = Declarations(panel).Parameters!.Single().Name;
-
-        Assert.Equal("tint", picked);
+        Assert.Equal("tint", Declarations(panel).Parameters!.Single().Name);
 
         // A rebuild, by the route a saved setting takes.
         panel.Refresh();
@@ -2052,10 +2050,12 @@ public class MainWindowProjectTests : IDisposable
     }
 
     private static async Task<GroupPanel> Group(MainWindow window, int child)
-    {
-        var root = (TreeViewItem)Tree(window).Items[0]!;
+        => await Opened(window, (ProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[child]!).Tag!);
 
-        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[child]!).Tag!);
+    /// <summary>Opens <paramref name="node"/> in a tab and lays the window out, so it has a board.</summary>
+    private static async Task<GroupPanel> Opened(MainWindow window, ProjectNode node)
+    {
+        await window.ShowAsync(node);
         Dispatcher.UIThread.RunJobs();
 
         var panel = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
@@ -2074,6 +2074,15 @@ public class MainWindowProjectTests : IDisposable
         var area = Area(Drawn(panel)[index]);
 
         Click(window, canvas, Over(canvas, area.MidX, area.MidY));
+    }
+
+    /// <summary>Lets go of the selection by clicking the board beside every drawing on it.</summary>
+    private static void Deselect(MainWindow window, GroupPanel panel)
+    {
+        var canvas = Canvas(panel);
+        var board = Drawn(panel).Select(Area).ToList();
+
+        Click(window, canvas, Over(canvas, board.Max(area => area.Right) + 40f, board.Max(area => area.Bottom) + 40f));
     }
 
     /// <summary>
@@ -2099,30 +2108,23 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task Nothing_Picked_Says_To_Pick_Something()
+    public async Task A_Group_Declaring_Nothing_Still_Offers_A_Parameter()
     {
-
         var window = await Host(Write("icons.svgstudio", Pair));
         var panel = await Group(window, 0);
 
-        // The tabs are about a drawing, and a group builds several: it cannot guess which.
-        Assert.Null(Declarations(panel).Parameters);
-
-        var note = panel.GetVisualDescendants().OfType<TextBlock>()
-            .FirstOrDefault(block => block.Text is { } said && said.Contains("Pick a drawing"));
-
-        Assert.NotNull(note);
+        // Empty and not null: null reads as "no document" and takes the Add button away with it,
+        // which is the one button a group that has never declared anything needs.
+        Assert.Empty(Declarations(panel).Parameters!);
     }
 
     [AvaloniaFact]
-    public async Task The_Parameters_Are_The_Picked_Drawings()
+    public async Task The_Parameters_Are_The_Groups()
     {
-        var window = await Host(Own(Declaring, Declaring));
+        var window = await Host(Owned(GroupTint, Using, Using));
         var panel = await Group(window, 0);
 
-        Pick(window, panel, 0);
-
-        // Read off the drawing as built, which is what a viewer would show for it.
+        // Without picking anything: a group's parameters are the group's.
         Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
     }
 
@@ -2211,6 +2213,67 @@ public class MainWindowProjectTests : IDisposable
         </svg>
         """;
 
+    /// <summary>A drawing that uses a parameter without declaring it. Its group does.</summary>
+    private const string Using = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+          <rect width="24" height="24" fill="{{ tint }}" />
+        </svg>
+        """;
+
+    /// <summary>The same, drawn as something else, so two of them are not one picture twice.</summary>
+    private const string UsingRound = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+          <circle cx="12" cy="12" r="10" fill="{{ tint }}" />
+        </svg>
+        """;
+
+    /// <summary>Uses what its group declares, and declares a knob of its own besides.</summary>
+    private const string UsingAndDeclaring = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="ring" type="number" default="2" min="0" max="10" /></e:code></defs>
+          <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke-width="{{ ring }}" stroke="#000000" />
+        </svg>
+        """;
+
+    /// <summary>Another with a knob of its own, spelled the same and belonging to it alone.</summary>
+    private const string UsingAndDeclaringSquare = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="ring" type="number" default="2" min="0" max="10" /></e:code></defs>
+          <rect x="3" y="3" width="18" height="18" fill="{{ tint }}" stroke-width="{{ ring }}" stroke="#000000" />
+        </svg>
+        """;
+
+    /// <summary>What a group declares for everything under it: one colour.</summary>
+    private const string GroupTint = """
+        <e:code xmlns:e="https://svg.skia/expr/1.0"><e:param name="tint" type="color" default="#00ff00" /></e:code>
+        """;
+
+    /// <summary>A project whose group declares <paramref name="code"/> for the drawings given.</summary>
+    private string Owned(string code, params string[] drawings)
+    {
+        var names = new[] { "one", "two", "three" };
+        var classes = new[] { "One", "Two", "Three" };
+
+        var rows = drawings.Select((svg, index) =>
+            $"""    <drawing name="{names[index]}" class="{classes[index]}">\n      """
+            + svg.Replace("\n", "\n      ", StringComparison.Ordinal)
+            + "\n    </drawing>");
+
+        return Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons">
+              <group name="Own" namespace="Demo.Icons.Own">
+                {code.Replace("\n", "\n    ", StringComparison.Ordinal)}
+            {string.Join("\n", rows)}
+              </group>
+            </studio>
+
+            """);
+    }
+
+    /// <summary>What one drawing on the board is currently rendering <paramref name="name"/> at.</summary>
+    private static string Value(SvgViewerPlacement placed, string name)
+        => placed.Svg.ExpressionValues![name].ToString();
+
     /// <summary>A project holding the drawings given, in one group, named after their order.</summary>
     private string Own(params string[] drawings)
     {
@@ -2244,11 +2307,9 @@ public class MainWindowProjectTests : IDisposable
     [AvaloniaFact]
     public async Task A_Value_Survives_A_Drawing_Being_Moved()
     {
-        var window = await Host(Own(Declaring, Declaring));
+        var window = await Host(Owned(GroupTint, Using, UsingRound));
         var panel = await Group(window, 0);
         var canvas = Canvas(panel);
-
-        Pick(window, panel, 0);
 
         ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
         Dispatcher.UIThread.RunJobs();
@@ -2271,10 +2332,8 @@ public class MainWindowProjectTests : IDisposable
     [AvaloniaFact]
     public async Task A_Value_Survives_The_Drawings_Being_Read_Again()
     {
-        var window = await Host(Own(Declaring, Declaring));
+        var window = await Host(Owned(GroupTint, Using, UsingRound));
         var panel = await Group(window, 0);
-
-        Pick(window, panel, 0);
 
         ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
         Dispatcher.UIThread.RunJobs();
@@ -2293,105 +2352,165 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task A_Value_Reaches_Every_Drawing_Declaring_The_Same_Thing()
+    public async Task A_Value_Reaches_Every_Drawing_Under_The_Group()
     {
-        // Not the same file either -- a rect and a circle, seeded at two
-        // different colours. What pairs them is what they declare: a default is where a drawing
-        // starts rather than what it takes, so a family caught at two points is still one family.
-        var window = await Host(Own(Declaring, DeclaringSeededDifferently, DeclaringAnother));
+        // The whole point of the group declaring rather than the drawings: none of these says
+        // anything about a tint, and all three are built with the one the group holds.
+        var window = await Host(Owned(GroupTint, Using, UsingRound, Using));
         var panel = await Group(window, 0);
 
         var placements = Drawn(panel);
 
         Assert.Equal(3, placements.Count);
 
-        Pick(window, panel, 0);
-
         var before = placements.Select(placed => placed.Svg.Picture).ToArray();
 
         ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
         Dispatcher.UIThread.RunJobs();
 
-        Assert.NotSame(before[0], placements[0].Svg.Picture);
-        Assert.NotSame(before[1], placements[1].Svg.Picture);
-
-        // Another name, so another parameter, and it moves alone.
-        Assert.Same(before[2], placements[2].Svg.Picture);
+        Assert.All(placements, placed => Assert.Equal("#ff0000ff", Value(placed, "tint")));
+        Assert.All(placements.Select((placed, index) => (placed, index)),
+            pair => Assert.NotSame(before[pair.index], pair.placed.Svg.Picture));
     }
 
     /// <summary>
-    /// One parameter in common is enough. A set of icons is one palette and a knob here and there,
-    /// so asking two drawings to agree about everything took a drawing out of the family for owning
-    /// a parameter nobody else had.
+    /// What a drawing declares for itself it keeps. The call binding a value replaces everything
+    /// bound, so a knob of its own has to go back in around the one the group moved.
     /// </summary>
     [AvaloniaFact]
-    public async Task A_Value_Reaches_A_Drawing_Declaring_More_Besides()
+    public async Task A_Drawing_Keeps_The_Parameters_It_Declares_Itself()
     {
-        var window = await Host(Own(Declaring, DeclaringMore, DeclaringAnother));
+        var window = await Host(Owned(GroupTint, UsingAndDeclaring, Using));
         var panel = await Group(window, 0);
 
         var placements = Drawn(panel);
 
-        Pick(window, panel, 0);
-
-        var before = placements.Select(placed => placed.Svg.Picture).ToArray();
+        // The group's rows are the group's: the knob one drawing declares is not among them.
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
 
         ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
         Dispatcher.UIThread.RunJobs();
 
-        // The one that declares tint and a ring of its own takes the tint.
-        Assert.NotSame(before[0], placements[0].Svg.Picture);
-        Assert.NotSame(before[1], placements[1].Svg.Picture);
+        Assert.Equal("#ff0000ff", Value(placements[0], "tint"));
+        Assert.Equal("#ff0000ff", Value(placements[1], "tint"));
 
-        // The one that declares neither is left alone.
-        Assert.Same(before[2], placements[2].Svg.Picture);
-    }
-
-    /// <summary>
-    /// What a drawing does not share it keeps. The call binding a value replaces everything bound,
-    /// so the parameters it declares alone have to go back in around the one that moved.
-    /// </summary>
-    [AvaloniaFact]
-    public async Task A_Drawing_Keeps_The_Parameters_It_Does_Not_Share()
-    {
-        var window = await Host(Own(DeclaringMore, Declaring));
-        var panel = await Group(window, 0);
-
-        var placements = Drawn(panel);
-
-        // Dragged on the drawing that has both, so the other takes the tint and knows nothing of
-        // the ring.
-        Pick(window, panel, 0);
-
-        var rows = Declarations(panel).Parameters!;
-
-        ((SvgViewerNumberParameter)rows.Single(row => row.Name == "ring")).Value = 6d;
-        Dispatcher.UIThread.RunJobs();
-
-        var before = placements.Select(placed => placed.Svg.Picture).ToArray();
-
-        ((SvgViewerColorParameter)rows.Single(row => row.Name == "tint")).Color = Colors.Red;
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.NotSame(before[0], placements[0].Svg.Picture);
-        Assert.NotSame(before[1], placements[1].Svg.Picture);
-
-        // The ring is still where it was dragged, and the drawing still renders.
-        Assert.Equal(6d, ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single(row => row.Name == "ring")).Value);
+        // Still where its own declaration puts it, and the drawing still renders.
+        Assert.Equal("2", Value(placements[0], "ring"));
         Assert.NotNull(placements[0].Svg.Picture);
     }
 
     /// <summary>
-    /// Picking a drawing that shares one of several shows that one where the drag left it, and the
-    /// rest at what it declares.
+    /// A nested group shows what it inherits above what it declares, outermost first.
     /// </summary>
+    /// <remarks>
+    /// The order is the order the drawings are built in, which is the order the generated arguments
+    /// come out in — so a panel that showed it any other way would be describing another document.
+    /// </remarks>
     [AvaloniaFact]
-    public async Task Picking_A_Drawing_That_Shares_One_Keeps_That_One()
+    public async Task A_Nested_Group_Shows_What_It_Inherits_Above_Its_Own()
     {
-        var window = await Host(Own(Declaring, DeclaringMore));
+        var path = Write("icons.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <e:code xmlns:e="https://svg.skia/expr/1.0"><e:param name="tint" type="color" default="#00ff00" /></e:code>
+              <group name="Inner">
+                <e:code xmlns:e="https://svg.skia/expr/1.0"><e:param name="ring" type="number" default="2" min="0" max="10" /></e:code>
+                <drawing name="one">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke-width="{{ ring }}" stroke="#000000" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+        var window = await Host(path);
         var panel = await Group(window, 0);
 
-        Pick(window, panel, 0);
+        Assert.Equal(
+            new[] { "tint", "ring" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        // And each says where it came from, for the one that came from further up.
+        var rows = Declarations(panel).Parameters!;
+
+        Assert.Equal("Project", rows[0].OwnerLabel);
+        Assert.Equal("Inner", rows[1].OwnerLabel);
+
+        // Each begins a run of its own, so each wears a heading.
+        Assert.True(rows[0].ShowsOwner);
+        Assert.True(rows[1].ShowsOwner);
+    }
+
+    /// <summary>A parameter moved on an inherited row moves every drawing under the group holding it.</summary>
+    [AvaloniaFact]
+    public async Task An_Inherited_Row_Moves_What_The_Group_Above_Declares_For()
+    {
+        var path = Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons">
+              {GroupTint}
+              <group name="Inner">
+                <drawing name="one">
+            {Using.Replace("\n", "\n      ", StringComparison.Ordinal).Insert(0, "      ")}
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+        var window = await Host(path);
+
+        // The nested group's tab, whose only row is the project's.
+        var panel = await Group(window, 0);
+
+        var row = Declarations(panel).Parameters!.Single();
+
+        Assert.Equal("Project", row.OwnerLabel);
+
+        ((SvgViewerColorParameter)row).Color = Colors.Red;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("#ff0000ff", Value(Drawn(panel).Single(), "tint"));
+    }
+
+    /// <summary>
+    /// A block changing rebuilds the drawings, though none of their own text changed.
+    /// </summary>
+    /// <remarks>
+    /// The board reuses a drawing it would only build again, comparing what a build reads. What it
+    /// reads is now the drawing plus what its groups declare into it, so a group's block is part of
+    /// that — without it, declaring a parameter left every drawing on the board built from the
+    /// document before it, and the new row moved nothing.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Editing_A_Groups_Block_Rebuilds_What_It_Declares_For()
+    {
+        var window = await Host(Owned(GroupTint, Using, UsingRound));
+        var panel = await Group(window, 0);
+
+        ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
+        Dispatcher.UIThread.RunJobs();
+
+        // Written into the group's block, which is a change to what every drawing under it is built
+        // from though none of their own text moved.
+        Assert.True(panel.CommitDefaults());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("#ff0000", GroupOf(window).CodeText, StringComparison.Ordinal);
+
+        // The rows are back at their seeds, so nothing is bound over the top: what the drawings show
+        // is what they were built with, and they were built again.
+        Assert.All(Declarations(panel).Parameters!, row => Assert.False(row.IsModified));
+        Assert.All(Drawn(panel), placed => Assert.Equal("#ff0000ff", Value(placed, "tint")));
+    }
+
+    [AvaloniaFact]
+    public async Task Picking_A_Drawing_Leaves_The_Groups_Rows_Alone()
+    {
+        // The selection contributes the last section and nothing else: the chain above it is the
+        // group's either way, and a value somebody dragged there stays where they put it.
+        var window = await Host(Owned(GroupTint, Using, UsingAndDeclaring));
+        var panel = await Group(window, 0);
 
         ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
         Dispatcher.UIThread.RunJobs();
@@ -2400,70 +2519,292 @@ public class MainWindowProjectTests : IDisposable
 
         var rows = Declarations(panel).Parameters!;
 
-        Assert.Equal(Colors.Red, ((SvgViewerColorParameter)rows.Single(row => row.Name == "tint")).Color);
-        Assert.Equal(2d, ((SvgViewerNumberParameter)rows.Single(row => row.Name == "ring")).Value);
+        Assert.Equal(new[] { "tint", "ring" }, rows.Select(row => row.Name).ToArray());
+        Assert.Equal(Colors.Red, ((SvgViewerColorParameter)rows[0]).Color);
+    }
+
+    /// <summary>
+    /// Picking a drawing shows what it declares for itself, under what it inherits.
+    /// </summary>
+    /// <remarks>
+    /// In the order the drawing is built, which is the order its generated arguments come out in:
+    /// the project root's block, each group down to this one, and the drawing's own last.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Picking_A_Drawing_Shows_What_It_Declares_Itself()
+    {
+        var window = await Host(Owned(GroupTint, UsingAndDeclaring, Using));
+        var panel = await Group(window, 0);
+
+        // Nothing picked: the group's chain, and no drawing's section.
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        Pick(window, panel, 0);
+
+        var rows = Declarations(panel).Parameters!;
+
+        Assert.Equal(new[] { "tint", "ring" }, rows.Select(row => row.Name).ToArray());
+
+        // And each says where it came from, the group's own included: a run with no heading among
+        // runs that have one would read as belonging to the one above it.
+        Assert.Equal(new[] { "Own", "one" }, rows.Select(row => row.OwnerLabel).ToArray());
+
+        // Each begins a run, so each wears its heading.
+        Assert.Equal(new[] { true, true }, rows.Select(row => row.ShowsOwner).ToArray());
+
+        // Picking the one that declares nothing of its own takes the section away again.
+        Pick(window, panel, 1);
+
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    /// <summary>
+    /// The rows are grouped by what declares them, with a heading over each run.
+    /// </summary>
+    /// <remarks>
+    /// The heading is on the first row of a run rather than on every row, and there is none at all
+    /// where everything came from one place — one heading over the lot says nothing the standing
+    /// "Parameters" heading above it does not.
+    /// </remarks>
+    /// <summary>A project declaring three, a group declaring one, and a drawing using two of them.</summary>
+    private string Plenty()
+        => Write("icons.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <e:code xmlns:e="https://svg.skia/expr/1.0">
+                <e:param name="tint" type="color" default="#00ff00" />
+                <e:param name="shade" type="color" default="#0000ff" />
+                <e:param name="spare" type="number" default="3" />
+              </e:code>
+              <group name="Inner">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="ring" type="number" default="2" min="0" max="10" />
+                  <e:param name="idle" type="number" default="5" />
+                </e:code>
+                <drawing name="one">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke-width="{{ ring }}" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+    /// <summary>
+    /// The pane shows what is declared further up only where the selection reaches it.
+    /// </summary>
+    /// <remarks>
+    /// A project's variables are every drawing's to inherit, so a tab that listed all of them listed
+    /// mostly rows that drive nothing in front of you — which is what the pane became once a project
+    /// could declare.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Pane_Leaves_Out_What_Is_Declared_Above_And_Not_Used()
+    {
+        var window = await Host(Plenty());
+        var panel = await Group(window, 0);
+
+        // The group's own block is shown whole — the tab is about it — and the project's is not.
+        Assert.Equal(
+            new[] { "tint", "ring", "idle" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        Pick(window, panel, 0);
+
+        // With a drawing selected the group is above it like anything else, so what it declares and
+        // the drawing does not use goes too.
+        Assert.Equal(
+            new[] { "tint", "ring" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        // And the board beside the drawings is the way back to the group's own.
+        Deselect(window, panel);
+
+        Assert.Equal(
+            new[] { "tint", "ring", "idle" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
     }
 
     [AvaloniaFact]
-    public async Task A_Parameter_On_A_Different_Slider_Is_A_Different_Parameter()
+    public async Task What_Is_Left_Out_Is_Said_Rather_Than_Simply_Missing()
     {
-        // The bounds are advice to a host rather than a constraint on the value, so the value would
-        // have gone in either way -- but they are what the control offering it looks like, and two
-        // parameters somebody would be given different sliders for are not the one parameter.
-        var window = await Host(Own(DeclaringBounded, DeclaringBoundedDifferently));
+        var window = await Host(Plenty());
+        var panel = await Group(window, 0);
+
+        // Or a variable somebody wants to start using is invisible, unnamed, and reachable only by
+        // guessing that naming it in the drawing brings it back.
+        var note = panel.GetVisualDescendants().OfType<TextBlock>()
+            .FirstOrDefault(block => block.Text is { } said && said.Contains("declared further up"));
+
+        Assert.NotNull(note);
+        Assert.Contains("2 more", note!.Text!, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Nobody_Can_Read_Leaves_The_Pane_Whole()
+    {
+        // Not knowing what is reached is not the same as reaching nothing, and hiding a row somebody
+        // is using is the worse of the two mistakes.
+        var window = await Host(Plenty());
+
+        Assert.Null(window.Workspace!.Document.Root.Drawings.Single().SetText(
+            """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="10" fill="{{ tint ~ }}" /></svg>"""));
+
+        var panel = await Group(window, 0);
+
+        Assert.Equal(
+            new[] { "tint", "shade", "spare", "ring", "idle" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    /// <summary>
+    /// Clicking the board beside the drawings lets go of the one being looked at.
+    /// </summary>
+    /// <remarks>
+    /// A miss inside a drawing still keeps it — the pane is read alongside the picture and a click
+    /// two pixels wide of the ink should not throw that away — so the board itself is what says
+    /// "none of them", and it is the only way back to what the group declares.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Clicking_The_Board_Lets_Go_Of_The_Drawing()
+    {
+        var window = await Host(Owned(GroupTint, UsingAndDeclaring, Using));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        Assert.Contains("ring", Declarations(panel).Parameters!.Select(row => row.Name));
+
+        Assert.DoesNotContain(
+            panel.GetVisualDescendants().OfType<TextBlock>(),
+            block => block.Text is { } said && said.StartsWith("Click a drawing", StringComparison.Ordinal));
+
+        Deselect(window, panel);
+
+        // The drawing's own rows go with it, and the tree and the line above it say nothing is
+        // being looked at.
+        Assert.DoesNotContain("ring", Declarations(panel).Parameters!.Select(row => row.Name));
+
+        Assert.Contains(
+            panel.GetVisualDescendants().OfType<TextBlock>(),
+            block => block.Text is { } said && said.StartsWith("Click a drawing", StringComparison.Ordinal));
+
+        Assert.Null(Canvas(panel).Highlight);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Rows_Are_Grouped_By_What_Declares_Them()
+    {
+        var path = Write("icons.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <e:code xmlns:e="https://svg.skia/expr/1.0">
+                <e:param name="tint" type="color" default="#00ff00" />
+                <e:param name="shade" type="color" default="#0000ff" />
+              </e:code>
+              <group name="Inner">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="ring" type="number" default="2" min="0" max="10" />
+                </e:code>
+                <drawing name="one">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke="{{ shade }}" stroke-width="{{ ring }}" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+        var window = await Host(path);
+        var panel = await Group(window, 0);
+
+        var rows = Declarations(panel).Parameters!;
+
+        Assert.Equal(new[] { "Project", "Project", "Inner" }, rows.Select(row => row.OwnerLabel).ToArray());
+
+        // Once over the run of two, and again where the next run begins.
+        Assert.Equal(new[] { true, false, true }, rows.Select(row => row.ShowsOwner).ToArray());
+    }
+
+    [AvaloniaFact]
+    public async Task Rows_From_One_Place_Wear_No_Heading()
+    {
+        // A drawing on its own, declaring for itself: there is nowhere else for a row to be from,
+        // and a heading saying so is noise.
+        var window = await Host(Own(Declaring, Declaring));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        Assert.All(Declarations(panel).Parameters!, row => Assert.False(row.ShowsOwner));
+    }
+
+    /// <summary>
+    /// A row a drawing declares for itself moves that drawing and no other.
+    /// </summary>
+    /// <remarks>
+    /// Two drawings each declaring a `ring` of their own have two parameters that happen to be
+    /// spelled alike. Moving both from one slider is the guess this panel was built to stop making.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Drawings_Own_Row_Moves_That_Drawing_Alone()
+    {
+        var window = await Host(Owned(GroupTint, UsingAndDeclaring, UsingAndDeclaringSquare));
         var panel = await Group(window, 0);
 
         var placements = Drawn(panel);
 
-        Assert.Equal(2, placements.Count);
-
         Pick(window, panel, 0);
 
-        var before = placements.Select(placed => placed.Svg.Picture).ToArray();
+        var rows = Declarations(panel).Parameters!;
 
-        ((SvgViewerNumberParameter)Declarations(panel).Parameters!.Single()).Value = 300d;
+        ((SvgViewerNumberParameter)rows.Single(row => row.Name == "ring")).Value = 7d;
         Dispatcher.UIThread.RunJobs();
 
-        Assert.NotSame(before[0], placements[0].Svg.Picture);
-        Assert.Same(before[1], placements[1].Svg.Picture);
+        Assert.Equal("7", Value(placements[0], "ring"));
+        Assert.Equal("2", Value(placements[1], "ring"));
+
+        // The group's row still moves both, which is what a group's row is for.
+        ((SvgViewerColorParameter)rows.Single(row => row.Name == "tint")).Color = Colors.Red;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.All(placements, placed => Assert.Equal("#ff0000ff", Value(placed, "tint")));
     }
 
     [AvaloniaFact]
-    public async Task Picking_A_Drawing_That_Shares_Keeps_The_Value_On_Show()
+    public async Task A_Drawings_Own_Row_Is_Written_Into_That_Drawing()
     {
-        // The value was bound into both, so the panel showing the next one its declared default
-        // would have it disagreeing with the picture beside it.
-        var window = await Host(Own(Declaring, DeclaringSeededDifferently, DeclaringAnother));
-        var panel = await Group(window, 0);
-
-        Pick(window, panel, 0);
-
-        ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
-        Dispatcher.UIThread.RunJobs();
-
-        // The other drawing declaring the same thing.
-        Pick(window, panel, 1);
-
-        Assert.Equal(Colors.Red, ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color);
-
-        // The one that shares nothing shows what it declares.
-        Pick(window, panel, 2);
-
-        Assert.Equal(new[] { "shade" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
-    }
-
-    [AvaloniaFact]
-    public async Task A_Drawing_Open_In_No_Tab_Is_Edited_Through_The_Project()
-    {
-        // The last resort, and the one with no buffer behind it: the edit goes straight into the
-        // project, with nothing to take it back — but not onto disk, which waits for a save.
-        var path = Own(Declaring, Declaring);
+        var path = Owned(GroupTint, UsingAndDeclaring, Using);
         var window = await Host(path);
         var panel = await Group(window, 0);
 
         Pick(window, panel, 0);
 
-        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+        var rows = Declarations(panel).Parameters!;
+
+        ((SvgViewerNumberParameter)rows.Single(row => row.Name == "ring")).Value = 7d;
+        Dispatcher.UIThread.RunJobs();
+
+        // Keeping the values writes each row into whatever holds it: the drawing takes its own.
+        Assert.True(panel.CommitDefaults());
+        Dispatcher.UIThread.RunJobs();
+
+        var xml = window.Workspace!.Document.ToXml();
+
+        Assert.Contains("default=\"7\"", xml, StringComparison.Ordinal);
+
+        // In the drawing, under the group's block rather than in it.
+        Assert.True(xml.IndexOf("<drawing", StringComparison.Ordinal) < xml.IndexOf("default=\"7\"", StringComparison.Ordinal));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Parameter_Added_On_A_Group_Goes_Into_The_Group()
+    {
+        // Where it belongs now: the group declares for everything under it, and no drawing is
+        // written to. Into the project rather than onto disk, which waits for a save.
+        var path = Owned(GroupTint, Using, Using);
+        var window = await Host(path);
+        var panel = await Group(window, 0);
 
         panel.ParameterDialogService = new StubParameterDialogService(
             new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
@@ -2471,28 +2812,235 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(await panel.AddParameterAsync());
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("sweep", window.Workspace!.Document.ToXml());
-        Assert.DoesNotContain("sweep", File.ReadAllText(path));
+        var xml = window.Workspace!.Document.ToXml();
 
-        // No tab is holding it, so the project is what says it is unsaved, and what saves it.
+        Assert.Contains("sweep", xml, StringComparison.Ordinal);
+
+        // In the group's block, above the drawings, and not in any of them.
+        Assert.True(xml.IndexOf("sweep", StringComparison.Ordinal) < xml.IndexOf("<drawing", StringComparison.Ordinal));
+        Assert.DoesNotContain("sweep", File.ReadAllText(path), StringComparison.Ordinal);
+
+        // No tab is holding the group's block, so the project is what says it is unsaved.
         Assert.True(window.Workspace.IsEdited);
 
         await window.SaveAsync();
 
-        Assert.Contains("sweep", File.ReadAllText(path));
+        Assert.Contains("sweep", File.ReadAllText(path), StringComparison.Ordinal);
+
+        // And it is on the panel, as the group's own row rather than an inherited one.
+        Assert.Contains(Declarations(panel).Parameters!, row => row.Name == "sweep" && row.OwnerLabel == "Own");
+    }
+
+    /// <summary>The one group of a project written by <see cref="Owned(string, string[])"/>.</summary>
+    private static ProjectGroup GroupOf(MainWindow window)
+        => (ProjectGroup)(ProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!;
+
+    /// <summary>A project whose group is nested, so the root's board shows a drawing two down.</summary>
+    private string Nested()
+        => Write("icons.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <e:code xmlns:e="https://svg.skia/expr/1.0">
+                <e:param name="tint" type="color" default="#00ff00" />
+              </e:code>
+              <group name="Inner">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="ring" type="number" default="2" min="0" max="10" />
+                </e:code>
+                <drawing name="one">
+                  <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+                    <defs><e:code><e:param name="lean" type="number" default="1" min="0" max="4" /></e:code></defs>
+                    <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke-width="{{ ring + lean }}" stroke="#000000" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+    /// <summary>
+    /// The chain shown is the selection's own, not the tab's.
+    /// </summary>
+    /// <remarks>
+    /// A board shows the drawings of the groups nested under it as well as its own, so a drawing
+    /// picked on the project's tab can sit two groups down. Walking up from the tab skipped every
+    /// group in between — the panel showed what the project declared and what the drawing declared,
+    /// with the group that actually holds the family missing from the middle of it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Chain_Is_The_Selections_Own_Not_The_Tabs()
+    {
+        var window = await Host(Nested());
+
+        // The project's own tab, whose board holds a drawing two groups down.
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        Pick(window, panel, 0);
+
+        var rows = Declarations(panel).Parameters!;
+
+        Assert.Equal(new[] { "tint", "ring", "lean" }, rows.Select(row => row.Name).ToArray());
+        Assert.Equal(new[] { "Project", "Inner", "one" }, rows.Select(row => row.OwnerLabel).ToArray());
+
+        // Three runs of one, so three headings.
+        Assert.All(rows, row => Assert.True(row.ShowsOwner));
     }
 
     [AvaloniaFact]
-    public async Task A_Drawing_Open_In_A_Tab_Is_Edited_Through_That_Tab()
+    public async Task A_Group_In_The_Middle_Can_Be_Declared_On()
     {
-        // So the edit can be taken back and is saved when somebody asks.
-        var path = Write("icons.svgstudio", Pair);
+        var window = await Host(Nested());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        Pick(window, panel, 0);
+
+        IReadOnlyList<ProjectNode>? offered = null;
+
+        panel.ChooseOwner = candidates =>
+        {
+            offered = candidates;
+
+            // The one in the middle, which neither the project nor the drawing speaks for.
+            return Task.FromResult<ProjectNode?>(candidates.OfType<ProjectGroup>().Last());
+        };
+
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.True(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            new[] { "Project", "Inner", "one" },
+            offered!.Select(ProjectWorkspace.Label).ToArray());
+
+        var inner = window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single();
+
+        Assert.Contains("sweep", inner.CodeText, StringComparison.Ordinal);
+        Assert.DoesNotContain("sweep", window.Workspace.Document.Root.CodeText, StringComparison.Ordinal);
+        Assert.DoesNotContain("sweep", inner.Drawings.Single().Text, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Adding_With_Nothing_Picked_Does_Not_Ask()
+    {
+        // One answer, so no question: a click somebody has to make for no reason.
+        var window = await Host(Owned(GroupTint, Using, Using));
+        var panel = await Group(window, 0);
+
+        var asked = false;
+
+        panel.ChooseOwner = _ => { asked = true; return Task.FromResult<ProjectNode?>(null); };
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.True(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(asked);
+        Assert.Contains("sweep", GroupOf(window).CodeText, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Adding_With_A_Drawing_Picked_Asks_Where_It_Goes()
+    {
+        var window = await Host(Owned(GroupTint, Using, Using));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        IReadOnlyList<ProjectNode>? offered = null;
+
+        // The drawing, which is the one the group is not.
+        panel.ChooseOwner = candidates =>
+        {
+            offered = candidates;
+            return Task.FromResult<ProjectNode?>(candidates.OfType<ProjectDrawing>().Single());
+        };
+
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.True(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        var group = GroupOf(window);
+
+        Assert.Equal(new ProjectNode[] { group, group.Drawings.First() }, offered);
+
+        // In the drawing it was declared on, and in neither the group nor its sibling.
+        Assert.Contains("sweep", group.Drawings.First().Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("sweep", group.CodeText, StringComparison.Ordinal);
+        Assert.DoesNotContain("sweep", group.Drawings.Last().Text, StringComparison.Ordinal);
+
+        // And it shows as the drawing's, under what the drawing inherits.
+        var rows = Declarations(panel).Parameters!;
+
+        Assert.Equal(new[] { "tint", "sweep" }, rows.Select(row => row.Name).ToArray());
+        Assert.Equal("one", rows[1].OwnerLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task Choosing_The_Group_Declares_For_Every_Drawing()
+    {
+        var window = await Host(Owned(GroupTint, Using, Using));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        panel.ChooseOwner = candidates => Task.FromResult<ProjectNode?>(candidates.OfType<ProjectGroup>().Single());
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.True(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        var group = GroupOf(window);
+
+        Assert.Contains("sweep", group.CodeText, StringComparison.Ordinal);
+        Assert.All(group.Drawings, drawing => Assert.DoesNotContain("sweep", drawing.Text, StringComparison.Ordinal));
+
+        // Not on the panel while a drawing is selected: it reaches no drawing yet, because none of
+        // them names it, and the pane is about the selection.
+        Assert.DoesNotContain(Declarations(panel).Parameters!, row => row.Name == "sweep");
+        Assert.All(Drawn(panel), placed => Assert.DoesNotContain("sweep", placed.Svg.ExpressionValues!.Keys));
+
+        // Letting the drawing go makes the tab about the group again, and there it is.
+        Deselect(window, panel);
+
+        Assert.Contains(Declarations(panel).Parameters!, row => row.Name == "sweep" && row.OwnerLabel == "Own");
+    }
+
+    [AvaloniaFact]
+    public async Task Cancelling_The_Choice_Writes_Nothing()
+    {
+        var window = await Host(Owned(GroupTint, Using, Using));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        panel.ChooseOwner = _ => Task.FromResult<ProjectNode?>(null);
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.False(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain("sweep", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Group_Is_Written_To_While_One_Of_Its_Drawings_Is_Open()
+    {
+        // The drawing's buffer is not where a group's declarations live, so an open tab is neither
+        // consulted nor disturbed.
+        var path = Owned(GroupTint, Using, Using);
         var window = await Host(path);
 
         var root = (TreeViewItem)Tree(window).Items[0]!;
         var group = (ProjectGroup)(ProjectNode)((TreeViewItem)root.Items[0]!).Tag!;
 
-        // Open the drawing in a tab of its own first.
         await window.ShowAsync(group.Drawings.First());
         Dispatcher.UIThread.RunJobs();
 
@@ -2500,18 +3048,46 @@ public class MainWindowProjectTests : IDisposable
 
         var panel = await Group(window, 0);
 
-        Pick(window, panel, 0);
-
         panel.ParameterDialogService = new StubParameterDialogService(
             new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
 
         Assert.True(await panel.AddParameterAsync());
         Dispatcher.UIThread.RunJobs();
 
-        // In the open tab, and not on disk: it is unsaved work like any other.
-        Assert.Contains("sweep", viewer.Source);
-        Assert.True(viewer.IsSourceModified);
-        Assert.DoesNotContain("sweep", File.ReadAllText(path));
+        Assert.Contains("sweep", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.DoesNotContain("sweep", viewer.Source, StringComparison.Ordinal);
+        Assert.False(viewer.IsSourceModified);
+    }
+
+    /// <summary>
+    /// A drawing's own tab shows what it inherits, says where it came from, and writes there.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task An_Inherited_Row_On_A_Drawings_Tab_Is_The_Groups()
+    {
+        var path = Owned(GroupTint, Using, UsingRound);
+        var window = await Host(path);
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var group = (ProjectGroup)(ProjectNode)((TreeViewItem)root.Items[0]!).Tag!;
+
+        await window.ShowAsync(group.Drawings.First());
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        var row = Assert.Single(viewer.Parameters);
+
+        Assert.Equal("tint", row.Name);
+        Assert.Equal("Own", row.OwnerLabel);
+
+        // And an edit reaches the group, not the drawing: taking the parameter away is refused
+        // because the drawings under that group still use it, which the drawing's own text — where
+        // the name appears once — could not have answered.
+        Assert.False(viewer.RemoveParameter(row));
+
+        Assert.Contains("tint", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.DoesNotContain("e:param", viewer.Source, StringComparison.Ordinal);
     }
 
     /// <summary>The Element tab's content, whatever it currently is.</summary>

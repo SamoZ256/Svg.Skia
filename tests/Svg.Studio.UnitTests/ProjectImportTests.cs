@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -270,7 +270,10 @@ public class ProjectImportTests : IDisposable
 
         Assert.Equal("badge", badge.Name);
         Assert.Equal("Badge", badge.Class);
-        Assert.Contains("<e:param name=\"colorPurple\" type=\"color\"", badge.Text, StringComparison.Ordinal);
+        // On the desk rather than in the drawing: both canvases use it, so it belongs to the group
+        // they share, and the drawing is left with the expression that reads it.
+        Assert.Contains("<e:param name=\"colorPurple\" type=\"color\"", group.CodeText, StringComparison.Ordinal);
+        Assert.DoesNotContain("e:param", badge.Text, StringComparison.Ordinal);
 
         // This asset's canvases all sit on one spot, so every place comes out at the corner — and a
         // desk at the board's own origin is still placed, which is what keeps it a board.

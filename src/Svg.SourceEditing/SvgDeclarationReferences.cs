@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -43,6 +43,86 @@ internal static class SvgDeclarationReferences
     {
         var found = 0;
 
+        var refusal = Visit(document, (text, tokens) =>
+        {
+            var builder = to is null ? null : new StringBuilder();
+            var at = 0;
+
+            foreach (var token in tokens)
+            {
+                if (token.Kind != ExprTokenKind.Identifier || !string.Equals(token.Text, name, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                found++;
+
+                if (builder is { })
+                {
+                    builder.Append(text, at, token.Position - at).Append(to);
+                    at = token.Position + name.Length;
+                }
+            }
+
+            return builder?.Append(text, at, text.Length - at).ToString();
+        });
+
+        count = found;
+
+        return refusal;
+    }
+
+    /// <summary>Every name the document's expressions read, or null where one cannot be read.</summary>
+    /// <remarks>
+    /// Every identifier, not only the declared ones: what a function or a constant is called is the
+    /// caller's to know, and filtering here would need this to hold the language's own table.
+    /// </remarks>
+    public static IReadOnlyCollection<string>? Names(XDocument document)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+
+        return Visit(document, (_, tokens) => Collect(tokens, names)) is { } ? null : names;
+    }
+
+    /// <summary>The same, for one expression rather than a document.</summary>
+    public static IReadOnlyCollection<string>? Names(string expression)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+
+        return Read(expression, out _) is { } tokens && Collect(tokens, names) is null ? names : null;
+    }
+
+    private static string? Collect(IReadOnlyList<ExprToken> tokens, HashSet<string> names)
+    {
+        foreach (var token in tokens)
+        {
+            if (token.Kind == ExprTokenKind.Identifier)
+            {
+                names.Add(token.Text);
+            }
+        }
+
+        // Nothing is written back: reading is all this does.
+        return null;
+    }
+
+    /// <summary>
+    /// Hands every expression in <paramref name="document"/> to <paramref name="visit"/>, and writes
+    /// back whatever it answers.
+    /// </summary>
+    /// <param name="visit">
+    /// Given the expression and its tokens, and answering the text to put in its place, or null to
+    /// leave it as it was.
+    /// </param>
+    /// <returns>The sentence refusing the walk, where an expression cannot be read.</returns>
+    /// <remarks>
+    /// One traversal, because there is one answer to where an expression lives in a drawing — the
+    /// <c>{{ … }}</c> spans of every attribute, and the whole of what is between a code element's
+    /// tags. A second walker beside this one would be a second answer, and the two would come to
+    /// disagree about a place only one of them had been taught to look.
+    /// </remarks>
+    private static string? Visit(XDocument document, Func<string, IReadOnlyList<ExprToken>, string?> visit)
+    {
         foreach (var element in document.Descendants())
         {
             foreach (var attribute in element.Attributes().ToList())
@@ -52,14 +132,12 @@ internal static class SvgDeclarationReferences
                     continue;
                 }
 
-                if (Placeholders(attribute.Value, name, to, ref found, out var rewritten) is { } bad)
+                if (Placeholders(attribute.Value, visit, out var rewritten) is { } bad)
                 {
-                    count = found;
-
                     return bad;
                 }
 
-                if (to is { } && !string.Equals(rewritten, attribute.Value, StringComparison.Ordinal))
+                if (rewritten is { } && !string.Equals(rewritten, attribute.Value, StringComparison.Ordinal))
                 {
                     attribute.Value = rewritten;
                 }
@@ -73,28 +151,33 @@ internal static class SvgDeclarationReferences
             // The whole of what is between the tags is the expression, braces and all left out.
             var body = element.Value;
 
-            if (In(body, name, to, ref found, out var written) is { } trouble)
+            if (body.Length == 0)
             {
-                count = found;
-
-                return trouble;
+                continue;
             }
 
-            if (to is { } && !string.Equals(written, body, StringComparison.Ordinal))
+            if (Read(body, out var unreadable) is not { } tokens)
+            {
+                return unreadable;
+            }
+
+            if (visit(body, tokens) is { } written && !string.Equals(written, body, StringComparison.Ordinal))
             {
                 element.Value = written;
             }
         }
 
-        count = found;
-
         return null;
     }
 
-    /// <summary>Every <c>{{ … }}</c> in one value, and what each of them names.</summary>
-    private static string? Placeholders(string value, string name, string? to, ref int found, out string written)
+    /// <summary>Every <c>{{ … }}</c> in one value, visited, and the value rebuilt around them.</summary>
+    /// <param name="written">The value as the visitor left it, or null where it changed nothing.</param>
+    private static string? Placeholders(string value, Func<string, IReadOnlyList<ExprToken>, string?> visit, out string? written)
     {
+        written = null;
+
         var builder = new StringBuilder();
+        var changed = false;
         var at = 0;
 
         while (true)
@@ -113,71 +196,58 @@ internal static class SvgDeclarationReferences
                 break;
             }
 
+            var text = value.Substring(open + 2, close - open - 2);
+
             builder.Append(value, at, open + 2 - at);
-
-            if (In(value.Substring(open + 2, close - open - 2), name, to, ref found, out var inner) is { } bad)
-            {
-                written = value;
-
-                return bad;
-            }
-
-            builder.Append(inner);
             at = close;
-        }
 
-        written = builder.Append(value, at, value.Length - at).ToString();
-
-        return null;
-    }
-
-    /// <summary>Each identifier in one expression that names <paramref name="name"/>.</summary>
-    private static string? In(string text, string name, string? to, ref int found, out string written)
-    {
-        written = text;
-
-        if (text.Length == 0)
-        {
-            return null;
-        }
-
-        List<ExprToken> tokens;
-
-        try
-        {
-            tokens = ExprLexer.Tokenize(text);
-        }
-        catch (ExprException bad)
-        {
-            // Refused rather than skipped: a use that cannot be read is still a use, and renaming
-            // around it would leave the drawing naming something that no longer exists.
-            return $"'{text.Trim()}' cannot be read, so what it uses cannot be found: {bad.Message}";
-        }
-
-        var builder = to is null ? null : new StringBuilder();
-        var at = 0;
-
-        foreach (var token in tokens)
-        {
-            if (token.Kind != ExprTokenKind.Identifier || !string.Equals(token.Text, name, StringComparison.Ordinal))
+            if (text.Length == 0)
             {
                 continue;
             }
 
-            found++;
-
-            if (builder is { })
+            if (Read(text, out var unreadable) is not { } tokens)
             {
-                builder.Append(text, at, token.Position - at).Append(to);
-                at = token.Position + name.Length;
+                return unreadable;
+            }
+
+            if (visit(text, tokens) is { } inner)
+            {
+                builder.Append(inner);
+                changed |= !string.Equals(inner, text, StringComparison.Ordinal);
+            }
+            else
+            {
+                builder.Append(text);
             }
         }
 
-        if (builder is { })
+        if (changed)
         {
-            written = builder.Append(text, at, text.Length - at).ToString();
+            written = builder.Append(value, at, value.Length - at).ToString();
         }
 
         return null;
+    }
+
+    /// <summary>The tokens of one expression, or null and the sentence refusing it.</summary>
+    /// <remarks>
+    /// Refused rather than skipped: a use that cannot be read is still a use, and renaming around it
+    /// would leave the drawing naming something that no longer exists.
+    /// </remarks>
+    private static IReadOnlyList<ExprToken>? Read(string text, out string? unreadable)
+    {
+        try
+        {
+            unreadable = null;
+
+            return ExprLexer.Tokenize(text);
+        }
+        catch (ExprException bad)
+        {
+            unreadable = $"'{text.Trim()}' cannot be read, so what it uses cannot be found: {bad.Message}";
+
+            return null;
+        }
     }
 }

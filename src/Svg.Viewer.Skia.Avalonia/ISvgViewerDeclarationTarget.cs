@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -27,4 +27,13 @@ public interface ISvgViewerDeclarationTarget
     /// <param name="edit">The mutation, answering null or the sentence refusing it.</param>
     /// <returns>The refusal, or null where the edit was made or would have changed nothing.</returns>
     string? Commit(string label, Func<SvgSourceDocument, string?> edit);
+
+    /// <summary>How often a name this document declares is used outside it.</summary>
+    /// <remarks>
+    /// Zero for a document that declares for itself, which is the ordinary case and what this
+    /// answers. A document that declares on another's behalf — a Svg.Studio group, whose drawings
+    /// are where its parameters are used — counts them, so taking away a parameter three drawings
+    /// still name is refused rather than breaking all three at once.
+    /// </remarks>
+    int UsesElsewhere(string name) => 0;
 }

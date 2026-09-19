@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -22,6 +22,7 @@ public sealed class SvgViewerLet : INotifyPropertyChanged
     private string _expression;
     private string _readout = string.Empty;
     private string? _trouble;
+    private bool _showsOwner;
 
     /// <param name="declaration">What the document says, or null for a row nobody has committed yet.</param>
     public SvgViewerLet(SvgExpressionLet? declaration)
@@ -34,6 +35,35 @@ public sealed class SvgViewerLet : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public SvgExpressionLet? Declaration { get; }
+
+    /// <summary>Where this was declared, where that is worth saying.</summary>
+    /// <remarks>
+    /// The name of whatever declares it, not a sentence about it: the panel says it once over the
+    /// run rather than on every row. Null for a panel whose host does not answer, which is a panel
+    /// whose rows all came from the one document.
+    /// </remarks>
+    public string? OwnerLabel { get; set; }
+
+    /// <summary>Whether this row begins a run declared somewhere new, and so wears the heading.</summary>
+    /// <remarks>
+    /// Set by the panel, which is the only thing that can see a row's neighbours. Raises a change
+    /// because the rows outlive a refresh: the same row can begin a run one moment and sit inside
+    /// one the next, when the section above it appears.
+    /// </remarks>
+    public bool ShowsOwner
+    {
+        get => _showsOwner;
+        set
+        {
+            if (_showsOwner == value)
+            {
+                return;
+            }
+
+            _showsOwner = value;
+            Raise(nameof(ShowsOwner));
+        }
+    }
 
     public string Name
     {

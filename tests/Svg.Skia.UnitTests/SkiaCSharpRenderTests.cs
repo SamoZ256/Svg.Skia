@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -617,6 +617,31 @@ public class SkiaCSharpRenderTests
             </svg>
             """,
             new object?[] { new SKColor(128, 128, 128, 255) });
+
+    [Fact]
+    public void Two_Blocks_Are_One_Declaration_List_In_Document_Order()
+        // What a Svg.Studio group looks like once it has declared into a drawing: the group's block
+        // in front of the drawing's own. The order is the whole of it — it is what a positional call
+        // means, so the generated Draw and the runtime renderer agree only if both read the two
+        // blocks the same way round, and a let in the first has to see nothing of the second.
+        => AssertExpressionsRenderTheSame(
+            "ExprTwoBlocks",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code>
+                  <e:param name="tint" type="color" />
+                  <e:let name="solid">withAlpha(tint, 1)</e:let>
+                </e:code>
+                <e:code>
+                  <e:param name="ring" type="number" default="2" />
+                  <e:let name="edge">mix(solid, solid, 0.5)</e:let>
+                </e:code>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="{{ edge }}" stroke="{{ solid }}" stroke-width="{{ ring }}" />
+            </svg>
+            """,
+            new object?[] { new SKColor(128, 128, 128, 255), 3f });
 
     [Fact]
     public void Arithmetic_And_The_Constants_Drive_An_Opacity()

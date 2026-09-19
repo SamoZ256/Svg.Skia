@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
+using Svg.Expressions;
 using Xunit;
 
 namespace Svg.Studio.UnitTests;
@@ -600,6 +601,473 @@ public class ProjectDocumentTests : IDisposable
         // Nothing above names a class for it, so it is named after itself rather than after the
         // build's default, which every drawing of a project would share.
         Assert.Equal("BadgeLarge", large.Class);
+    }
+
+    /// <summary>
+    /// A project whose root and whose group each declare, and a drawing that uses both.
+    /// </summary>
+    private const string Declared = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <studio namespace="Demo.Icons">
+          <e:code xmlns:e="https://svg.skia/expr/1.0">
+            <e:param name="tint" type="color" default="#00ff00" />
+          </e:code>
+          <group name="Large" scale="2">
+            <e:code xmlns:e="https://svg.skia/expr/1.0">
+              <e:param name="ring" type="number" default="2" min="0" max="10" />
+            </e:code>
+            <drawing name="Badge">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke-width="{{ ring }}" />
+              </svg>
+            </drawing>
+          </group>
+        </studio>
+
+        """;
+
+    [Fact]
+    public void A_Project_That_Declares_Is_Written_Back_As_It_Was_Read()
+    {
+        // The blocks are part of the file like everything else in it, and a save must not reformat
+        // them any more than it reformats a drawing.
+        Assert.Equal(Declared, Read(Declared).ToXml());
+    }
+
+    [Fact]
+    public void A_Block_Is_Not_A_Row_Of_The_Project()
+    {
+        var document = Read(Declared);
+        var group = (ProjectGroup)document.Root.Children.Single();
+
+        // What a group declares is part of what the group is, like its attributes: it is not
+        // something the tree shows, a tab opens, or a drag drops into.
+        Assert.Single(document.Root.Children);
+        Assert.Single(group.Children);
+
+        Assert.NotNull(document.Root.Code);
+        Assert.NotNull(group.Code);
+    }
+
+    [Fact]
+    public void A_Group_Declares_In_One_Block()
+    {
+        var twice = Declared.Replace(
+            "  <group name=\"Large\" scale=\"2\">",
+            "  <e:code xmlns:e=\"https://svg.skia/expr/1.0\" />\n  <group name=\"Large\" scale=\"2\">",
+            StringComparison.Ordinal);
+
+        var refusal = Assert.Throws<SvgcProjectException>(() => Read(twice));
+
+        Assert.Contains("more than one <e:code>", refusal.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Drawing_Is_Built_With_What_Its_Groups_Declare()
+    {
+        var document = Read(Declared);
+        var built = ProjectDeclarations.Built(First(document), First(document).Text);
+
+        var declarations = SvgExpressionDeclarations.Parse(built, out var diagnostics);
+
+        Assert.Empty(diagnostics);
+
+        // Outermost first, which is the order a positional call and the generated signature read in.
+        Assert.Equal(new[] { "tint", "ring" }, declarations.Parameters.Select(one => one.Name).ToArray());
+
+        // And the drawing itself is untouched: what a tab shows, edits and saves is the file.
+        Assert.DoesNotContain("e:param", First(document).Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Build_Hands_Over_The_Drawing_As_It_Is_Built()
+    {
+        var item = Read(Declared).Flatten().Items.Single();
+
+        // Or the generated Draw would take none of the parameters that decide what it draws.
+        Assert.Contains("<e:param name=\"tint\"", item.Source!, StringComparison.Ordinal);
+        Assert.Contains("<e:param name=\"ring\"", item.Source!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Name_Declared_Twice_Down_The_Chain_Is_Refused()
+    {
+        // The rule comes from the extension rather than from the project: a drawing redeclaring what
+        // its group already declares is a document declaring one name twice, which is refused.
+        var clashing = Declared.Replace(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:e=\"https://svg.skia/expr/1.0\" viewBox=\"0 0 24 24\">"
+            + "<defs><e:code><e:param name=\"tint\" type=\"color\" default=\"#ff0000\" /></e:code></defs>",
+            StringComparison.Ordinal);
+
+        Assert.NotEqual(Declared, clashing);
+
+        var document = Read(clashing);
+
+        SvgExpressionDeclarations.Parse(
+            ProjectDeclarations.Built(First(document), First(document).Text),
+            out var diagnostics);
+
+        Assert.Contains(diagnostics, one => one.Message.Contains("declared more than once", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_Group_That_Declares_Nothing_Carries_No_Block()
+    {
+        var document = Read(Declared);
+        var group = (ProjectGroup)document.Root.Children.Single();
+
+        // An empty block is not something to keep: a group that has had its last parameter taken
+        // away declares nothing, and the file should say so.
+        Assert.Null(group.SetCode("<e:code xmlns:e=\"https://svg.skia/expr/1.0\" />"));
+
+        Assert.Null(group.Code);
+        Assert.DoesNotContain("e:code", document.ToXml()[document.ToXml().IndexOf("<group", StringComparison.Ordinal)..], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Group_That_Has_Never_Declared_Is_Somewhere_To_Declare()
+    {
+        var document = Read();
+        var group = document.Root.Children.OfType<ProjectGroup>().Single();
+
+        Assert.Null(group.Code);
+
+        // Never null, because what reads this is an editor that has to be able to declare the first
+        // parameter into a group that has none.
+        Assert.Contains("e:code", group.CodeText, StringComparison.Ordinal);
+
+        Assert.Null(group.SetCode(
+            "<e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:param name=\"tint\" type=\"color\" default=\"#00ff00\" /></e:code>"));
+
+        Assert.NotNull(group.Code);
+
+        // In front of what the group holds, so it is read before the drawings that inherit it.
+        var written = document.ToXml();
+
+        Assert.True(
+            written.IndexOf("e:code", StringComparison.Ordinal)
+            < written.IndexOf("<drawing name=\"BadgeLarge\"", StringComparison.Ordinal));
+    }
+
+    /// <summary>A project declaring three, and a drawing naming one of them.</summary>
+    private const string Plenty = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <studio namespace="Demo.Icons">
+          <e:code xmlns:e="https://svg.skia/expr/1.0">
+            <e:param name="tint" type="color" default="#00ff00" />
+            <e:param name="shade" type="color" default="#0000ff" />
+            <e:param name="ring" type="number" default="2" min="0" max="10" />
+            <e:let name="edge">mix(tint, shade, 0.5)</e:let>
+          </e:code>
+          <drawing name="Badge">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" fill="{{ tint }}" />
+            </svg>
+          </drawing>
+        </studio>
+
+        """;
+
+    [Fact]
+    public void A_Drawing_Inherits_Only_What_It_Reaches()
+    {
+        var document = Read(Plenty);
+        var built = ProjectDeclarations.Built(First(document), First(document).Text);
+
+        var declarations = SvgExpressionDeclarations.Parse(built, out var diagnostics);
+
+        Assert.Empty(diagnostics);
+
+        // One of three, and not the let: an inherited parameter the drawing never names would
+        // otherwise become an argument of its generated Draw that drives nothing.
+        Assert.Equal(new[] { "tint" }, declarations.Parameters.Select(one => one.Name).ToArray());
+        Assert.Empty(declarations.Lets);
+    }
+
+    [Fact]
+    public void An_Inherited_Let_Brings_What_It_Reads_With_It()
+    {
+        var document = Read(Plenty.Replace("fill=\"{{ tint }}\"", "fill=\"{{ edge }}\"", StringComparison.Ordinal));
+
+        var declarations = SvgExpressionDeclarations.Parse(
+            ProjectDeclarations.Built(First(document), First(document).Text),
+            out _);
+
+        // The let is reached, so what its body names is reached too — however deep it goes.
+        Assert.Equal(new[] { "tint", "shade" }, declarations.Parameters.Select(one => one.Name).ToArray());
+        Assert.Equal(new[] { "edge" }, declarations.Lets.Select(one => one.Name).ToArray());
+    }
+
+    [Fact]
+    public void A_Drawings_Own_Let_Reaches_Through_To_What_It_Inherits()
+    {
+        var document = Read(Plenty.Replace(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:e=\"https://svg.skia/expr/1.0\" viewBox=\"0 0 24 24\">"
+            + "<defs><e:code><e:let name=\"own\">mix(shade, shade, 0.5)</e:let></e:code></defs>",
+            StringComparison.Ordinal));
+
+        var declarations = SvgExpressionDeclarations.Parse(
+            ProjectDeclarations.Built(First(document), First(document).Text),
+            out _);
+
+        // The drawing's own block is spliced whole, so what its bodies read is live.
+        Assert.Contains("shade", declarations.Parameters.Select(one => one.Name));
+    }
+
+    [Fact]
+    public void A_Name_Declared_Twice_Collides_Even_Where_Nothing_Uses_It()
+    {
+        // Narrowing must not turn the refusal into shadowing for the names nothing reads: the
+        // drawing's own declared names seed the reached set for exactly this.
+        var document = Read(Plenty.Replace(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:e=\"https://svg.skia/expr/1.0\" viewBox=\"0 0 24 24\">"
+            + "<defs><e:code><e:param name=\"shade\" type=\"color\" default=\"#ff0000\" /></e:code></defs>",
+            StringComparison.Ordinal));
+
+        SvgExpressionDeclarations.Parse(
+            ProjectDeclarations.Built(First(document), First(document).Text),
+            out var diagnostics);
+
+        Assert.Contains(diagnostics, one => one.Message.Contains("declared more than once", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_Expression_That_Will_Not_Read_Keeps_The_Whole_Chain()
+    {
+        // Dropping a declaration that is in fact used breaks the drawing, so the answer when what
+        // is reached cannot be told is everything.
+        var document = Read(Plenty.Replace("{{ tint }}", "{{ tint ~ }}", StringComparison.Ordinal));
+
+        var declarations = SvgExpressionDeclarations.Parse(
+            ProjectDeclarations.Built(First(document), First(document).Text),
+            out _);
+
+        Assert.Equal(
+            new[] { "tint", "shade", "ring" },
+            declarations.Parameters.Select(one => one.Name).ToArray());
+    }
+
+    [Fact]
+    public void A_Build_Is_Handed_Only_What_The_Drawing_Reaches()
+    {
+        var item = Read(Plenty).Flatten().Items.Single();
+
+        Assert.Contains("<e:param name=\"tint\"", item.Source!, StringComparison.Ordinal);
+        Assert.DoesNotContain("shade", item.Source!, StringComparison.Ordinal);
+    }
+
+    /// <summary>Two desks, each with two drawings, declaring copies of one library.</summary>
+    /// <remarks>
+    /// `tint` is reached in both desks, `ring` only in the first, `lean` by one drawing, and `edge`
+    /// is a let two drawings of the first desk share.
+    /// </remarks>
+    private static string Copies() => """
+        <?xml version="1.0" encoding="utf-8"?>
+        <studio namespace="Demo.Icons">
+          <group name="One">
+            <drawing name="a">
+              <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                <defs><e:code><e:param name="tint" type="color" default="#00ff00" /><e:param name="ring" type="number" default="2" /><e:let name="edge">mix(tint, tint, 0.5)</e:let></e:code></defs>
+                <circle cx="12" cy="12" r="10" fill="{{ edge }}" stroke-width="{{ ring }}" />
+              </svg>
+            </drawing>
+            <drawing name="b">
+              <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                <defs><e:code><e:param name="tint" type="color" default="#00ff00" /><e:param name="ring" type="number" default="2" /><e:let name="edge">mix(tint, tint, 0.5)</e:let></e:code></defs>
+                <rect width="24" height="24" fill="{{ edge }}" stroke-width="{{ ring }}" />
+              </svg>
+            </drawing>
+          </group>
+          <group name="Two">
+            <drawing name="c">
+              <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                <defs><e:code><e:param name="tint" type="color" default="#00ff00" /><e:param name="lean" type="number" default="1" /></e:code></defs>
+                <path d="M12 3 L21 21 Z" fill="{{ tint }}" stroke-width="{{ lean }}" />
+              </svg>
+            </drawing>
+          </group>
+        </studio>
+
+        """;
+
+    private static ProjectGroup Named(ProjectDocument document, string name)
+        => document.Root.Children.OfType<ProjectGroup>().Single(group => group.Name == name);
+
+    [Fact]
+    public void A_Name_Is_Placed_Where_It_Is_Shared()
+    {
+        var document = Read(Copies());
+
+        ProjectPlacement.Place(document.Root, organize: true);
+
+        // Both desks reach it, so it belongs to the project.
+        Assert.Contains("tint", document.Root.CodeText, StringComparison.Ordinal);
+
+        // Only the first desk's drawings do, so it belongs to that desk — and so does the let they
+        // share.
+        Assert.Contains("ring", Named(document, "One").CodeText, StringComparison.Ordinal);
+        Assert.Contains("edge", Named(document, "One").CodeText, StringComparison.Ordinal);
+
+        // One drawing alone holds it, and that is already where it is shared.
+        Assert.Null(Named(document, "Two").Code);
+        Assert.Contains("lean", Named(document, "Two").Drawings.Single().Text, StringComparison.Ordinal);
+
+        // What moved is gone from the drawings that held it.
+        foreach (var drawing in Named(document, "One").Drawings)
+        {
+            Assert.DoesNotContain("e:param", drawing.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("e:let", drawing.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("<defs", drawing.Text, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Placement_Leaves_Every_Drawing_Built_As_It_Was()
+    {
+        var document = Read(Copies());
+
+        var before = document.Root.Drawings
+            .ToDictionary(
+                drawing => drawing.Name,
+                drawing => SvgExpressionDeclarations.Parse(ProjectDeclarations.Built(drawing, drawing.Text)));
+
+        ProjectPlacement.Place(document.Root, organize: true);
+
+        foreach (var drawing in document.Root.Drawings)
+        {
+            var after = SvgExpressionDeclarations.Parse(ProjectDeclarations.Built(drawing, drawing.Text), out var bad);
+
+            Assert.Empty(bad);
+
+            // The whole point: moving a declaration up changes where it is written and nothing about
+            // what any drawing is built with.
+            Assert.Equal(
+                before[drawing.Name].Parameters.Select(one => one.Name).OrderBy(one => one, StringComparer.Ordinal),
+                after.Parameters.Select(one => one.Name).OrderBy(one => one, StringComparer.Ordinal));
+
+            Assert.Equal(
+                before[drawing.Name].Lets.Select(one => one.Name),
+                after.Lets.Select(one => one.Name));
+        }
+    }
+
+    [Fact]
+    public void Everything_Goes_To_The_Project_When_Nothing_Organizes_It()
+    {
+        var document = Read(Copies());
+
+        ProjectPlacement.Place(document.Root, organize: false);
+
+        foreach (var name in new[] { "tint", "ring", "lean", "edge" })
+        {
+            Assert.Contains(name, document.Root.CodeText, StringComparison.Ordinal);
+        }
+
+        Assert.All(
+            document.Root.Children.OfType<ProjectGroup>(),
+            group => Assert.Null(group.Code));
+
+        Assert.All(
+            document.Root.Drawings,
+            drawing => Assert.DoesNotContain("e:code", drawing.Text, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_Placed_Block_Is_Written_At_The_Depth_It_Sits_At()
+    {
+        var document = Read(Copies());
+
+        ProjectPlacement.Place(document.Root, organize: true);
+
+        // A project file is something somebody reads and diffs, so a block put into one is written
+        // the way the rest of the file is rather than the way XLinq would indent it.
+        Assert.Contains("""
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="ring" type="number" default="2" />
+                  <e:let name="edge">mix(tint, tint, 0.5)</e:let>
+                </e:code>
+            """, document.ToXml(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Name_Two_Drawings_Mean_Differently_Is_Left_Alone()
+    {
+        // Hoisting either would silently change what the other draws.
+        var document = Read("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <studio namespace="Demo.Icons">
+              <group name="One">
+                <drawing name="a">
+                  <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                    <defs><e:code><e:param name="tint" type="color" default="#00ff00" /><e:param name="ring" type="number" default="2" /></e:code></defs>
+                    <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke-width="{{ ring }}" />
+                  </svg>
+                </drawing>
+                <drawing name="b">
+                  <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                    <defs><e:code><e:param name="tint" type="color" default="#00ff00" /><e:param name="ring" type="number" default="9" /></e:code></defs>
+                    <rect width="24" height="24" fill="{{ tint }}" stroke-width="{{ ring }}" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+        ProjectPlacement.Place(document.Root, organize: true);
+
+        var group = Named(document, "One");
+
+        // The one they agree about moves; the one they do not stays with each of them.
+        Assert.Contains("tint", group.CodeText, StringComparison.Ordinal);
+        Assert.DoesNotContain("ring", group.CodeText, StringComparison.Ordinal);
+
+        Assert.All(group.Drawings, drawing => Assert.Contains("ring", drawing.Text, StringComparison.Ordinal));
+        Assert.All(group.Drawings, drawing => Assert.DoesNotContain("tint", drawing.Text.Split('>')[0], StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_Copied_Group_Declares_What_It_Declared()
+    {
+        var document = Read(Declared);
+        var group = (ProjectGroup)document.Root.Children.Single();
+
+        var copy = (ProjectGroup)document.Root.Copy(group, 1);
+
+        // The block travels with the group, because it is part of what the group is: a copy that
+        // dropped it would be a row whose drawings no longer build.
+        Assert.NotNull(copy.Code);
+        Assert.Contains("ring", copy.CodeText, StringComparison.Ordinal);
+
+        Assert.Equal(
+            new[] { "tint", "ring" },
+            SvgExpressionDeclarations
+                .Parse(ProjectDeclarations.Built(copy.Drawings.Single(), copy.Drawings.Single().Text))
+                .Parameters.Select(one => one.Name)
+                .ToArray());
+    }
+
+    [Fact]
+    public void A_Group_Holding_Nothing_Is_Somewhere_To_Declare()
+    {
+        var document = ProjectDocument.Empty(_directory);
+        var group = document.Root.AddGroup("Large", 0);
+
+        Assert.Null(group.SetCode(
+            "<e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:param name=\"tint\" type=\"color\" default=\"#00ff00\" /></e:code>"));
+
+        Assert.Equal("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <studio>
+              <group name="Large">
+                <e:code xmlns:e="https://svg.skia/expr/1.0"><e:param name="tint" type="color" default="#00ff00" /></e:code>
+              </group>
+            </studio>
+
+            """, document.ToXml());
     }
 
     [Fact]

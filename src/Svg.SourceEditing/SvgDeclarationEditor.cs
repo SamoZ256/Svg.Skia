@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using Svg.Expressions;
@@ -111,11 +111,109 @@ public static class SvgDeclarationEditor
 
     /// <inheritdoc cref="Remove(string, string)"/>
     /// <returns>The sentence refusing it, or null where it was taken away.</returns>
-    public static string? Remove(SvgSourceDocument source, string name) => Take(source, name, "param");
+    public static string? Remove(SvgSourceDocument source, string name) => Take(source, name, "param", null);
+
+    /// <inheritdoc cref="Remove(string, string)"/>
+    /// <param name="usedElsewhere">
+    /// How many times the name is used outside this document, asked once and only where nothing in
+    /// this one uses it.
+    /// </param>
+    /// <returns>The sentence refusing it, or null where it was taken away.</returns>
+    /// <remarks>
+    /// For a document that declares on another's behalf: a Svg.Studio group holds a block and
+    /// nothing else, so a parameter three of its drawings still use has no use at all in the
+    /// document it is declared in, and would come out without a word.
+    /// </remarks>
+    public static string? Remove(SvgSourceDocument source, string name, Func<string, int>? usedElsewhere)
+        => Take(source, name, "param", usedElsewhere);
 
     /// <inheritdoc cref="RemoveLet(string, string)"/>
     /// <returns>The sentence refusing it, or null where it was taken away.</returns>
-    public static string? RemoveLet(SvgSourceDocument source, string name) => Take(source, name, "let");
+    public static string? RemoveLet(SvgSourceDocument source, string name) => Take(source, name, "let", null);
+
+    /// <inheritdoc cref="Remove(SvgSourceDocument, string, Func{string, int})"/>
+    public static string? RemoveLet(SvgSourceDocument source, string name, Func<string, int>? usedElsewhere)
+        => Take(source, name, "let", usedElsewhere);
+
+    /// <summary>
+    /// Every name <paramref name="source"/> reads, closed over the lets it can reach through.
+    /// </summary>
+    /// <param name="lets">
+    /// Lets the document does not hold itself, by name and body — what a drawing inherits. A name
+    /// reached through one of these drags in whatever its body reads, however deep.
+    /// </param>
+    /// <returns>
+    /// The names, or null where an expression will not read. Null is not "nothing is used": a caller
+    /// narrowing by this has to keep everything when it cannot be told what is reached, or it drops
+    /// a declaration that is in fact needed.
+    /// </returns>
+    /// <remarks>
+    /// Every identifier, so functions and constants are in it too. Harmless for what this is for —
+    /// a caller is asking which of ITS declarations are reached, and looks each up by name.
+    /// </remarks>
+    public static IReadOnlyCollection<string>? Reached(SvgSourceDocument source, IReadOnlyDictionary<string, string> lets)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (lets is null)
+        {
+            throw new ArgumentNullException(nameof(lets));
+        }
+
+        if (SvgDeclarationReferences.Names(source.Document) is not { } seeds)
+        {
+            return null;
+        }
+
+        var reached = new HashSet<string>(seeds, StringComparer.Ordinal);
+        var pending = new Queue<string>(seeds);
+
+        while (pending.Count > 0)
+        {
+            if (!lets.TryGetValue(pending.Dequeue(), out var body))
+            {
+                continue;
+            }
+
+            if (Names(body) is not { } inner)
+            {
+                return null;
+            }
+
+            foreach (var name in inner)
+            {
+                if (reached.Add(name))
+                {
+                    pending.Enqueue(name);
+                }
+            }
+        }
+
+        return reached;
+    }
+
+    /// <summary>The names one expression reads, or null where it will not read.</summary>
+    public static IReadOnlyCollection<string>? Names(string expression)
+        => SvgDeclarationReferences.Names(expression ?? throw new ArgumentNullException(nameof(expression)));
+
+    /// <summary>How many of this document's expressions name <paramref name="name"/>.</summary>
+    /// <remarks>
+    /// What a host answers <c>usedElsewhere</c> with, over each of the documents it declares for.
+    /// A document whose expressions cannot be read counts as one use: it cannot be shown not to use
+    /// the name, and refusing the removal is the answer that leaves something still rendering.
+    /// </remarks>
+    public static int Uses(SvgSourceDocument source, string name)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        return SvgDeclarationReferences.Walk(source.Document, name, null, out var count) is { } ? 1 : count;
+    }
 
     /// <inheritdoc cref="UpdateLet(string, string, string, string)"/>
     /// <returns>The sentence refusing it, or null where it was written.</returns>
@@ -214,7 +312,7 @@ public static class SvgDeclarationEditor
         });
     }
 
-    private static string? Take(SvgSourceDocument source, string name, string kind)
+    private static string? Take(SvgSourceDocument source, string name, string kind, Func<string, int>? usedElsewhere)
         => Edit(source, (document, _, before) =>
         {
             if (Find(document, kind, name) is not { } element)
@@ -225,6 +323,13 @@ public static class SvgDeclarationEditor
             if (SvgDeclarationReferences.Walk(document, name, null, out var used) is { } trouble)
             {
                 return trouble;
+            }
+
+            // Asked only once this document is clear, so a caller that has to read every drawing
+            // under a group to answer reads none where the answer could not change the outcome.
+            if (used == 0 && usedElsewhere is { })
+            {
+                used = usedElsewhere(name);
             }
 
             if (used > 0)
@@ -340,6 +445,14 @@ public static class SvgDeclarationEditor
         if (root.Descendants(Ns + "code").FirstOrDefault() is { } existing)
         {
             return existing;
+        }
+
+        // A block handed over on its own is the block. That is how a Svg.Studio group is written
+        // into: it holds declarations and nothing else, so there is no document around them to look
+        // for one in.
+        if (root.Name == Ns + "code")
+        {
+            return root;
         }
 
         // A recipe holds its declarations directly. <defs> belongs to SVG, and writing one into a

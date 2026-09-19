@@ -2,6 +2,85 @@
 
 ## Unreleased
 
+* **A drawing inherits only the declarations it reaches.** Its own `<e:code>` is its stated API and
+  is built in whole; what a group declares above it is ambient, and only the part its expressions
+  actually name comes with it — closed over the inherited lets, so a let drags in whatever its body
+  needs. Without it every inherited `<e:param>` became an argument of the generated `Draw`, and a
+  project declaring forty variables would have given every icon a forty-argument method.
+
+  The names a drawing's own block declares count as reached even where nothing uses them, so a
+  drawing redeclaring what its group declares is still refused rather than quietly shadowing it. An
+  expression that will not read keeps the whole chain: dropping a declaration that is in fact used
+  breaks the drawing, and whatever reads the text next says what is wrong with it far better.
+
+  A drawing that inherits nothing is unaffected, so `svgc` generates exactly what it did.
+
+  The pane reads the same way. A group's tab lists what is declared above the selection only where
+  the selection reaches it, since a project's variables are every drawing's to inherit and listing
+  all of them listed mostly rows that drive nothing in front of you. What the selection declares
+  itself is shown whole, being its own to add to and take away from. What is left out is counted
+  under the panel rather than simply missing, because naming a variable in the drawing is what brings
+  it back and that is not a thing to guess.
+
+  **Clicking the board beside the drawings lets go of the one being looked at**, which is what makes
+  that work: with a drawing selected the group is above it like anything else, so the way back to
+  what the group declares is to select none of them. A click that misses the ink *inside* a drawing
+  still keeps it — the pane is read alongside the picture, and missing by two pixels should not throw
+  away what was being looked at.
+
+* **Converting a PaintCode document places its variables where they are shared.** PaintCode declares
+  once for the whole library and the conversion gives every drawing a copy of what it uses; a name
+  two drawings in a desk share now goes to that desk's group, one two desks share goes to the
+  project, and one drawing's own stays with it. The convert dialog asks, ticked — unticking it puts
+  them all on the project instead.
+
+  It is a project operation rather than a PaintCode one: `ProjectPlacement` reads the blocks the
+  drawings already carry, so any project that repeats a declaration can be tidied the same way.
+  A name two drawings mean differently is left where it is — they are not one declaration, and
+  hoisting either would silently change what the other draws — and a hoisted let brings what it
+  reads up with it, since the blocks merge outermost first.
+
+  This is also what puts back the family slider a PaintCode project lost when the parameter fan-out
+  was scrapped: those identical per-drawing blocks were what used to tie one together.
+
+* **A group in Svg.Studio declares.** A `<group>` — and `<studio>`, which is one — may carry an
+  `<e:code>` block, and every drawing under it is built with that block written in front of its own,
+  outermost first. One parameter, in one place, driving the family that sits under it.
+
+  It replaces a guess. Since recipes came out of the editor, a group's panel showed whichever drawing
+  was picked and fanned a slider out to every sibling whose own declaration looked near enough alike
+  — same name, type and bounds. Nothing owned the parameter: a drawing joined the family by being
+  typed the same way and left it by gaining a bound, silently both times. Now a drawing inherits or
+  it does not, and which is which is a fact about the tree.
+
+  The order is the point of doing it by splicing. `SvgExpressionDeclarations` already merges every
+  `<e:code>` in a document in document order and already refuses a name declared twice, so outermost
+  first is what the order means and a drawing redeclaring what its group declares is refused rather
+  than quietly shadowing it. `SharesValuesWith` is gone with the guess that needed it.
+
+  A group's tab shows the whole chain, each row saying where it came from, and every row is editable
+  where it is shown — so is an inherited row on a drawing's own tab, and the edit goes to the group
+  that holds it. Removal counts the uses in the branch, not in the block, so taking away a parameter
+  three drawings still name is refused instead of breaking all three. What the drawing's own text
+  says is untouched throughout: the tab shows, edits and saves the drawing, and the blocks are the
+  project's. This is the split `SvgViewer.Rewrite` and `DeclarationTarget` were built for.
+
+  One consequence worth knowing: inherited parameters come first in the merged list, so they come
+  first in the generated `Draw`. A group parameter with no default above a drawing parameter that has
+  one makes every argument required — the existing optional-args-last rule, reached by a new route.
+
+  The pane shows the whole of what the selection is built with: the chain is the selected thing's own
+  ancestry, so picking a drawing two groups down on the project's tab shows the project's block, both
+  groups' and the drawing's own, in the order the drawing is built — which is the order its generated
+  arguments come out in. The rows are grouped under a heading naming what declares them, and there is
+  no heading at all where everything came from one place. A row a drawing declares for itself moves
+  that drawing alone: two drawings each declaring a `ring` of their own are two parameters that
+  happen to be spelled alike.
+
+  **Add** asks where the parameter goes when there is more than one answer, offering everything from
+  the tab's own group down to the selection — the one in the middle is usually the one meant — and
+  does not ask when there is only one.
+
 * **An Edit mode**, on the viewer and on a group's tab in Svg.Studio. Turn it on and the picked
   element is drawn with handles: drag the body to move it, a handle to scale it, the stalk above to
   turn it. What a drag comes to is written into that element's own `transform` attribute as one undo

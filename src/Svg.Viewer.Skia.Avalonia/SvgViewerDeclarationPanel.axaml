@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:viewer="clr-namespace:Svg.Viewer.Skia.Avalonia"
              x:Class="Svg.Viewer.Skia.Avalonia.SvgViewerDeclarationPanel">
@@ -47,6 +47,15 @@
       <Setter Property="Opacity" Value="1" />
     </Style>
 
+    <!-- Where a run of rows was declared. Quieter than the section it sits under, which is the
+         standing heading the rows are grouped beneath. -->
+    <Style Selector="TextBlock.origin">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Opacity" Value="0.5" />
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="Margin" Value="0,2,0,5" />
+    </Style>
+
     <Style Selector="TextBlock.section">
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Opacity" Value="0.7" />
@@ -82,115 +91,145 @@
 
     <!-- Resolved by the concrete row type, so there is no selector to keep in step. -->
     <DataTemplate DataType="viewer:SvgViewerNumberParameter">
-      <StackPanel Spacing="2" Margin="0,0,0,10" Classes="row">
-        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
-          <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
-                  PointerPressed="OnGripPressed"
-                  ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
-            <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
-          </Border>
-          <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
-          <NumericUpDown Grid.Column="2"
-                         Width="110"
-                         Value="{Binding Value, Mode=TwoWay}"
-                         Minimum="{Binding Minimum}"
-                         Maximum="{Binding Maximum}"
-                         Increment="{Binding TickFrequency}"
-                         ShowButtonSpinner="False" />
-          <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
-                  ToolTip.Tip="Edit this parameter" />
-          <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
-                  ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
-        </Grid>
-        <Slider Margin="20,0,0,0"
-                Minimum="{Binding Minimum}"
-                Maximum="{Binding Maximum}"
-                TickFrequency="{Binding TickFrequency}"
-                IsSnapToTickEnabled="{Binding HasStep}"
-                Value="{Binding Value, Mode=TwoWay}" />
+      <StackPanel>
+        <!-- Said once over the run rather than on every row: the rows arrive in the order
+             they are declared in, grouped by what declares them, and ShowsOwner marks where
+             each run begins. Invisible where everything came from the same place. -->
+        <TextBlock Classes="origin" Text="{Binding OwnerLabel}" IsVisible="{Binding ShowsOwner}" />
+        <StackPanel Spacing="2" Margin="0,0,0,10" Classes="row">
+          <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+            <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                    PointerPressed="OnGripPressed"
+                    ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+              <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+            <NumericUpDown Grid.Column="2"
+                           Width="110"
+                           Value="{Binding Value, Mode=TwoWay}"
+                           Minimum="{Binding Minimum}"
+                           Maximum="{Binding Maximum}"
+                           Increment="{Binding TickFrequency}"
+                           ShowButtonSpinner="False" />
+            <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
+                    ToolTip.Tip="Edit this parameter" />
+            <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
+                    ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
+          </Grid>
+          <Slider Margin="20,0,0,0"
+                  Minimum="{Binding Minimum}"
+                  Maximum="{Binding Maximum}"
+                  TickFrequency="{Binding TickFrequency}"
+                  IsSnapToTickEnabled="{Binding HasStep}"
+                  Value="{Binding Value, Mode=TwoWay}" />
+        </StackPanel>
       </StackPanel>
     </DataTemplate>
 
     <DataTemplate DataType="viewer:SvgViewerIntegerParameter">
-      <StackPanel Spacing="2" Margin="0,0,0,10" Classes="row">
-        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+      <StackPanel>
+        <!-- Said once over the run rather than on every row: the rows arrive in the order
+             they are declared in, grouped by what declares them, and ShowsOwner marks where
+             each run begins. Invisible where everything came from the same place. -->
+        <TextBlock Classes="origin" Text="{Binding OwnerLabel}" IsVisible="{Binding ShowsOwner}" />
+        <StackPanel Spacing="2" Margin="0,0,0,10" Classes="row">
+          <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+            <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                    PointerPressed="OnGripPressed"
+                    ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+              <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+            <NumericUpDown Grid.Column="2"
+                           Width="110"
+                           Value="{Binding Value, Mode=TwoWay}"
+                           Minimum="{Binding Minimum}"
+                           Maximum="{Binding Maximum}"
+                           Increment="{Binding TickFrequency}"
+                           FormatString="0"
+                           ShowButtonSpinner="True" />
+            <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
+                    ToolTip.Tip="Edit this parameter" />
+            <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
+                    ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
+          </Grid>
+          <!-- Always snapping to the tick: an integer has no value between two of them. -->
+          <Slider Margin="20,0,0,0"
+                  Minimum="{Binding Minimum}"
+                  Maximum="{Binding Maximum}"
+                  TickFrequency="{Binding TickFrequency}"
+                  IsSnapToTickEnabled="True"
+                  Value="{Binding Value, Mode=TwoWay}" />
+        </StackPanel>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="viewer:SvgViewerBooleanParameter">
+      <StackPanel>
+        <!-- Said once over the run rather than on every row: the rows arrive in the order
+             they are declared in, grouped by what declares them, and ShowsOwner marks where
+             each run begins. Invisible where everything came from the same place. -->
+        <TextBlock Classes="origin" Text="{Binding OwnerLabel}" IsVisible="{Binding ShowsOwner}" />
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
           <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
                   PointerPressed="OnGripPressed"
                   ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
             <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
           <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
-          <NumericUpDown Grid.Column="2"
-                         Width="110"
-                         Value="{Binding Value, Mode=TwoWay}"
-                         Minimum="{Binding Minimum}"
-                         Maximum="{Binding Maximum}"
-                         Increment="{Binding TickFrequency}"
-                         FormatString="0"
-                         ShowButtonSpinner="True" />
+          <CheckBox Grid.Column="2" IsChecked="{Binding Value, Mode=TwoWay}" />
           <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
                   ToolTip.Tip="Edit this parameter" />
           <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
                   ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
         </Grid>
-        <!-- Always snapping to the tick: an integer has no value between two of them. -->
-        <Slider Margin="20,0,0,0"
-                Minimum="{Binding Minimum}"
-                Maximum="{Binding Maximum}"
-                TickFrequency="{Binding TickFrequency}"
-                IsSnapToTickEnabled="True"
-                Value="{Binding Value, Mode=TwoWay}" />
       </StackPanel>
     </DataTemplate>
 
-    <DataTemplate DataType="viewer:SvgViewerBooleanParameter">
-      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
-        <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
-                PointerPressed="OnGripPressed"
-                ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
-          <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
-        </Border>
-        <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
-        <CheckBox Grid.Column="2" IsChecked="{Binding Value, Mode=TwoWay}" />
-        <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
-                ToolTip.Tip="Edit this parameter" />
-        <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
-                ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
-      </Grid>
-    </DataTemplate>
-
     <DataTemplate DataType="viewer:SvgViewerStringParameter">
-      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
-        <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
-                PointerPressed="OnGripPressed"
-                ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
-          <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
-        </Border>
-        <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
-        <!-- Plain text, not the expression box: the row holds the value, not an expression for it. -->
-        <TextBox Grid.Column="2" Width="140" FontFamily="monospace"
-                 Text="{Binding Value, Mode=TwoWay}" />
-        <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
-                ToolTip.Tip="Edit this parameter" />
-        <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
-                ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
-      </Grid>
+      <StackPanel>
+        <!-- Said once over the run rather than on every row: the rows arrive in the order
+             they are declared in, grouped by what declares them, and ShowsOwner marks where
+             each run begins. Invisible where everything came from the same place. -->
+        <TextBlock Classes="origin" Text="{Binding OwnerLabel}" IsVisible="{Binding ShowsOwner}" />
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
+          <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                  PointerPressed="OnGripPressed"
+                  ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+            <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <!-- Plain text, not the expression box: the row holds the value, not an expression for it. -->
+          <TextBox Grid.Column="2" Width="140" FontFamily="monospace"
+                   Text="{Binding Value, Mode=TwoWay}" />
+          <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
+                  ToolTip.Tip="Edit this parameter" />
+          <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
+                  ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
+        </Grid>
+      </StackPanel>
     </DataTemplate>
 
     <DataTemplate DataType="viewer:SvgViewerColorParameter">
-      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
-        <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
-                PointerPressed="OnGripPressed"
-                ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
-          <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
-        </Border>
-        <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
-        <ColorPicker Grid.Column="2" Color="{Binding Color, Mode=TwoWay}" />
-        <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
-                ToolTip.Tip="Edit this parameter" />
-        <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
-                ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
-      </Grid>
+      <StackPanel>
+        <!-- Said once over the run rather than on every row: the rows arrive in the order
+             they are declared in, grouped by what declares them, and ShowsOwner marks where
+             each run begins. Invisible where everything came from the same place. -->
+        <TextBlock Classes="origin" Text="{Binding OwnerLabel}" IsVisible="{Binding ShowsOwner}" />
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
+          <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                  PointerPressed="OnGripPressed"
+                  ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+            <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <ColorPicker Grid.Column="2" Color="{Binding Color, Mode=TwoWay}" />
+          <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
+                  ToolTip.Tip="Edit this parameter" />
+          <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
+                  ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
+        </Grid>
+      </StackPanel>
     </DataTemplate>
 
     <!--
@@ -199,41 +238,47 @@
       evaluates to right now, and is the whole reason to show a let here rather than in the source.
     -->
     <DataTemplate DataType="viewer:SvgViewerLet">
-      <StackPanel Spacing="3" Margin="0,0,0,12" Classes="letrow">
+      <StackPanel>
+        <!-- Said once over the run rather than on every row: the rows arrive in the order
+             they are declared in, grouped by what declares them, and ShowsOwner marks where
+             each run begins. Invisible where everything came from the same place. -->
+        <TextBlock Classes="origin" Text="{Binding OwnerLabel}" IsVisible="{Binding ShowsOwner}" />
+        <StackPanel Spacing="3" Margin="0,0,0,12" Classes="letrow">
 
-        <!-- The name and what it is worth; the body gets its own line below. -->
-        <Grid ColumnDefinitions="Auto,130,*,Auto">
-          <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
-                  PointerPressed="OnGripPressed"
-                  ToolTip.Tip="Drag to reorder. A let can only name what is declared above it.">
-            <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
-          </Border>
-          <TextBox Grid.Column="1" Classes="field"
-                   Text="{Binding Name, Mode=TwoWay}"
-                   PlaceholderText="name"
+          <!-- The name and what it is worth; the body gets its own line below. -->
+          <Grid ColumnDefinitions="Auto,130,*,Auto">
+            <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                    PointerPressed="OnGripPressed"
+                    ToolTip.Tip="Drag to reorder. A let can only name what is declared above it.">
+              <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <TextBox Grid.Column="1" Classes="field"
+                     Text="{Binding Name, Mode=TwoWay}"
+                     PlaceholderText="name"
+                     KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
+            <TextBlock Grid.Column="2" Text="{Binding Readout}" Opacity="0.55" FontSize="11"
+                       FontFamily="monospace" TextTrimming="CharacterEllipsis"
+                       HorizontalAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0"
+                       IsVisible="{Binding !HasTrouble}" />
+            <Button Grid.Column="3" Classes="edit" Content="✕" Click="OnRemoveLetClick"
+                    ToolTip.Tip="Remove this let. Refused while the drawing still uses it." />
+          </Grid>
+
+          <!--
+            The whole width, indented under the name. Beside it the box was 116px at the pane's old
+            width — not enough for `hsl(shift + 45, 88%, 62%)`, which is an ordinary let. This is the
+            shape a number parameter already has: what it is called on one line, what it is on the next.
+          -->
+          <TextBox Classes="field" Margin="20,0,0,0"
+                   Theme="{StaticResource SvgExpressionBox}"
+                   Text="{Binding Expression, Mode=TwoWay}"
+                   PlaceholderText="expression"
                    KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
-          <TextBlock Grid.Column="2" Text="{Binding Readout}" Opacity="0.55" FontSize="11"
-                     FontFamily="monospace" TextTrimming="CharacterEllipsis"
-                     HorizontalAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0"
-                     IsVisible="{Binding !HasTrouble}" />
-          <Button Grid.Column="3" Classes="edit" Content="✕" Click="OnRemoveLetClick"
-                  ToolTip.Tip="Remove this let. Refused while the drawing still uses it." />
-        </Grid>
 
-        <!--
-          The whole width, indented under the name. Beside it the box was 116px at the pane's old
-          width — not enough for `hsl(shift + 45, 88%, 62%)`, which is an ordinary let. This is the
-          shape a number parameter already has: what it is called on one line, what it is on the next.
-        -->
-        <TextBox Classes="field" Margin="20,0,0,0"
-                 Theme="{StaticResource SvgExpressionBox}"
-                 Text="{Binding Expression, Mode=TwoWay}"
-                 PlaceholderText="expression"
-                 KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
-
-        <TextBlock Text="{Binding Trouble}" Foreground="#e05252" FontSize="11" TextWrapping="Wrap"
-                   Margin="20,0,0,0"
-                   IsVisible="{Binding HasTrouble}" />
+          <TextBlock Text="{Binding Trouble}" Foreground="#e05252" FontSize="11" TextWrapping="Wrap"
+                     Margin="20,0,0,0"
+                     IsVisible="{Binding HasTrouble}" />
+        </StackPanel>
       </StackPanel>
     </DataTemplate>
 

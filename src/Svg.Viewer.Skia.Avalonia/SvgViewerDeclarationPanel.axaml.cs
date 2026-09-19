@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -128,11 +128,20 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// all. A file that would not open has no parameters the way it has no colours, and a note that
     /// it declares none reads as a fact about the file rather than about the failure to read it.
     /// </remarks>
+    /// <summary>What to say on a row about where it was declared, or null to say nothing.</summary>
+    /// <remarks>
+    /// Asked by name, of every row, whenever the rows are shown. Here rather than on the rows the
+    /// host builds, because the lets are built in this panel and the two have to read alike.
+    /// </remarks>
+    public Func<string, string?>? DeclaredBy { get; set; }
+
     public IReadOnlyList<SvgViewerParameter>? Parameters
     {
         get => _source;
         set
         {
+            ShowOwners(value);
+
             if (ReferenceEquals(_source, value))
             {
                 // The same rows again, which is a reload that changed none of them: rebuilding the
@@ -164,6 +173,55 @@ public partial class SvgViewerDeclarationPanel : UserControl
     }
 
     /// <summary>
+    /// Says on each row where it was declared, and which rows begin a run of one place.
+    /// </summary>
+    /// <remarks>
+    /// The two lists are sectioned apart, because they are drawn apart: the lets sit under a
+    /// heading of their own, and a run that ended among the parameters has ended.
+    /// </remarks>
+    private void ShowOwners(IReadOnlyList<SvgViewerParameter>? rows)
+    {
+        var parameters = rows ?? Array.Empty<SvgViewerParameter>();
+
+        foreach (var row in parameters)
+        {
+            row.OwnerLabel = DeclaredBy?.Invoke(row.Name);
+        }
+
+        Section(parameters.Select(row => row.OwnerLabel), (index, shows) => parameters[index].ShowsOwner = shows);
+    }
+
+    /// <summary>The same for the lets, whose rows this panel builds itself.</summary>
+    private void ShowLetOwners()
+    {
+        foreach (var let in _lets)
+        {
+            let.OwnerLabel = DeclaredBy?.Invoke(let.Name);
+        }
+
+        Section(_lets.Select(let => let.OwnerLabel), (index, shows) => _lets[index].ShowsOwner = shows);
+    }
+
+    /// <summary>Marks the first row of each run of rows declared in the same place.</summary>
+    /// <remarks>
+    /// Nothing is marked where every row came from the same place, which is every panel whose host
+    /// does not answer <see cref="DeclaredBy"/> at all: one heading over the lot says nothing the
+    /// heading already above it does not.
+    /// </remarks>
+    private static void Section(IEnumerable<string?> labels, Action<int, bool> mark)
+    {
+        var all = labels.ToList();
+        var many = all.Distinct(StringComparer.Ordinal).Count() > 1;
+
+        for (var index = 0; index < all.Count; index++)
+        {
+            mark(
+                index,
+                many && (index == 0 || !string.Equals(all[index], all[index - 1], StringComparison.Ordinal)));
+        }
+    }
+
+    /// <summary>
     /// Why the drawing declares less than it was written to, or null.
     /// </summary>
     /// <remarks>
@@ -185,6 +243,16 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// <summary>The let rows as they stand, drafts included.</summary>
     public IReadOnlyList<SvgViewerLet> Lets => _lets;
 
+    /// <summary>The Add button, for a host that has something to hang off it.</summary>
+    /// <remarks>
+    /// Svg.Studio asks where a new declaration should go before the dialog opens, and a menu about
+    /// a button belongs on that button rather than in the middle of the pane.
+    ///
+    /// Not <c>AddButton</c>: the name generator already makes that from the <c>x:Name</c> in the
+    /// markup, and a second member of the same name does not compile.
+    /// </remarks>
+    public Control AddAnchor => _addButton;
+
     /// <summary>Shows the lets a document declares, keeping any row still being filled in.</summary>
     /// <remarks>
     /// A rebuild is what follows every splice, and one that discarded a draft would take away the
@@ -197,6 +265,10 @@ public partial class SvgViewerDeclarationPanel : UserControl
         var drafts = _lets
             .Where(let => let.IsDraft && !Declares(declared, let.Name.Trim()))
             .ToList();
+
+        // Before the unchanged check as well as after it: the same lets can be held somewhere else
+        // than they were, which is what renaming a group above this drawing does.
+        ShowLetOwners();
 
         if (Unchanged(declared, drafts.Count))
         {
@@ -220,6 +292,9 @@ public partial class SvgViewerDeclarationPanel : UserControl
         {
             Add(draft);
         }
+
+        // Again, over the rows that have just replaced the ones marked above.
+        ShowLetOwners();
 
         _emptyLetLabel.IsVisible = _hasDocument && _lets.Count == 0;
 
