@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
 using System.Collections.Generic;
@@ -175,6 +175,55 @@ public class SvgExpressionSubstitutionTests
         Assert.Null(text.FontFamily);
         Assert.Equal("label", SvgExpressionAttributes.Lifted(text.CustomAttributes, SvgExpressionAttributes.ContentName));
         Assert.Equal("face", SvgExpressionAttributes.Lifted(text.CustomAttributes, "font-family"));
+    }
+
+    /// <summary>
+    /// A text element whose expression sits in a child keeps the child.
+    /// </summary>
+    /// <remarks>
+    /// The lift aggregates content by concatenating every node, child elements included, and the
+    /// unwrap trims — which reads as though a &lt;text&gt; holding whitespace and one &lt;tspan&gt; would take
+    /// the child's expression for its own and then clear its nodes to blank it, losing the &lt;tspan&gt;.
+    /// What stops it is the order: a child closes first, so its own expression is already lifted and
+    /// its content already blank by the time the parent aggregates, and the parent sees whitespace.
+    /// Pinned because the safety is in that ordering and nothing else says so.
+    /// </remarks>
+    [Fact]
+    public void A_Text_Does_Not_Swallow_The_Span_That_Holds_Its_Expression()
+    {
+        using var svg = Load(Document(
+            """
+            <text x="10" y="40" font-size="24" fill="#000000">
+              <tspan>{{ label }}</tspan>
+            </text>
+            """,
+            """<e:param name="label" type="string" default="'Hello'" />"""));
+
+        var text = svg.SourceDocument!.Descendants().OfType<SvgText>().Single();
+
+        // The child is still there, and the expression is its own rather than the parent's.
+        Assert.Single(text.Children.OfType<SvgTextSpan>());
+        Assert.Null(SvgExpressionAttributes.Lifted(text.CustomAttributes, SvgExpressionAttributes.ContentName));
+    }
+
+    /// <summary>
+    /// A &lt;tref&gt; has no text of its own, so nothing is lifted out of it.
+    /// </summary>
+    /// <remarks>
+    /// Its text comes from what its href names, and the text compiler returns false for one before
+    /// it reads any content — so a lift here only ever blanked the element's nodes for an
+    /// expression that could never be drawn.
+    /// </remarks>
+    [Fact]
+    public void A_Tref_Keeps_What_Is_Written_In_It()
+    {
+        using var svg = Load(Document(
+            """<text x="10" y="40"><tref xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#other">{{ label }}</tref></text>""",
+            """<e:param name="label" type="string" default="'Hello'" />"""));
+
+        var tref = svg.SourceDocument!.Descendants().OfType<SvgTextRef>().Single();
+
+        Assert.Null(SvgExpressionAttributes.Lifted(tref.CustomAttributes, SvgExpressionAttributes.ContentName));
     }
 
     [Fact]

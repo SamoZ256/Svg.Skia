@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -750,7 +750,10 @@ public static class SvgDocumentCompatibilityLoader
     /// </remarks>
     private static void LiftContentExpression(SvgElement element)
     {
-        if (element is not SvgTextBase ||
+        // Not a <tref>: its text is whatever its href names, and the text compiler answers for one
+        // before it reads any content — so a lift here blanks the element's nodes for an expression
+        // that could never be drawn.
+        if (element is not SvgTextBase or SvgTextRef ||
             !SvgExpressionAttributes.TryUnwrap(element.Content, out var expression))
         {
             return;

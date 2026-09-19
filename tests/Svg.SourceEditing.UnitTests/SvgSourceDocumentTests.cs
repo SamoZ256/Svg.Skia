@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -169,6 +169,62 @@ public class SvgSourceDocumentTests
     [InlineData("""<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" />""")]
     public void The_Spellings_XML_Says_Nothing_About_Are_Kept(string source)
         => Assert.Equal(source, Read(source));
+
+    /// <summary>
+    /// A run of text is replayed as it was written until it is the run that changed.
+    /// </summary>
+    /// <remarks>
+    /// Each run is annotated with the bytes it was written as alongside what those bytes read as,
+    /// so an entity nobody touched comes back spelled the way the author spelled it rather than
+    /// re-escaped into something equivalent. Only the run that no longer reads as it did is written
+    /// afresh — which is what lets a text row edit one element without churning its neighbours.
+    /// </remarks>
+    [Fact]
+    public void Editing_One_Run_Of_Text_Leaves_The_Others_Spelled_As_They_Were()
+    {
+        const string source = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <text x="1">Tom &amp; Jerry</text>
+              <text x="2">plain</text>
+            </svg>
+            """;
+
+        var document = SvgSourceDocument.Read(source, out _)!;
+        XNamespace svg = "http://www.w3.org/2000/svg";
+
+        var second = document.Document.Root!.Elements(svg + "text").Last();
+
+        second.Nodes().OfType<XText>().Single().Value = "changed";
+
+        var written = document.ToText();
+
+        // The run nobody touched keeps the author's entity rather than coming back as a bare '&'.
+        Assert.Contains("Tom &amp; Jerry", written, StringComparison.Ordinal);
+        Assert.Contains("<text x=\"2\">changed</text>", written, StringComparison.Ordinal);
+    }
+
+    /// <summary>A character that would close the tag is written as an entity, not as itself.</summary>
+    [Fact]
+    public void Text_That_Would_Not_Parse_Back_Is_Escaped()
+    {
+        const string source = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <text x="1">plain</text>
+            </svg>
+            """;
+
+        var document = SvgSourceDocument.Read(source, out _)!;
+        XNamespace svg = "http://www.w3.org/2000/svg";
+
+        document.Document.Root!.Element(svg + "text")!.Nodes().OfType<XText>().Single().Value = "a < b & c";
+
+        var written = document.ToText();
+
+        Assert.Contains("a &lt; b &amp; c", written, StringComparison.Ordinal);
+
+        // And it reads back as what was meant.
+        Assert.Equal("a < b & c", SvgSourceDocument.Read(written, out _)!.Document.Root!.Element(svg + "text")!.Value);
+    }
 
     [Fact]
     public void Editing_One_Attribute_Changes_The_Line_It_Was_On_And_No_Other()
