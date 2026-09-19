@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using Svg.SourceEditing;
 using Xunit;
@@ -20,6 +20,18 @@ public class SvgAttributeEditorDocumentTests
         <svg xmlns="http://www.w3.org/2000/svg">
           <rect x='1' y="2" fill="{{ tint }}"/>
           <g><circle cx="32" style="fill:red" /></g>
+        </svg>
+        """;
+
+    /// <summary>Text elements, and the ones that look like them and are not.</summary>
+    private const string Texts = """
+        <svg xmlns="http://www.w3.org/2000/svg">
+          <text x="4">hi</text>
+          <text x="5"/>
+          <text x="6"> <tspan>a</tspan> </text>
+          <text x="7"><!-- kept -->hi</text>
+          <tref xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#o">hi</tref>
+          <rect x="8"/>
         </svg>
         """;
 
@@ -211,5 +223,124 @@ public class SvgAttributeEditorDocumentTests
 
         Assert.Null(SvgAttributeEditor.SetAttribute(source, "0", "ry", null));
         Assert.Equal(Source, source.ToText());
+    }
+
+    // ---- the text between an element's tags ----
+
+    [Fact]
+    public void An_Elements_Text_Is_What_Is_Written_Between_Its_Tags()
+    {
+        var source = Read(Texts);
+
+        Assert.Equal("hi", SvgAttributeEditor.Content(source, "0", out var why));
+        Assert.Null(why);
+
+        // Written as <text/>: it holds no text, which is not the same as having none to hold.
+        Assert.Equal(string.Empty, SvgAttributeEditor.Content(source, "1", out why));
+        Assert.Null(why);
+    }
+
+    [Fact]
+    public void An_Element_With_No_Text_Of_Its_Own_Says_So_Or_Says_Nothing()
+    {
+        var source = Read(Texts);
+
+        // Split across children: the row cannot stand for what is on screen, and says why.
+        Assert.Null(SvgAttributeEditor.Content(source, "2", out var why));
+        Assert.Equal(
+            "This element's text is written in its <tspan> children, so it cannot be edited as one value. "
+            + "Pick a child row instead.",
+            why);
+
+        // A <tref> looks like a text element and is not, so it is told why.
+        Assert.Null(SvgAttributeEditor.Content(source, "4", out why));
+        Assert.Equal("A <tref> takes its text from what its href names, so it has none of its own to edit.", why);
+
+        // A shape is not: saying "a rectangle has no text" under every shape in a drawing is noise.
+        Assert.Null(SvgAttributeEditor.Content(source, "5", out why));
+        Assert.Null(why);
+
+        // And an address naming nothing is nothing to say anything about.
+        Assert.Null(SvgAttributeEditor.Content(source, "9", out why));
+        Assert.Null(why);
+    }
+
+    [Fact]
+    public void Writing_Text_Changes_The_Run_And_Nothing_Around_It()
+    {
+        var source = Read(Texts);
+
+        Assert.Null(SvgAttributeEditor.SetContent(source, "0", "there"));
+
+        var written = source.ToText();
+
+        Assert.Contains("<text x=\"4\">there</text>", written, StringComparison.Ordinal);
+
+        // Every other line as it was, quoting and self-closing included.
+        Assert.Contains("<text x=\"5\"/>", written, StringComparison.Ordinal);
+        Assert.Contains("<rect x=\"8\"/>", written, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The trap the obvious implementation falls into.
+    /// </summary>
+    /// <remarks>
+    /// <c>XElement.Value</c> is the property anybody reaches for, and setting it removes every child
+    /// node on the way to installing one of its own — so a comment beside the words would be dropped
+    /// by an edit that had no business touching it.
+    /// </remarks>
+    [Fact]
+    public void A_Comment_Beside_The_Words_Survives_An_Edit()
+    {
+        var source = Read(Texts);
+
+        Assert.Null(SvgAttributeEditor.SetContent(source, "3", "bye"));
+
+        Assert.Contains("<text x=\"7\"><!-- kept -->bye</text>", source.ToText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_Element_Given_Text_And_Emptied_Again_Is_As_It_Was()
+    {
+        var source = Read(Texts);
+
+        Assert.Null(SvgAttributeEditor.SetContent(source, "1", "briefly"));
+        Assert.Contains("<text x=\"5\">briefly</text>", source.ToText(), StringComparison.Ordinal);
+
+        Assert.Null(SvgAttributeEditor.SetContent(source, "1", null));
+
+        // Byte for byte, self-closing tag and all.
+        Assert.Equal(Texts, source.ToText());
+    }
+
+    [Fact]
+    public void Text_Cannot_Be_Written_Where_There_Is_None_To_Write()
+    {
+        var source = Read(Texts);
+
+        Assert.Equal(
+            "A <tref> takes its text from what its href names, so it has none of its own to edit.",
+            SvgAttributeEditor.SetContent(source, "4", "no"));
+
+        Assert.Equal(
+            "Only a <text>, a <tspan> or a <textPath> has text of its own to edit.",
+            SvgAttributeEditor.SetContent(source, "5", "no"));
+
+        Assert.Equal("That element is no longer in the drawing.", SvgAttributeEditor.SetContent(source, "9", "no"));
+
+        Assert.StartsWith("This element's text is written in its <tspan> children", SvgAttributeEditor.SetContent(source, "2", "no"), StringComparison.Ordinal);
+
+        Assert.Equal(Texts, source.ToText());
+    }
+
+    /// <summary>A space is a value where the document says it is.</summary>
+    [Fact]
+    public void Text_Is_Not_Trimmed()
+    {
+        var source = Read(Texts);
+
+        Assert.Null(SvgAttributeEditor.SetContent(source, "0", "  spaced  "));
+
+        Assert.Contains("<text x=\"4\">  spaced  </text>", source.ToText(), StringComparison.Ordinal);
     }
 }
