@@ -1,5 +1,5 @@
 ---
-description: Commit everything in the working tree and push it on the current branch
+description: Commit everything in the working tree — as several commits where the work divides — and push it on the current branch
 argument-hint: [optional note about what matters in the message]
 allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git ls-files:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(dotnet build:*), Bash(dotnet test:*), Bash(dotnet format:*), Bash(git checkout:*), Bash(git restore:*)
 ---
@@ -33,17 +33,33 @@ $ARGUMENTS
    the `SvgToPng` build error that sat alongside it. Do not reintroduce a standing exception — a
    permitted failure stops being read after a while, which is how both of those survived.
 
-4. **Write the message.** A summary under 72 characters, imperative, no prefix. Then a body
-   explaining *why* — the problem, what was rejected and what it cost, anything a reader would
-   otherwise have to rediscover. Numbers and error text where they carry weight. Cite the
-   specification section where one settles the question. Not a list of the files touched; the diff
-   already says that.
+4. **Write the message**, or one per commit where step 5 says there are several. A summary under
+   72 characters, imperative, no prefix. Then a body explaining *why* — the problem, what was
+   rejected and what it cost, anything a reader would otherwise have to rediscover. Numbers and
+   error text where they carry weight. Cite the specification section where one settles the
+   question. Not a list of the files touched; the diff already says that.
 
    The body is the pull request description too — `/merge` opens one with `gh pr create --fill`,
-   which takes it straight from the commit.
+   which takes it straight from the commit. Where there are several, their bodies stack up in that
+   order, so the order they are made in is the order somebody reads them in.
 
-5. **Commit and push.** `git push` if the branch has an upstream, `git push -u origin <branch>` if
-   it does not. Report the range that moved, or the branch that was created.
+5. **Several commits where the work really is several things.** One is the default and the right
+   answer whenever the diff tells one story. Where it does not — a fix and the unrelated tidy made
+   on the way to it, a change and the baselines it invalidated, a format extension and the thing
+   that needed it — commit them one at a time, each staged by path, each with its own message, in
+   an order where every step reads as a sensible thing to have done on its own.
+
+   Split because the story divides, never to make the log look busier: two commits nobody can tell
+   apart are worse than one, and a message that has to say "and also" is usually two.
+
+   The build and the suite are run once over the finished tree. A split is about how the history
+   reads, not a claim that each commit was built and tested by itself — do not say otherwise in the
+   report, and do not run the gate again per commit to make it true unless I ask.
+
+6. **Commit and push.** Stage by path where the tree is going into several commits; `git add -A`
+   only where the whole of it is one. `git push` if the branch has an upstream,
+   `git push -u origin <branch>` if it does not. Report the range that moved, or the branch that
+   was created, and what each commit was where there were several.
 
 If a step fails, stop there and show me the output. Do not force, do not amend an existing commit,
 and do not switch branches to make something work.
