@@ -2360,7 +2360,7 @@ public partial class MainWindow : Window
             return true;
         }
 
-        return Selected()?.Undo() == true;
+        return Board()?.Undo() ?? Selected()?.Undo() == true;
     }
 
     /// <inheritdoc cref="Undo"/>
@@ -2373,8 +2373,15 @@ public partial class MainWindow : Window
             return true;
         }
 
-        return Selected()?.Redo() == true;
+        return Board()?.Redo() ?? Selected()?.Redo() == true;
     }
+
+    /// <summary>The group tab being looked at, whose board has a move of its own to take back.</summary>
+    /// <remarks>
+    /// A group tab holds no drawing, so the Edit menu's Undo reached nothing over one and the drag
+    /// that arranged a board could not be taken back at all.
+    /// </remarks>
+    private GroupPanel? Board() => (_tabs.SelectedItem as TabItem)?.Content as GroupPanel;
 
     private IInputElement? Focused() => FocusManager?.GetFocusedElement();
 

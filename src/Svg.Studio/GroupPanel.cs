@@ -182,6 +182,19 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private readonly Dictionary<string, string?> _pending = new(StringComparer.Ordinal);
 
+    /// <summary>Where every row sat before each move on this board, newest first.</summary>
+    /// <remarks>
+    /// Held here rather than in the project because it is this tab's board: two tabs open on two
+    /// groups arrange two different things, and taking back the last move means the last move on
+    /// the board somebody is looking at.
+    /// </remarks>
+    private readonly Stack<IReadOnlyList<Place>> _undone = new();
+
+    private readonly Stack<IReadOnlyList<Place>> _redone = new();
+
+    /// <summary>One row and where it sat.</summary>
+    private readonly record struct Place(ProjectNode Node, float? X, float? Y);
+
     /// <summary>Moving, turning and scaling the picked element by dragging it on the canvas.</summary>
     private readonly SvgViewerGizmo _gizmo = new();
 
@@ -1423,12 +1436,83 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
+        // Before Settle, which is the half worth being able to take back: the first move on a board
+        // that has never been arranged writes a place for every row on the tab, so one drag nobody
+        // meant to make turns a spread into an arrangement.
+        _undone.Push(Places());
+        _redone.Clear();
+
         Settle();
 
         node.X = ProjectNode.Rounded((node.X ?? 0f) + move.By.X);
         node.Y = ProjectNode.Rounded((node.Y ?? 0f) + move.By.Y);
 
         Workspace.Edit();
+    }
+
+    /// <summary>
+    /// Puts the board back the way it was before the last move, and answers whether there was one.
+    /// </summary>
+    /// <remarks>
+    /// Places and nothing else. A move writes x and y — its own, and through <see cref="Settle"/>
+    /// every other row's — so putting those back is the whole of putting the move back.
+    ///
+    /// The project has no undo of its own: what a board writes goes straight in, and until now the
+    /// only way back from a drag nobody meant was to put everything where it had been by hand.
+    /// </remarks>
+    public bool Undo() => Step(_undone, _redone);
+
+    /// <inheritdoc cref="Undo"/>
+    public bool Redo() => Step(_redone, _undone);
+
+    private bool Step(Stack<IReadOnlyList<Place>> from, Stack<IReadOnlyList<Place>> to)
+    {
+        if (from.Count == 0)
+        {
+            return false;
+        }
+
+        to.Push(Places());
+
+        foreach (var (node, x, y) in from.Pop())
+        {
+            // A row taken out of the project since, or dragged out from under this tab, is not this
+            // tab's to write to any more.
+            if (!node.DescendsFrom(Node))
+            {
+                continue;
+            }
+
+            node.X = x;
+            node.Y = y;
+        }
+
+        Workspace.Edit();
+
+        return true;
+    }
+
+    /// <summary>Where every row under this tab sits, as the file says.</summary>
+    private IReadOnlyList<Place> Places()
+    {
+        var places = new List<Place>();
+
+        Walk(Node);
+
+        return places;
+
+        void Walk(ProjectNode node)
+        {
+            places.Add(new Place(node, node.X, node.Y));
+
+            if (node is ProjectGroup group)
+            {
+                foreach (var child in group.Children)
+                {
+                    Walk(child);
+                }
+            }
+        }
     }
 
     /// <summary>Gives every row of the tab the place it is already being drawn at.</summary>

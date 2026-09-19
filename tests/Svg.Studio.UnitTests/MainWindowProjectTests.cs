@@ -1205,6 +1205,58 @@ public class MainWindowProjectTests : IDisposable
     /// A frame spans the room between the drawings it holds, so grabbing that left nowhere on a full
     /// board to pan from — a press in the gap between two icons carried the whole group.
     /// </remarks>
+    /// <summary>
+    /// A move on a board can be taken back, and the places it settled with it.
+    /// </summary>
+    /// <remarks>
+    /// The first move on a board that has never been arranged writes a place for every row on the
+    /// tab, so one drag nobody meant turns a spread into an arrangement. The project has no undo of
+    /// its own, so until now the only way back was to put everything where it had been by hand.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Move_On_A_Board_Can_Be_Taken_Back()
+    {
+        var path = Write("icons.svgstudio", Board());
+        var window = await Host(path);
+        var panel = Panel(window, "Project");
+
+        var canvas = Canvas(panel);
+        var framed = Assert.Single(Canvas(panel).Frames);
+        var group = (ProjectGroup)window.Workspace!.Document.Root.Children[2];
+
+        var was = window.Workspace!.Document.ToXml();
+
+        var title = new SKPoint(framed.Title.MidX, framed.Title.MidY);
+
+        Drag(window, canvas, Over(canvas, title.X, title.Y), Over(canvas, title.X + 30f, title.Y));
+
+        Assert.Equal(30f, group.X!.Value, 1);
+        Assert.NotEqual(was, window.Workspace!.Document.ToXml());
+
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        // Every place is back, not only the one that was dragged.
+        Assert.Equal(was, window.Workspace!.Document.ToXml());
+
+        // And forward again.
+        Assert.True(window.Redo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(30f, group.X!.Value, 1);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Board_With_No_Move_Has_Nothing_To_Take_Back()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+
+        _ = Panel(window, "Project");
+
+        Assert.False(window.Undo());
+        Assert.False(window.Redo());
+    }
+
     [AvaloniaFact]
     public async Task A_Drag_Inside_A_Frame_Moves_The_View()
     {
