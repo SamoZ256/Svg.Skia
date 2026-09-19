@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -456,7 +456,7 @@ public class MainWindowAutosaveTests : IDisposable
 
         if (root.Children.OfType<ProjectGroup>().FirstOrDefault() is { } group)
         {
-            Assert.True(window.Move(root.Children[0], group, ProjectDrop.Inside));
+            Assert.True(window.Move(root.Children[0], group));
         }
         else
         {

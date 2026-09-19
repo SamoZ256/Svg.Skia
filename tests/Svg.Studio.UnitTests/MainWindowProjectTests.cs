@@ -940,7 +940,7 @@ public class MainWindowProjectTests : IDisposable
 
         var was = Area(Shown(panel, moved));
 
-        Assert.True(window.Move(moved, into, ProjectDrop.Inside));
+        Assert.True(window.Move(moved, into));
         Dispatcher.UIThread.RunJobs();
 
         Assert.Contains(moved, into.Children);
@@ -1699,7 +1699,7 @@ public class MainWindowProjectTests : IDisposable
         var moved = workspace.Document.Root.Children.OfType<ProjectDrawing>().First();
         var into = workspace.Document.Root.Children.OfType<ProjectGroup>().First();
 
-        Assert.True(window.Move(moved, into, ProjectDrop.Inside));
+        Assert.True(window.Move(moved, into));
         Dispatcher.UIThread.RunJobs();
 
         // One per gesture, whatever each of them touched, and the file exactly as it was found.
@@ -1728,8 +1728,7 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(window.Move(
             window.Workspace!.Document.Root.Children[0],
-            window.Workspace.Document.Root.Children[1],
-            ProjectDrop.Inside));
+            window.Workspace.Document.Root.Children[1]));
 
         Dispatcher.UIThread.RunJobs();
 
@@ -1760,8 +1759,7 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(window.Move(
             window.Workspace!.Document.Root.Children[0],
-            window.Workspace.Document.Root.Children[1],
-            ProjectDrop.Inside));
+            window.Workspace.Document.Root.Children[1]));
 
         Dispatcher.UIThread.RunJobs();
 
@@ -1784,8 +1782,7 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(window.Move(
             window.Workspace!.Document.Root.Children[0],
-            window.Workspace.Document.Root.Children[1],
-            ProjectDrop.Inside));
+            window.Workspace.Document.Root.Children[1]));
 
         Dispatcher.UIThread.RunJobs();
 
@@ -1821,8 +1818,7 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(window.Move(
             window.Workspace!.Document.Root.Children[0],
-            window.Workspace.Document.Root.Children[1],
-            ProjectDrop.Inside));
+            window.Workspace.Document.Root.Children[1]));
 
         Dispatcher.UIThread.RunJobs();
 
@@ -1852,8 +1848,7 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(window.Move(
             window.Workspace!.Document.Root.Children[0],
-            window.Workspace.Document.Root.Children[1],
-            ProjectDrop.Inside));
+            window.Workspace.Document.Root.Children[1]));
 
         Dispatcher.UIThread.RunJobs();
 
@@ -1879,8 +1874,7 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(window.Move(
             window.Workspace!.Document.Root.Children[0],
-            window.Workspace.Document.Root.Children[1],
-            ProjectDrop.Inside));
+            window.Workspace.Document.Root.Children[1]));
 
         Dispatcher.UIThread.RunJobs();
 
@@ -4382,7 +4376,7 @@ public class MainWindowProjectTests : IDisposable
         var home = (ProjectNode)((TreeViewItem)root.Items[0]!).Tag!;
         var group = (ProjectNode)((TreeViewItem)root.Items[1]!).Tag!;
 
-        Assert.True(window.Move(home, group, ProjectDrop.Inside));
+        Assert.True(window.Move(home, group));
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(
@@ -4398,8 +4392,9 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("    <drawing name=\"home\" class=\"Home\">\n      <svg", written, StringComparison.Ordinal);
         Assert.DoesNotContain("\n  <drawing name=\"home\"", written, StringComparison.Ordinal);
 
-        // And back out again, above the group it came from.
-        Assert.True(window.Move(home, group, ProjectDrop.Before));
+        // And back out again, by dropping it on the project's own row. There is no band to aim at
+        // any more, so the row that takes something out of a group is the one above it.
+        Assert.True(window.Move(home, (ProjectNode)root.Tag!));
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(
@@ -4407,6 +4402,37 @@ public class MainWindowProjectTests : IDisposable
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
         Assert.Null(home.EffectiveScale);
+    }
+
+    /// <summary>
+    /// A row dropped on a drawing goes into the group holding it.
+    /// </summary>
+    /// <remarks>
+    /// A drawing used to be a place to sit beside rather than somewhere to land, and a drop on one
+    /// meant before it or after it. With the pane sorted there is no beside, so what a drawing
+    /// offers is the group it is in — which is the reading that leaves every row in the tree a
+    /// target rather than only the groups.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Row_Dropped_On_A_Drawing_Goes_Into_Its_Group()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var home = Row(root, "home");
+        var badge = Row((TreeViewItem)root.Items[1]!, "badge");
+
+        Assert.True(window.Move(home, badge));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            new[] { "Project", "Large", "badge", "home" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        Assert.Equal(2f, home.EffectiveScale);
     }
 
     [AvaloniaFact]
@@ -4421,15 +4447,16 @@ public class MainWindowProjectTests : IDisposable
         var group = (TreeViewItem)root.Items[1]!;
         var badge = (ProjectNode)((TreeViewItem)group.Items[0]!).Tag!;
 
-        // Into a drawing, which holds nothing.
-        Assert.False(window.Move(home, badge, ProjectDrop.Inside));
-
         // Into its own child, which would take the branch out of the document and leave it holding
         // itself.
-        Assert.False(window.Move((ProjectNode)group.Tag!, badge, ProjectDrop.After));
+        Assert.False(window.Move((ProjectNode)group.Tag!, badge));
 
-        // Beside the project, which has nothing to sit beside.
-        Assert.False(window.Move(home, (ProjectNode)root.Tag!, ProjectDrop.After));
+        // Into the project, which is where it already is. Appending it to its own group would
+        // rewrite the file and mark it unsaved without moving a single row of the pane.
+        Assert.False(window.Move(home, (ProjectNode)root.Tag!));
+
+        // And onto a drawing beside it, which means that same group again.
+        Assert.False(window.Move(home, Row(root, "home")));
 
         Assert.Equal(Project, File.ReadAllText(path));
     }

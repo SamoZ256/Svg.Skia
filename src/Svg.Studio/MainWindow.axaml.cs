@@ -1038,7 +1038,7 @@ public partial class MainWindow : Window
         {
             if (held.Parent is { })
             {
-                Move(held, target, target is ProjectGroup ? ProjectDrop.Inside : ProjectDrop.After);
+                Move(held, target);
             }
 
             _held = null;
@@ -1345,7 +1345,6 @@ public partial class MainWindow : Window
     private bool _heldCut;
 
     private ProjectNode? _dropOn;
-    private ProjectDrop _dropWhere;
 
     private void OnRowPressed(object? sender, PointerPressedEventArgs e)
     {
@@ -1436,14 +1435,14 @@ public partial class MainWindow : Window
 
             e.DragEffects = DragDropEffects.Move;
 
-            if (Land(over, node, e) is not { } landing || landing.Parent.DescendsFrom(dragged))
+            if (Land(node) is not { } landing || landing.DescendsFrom(dragged))
             {
                 HideDrop();
 
                 return;
             }
 
-            ShowDrop(over);
+            ShowDrop(Marking(over, node, landing));
 
             return;
         }
@@ -1463,29 +1462,27 @@ public partial class MainWindow : Window
         // runs after this one.
         var target = over ?? _projectTree.Items.OfType<TreeViewItem>().FirstOrDefault();
 
-        if (target is not { Tag: ProjectNode into } || Land(target, into, e) is null)
+        if (target is not { Tag: ProjectNode into } || Land(into) is not { } where)
         {
             HideDrop();
 
             return;
         }
 
-        ShowDrop(target);
+        ShowDrop(Marking(target, into, where));
     }
 
-    /// <summary>Takes down where a drop on this row would go, and says where that is.</summary>
-    private (ProjectGroup Parent, int Index)? Land(TreeViewItem row, ProjectNode node, DragEventArgs e)
+    /// <summary>Takes down which row the drop is on, and says which group that lands it in.</summary>
+    private ProjectGroup? Land(ProjectNode node)
     {
         _dropOn = node;
-        _dropWhere = Bands(e.GetPosition(row).Y, RowHeight(row), node);
 
-        return Landing(_dropOn, _dropWhere);
+        return Landing(node);
     }
 
     private async void OnRowDrop(object? sender, DragEventArgs e)
     {
         var target = _dropOn;
-        var where = _dropWhere;
 
         // Before anything else: the landing is what the pointer said last, and HideDrop forgets it.
         HideDrop();
@@ -1494,14 +1491,14 @@ public partial class MainWindow : Window
         {
             if (target is { })
             {
-                Move(dragged, target, where);
+                Move(dragged, target);
             }
 
             return;
         }
 
         if (target is null
-            || Landing(target, where) is not { } landing
+            || Landing(target) is not { } landing
             || Dropped(e) is not { Count: > 0 } paths
             || !paths.All(IsDrawing))
         {
@@ -1511,24 +1508,41 @@ public partial class MainWindow : Window
         // Taken, so the window does not open tabs on the drawings that just became rows.
         e.Handled = true;
 
-        await AddDrawingsAsync(landing.Parent, landing.Index, paths).ConfigureAwait(true);
+        await AddDrawingsAsync(landing, landing.Children.Count, paths).ConfigureAwait(true);
     }
 
     /// <summary>
-    /// Moves a node to where a drop on <paramref name="target"/> puts it.
+    /// Moves a node into the group a drop on <paramref name="target"/> means.
     /// </summary>
-    /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the pointer.</remarks>
-    /// <returns>Whether it moved. A drop that would take a group into itself does not.</returns>
-    public bool Move(ProjectNode node, ProjectNode target, ProjectDrop where)
+    /// <remarks>
+    /// Which group, and nothing about where in it: the pane sorts its rows by name, so there is no
+    /// position for a drop to aim at. Dropping on a drawing means the group holding it, which is
+    /// what makes every group reachable without a band to aim for — including the project's own
+    /// row, which is how a row comes back out of a group.
+    ///
+    /// Public for the reason <see cref="ExportAsync"/> is: a way in without the pointer.
+    /// </remarks>
+    /// <returns>
+    /// Whether it moved. A drop that lands nowhere, that would take a group into itself, or that
+    /// puts a row back in the group it is already in, does not.
+    /// </returns>
+    public bool Move(ProjectNode node, ProjectNode target)
     {
-        if (_workspace is not { } workspace || Landing(target, where) is not { } landing)
+        if (_workspace is not { } workspace || Landing(target) is not { } landing)
+        {
+            return false;
+        }
+
+        // Already there. Appending it to its own group would rewrite the document and mark the
+        // project unsaved for a drop that cannot change a single row of the pane.
+        if (ReferenceEquals(node.Parent, landing))
         {
             return false;
         }
 
         try
         {
-            landing.Parent.Move(node, landing.Index);
+            landing.Move(node, landing.Children.Count);
         }
         catch (SvgcProjectException)
         {
@@ -1541,46 +1555,9 @@ public partial class MainWindow : Window
         return true;
     }
 
-    /// <summary>Which group a drop lands in, and where among its children. Null when it lands nowhere.</summary>
-    private static (ProjectGroup Parent, int Index)? Landing(ProjectNode target, ProjectDrop where)
-    {
-        if (where == ProjectDrop.Inside)
-        {
-            return target is ProjectGroup group ? (group, group.Children.Count) : null;
-        }
-
-        if (target.Parent is not { } parent)
-        {
-            return null;
-        }
-
-        var index = parent.Children.ToList().IndexOf(target);
-
-        return (parent, where == ProjectDrop.After ? index + 1 : index);
-    }
-
-    /// <summary>Which of the three a drop at <paramref name="y"/> down a row means.</summary>
-    /// <remarks>
-    /// Quarters for a group, which can be dropped into as well as beside. A drawing holds nothing,
-    /// so its middle is not a place, and halves put every drop somewhere it can go. The project has
-    /// no siblings to sit beside, so the whole of its row means inside it.
-    /// </remarks>
-    private static ProjectDrop Bands(double y, double height, ProjectNode target)
-    {
-        if (target is not ProjectGroup)
-        {
-            return y < height / 2 ? ProjectDrop.Before : ProjectDrop.After;
-        }
-
-        if (target.Parent is null)
-        {
-            return ProjectDrop.Inside;
-        }
-
-        return y < height * 0.25 ? ProjectDrop.Before
-            : y > height * 0.75 ? ProjectDrop.After
-            : ProjectDrop.Inside;
-    }
+    /// <summary>Which group a drop on <paramref name="target"/> lands in, or null for nowhere.</summary>
+    private static ProjectGroup? Landing(ProjectNode target)
+        => target as ProjectGroup ?? target.Parent;
 
     /// <summary>
     /// How tall the row itself is, rather than the row and everything under it.
@@ -1603,22 +1580,36 @@ public partial class MainWindow : Window
         return item.Bounds.Height;
     }
 
-    /// <summary>Draws the landing: a line between two rows, or the outline of the group it goes in.</summary>
-    private void ShowDrop(TreeViewItem item)
+    /// <summary>
+    /// The row to outline for a drop on <paramref name="row"/>, which is the landing's own.
+    /// </summary>
+    /// <remarks>
+    /// Hovering a drawing lands in the group holding it, so outlining the row under the pointer
+    /// would mark somewhere the drop is not going. Null where the landing has no row of its own,
+    /// which the caller takes as nothing to draw.
+    /// </remarks>
+    private static TreeViewItem? Marking(TreeViewItem row, ProjectNode node, ProjectGroup landing)
+        => ReferenceEquals(node, landing) ? row : row.FindAncestorOfType<TreeViewItem>();
+
+    /// <summary>Draws the landing: the outline of the group the drop goes in.</summary>
+    /// <remarks>
+    /// An outline and never a line between two rows. A line promises a position, and there is no
+    /// position to promise — the row it lands as is wherever its name sorts to.
+    /// </remarks>
+    private void ShowDrop(TreeViewItem? item)
     {
-        if (item.TranslatePoint(new Point(0, 0), _dropHost) is not { } at)
+        if (item is null || item.TranslatePoint(new Point(0, 0), _dropHost) is not { } at)
         {
+            HideDrop();
+
             return;
         }
 
-        var height = RowHeight(item);
-        var inside = _dropWhere == ProjectDrop.Inside;
-
         _dropLine.Width = Math.Max(item.Bounds.Width, 1);
-        _dropLine.Height = inside ? height : 2d;
-        _dropLine.Background = inside ? new SolidColorBrush(Color.Parse("#334C9BE8")) : new SolidColorBrush(Color.Parse("#4C9BE8"));
-        _dropLine.BorderThickness = new Thickness(inside ? 1d : 0d);
-        _dropLine.Margin = new Thickness(at.X, at.Y + (_dropWhere == ProjectDrop.After ? height - 2d : 0d), 0, 0);
+        _dropLine.Height = RowHeight(item);
+        _dropLine.Background = new SolidColorBrush(Color.Parse("#334C9BE8"));
+        _dropLine.BorderThickness = new Thickness(1d);
+        _dropLine.Margin = new Thickness(at.X, at.Y, 0, 0);
         _dropLine.IsVisible = true;
     }
 
