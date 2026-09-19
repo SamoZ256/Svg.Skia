@@ -561,6 +561,81 @@ public class SvgViewerCanvasTests
         window.Close();
     }
 
+    /// <summary>How many pixels of a rectangle are not the drawing's own blue.</summary>
+    private static int Written(Window window, PixelRect where)
+    {
+        var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("No rendered frame was captured.");
+
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-name-{Guid.NewGuid():N}.png");
+        frame.Save(path);
+
+        try
+        {
+            using var bitmap = SKBitmap.Decode(path);
+
+            var found = 0;
+
+            for (var x = where.X; x < where.Right; x++)
+            {
+                for (var y = where.Y; y < where.Bottom; y++)
+                {
+                    var pixel = bitmap!.GetPixel(x, y);
+
+                    if (pixel.Blue < 200 || pixel.Red > 80)
+                    {
+                        found++;
+                    }
+                }
+            }
+
+            return found;
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// A group's name is drawn over the drawings its frame holds, not under them.
+    /// </summary>
+    /// <remarks>
+    /// A frame is a ground and is drawn first; its name is not. Written with the frame it went
+    /// behind every drawing that reaches into the corner it sits in — which, since the name moved
+    /// inside, is most of them.
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData("Large", true)]
+    [InlineData(null, false)]
+    public void A_Frames_Name_Is_Drawn_Over_What_It_Holds(string? name, bool written)
+    {
+        using var drawing = SvgViewerDocument.LoadFromSvg(Blue);
+
+        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        // The frame is exactly the drawing, so its corner — where the name goes — is solid blue.
+        canvas.Show(
+            new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) },
+            new[] { new SvgViewerFrame(new SKRect(0f, 0f, 100f, 50f), name) });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        var corner = new PixelRect(
+            (int)canvas.OffsetX + 2,
+            (int)canvas.OffsetY + 2,
+            80,
+            (int)(SvgViewerCanvas.DefaultCaptionSize * 1.6d));
+
+        Assert.Equal(written, Written(window, corner) > 5);
+
+        window.Close();
+    }
+
     /// <summary>A drawing that is not orange, so the ring cannot be confused with its ink.</summary>
     private const string Blue = """
         <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50">

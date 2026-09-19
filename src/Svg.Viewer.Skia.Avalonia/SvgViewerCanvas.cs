@@ -1266,25 +1266,6 @@ public class SvgViewerCanvas : SKCanvasControl
             bounds.Offset(by);
 
             Around(canvas, bounds, state.Scale);
-
-            if (framed is { Label: { Length: > 0 } name })
-            {
-                // Divided by the scale so it comes out the same size on the control however far the
-                // view is zoomed, which is what the outline round it already does with its width.
-                var tall = (float)(state.CaptionSize / state.Scale);
-
-                font.Size = tall;
-
-                // Inside its top corner, off both edges by a third of the writing's height so it
-                // does not sit on the line it is naming.
-                canvas.DrawText(
-                    name,
-                    bounds.Left + (tall * 0.35f),
-                    bounds.Top + (tall * 1.15f),
-                    SKTextAlign.Left,
-                    font,
-                    writing);
-            }
         }
 
         foreach (var placed in state.Placed)
@@ -1326,16 +1307,43 @@ public class SvgViewerCanvas : SKCanvasControl
                 canvas.Restore();
             }
 
-            if (page is { } frame)
+            if (state.Bounds && page is { } frame)
             {
-                if (state.Bounds)
-                {
-                    Outline(canvas, frame, state.Scale);
-                }
-
+                Outline(canvas, frame, state.Scale);
             }
 
             canvas.Restore();
+        }
+
+        // After the drawings rather than with the frames they belong to, which are drawn under. A
+        // frame is a ground and a name is not: written under the drawings it went behind the ones
+        // that reach into the corner it sits in, which since it moved inside is most of them.
+        foreach (var framed in state.Frames)
+        {
+            if (framed is not { Label: { Length: > 0 } name })
+            {
+                continue;
+            }
+
+            var by = state.Moving is { } moving && moving.Bounds.Contains(framed.Bounds)
+                ? moving.By
+                : default;
+
+            // Divided by the scale so it comes out the same size on the control however far the
+            // view is zoomed, which is what the outline round it already does with its width.
+            var tall = (float)(state.CaptionSize / state.Scale);
+
+            font.Size = tall;
+
+            // Inside its top corner, off both edges by a third of the writing's height so it does
+            // not sit on the line it is naming.
+            canvas.DrawText(
+                name,
+                framed.Bounds.Left + by.X + (tall * 0.35f),
+                framed.Bounds.Top + by.Y + (tall * 1.15f),
+                SKTextAlign.Left,
+                font,
+                writing);
         }
 
         // Outside the loop, so it is drawn once wherever it was put rather than once per drawing on

@@ -7,6 +7,10 @@
   `SvgViewerFrame` no longer takes a label size, since there is no room to leave for writing that
   is already inside. The strip the frame is taken hold of by moved down with the name.
 
+  The name is drawn over the drawings rather than with the frame, which is drawn under them. A frame
+  is a ground and a name is not: written with the frame it went behind every drawing that reaches
+  into the corner it sits in.
+
 * **A board writes nothing under its drawings.** The name and class under each one, and the Captions
   toggle that asked for them, are gone: a board of icons is read as pictures, the tree beside it
   already names every row, and picking one names it above the element tree. The writing that is left
