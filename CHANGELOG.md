@@ -8,7 +8,8 @@
   everywhere. The way out was the middle button, and a trackpad has none.
 
   The wheel now moves the view, and Command — Control elsewhere, as the keyboard's own zoom already
-  is — makes it zoom. A frame is taken hold of by the strip its name is written on rather than by
+  is — makes it zoom; a trackpad pinch zooms too, the platform reporting that as a gesture of its
+  own rather than as a wheel with a modifier held. A frame is taken hold of by the strip its name is written on rather than by
   anywhere inside it, which is what Figma does with a frame and what the name is there for; its
   inside goes back to being canvas. A drawing is still carried from anywhere in its own box, being
   the thing somebody means to move.

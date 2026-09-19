@@ -118,6 +118,11 @@ public class SvgViewerCanvas : SKCanvasControl
         // interaction dispatcher by anything hosting an SVG, and chrome gets first refusal.
         AddHandler(PointerWheelChangedEvent, OnWheel, RoutingStrategies.Tunnel);
 
+        // The trackpad's own zoom, which the platform reports as a gesture of its own rather than as
+        // a wheel with a modifier held. Bubbling, unlike its neighbours here: that is the only way
+        // this one is raised, and a tunnelling handler on it is never called at all.
+        AddHandler(PointerTouchPadGestureMagnifyEvent, OnMagnify, RoutingStrategies.Bubble);
+
         AddHandler(PointerPressedEvent, OnPressed, RoutingStrategies.Tunnel);
         AddHandler(PointerMovedEvent, OnMoved, RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent, OnReleased, RoutingStrategies.Tunnel);
@@ -711,6 +716,38 @@ public class SvgViewerCanvas : SKCanvasControl
         // Added, so the view follows the fingers: a scroll downwards carries what is on the canvas
         // up, which is the direction the platform already means by it.
         SetView(_scale, _offsetX + (e.Delta.X * WheelStep), _offsetY + (e.Delta.Y * WheelStep));
+
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// A pinch on the trackpad zooms about the pointer.
+    /// </summary>
+    /// <remarks>
+    /// The platform reports how much larger the gesture has just made whatever is under it, as a
+    /// fraction: a twentieth means a twentieth bigger than a moment ago, so the scale is multiplied
+    /// rather than added to and a pinch compounds the way the wheel's own notches do.
+    ///
+    /// Which way round the fraction arrives is the backend's business — macOS has one number and
+    /// puts it in one of the two — so whichever is not zero is the one to read. Summing them would
+    /// double the gesture on a backend that filled in both.
+    /// </remarks>
+    private void OnMagnify(object? sender, PointerDeltaEventArgs e)
+    {
+        // The ground may not move under what is being carried, as for the wheel.
+        if (_moving is { } || !IsZoomEnabled || _placed.Count == 0)
+        {
+            return;
+        }
+
+        var magnification = e.Delta.Y != 0d ? e.Delta.Y : e.Delta.X;
+
+        if (magnification == 0d)
+        {
+            return;
+        }
+
+        ZoomTo(_scale * (1d + magnification), e.GetPosition(this));
 
         e.Handled = true;
     }
