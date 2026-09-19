@@ -2,8 +2,6 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
 using Svg.Expressions;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -16,13 +14,12 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// stays at what the document says until an edit is committed. Nothing here reaches the drawing —
 /// a let with a half-typed body would stop it rendering.
 /// </remarks>
-public sealed class SvgViewerLet : INotifyPropertyChanged
+public sealed class SvgViewerLet : SvgViewerVariable
 {
     private string _name;
     private string _expression;
     private string _readout = string.Empty;
     private string? _trouble;
-    private bool _showsOwner;
 
     /// <param name="declaration">What the document says, or null for a row nobody has committed yet.</param>
     public SvgViewerLet(SvgExpressionLet? declaration)
@@ -32,38 +29,7 @@ public sealed class SvgViewerLet : INotifyPropertyChanged
         _expression = declaration?.Expression ?? string.Empty;
     }
 
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     public SvgExpressionLet? Declaration { get; }
-
-    /// <summary>Where this was declared, where that is worth saying.</summary>
-    /// <remarks>
-    /// The name of whatever declares it, not a sentence about it: the panel says it once over the
-    /// run rather than on every row. Null for a panel whose host does not answer, which is a panel
-    /// whose rows all came from the one document.
-    /// </remarks>
-    public string? OwnerLabel { get; set; }
-
-    /// <summary>Whether this row begins a run declared somewhere new, and so wears the heading.</summary>
-    /// <remarks>
-    /// Set by the panel, which is the only thing that can see a row's neighbours. Raises a change
-    /// because the rows outlive a refresh: the same row can begin a run one moment and sit inside
-    /// one the next, when the section above it appears.
-    /// </remarks>
-    public bool ShowsOwner
-    {
-        get => _showsOwner;
-        set
-        {
-            if (_showsOwner == value)
-            {
-                return;
-            }
-
-            _showsOwner = value;
-            Raise(nameof(ShowsOwner));
-        }
-    }
 
     public string Name
     {
@@ -117,18 +83,9 @@ public sealed class SvgViewerLet : INotifyPropertyChanged
         Trouble = null;
     }
 
-    private void Raise(string? property)
-        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property));
-
-    private void Set<T>(ref T field, T value, [CallerMemberName] string? property = null)
+    /// <inheritdoc />
+    protected override void Changed()
     {
-        if (Equals(field, value))
-        {
-            return;
-        }
-
-        field = value;
-        Raise(property);
         Raise(nameof(IsModified));
         Raise(nameof(Readout));
     }
