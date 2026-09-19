@@ -37,6 +37,8 @@ internal static class SvgSceneExpressions
 
     internal const string StrokeWidth = "stroke-width";
 
+    internal const string StrokeDashOffset = "stroke-dashoffset";
+
     internal const string Visibility = "visibility";
 
     internal const string Display = "display";

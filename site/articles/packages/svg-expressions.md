@@ -183,6 +183,7 @@ stays smooth.
 | `stroke-opacity` | number | Scales the stroke's alpha. |
 | `stroke-width` | number | The stroke's width in user units. Refused where a driven transform is, and for the same reason: a stroke that grows paints outside bounds something already measured. |
 | `stop-opacity` | number | Scales one gradient stop's alpha. |
+| `stroke-dashoffset` | number | Where along the dash pattern the stroke starts, in user units. Refused nowhere — a dash removes paint from a stroke rather than adding any, so no value it binds to can leave bounds measured with that stroke already in them. Inert on an element with no `stroke-dasharray`, exactly as a literal is. A drawing that dashes a ring at its own circumference and drives this draws an arc of any sweep, which is what a progress ring is. |
 | `visibility` | boolean | `true` meaning visible. Wraps the element's drawing in a condition. |
 | `display` | boolean | `true` meaning displayed. Wraps the element and its subtree in a condition. |
 | `transform` | number, per argument | One expression drives one argument of one function. Unbound, an argument reads as the identity of **its slot** — 0 for an offset, an angle or a rotation centre, 1 for a scale factor — rather than one constant for all of them, since an unbound `scale` of 0 would leave no shape on screen to bind to. |
@@ -496,6 +497,7 @@ Colour:
 | `hsla(h, s, l, a)` | As `hsl`, alpha 0..1. |
 | `mix(a, b, t)` | Per-channel linear blend including alpha. `t` clamped to 0..1. |
 | `withAlpha(c, a)` | Replaces alpha; `a` is 0..1, clamped. |
+| `withSaturation(c, s)` | Replaces saturation, keeping the hue, the brightness and the alpha; `s` is 0..1, clamped. Hue, saturation and **value**, not `hsl`'s lightness: a colour desaturated here keeps the brightness the eye reads, where the same move through `hsl` would drag it towards the midpoint. |
 
 String:
 

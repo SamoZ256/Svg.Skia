@@ -60,6 +60,29 @@ public class PaintCodeImportTests
             .Of(PaintCodeDocument.Parse(KindDocument.Bytes(kind, type)))
             .ByName["test"];
 
+    /// <summary>
+    /// A colour PaintCode derives from another stays derived, whichever way it was derived.
+    /// </summary>
+    /// <remarks>
+    /// Only the alpha step survived before, so a colour that was desaturated or shaded was worked
+    /// out at import against the canvas's own accent — and a symbol handed a different one drew the
+    /// shade the document was saved with rather than the caller's. The sample's accentColorOff is
+    /// all three steps at once, which is why the chain matters rather than any one of them.
+    /// </remarks>
+    [Theory]
+    [InlineData("purpleFade", "withAlpha(colorPurple, 0.7)")]
+    [InlineData("purpleGrey", "withSaturation(colorPurple, 0.002)")]
+    [InlineData("purpleShade", "mix(colorPurple, #000000ff, 0.2)")]
+    public void A_Derived_Colour_Is_Written_As_What_Derives_It(string name, string body)
+    {
+        var declaration = PaintCodeDeclarations
+            .Of(PaintCodeDocument.Parse(SampleDocument.Bytes()))
+            .ByName[name];
+
+        Assert.Equal(PaintCodeDeclarationKind.Local, declaration.Kind);
+        Assert.Equal(body, declaration.Body);
+    }
+
     [Fact]
     public void A_Fraction_Carries_The_Range_Its_Type_Implies()
     {

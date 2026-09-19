@@ -1,5 +1,6 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -155,16 +156,112 @@ public class PaintCodeSvgWriterTests
     [Fact]
     public void A_Gradient_Fill_Becomes_A_Gradient_Laid_Along_The_Angle_It_Was_Given()
     {
-        var document = PaintCodeDocument.Parse(ScopeDocument.Bytes());
-        var element = WriteTree(Only(Filled(Gradient(), -90)), new List<PaintCodeImportNote>());
+        var shape = Filled(Gradient(), -90, frame: At(20, 10), kind: PaintCodeShapeKind.Rectangle);
+        var element = WriteTree(Only(shape), new List<PaintCodeImportNote>());
         var gradient = element.Descendants().First(one => one.Name.LocalName == "linearGradient");
 
-        Assert.Equal("0.5", gradient.Attribute("x1")!.Value);
-        Assert.Equal("0", gradient.Attribute("y1")!.Value);
-        Assert.Equal("0.5", gradient.Attribute("x2")!.Value);
-        Assert.Equal("1", gradient.Attribute("y2")!.Value);
+        // Down the shape, which for a plain rectangle is down its box: top edge to bottom edge.
+        Assert.Equal(new[] { "10", "0", "10", "10" }, new[] { "x1", "y1", "x2", "y2" }.Select(name => gradient.Attribute(name)!.Value));
         Assert.Equal(new[] { "#ff0000", "#0000ff" }, gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
-        Assert.Equal($"url(#{gradient.Attribute("id")!.Value})", element.Descendants().First(one => one.Name.LocalName == "path").Attribute("fill")!.Value);
+        Assert.Equal($"url(#{gradient.Attribute("id")!.Value})", element.Descendants().First(one => one.Name.LocalName == "rect").Attribute("fill")!.Value);
+    }
+
+    /// <summary>
+    /// A gradient given an angle runs from one side of the shape to the other, not across its box.
+    /// </summary>
+    /// <remarks>
+    /// The numbers are PaintCode's own, read out of the C# it generates for this document:
+    /// tv-state's rounded rectangle is 18.85 by 9.85 with a corner radius of 3, and at -45 degrees
+    /// PaintCode draws it between (8.7, 6.59) and (21.3, 19.19) — 17.81 long. Laid across the box
+    /// instead it came out 20.29, the diagonal of a box whose corners this shape does not have.
+    ///
+    /// Measured as a length and a middle rather than as four numbers: where the line sits across the
+    /// direction paints identically, so pinning it would be pinning something nobody can see.
+    /// </remarks>
+    [Fact]
+    public void A_Gradient_Runs_Across_The_Shape_Rather_Than_Across_Its_Box()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var rounded = new PaintCodeShapeMetrics(3, true, true, true, true, 0, 0, true, 0, 50);
+        var shape = Filled(Gradient(), -45, frame: At(18.85, 9.85), kind: PaintCodeShapeKind.RoundedRectangle, metrics: rounded);
+
+        var (x1, y1, x2, y2) = Laid(shape, notes);
+
+        Assert.Equal(17.81, Math.Sqrt(Math.Pow(x2 - x1, 2) + Math.Pow(y2 - y1, 2)), 2);
+
+        // At the angle it was given, and through the middle of the shape.
+        Assert.Equal(x2 - x1, y2 - y1, 4);
+        Assert.Equal(18.85 / 2, (x1 + x2) / 2, 4);
+        Assert.Equal(9.85 / 2, (y1 + y2) / 2, 4);
+
+        // Nothing was approximated, so there is nothing to say about it.
+        Assert.Empty(notes);
+    }
+
+    /// <summary>
+    /// A circle's gradient is its diameter whichever way it runs, where its box's is the diagonal.
+    /// </summary>
+    [Fact]
+    public void A_Round_Shapes_Gradient_Is_Measured_Round()
+    {
+        var (x1, y1, x2, y2) = Laid(Filled(Gradient(), 45, frame: At(28, 28), kind: PaintCodeShapeKind.Oval));
+
+        Assert.Equal(28d, Math.Sqrt(Math.Pow(x2 - x1, 2) + Math.Pow(y2 - y1, 2)), 3);
+        Assert.Equal(new[] { 14d, 14d }, new[] { (x1 + x2) / 2, (y1 + y2) / 2 });
+    }
+
+    /// <summary>
+    /// A star is the ten points PaintCode puts round its box, and a gradient reaches only as far.
+    /// </summary>
+    /// <remarks>
+    /// Both are PaintCode's own numbers for symbol-overlay-new, read out of the C# it generates: the
+    /// ten points to the two decimals it writes them at, and a gradient at -45 degrees drawn 17.18
+    /// long. Laid across the box that would have been 25.87, the distance between two corners this
+    /// shape has none of.
+    /// </remarks>
+    [Fact]
+    public void A_Star_Reaches_Only_As_Far_As_Its_Points()
+    {
+        var frame = new PaintCodeFrame(12.1, -31.4299, 18.2917, 18.2917, default, 0, 1, 1, 1, false, true);
+        var points = new PaintCodeShapeMetrics(0, true, true, true, true, 0, 0, true, 5, 44.5556);
+        var shape = Filled(Gradient(), -45, frame: frame, kind: PaintCodeShapeKind.Star, metrics: points);
+
+        Assert.Equal(
+            "M21.2458,13.1382L23.6411,18.9873L29.9441,19.4578L25.1214,23.5433L26.6216,29.6832"
+            + "L21.2458,26.359L15.8701,29.6832L17.3703,23.5433L12.5476,19.4578L18.8506,18.9873Z",
+            PaintCodePathData.For(shape));
+
+        var (x1, y1, x2, y2) = Laid(shape);
+
+        Assert.Equal(17.18, Math.Sqrt(Math.Pow(x2 - x1, 2) + Math.Pow(y2 - y1, 2)), 2);
+    }
+
+    /// <summary>
+    /// An outline this cannot measure keeps the box it always had, and says so.
+    /// </summary>
+    /// <remarks>
+    /// An arc of an oval is the one fill here whose reach is not worked out, and a shape with no
+    /// outline at all — a path of one point — is the other: a gradient of no length paints in its
+    /// last stop's colour alone, which is not a drawing anybody meant.
+    /// </remarks>
+    [Fact]
+    public void An_Outline_That_Cannot_Be_Measured_Keeps_The_Box()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var arc = new PaintCodeShapeMetrics(0, true, true, true, true, 90, 0, false, 0, 50);
+        var shape = Filled(Gradient(), -45, frame: At(20, 10), kind: PaintCodeShapeKind.Oval, metrics: arc);
+        var gradient = WriteTree(Only(shape), notes)
+            .Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal("objectBoundingBox", gradient.Attribute("gradientUnits")!.Value);
+        Assert.Contains(notes, note => note.Severity is PaintCodeImportSeverity.Approximated && note.Property == "fill");
+
+        // And the point-sized one, which is measured and comes to nothing.
+        Assert.Equal(
+            "objectBoundingBox",
+            WriteTree(Only(Filled(Gradient(), -45)), new List<PaintCodeImportNote>())
+                .Descendants().First(one => one.Name.LocalName == "linearGradient")
+                .Attribute("gradientUnits")!.Value);
     }
 
     /// <summary>
@@ -232,6 +329,125 @@ public class PaintCodeSvgWriterTests
             gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
     }
 
+    /// <summary>
+    /// A gradient an expression names the way PaintCode's own code does is still that gradient.
+    /// </summary>
+    /// <remarks>
+    /// The library holds the name as it was typed and PaintCode's generator emits it with the first
+    /// letter lowered, which is how its expressions spell it. Keyed by what was typed, the lookup
+    /// missed, the chooser could not be read, and the note blamed the format for having no gradient
+    /// type -- six of them in the sample, on every icon that shades by temperature.
+    /// </remarks>
+    [Fact]
+    public void A_Gradient_Named_The_Way_PaintCodes_Own_Code_Names_It_Is_Still_Found()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var shape = Filled(Gradient(), -90, "state ? cool : warm");
+        var gradient = WriteTree(Only(shape), notes)
+            .Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal(
+            new[] { "{{ state ? #ff0000ff : #ff0000ff }}", "{{ state ? #0000ffff : #0000ffff }}" },
+            gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
+
+        Assert.Empty(notes);
+    }
+
+    /// <summary>
+    /// A blended shape carries the mode PaintCode gave it, which SVG has its own name for.
+    /// </summary>
+    /// <remarks>
+    /// The number is Core Graphics' CGBlendMode, and 1 is multiply -- PaintCode's own generated code
+    /// draws the sample's one blended shape with SKBlendMode.Multiply. Everything after 15 is a
+    /// compositing operation with no CSS keyword, which is still reported.
+    /// </remarks>
+    [Theory]
+    [InlineData(1, "multiply")]
+    [InlineData(5, "lighten")]
+    [InlineData(8, "soft-light")]
+    [InlineData(9, "hard-light")]
+    [InlineData(15, "luminosity")]
+    public void A_Blended_Shape_Carries_The_Mode_It_Was_Given(int mode, string keyword)
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var written = WriteTree(Only(Blended(mode)), notes).Descendants().First(one => one.Name.LocalName == "rect");
+
+        Assert.Equal($"mix-blend-mode:{keyword}", written.Attribute("style")!.Value);
+        Assert.Empty(notes);
+    }
+
+    [Fact]
+    public void A_Compositing_Operation_Is_Reported_Rather_Than_Guessed_At()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var written = WriteTree(Only(Blended(16)), notes).Descendants().First(one => one.Name.LocalName == "rect");
+
+        Assert.Null(written.Attribute("style"));
+
+        var note = Assert.Single(notes);
+
+        Assert.Equal("blendMode", note.Property);
+        Assert.Contains("a compositing operation rather than a blend", note.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A shadow is reported rather than passed over, so a document using one says what it lost.
+    /// </summary>
+    /// <remarks>
+    /// Nothing read them at all until now: the sample has none, so the silence was never tested,
+    /// and the census row that said so was a field nothing ever assigned.
+    /// </remarks>
+    [Theory]
+    [InlineData(PaintCodeShadows.Fill, "the fill's shadow")]
+    [InlineData(PaintCodeShadows.FillInner, "the fill's inner shadow")]
+    [InlineData(PaintCodeShadows.Stroke, "the stroke's shadow")]
+    public void A_Shadow_Is_Reported_Rather_Than_Passed_Over(PaintCodeShadows shadows, string said)
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var shape = new PaintCodeShape(
+            "Rectangle",
+            PaintCodeShapeKind.Rectangle,
+            new PaintCodeFrame(0, -10, 10, 10, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            null,
+            new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 255, 0, 0, 1), null),
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            null,
+            PaintCodeShapeMetrics.Default,
+            false,
+            -90,
+            null,
+            0,
+            shadows);
+
+        WriteTree(Only(shape), notes);
+
+        var note = Assert.Single(notes);
+
+        Assert.Equal("shadow", note.Property);
+        Assert.Contains(said, note.Message, StringComparison.Ordinal);
+    }
+
+    private static PaintCodeShape Blended(int mode)
+        => new(
+            "Rectangle",
+            PaintCodeShapeKind.Rectangle,
+            new PaintCodeFrame(0, -10, 10, 10, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            null,
+            new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 255, 0, 0, 1), null),
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            null,
+            PaintCodeShapeMetrics.Default,
+            false,
+            -90,
+            null,
+            mode);
+
     [Fact]
     public void A_Shape_Carrying_Words_Is_Written_As_A_Run_Placed_In_Its_Box()
     {
@@ -257,6 +473,184 @@ public class PaintCodeSvgWriterTests
         Assert.Equal("central", run.Attribute("dominant-baseline")!.Value);
         Assert.Equal("bold", run.Attribute("font-weight")!.Value);
         Assert.Equal("3", run.Value);
+    }
+
+    /// <summary>An oval whose sweep an expression drives, for the tests below to vary.</summary>
+    private static PaintCodeShape Arc(
+        string property,
+        string expression,
+        double value,
+        double start,
+        double end,
+        bool closed,
+        double size = 28,
+        PaintCodePaint? fill = null,
+        PaintCodePaint? stroke = null)
+        => new(
+            "Selected",
+            PaintCodeShapeKind.Oval,
+            new PaintCodeFrame(0, -size, size, size, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>
+            {
+                [property] = new(expression, PaintCodeValueKind.Number, value, null, null, null, null, null)
+            },
+            null,
+            fill ?? PaintCodePaint.None,
+            stroke ?? PaintCodePaint.None,
+            stroke is { } ? new PaintCodeStroke(1.5, 0, 0, 10, false, 0, 0, 0) : PaintCodeStroke.None,
+            false,
+            null,
+            new PaintCodeShapeMetrics(0, true, true, true, true, start, end, closed, 0, 0));
+
+    private static XElement Written(PaintCodeShape shape, List<PaintCodeImportNote> notes)
+        => WriteTree(Only(shape), notes).Descendants().First(one => one.Name.LocalName == "path");
+
+    /// <summary>
+    /// A driven arc is the whole circle, cut to length by a dash.
+    /// </summary>
+    /// <remarks>
+    /// SVG bakes an arc into path data, where no expression can reach, so the sweep was written at
+    /// whatever angle the document was saved with and a level indicator never moved. What a dash
+    /// leaves showing is a length along the path, and on a circle a length is an angle.
+    ///
+    /// The numbers are PaintCode's own for analog-level: a 28-unit circle, the arc starting at 270
+    /// and running clockwise, so the path starts at six o'clock and the ring is 87.9646 round.
+    /// </remarks>
+    [Fact]
+    public void A_Driven_Arc_Is_A_Circle_A_Dash_Cuts_To_Length()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var stroke = new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 0, 0, 0, 1), null);
+        var written = Written(Arc("endAngle", "x", 1, 270, 270, closed: false, stroke: stroke), notes);
+
+        Assert.Equal("M14,28A14 14 0 1 1 14,0A14 14 0 1 1 14,28", written.Attribute("d")!.Value);
+        Assert.Equal("87.9646 87.9646", written.Attribute("stroke-dasharray")!.Value);
+
+        // The part of the circle the arc does not cover, in PaintCode's own sum: the sweep from the
+        // angle that stays put to the driven one, a whole turn for each one it has gone past, and
+        // the offset back to the angle the drawing was saved at.
+        Assert.Equal(
+            "{{ clamp(360 - (270 - ((x) + 269) + 360 * max(0, ceil((((x) + 269) - 270) / 360))), 0, 360) * 0.2443 }}",
+            written.Attribute("stroke-dashoffset")!.Value);
+
+        Assert.Empty(notes);
+    }
+
+    /// <summary>
+    /// A wedge is a circle of half the radius stroked its whole width, which is exactly a pie.
+    /// </summary>
+    /// <remarks>
+    /// The stroke covers every radius from the middle to the rim, and a butt cap on a circle is
+    /// perpendicular to the tangent, which is the radial direction — so the caps are the wedge's two
+    /// straight edges rather than an approximation of them. The fill moves to the stroke because the
+    /// stroke is what draws it now.
+    /// </remarks>
+    [Fact]
+    public void A_Driven_Wedge_Is_A_Half_Size_Circle_Stroked_Its_Own_Width()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var fill = new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 255, 0, 0, 1), null);
+        var written = Written(Arc("endAngle", "x", 1, 90, 90, closed: true, size: 16, fill: fill), notes);
+
+        Assert.Equal("M8,4A4 4 0 1 1 8,12A4 4 0 1 1 8,4", written.Attribute("d")!.Value);
+        Assert.Equal("none", written.Attribute("fill")!.Value);
+        Assert.Equal("#ff0000", written.Attribute("stroke")!.Value);
+        Assert.Equal("8", written.Attribute("stroke-width")!.Value);
+        Assert.Equal("25.1327 25.1327", written.Attribute("stroke-dasharray")!.Value);
+        Assert.Empty(notes);
+    }
+
+    /// <summary>A driven start runs from the end that stays put, which is the other way round.</summary>
+    [Fact]
+    public void A_Driven_Start_Turns_From_The_End_That_Stays_Put()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var stroke = new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 0, 0, 0, 1), null);
+        var written = Written(Arc("startAngle", "x", 1, 270, -90, closed: false, stroke: stroke), notes);
+
+        // Anticlockwise, from the fixed end at -90.
+        Assert.Equal("M14,28A14 14 0 1 0 14,0A14 14 0 1 0 14,28", written.Attribute("d")!.Value);
+        Assert.StartsWith("{{ clamp(360 - (((x) + 269) - -90", written.Attribute("stroke-dashoffset")!.Value, StringComparison.Ordinal);
+        Assert.Empty(notes);
+    }
+
+    /// <summary>A group clipped by a driven wedge is masked by it, since a clip takes no stroke.</summary>
+    [Fact]
+    public void A_Driven_Wedge_Clipping_A_Group_Becomes_A_Mask()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var clip = Arc("endAngle", "x", 1, 90, 90, closed: true, size: 16);
+        var shape = new PaintCodeShape(
+            "Body",
+            PaintCodeShapeKind.Rectangle,
+            new PaintCodeFrame(0, -10, 10, 10, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            null,
+            new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 0, 0, 255, 1), null),
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            null,
+            PaintCodeShapeMetrics.Default);
+
+        var group = new PaintCodeGroup("Group", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { (PaintCodeItem)shape }, clip);
+        var document = WriteTree(new PaintCodeGroup("Root", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { (PaintCodeItem)group }, null), notes);
+
+        var mask = Assert.Single(document.Descendants().Where(one => one.Name.LocalName == "mask"));
+        var path = mask.Elements().Single();
+
+        Assert.Empty(document.Descendants().Where(one => one.Name.LocalName == "clipPath"));
+        Assert.Equal("userSpaceOnUse", mask.Attribute("maskUnits")!.Value);
+        Assert.Equal("#ffffff", path.Attribute("stroke")!.Value);
+        Assert.Equal("8", path.Attribute("stroke-width")!.Value);
+
+        var masked = document.Descendants().Single(one => one.Name.LocalName == "g" && one.Attribute("mask") is { });
+
+        Assert.Equal($"url(#{mask.Attribute("id")!.Value})", masked.Attribute("mask")!.Value);
+        Assert.Null(masked.Attribute("clip-path"));
+        Assert.Empty(notes);
+    }
+
+    /// <summary>
+    /// A sweep a dash cannot draw keeps the angle it was saved with, and says which one it was.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, 28, 20, "an ellipse's arc is not proportional")]
+    [InlineData(true, true, 28, 28, "a closed arc is outlined round its two straight edges")]
+    [InlineData(false, false, 28, 28, "an open arc closes across its chord")]
+    public void A_Sweep_A_Dash_Cannot_Draw_Keeps_The_Angle_It_Was_Saved_With(
+        bool stroked,
+        bool closed,
+        double width,
+        double height,
+        string because)
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var paint = new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 0, 0, 0, 1), null);
+        var shape = new PaintCodeShape(
+            "Selected",
+            PaintCodeShapeKind.Oval,
+            new PaintCodeFrame(0, -height, width, height, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>
+            {
+                ["endAngle"] = new("x", PaintCodeValueKind.Number, 1, null, null, null, null, null)
+            },
+            null,
+            stroked ? PaintCodePaint.None : paint,
+            stroked ? paint : PaintCodePaint.None,
+            stroked ? new PaintCodeStroke(1.5, 0, 0, 10, false, 0, 0, 0) : PaintCodeStroke.None,
+            false,
+            null,
+            new PaintCodeShapeMetrics(0, true, true, true, true, 270, 250, closed, 0, 0));
+
+        var written = WriteTree(Only(shape), notes).Descendants().First(one => one.Name.LocalName is "path" or "ellipse");
+
+        Assert.Null(written.Attribute("stroke-dashoffset"));
+
+        var note = Assert.Single(notes, one => one.Property == "endAngle");
+
+        Assert.Contains(because, note.Message, StringComparison.Ordinal);
+        Assert.Contains("the drawing's own angle is written", note.Message, StringComparison.Ordinal);
     }
 
     // The one arc the conversion was checked against: PaintCode's own C# turns these two angles into
@@ -500,24 +894,51 @@ public class PaintCodeSvgWriterTests
                 new PaintCodeGradientStop(new PaintCodeColor(string.Empty, 0, 0, 255, 1), 1, 0.5, false)
             });
 
-    private static PaintCodeShape Filled(PaintCodeGradient gradient, double angle, string? expression = null, PaintCodeGradientEnds? ends = null, PaintCodeFrame? frame = null, bool radial = false)
+    private static PaintCodeShape Filled(
+        PaintCodeGradient gradient,
+        double angle,
+        string? expression = null,
+        PaintCodeGradientEnds? ends = null,
+        PaintCodeFrame? frame = null,
+        bool radial = false,
+        PaintCodeShapeKind kind = PaintCodeShapeKind.Bezier,
+        PaintCodeShapeMetrics? metrics = null)
         => new(
             "Filled",
-            PaintCodeShapeKind.Bezier,
+            kind,
             frame ?? Identity(),
             expression is { }
                 ? new Dictionary<string, PaintCodeBinding> { ["fill"] = new(expression, PaintCodeValueKind.Gradient, null, null, null, null, gradient, null) }
                 : new Dictionary<string, PaintCodeBinding>(),
-            new PaintCodePath(new[] { new PaintCodeContour(new[] { new PaintCodePathPoint(default, default, default) }, false) }),
+            kind is PaintCodeShapeKind.Bezier
+                ? new PaintCodePath(new[] { new PaintCodeContour(new[] { new PaintCodePathPoint(default, default, default) }, false) })
+                : null,
             new PaintCodePaint(PaintCodePaintKind.Gradient, null, gradient),
             PaintCodePaint.None,
             PaintCodeStroke.None,
             false,
             null,
-            PaintCodeShapeMetrics.Default,
+            metrics ?? PaintCodeShapeMetrics.Default,
             radial,
             angle,
             ends);
+
+    /// <summary>A box <paramref name="width"/> by <paramref name="height"/> with its top left at the origin.</summary>
+    private static PaintCodeFrame At(double width, double height)
+        => new(0, -height, width, height, default, 0, 1, 1, 1, false, true);
+
+    /// <summary>The two ends of the one gradient <paramref name="shape"/> is filled with.</summary>
+    private static (double X1, double Y1, double X2, double Y2) Laid(PaintCodeShape shape, List<PaintCodeImportNote>? notes = null)
+    {
+        var gradient = WriteTree(Only(shape), notes ?? new List<PaintCodeImportNote>())
+            .Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal("userSpaceOnUse", gradient.Attribute("gradientUnits")!.Value);
+
+        double Of(string name) => double.Parse(gradient.Attribute(name)!.Value, CultureInfo.InvariantCulture);
+
+        return (Of("x1"), Of("y1"), Of("x2"), Of("y2"));
+    }
 
     private static PaintCodeGroup Only(PaintCodeItem item)
         => new("Root", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { item }, null);

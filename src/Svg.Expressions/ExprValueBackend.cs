@@ -237,6 +237,8 @@ internal static class ExprValueBackend
                 return Mix(arguments[0], arguments[1], arguments[2].AsNumber);
             case ExprFunction.WithAlpha:
                 return arguments[0].WithAlpha(AlphaByte(arguments[1].AsNumber));
+            case ExprFunction.WithSaturation:
+                return WithSaturation(arguments[0], arguments[1].AsNumber);
 
             // Invariant, so the two back ends cannot disagree by the culture of the machine that
             // ran them. The generated code spells it the same way.
@@ -354,6 +356,63 @@ internal static class ExprValueBackend
 
     // The hue wrap is load-bearing, not defensive: SKColor.FromHsl folds it back into range only
     // once, so it alone would be wrong for something like 720.
+    /// <summary>
+    /// The colour at another saturation, its hue and its brightness kept.
+    /// </summary>
+    /// <remarks>
+    /// Hue, saturation and <em>value</em>, which is what SkiaSharp's own <c>ToHsv</c> and
+    /// <c>FromHsv</c> work in: a colour desaturated here keeps the brightness the eye reads, where
+    /// the same move through <c>hsl</c> would drag it towards the midpoint. Written out for the
+    /// reason <see cref="FromHsl"/> is -- the language evaluates without a reference to SkiaSharp --
+    /// and truncating for the reason that one truncates, so the two agree byte for byte.
+    /// </remarks>
+    private static ExprValue WithSaturation(ExprValue colour, float saturation)
+    {
+        // In doubles, as the conversion this agrees with is: at a sector boundary -- yellow is
+        // exactly 60 degrees -- float arithmetic lands a hair either side of the branch and turns
+        // one channel a byte darker than SkiaSharp draws it.
+        var red = colour.Red / 255d;
+        var green = colour.Green / 255d;
+        var blue = colour.Blue / 255d;
+        var max = Math.Max(red, Math.Max(green, blue));
+        var min = Math.Min(red, Math.Min(green, blue));
+        var delta = max - min;
+        var hue = 0d;
+
+        if (delta > 0d)
+        {
+            hue = max == red ? 60d * (((green - blue) / delta) % 6d)
+                : max == green ? 60d * (((blue - red) / delta) + 2d)
+                : 60d * (((red - green) / delta) + 4d);
+        }
+
+        if (hue < 0d)
+        {
+            hue += 360d;
+        }
+
+        var s = Math.Min(1d, Math.Max(0d, saturation));
+        var chroma = max * s;
+        var sector = ((hue % 360d) + 360d) % 360d / 60d;
+        var second = chroma * (1d - Math.Abs((sector % 2d) - 1d));
+        var match = max - chroma;
+
+        var (r, g, b) = (int)sector switch
+        {
+            0 => (chroma, second, 0d),
+            1 => (second, chroma, 0d),
+            2 => (0d, chroma, second),
+            3 => (0d, second, chroma),
+            4 => (second, 0d, chroma),
+            _ => (chroma, 0d, second)
+        };
+
+        return ExprValue.Color(Channel(r + match), Channel(g + match), Channel(b + match), colour.Alpha);
+    }
+
+    // Truncated, not rounded, because the conversion this has to agree with truncates.
+    private static byte Channel(double value) => (byte)(Math.Min(1d, Math.Max(0d, value)) * 255d);
+
     private static ExprValue Hsl(float h, float s, float l)
         => FromHsl(
             ((h % 360f) + 360f) % 360f,

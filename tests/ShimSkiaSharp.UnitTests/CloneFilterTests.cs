@@ -82,6 +82,19 @@ public class CloneFilterTests
     }
 
     [Fact]
+    public void SKPathEffect_DeepClone_KeepsTheExpressionDrivingThePhase()
+    {
+        // A paint is cloned wherever one is rewritten, so an expression dropped here is a binding
+        // that works until something copies the drawing.
+        var driven = SymNode.Source("shift");
+        SKPathEffect effect = SKPathEffect.CreateDash(new float[] { 1f, 2f }, 0.5f, driven);
+
+        var typed = Assert.IsType<DashPathEffect>(effect.DeepClone());
+
+        Assert.Same(driven, typed.PhaseExpression);
+    }
+
+    [Fact]
     public void SKImageFilter_DeepClone_ClonesArithmetic()
     {
         var background = CloneTestData.CreateLeafImageFilter();

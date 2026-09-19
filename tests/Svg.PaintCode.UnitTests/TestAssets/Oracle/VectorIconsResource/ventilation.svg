@@ -3,12 +3,12 @@
     <clipPath id="rectangle-2-clip">
       <path d="M0,0L20,0L20,20L0,20L0,0Z" transform="translate(-9.9537,-9.538)" />
     </clipPath>
-    <clipPath id="mask-clip">
-      <path d="M0,14.9074A14.9074 14.9074 0 1 0 29.8148,14.9074A14.9074 14.9074 0 1 0 0,14.9074Z" />
-    </clipPath>
+    <mask id="mask-mask" maskUnits="userSpaceOnUse" x="-1" y="-1" width="31.8148" height="31.8148">
+      <path d="M8.8017,10.6321A7.4537 7.4537 0 1 1 21.0131,19.1827A7.4537 7.4537 0 1 1 8.8017,10.6321" fill="none" stroke="#ffffff" stroke-width="14.9074" stroke-dasharray="46.8329 46.8329" stroke-dashoffset="{{ clamp(360 - (145 - (level360 + 55) + 360 * max(0, ceil(((level360 + 55) - 145) / 360))), 0, 360) * 0.1301 }}" />
+    </mask>
     <g id="sym-symbol-vent4-level">
       <path id="bezier-9" d="M15.3956,14.8056C14.95,15.5758 13.9647,15.8401 13.1944,15.3959C12.4242,14.9503 12.1599,13.965 12.6041,13.1948C13.0497,12.4231 14.035,12.1589 14.8052,12.6044C15.5769,13.05 15.8411,14.0353 15.3956,14.8056ZM25.3175,7.8705C23.0897,6.4115 21.0024,7.0018 19.3199,8.2472C17.6375,9.4939 16.1096,12.2137 15.3014,11.747C13.9436,10.9431 15.002,8.548 16.0983,7.7552C17.1933,6.9611 21.9708,4.2891 18.1013,1.3191C14.6548,-1.3262 9.3221,0.4659 7.8715,2.6825C6.4111,4.9103 7.0015,6.9976 8.2482,8.6801C9.4936,10.3625 12.1824,11.8721 11.7158,12.6817C10.9455,14.0578 8.549,12.998 7.7549,11.9017C6.9621,10.8067 4.2887,6.0292 1.3188,9.8987C-1.3265,13.3452 0.467,18.6779 2.6822,20.1285C4.9114,21.5889 6.9973,20.9985 8.6797,19.7518C10.3622,18.5064 11.8296,15.8921 12.6378,16.3587C14.0153,17.1304 12.9977,19.451 11.9027,20.2451C10.8064,21.0379 6.0288,23.7113 9.8998,26.6812C13.3448,29.3265 18.6776,27.533 20.1295,25.3178C21.5885,23.0886 20.9982,21.0027 19.7528,19.3203C18.5061,17.6378 15.9465,16.2013 16.4132,15.3931C17.1835,14.0156 19.452,15.0023 20.2448,16.0973C21.0389,17.1936 23.7109,21.9712 26.6809,18.1002C29.3262,14.6552 27.5341,9.3224 25.3175,7.8705Z" fill-rule="evenodd" fill="none" stroke="{{ stateAccentColor }}" stroke-width="0.5" stroke-miterlimit="10" transform="translate(1,1)" />
-      <g id="group-2" clip-path="url(#mask-clip)" transform="translate(0.1852,0.1852)">
+      <g id="group-2" mask="url(#mask-mask)" transform="translate(0.1852,0.1852)">
         <path id="bezier" d="M15.3956,14.8056C14.95,15.5758 13.9647,15.8401 13.1944,15.3959C12.4242,14.9503 12.1599,13.965 12.6041,13.1948C13.0497,12.4231 14.035,12.1589 14.8052,12.6044C15.5769,13.05 15.8411,14.0353 15.3956,14.8056ZM25.3175,7.8705C23.0897,6.4115 21.0024,7.0018 19.3199,8.2472C17.6375,9.4939 16.1096,12.2137 15.3014,11.747C13.9436,10.9431 15.002,8.548 16.0983,7.7552C17.1933,6.9611 21.9708,4.2891 18.1013,1.3191C14.6548,-1.3262 9.3221,0.4659 7.8715,2.6825C6.4111,4.9103 7.0015,6.9976 8.2482,8.6801C9.4936,10.3625 12.1824,11.8721 11.7158,12.6817C10.9455,14.0578 8.549,12.998 7.7549,11.9017C6.9621,10.8067 4.2887,6.0292 1.3188,9.8987C-1.3265,13.3452 0.467,18.6779 2.6822,20.1285C4.9114,21.5889 6.9973,20.9985 8.6797,19.7518C10.3622,18.5064 11.8296,15.8921 12.6378,16.3587C14.0153,17.1304 12.9977,19.451 11.9027,20.2451C10.8064,21.0379 6.0288,23.7113 9.8998,26.6812C13.3448,29.3265 18.6776,27.533 20.1295,25.3178C21.5885,23.0886 20.9982,21.0027 19.7528,19.3203C18.5061,17.6378 15.9465,16.2013 16.4132,15.3931C17.1835,14.0156 19.452,15.0023 20.2448,16.0973C21.0389,17.1936 23.7109,21.9712 26.6809,18.1002C29.3262,14.6552 27.5341,9.3224 25.3175,7.8705Z" fill-rule="evenodd" fill="{{ stateAccentColor }}" display="{{ state }}" transform="translate(0.8148,0.8337)" />
       </g>
     </g>
@@ -23,7 +23,7 @@
       <e:param name="blackColor_" type="color" default="#1f2123ff" />
       <e:param name="accent" type="boolean" default="true" />
       <e:param name="accentColorOn" type="color" default="#fb3e72ff" />
-      <e:param name="level" type="number" default="1" />
+      <e:param name="level" type="number" default="0" min="0" max="1" />
       <e:let name="whiteColor30">withAlpha(whiteColor_, 0.3)</e:let>
       <e:let name="blackColor30">withAlpha(blackColor_, 0.3)</e:let>
       <e:let name="stateBlackColor">(enabled and state) ? isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30</e:let>
@@ -33,6 +33,7 @@
       <e:let name="stateAccentColor30">(enabled and state) ? accent ? accentColor30 : isLight ? whiteColor30 : blackColor30 : isLight ? whiteColor10 : blackColor10</e:let>
       <e:let name="blindsLevel">level * 20 - 18.3</e:let>
       <e:let name="stateAccentColor">(enabled and state) ? accent ? accentColorOn : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30</e:let>
+      <e:let name="level360">-level * 360 + 90</e:let>
     </e:code>
   </defs>
   <rect id="rectangle" x="0" y="0" width="22" height="22" fill="none" stroke="{{ stateBlackColor }}" stroke-width="0.6" stroke-miterlimit="10" transform="translate(4,4)" />

@@ -186,7 +186,7 @@ dropped, the property keeps its default, and the drawing renders wrong without a
 inside `style="…"` is reported the same way, and on the declaration rather than the whole attribute. So
 is `clip-path="url(#gone)"` — a reference to an id the drawing does not contain, which is the most
 ordinary way for a picture to come out wrong and, until now, the quietest. An expression written in an
-attribute that does not take one, `stroke-width="{%{{{ w }}}%}"`, is reported too, and says which
+attribute that does not take one, `stroke-dasharray="{%{{{ w }}}%}"`, is reported too, and says which
 attributes do — as is one written in an attribute that takes a *different* kind, such as a colour in
 `opacity`. What counts as a mistake is [Svg.Highlighting](svg-highlighting)'s answer, which is the
 language's own checker.

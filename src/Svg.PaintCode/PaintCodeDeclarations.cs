@@ -223,7 +223,32 @@ internal sealed class PaintCodeDeclarations
 
     /// <summary>The gradient a name stands for, where the library names one.</summary>
     internal PaintCodeGradient? Gradient(string name)
-        => _gradients.TryGetValue(name, out var gradient) ? gradient : null;
+        => _gradients.TryGetValue(Spelled(name, _gradients), out var gradient) ? gradient : null;
+
+    /// <summary>
+    /// The name a table holds, where an expression spelled the same item the other way.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode's own code generator emits a library item as a local whose first letter is lowered
+    /// -- the gradient GradientTemperature becomes gradientTemperature -- and its expressions name
+    /// it the way the code does, while the library goes on holding the capital. Tried as written
+    /// first, so a document naming both keeps them apart; the sample has one gradient chosen by an
+    /// expression that could not be read at all for want of this, and every icon using it drew the
+    /// gradient it was saved with rather than the one the caller asked for.
+    /// </remarks>
+    private static string Spelled<T>(string name, Dictionary<string, T> table)
+    {
+        if (name.Length == 0 || table.ContainsKey(name))
+        {
+            return name;
+        }
+
+        var swapped = char.IsUpper(name[0])
+            ? char.ToLowerInvariant(name[0]) + name.Substring(1)
+            : char.ToUpperInvariant(name[0]) + name.Substring(1);
+
+        return table.ContainsKey(swapped) ? swapped : name;
+    }
 
     /// <summary>
     /// The colour each stop of <paramref name="source"/> takes, where the expression chooses between
@@ -320,16 +345,20 @@ internal sealed class PaintCodeDeclarations
     /// <summary>Every gradient an expression can end up reading, through as many variables as it takes.</summary>
     private bool Reach(string source, Dictionary<string, PaintCodeGradient> found, HashSet<string> seen, ref string refusal)
     {
-        foreach (var name in Names(source))
+        foreach (var written in Names(source))
         {
+            var name = Spelled(written, _gradients);
+
             if (_gradients.TryGetValue(name, out var gradient))
             {
-                found[name] = gradient;
+                // Keyed by the name the expression used, since that is what the per-stop scope has
+                // to answer to when the translation reaches it.
+                found[written] = gradient;
 
                 continue;
             }
 
-            if (!_gradientExpressions.TryGetValue(name, out var chooses) || !seen.Add(name))
+            if (!_gradientExpressions.TryGetValue(written, out var chooses) || !seen.Add(written))
             {
                 continue;
             }
@@ -571,18 +600,39 @@ internal sealed class PaintCodeDeclarations
         // change. Derived from a value nothing drives, it is itself a value nothing drives, and the
         // reader has already worked out what it is.
         if (color.ParentName is { } parent &&
-            color.Alpha is { } alpha &&
             _byName.TryGetValue(PaintCodeSlug.Identifier(parent), out var declaration) &&
-            declaration.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local)
+            declaration.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local &&
+            Derivation(declaration.Name, color) is { } derived)
         {
-            return PaintCodeDeclaration.Local(
-                name,
-                $"withAlpha({declaration.Name}, {Number(alpha)})",
-                "color");
+            return PaintCodeDeclaration.Local(name, derived, "color");
         }
 
         return PaintCodeDeclaration.Constant(name, "color", Literal(color.Value), color.Value.IsApproximate);
     }
+
+    /// <summary>
+    /// The derived colour written as what it is derived by, or null where nothing can say it.
+    /// </summary>
+    /// <remarks>
+    /// All three of PaintCode's operations have a name in the expression language now, so a whole
+    /// chain of them follows the colour a caller passes: accentColorOff is accentColorOn
+    /// desaturated, shadowed and given an alpha, and each step is one declaration reading the one
+    /// below it. Worked out at import before this, it followed the canvas instead -- so a symbol
+    /// handed another accent drew the shade the document was saved with.
+    ///
+    /// A shade is a blend towards black that leaves the alpha alone, and mix moves all four
+    /// channels -- so it is only the same thing where the colour is opaque, and a translucent one
+    /// keeps the shade the reader worked out rather than being written a shade that would fade it.
+    /// </remarks>
+    private static string? Derivation(string parent, PaintCodeLibraryColor color) => color.Operation switch
+    {
+        PaintCodeReader.OperationAlpha when color.Alpha is { } alpha => $"withAlpha({parent}, {Number(alpha)})",
+        PaintCodeReader.OperationShadow when color.Value.Alpha >= 1 => $"mix({parent}, #000000ff, {Number(color.Amount)})",
+
+        // A percentage, as PaintCode stores it, against a fraction as the language takes it.
+        PaintCodeReader.OperationSaturation => $"withSaturation({parent}, {Number(color.Amount / 100)})",
+        _ => null
+    };
 
     private static PaintCodeDeclaration Variable(PaintCodeVariable variable, bool integers)
     {

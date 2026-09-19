@@ -129,6 +129,13 @@ public class PaintCodeSampleTests
                 Rotated++;
             }
 
+            // Counted at last: the field was here from the start and nothing ever assigned it, so
+            // the row read "shadows 0" about a document nobody had looked at for one.
+            if (item.Shadows != PaintCodeShadows.None)
+            {
+                Shadows++;
+            }
+
             switch (item)
             {
                 case PaintCodeGroup group:

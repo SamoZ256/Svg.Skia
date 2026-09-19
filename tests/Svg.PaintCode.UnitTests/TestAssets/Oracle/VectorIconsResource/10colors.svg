@@ -1,22 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" xmlns:e="https://svg.skia/expr/1.0">
   <defs>
-    <linearGradient id="gradientpurple" gradientUnits="objectBoundingBox" x1="0.5" y1="1" x2="0.5" y2="0">
+    <linearGradient id="gradientpurple" gradientUnits="userSpaceOnUse" x1="7" y1="14" x2="7" y2="0">
       <stop offset="0" stop-color="{{ ((enabled and state) ? accent ? #fc772fff : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30) }}" />
       <stop offset="0.5" stop-color="{{ ((enabled and state) ? accent ? #fc534bff : isLight ? #ffffffff : #1f2123d9 : isLight ? #ffffff4d : #1f212333) }}" />
       <stop offset="1" stop-color="{{ ((enabled and state) ? accent ? colorPurple : isLight ? whiteColor_ : blackColor70 : isLight ? whiteColor30 : blackColor10) }}" />
     </linearGradient>
-    <linearGradient id="gradientshine" gradientUnits="objectBoundingBox" x1="0.5" y1="1" x2="0.5" y2="0">
+    <linearGradient id="gradientshine" gradientUnits="userSpaceOnUse" x1="7" y1="14" x2="7" y2="0">
       <stop offset="0.0073" stop-color="{{ ((enabled and state) ? accent ? #ffee3eff : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30) }}" />
       <stop offset="0.5037" stop-color="{{ ((enabled and state) ? accent ? #ffe23dff : isLight ? #ffffffff : #1f2123d9 : isLight ? #ffffff4d : #1f212333) }}" />
       <stop offset="1" stop-color="{{ ((enabled and state) ? accent ? #ffd73cff : isLight ? whiteColor_ : blackColor70 : isLight ? whiteColor30 : blackColor10) }}" />
     </linearGradient>
-    <linearGradient id="gradienttemperature" gradientUnits="objectBoundingBox" x1="0.5" y1="1" x2="0.5" y2="0">
-      <stop offset="0" stop-color="#fb002b" />
-      <stop offset="0.6217" stop-color="#904395" />
-      <stop offset="1" stop-color="#2586ff" />
+    <linearGradient id="gradienttemperature" gradientUnits="userSpaceOnUse" x1="7" y1="14" x2="7" y2="0">
+      <stop offset="0" stop-color="{{ ((enabled and state) ? accent ? #fb002bff : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30) }}" />
+      <stop offset="0.6217" stop-color="{{ ((enabled and state) ? accent ? #904395ff : isLight ? #ffffffff : #1f2123d9 : isLight ? #ffffff4d : #1f212333) }}" />
+      <stop offset="1" stop-color="{{ ((enabled and state) ? accent ? #2586ffff : isLight ? whiteColor_ : blackColor70 : isLight ? whiteColor30 : blackColor10) }}" />
     </linearGradient>
     <e:code>
-      <e:param name="step" type="number" default="3" />
+      <e:param name="step" type="number" default="2" />
       <e:param name="enabled" type="boolean" default="true" />
       <e:param name="state" type="boolean" default="true" />
       <e:param name="accent" type="boolean" default="true" />

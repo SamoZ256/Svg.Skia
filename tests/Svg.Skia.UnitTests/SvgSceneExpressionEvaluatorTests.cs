@@ -314,6 +314,41 @@ public class SvgSceneExpressionEvaluatorTests
     }
 
     [Fact]
+    public void A_Dash_Offset_Expression_Becomes_The_Value_And_Loses_Its_Expression()
+    {
+        var markup = Wrap(
+            """<e:param name="shift" type="number" />""",
+            """<circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="2" stroke-dasharray="10 10" stroke-dashoffset="{{ shift }}" />""");
+
+        var dash = Assert.IsType<DashPathEffect>(SinglePaint(BuildAndEvaluate(markup, ("shift", ExprValue.Number(7f)))).PathEffect);
+
+        Assert.Equal(7f, dash.Phase);
+        Assert.Null(dash.PhaseExpression);
+
+        // The lengths beside it are the ones the document wrote, and binding does not disturb them.
+        Assert.Equal(new[] { 10f, 10f }, dash.Intervals);
+    }
+
+    [Fact]
+    public void A_Dash_Nothing_Drives_Comes_Back_As_The_Same_Path_Effect()
+    {
+        var markup = Wrap(
+            """<e:param name="tint" type="color" />""",
+            """<circle cx="12" cy="12" r="8" fill="{{ tint }}" stroke="#0f766e" stroke-width="2" stroke-dasharray="10 10" stroke-dashoffset="3" />""");
+
+        // The stroke's paint, since the driven fill beside it is a second one.
+        static SKPathEffect Dash(SKPicture picture)
+            => Paints(picture).Select(paint => paint.PathEffect).OfType<DashPathEffect>().Single();
+
+        var picture = Build(markup);
+        var dash = Dash(picture);
+
+        var evaluated = Evaluate(picture, markup, ("tint", ExprValue.Color(255, 0, 0, 255)));
+
+        Assert.Same(dash, Dash(evaluated));
+    }
+
+    [Fact]
     public void A_Paint_Without_An_Expression_Comes_Back_As_The_Same_Instance()
     {
         // Structural sharing, so the parts of a drawing that carry no expressions are not copied on

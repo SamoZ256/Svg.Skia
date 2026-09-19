@@ -35,7 +35,7 @@ public class PaintCodeSampleNoteTests
     private static string Kind(PaintCodeImportNote note)
         => note.Severity is PaintCodeImportSeverity.Missing ? "Missing/symbol/no canvas called"
             : note.Property is "text" ? "Approximated/text/placed from the shape's box"
-            : note.Property is "startAngle" or "endAngle" ? "Dropped/" + note.Property + "/keeps this value literal"
+            : note.Property is "startAngle" or "endAngle" ? "Dropped/" + note.Property + "/the sweep was not carried"
             : note.Property is "blendMode" ? "Dropped/blendMode/has no name here"
             : note.Message.Contains("laid across the shape's box", StringComparison.Ordinal) ? "Approximated/fill/laid across the shape's box"
             : note.Message.Contains("a gradient has no type", StringComparison.Ordinal) ? "Dropped/fill/a gradient has no type"

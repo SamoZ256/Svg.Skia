@@ -15,7 +15,9 @@ internal static class ScopeDocument
         var library = archive.Object(
             "PPLibrary",
             ("colors", archive.Array(Color(archive, "navy", "0 0 0.2352941176 1"))),
-            ("gradients", archive.Array(Gradient(archive, "warm"))),
+            // "Cool" with a capital, because PaintCode's own code -- and so its expressions -- name a
+            // library item with its first letter lowered, and the library keeps what was typed.
+            ("gradients", archive.Array(Gradient(archive, "warm"), Gradient(archive, "Cool"))),
             ("variables", archive.Array(
                 Input(archive, "a", 4, archive.Value(true)),
                 Input(archive, "b", 4, archive.Value(true)),

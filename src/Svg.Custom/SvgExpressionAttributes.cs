@@ -67,6 +67,11 @@ public static class SvgExpressionAttributes
         // One unit, which is SVG's own default, so a document whose expression will not evaluate
         // strokes the way the same document without the attribute does.
         ["stroke-width"] = ("1", ExprType.Number, true, false, false),
+        // Nought, which is SVG's own default and shifts nothing, so a document whose expression
+        // will not evaluate dashes the way the same document without the attribute does. It drives
+        // where along a dash the pattern begins, and -- like a literal -- does nothing at all on an
+        // element with no dash array to shift.
+        ["stroke-dashoffset"] = ("0", ExprType.Number, true, false, false),
         ["stop-opacity"] = ("1", ExprType.Number, false, false, false),
         // A hidden element contributes no commands at all, so the placeholder has to be the
         // visible state or there would be nothing left to make conditional. For display that goes

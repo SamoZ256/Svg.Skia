@@ -280,6 +280,24 @@ public class ExprEvaluatorDifferentialTests
     [InlineData("withAlpha(#ff8800, 0.5)")]
     [InlineData("withAlpha(#ff8800, 1)")]
     [InlineData("withAlpha(#ff8800, 3)")]
+
+    // Written out here rather than derived from SkiaSharp's own round trip, so the two have to be
+    // shown to agree: grey, primaries, the sector boundaries where the hue formula changes branch,
+    // and both ends of the clamp.
+    [InlineData("withSaturation(#ff8800, 0.5)")]
+    [InlineData("withSaturation(#ff8800, 0)")]
+    [InlineData("withSaturation(#ff8800, 1)")]
+    [InlineData("withSaturation(#ff8800, 2)")]
+    [InlineData("withSaturation(#ff8800, -1)")]
+    [InlineData("withSaturation(#808080, 0.5)")]
+    [InlineData("withSaturation(#000000, 0.5)")]
+    [InlineData("withSaturation(#ffffff, 0.002)")]
+    [InlineData("withSaturation(#00ff00, 0.25)")]
+    [InlineData("withSaturation(#0000ff, 0.75)")]
+    [InlineData("withSaturation(#00ffff, 0.5)")]
+    [InlineData("withSaturation(#ff00ff, 0.5)")]
+    [InlineData("withSaturation(#ffff00, 0.5)")]
+    [InlineData("withSaturation(#12345680, 0.5)")]
     public void A_Colour_Expression_Evaluates_To_What_The_Generated_Code_Computes(string expression)
         => AssertSameValue(expression);
 

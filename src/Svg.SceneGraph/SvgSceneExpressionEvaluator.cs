@@ -331,11 +331,13 @@ public static class SvgSceneExpressionEvaluator
             var colorFilter = RewriteColorFilter(paint.ColorFilter);
             var imageFilter = RewriteImageFilter(paint.ImageFilter);
             var strokeWidth = RewriteStrokeWidth(paint);
+            var pathEffect = RewritePathEffect(paint.PathEffect);
 
             if (color.Equals(paint.Color)
                 && ReferenceEquals(shader, paint.Shader)
                 && ReferenceEquals(colorFilter, paint.ColorFilter)
                 && ReferenceEquals(imageFilter, paint.ImageFilter)
+                && ReferenceEquals(pathEffect, paint.PathEffect)
                 && strokeWidth.Equals(paint.StrokeWidth))
             {
                 return paint;
@@ -349,6 +351,7 @@ public static class SvgSceneExpressionEvaluator
             clone.ColorFilter = colorFilter;
             clone.ImageFilter = imageFilter;
             clone.StrokeWidth = strokeWidth;
+            clone.PathEffect = pathEffect;
 
             // Cleared for the reason a resolved colour drops its own: the value is now the answer,
             // and a second binding evaluates from the model this one left rather than from a stale
@@ -358,6 +361,28 @@ public static class SvgSceneExpressionEvaluator
             _rewritten[paint] = clone;
 
             return clone;
+        }
+
+        /// <summary>A dash whose phase was written as an expression, with it resolved.</summary>
+        /// <remarks>
+        /// The same instance where nothing drives it, so a literal dash keeps the sharing the rest
+        /// of this walk is built on. Where something does, the answer is always a new effect even
+        /// when the number comes back what it was: the expression has to be dropped either way.
+        ///
+        /// A phase that binds to nothing at all is written as nought rather than refused -- unlike a
+        /// length it cannot make the dash invalid, and a pattern shifted by nothing is the dash the
+        /// document already draws.
+        /// </remarks>
+        private SKPathEffect? RewritePathEffect(SKPathEffect? pathEffect)
+        {
+            if (pathEffect is not DashPathEffect { PhaseExpression: { } expression } dash || dash.Intervals is null)
+            {
+                return pathEffect;
+            }
+
+            var phase = SvgSceneSymEvaluator.Evaluate(expression, ExprType.Number, _evaluator).AsNumber;
+
+            return SKPathEffect.CreateDash(dash.Intervals, float.IsNaN(phase) || float.IsInfinity(phase) ? 0f : phase);
         }
 
         private float RewriteStrokeWidth(SKPaint paint)
