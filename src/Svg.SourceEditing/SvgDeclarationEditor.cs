@@ -135,6 +135,70 @@ public static class SvgDeclarationEditor
     public static string? RemoveLet(SvgSourceDocument source, string name, Func<string, int>? usedElsewhere)
         => Take(source, name, "let", usedElsewhere);
 
+    /// <summary>
+    /// Every name <paramref name="source"/> reads, closed over the lets it can reach through.
+    /// </summary>
+    /// <param name="lets">
+    /// Lets the document does not hold itself, by name and body — what a drawing inherits. A name
+    /// reached through one of these drags in whatever its body reads, however deep.
+    /// </param>
+    /// <returns>
+    /// The names, or null where an expression will not read. Null is not "nothing is used": a caller
+    /// narrowing by this has to keep everything when it cannot be told what is reached, or it drops
+    /// a declaration that is in fact needed.
+    /// </returns>
+    /// <remarks>
+    /// Every identifier, so functions and constants are in it too. Harmless for what this is for —
+    /// a caller is asking which of ITS declarations are reached, and looks each up by name.
+    /// </remarks>
+    public static IReadOnlyCollection<string>? Reached(SvgSourceDocument source, IReadOnlyDictionary<string, string> lets)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (lets is null)
+        {
+            throw new ArgumentNullException(nameof(lets));
+        }
+
+        if (SvgDeclarationReferences.Names(source.Document) is not { } seeds)
+        {
+            return null;
+        }
+
+        var reached = new HashSet<string>(seeds, StringComparer.Ordinal);
+        var pending = new Queue<string>(seeds);
+
+        while (pending.Count > 0)
+        {
+            if (!lets.TryGetValue(pending.Dequeue(), out var body))
+            {
+                continue;
+            }
+
+            if (Names(body) is not { } inner)
+            {
+                return null;
+            }
+
+            foreach (var name in inner)
+            {
+                if (reached.Add(name))
+                {
+                    pending.Enqueue(name);
+                }
+            }
+        }
+
+        return reached;
+    }
+
+    /// <summary>The names one expression reads, or null where it will not read.</summary>
+    public static IReadOnlyCollection<string>? Names(string expression)
+        => SvgDeclarationReferences.Names(expression ?? throw new ArgumentNullException(nameof(expression)));
+
     /// <summary>How many of this document's expressions name <paramref name="name"/>.</summary>
     /// <remarks>
     /// What a host answers <c>usedElsewhere</c> with, over each of the documents it declares for.

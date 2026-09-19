@@ -750,6 +750,115 @@ public class ProjectDocumentTests : IDisposable
             < written.IndexOf("<drawing name=\"BadgeLarge\"", StringComparison.Ordinal));
     }
 
+    /// <summary>A project declaring three, and a drawing naming one of them.</summary>
+    private const string Plenty = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <studio namespace="Demo.Icons">
+          <e:code xmlns:e="https://svg.skia/expr/1.0">
+            <e:param name="tint" type="color" default="#00ff00" />
+            <e:param name="shade" type="color" default="#0000ff" />
+            <e:param name="ring" type="number" default="2" min="0" max="10" />
+            <e:let name="edge">mix(tint, shade, 0.5)</e:let>
+          </e:code>
+          <drawing name="Badge">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" fill="{{ tint }}" />
+            </svg>
+          </drawing>
+        </studio>
+
+        """;
+
+    [Fact]
+    public void A_Drawing_Inherits_Only_What_It_Reaches()
+    {
+        var document = Read(Plenty);
+        var built = ProjectDeclarations.Built(First(document), First(document).Text);
+
+        var declarations = SvgExpressionDeclarations.Parse(built, out var diagnostics);
+
+        Assert.Empty(diagnostics);
+
+        // One of three, and not the let: an inherited parameter the drawing never names would
+        // otherwise become an argument of its generated Draw that drives nothing.
+        Assert.Equal(new[] { "tint" }, declarations.Parameters.Select(one => one.Name).ToArray());
+        Assert.Empty(declarations.Lets);
+    }
+
+    [Fact]
+    public void An_Inherited_Let_Brings_What_It_Reads_With_It()
+    {
+        var document = Read(Plenty.Replace("fill=\"{{ tint }}\"", "fill=\"{{ edge }}\"", StringComparison.Ordinal));
+
+        var declarations = SvgExpressionDeclarations.Parse(
+            ProjectDeclarations.Built(First(document), First(document).Text),
+            out _);
+
+        // The let is reached, so what its body names is reached too — however deep it goes.
+        Assert.Equal(new[] { "tint", "shade" }, declarations.Parameters.Select(one => one.Name).ToArray());
+        Assert.Equal(new[] { "edge" }, declarations.Lets.Select(one => one.Name).ToArray());
+    }
+
+    [Fact]
+    public void A_Drawings_Own_Let_Reaches_Through_To_What_It_Inherits()
+    {
+        var document = Read(Plenty.Replace(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:e=\"https://svg.skia/expr/1.0\" viewBox=\"0 0 24 24\">"
+            + "<defs><e:code><e:let name=\"own\">mix(shade, shade, 0.5)</e:let></e:code></defs>",
+            StringComparison.Ordinal));
+
+        var declarations = SvgExpressionDeclarations.Parse(
+            ProjectDeclarations.Built(First(document), First(document).Text),
+            out _);
+
+        // The drawing's own block is spliced whole, so what its bodies read is live.
+        Assert.Contains("shade", declarations.Parameters.Select(one => one.Name));
+    }
+
+    [Fact]
+    public void A_Name_Declared_Twice_Collides_Even_Where_Nothing_Uses_It()
+    {
+        // Narrowing must not turn the refusal into shadowing for the names nothing reads: the
+        // drawing's own declared names seed the reached set for exactly this.
+        var document = Read(Plenty.Replace(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:e=\"https://svg.skia/expr/1.0\" viewBox=\"0 0 24 24\">"
+            + "<defs><e:code><e:param name=\"shade\" type=\"color\" default=\"#ff0000\" /></e:code></defs>",
+            StringComparison.Ordinal));
+
+        SvgExpressionDeclarations.Parse(
+            ProjectDeclarations.Built(First(document), First(document).Text),
+            out var diagnostics);
+
+        Assert.Contains(diagnostics, one => one.Message.Contains("declared more than once", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_Expression_That_Will_Not_Read_Keeps_The_Whole_Chain()
+    {
+        // Dropping a declaration that is in fact used breaks the drawing, so the answer when what
+        // is reached cannot be told is everything.
+        var document = Read(Plenty.Replace("{{ tint }}", "{{ tint ~ }}", StringComparison.Ordinal));
+
+        var declarations = SvgExpressionDeclarations.Parse(
+            ProjectDeclarations.Built(First(document), First(document).Text),
+            out _);
+
+        Assert.Equal(
+            new[] { "tint", "shade", "ring" },
+            declarations.Parameters.Select(one => one.Name).ToArray());
+    }
+
+    [Fact]
+    public void A_Build_Is_Handed_Only_What_The_Drawing_Reaches()
+    {
+        var item = Read(Plenty).Flatten().Items.Single();
+
+        Assert.Contains("<e:param name=\"tint\"", item.Source!, StringComparison.Ordinal);
+        Assert.DoesNotContain("shade", item.Source!, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_Copied_Group_Declares_What_It_Declared()
     {

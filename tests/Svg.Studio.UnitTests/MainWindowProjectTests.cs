@@ -2474,18 +2474,25 @@ public class MainWindowProjectTests : IDisposable
     /// document before it, and the new row moved nothing.
     /// </remarks>
     [AvaloniaFact]
-    public async Task Declaring_On_A_Group_Rebuilds_What_It_Declares_For()
+    public async Task Editing_A_Groups_Block_Rebuilds_What_It_Declares_For()
     {
         var window = await Host(Owned(GroupTint, Using, UsingRound));
         var panel = await Group(window, 0);
 
-        panel.ParameterDialogService = new StubParameterDialogService(
-            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
-
-        Assert.True(await panel.AddParameterAsync());
+        ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
         Dispatcher.UIThread.RunJobs();
 
-        Assert.All(Drawn(panel), placed => Assert.Equal("4", Value(placed, "sweep")));
+        // Written into the group's block, which is a change to what every drawing under it is built
+        // from though none of their own text moved.
+        Assert.True(panel.CommitDefaults());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("#ff0000", GroupOf(window).CodeText, StringComparison.Ordinal);
+
+        // The rows are back at their seeds, so nothing is bound over the top: what the drawings show
+        // is what they were built with, and they were built again.
+        Assert.All(Declarations(panel).Parameters!, row => Assert.False(row.IsModified));
+        Assert.All(Drawn(panel), placed => Assert.Equal("#ff0000ff", Value(placed, "tint")));
     }
 
     [AvaloniaFact]
@@ -2859,8 +2866,10 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("sweep", group.CodeText, StringComparison.Ordinal);
         Assert.All(group.Drawings, drawing => Assert.DoesNotContain("sweep", drawing.Text, StringComparison.Ordinal));
 
-        // Every drawing under it is built with it, which is what declaring on a group means.
-        Assert.All(Drawn(panel), placed => Assert.Equal("4", Value(placed, "sweep")));
+        // On the panel as the group's own row, which is what declaring on a group means. It reaches
+        // no drawing yet because none of them names it — that is what narrowing is for.
+        Assert.Contains(Declarations(panel).Parameters!, row => row.Name == "sweep" && row.OwnerLabel == "Own");
+        Assert.All(Drawn(panel), placed => Assert.DoesNotContain("sweep", placed.Svg.ExpressionValues!.Keys));
     }
 
     [AvaloniaFact]
