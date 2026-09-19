@@ -1,4 +1,4 @@
----
+﻿---
 title: "Svg.Viewer.Skia.Avalonia"
 ---
 
@@ -229,7 +229,12 @@ in a file is the question it answers, and half of that never reaches the canvas.
 because it is rebuilt every time typing pauses and that is 27ms at 4,000 elements.
 
 Picking a row rings the element on the drawing and fills the **Element** panel with the attributes
-the file writes it with. The ring is the element's own **silhouette**, traced from the scene
+the file writes it with. A `<text>`, a `<tspan>` or a `<textPath>` is headed by its own words, above
+the attributes, because that is what the element says rather than how it is said; an expression
+written there is checked as a string, so binding the words to a parameter and unbinding them again
+is the one box. An element whose text is split across child elements says so instead, and each child
+carries its own row — the words of such an element are not one value, and the language will not lift
+them as one either. The ring is the element's own **silhouette**, traced from the scene
 geometry rather than drawn around its bounds — a circle rings as a circle, a stroked path rings round
 both edges of the stroke rather than down the middle of it, and a group rings as its parts rather
 than as the box containing them. It is one orange line, whose colour sweeps and settles over about

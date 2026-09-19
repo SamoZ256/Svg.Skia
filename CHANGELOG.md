@@ -1,6 +1,26 @@
-# Svg.Skia Changelog
+﻿# Svg.Skia Changelog
 
 ## Unreleased
+
+* **The words of a `<text>` are a row in the Element pane.** They are a child node rather than an
+  attribute, so nothing in the editor could reach them, and the one value somebody picked a text
+  element for was the one value only a text editor could change. The row is first, above the
+  attributes, and takes either the words or the `{{ … }}` that produces them — so binding text to a
+  parameter and unbinding it again is one box. `<text>`, `<tspan>` and `<textPath>` only: a `<tref>`
+  takes its text from what its href names and is told so, and an element whose text is split across
+  child elements says so rather than offering a row that could not write it back without flattening
+  the children away.
+
+* **A string expression is described rather than thrown over.** `DescribeUse` named the colour,
+  boolean and number uses and threw `NotSupportedException` on the rest, under a comment saying no
+  attribute held a string. Four do — `font-family`, `font-weight`, `font-style` and `text-anchor` —
+  and the element pane evaluates that call inside an argument list while catching only an
+  `ExprException`, so typing `{{ face }}` into the `font-family` row threw out of a keystroke
+  handler instead of showing the red line the row exists for.
+
+* **A `<tref>` no longer lifts an expression it cannot use.** Its text comes from whatever its href
+  names and the text compiler answers for one before reading any content, so a `{{ … }}` written in
+  a `<tref>` was lifted, blanked the element's nodes on the way, and was never evaluated.
 
 * **A row says where it came from even when every row on show came from the same place.** Heading a
   run only when another was beside it made sense while a pane usually held several; narrowing the
