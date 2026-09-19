@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Svg.Studio.SettingsWindow"
         Title="Settings"
@@ -10,8 +10,7 @@
 
   <!--
     Applied as it is switched, with nothing to confirm: a settings window with OK and Cancel is a
-    Windows habit, and on macOS a preference takes effect where it is set. There is one setting, so
-    there is also nothing here to lay out against anything else yet.
+    Windows habit, and on macOS a preference takes effect where it is set.
   -->
   <StackPanel Margin="20" Spacing="6">
     <CheckBox x:Name="AutosaveBox" Content="Keep a copy of unsaved work" />
@@ -25,5 +24,22 @@
                Opacity="0.65"
                FontSize="11"
                Margin="26,0,0,0" />
+
+    <TextBlock Text="Caption size" Margin="0,14,0,0" />
+
+    <!--
+      A caption is chrome rather than part of a drawing, so it is drawn at one size whatever the
+      zoom — and how big is readable is about the screen rather than about the drawings.
+    -->
+    <NumericUpDown x:Name="CaptionSizeBox"
+                   HorizontalAlignment="Left"
+                   Width="120"
+                   Increment="1"
+                   FormatString="0" />
+
+    <TextBlock Text="How big the name under a drawing, and the name above a group's frame, is drawn on a board. It does not change with the zoom."
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11" />
   </StackPanel>
 </Window>

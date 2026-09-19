@@ -83,7 +83,8 @@ public class SvgViewerCanvas : SKCanvasControl
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
-        Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, true, null, 0d, null, null);
+        Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, true, null, 0d, null, null,
+        DefaultCaptionSize);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -95,7 +96,8 @@ public class SvgViewerCanvas : SKCanvasControl
         SKPath? Highlight,
         double HighlightAge,
         (SKRect Bounds, SKPoint By, IReadOnlySet<SvgViewerPlacement> Carried)? Moving,
-        BoundsInfo? Gizmo);
+        BoundsInfo? Gizmo,
+        double CaptionSize);
 
     public SvgViewerCanvas()
     {
@@ -615,14 +617,48 @@ public class SvgViewerCanvas : SKCanvasControl
     private static SKRect? Extent(SvgViewerPlacement placed)
         => placed.Svg.Picture is { CullRect: { Width: > 0f, Height: > 0f } cull } ? cull : null;
 
+    /// <summary>How big a caption is drawn where nobody says otherwise, in control pixels.</summary>
+    public const double DefaultCaptionSize = 13d;
+
+    /// <summary>The smallest and largest a caption may be asked to be.</summary>
+    /// <remarks>
+    /// Below the first it cannot be read and above the second it covers what it names, and both are
+    /// the sort of value a settings box will be handed by somebody finding out what it does.
+    /// </remarks>
+    public const double MinimumCaptionSize = 8d;
+
+    /// <inheritdoc cref="MinimumCaptionSize"/>
+    public const double MaximumCaptionSize = 32d;
+
+    private double _captionSize = DefaultCaptionSize;
+
     /// <summary>How big a caption is drawn, in control pixels.</summary>
     /// <remarks>
     /// A caption names what it sits by; it is not part of what is drawn. Scaled with the drawings it
     /// was unreadable zoomed out and enormous zoomed in, and the strip a frame is taken hold of by
     /// went with it — a target that changed size as you approached it. The frame's own outline and
     /// its dashes are already held at one pixel the same way.
+    ///
+    /// Settable because how big is readable is about the screen somebody is at rather than about the
+    /// drawings, which is the one thing this cannot work out for itself.
     /// </remarks>
-    private const float CaptionSize = 11f;
+    public double CaptionSize
+    {
+        get => _captionSize;
+        set
+        {
+            var wanted = Math.Clamp(value, MinimumCaptionSize, MaximumCaptionSize);
+
+            if (_captionSize.Equals(wanted))
+            {
+                return;
+            }
+
+            _captionSize = wanted;
+
+            Publish();
+        }
+    }
 
     /// <summary>A frame with the room its name needs above it, for fitting the view to.</summary>
     /// <remarks>
@@ -662,7 +698,7 @@ public class SvgViewerCanvas : SKCanvasControl
             return SKRect.Empty;
         }
 
-        var tall = (float)(CaptionSize / _scale);
+        var tall = (float)(_captionSize / _scale);
 
         return new SKRect(
             framed.Bounds.Left,
@@ -709,7 +745,8 @@ public class SvgViewerCanvas : SKCanvasControl
 
             // Not while something is being carried: the box is measured from a drawing that is on
             // its way somewhere else, so it would be left hanging over the board it has left.
-            _moving is { } && _moved ? null : _gizmo);
+            _moving is { } && _moved ? null : _gizmo,
+            _captionSize);
 
         InvalidateVisual();
     }
@@ -1212,7 +1249,7 @@ public class SvgViewerCanvas : SKCanvasControl
             {
                 // Divided by the scale so it comes out the same size on the control however far the
                 // view is zoomed, which is what the outline above it already does with its width.
-                var tall = (float)(CaptionSize / state.Scale);
+                var tall = (float)(state.CaptionSize / state.Scale);
 
                 font.Size = tall;
 
@@ -1274,7 +1311,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
                 if (placed is { Label: { Length: > 0 } label, LabelSize: > 0f })
                 {
-                    var tall = (float)(CaptionSize / state.Scale);
+                    var tall = (float)(state.CaptionSize / state.Scale);
 
                     font.Size = tall;
 

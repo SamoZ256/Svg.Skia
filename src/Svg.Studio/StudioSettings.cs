@@ -1,9 +1,11 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
 
@@ -18,6 +20,8 @@ namespace Svg.Studio;
 public static class StudioSettings
 {
     private const string AutosaveKey = "autosave";
+
+    private const string CaptionSizeKey = "captionSize";
 
     /// <summary>
     /// Where the settings are kept.
@@ -38,6 +42,25 @@ public static class StudioSettings
     {
         get => !string.Equals(Read(AutosaveKey), "off", StringComparison.Ordinal);
         set => Write(AutosaveKey, value ? "on" : "off");
+    }
+
+    /// <summary>How big a caption on a board is drawn, in control pixels.</summary>
+    /// <remarks>
+    /// A caption is chrome rather than part of a drawing, so how big is readable is about the screen
+    /// somebody is at — which is the one thing neither the canvas nor the project can work out.
+    ///
+    /// Anything the file cannot be read as, and anything outside what the canvas will take, comes
+    /// back as the default rather than as a refusal: a settings file is not something to fail over.
+    /// </remarks>
+    public static double CaptionSize
+    {
+        get => double.TryParse(Read(CaptionSizeKey), NumberStyles.Float, CultureInfo.InvariantCulture, out var size)
+               && size >= SvgViewerCanvas.MinimumCaptionSize
+               && size <= SvgViewerCanvas.MaximumCaptionSize
+            ? size
+            : SvgViewerCanvas.DefaultCaptionSize;
+
+        set => Write(CaptionSizeKey, value.ToString(CultureInfo.InvariantCulture));
     }
 
     private static string? Read(string key)

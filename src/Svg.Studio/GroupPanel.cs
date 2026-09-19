@@ -292,6 +292,8 @@ public sealed class GroupPanel : UserControl
             ShowElement(node?.AddressKey);
         };
 
+        Recaption();
+
         // A group edited in another tab changes what this one inherits, so every tab follows the
         // one document rather than the copy it was opened with. Anything typed here and not
         // committed survives it.
@@ -596,6 +598,14 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>Lets go of the drawings this tab built. The tab is finished with after it.</summary>
     public void Close() => Release();
+
+    /// <summary>Draws the captions at whatever size the settings now say.</summary>
+    /// <remarks>
+    /// Asked again rather than told, for the reason the settings window answers nothing: the setting
+    /// outlives every window that reads it, and a tab holding its own copy would be one more thing
+    /// to keep in step.
+    /// </remarks>
+    public void Recaption() => _canvas.CaptionSize = StudioSettings.CaptionSize;
 
     /// <summary>
     /// Shows everything the drawings here are built with: the chain, then what the picked one

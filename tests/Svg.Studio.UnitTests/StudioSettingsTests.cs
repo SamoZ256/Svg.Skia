@@ -1,12 +1,13 @@
-using System;
+﻿using System;
 using System.IO;
+using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
 namespace Svg.Studio.UnitTests;
 
 /// <summary>
-/// The one setting the editor keeps between sessions, and the rule that decides it: on unless the
-/// file says otherwise.
+/// The settings the editor keeps between sessions, and the rules that decide them: the copy is on
+/// unless the file says otherwise, and a size nobody can use is the one nobody set.
 /// </summary>
 public class StudioSettingsTests : IDisposable
 {
@@ -55,5 +56,42 @@ public class StudioSettingsTests : IDisposable
         File.WriteAllText(StudioSettings.Store, "autosave=maybe\n");
 
         Assert.True(StudioSettings.Autosave);
+    }
+
+    [Fact]
+    public void A_Caption_Size_Nobody_Has_Set_Is_The_Canvas_Default()
+    {
+        Assert.Equal(SvgViewerCanvas.DefaultCaptionSize, StudioSettings.CaptionSize);
+    }
+
+    [Fact]
+    public void A_Caption_Size_Survives_Being_Written()
+    {
+        StudioSettings.CaptionSize = 17d;
+
+        Assert.Equal(17d, StudioSettings.CaptionSize);
+    }
+
+    [Theory]
+    [InlineData("nonsense")]
+    [InlineData("0")]
+    [InlineData("999")]
+    public void A_Caption_Size_Nobody_Can_Use_Is_The_Default(string written)
+    {
+        // A settings file is not something to fail over: anything the canvas would not take comes
+        // back as what it was before somebody edited the file by hand.
+        File.WriteAllText(StudioSettings.Store, $"captionSize={written}");
+
+        Assert.Equal(SvgViewerCanvas.DefaultCaptionSize, StudioSettings.CaptionSize);
+    }
+
+    [Fact]
+    public void A_Caption_Size_Is_Written_The_Same_Way_Wherever_It_Is_Read()
+    {
+        // Invariant, so a machine that writes a decimal comma does not save a setting the next one
+        // reads as nothing and replaces with the default.
+        StudioSettings.CaptionSize = 12.5d;
+
+        Assert.Contains("captionSize=12.5", File.ReadAllText(StudioSettings.Store), StringComparison.Ordinal);
     }
 }

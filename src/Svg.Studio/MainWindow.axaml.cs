@@ -2330,6 +2330,13 @@ public partial class MainWindow : Window
             _recovery?.Drop();
             ProjectRecovery.Clear();
         }
+
+        // Every board, not only the one in front: a caption size is about the screen, and the tabs
+        // behind this one are on the same screen.
+        foreach (var board in _tabs.Items.OfType<TabItem>().Select(item => item.Content).OfType<GroupPanel>())
+        {
+            board.Recaption();
+        }
     }
 
     private async void OnSave(object? sender, EventArgs e) => await SaveAsync();
