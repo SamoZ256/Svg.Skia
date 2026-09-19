@@ -413,7 +413,7 @@ dropped, the property keeps its default, and the drawing renders wrong without a
 inside <code>style=&quot;…&quot;</code> is reported the same way, and on the declaration rather than the whole attribute. So
 is <code>clip-path=&quot;url(#gone)&quot;</code> — a reference to an id the drawing does not contain, which is the most
 ordinary way for a picture to come out wrong and, until now, the quietest. An expression written in an
-attribute that does not take one, <code>stroke-width=&quot;{{ w }}&quot;</code>, is reported too, and says which
+attribute that does not take one, <code>stroke-dasharray=&quot;{{ w }}&quot;</code>, is reported too, and says which
 attributes do — as is one written in an attribute that takes a <em>different</em> kind, such as a colour in
 <code>opacity</code>. What counts as a mistake is <a href="/Svg.Skia/articles/packages/svg-highlighting">Svg.Highlighting</a>'s answer, which is the
 language's own checker.</p>

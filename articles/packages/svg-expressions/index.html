@@ -321,6 +321,11 @@ stays smooth.</p>
 <td>Scales one gradient stop's alpha.</td>
 </tr>
 <tr>
+<td><code>stroke-dashoffset</code></td>
+<td>number</td>
+<td>Where along the dash pattern the stroke starts, in user units. Refused nowhere — a dash removes paint from a stroke rather than adding any, so no value it binds to can leave bounds measured with that stroke already in them. Inert on an element with no <code>stroke-dasharray</code>, exactly as a literal is. A drawing that dashes a ring at its own circumference and drives this draws an arc of any sweep, which is what a progress ring is.</td>
+</tr>
+<tr>
 <td><code>visibility</code></td>
 <td>boolean</td>
 <td><code>true</code> meaning visible. Wraps the element's drawing in a condition.</td>
@@ -832,6 +837,10 @@ always meant; <code>int(min(1, 2))</code> asks for the other.
 <tr>
 <td><code>withAlpha(c, a)</code></td>
 <td>Replaces alpha; <code>a</code> is 0..1, clamped.</td>
+</tr>
+<tr>
+<td><code>withSaturation(c, s)</code></td>
+<td>Replaces saturation, keeping the hue, the brightness and the alpha; <code>s</code> is 0..1, clamped. Hue, saturation and <strong>value</strong>, not <code>hsl</code>'s lightness: a colour desaturated here keeps the brightness the eye reads, where the same move through <code>hsl</code> would drag it towards the midpoint.</td>
 </tr>
 </tbody>
 </table>

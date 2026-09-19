@@ -307,7 +307,7 @@ opens, renders wrong, and says nothing.</p>
 <p>The converter is asked directly, so the verdict and the wording are the parser's; only the sentence
 naming the attribute and the value is added, because a converter is answering about a bare string and
 its own message names neither. An expression written in an attribute that does not take one —
-<code>stroke-width=&quot;{{ w }}&quot;</code> — is reported too, and says which attributes do.</p>
+<code>stroke-dasharray=&quot;{{ w }}&quot;</code> — is reported too, and says which attributes do.</p>
 <p><strong>Inline styles are checked the same way</strong>, since a declaration reaches the same converter — the
 parser stages it and <code>SvgElement.FlushStyles</code> hands it back once the document is read. So
 <code>fill=&quot;#gggggg&quot;</code> and <code>style=&quot;fill:#gggggg&quot;</code> are reported alike, and the mark is the declaration

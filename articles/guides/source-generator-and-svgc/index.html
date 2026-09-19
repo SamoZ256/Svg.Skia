@@ -295,7 +295,7 @@ stand for them:</p>
   &lt;replace opacity=&quot;0.5&quot;&gt;bold ? 1 : 0.5&lt;/replace&gt;
 &lt;/recipe&gt;
 </code></pre>
-<p>A rule names one of the attributes whose whole value an expression can drive, and there are eleven
+<p>A rule names one of the attributes whose whole value an expression can drive, and there are thirteen
 of them:</p>
 <table class="table">
 <thead>
@@ -317,6 +317,11 @@ of them:</p>
 <td>number</td>
 </tr>
 <tr>
+<td><code>stroke-width</code>, <code>stroke-dashoffset</code></td>
+<td>that attribute</td>
+<td>number</td>
+</tr>
+<tr>
 <td><code>visibility</code>, <code>display</code></td>
 <td>that attribute</td>
 <td>boolean</td>
@@ -330,7 +335,7 @@ icons wants. The others are named one at a time on purpose: a group's <code>opac
 Writing <code>&lt;replace fill=&quot;…&quot;&gt;</code> is refused for the same reason, pointing at <code>color</code>.</p>
 <p><code>transform</code> takes an expression but no rule: an expression there drives one function argument rather
 than the whole value, and a rule names one whole value and swaps it for one whole expression — half a
-transform is not a rule. Anything else — <code>stroke-width</code>, <code>d</code>, the geometry attributes — takes no
+transform is not a rule. Anything else — <code>d</code>, <code>stroke-dasharray</code>, the geometry attributes — takes no
 expression anywhere in the pipeline, so a rule naming one is refused rather than written and silently
 ignored.</p>
 <p><code>--recipeFile</code> (<code>-r</code>) applies it to the input before anything is generated, which is how one recipe
