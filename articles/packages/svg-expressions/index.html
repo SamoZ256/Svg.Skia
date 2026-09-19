@@ -224,7 +224,11 @@ renderers ignore:</p>
 </code></pre>
 <p>The namespace URI is <code>https://svg.skia/expr/1.0</code>. Matching is by <strong>URI, not prefix</strong> — call it <code>e:</code>,
 <code>expr:</code> or anything else. The block may appear anywhere in the document (<code>&lt;defs&gt;</code> is conventional),
-and multiple blocks are merged in document order.</p>
+and multiple blocks are merged in document order. A name declared twice across them is an error.</p>
+<p>Several blocks in one drawing is what inheritance is made of. A <code>Svg.Studio</code> group carries a block,
+and every drawing under it is built with that block written in front of its own — outermost group
+first — so the family shares one declaration rather than a copy of it each. A <code>svgc</code> recipe splices
+its block the same way.</p>
 <p><strong><code>&lt;e:param&gt;</code></strong> declares a parameter. <code>name</code> and <code>type</code> are required.</p>
 <p><code>default</code> is an expression, and makes the parameter optional. With no <code>default</code> the parameter is
 <strong>required</strong> — nothing is invented, so a value never appears that is written nowhere in the document.</p>
