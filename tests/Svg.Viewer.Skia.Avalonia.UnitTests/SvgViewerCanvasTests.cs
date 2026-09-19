@@ -444,12 +444,16 @@ public class SvgViewerCanvasTests
 
         window.Show();
 
-        var framed = new SvgViewerFrame(new SKRect(-5f, -5f, 105f, 55f), "Large", 4f);
+        var framed = new SvgViewerFrame(new SKRect(-5f, -5f, 105f, 55f), "Large");
 
         canvas.Show(new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) }, new[] { framed });
 
         canvas.Measure(new Size(400, 200));
         canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // Inside the frame rather than above it, so nothing about the arrangement makes room for it.
+        Assert.Equal(framed.Bounds.Top, canvas.TitleOf(framed).Top, 3);
+        Assert.True(canvas.TitleOf(framed).Bottom < framed.Bounds.Bottom, "the name should sit inside the frame.");
 
         var wasScale = (float)canvas.Scale;
         var wasBand = canvas.TitleOf(framed).Height;
@@ -495,20 +499,20 @@ public class SvgViewerCanvasTests
 
         window.Show();
 
-        // The drawing is 100x50 at the origin; the frame runs 10 wider and 10 further down, with
-        // room for a name above it.
+        // The drawing is 100x50 at the origin; the frame runs 10 wider and 10 further down, and its
+        // name is written inside it rather than needing room of its own.
         canvas.Show(
             new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) },
-            new[] { new SvgViewerFrame(new SKRect(-5f, -5f, 105f, 55f), "Large", 4f) });
+            new[] { new SvgViewerFrame(new SKRect(-5f, -5f, 105f, 55f), "Large") });
 
         canvas.Measure(new Size(400, 200));
         canvas.Arrange(new Rect(0, 0, 400, 200));
 
         Assert.Single(canvas.Frames);
 
-        // 110 across and 66 down once the name's room is counted, so the height binds. Without that
-        // room it would be 60 down and the fit would be 200/60, with the name off the top.
-        Assert.Equal(200d / 66d, canvas.Scale, 6);
+        // 110 across and 60 down, so the height binds. A frame is exactly what its bounds say: its
+        // name sits inside, so nothing is added for it and nothing is cut off by leaving it out.
+        Assert.Equal(200d / 60d, canvas.Scale, 6);
 
         window.Close();
     }

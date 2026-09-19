@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* **A group's name sits inside its frame**, in the top corner, rather than on a line above it. A
+  frame is now exactly what its bounds say: nothing is added to it when the view is fitted, and
+  `SvgViewerFrame` no longer takes a label size, since there is no room to leave for writing that
+  is already inside. The strip the frame is taken hold of by moved down with the name.
+
 * **A board writes nothing under its drawings.** The name and class under each one, and the Captions
   toggle that asked for them, are gone: a board of icons is read as pictures, the tree beside it
   already names every row, and picking one names it above the element tree. The writing that is left

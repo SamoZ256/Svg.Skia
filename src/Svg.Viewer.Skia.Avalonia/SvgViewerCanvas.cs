@@ -594,13 +594,12 @@ public class SvgViewerCanvas : SKCanvasControl
             found = true;
         }
 
-        // A frame reaching past the drawings it holds is part of what is on show, name and all, or
-        // the fit would cut it off at the edge of the ink inside it.
+        // A frame reaching past the drawings it holds is part of what is on show, or the fit would
+        // cut it off at the edge of the ink inside it. Its name needs nothing added for: it is
+        // written inside.
         foreach (var framed in _frames)
         {
-            var around = Named(framed);
-
-            bounds = found ? SKRect.Union(bounds, around) : around;
+            bounds = found ? SKRect.Union(bounds, framed.Bounds) : framed.Bounds;
             found = true;
         }
 
@@ -660,20 +659,6 @@ public class SvgViewerCanvas : SKCanvasControl
         }
     }
 
-    /// <summary>A frame with the room its name needs above it, for fitting the view to.</summary>
-    /// <remarks>
-    /// The room the arrangement left rather than what the writing measures on the control. What a
-    /// caption measures depends on how far the view is zoomed, and this is part of deciding that.
-    /// </remarks>
-    private static SKRect Named(SvgViewerFrame framed)
-        => framed is { Label.Length: > 0, LabelSize: > 0f }
-            ? new SKRect(
-                framed.Bounds.Left,
-                framed.Bounds.Top - (framed.LabelSize * 1.5f),
-                framed.Bounds.Right,
-                framed.Bounds.Bottom)
-            : framed.Bounds;
-
     /// <summary>
     /// Where <paramref name="framed"/>'s name is written, in the space the drawings are arranged in.
     /// </summary>
@@ -683,8 +668,8 @@ public class SvgViewerCanvas : SKCanvasControl
     /// nowhere to move the view from.
     ///
     /// The strip is a fixed height on the control, like the writing in it, so it comes back here in
-    /// drawing units and changes as the view is zoomed. A quarter of that height below the top edge
-    /// as well as the room above it, so the frame's own line is part of the target.
+    /// drawing units and changes as the view is zoomed. It runs down from the top edge, which is
+    /// where the name is written.
     /// </remarks>
     /// <summary>How near a frame's outline a press counts as being on it, in control pixels.</summary>
     /// <remarks>
@@ -730,7 +715,7 @@ public class SvgViewerCanvas : SKCanvasControl
             throw new ArgumentNullException(nameof(framed));
         }
 
-        if (framed is not { Label.Length: > 0, LabelSize: > 0f })
+        if (framed is not { Label.Length: > 0 })
         {
             return SKRect.Empty;
         }
@@ -739,9 +724,9 @@ public class SvgViewerCanvas : SKCanvasControl
 
         return new SKRect(
             framed.Bounds.Left,
-            framed.Bounds.Top - (tall * 1.5f),
+            framed.Bounds.Top,
             framed.Bounds.Right,
-            framed.Bounds.Top + (tall * 0.25f));
+            framed.Bounds.Top + (tall * 1.6f));
     }
 
     private void SetView(double scale, double offsetX, double offsetY)
@@ -1282,18 +1267,20 @@ public class SvgViewerCanvas : SKCanvasControl
 
             Around(canvas, bounds, state.Scale);
 
-            if (framed is { Label: { Length: > 0 } name, LabelSize: > 0f })
+            if (framed is { Label: { Length: > 0 } name })
             {
                 // Divided by the scale so it comes out the same size on the control however far the
-                // view is zoomed, which is what the outline above it already does with its width.
+                // view is zoomed, which is what the outline round it already does with its width.
                 var tall = (float)(state.CaptionSize / state.Scale);
 
                 font.Size = tall;
 
+                // Inside its top corner, off both edges by a third of the writing's height so it
+                // does not sit on the line it is naming.
                 canvas.DrawText(
                     name,
-                    bounds.Left,
-                    bounds.Top - (tall * 0.4f),
+                    bounds.Left + (tall * 0.35f),
+                    bounds.Top + (tall * 1.15f),
                     SKTextAlign.Left,
                     font,
                     writing);

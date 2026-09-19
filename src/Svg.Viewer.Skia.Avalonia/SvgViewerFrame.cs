@@ -13,15 +13,12 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// whole of it taken hold of at once.
 /// </remarks>
 /// <param name="Bounds">Where it is, in the space the drawings are arranged in.</param>
-/// <param name="Label">What to write above it, or null to write nothing.</param>
-/// <param name="LabelSize">
-/// The room the writing is given, in drawing units, and zero to write nothing. It is not how big
-/// the writing comes out: a caption is chrome and is drawn at a fixed size on the control, so this
-/// is what an arrangement leaves for one rather than what one measures.
-/// </param>
+/// <param name="Label">What to write inside its top corner, or null to write nothing.</param>
 /// <remarks>
 /// Where the name is written, and so where the frame is taken hold of, is
-/// <see cref="SvgViewerCanvas.TitleOf"/>: a caption is drawn at a fixed size on the control, so only
-/// something that knows how far in the view is zoomed can say where it lands.
+/// <see cref="SvgViewerCanvas.TitleOf"/>: a name is drawn at a fixed size on the control, so only
+/// something that knows how far in the view is zoomed can say where it lands. It sits inside the
+/// frame, so an arrangement leaves no room for it and there is no size to be told here — a frame
+/// is exactly what its bounds say.
 /// </remarks>
-public sealed record SvgViewerFrame(SKRect Bounds, string? Label = null, float LabelSize = 0f);
+public sealed record SvgViewerFrame(SKRect Bounds, string? Label = null);

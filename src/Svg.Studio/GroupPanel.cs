@@ -1674,7 +1674,7 @@ public sealed class GroupPanel : UserControl
             ? new SKRect(at.X, at.Y, at.X + label * 4f, at.Y + label * 4f)
             : held.Aggregate(SKRect.Union);
 
-        return new SvgViewerFrame(SKRect.Inflate(bounds, label, label), name, label);
+        return new SvgViewerFrame(SKRect.Inflate(bounds, label, label), name);
     }
 
     private static SKRect Area(SvgViewerPlacement placement)
