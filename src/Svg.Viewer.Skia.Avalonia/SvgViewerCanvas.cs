@@ -1262,8 +1262,8 @@ public class SvgViewerCanvas : SKCanvasControl
         canvas.Translate((float)state.OffsetX, (float)state.OffsetY);
         canvas.Scale((float)state.Scale);
 
-        // One font for the frame rather than one per label: the sizes differ, and setting the size
-        // on a font costs nothing next to building one.
+        // Built once for the frames rather than one per name: setting the size on a font costs
+        // nothing next to building one.
         using var font = new SKFont(SKTypeface.Default, 1f);
         using var writing = new SKPaint { IsAntialias = true, Color = SKColors.Gray };
 
@@ -1346,20 +1346,6 @@ public class SvgViewerCanvas : SKCanvasControl
                     Outline(canvas, frame, state.Scale);
                 }
 
-                if (placed is { Label: { Length: > 0 } label, LabelSize: > 0f })
-                {
-                    var tall = (float)(state.CaptionSize / state.Scale);
-
-                    font.Size = tall;
-
-                    canvas.DrawText(
-                        label,
-                        frame.MidX,
-                        frame.Bottom + (tall * 1.2f),
-                        SKTextAlign.Center,
-                        font,
-                        writing);
-                }
             }
 
             canvas.Restore();

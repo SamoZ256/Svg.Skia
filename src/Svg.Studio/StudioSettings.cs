@@ -44,7 +44,7 @@ public static class StudioSettings
         set => Write(AutosaveKey, value ? "on" : "off");
     }
 
-    /// <summary>How big a caption on a board is drawn, in control pixels.</summary>
+    /// <summary>How big a group's name on a board is drawn, in control pixels.</summary>
     /// <remarks>
     /// A caption is chrome rather than part of a drawing, so how big is readable is about the screen
     /// somebody is at — which is the one thing neither the canvas nor the project can work out.

@@ -205,49 +205,6 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(2, Tabs(window).Items.Count);
     }
 
-    // ---- the canvas on a group's tab ----------------------------------------------------------
-
-    [AvaloniaFact]
-    public async Task A_Drawing_Keeps_The_Line_The_List_Showed_As_Its_Caption()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        var window = await Host(Write("icons.svgstudio", Project));
-
-        // Asked for, since a board comes up bare.
-        Toggle(Panel(window, "Project"), "Captions");
-
-        // Named against the board, which is the project itself here: its own Demo.Icons is what
-        // every row on it shares, so what is left of each is what tells them apart.
-        Assert.Equal(
-            new[]
-            {
-                "home\nHome   as written",
-                "badge\nLarge.BadgeLarge   ×2"
-            },
-            Drawn(Panel(window, "Project")).Select(placed => placed.Label).ToArray());
-    }
-
-    [AvaloniaFact]
-    public async Task A_Group_Names_Its_Drawings_From_Where_It_Starts()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        var window = await Host(Write("icons.svgstudio", Project));
-        var root = (TreeViewItem)Tree(window).Items[0]!;
-
-        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        Toggle(Panel(window, "Large"), "Captions");
-
-        // The reported case: on its own board the group's namespace is under every icon and beside
-        // none of them, so the class is the whole of what is left to say.
-        Assert.Equal("badge\nBadgeLarge   ×2", Assert.Single(Drawn(Panel(window, "Large"))).Label);
-    }
-
     /// <summary>A project whose groups sit just outside the board's namespace, two ways.</summary>
     private static string Neighbours() => $$"""
         <studio namespace="Demo.Icons">
@@ -261,80 +218,6 @@ public class MainWindowProjectTests : IDisposable
         </studio>
         """;
 
-    [AvaloniaFact]
-    public async Task A_Namespace_The_Board_Only_Seems_To_Start_Is_Written_Whole()
-    {
-        var window = await Host(Write("icons.svgstudio", Neighbours()));
-
-        Toggle(Panel(window, "Project"), "Captions");
-
-        var drawn = Drawn(Panel(window, "Project")).Select(placed => placed.Label).ToArray();
-
-        // Demo.IconsExtra starts with Demo.Icons and is not under it. Dropping a prefix rather than
-        // whole segments would write this one as "Extra.Odd", naming a group that is not there.
-        Assert.Contains("odd\nDemo.IconsExtra.Odd   as written", drawn);
-        Assert.Contains("far\nOther.Icons.Far   as written", drawn);
-    }
-
-    [AvaloniaFact]
-    // The trim empties the namespace and there is no class to fall back on, so the whole one comes
-    // back: a row with an identity does not lose it to having nothing of its own to add.
-    public async Task A_Drawing_With_No_Class_Still_Says_Where_It_Sits()
-    {
-        var panel = Panel(await Host(Write("icons.svgstudio", Neighbours())), "Project");
-
-        Toggle(panel, "Captions");
-
-        Assert.Contains(
-            "plain\nDemo.Icons   as written",
-            Drawn(panel).Select(placed => placed.Label).ToArray());
-    }
-
-    [AvaloniaFact]
-    public async Task A_Board_Comes_Up_Bare()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        var window = await Host(Write("icons.svgstudio", Project));
-        var panel = Panel(window, "Project");
-        var scale = Canvas(panel).Scale;
-
-        // A board of icons is read as pictures, so nothing is written under them until it is asked
-        // for -- and asking lays the board out again.
-        Assert.All(Drawn(panel), placed => Assert.Null(placed.Label));
-
-        Toggle(panel, "Captions");
-
-        Assert.All(Drawn(panel), placed => Assert.NotNull(placed.Label));
-
-        // A lay-out that fitted would throw away wherever the reader had got to, which is the half
-        // of this most likely to regress.
-        Assert.Equal(scale, Canvas(panel).Scale);
-    }
-
-    [AvaloniaFact]
-    // And the same captions, not merely some: the drawings are reused across the lay-out rather
-    // than built again, so this is also the reuse path.
-    public async Task Captions_Go_Again_When_The_Toggle_Does()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        var window = await Host(Write("icons.svgstudio", Project));
-        var panel = Panel(window, "Project");
-
-        Toggle(panel, "Captions");
-
-        Assert.Equal(
-            new[] { "home\nHome   as written", "badge\nLarge.BadgeLarge   ×2" },
-            Drawn(panel).Select(placed => placed.Label).ToArray());
-
-        Toggle(panel, "Captions");
-
-        Assert.All(Drawn(panel), placed => Assert.Null(placed.Label));
-    }
-
     /// <summary>Five rows nobody has placed, so the spread is three columns and two of them.</summary>
     private static string Rows() => $$"""
         <studio namespace="Demo.Icons">
@@ -345,24 +228,6 @@ public class MainWindowProjectTests : IDisposable
         {{Holding("five")}}
         </studio>
         """;
-
-    [AvaloniaFact]
-    public async Task Rows_Close_Up_When_Nothing_Is_Written_Under_Them()
-    {
-        var window = await Host(Write("icons.svgstudio", Rows()));
-        var panel = Panel(window, "Project");
-
-        var bare = Area(Drawn(panel)[3]).Top - Area(Drawn(panel)[0]).Top;
-
-        Toggle(panel, "Captions");
-
-        // Room kept for writing that is not there reads as a board of icons with holes in it, which
-        // is what a spread reserving two lines whatever it was handed used to leave. Asked the way
-        // round the board now opens: bare first, and the room appears with the writing.
-        Assert.True(
-            Area(Drawn(panel)[3]).Top - Area(Drawn(panel)[0]).Top > bare,
-            "the rows left no room for the captions");
-    }
 
     /// <summary>The whole branch, which is what the group builds.</summary>
     [AvaloniaFact]
@@ -439,11 +304,9 @@ public class MainWindowProjectTests : IDisposable
 
         var panel = Panel(window, "Project");
 
-        Toggle(panel, "Captions");
-
         // The one that reads is still drawn, and the one that does not is said out loud.
         Assert.Single(Drawn(panel));
-        Assert.StartsWith("home", Drawn(panel)[0].Label);
+        Assert.Equal("home", Assert.Single(panel.Board).Name);
 
         Assert.Contains(
             panel.GetVisualDescendants().OfType<TextBlock>(),
@@ -1028,8 +891,6 @@ public class MainWindowProjectTests : IDisposable
         var panel = Panel(window, "Project");
 
         // So a row can be found by what is written under it; this is about where it sits.
-        Toggle(panel, "Captions");
-
         var moved = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
         var into = (ProjectGroup)window.Workspace.Document.Root.Children[2];
 
@@ -1058,14 +919,13 @@ public class MainWindowProjectTests : IDisposable
     /// Which placement on the board was built from a given row.
     /// </summary>
     /// <remarks>
-    /// By its caption, which begins with the row's name. Not by index: the board is laid out with
-    /// the placed rows first and the ones with no place queued after them, which is not the order
-    /// the tree holds them in. A board comes up bare, so a test asking this turns captions on
-    /// first -- which costs those tests nothing, none of them being about what is written.
+    /// By what the panel says it drew, index for index. Not by the board's own order: the placed
+    /// rows come first and the ones with no place are queued after them, which is not the order the
+    /// tree holds them in.
     /// </remarks>
     private static SvgViewerPlacement Shown(GroupPanel panel, ProjectDrawing drawing)
-        => Drawn(panel).Single(placed =>
-            placed.Label is { } caption && caption.StartsWith(drawing.Name + "\n", StringComparison.Ordinal));
+        => Drawn(panel)[panel.Board.Select((one, index) => (one, index))
+            .Single(pair => ReferenceEquals(pair.one, drawing)).index];
 
     /// <summary>
     /// On a board, Edit mode drags the shape inside a drawing and leaves the drawing where it is.
@@ -1092,8 +952,6 @@ public class MainWindowProjectTests : IDisposable
 
         var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
         var was = (X: home.X, Y: home.Y);
-
-        Toggle(panel, "Captions");
 
         var area = Area(Shown(panel, home));
 
@@ -1135,8 +993,6 @@ public class MainWindowProjectTests : IDisposable
         var other = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
         var was = other.X;
         var offsetX = canvas.OffsetX;
-
-        Toggle(panel, "Captions");
 
         var area = Area(Shown(panel, other));
 
@@ -1552,16 +1408,13 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Project));
 
         // The project row opens as a tab of its own, and it is a group like any other.
-        Toggle(Panel(window, "Project"), "Captions");
-
         var drawn = Drawn(Panel(window, "Project"));
 
         Assert.Equal(2, drawn.Count);
         Assert.All(drawn, placed => Assert.NotNull(Picture(placed)));
 
         // In the order the project builds them, and not one on top of another.
-        Assert.StartsWith("home", drawn[0].Label);
-        Assert.StartsWith("badge", drawn[1].Label);
+        Assert.Equal(new[] { "home", "badge" }, Panel(window, "Project").Board.Select(one => one.Name).ToArray());
         Assert.NotEqual(drawn[0].At, drawn[1].At);
     }
 

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* **A board writes nothing under its drawings.** The name and class under each one, and the Captions
+  toggle that asked for them, are gone: a board of icons is read as pictures, the tree beside it
+  already names every row, and picking one names it above the element tree. The writing that is left
+  is a group's name above its frame, which is what that frame is taken hold of and selected by.
+
+  `SvgViewerPlacement` is a picture and a place, `SvgViewerSpread.Item` a picture and a size, and the
+  spread no longer measures text to size its columns or keeps two lines of room under a row.
+  `GroupPanel.Board` says which drawing each placement came from — a caller used to read that off the
+  writing under it, and a picture was never a good place to keep an identity.
+
 * **A group is selected by its name or by the line round it**, and wears the same orange ring a
   picked element does while it is. A board has one selection whether that is a shape, a drawing or a
   group, so the panes follow it: selecting a group makes the tab about that group, showing what it

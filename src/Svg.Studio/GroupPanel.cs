@@ -208,9 +208,6 @@ public sealed class GroupPanel : UserControl
     /// <summary>Whether a drag moves the element under it rather than the view.</summary>
     private ToggleButton? _edit;
 
-    /// <summary>Whether each drawing is named under it, which it is not until somebody asks.</summary>
-    private ToggleButton? _captions;
-
     public GroupPanel(ProjectWorkspace workspace, ProjectNode node)
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
@@ -457,6 +454,15 @@ public sealed class GroupPanel : UserControl
     /// <see cref="ParameterDialogService"/> is: a menu is not something a test can click.
     /// </remarks>
     public Func<IReadOnlyList<ProjectNode>, Task<ProjectNode?>>? ChooseOwner { get; set; }
+
+    /// <summary>Which drawing each placement on the board came from, in the board's order.</summary>
+    /// <remarks>
+    /// The canvas is handed placements and hands back nothing about where they came from, so this
+    /// is the pairing — index for index with what it was shown. A caption used to be the answer, a
+    /// caller reading the row's name off the writing under it; there is no writing under a drawing
+    /// any more, and a picture was never a good place to keep an identity.
+    /// </remarks>
+    public IReadOnlyList<ProjectDrawing> Board => _shown.Select(shown => shown.Built.Drawing).ToList();
 
     /// <summary>Puts what was typed here into the project, which somebody else then saves.</summary>
     public void Commit()
@@ -1370,7 +1376,7 @@ public sealed class GroupPanel : UserControl
             switch (child)
             {
                 case ProjectDrawing drawing when made.TryGetValue(drawing, out var built):
-                    Put(new SvgViewerPlacement(built.Svg!, to, Caption(drawing), label), built);
+                    Put(new SvgViewerPlacement(built.Svg!, to), built);
                     break;
 
                 case ProjectGroup inner:
@@ -1397,7 +1403,7 @@ public sealed class GroupPanel : UserControl
         var block = Beside(at, from, framedFrom, label);
 
         foreach (var (placement, drawing) in SvgViewerSpread
-                     .Of(items.Select(one => new SvgViewerSpread.Item(made[one].Svg!, made[one].Size, Caption(one))).ToList())
+                     .Of(items.Select(one => new SvgViewerSpread.Item(made[one].Svg!, made[one].Size)).ToList())
                      .Zip(items))
         {
             // The copy, and only the copy, goes into both lists: a click pairs a placement back to
@@ -2187,24 +2193,6 @@ public sealed class GroupPanel : UserControl
         bar.Children.Add(Tool("+", "Zoom in, or scroll up", () => _canvas.ZoomIn()));
         bar.Children.Add(bounds);
 
-        // Off, because a board of icons is read as pictures: two lines of text under every one of
-        // them is what the eye has to get past to see what the tab is for, and a name is a click
-        // away in the tree. Set before anything is subscribed either way, since the handler lays the
-        // board out again and there is no board while the bar it will sit on is still being built.
-        _captions = new ToggleButton
-        {
-            Content = "Captions",
-            IsChecked = false,
-            [ToolTip.TipProperty] = "Write each drawing's name and class under it"
-        };
-
-        // Not a render flag like Bounds -- a caption is written into the placement when the board is
-        // laid out, so turning it off is a fresh lay-out. ShowDrawings keeps what is being inspected
-        // and rearranges rather than fits, so nothing jumps.
-        _captions.IsCheckedChanged += (_, _) => ShowDrawings();
-
-        bar.Children.Add(_captions);
-
         _edit = new ToggleButton
         {
             Content = "Edit",
@@ -2237,53 +2225,6 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>What a drawing is called and what it is built at, over two lines.</summary>
-    /// <remarks>
-    /// Two, because one is about twice as wide as the drawings it sits under and the columns are
-    /// sized to hold it.
-    ///
-    /// Named against the board rather than absolutely. A group everything under it inherits its
-    /// namespace from would otherwise write that namespace under every icon, where it distinguishes
-    /// none of them and the heading above the board has already said it.
-    /// </remarks>
-    private string? Caption(ProjectDrawing drawing)
-    {
-        if (_captions?.IsChecked == false)
-        {
-            return null;
-        }
-
-        var space = Relative(drawing.EffectiveNamespace);
-
-        var name = space is { } && drawing.EffectiveClass is { } className
-            ? $"{space}.{className}"
-            : drawing.EffectiveClass ?? space ?? drawing.EffectiveNamespace ?? "(unnamed)";
-
-        return $"{drawing.Name}\n{name}   {Size(drawing)}";
-    }
-
-    /// <summary>A namespace with the board's own dropped off the front, or null where nothing is left.</summary>
-    /// <remarks>
-    /// Whole segments, which is the whole of the care needed here: a board of Icons.Nav must leave
-    /// Icons.Navigation alone, and a prefix test on its own would shorten it to "igation".
-    ///
-    /// Against this board and never against the group a drawing sits in, which for a placed group is
-    /// not the same node -- its drawings are still on this board, and trimming each against its own
-    /// group would have two icons side by side naming themselves at different depths. The group's
-    /// frame already carries its name.
-    /// </remarks>
-    private string? Relative(string? space)
-    {
-        if (space is null || Node.EffectiveNamespace is not { Length: > 0 } board
-            || !space.StartsWith(board, StringComparison.Ordinal))
-        {
-            return space;
-        }
-
-        return space.Length == board.Length ? null
-            : space[board.Length] == '.' ? space[(board.Length + 1)..]
-            : space;
-    }
-
     private static readonly Uri Home = new("avares://Svg.Studio/");
 
     /// <remarks>

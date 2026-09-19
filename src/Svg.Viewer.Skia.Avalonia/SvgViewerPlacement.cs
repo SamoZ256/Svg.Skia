@@ -14,10 +14,4 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// </remarks>
 /// <param name="Svg">The drawing.</param>
 /// <param name="At">Where its own origin goes, in drawing units.</param>
-/// <param name="Label">What to write under it, or null to write nothing.</param>
-/// <param name="LabelSize">
-/// The room the writing is given, in drawing units, and zero to write nothing. It is not how big
-/// the writing comes out: a caption is chrome and is drawn at a fixed size on the control, so this
-/// is what an arrangement leaves for one rather than what one measures.
-/// </param>
-public sealed record SvgViewerPlacement(SKSvg Svg, SKPoint At, string? Label = null, float LabelSize = 0f);
+public sealed record SvgViewerPlacement(SKSvg Svg, SKPoint At);
