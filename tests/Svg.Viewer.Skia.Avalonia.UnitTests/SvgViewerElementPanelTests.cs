@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -294,5 +294,151 @@ public class SvgViewerElementPanelTests
         Assert.DoesNotContain(" href=", held.Text);
 
         window.Close();
+    }
+
+    // ---- the element's text ----
+
+    /// <summary>A drawing whose text is worth a row, and things that look like one and are not.</summary>
+    private const string Words = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+          <defs><e:code><e:param name="label" type="string" default="'Hi'" /></e:code></defs>
+          <text x="1" y="8">Hi</text>
+          <text x="2" y="8"> <tspan>a</tspan> </text>
+          <rect x="0" y="0" width="24" height="24" />
+        </svg>
+        """;
+
+    /// <summary>
+    /// The words come first, because they are what the element says.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_Text_Elements_Words_Are_Its_First_Row()
+    {
+        var held = new Held(Words);
+
+        held.Show("1");
+
+        Assert.Equal(SvgExpressionAttributes.ContentName, held.Panel.Attributes[0]);
+        Assert.Equal("Hi", held.Panel.Shown(SvgExpressionAttributes.ContentName));
+    }
+
+    [AvaloniaFact]
+    public void Words_Typed_Into_The_Row_Reach_The_Drawing()
+    {
+        var held = new Held(Words);
+
+        held.Show("1");
+
+        Assert.True(held.Panel.Set(SvgExpressionAttributes.ContentName, "Bye"));
+
+        Assert.Contains("<text x=\"1\" y=\"8\">Bye</text>", held.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An expression is accepted and read back as one, which is the whole point of the row.
+    /// </summary>
+    /// <remarks>
+    /// Binding and unbinding is one gesture: the box holds either the words or the expression that
+    /// produces them, and nothing else has to be said to move between the two.
+    /// </remarks>
+    [AvaloniaFact]
+    public void The_Row_Takes_An_Expression_And_Gives_It_Back()
+    {
+        var held = new Held(Words);
+
+        held.Show("1");
+
+        Assert.True(held.Panel.Set(SvgExpressionAttributes.ContentName, "{{ label }}"));
+
+        Assert.Contains("<text x=\"1\" y=\"8\">{{ label }}</text>", held.Text, StringComparison.Ordinal);
+        Assert.Equal("{{ label }}", held.Panel.Shown(SvgExpressionAttributes.ContentName));
+
+        // And back to words again.
+        Assert.True(held.Panel.Set(SvgExpressionAttributes.ContentName, "Hi"));
+        Assert.Contains("<text x=\"1\" y=\"8\">Hi</text>", held.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An expression of the wrong type is refused by the checker rather than thrown over.
+    /// </summary>
+    /// <remarks>
+    /// This is the case that took the pane down before <c>DescribeUse</c> named the string use: the
+    /// throw came out of the argument list, and the catch here only ever caught an ExprException.
+    /// </remarks>
+    [AvaloniaFact]
+    public void An_Expression_That_Is_Not_Text_Is_Refused()
+    {
+        var held = new Held(Words);
+
+        held.Show("1");
+
+        Assert.False(held.Panel.Set(SvgExpressionAttributes.ContentName, "{{ 1 + 1 }}"));
+
+        Assert.Contains("string", held.Panel.Fault!, StringComparison.Ordinal);
+        Assert.Contains("<text x=\"1\" y=\"8\">Hi</text>", held.Text, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public void An_Emptied_Row_Leaves_The_Element_With_No_Text()
+    {
+        var held = new Held(Words);
+
+        held.Show("1");
+
+        Assert.True(held.Panel.Set(SvgExpressionAttributes.ContentName, string.Empty));
+
+        Assert.Contains("<text x=\"1\" y=\"8\"></text>", held.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>A space is a value, so the row does not tidy one away.</summary>
+    [AvaloniaFact]
+    public void The_Row_Does_Not_Trim_What_Is_Typed()
+    {
+        var held = new Held(Words);
+
+        held.Show("1");
+
+        Assert.True(held.Panel.Set(SvgExpressionAttributes.ContentName, "  spaced  "));
+
+        Assert.Contains("<text x=\"1\" y=\"8\">  spaced  </text>", held.Text, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public void An_Element_Whose_Text_Is_In_Its_Children_Has_No_Row()
+    {
+        var held = new Held(Words);
+
+        held.Show("2");
+
+        Assert.DoesNotContain(SvgExpressionAttributes.ContentName, held.Panel.Attributes);
+
+        Assert.False(held.Panel.Set(SvgExpressionAttributes.ContentName, "no"));
+        Assert.StartsWith("This element's text is written in its <tspan> children", held.Panel.Fault!, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public void A_Shape_Has_No_Words_To_Show()
+    {
+        var held = new Held(Words);
+
+        held.Show("3");
+
+        Assert.DoesNotContain(SvgExpressionAttributes.ContentName, held.Panel.Attributes);
+
+        Assert.False(held.Panel.Set(SvgExpressionAttributes.ContentName, "no"));
+        Assert.Equal("Only a <text>, a <tspan> or a <textPath> has text of its own to edit.", held.Panel.Fault);
+    }
+
+    /// <summary>The regression guard for the throw, on the row that could always reach it.</summary>
+    [AvaloniaFact]
+    public void A_String_Attribute_Takes_An_Expression()
+    {
+        var held = new Held(Words);
+
+        held.Show("1");
+
+        Assert.True(held.Panel.Set("font-family", "{{ label }}"));
+
+        Assert.Contains("font-family=\"{{ label }}\"", held.Text, StringComparison.Ordinal);
     }
 }

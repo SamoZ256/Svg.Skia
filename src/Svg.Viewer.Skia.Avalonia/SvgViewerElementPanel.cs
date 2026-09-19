@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -134,7 +134,9 @@ public sealed class SvgViewerElementPanel : UserControl
             return false;
         }
 
-        var written = value?.Trim();
+        // Content is not trimmed. Under xml:space="preserve" a leading space is a value, and
+        // trimming would rewrite a file for somebody who opened a box and left it without typing.
+        var written = IsText(name) ? value : value?.Trim();
 
         if (Trouble(name, written ?? string.Empty) is { } trouble)
         {
@@ -190,6 +192,17 @@ public sealed class SvgViewerElementPanel : UserControl
             return;
         }
 
+        // First, because it is what the element says rather than how it is said: somebody who
+        // picked a <text> came for the words far more often than for its letter-spacing.
+        if (SvgAttributeEditor.Content(open, address, out var missing) is { } content)
+        {
+            _rows.Children.Add(Row(SvgExpressionAttributes.ContentName, content));
+        }
+        else if (missing is { })
+        {
+            _rows.Children.Add(Told(missing));
+        }
+
         foreach (var attribute in written)
         {
             _rows.Children.Add(Row(attribute.Name, attribute.Value));
@@ -234,7 +247,8 @@ public sealed class SvgViewerElementPanel : UserControl
 
         var label = new TextBlock
         {
-            Text = name,
+            // A space, so it cannot be mistaken for an attribute — no attribute name holds one.
+            Text = IsText(name) ? "element text" : name,
             FontFamily = new FontFamily("Menlo, Consolas, monospace"),
             FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center
@@ -244,7 +258,7 @@ public sealed class SvgViewerElementPanel : UserControl
 
         // What an expression here would have to come to, or that one would do nothing. The second is
         // worth saying up front: the braces are read as an ordinary value and nothing else says so.
-        var says = SvgExpressionAttributes.TypeFor(name) is { } type
+        var says = Typed(name) is { } type
             ? ExprFunctions.Describe(type)
               + (SvgExpressionAttributes.IsInArguments(name) ? " per argument" : string.Empty)
               + (SvgExpressionAttributes.IsResolvedBeforeRecording(name) ? ", built in" : string.Empty)
@@ -265,7 +279,7 @@ public sealed class SvgViewerElementPanel : UserControl
         var box = new TextBox
         {
             Text = value,
-            Watermark = "not set",
+            Watermark = IsText(name) ? "no text" : "not set",
             FontSize = 12,
             Tag = name
         };
@@ -329,13 +343,19 @@ public sealed class SvgViewerElementPanel : UserControl
 
     private void Commit(TextBox box, string name)
     {
-        var written = box.Text?.Trim() ?? string.Empty;
-        var was = (Open() is { } open
-                ? SvgAttributeEditor.Attributes(open, _address ?? string.Empty)
-                : Array.Empty<SvgSourceAttribute>())
-            .FirstOrDefault(attribute => string.Equals(attribute.Name, name, StringComparison.Ordinal));
+        var content = IsText(name);
+        var written = content ? box.Text ?? string.Empty : box.Text?.Trim() ?? string.Empty;
+        var open = Open();
 
-        if (string.Equals(written, was.Value ?? string.Empty, StringComparison.Ordinal))
+        var had = content
+            ? (open is { } ? SvgAttributeEditor.Content(open, _address ?? string.Empty, out _) : null) ?? string.Empty
+            : (open is { }
+                    ? SvgAttributeEditor.Attributes(open, _address ?? string.Empty)
+                    : Array.Empty<SvgSourceAttribute>())
+                .FirstOrDefault(attribute => string.Equals(attribute.Name, name, StringComparison.Ordinal))
+                .Value ?? string.Empty;
+
+        if (string.Equals(written, had, StringComparison.Ordinal))
         {
             return;
         }
@@ -348,7 +368,7 @@ public sealed class SvgViewerElementPanel : UserControl
 
         if (!Set(name, written))
         {
-            box.Text = was.Value ?? string.Empty;
+            box.Text = had;
         }
     }
 
@@ -405,7 +425,7 @@ public sealed class SvgViewerElementPanel : UserControl
             return null;
         }
 
-        if (SvgExpressionAttributes.TypeFor(name) is not { } type)
+        if (Typed(name) is not { } type)
         {
             return SvgExpressionAttributes.WhyUnsupported(name);
         }
@@ -484,14 +504,45 @@ public sealed class SvgViewerElementPanel : UserControl
     /// </remarks>
     private bool Write(string address, string name, string? value)
     {
-        var refusal = _write(
-            value is null ? $"remove {name}" : $"set {name}",
-            source => SvgAttributeEditor.SetAttribute(source, address, name, value));
+        var refusal = IsText(name)
+            ? _write(
+                value is null ? "clear text" : "set text",
+                source => SvgAttributeEditor.SetContent(source, address, value))
+            : _write(
+                value is null ? $"remove {name}" : $"set {name}",
+                source => SvgAttributeEditor.SetAttribute(source, address, name, value));
 
         Say(refusal);
 
         return refusal is null;
     }
+
+    /// <summary>Whether this row is the element's text rather than one of its attributes.</summary>
+    private static bool IsText(string name)
+        => string.Equals(name, SvgExpressionAttributes.ContentName, StringComparison.Ordinal);
+
+    /// <summary>
+    /// What an expression in <paramref name="name"/> has to come to, text included.
+    /// </summary>
+    /// <remarks>
+    /// The content key is answered here rather than put in the placeholder table, which is keyed by
+    /// attribute local name and read by the recipes, the element factory and the list of names a row
+    /// can be offered for — none of which may grow a name no attribute can have. The substitution
+    /// already special-cases the same name the same way.
+    /// </remarks>
+    private static ExprType? Typed(string name)
+        => IsText(name) ? SvgExpressionAttributes.ContentType : SvgExpressionAttributes.TypeFor(name);
+
+    /// <summary>A line saying why an element's text is not one value to edit.</summary>
+    private static Control Told(string why)
+        => new TextBlock
+        {
+            Text = why,
+            Opacity = 0.6,
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 4)
+        };
 
     private void Say(string? refusal)
     {

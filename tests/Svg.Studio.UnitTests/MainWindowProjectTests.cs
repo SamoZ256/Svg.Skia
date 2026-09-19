@@ -3484,6 +3484,49 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(path));
     }
 
+    /// <summary>A drawing whose words are worth editing.</summary>
+    private const string Saying = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="label" type="string" default="'Hi'" /></e:code></defs>
+          <text x="2" y="16">Hi</text>
+        </svg>
+        """;
+
+    /// <summary>
+    /// The words of a text element are edited from the group's Element tab, into the project.
+    /// </summary>
+    /// <remarks>
+    /// The same path an attribute takes, which is the point: a drawing's text is not an attribute,
+    /// so nothing about the commit could be assumed to carry it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Words_Of_A_Text_Edited_From_A_Group_Land_In_The_Drawing()
+    {
+        var path = Own(Saying);
+        var window = await Host(path);
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
+
+        // The <text> is the second child of the root, after <defs>.
+        element.Show("1");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Hi", element.Shown(SvgExpressionAttributes.ContentName));
+
+        Assert.True(element.Set(SvgExpressionAttributes.ContentName, "{{ label }}"));
+        Dispatcher.UIThread.RunJobs();
+
+        // Saved, and then read off the disk: the edit has to travel the drawing's own text and the
+        // project that holds it, not just the buffer the pane was reading.
+        await window.SaveAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("<text x=\"2\" y=\"16\">{{ label }}</text>", File.ReadAllText(path), StringComparison.Ordinal);
+    }
+
     private sealed class StubParameterDialogService : ISvgViewerParameterDialogService
     {
         private readonly SvgExpressionParameter? _answer;
