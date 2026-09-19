@@ -859,6 +859,176 @@ public class ProjectDocumentTests : IDisposable
         Assert.DoesNotContain("shade", item.Source!, StringComparison.Ordinal);
     }
 
+    /// <summary>Two desks, each with two drawings, declaring copies of one library.</summary>
+    /// <remarks>
+    /// `tint` is reached in both desks, `ring` only in the first, `lean` by one drawing, and `edge`
+    /// is a let two drawings of the first desk share.
+    /// </remarks>
+    private static string Copies() => """
+        <?xml version="1.0" encoding="utf-8"?>
+        <studio namespace="Demo.Icons">
+          <group name="One">
+            <drawing name="a">
+              <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                <defs><e:code><e:param name="tint" type="color" default="#00ff00" /><e:param name="ring" type="number" default="2" /><e:let name="edge">mix(tint, tint, 0.5)</e:let></e:code></defs>
+                <circle cx="12" cy="12" r="10" fill="{{ edge }}" stroke-width="{{ ring }}" />
+              </svg>
+            </drawing>
+            <drawing name="b">
+              <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                <defs><e:code><e:param name="tint" type="color" default="#00ff00" /><e:param name="ring" type="number" default="2" /><e:let name="edge">mix(tint, tint, 0.5)</e:let></e:code></defs>
+                <rect width="24" height="24" fill="{{ edge }}" stroke-width="{{ ring }}" />
+              </svg>
+            </drawing>
+          </group>
+          <group name="Two">
+            <drawing name="c">
+              <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                <defs><e:code><e:param name="tint" type="color" default="#00ff00" /><e:param name="lean" type="number" default="1" /></e:code></defs>
+                <path d="M12 3 L21 21 Z" fill="{{ tint }}" stroke-width="{{ lean }}" />
+              </svg>
+            </drawing>
+          </group>
+        </studio>
+
+        """;
+
+    private static ProjectGroup Named(ProjectDocument document, string name)
+        => document.Root.Children.OfType<ProjectGroup>().Single(group => group.Name == name);
+
+    [Fact]
+    public void A_Name_Is_Placed_Where_It_Is_Shared()
+    {
+        var document = Read(Copies());
+
+        ProjectPlacement.Place(document.Root, organize: true);
+
+        // Both desks reach it, so it belongs to the project.
+        Assert.Contains("tint", document.Root.CodeText, StringComparison.Ordinal);
+
+        // Only the first desk's drawings do, so it belongs to that desk — and so does the let they
+        // share.
+        Assert.Contains("ring", Named(document, "One").CodeText, StringComparison.Ordinal);
+        Assert.Contains("edge", Named(document, "One").CodeText, StringComparison.Ordinal);
+
+        // One drawing alone holds it, and that is already where it is shared.
+        Assert.Null(Named(document, "Two").Code);
+        Assert.Contains("lean", Named(document, "Two").Drawings.Single().Text, StringComparison.Ordinal);
+
+        // What moved is gone from the drawings that held it.
+        foreach (var drawing in Named(document, "One").Drawings)
+        {
+            Assert.DoesNotContain("e:param", drawing.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("e:let", drawing.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("<defs", drawing.Text, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Placement_Leaves_Every_Drawing_Built_As_It_Was()
+    {
+        var document = Read(Copies());
+
+        var before = document.Root.Drawings
+            .ToDictionary(
+                drawing => drawing.Name,
+                drawing => SvgExpressionDeclarations.Parse(ProjectDeclarations.Built(drawing, drawing.Text)));
+
+        ProjectPlacement.Place(document.Root, organize: true);
+
+        foreach (var drawing in document.Root.Drawings)
+        {
+            var after = SvgExpressionDeclarations.Parse(ProjectDeclarations.Built(drawing, drawing.Text), out var bad);
+
+            Assert.Empty(bad);
+
+            // The whole point: moving a declaration up changes where it is written and nothing about
+            // what any drawing is built with.
+            Assert.Equal(
+                before[drawing.Name].Parameters.Select(one => one.Name).OrderBy(one => one, StringComparer.Ordinal),
+                after.Parameters.Select(one => one.Name).OrderBy(one => one, StringComparer.Ordinal));
+
+            Assert.Equal(
+                before[drawing.Name].Lets.Select(one => one.Name),
+                after.Lets.Select(one => one.Name));
+        }
+    }
+
+    [Fact]
+    public void Everything_Goes_To_The_Project_When_Nothing_Organizes_It()
+    {
+        var document = Read(Copies());
+
+        ProjectPlacement.Place(document.Root, organize: false);
+
+        foreach (var name in new[] { "tint", "ring", "lean", "edge" })
+        {
+            Assert.Contains(name, document.Root.CodeText, StringComparison.Ordinal);
+        }
+
+        Assert.All(
+            document.Root.Children.OfType<ProjectGroup>(),
+            group => Assert.Null(group.Code));
+
+        Assert.All(
+            document.Root.Drawings,
+            drawing => Assert.DoesNotContain("e:code", drawing.Text, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_Placed_Block_Is_Written_At_The_Depth_It_Sits_At()
+    {
+        var document = Read(Copies());
+
+        ProjectPlacement.Place(document.Root, organize: true);
+
+        // A project file is something somebody reads and diffs, so a block put into one is written
+        // the way the rest of the file is rather than the way XLinq would indent it.
+        Assert.Contains("""
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="ring" type="number" default="2" />
+                  <e:let name="edge">mix(tint, tint, 0.5)</e:let>
+                </e:code>
+            """, document.ToXml(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Name_Two_Drawings_Mean_Differently_Is_Left_Alone()
+    {
+        // Hoisting either would silently change what the other draws.
+        var document = Read("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <studio namespace="Demo.Icons">
+              <group name="One">
+                <drawing name="a">
+                  <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                    <defs><e:code><e:param name="tint" type="color" default="#00ff00" /><e:param name="ring" type="number" default="2" /></e:code></defs>
+                    <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke-width="{{ ring }}" />
+                  </svg>
+                </drawing>
+                <drawing name="b">
+                  <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                    <defs><e:code><e:param name="tint" type="color" default="#00ff00" /><e:param name="ring" type="number" default="9" /></e:code></defs>
+                    <rect width="24" height="24" fill="{{ tint }}" stroke-width="{{ ring }}" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+        ProjectPlacement.Place(document.Root, organize: true);
+
+        var group = Named(document, "One");
+
+        // The one they agree about moves; the one they do not stays with each of them.
+        Assert.Contains("tint", group.CodeText, StringComparison.Ordinal);
+        Assert.DoesNotContain("ring", group.CodeText, StringComparison.Ordinal);
+
+        Assert.All(group.Drawings, drawing => Assert.Contains("ring", drawing.Text, StringComparison.Ordinal));
+        Assert.All(group.Drawings, drawing => Assert.DoesNotContain("tint", drawing.Text.Split('>')[0], StringComparison.Ordinal));
+    }
+
     [Fact]
     public void A_Copied_Group_Declares_What_It_Declared()
     {
