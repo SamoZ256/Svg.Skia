@@ -375,7 +375,7 @@ public sealed class GroupPanel : UserControl
         parameters.Children.Add(_parameterNote);
         parameters.Children.Add(_parameters);
 
-        var showing = new TabItem { Header = "Parameters", Content = parameters };
+        var showing = new TabItem { Header = "Variables", Content = parameters };
 
         tabs.Items.Add(showing);
         tabs.Items.Add(new TabItem { Header = "Element", Content = _elementHost });

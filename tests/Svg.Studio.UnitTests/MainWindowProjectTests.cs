@@ -2255,7 +2255,7 @@ public class MainWindowProjectTests : IDisposable
     /// <summary>The declaration panel on a group's Parameters tab, which the tab must be on to hold.</summary>
     private static SvgViewerDeclarationPanel Declarations(GroupPanel panel)
     {
-        Open(panel, "Parameters");
+        Open(panel, "Variables");
 
         return panel.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
     }
@@ -2312,10 +2312,10 @@ public class MainWindowProjectTests : IDisposable
         var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
 
         Assert.Equal(
-            new[] { "Project", "Parameters", "Element" },
+            new[] { "Project", "Variables", "Element" },
             tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
 
-        Assert.Equal("Parameters", (string)((TabItem)tabs.SelectedItem!).Header!);
+        Assert.Equal("Variables", (string)((TabItem)tabs.SelectedItem!).Header!);
     }
 
     [AvaloniaFact]
@@ -2775,7 +2775,7 @@ public class MainWindowProjectTests : IDisposable
     /// <remarks>
     /// The heading is on the first row of a run rather than on every row, and there is none at all
     /// where everything came from one place — one heading over the lot says nothing the standing
-    /// "Parameters" heading above it does not.
+    /// "Variables" heading above it does not.
     /// </remarks>
     /// <summary>A project declaring three, a group declaring one, and a drawing using two of them.</summary>
     private string Plenty()
@@ -3131,6 +3131,9 @@ public class MainWindowProjectTests : IDisposable
     /// <remarks>
     /// The drawing reads <c>ring</c>, which reads <c>half</c>, which reads <c>span</c> — so all
     /// three come down, and <c>idle</c>, which nothing under the selection reads, does not.
+    ///
+    /// The headings are over the list as it is shown, which is one list: a value and an expression
+    /// declared in the same place are one run wearing one heading, where two lists said it twice.
     /// </remarks>
     [AvaloniaFact]
     public async Task An_Inherited_Let_Is_Narrowed_And_Headed()
@@ -3144,9 +3147,14 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.Equal(new[] { "half", "ring" }, lets.Select(let => let.Name).ToArray());
         Assert.Equal(new[] { "Project", "Inner" }, lets.Select(let => let.OwnerLabel).ToArray());
-        Assert.All(lets, let => Assert.True(let.ShowsOwner));
 
         Assert.Equal(new[] { "span" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        // One list, so one run per place rather than one per kind: 'span' and 'half' are both the
+        // project's and are headed once, between them, and 'ring' heads the group's run below.
+        Assert.True(Declarations(panel).Parameters!.Single().ShowsOwner);
+        Assert.False(lets[0].ShowsOwner);
+        Assert.True(lets[1].ShowsOwner);
     }
 
     /// <summary>
@@ -4594,8 +4602,8 @@ public class MainWindowProjectTests : IDisposable
 
         // First of the three, and not the one shown: a drawing is opened to be looked at, and what
         // it declares is what moves the picture, so the project's say over it is a click away.
-        Assert.Equal(new[] { "Project", "Parameters", "Element" }, panes.Items.OfType<TabItem>().Select(item => (string)item.Header!));
-        Assert.Equal("Parameters", (string)((TabItem)panes.SelectedItem!).Header!);
+        Assert.Equal(new[] { "Project", "Variables", "Element" }, panes.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        Assert.Equal("Variables", (string)((TabItem)panes.SelectedItem!).Header!);
 
         Open(viewer, "Project");
 

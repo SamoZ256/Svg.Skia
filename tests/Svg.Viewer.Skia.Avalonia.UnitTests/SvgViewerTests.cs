@@ -276,7 +276,7 @@ public class SvgViewerTests
         // Nothing set by the host, and still a strip: the Element tab is the viewer's own, and a
         // viewer nobody has given panes to still has elements to pick.
         Assert.Equal(
-            new[] { "Parameters", "Element" },
+            new[] { "Variables", "Element" },
             Assert.IsType<TabControl>(host.Child).Items.OfType<TabItem>().Select(item => (string)item.Header!));
 
         var mine = new TextBlock { Text = "the host's own" };
@@ -288,8 +288,8 @@ public class SvgViewerTests
 
         // First in the strip, and still not the one shown: what a drawing is for is what it
         // declares, so the pane a host adds is one to click rather than one to be moved onto.
-        Assert.Equal(new[] { "Project", "Parameters", "Element" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
-        Assert.Equal("Parameters", (string)((TabItem)tabs.SelectedItem!).Header!);
+        Assert.Equal(new[] { "Project", "Variables", "Element" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        Assert.Equal("Variables", (string)((TabItem)tabs.SelectedItem!).Header!);
         Assert.Same(mine, ((TabItem)tabs.Items[0]!).Content);
 
         // Several of them, in the order they were given, and the parameters still last.
@@ -301,12 +301,12 @@ public class SvgViewerTests
         tabs = Assert.IsType<TabControl>(host.Child);
 
         Assert.Equal(
-            new[] { "Project", "Replacements", "Parameters", "Element" },
+            new[] { "Project", "Replacements", "Variables", "Element" },
             tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
         Assert.Same(second, ((TabItem)tabs.Items[1]!).Content);
 
         // And a strip rebuilt around another pane is still showing the same one.
-        Assert.Equal("Parameters", (string)((TabItem)tabs.SelectedItem!).Header!);
+        Assert.Equal("Variables", (string)((TabItem)tabs.SelectedItem!).Header!);
 
         viewer.SidePanels = System.Array.Empty<SvgViewerPane>();
         Dispatcher.UIThread.RunJobs();
@@ -315,7 +315,7 @@ public class SvgViewerTests
         // one — it is the viewer's, and everything wired to it is still wired.
         tabs = Assert.IsType<TabControl>(host.Child);
 
-        Assert.Equal(new[] { "Parameters", "Element" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        Assert.Equal(new[] { "Variables", "Element" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
         Assert.NotEmpty(viewer.Parameters!);
     }
 
@@ -942,7 +942,7 @@ public class SvgViewerTests
 
         var empty = panel.GetVisualDescendants().OfType<TextBlock>().Single(block => block.Name == "EmptyLabel");
 
-        Assert.Equal("This drawing declares no parameters.", empty.Text);
+        Assert.Equal("This drawing declares no variables.", empty.Text);
 
         window.Close();
     }
