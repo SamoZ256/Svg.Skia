@@ -646,21 +646,28 @@ public sealed class GroupPanel : UserControl
         Note(trouble);
     }
 
-    /// <summary>What declares for the drawings here, outermost first and the picked one last.</summary>
+    /// <summary>What declares for whatever is selected, outermost first and the selection last.</summary>
+    /// <remarks>
+    /// The selection's own ancestry rather than this tab's. A board shows the drawings of the groups
+    /// nested under it as well as its own, so a drawing picked on the project's tab can sit two
+    /// groups down, and walking up from the tab instead skipped every group in between — the panel
+    /// then showed what the project declared and what the drawing declared, with the group that
+    /// actually holds the family missing from the middle of it.
+    /// </remarks>
     private IEnumerable<ProjectNode> Holders()
     {
-        var group = (ProjectGroup)Node;
+        var subject = Subject();
 
-        foreach (var holder in ProjectDeclarations.Chain(group).Append(group))
+        foreach (var holder in ProjectDeclarations.Chain(subject))
         {
             yield return holder;
         }
 
-        if (_inspecting is { } inspecting)
-        {
-            yield return inspecting.Built.Drawing;
-        }
+        yield return subject;
     }
+
+    /// <summary>What the panel is about: the drawing that is picked, or this tab's own group.</summary>
+    private ProjectNode Subject() => _inspecting is { } inspecting ? inspecting.Built.Drawing : Node;
 
     /// <summary>The text <paramref name="holder"/> keeps its declarations in.</summary>
     /// <remarks>
@@ -753,18 +760,34 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>Where a new declaration could go.</summary>
     /// <remarks>
-    /// This group, and the drawing that is picked. Not the groups above it: a parameter is declared
-    /// where somebody is looking, and reaching up the chain from here would be a way to change what
-    /// every other group's drawings are built with by accident.
+    /// Everything from this tab's own group down to whatever is selected. On a board that shows
+    /// nested groups those are three or four things, and the one in the middle is usually the one
+    /// meant: a drawing picked two groups down belongs to a family that neither the project nor the
+    /// drawing itself speaks for.
+    ///
+    /// It stops at this tab's group rather than running on to the project root, so the rule is that
+    /// a parameter can be declared anywhere between the tab somebody opened and the thing they
+    /// clicked. The rows above that are still shown and still editable, which is how an existing one
+    /// is changed; declaring a new one into a group whose tab this is not is a reach too far.
+    ///
+    /// The whole ancestry and not only the part that already declares, since a group holding no
+    /// block yet is exactly the one somebody is about to give its first parameter.
     /// </remarks>
     private IReadOnlyList<ProjectNode> Candidates()
     {
-        var candidates = new List<ProjectNode> { Node };
+        var candidates = new List<ProjectNode>();
 
-        if (_inspecting is { } inspecting)
+        for (var node = Subject(); node is { }; node = node.Parent)
         {
-            candidates.Add(inspecting.Built.Drawing);
+            candidates.Add(node);
+
+            if (ReferenceEquals(node, Node))
+            {
+                break;
+            }
         }
+
+        candidates.Reverse();
 
         return candidates;
     }

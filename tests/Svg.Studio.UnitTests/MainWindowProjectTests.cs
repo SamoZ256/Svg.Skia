@@ -2050,10 +2050,12 @@ public class MainWindowProjectTests : IDisposable
     }
 
     private static async Task<GroupPanel> Group(MainWindow window, int child)
-    {
-        var root = (TreeViewItem)Tree(window).Items[0]!;
+        => await Opened(window, (ProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[child]!).Tag!);
 
-        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[child]!).Tag!);
+    /// <summary>Opens <paramref name="node"/> in a tab and lays the window out, so it has a board.</summary>
+    private static async Task<GroupPanel> Opened(MainWindow window, ProjectNode node)
+    {
+        await window.ShowAsync(node);
         Dispatcher.UIThread.RunJobs();
 
         var panel = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
@@ -2690,6 +2692,93 @@ public class MainWindowProjectTests : IDisposable
     /// <summary>The one group of a project written by <see cref="Owned(string, string[])"/>.</summary>
     private static ProjectGroup GroupOf(MainWindow window)
         => (ProjectGroup)(ProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!;
+
+    /// <summary>A project whose group is nested, so the root's board shows a drawing two down.</summary>
+    private string Nested()
+        => Write("icons.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <e:code xmlns:e="https://svg.skia/expr/1.0">
+                <e:param name="tint" type="color" default="#00ff00" />
+              </e:code>
+              <group name="Inner">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="ring" type="number" default="2" min="0" max="10" />
+                </e:code>
+                <drawing name="one">
+                  <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+                    <defs><e:code><e:param name="lean" type="number" default="1" min="0" max="4" /></e:code></defs>
+                    <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke-width="{{ ring + lean }}" stroke="#000000" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+    /// <summary>
+    /// The chain shown is the selection's own, not the tab's.
+    /// </summary>
+    /// <remarks>
+    /// A board shows the drawings of the groups nested under it as well as its own, so a drawing
+    /// picked on the project's tab can sit two groups down. Walking up from the tab skipped every
+    /// group in between — the panel showed what the project declared and what the drawing declared,
+    /// with the group that actually holds the family missing from the middle of it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Chain_Is_The_Selections_Own_Not_The_Tabs()
+    {
+        var window = await Host(Nested());
+
+        // The project's own tab, whose board holds a drawing two groups down.
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        Pick(window, panel, 0);
+
+        var rows = Declarations(panel).Parameters!;
+
+        Assert.Equal(new[] { "tint", "ring", "lean" }, rows.Select(row => row.Name).ToArray());
+        Assert.Equal(new[] { "Project", "Inner", "one" }, rows.Select(row => row.OwnerLabel).ToArray());
+
+        // Three runs of one, so three headings.
+        Assert.All(rows, row => Assert.True(row.ShowsOwner));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Group_In_The_Middle_Can_Be_Declared_On()
+    {
+        var window = await Host(Nested());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        Pick(window, panel, 0);
+
+        IReadOnlyList<ProjectNode>? offered = null;
+
+        panel.ChooseOwner = candidates =>
+        {
+            offered = candidates;
+
+            // The one in the middle, which neither the project nor the drawing speaks for.
+            return Task.FromResult<ProjectNode?>(candidates.OfType<ProjectGroup>().Last());
+        };
+
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.True(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            new[] { "Project", "Inner", "one" },
+            offered!.Select(ProjectWorkspace.Label).ToArray());
+
+        var inner = window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single();
+
+        Assert.Contains("sweep", inner.CodeText, StringComparison.Ordinal);
+        Assert.DoesNotContain("sweep", window.Workspace.Document.Root.CodeText, StringComparison.Ordinal);
+        Assert.DoesNotContain("sweep", inner.Drawings.Single().Text, StringComparison.Ordinal);
+    }
 
     [AvaloniaFact]
     public async Task Adding_With_Nothing_Picked_Does_Not_Ask()

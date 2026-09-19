@@ -28,15 +28,17 @@
   first in the generated `Draw`. A group parameter with no default above a drawing parameter that has
   one makes every argument required — the existing optional-args-last rule, reached by a new route.
 
-  The pane shows the whole of what a drawing is built with. Picking one on the board adds what it
-  declares for itself as a last section, under what it inherits, in the order the drawing is built —
-  which is the order its generated arguments come out in. The rows are grouped under a heading naming
-  what declares them, and there is no heading at all where everything came from one place. A row a
-  drawing declares for itself moves that drawing alone: two drawings each declaring a `ring` of their
-  own are two parameters that happen to be spelled alike.
+  The pane shows the whole of what the selection is built with: the chain is the selected thing's own
+  ancestry, so picking a drawing two groups down on the project's tab shows the project's block, both
+  groups' and the drawing's own, in the order the drawing is built — which is the order its generated
+  arguments come out in. The rows are grouped under a heading naming what declares them, and there is
+  no heading at all where everything came from one place. A row a drawing declares for itself moves
+  that drawing alone: two drawings each declaring a `ring` of their own are two parameters that
+  happen to be spelled alike.
 
-  **Add** asks where the parameter goes when there is more than one answer — this group, and every
-  drawing in it, or the picked drawing alone — and does not ask when there is only one.
+  **Add** asks where the parameter goes when there is more than one answer, offering everything from
+  the tab's own group down to the selection — the one in the middle is usually the one meant — and
+  does not ask when there is only one.
 
 * **An Edit mode**, on the viewer and on a group's tab in Svg.Studio. Turn it on and the picked
   element is drawn with handles: drag the body to move it, a handle to scale it, the stalk above to
