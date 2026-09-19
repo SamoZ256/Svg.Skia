@@ -2557,6 +2557,88 @@ public class MainWindowProjectTests : IDisposable
     /// where everything came from one place — one heading over the lot says nothing the standing
     /// "Parameters" heading above it does not.
     /// </remarks>
+    /// <summary>A project declaring three, a group declaring one, and a drawing using two of them.</summary>
+    private string Plenty()
+        => Write("icons.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <e:code xmlns:e="https://svg.skia/expr/1.0">
+                <e:param name="tint" type="color" default="#00ff00" />
+                <e:param name="shade" type="color" default="#0000ff" />
+                <e:param name="spare" type="number" default="3" />
+              </e:code>
+              <group name="Inner">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="ring" type="number" default="2" min="0" max="10" />
+                  <e:param name="idle" type="number" default="5" />
+                </e:code>
+                <drawing name="one">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke-width="{{ ring }}" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+    /// <summary>
+    /// The pane shows what is declared further up only where the selection reaches it.
+    /// </summary>
+    /// <remarks>
+    /// A project's variables are every drawing's to inherit, so a tab that listed all of them listed
+    /// mostly rows that drive nothing in front of you — which is what the pane became once a project
+    /// could declare.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Pane_Leaves_Out_What_Is_Declared_Above_And_Not_Used()
+    {
+        var window = await Host(Plenty());
+        var panel = await Group(window, 0);
+
+        // The group's own block is shown whole — the tab is about it — and the project's is not.
+        Assert.Equal(
+            new[] { "tint", "ring", "idle" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        Pick(window, panel, 0);
+
+        Assert.Equal(
+            new[] { "tint", "ring", "idle" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    [AvaloniaFact]
+    public async Task What_Is_Left_Out_Is_Said_Rather_Than_Simply_Missing()
+    {
+        var window = await Host(Plenty());
+        var panel = await Group(window, 0);
+
+        // Or a variable somebody wants to start using is invisible, unnamed, and reachable only by
+        // guessing that naming it in the drawing brings it back.
+        var note = panel.GetVisualDescendants().OfType<TextBlock>()
+            .FirstOrDefault(block => block.Text is { } said && said.Contains("declared further up"));
+
+        Assert.NotNull(note);
+        Assert.Contains("2 more", note!.Text!, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Nobody_Can_Read_Leaves_The_Pane_Whole()
+    {
+        // Not knowing what is reached is not the same as reaching nothing, and hiding a row somebody
+        // is using is the worse of the two mistakes.
+        var window = await Host(Plenty());
+
+        Assert.Null(window.Workspace!.Document.Root.Drawings.Single().SetText(
+            """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="10" fill="{{ tint ~ }}" /></svg>"""));
+
+        var panel = await Group(window, 0);
+
+        Assert.Equal(
+            new[] { "tint", "shade", "spare", "ring", "idle" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
     [AvaloniaFact]
     public async Task The_Rows_Are_Grouped_By_What_Declares_Them()
     {
