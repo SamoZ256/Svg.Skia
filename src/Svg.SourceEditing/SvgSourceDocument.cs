@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -79,6 +79,19 @@ public sealed class SvgSourceDocument
     /// with tabs whichever half writes it.
     /// </remarks>
     public string IndentUnit { get; private set; } = "  ";
+
+    /// <summary>The declaration blocks in scope above this document, as text, or null for none.</summary>
+    /// <remarks>
+    /// Only the editor reads it, and only to decide what a name in an expression refers to. Nothing
+    /// here is ever written: <see cref="ToText"/> returns the document alone, whatever this says.
+    ///
+    /// It exists because a let's body names things and a parameter's default does not. A block that
+    /// is inherited from is perfectly valid where it sits and unreadable on its own — a group
+    /// declaring <c>ring = half + 1</c> over a project that declares <c>half</c> reads as a let
+    /// naming nothing. An edit may not strand a name that was resolving, so declaring a let naming
+    /// anything from above was refused: "That would leave 'wide' unresolved: Unknown name 'ring'".
+    /// </remarks>
+    public string? Inherited { get; set; }
 
     /// <summary>Reads a file, or refuses with a sentence saying why it could not be read.</summary>
     /// <remarks>

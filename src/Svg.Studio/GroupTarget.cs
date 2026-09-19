@@ -49,6 +49,10 @@ public sealed class GroupTarget : ISvgViewerDeclarationTarget, IEquatable<GroupT
             return unreadable;
         }
 
+        // What the groups above declare, so a let written here can name it. Nothing of it is
+        // written back — the edit lands in this group's own text and nowhere else.
+        source.Inherited = ProjectDeclarations.Declared(_group);
+
         if (edit(source) is { } refusal)
         {
             return refusal;

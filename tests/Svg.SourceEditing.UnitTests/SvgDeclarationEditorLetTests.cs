@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
 using System.Linq;
@@ -33,11 +33,17 @@ public class SvgDeclarationEditorLetTests
     }
 
     private static Edit Run(string svgText, Func<SvgSourceDocument, string?> edit)
+        => Run(svgText, null, edit);
+
+    /// <param name="inherited">The blocks in scope above the document, or null where there are none.</param>
+    private static Edit Run(string svgText, string? inherited, Func<SvgSourceDocument, string?> edit)
     {
         if (SvgSourceDocument.Read(svgText, out var unreadable) is not { } source)
         {
             return new Edit(unreadable, svgText, false);
         }
+
+        source.Inherited = inherited;
 
         var refusal = edit(source);
 
@@ -60,6 +66,53 @@ public class SvgDeclarationEditorLetTests
 
     private static string[] Order(string svgText)
         => SvgExpressionDeclarations.Parse(svgText, out _).Lets.Select(let => let.Name).ToArray();
+
+    // ---- what is declared above ----
+
+    /// <summary>
+    /// A block that only makes sense in context is edited in that context.
+    /// </summary>
+    /// <remarks>
+    /// A group's block is held on its own, so one declaring <c>ring = half + 1</c> under a project
+    /// declaring <c>half</c> read as a let naming nothing. An edit may not strand a name that was
+    /// resolving, and read alone every name from above is unknown — so declaring a let that named
+    /// one was refused with "That would leave 'wide' unresolved: Unknown name 'ring'". Parameters
+    /// were unaffected, since a default names nothing.
+    /// </remarks>
+    [Fact]
+    public void A_Let_May_Name_What_The_Document_Inherits()
+    {
+        var above = $"""<e:code xmlns:e="{Ns}"><e:param name="half" type="number" default="2" /></e:code>""";
+
+        var source = $"""
+            <e:code xmlns:e="{Ns}">
+              <e:let name="ring">half + 1</e:let>
+            </e:code>
+            """;
+
+        var edited = Apply(source, Run(source, above, source => SvgDeclarationEditor.AddLet(source, "wide", "ring + half")));
+
+        Assert.Equal(new[] { "ring", "wide" }, Order(edited));
+
+        // The context is read and dropped: what is written is the block and nothing above it.
+        Assert.DoesNotContain("e:param", edited, StringComparison.Ordinal);
+    }
+
+    /// <summary>Without the context it is still refused, which is what made the block unreadable.</summary>
+    [Fact]
+    public void A_Let_Naming_What_Is_Not_There_Is_Still_Refused()
+    {
+        var source = $"""
+            <e:code xmlns:e="{Ns}">
+              <e:let name="ring">half + 1</e:let>
+            </e:code>
+            """;
+
+        var result = Run(source, source => SvgDeclarationEditor.AddLet(source, "wide", "ring + half"));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("unresolved", result.Refusal!, StringComparison.Ordinal);
+    }
 
     // ---- adding ----
 

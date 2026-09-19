@@ -1,13 +1,14 @@
 ﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
-using Svg.Expressions;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Xml;
 using System.Xml.Linq;
-using System;
+using Svg.Expressions;
 
 namespace Svg.SourceEditing;
 
@@ -492,7 +493,7 @@ public static class SvgDeclarationEditor
             throw new ArgumentNullException(nameof(source));
         }
 
-        var declarations = SvgExpressionDeclarations.Parse(source.ToText(), out var diagnostics);
+        var declarations = SvgExpressionDeclarations.Parse(InScope(source), out var diagnostics);
 
         // What the document already says has to make sense, because the edit is written into the
         // middle of it. An edit elsewhere in the drawing is another matter and does not come here.
@@ -519,7 +520,7 @@ public static class SvgDeclarationEditor
         List<(string Name, ExprException Failure)> before,
         string? expected)
     {
-        var declarations = SvgExpressionDeclarations.Parse(source.ToText(), out var diagnostics);
+        var declarations = SvgExpressionDeclarations.Parse(InScope(source), out var diagnostics);
 
         if (diagnostics.Count > 0)
         {
@@ -615,6 +616,43 @@ public static class SvgDeclarationEditor
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The document as the language sees it, with whatever is declared above it in front.
+    /// </summary>
+    /// <remarks>
+    /// A throwaway tree read for its names and dropped: the edit itself is written into
+    /// <see cref="SvgSourceDocument.Document"/> as before, so nothing inherited can be edited or
+    /// saved by mistake. The blocks go in front because that is the order they are inherited in,
+    /// which is the order <see cref="SvgExpressionDeclarations"/> merges blocks in.
+    ///
+    /// The positions on a diagnostic are the wrapper's rather than the file's. Only the sentences
+    /// are used here, and a caller wanting somewhere to point reads the document itself.
+    /// </remarks>
+    private static string InScope(SvgSourceDocument source)
+    {
+        if (source.Inherited is not { Length: > 0 } above || source.Document.Root is not { } root)
+        {
+            return source.ToText();
+        }
+
+        XElement wrapped;
+
+        try
+        {
+            wrapped = XElement.Parse($"<context>{above}</context>", LoadOptions.PreserveWhitespace);
+        }
+        catch (XmlException)
+        {
+            // Text nobody can read declares nothing, which leaves the document as it was. Saying so
+            // is not this method's to do: the block it came from is edited on its own tab.
+            return source.ToText();
+        }
+
+        wrapped.Add(new XElement(root));
+
+        return wrapped.ToString();
     }
 
     /// <summary>The document's declarations in a builder, less the one being stood in for.</summary>

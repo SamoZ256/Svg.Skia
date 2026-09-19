@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -49,6 +49,10 @@ public sealed class DrawingTarget : ISvgViewerDeclarationTarget
         {
             return unreadable;
         }
+
+        // What the groups above declare, so a let written here can name it. Nothing of it is
+        // written back — the edit lands in this drawing's own text and nowhere else.
+        source.Inherited = ProjectDeclarations.Declared(_drawing);
 
         if (edit(source) is { } refusal)
         {
