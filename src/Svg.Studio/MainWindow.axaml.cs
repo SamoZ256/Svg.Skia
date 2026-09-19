@@ -1733,7 +1733,40 @@ public partial class MainWindow : Window
         // the drawing's own, so the tab still shows, edits and saves the drawing.
         viewer.Rewrite = own => ProjectDeclarations.Built(drawing, own);
 
+        // And the three halves of an inherited row being editable where it is shown: where the edit
+        // goes, how often the name is used outside the block that declares it, and what the row says
+        // about where it came from.
+        // A fresh target each time is the same place to write: GroupTarget is the group it is over.
+        viewer.DeclarationTargetOf = name => Declaring(drawing, name) is { } holder
+            ? new GroupTarget(workspace, holder)
+            : null;
+
+        viewer.DeclaredBy = name => Declaring(drawing, name) is { } holder
+            ? $"from {ProjectWorkspace.Label(holder)}"
+            : null;
+
         await viewer.LoadTextAsync(drawing.Text, drawing.Name).ConfigureAwait(true);
+    }
+
+    /// <summary>Which group above <paramref name="drawing"/> declares <paramref name="name"/>, if any.</summary>
+    /// <remarks>
+    /// Null for a name the drawing declares itself, which is every name in an ordinary project and
+    /// the answer the viewer reads as "this drawing". The chain is walked innermost first only so
+    /// the loop can stop; a name declared twice down it is refused before a drawing is built at all.
+    /// </remarks>
+    private static ProjectGroup? Declaring(ProjectDrawing drawing, string name)
+    {
+        foreach (var holder in ProjectDeclarations.Chain(drawing))
+        {
+            if (SvgExpressionDeclarations.Parse(holder.CodeText, out _) is { } declared
+                && (declared.Parameters.Any(parameter => string.Equals(parameter.Name, name, StringComparison.Ordinal))
+                    || declared.Lets.Any(let => string.Equals(let.Name, name, StringComparison.Ordinal))))
+            {
+                return holder;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

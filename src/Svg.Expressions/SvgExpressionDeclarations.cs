@@ -36,12 +36,8 @@ public enum SvgDeclarationPart
 public readonly record struct SvgDeclarationDiagnostic(int Position, string Message);
 
 /// <remarks>
-/// Compared by what it says rather than by which document said it, so two drawings declaring the
-/// same thing are declaring the same thing. There are two questions worth asking of that and this
-/// answers both, because a field added later is a question for each:
-/// <see cref="Equals(SvgExpressionParameter)"/> is whether the declarations are the same declaration,
-/// and <see cref="SharesValuesWith"/> is the weaker one of whether a value for one is a value for the
-/// other. They differ by the default alone.
+/// Compared by what it says rather than by which document said it, so a declaration read twice is
+/// the one declaration.
 /// </remarks>
 public sealed class SvgExpressionParameter : IEquatable<SvgExpressionParameter>
 {
@@ -82,32 +78,15 @@ public sealed class SvgExpressionParameter : IEquatable<SvgExpressionParameter>
     /// <summary>Author supplied increment, in the expression language.</summary>
     public string? StepExpression { get; }
 
-    /// <summary>Whether a value for this parameter is a value for <paramref name="other"/> too.</summary>
-    /// <remarks>
-    /// Everything but the default, which is where a parameter starts rather than what it will take:
-    /// two drawings declaring the same slider, one seeded at 4 and one at 7, are one family caught at
-    /// two points, and a value dragged into either belongs in both.
-    ///
-    /// The bounds do count. They are advice to a host rather than a constraint on the value, so a
-    /// value would go in either way — but they are what the control offering it looks like, and two
-    /// parameters a person would be given different sliders for are not the one parameter.
-    /// </remarks>
-    public bool SharesValuesWith(SvgExpressionParameter? other)
+    /// <summary>Whether the two are the same declaration, every field included.</summary>
+    public bool Equals(SvgExpressionParameter? other)
         => other is { }
            && Type == other.Type
            && string.Equals(Name, other.Name, StringComparison.Ordinal)
            && string.Equals(MinExpression, other.MinExpression, StringComparison.Ordinal)
            && string.Equals(MaxExpression, other.MaxExpression, StringComparison.Ordinal)
-           && string.Equals(StepExpression, other.StepExpression, StringComparison.Ordinal);
-
-    /// <summary>Whether the two are the same declaration, the default included.</summary>
-    /// <remarks>
-    /// Written over <see cref="SharesValuesWith"/> rather than beside it, so the one field they
-    /// differ by is the whole of the difference and stays that way.
-    /// </remarks>
-    public bool Equals(SvgExpressionParameter? other)
-        => SharesValuesWith(other)
-           && string.Equals(DefaultExpression, other!.DefaultExpression, StringComparison.Ordinal);
+           && string.Equals(StepExpression, other.StepExpression, StringComparison.Ordinal)
+           && string.Equals(DefaultExpression, other.DefaultExpression, StringComparison.Ordinal);
 
     public override bool Equals(object? obj) => Equals(obj as SvgExpressionParameter);
 

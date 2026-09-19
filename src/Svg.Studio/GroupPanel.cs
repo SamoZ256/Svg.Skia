@@ -90,7 +90,7 @@ public sealed class GroupPanel : UserControl
 
     private readonly SvgViewerDeclarationPanel _parameters = new();
 
-    /// <summary>What the parameters do not reach, when the group's drawings declare different things.</summary>
+    /// <summary>What could not be read in the blocks the rows came from.</summary>
     private readonly TextBlock _parameterNote = new()
     {
         Margin = new Thickness(10, 0, 10, 10),
@@ -100,19 +100,27 @@ public sealed class GroupPanel : UserControl
         IsVisible = false
     };
 
-    /// <summary>Where the selected drawing keeps its declarations, or null when nothing is selected.</summary>
-    private ISvgViewerDeclarationTarget? _target;
+    /// <summary>Which group declares each name on the panel, by name.</summary>
+    /// <remarks>
+    /// The rows come from the whole chain, so a row carries no idea which block it was read from and
+    /// this is what says. By name because that is what a command is about and what the extension
+    /// makes unique: a name declared twice down the chain is refused before it can be shown.
+    /// </remarks>
+    private readonly Dictionary<string, ProjectGroup> _owners = new(StringComparer.Ordinal);
+
+    /// <summary>One target per group the rows came from.</summary>
+    private readonly Dictionary<ProjectGroup, GroupTarget> _targets = new();
 
     /// <summary>The rows the panel last held, kept for <see cref="Carried"/> past it being emptied.</summary>
     /// <remarks>
-    /// A rebuild lets go of the selection before it takes it again, and letting go empties the
-    /// panel. Reading the values off the panel therefore read them after they had been thrown away,
-    /// so any edit at all — a drawing dragged across the board — put every parameter back to what
-    /// its drawing declares.
+    /// A rebuild lets go of the rows before it takes them again, and letting go empties the panel.
+    /// Reading the values off the panel therefore read them after they had been thrown away, so any
+    /// edit at all — a drawing dragged across the board — put every parameter back to what its
+    /// group declares.
     /// </remarks>
     private IReadOnlyList<SvgViewerParameter>? _carried;
 
-    private SvgViewerDeclarationCommands? _commands;
+    private readonly SvgViewerDeclarationCommands? _commands;
 
     /// <summary>The Element tab's content: a panel for the picked element, or a line saying why not.</summary>
     private readonly ContentControl _elementHost = new();
@@ -210,6 +218,27 @@ public sealed class GroupPanel : UserControl
 
         _canvas.ViewChanged += (_, _) => ShowGizmo();
 
+        // Built once, because what it writes into is decided per declaration rather than per panel:
+        // the rows come from the group and every group above it, and Splice sends each edit to the
+        // one that holds it.
+        if (node is ProjectGroup)
+        {
+            _commands = new SvgViewerDeclarationCommands(
+                Splice,
+                () => _parameters.Parameters ?? Array.Empty<SvgViewerParameter>(),
+                () => ParameterDialogService)
+            {
+                Holder = name => Holder(name),
+                UsedElsewhere = name => TargetOfGroup(Holder(name)).UsesElsewhere(name)
+            };
+
+            // Where each row was declared, said on the row — every group on the panel but this one.
+            _parameters.DeclaredBy = name =>
+                _owners.TryGetValue(name, out var holder) && !ReferenceEquals(holder, node)
+                    ? $"from {ProjectWorkspace.Label(holder)}"
+                    : null;
+        }
+
         _parameters.ValueChanged += (_, _) => Bind();
         _parameters.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
         _parameters.CommitRequested += (_, _) => _commands?.SetDefaults();
@@ -297,8 +326,8 @@ public sealed class GroupPanel : UserControl
     /// <remarks>
     /// The same two halves the viewer's own side pane has, and deliberately the same shape — a strip
     /// of tabs over a tree, split by a splitter. Built in code because everything in this panel is,
-    /// and wearing the viewer's tab style so the two strips cannot drift apart; a tab of one alone
-    /// is a strip waiting for the colours and the parameters to join it.
+    /// and wearing the viewer's tab style so the two strips cannot drift apart: the same three tabs
+    /// in the same order, and what a person learns on one of them holds on the other.
     /// </remarks>
     private Control Side()
     {
@@ -486,6 +515,10 @@ public sealed class GroupPanel : UserControl
 
         if (Node is ProjectGroup)
         {
+            // Before the board: what the drawings are built with is what these rows say, and a
+            // value carried across the rebuild has to be on the panel before Bind reads it.
+            ShowDeclarations();
+
             if (_watched)
             {
                 ShowDrawings();
@@ -534,68 +567,90 @@ public sealed class GroupPanel : UserControl
     public void Close() => Release();
 
     /// <summary>
-    /// Shows the parameters of the drawing that is selected, and points the commands at wherever
-    /// that drawing keeps its declarations.
+    /// Shows what this group declares for the drawings under it, and what it inherits.
     /// </summary>
     /// <remarks>
-    /// The selection is the subject, so this behaves as the drawing's own tab would: the rows come
-    /// from the drawing <em>as built</em>.
+    /// The whole chain, outermost first, which is the order the drawings are built in: the project
+    /// root's block, then each group down to this one. Every row is editable, and an inherited one
+    /// is written back into the group that holds it — so a slider on a nested group's tab moves the
+    /// same parameter as the same slider on the project's.
     ///
-    /// Rebuilt on every selection, because the target changes with it.
+    /// Not about the selection. A group's parameters are the group's, so picking a drawing on the
+    /// board changes the Element tab and leaves this alone.
     /// </remarks>
-    private void ShowParameters()
+    private void ShowDeclarations()
     {
-        if (_inspecting is not { } inspecting || inspecting.Built.Document is not { } document)
+        if (Node is not ProjectGroup group)
         {
-            _target = null;
-            _commands = null;
-            _parameters.Parameters = null;
-            _parameters.ShowLets(null);
-
-            Note("Pick a drawing to see what it declares.");
-
             return;
         }
 
-        // The host answers for a tab, which is what it knows about. What is left is the file, and
-        // the document that was read from it is here rather than there.
-        _target = TargetOf?.Invoke(inspecting.Built.Drawing)
-                  ?? (document.SourceText is { } text
-                      ? new DrawingTarget(Workspace, inspecting.Built.Drawing)
-                      : null);
+        _owners.Clear();
 
-        if (_target is null)
+        var parameters = new List<SvgExpressionParameter>();
+        var lets = new List<SvgExpressionLet>();
+        string? trouble = null;
+
+        foreach (var holder in ProjectDeclarations.Chain(group).Append(group))
         {
-            _commands = null;
-            _parameters.Parameters = null;
-            _parameters.ShowLets(null);
+            var declared = SvgExpressionDeclarations.Parse(holder.CodeText, out var diagnostics);
 
-            // Only when the file could not be read; everything else has somewhere to go.
-            Note("This drawing could not be read, so there is nowhere to write its declarations.");
+            // The first sentence and not all of them: this is one line under a panel, and what it is
+            // for is saying that a block nobody can see is the reason a row is missing.
+            trouble ??= diagnostics.Count > 0
+                ? $"{ProjectWorkspace.Label(holder)} declares something that could not be read: {diagnostics[0].Message}"
+                : null;
 
-            return;
+            foreach (var parameter in declared.Parameters)
+            {
+                _owners[parameter.Name] = holder;
+                parameters.Add(parameter);
+            }
+
+            foreach (var let in declared.Lets)
+            {
+                _owners[let.Name] = holder;
+                lets.Add(let);
+            }
         }
-
-        // The name a command is about is not read here yet: every row on this panel comes from the
-        // one drawing that is picked.
-        _commands = new SvgViewerDeclarationCommands(
-            (_, label, edit) => Splice(label, edit),
-            () => _parameters.Parameters ?? Array.Empty<SvgViewerParameter>(),
-            () => ParameterDialogService);
 
         // Empty and not null. Null reads as "no document" and takes the Add button away with it,
-        // which is the one button a drawing declaring nothing yet needs.
-        _carried = Carried(SvgViewerParameterFactory.Create(document.Declarations.Parameters));
+        // which is the one button a group declaring nothing yet needs.
+        _carried = Carried(SvgViewerParameterFactory.Create(parameters));
 
         _parameters.Parameters = _carried;
+        _parameters.ShowLets(lets);
 
-        _parameters.ShowLets(document.Declarations.Lets);
+        Note(trouble);
+    }
 
-        Note(null);
+    /// <summary>Where a declaration is written: the group that holds it, or this one for a new name.</summary>
+    /// <remarks>
+    /// A name nobody declares yet is a name being declared now, and it goes where somebody is
+    /// looking — this group, not one above it.
+    /// </remarks>
+    private ProjectGroup Holder(string name)
+        => _owners.TryGetValue(name, out var holder) ? holder : (ProjectGroup)Node;
+
+    /// <summary>The target for <paramref name="holder"/>, made once and kept.</summary>
+    /// <remarks>
+    /// Kept because a target is how an edit reaches the project and a fresh one per keystroke would
+    /// be a fresh read of the block each time; and because the group is the identity, not the
+    /// wrapper around it.
+    /// </remarks>
+    private GroupTarget TargetOfGroup(ProjectGroup holder)
+    {
+        if (!_targets.TryGetValue(holder, out var target))
+        {
+            target = new GroupTarget(Workspace, holder);
+            _targets[holder] = target;
+        }
+
+        return target;
     }
 
     /// <summary>
-    /// Asks for a parameter and writes it where the selected drawing keeps its declarations.
+    /// Asks for a parameter and writes it into this group.
     /// </summary>
     /// <remarks>
     /// Public for the reason the viewer's is: it is the half of the button a test can drive, the
@@ -606,18 +661,14 @@ public sealed class GroupPanel : UserControl
         => _commands is { } commands
            && await commands.AddAsync(TopLevel.GetTopLevel(this)).ConfigureAwait(true);
 
-    /// <summary>
-    /// Keeps the value on any row still declared the same way, by this drawing or one sharing it.
-    /// </summary>
+    /// <summary>Keeps the value on any row still declared exactly as it was.</summary>
     /// <remarks>
-    /// The rows are built again whenever the declarations change, and adding a parameter is a
-    /// change; a slider somebody had dragged would otherwise snap back because they pressed a button
-    /// about a different parameter. Across a change of drawing it is what keeps the panel agreeing
-    /// with the picture beside it, since the value was bound into both.
+    /// The rows are built again whenever anything in the project changes, and a slider somebody had
+    /// dragged would otherwise snap back because a drawing was moved on the board.
     ///
-    /// Row by row, matched by declaration rather than by position, because that is the rule the
-    /// values were bound by: a drawing sharing one parameter of three shows the one it shares at
-    /// what the drag left it, and the other two at what it declares.
+    /// By name and by declaration: a parameter that has been edited since — a bound changed, a type
+    /// changed — is a different slider, and carrying a value onto it would put it somewhere the new
+    /// declaration does not say.
     /// </remarks>
     private IReadOnlyList<SvgViewerParameter> Carried(IReadOnlyList<SvgViewerParameter> rebuilt)
     {
@@ -628,7 +679,7 @@ public sealed class GroupPanel : UserControl
 
         foreach (var row in rebuilt)
         {
-            if (was.FirstOrDefault(had => had.IsModified && had.Declaration.SharesValuesWith(row.Declaration)) is { } carried)
+            if (was.FirstOrDefault(had => had.IsModified && had.Declaration.Equals(row.Declaration)) is { } carried)
             {
                 row.TrySet(carried.ToExprValue());
             }
@@ -637,15 +688,10 @@ public sealed class GroupPanel : UserControl
         return rebuilt;
     }
 
-    /// <summary>Puts a declaration edit where the drawing keeps them, or says why it would not go.</summary>
-    private bool Splice(string label, Func<SvgSourceDocument, string?> edit)
+    /// <summary>Puts a declaration edit into the group that holds it, or says why it would not go.</summary>
+    private bool Splice(string name, string label, Func<SvgSourceDocument, string?> edit)
     {
-        if (_target is not { } target)
-        {
-            Says("There is nowhere to write this drawing's declarations.");
-
-            return false;
-        }
+        var target = TargetOfGroup(Holder(name));
 
         var was = target.Text;
 
@@ -658,18 +704,10 @@ public sealed class GroupPanel : UserControl
 
         Says(null);
 
-        if (string.Equals(target.Text, was, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        // The drawing is built from what was just written, so the canvas is out of date; and the
-        // rows are read from the drawing, so they are too. Straight away rather than on the buffer's
-        // Edited, which is debounced by a fifth of a second -- the right delay for somebody typing
-        // and the wrong one for a button they just pressed.
-        ShowDrawings();
-
-        return true;
+        // Nothing rebuilds the rows or the board here. A commit that changed the block edited the
+        // project, and every tab open on it — this one included — has already been round through
+        // Refresh by the time this returns. Doing it again drew an unwatched board twice over.
+        return !string.Equals(target.Text, was, StringComparison.Ordinal);
     }
 
     private void Note(string? said)
@@ -755,7 +793,9 @@ public sealed class GroupPanel : UserControl
 
         var panel = new SvgViewerElementPanel(
             () => target.Text,
-            () => target.Text,
+            // The declarations are read from the drawing as built, which is where what its groups
+            // declare has been written in.
+            () => document.Built(target.Text),
             (label, edit) =>
             {
                 var refusal = target.Commit(label, edit);
@@ -789,7 +829,10 @@ public sealed class GroupPanel : UserControl
     {
         try
         {
-            return ExprEvaluator.Create(document.Declarations, Values());
+            // What the drawing is actually rendering with: the group's values over the drawing's
+            // own. The panel alone says nothing about a parameter the drawing declares for itself,
+            // and a missing value refuses the whole evaluator rather than one readout.
+            return ExprEvaluator.Create(document.Declarations, Bound(_inspecting!.Value.Built, Values()));
         }
         catch (Exception failure) when (failure is ExprException or ArgumentException)
         {
@@ -799,35 +842,31 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>
-    /// Binds the values on the panel into every drawing declaring any of them, and repaints.
+    /// Binds the values on the panel into every drawing on the board, and repaints.
     /// </summary>
     /// <remarks>
-    /// A value belongs to the declaration it is for, and every drawing declaring that takes it. So
-    /// moving one slider moves the family, which is the whole reason to look at them side by side.
+    /// Every one of them, with nothing to match: the rows are what the group declares, and a group's
+    /// block is written into each of its drawings on the way to being drawn, so every drawing here
+    /// declares every row. That is the whole of what replaced asking which drawings happened to
+    /// declare the same thing — one declaration, in one place, and the family is whoever is under it.
     ///
     /// Cheap for a drag: the pictures are the ones already built, and <c>SetExpressionValues</c>
     /// re-evaluates a model each has cached rather than reading or compiling anything again.
     /// </remarks>
     private void Bind()
     {
-        if (_inspecting is not { } inspecting)
-        {
-            return;
-        }
-
-        var picked = inspecting.Built;
         var values = Values();
 
         foreach (var shown in _shown)
         {
-            if (shown.Built.Svg is not { } svg || Taken(picked, shown.Built, values) is not { } bound)
+            if (shown.Built.Svg is not { } svg)
             {
                 continue;
             }
 
             try
             {
-                svg.SetExpressionValues(bound);
+                svg.SetExpressionValues(Bound(shown.Built, values));
             }
             catch (ExprException)
             {
@@ -838,64 +877,35 @@ public sealed class GroupPanel : UserControl
         _canvas.Publish();
     }
 
-    /// <summary>
-    /// What to bind into <paramref name="other"/> when the panel is showing
-    /// <paramref name="picked"/>, or null where it declares none of it.
-    /// </summary>
+    /// <summary>What to bind into <paramref name="drawn"/> when the panel is showing <paramref name="values"/>.</summary>
     /// <remarks>
-    /// Parameter by parameter, not list by list. Two drawings sharing a tint share it whatever else
-    /// either of them declares, which is what a set of icons actually looks like — one common
-    /// palette, and a drawing here and there with a knob of its own. Asking them to agree about
-    /// everything meant one extra parameter on one drawing took it out of the family for all of
-    /// them.
-    ///
-    /// What a drawing declares rather than where it declared it, read off the drawing as built. So
-    /// two drawings that each wrote the same block by hand share, which is what a set of icons
-    /// written from one template is.
-    ///
-    /// A parameter is matched by everything but its default: the name, the type and the bounds. The
-    /// default is left out because it is where a drawing starts rather than what it takes, and a set
-    /// of icons seeded at different colours is the case this is for. The bounds are in because two
-    /// parameters somebody would be given different sliders for are not the one parameter, however
-    /// alike their names.
-    ///
-    /// The drawing's own values go in around what it shares: the call replaces everything bound, so
-    /// sending one parameter alone would take the rest back to their defaults — and a drawing is
-    /// entitled to declare one with no default at all, which would then refuse the lot.
+    /// The drawing's own values go in around the group's, because the call replaces everything
+    /// bound: sending the group's alone would take a parameter the drawing declares for itself back
+    /// to its default, and a drawing is entitled to declare one with no default at all — which would
+    /// then refuse the lot.
     /// </remarks>
-    private static Dictionary<string, ExprValue>? Taken(
-        Drawn picked,
-        Drawn other,
-        Dictionary<string, ExprValue> values)
+    private static Dictionary<string, ExprValue> Bound(Drawn drawn, Dictionary<string, ExprValue> values)
     {
-        // The drawing being dragged takes the panel whole: the rows are its own.
-        if (ReferenceEquals(picked.Drawing, other.Drawing))
+        if (drawn.Document is not { } document)
         {
             return values;
         }
 
-        if (picked.Document is not { } mine || other.Document is not { } theirs)
-        {
-            return null;
-        }
-
         var bound = new Dictionary<string, ExprValue>(
-            other.Svg?.ExpressionValues ?? Seeded(theirs),
+            drawn.Svg?.ExpressionValues ?? Seeded(document),
             StringComparer.Ordinal);
 
-        var shares = false;
-
-        foreach (var parameter in theirs.Declarations.Parameters)
+        foreach (var pair in values)
         {
-            if (values.TryGetValue(parameter.Name, out var value)
-                && mine.Declarations.Parameters.Any(one => one.SharesValuesWith(parameter)))
+            // Only what the drawing has a place for. A row it does not declare is one whose group it
+            // does not sit under, which a nested board on this canvas is entitled to be.
+            if (bound.ContainsKey(pair.Key))
             {
-                bound[parameter.Name] = value;
-                shares = true;
+                bound[pair.Key] = pair.Value;
             }
         }
 
-        return shares ? bound : null;
+        return bound;
     }
 
     /// <summary>What the group builds, drawn on one canvas.</summary>
@@ -988,14 +998,16 @@ public sealed class GroupPanel : UserControl
             _tree.TrySelect(picked);
 
             TrackGizmo();
+        }
 
-            // The rows keep what somebody dragged them to, and a drawing read again comes back at
-            // what it declares — so without this the panel and the picture beside it disagree about
-            // every value, until the next drag happens to say one of them again.
-            if ((_parameters.Parameters ?? Array.Empty<SvgViewerParameter>()).Any(row => row.IsModified))
-            {
-                Bind();
-            }
+        // The rows keep what somebody dragged them to, and a drawing read again comes back at what
+        // it is seeded with — so without this the panel and the pictures beside it disagree about
+        // every value, until the next drag happens to say one of them again. Outside the block
+        // above, because the rows are the group's: they are not about whatever is picked, and a
+        // rebuild with nothing picked leaves the same disagreement.
+        if ((_parameters.Parameters ?? Array.Empty<SvgViewerParameter>()).Any(row => row.IsModified))
+        {
+            Bind();
         }
     }
 
@@ -1310,9 +1322,6 @@ public sealed class GroupPanel : UserControl
         _inspecting = (placement, shown.Built);
 
         _tree.Show(svg.SourceDocument);
-
-        // The tabs are about whatever is selected, so they follow it.
-        ShowParameters();
     }
 
     /// <summary>Puts the ring round <paramref name="element"/>, where its drawing sits on the canvas.</summary>
@@ -1639,12 +1648,12 @@ public sealed class GroupPanel : UserControl
         _shown.Clear();
         _framed.Clear();
 
-        // The tree holds elements of a document that may be about to be disposed, and the
-        // parameters belong to the drawing it was showing.
+        // The tree holds elements of a document that may be about to be disposed. The parameters
+        // are not let go with them: they are the group's, and a rebuild of the board is not a
+        // change to what the group declares.
         _inspecting = null;
         _picked = null;
         _tree.Show(null);
-        ShowParameters();
         ShowElement(null);
         _showing.Text = "Click a drawing to see what it is made of.";
 
