@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+* **A group in Svg.Studio declares.** A `<group>` — and `<studio>`, which is one — may carry an
+  `<e:code>` block, and every drawing under it is built with that block written in front of its own,
+  outermost first. One parameter, in one place, driving the family that sits under it.
+
+  It replaces a guess. Since recipes came out of the editor, a group's panel showed whichever drawing
+  was picked and fanned a slider out to every sibling whose own declaration looked near enough alike
+  — same name, type and bounds. Nothing owned the parameter: a drawing joined the family by being
+  typed the same way and left it by gaining a bound, silently both times. Now a drawing inherits or
+  it does not, and which is which is a fact about the tree.
+
+  The order is the point of doing it by splicing. `SvgExpressionDeclarations` already merges every
+  `<e:code>` in a document in document order and already refuses a name declared twice, so outermost
+  first is what the order means and a drawing redeclaring what its group declares is refused rather
+  than quietly shadowing it. `SharesValuesWith` is gone with the guess that needed it.
+
+  A group's tab shows the whole chain, each row saying where it came from, and every row is editable
+  where it is shown — so is an inherited row on a drawing's own tab, and the edit goes to the group
+  that holds it. Removal counts the uses in the branch, not in the block, so taking away a parameter
+  three drawings still name is refused instead of breaking all three. What the drawing's own text
+  says is untouched throughout: the tab shows, edits and saves the drawing, and the blocks are the
+  project's. This is the split `SvgViewer.Rewrite` and `DeclarationTarget` were built for.
+
+  One consequence worth knowing: inherited parameters come first in the merged list, so they come
+  first in the generated `Draw`. A group parameter with no default above a drawing parameter that has
+  one makes every argument required — the existing optional-args-last rule, reached by a new route.
+
 * **An Edit mode**, on the viewer and on a group's tab in Svg.Studio. Turn it on and the picked
   element is drawn with handles: drag the body to move it, a handle to scale it, the stalk above to
   turn it. What a drag comes to is written into that element's own `transform` attribute as one undo

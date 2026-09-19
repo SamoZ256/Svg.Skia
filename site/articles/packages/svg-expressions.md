@@ -120,7 +120,12 @@ renderers ignore:
 
 The namespace URI is `https://svg.skia/expr/1.0`. Matching is by **URI, not prefix** — call it `e:`,
 `expr:` or anything else. The block may appear anywhere in the document (`<defs>` is conventional),
-and multiple blocks are merged in document order.
+and multiple blocks are merged in document order. A name declared twice across them is an error.
+
+Several blocks in one drawing is what inheritance is made of. A `Svg.Studio` group carries a block,
+and every drawing under it is built with that block written in front of its own — outermost group
+first — so the family shares one declaration rather than a copy of it each. A `svgc` recipe splices
+its block the same way.
 
 **`<e:param>`** declares a parameter. `name` and `type` are required.
 
