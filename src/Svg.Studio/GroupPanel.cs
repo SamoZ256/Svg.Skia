@@ -609,9 +609,13 @@ public sealed class GroupPanel : UserControl
 
         _owners.Clear();
 
+        var subject = Subject();
+        var reaches = Reaches();
+
         var parameters = new List<SvgExpressionParameter>();
         var lets = new List<SvgExpressionLet>();
         string? trouble = null;
+        var hidden = 0;
 
         foreach (var holder in Holders())
         {
@@ -623,14 +627,34 @@ public sealed class GroupPanel : UserControl
                 ? $"{ProjectWorkspace.Label(holder)} declares something that could not be read: {diagnostics[0].Message}"
                 : null;
 
+            // What the selection declares itself is shown whole, whether it uses it or not: it is
+            // its own to add to and take away from. Everything above it — this tab's own group
+            // included — is shown only where the selection reaches it. Clicking the board beside
+            // the drawings is what puts the tab back to being about the group.
+            var own = ReferenceEquals(holder, subject);
+
             foreach (var parameter in declared.Parameters)
             {
+                if (!own && reaches is { } && !reaches.Contains(parameter.Name))
+                {
+                    hidden++;
+
+                    continue;
+                }
+
                 _owners[parameter.Name] = holder;
                 parameters.Add(parameter);
             }
 
             foreach (var let in declared.Lets)
             {
+                if (!own && reaches is { } && !reaches.Contains(let.Name))
+                {
+                    hidden++;
+
+                    continue;
+                }
+
                 _owners[let.Name] = holder;
                 lets.Add(let);
             }
@@ -643,8 +667,70 @@ public sealed class GroupPanel : UserControl
         _parameters.Parameters = _carried;
         _parameters.ShowLets(lets);
 
-        Note(trouble);
+        Note(trouble ?? Left(hidden));
     }
+
+    /// <summary>
+    /// Which of the names declared above the selection it actually reaches, or null to show them all.
+    /// </summary>
+    /// <remarks>
+    /// The same question the splice asks, answered off the drawings the board has already built:
+    /// what a drawing was built with <em>is</em> what it reaches, narrowed on the way in, so there
+    /// is nothing here to read or parse again.
+    ///
+    /// For a group that is the union over everything under it, since a name one of its drawings uses
+    /// is a name the group has a reason to show. Null where a drawing would not build or its block
+    /// would not read: not knowing what is reached is not the same as reaching nothing, and hiding a
+    /// row somebody is using is the worse of the two mistakes.
+    ///
+    /// Only what sits above this tab is filtered by it — see the call.
+    /// </remarks>
+    private IReadOnlyCollection<string>? Reaches()
+    {
+        var built = _inspecting is { } inspecting ? new[] { inspecting.Built } : _built;
+
+        if (built.Count == 0)
+        {
+            // Nothing built yet is a board that has not been laid out, not a group whose drawings
+            // use nothing — and a group that really holds none has nothing above it to hide.
+            return ((ProjectGroup)Node).Drawings.Any() ? null : new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var drawn in built)
+        {
+            if (drawn.Document is not { DeclarationError: null } document)
+            {
+                return null;
+            }
+
+            foreach (var parameter in document.Declarations.Parameters)
+            {
+                names.Add(parameter.Name);
+            }
+
+            foreach (var let in document.Declarations.Lets)
+            {
+                names.Add(let.Name);
+            }
+        }
+
+        return names;
+    }
+
+    /// <summary>What is declared above the selection and not shown, so it is not simply missing.</summary>
+    /// <remarks>
+    /// Without this a variable somebody wants to start using is invisible and unnamed, and the way
+    /// to reach it — name it in the drawing, and it appears — is not one anybody would guess at.
+    /// </remarks>
+    private static string? Left(int hidden)
+        => hidden switch
+        {
+            0 => null,
+            1 => "One more is declared further up and not used here.",
+            _ => $"{hidden} more are declared further up and not used here."
+        };
 
     /// <summary>What declares for whatever is selected, outermost first and the selection last.</summary>
     /// <remarks>
@@ -1462,6 +1548,12 @@ public sealed class GroupPanel : UserControl
     {
         if (!_canvas.TryGetPlacementAt(at, out var placement, out var point) || placement is null)
         {
+            // Beside every drawing rather than inside one, which is the board itself: that is a
+            // click on nothing, and it puts the tab back to being about the group. Without it there
+            // was no way back to what the group declares once a drawing had been picked.
+            Deselect();
+            ShowDeclarations();
+
             return;
         }
 
@@ -1839,26 +1931,37 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void Forget()
     {
-        _canvas.Highlight = null;
-
-        // With the ring, and for its reason: the handles are measured from a scene node of a
-        // document this build may be about to dispose.
-        _gizmo.Track(null, null);
-        _canvas.Gizmo = null;
+        // The tree holds elements of a document that may be about to be disposed, and so do the ring
+        // and the handles. The rows are not let go with them: what is declared does not change
+        // because a board was laid out again.
+        Deselect();
 
         _shown.Clear();
         _framed.Clear();
 
-        // The tree holds elements of a document that may be about to be disposed. The parameters
-        // are not let go with them: they are the group's, and a rebuild of the board is not a
-        // change to what the group declares.
+        Says(null);
+    }
+
+    /// <summary>Lets go of the drawing being looked at, and of the element inside it.</summary>
+    /// <remarks>
+    /// Shows no rows of its own: a rebuild does this on its way past and takes the selection again
+    /// at the end, so the panel would be built twice for one gesture. Whoever is finished with the
+    /// selection rather than passing through it says so itself.
+    /// </remarks>
+    private void Deselect()
+    {
+        _canvas.Highlight = null;
+
+        // With the ring, and for its reason: the handles are measured from a scene node of a
+        // document a build may be about to dispose.
+        _gizmo.Track(null, null);
+        _canvas.Gizmo = null;
+
         _inspecting = null;
         _picked = null;
         _tree.Show(null);
         ShowElement(null);
         _showing.Text = "Click a drawing to see what it is made of.";
-
-        Says(null);
     }
 
     /// <summary>

@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+* **A drawing inherits only the declarations it reaches.** Its own `<e:code>` is its stated API and
+  is built in whole; what a group declares above it is ambient, and only the part its expressions
+  actually name comes with it — closed over the inherited lets, so a let drags in whatever its body
+  needs. Without it every inherited `<e:param>` became an argument of the generated `Draw`, and a
+  project declaring forty variables would have given every icon a forty-argument method.
+
+  The names a drawing's own block declares count as reached even where nothing uses them, so a
+  drawing redeclaring what its group declares is still refused rather than quietly shadowing it. An
+  expression that will not read keeps the whole chain: dropping a declaration that is in fact used
+  breaks the drawing, and whatever reads the text next says what is wrong with it far better.
+
+  A drawing that inherits nothing is unaffected, so `svgc` generates exactly what it did.
+
+  The pane reads the same way. A group's tab lists what is declared above the selection only where
+  the selection reaches it, since a project's variables are every drawing's to inherit and listing
+  all of them listed mostly rows that drive nothing in front of you. What the selection declares
+  itself is shown whole, being its own to add to and take away from. What is left out is counted
+  under the panel rather than simply missing, because naming a variable in the drawing is what brings
+  it back and that is not a thing to guess.
+
+  **Clicking the board beside the drawings lets go of the one being looked at**, which is what makes
+  that work: with a drawing selected the group is above it like anything else, so the way back to
+  what the group declares is to select none of them. A click that misses the ink *inside* a drawing
+  still keeps it — the pane is read alongside the picture, and missing by two pixels should not throw
+  away what was being looked at.
+
+* **Converting a PaintCode document places its variables where they are shared.** PaintCode declares
+  once for the whole library and the conversion gives every drawing a copy of what it uses; a name
+  two drawings in a desk share now goes to that desk's group, one two desks share goes to the
+  project, and one drawing's own stays with it. The convert dialog asks, ticked — unticking it puts
+  them all on the project instead.
+
+  It is a project operation rather than a PaintCode one: `ProjectPlacement` reads the blocks the
+  drawings already carry, so any project that repeats a declaration can be tidied the same way.
+  A name two drawings mean differently is left where it is — they are not one declaration, and
+  hoisting either would silently change what the other draws — and a hoisted let brings what it
+  reads up with it, since the blocks merge outermost first.
+
+  This is also what puts back the family slider a PaintCode project lost when the parameter fan-out
+  was scrapped: those identical per-drawing blocks were what used to tie one together.
+
 * **A group in Svg.Studio declares.** A `<group>` — and `<studio>`, which is one — may carry an
   `<e:code>` block, and every drawing under it is built with that block written in front of its own,
   outermost first. One parameter, in one place, driving the family that sits under it.

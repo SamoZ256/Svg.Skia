@@ -257,9 +257,9 @@ public partial class MainWindow : Window
             // the window until it is saved, and the save panel is what asks that.
             if (IsPaintCode(path))
             {
-                if (await ConfirmConvert(path).ConfigureAwait(true) is { } integers)
+                if (await ConfirmConvert(path).ConfigureAwait(true) is { } asked)
                 {
-                    await ImportPaintCodeAsync(path, integers).ConfigureAwait(true);
+                    await ImportPaintCodeAsync(path, asked.Integers, asked.Organize).ConfigureAwait(true);
                 }
 
                 continue;
@@ -370,7 +370,7 @@ public partial class MainWindow : Window
     /// Whether a whole-valued number variable becomes an <c>integer</c> parameter -- a guess the
     /// author makes, which is why the dialog asks rather than this deciding.
     /// </param>
-    public async Task<bool> ImportPaintCodeAsync(string source, bool integers = false)
+    public async Task<bool> ImportPaintCodeAsync(string source, bool integers = false, bool organize = true)
     {
         if (source is null)
         {
@@ -387,7 +387,7 @@ public partial class MainWindow : Window
         {
             // Off the UI thread: the document this was written for is 16 MB and a thousand drawings.
             document = await Task.Run(
-                () => ProjectImport.FromPaintCode(PaintCodeDocument.Load(source), options, notes, directory))
+                () => ProjectImport.FromPaintCode(PaintCodeDocument.Load(source), options, notes, directory, organize))
                 .ConfigureAwait(true);
         }
         catch (Exception failure) when (failure is PaintCodeException or SvgcProjectException or IOException or UnauthorizedAccessException)
@@ -2623,9 +2623,9 @@ public partial class MainWindow : Window
     /// saved.
     /// </remarks>
     /// <returns>
-    /// Whether whole numbers become integers, or null where the document is not to be converted.
+    /// What the conversion was asked for, or null where the document is not to be converted.
     /// </returns>
-    public Func<string, Task<bool?>> ConfirmConvert { get; set; }
+    public Func<string, Task<(bool Integers, bool Organize)?>> ConfirmConvert { get; set; }
 
     /// <summary>
     /// How the window asks whether a branch of the project may go.
@@ -2905,12 +2905,21 @@ public partial class MainWindow : Window
     /// PaintCode stores every number as a real, so a slider that happens to sit on whole ends is
     /// retyped along with the step enum this is for, and only the author knows which it was.
     /// </remarks>
-    private async Task<bool?> AskConvert(string source)
+    private async Task<(bool Integers, bool Organize)?> AskConvert(string source)
     {
         var integers = new CheckBox
         {
             Content = "Write whole numbers as integers",
             IsChecked = false
+        };
+
+        // On, so unticking it is the opt-out. A PaintCode document declares its variables once for
+        // the whole library and the conversion gives every drawing a copy of what it uses; leaving
+        // them that way is a project where no slider moves more than one drawing.
+        var organize = new CheckBox
+        {
+            Content = "Automatically organize variables",
+            IsChecked = true
         };
 
         var asked = await Ask(
@@ -2920,9 +2929,13 @@ public partial class MainWindow : Window
                 + "itself is left alone.",
             "Convert",
             "Cancel",
-            integers).ConfigureAwait(true);
+            new StackPanel
+            {
+                Spacing = 8d,
+                Children = { integers, organize }
+            }).ConfigureAwait(true);
 
-        return asked ? integers.IsChecked is true : null;
+        return asked ? (integers.IsChecked is true, organize.IsChecked is true) : null;
     }
 
     /// <summary>

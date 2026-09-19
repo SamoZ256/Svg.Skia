@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -163,15 +163,64 @@ public class MainWindowImportTests : IDisposable
     {
         var window = Shown();
 
-        _convert = integers;
+        _convert = (integers, true);
 
         await window.OpenAsync(new[] { Sample() });
 
         Dispatcher.UIThread.RunJobs();
 
-        var text = window.Workspace!.Document.Root.Drawings.First(drawing => drawing.Name == "badge").Text;
+        // On the desk both drawings sit under, which is where the other box put it.
+        var group = window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single();
 
-        Assert.Contains("<e:param name=\"level\" " + written, text, StringComparison.Ordinal);
+        Assert.Contains("<e:param name=\"level\" " + written, group.CodeText, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Other_Box_Puts_What_The_Drawings_Share_On_Their_Desk()
+    {
+        var window = Shown();
+
+        _convert = (false, true);
+
+        await window.OpenAsync(new[] { Sample() });
+
+        Dispatcher.UIThread.RunJobs();
+
+        var root = window.Workspace!.Document.Root;
+        var group = root.Children.OfType<ProjectGroup>().Single();
+
+        // PaintCode declares once for the whole library and the conversion gives every drawing a
+        // copy of what it uses; both of these use all three, so all three belong to the desk.
+        foreach (var name in new[] { "isLight", "colorPurple", "level" })
+        {
+            Assert.Contains(name, group.CodeText, StringComparison.Ordinal);
+        }
+
+        Assert.Null(root.Code);
+        Assert.All(root.Drawings, drawing => Assert.DoesNotContain("e:param", drawing.Text, StringComparison.Ordinal));
+    }
+
+    [AvaloniaFact]
+    public async Task Unticking_It_Puts_Them_All_On_The_Project()
+    {
+        var window = Shown();
+
+        _convert = (false, false);
+
+        await window.OpenAsync(new[] { Sample() });
+
+        Dispatcher.UIThread.RunJobs();
+
+        var root = window.Workspace!.Document.Root;
+
+        foreach (var name in new[] { "isLight", "colorPurple", "level" })
+        {
+            Assert.Contains(name, root.CodeText, StringComparison.Ordinal);
+        }
+
+        Assert.All(
+            root.Children.OfType<ProjectGroup>(),
+            group => Assert.Null(group.Code));
     }
 
     [AvaloniaFact]
@@ -181,10 +230,16 @@ public class MainWindowImportTests : IDisposable
 
         await window.ImportPaintCodeAsync(Sample());
 
-        var text = window.Workspace!.Document.Root.Drawings.First(drawing => drawing.Name == "badge").Text;
+        var drawing = window.Workspace!.Document.Root.Drawings.First(one => one.Name == "badge");
 
-        Assert.Contains("<e:param name=\"colorPurple\" type=\"color\"", text);
-        Assert.Contains("fill=\"{{ isLight ? colorPurple : colorPurple }}\"", text);
+        // The expression stays with the drawing it drove; what it names has gone up to the desk the
+        // drawings share, which is the whole of what placing them does.
+        Assert.Contains("fill=\"{{ isLight ? colorPurple : colorPurple }}\"", drawing.Text);
+
+        Assert.Contains(
+            "<e:param name=\"colorPurple\" type=\"color\"",
+            ((ProjectGroup)drawing.Parent!).CodeText,
+            StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -205,7 +260,7 @@ public class MainWindowImportTests : IDisposable
 
     private string _said = string.Empty;
 
-    private bool? _convert = false;
+    private (bool Integers, bool Organize)? _convert = (false, true);
 
     private string? _asked;
 

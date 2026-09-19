@@ -2076,6 +2076,15 @@ public class MainWindowProjectTests : IDisposable
         Click(window, canvas, Over(canvas, area.MidX, area.MidY));
     }
 
+    /// <summary>Lets go of the selection by clicking the board beside every drawing on it.</summary>
+    private static void Deselect(MainWindow window, GroupPanel panel)
+    {
+        var canvas = Canvas(panel);
+        var board = Drawn(panel).Select(Area).ToList();
+
+        Click(window, canvas, Over(canvas, board.Max(area => area.Right) + 40f, board.Max(area => area.Bottom) + 40f));
+    }
+
     /// <summary>
     /// A group's tab opens on its parameters, the way a drawing's own tab does.
     /// </summary>
@@ -2474,18 +2483,25 @@ public class MainWindowProjectTests : IDisposable
     /// document before it, and the new row moved nothing.
     /// </remarks>
     [AvaloniaFact]
-    public async Task Declaring_On_A_Group_Rebuilds_What_It_Declares_For()
+    public async Task Editing_A_Groups_Block_Rebuilds_What_It_Declares_For()
     {
         var window = await Host(Owned(GroupTint, Using, UsingRound));
         var panel = await Group(window, 0);
 
-        panel.ParameterDialogService = new StubParameterDialogService(
-            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
-
-        Assert.True(await panel.AddParameterAsync());
+        ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color = Colors.Red;
         Dispatcher.UIThread.RunJobs();
 
-        Assert.All(Drawn(panel), placed => Assert.Equal("4", Value(placed, "sweep")));
+        // Written into the group's block, which is a change to what every drawing under it is built
+        // from though none of their own text moved.
+        Assert.True(panel.CommitDefaults());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("#ff0000", GroupOf(window).CodeText, StringComparison.Ordinal);
+
+        // The rows are back at their seeds, so nothing is bound over the top: what the drawings show
+        // is what they were built with, and they were built again.
+        Assert.All(Declarations(panel).Parameters!, row => Assert.False(row.IsModified));
+        Assert.All(Drawn(panel), placed => Assert.Equal("#ff0000ff", Value(placed, "tint")));
     }
 
     [AvaloniaFact]
@@ -2550,6 +2566,132 @@ public class MainWindowProjectTests : IDisposable
     /// where everything came from one place — one heading over the lot says nothing the standing
     /// "Parameters" heading above it does not.
     /// </remarks>
+    /// <summary>A project declaring three, a group declaring one, and a drawing using two of them.</summary>
+    private string Plenty()
+        => Write("icons.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <e:code xmlns:e="https://svg.skia/expr/1.0">
+                <e:param name="tint" type="color" default="#00ff00" />
+                <e:param name="shade" type="color" default="#0000ff" />
+                <e:param name="spare" type="number" default="3" />
+              </e:code>
+              <group name="Inner">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="ring" type="number" default="2" min="0" max="10" />
+                  <e:param name="idle" type="number" default="5" />
+                </e:code>
+                <drawing name="one">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke-width="{{ ring }}" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+    /// <summary>
+    /// The pane shows what is declared further up only where the selection reaches it.
+    /// </summary>
+    /// <remarks>
+    /// A project's variables are every drawing's to inherit, so a tab that listed all of them listed
+    /// mostly rows that drive nothing in front of you — which is what the pane became once a project
+    /// could declare.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Pane_Leaves_Out_What_Is_Declared_Above_And_Not_Used()
+    {
+        var window = await Host(Plenty());
+        var panel = await Group(window, 0);
+
+        // The group's own block is shown whole — the tab is about it — and the project's is not.
+        Assert.Equal(
+            new[] { "tint", "ring", "idle" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        Pick(window, panel, 0);
+
+        // With a drawing selected the group is above it like anything else, so what it declares and
+        // the drawing does not use goes too.
+        Assert.Equal(
+            new[] { "tint", "ring" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        // And the board beside the drawings is the way back to the group's own.
+        Deselect(window, panel);
+
+        Assert.Equal(
+            new[] { "tint", "ring", "idle" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    [AvaloniaFact]
+    public async Task What_Is_Left_Out_Is_Said_Rather_Than_Simply_Missing()
+    {
+        var window = await Host(Plenty());
+        var panel = await Group(window, 0);
+
+        // Or a variable somebody wants to start using is invisible, unnamed, and reachable only by
+        // guessing that naming it in the drawing brings it back.
+        var note = panel.GetVisualDescendants().OfType<TextBlock>()
+            .FirstOrDefault(block => block.Text is { } said && said.Contains("declared further up"));
+
+        Assert.NotNull(note);
+        Assert.Contains("2 more", note!.Text!, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Nobody_Can_Read_Leaves_The_Pane_Whole()
+    {
+        // Not knowing what is reached is not the same as reaching nothing, and hiding a row somebody
+        // is using is the worse of the two mistakes.
+        var window = await Host(Plenty());
+
+        Assert.Null(window.Workspace!.Document.Root.Drawings.Single().SetText(
+            """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="10" fill="{{ tint ~ }}" /></svg>"""));
+
+        var panel = await Group(window, 0);
+
+        Assert.Equal(
+            new[] { "tint", "shade", "spare", "ring", "idle" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    /// <summary>
+    /// Clicking the board beside the drawings lets go of the one being looked at.
+    /// </summary>
+    /// <remarks>
+    /// A miss inside a drawing still keeps it — the pane is read alongside the picture and a click
+    /// two pixels wide of the ink should not throw that away — so the board itself is what says
+    /// "none of them", and it is the only way back to what the group declares.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Clicking_The_Board_Lets_Go_Of_The_Drawing()
+    {
+        var window = await Host(Owned(GroupTint, UsingAndDeclaring, Using));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        Assert.Contains("ring", Declarations(panel).Parameters!.Select(row => row.Name));
+
+        Assert.DoesNotContain(
+            panel.GetVisualDescendants().OfType<TextBlock>(),
+            block => block.Text is { } said && said.StartsWith("Click a drawing", StringComparison.Ordinal));
+
+        Deselect(window, panel);
+
+        // The drawing's own rows go with it, and the tree and the line above it say nothing is
+        // being looked at.
+        Assert.DoesNotContain("ring", Declarations(panel).Parameters!.Select(row => row.Name));
+
+        Assert.Contains(
+            panel.GetVisualDescendants().OfType<TextBlock>(),
+            block => block.Text is { } said && said.StartsWith("Click a drawing", StringComparison.Ordinal));
+
+        Assert.Null(Canvas(panel).Highlight);
+    }
+
     [AvaloniaFact]
     public async Task The_Rows_Are_Grouped_By_What_Declares_Them()
     {
@@ -2859,8 +3001,15 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("sweep", group.CodeText, StringComparison.Ordinal);
         Assert.All(group.Drawings, drawing => Assert.DoesNotContain("sweep", drawing.Text, StringComparison.Ordinal));
 
-        // Every drawing under it is built with it, which is what declaring on a group means.
-        Assert.All(Drawn(panel), placed => Assert.Equal("4", Value(placed, "sweep")));
+        // Not on the panel while a drawing is selected: it reaches no drawing yet, because none of
+        // them names it, and the pane is about the selection.
+        Assert.DoesNotContain(Declarations(panel).Parameters!, row => row.Name == "sweep");
+        Assert.All(Drawn(panel), placed => Assert.DoesNotContain("sweep", placed.Svg.ExpressionValues!.Keys));
+
+        // Letting the drawing go makes the tab about the group again, and there it is.
+        Deselect(window, panel);
+
+        Assert.Contains(Declarations(panel).Parameters!, row => row.Name == "sweep" && row.OwnerLabel == "Own");
     }
 
     [AvaloniaFact]
