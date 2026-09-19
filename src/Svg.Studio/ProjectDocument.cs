@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -9,6 +9,7 @@ using System.Linq;
 using System.Xml.Linq;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
+using Svg.Expressions;
 using Svg.SourceEditing;
 
 namespace Svg.Studio;
@@ -274,6 +275,105 @@ public class ProjectGroup : ProjectNode
     public IReadOnlyList<ProjectNode> Children => _children;
 
     internal void Add(ProjectNode child) => _children.Add(child);
+
+    /// <summary>What this group declares for everything under it, or null where it declares nothing.</summary>
+    /// <remarks>
+    /// Not one of <see cref="Children"/>: a block is what the group says, not a row somebody can
+    /// open, move or drop something into.
+    /// </remarks>
+    public XElement? Code
+        => Element.Elements().FirstOrDefault(child => child.Name == Declarations + "code");
+
+    /// <summary>The block as text, and an empty one where there is none.</summary>
+    /// <remarks>
+    /// Never null, because what reads this is an editor that has to be able to declare the first
+    /// parameter into a group that has none. The empty block binds the prefix itself rather than
+    /// leaning on the project root, so a block is the same document wherever it is read from.
+    /// </remarks>
+    public string CodeText
+        => Code is { } code
+            ? Owner.Source.TextOf(code)
+            : $"<e:code xmlns:e=\"{SvgExpressionDeclarations.Namespace}\" />";
+
+    /// <summary>Puts an edited block back, or answers why it could not be read.</summary>
+    /// <remarks>
+    /// A block declaring nothing is taken out rather than left empty: a group that has had its last
+    /// parameter removed is a group that declares nothing, and the file should say so.
+    /// </remarks>
+    public string? SetCode(string codeText)
+    {
+        if (codeText is null)
+        {
+            throw new ArgumentNullException(nameof(codeText));
+        }
+
+        var read = SvgSourceDocument.Read(codeText.Replace("\r\n", "\n"), out var refusal);
+
+        if (read is null)
+        {
+            return refusal;
+        }
+
+        if (read.Document.Root is not { } block || block.Name != Declarations + "code")
+        {
+            return "A group's declarations have to be an <e:code> block.";
+        }
+
+        // Detached first, for the reason ProjectDrawing.Inline is: adding a node that still has a
+        // parent copies it, and the bytes each tag was read as are annotations a copy does not carry.
+        block.Remove();
+
+        var existing = Code;
+
+        if (!block.Elements().Any())
+        {
+            if (existing is { })
+            {
+                if (existing.PreviousNode is XText separator && separator.Value.Trim().Length == 0)
+                {
+                    separator.Remove();
+                }
+
+                existing.Remove();
+            }
+
+            return null;
+        }
+
+        if (existing is { })
+        {
+            existing.ReplaceWith(block);
+        }
+        else
+        {
+            PutFirst(block);
+        }
+
+        return null;
+    }
+
+    /// <summary>Puts an element in front of everything this group holds, on a line of its own.</summary>
+    private void PutFirst(XElement element)
+    {
+        if (Element.Elements().FirstOrDefault() is not { } first)
+        {
+            AddFirst(element);
+
+            return;
+        }
+
+        first.AddBeforeSelf(element);
+
+        // The break and indentation the displaced element was sitting on, given back to it — the
+        // same handover Attach makes, and for the same reason: inserting before an element lands
+        // after the whitespace in front of it, so without this the two share a line.
+        if (element.PreviousNode is XText indent)
+        {
+            element.AddAfterSelf(new XText(indent.Value));
+        }
+    }
+
+    private static XNamespace Declarations => SvgExpressionDeclarations.Namespace;
 
     /// <summary>Adds an empty group, and hands it back to be filled in.</summary>
     public ProjectGroup AddGroup(string name, int index)
@@ -732,6 +832,13 @@ public sealed class ProjectDocument
         "width", "height", "scale", "padding"
     };
 
+    /// <summary>The expression extension, as a namespace rather than as the string it is declared as.</summary>
+    /// <remarks>
+    /// Because <c>SvgExpressionDeclarations.Namespace + "code"</c> is two strings joined, and the
+    /// XName that comes of it holds the colon in the URI — which the reader then refuses as a name.
+    /// </remarks>
+    private static XNamespace Declarations => SvgExpressionDeclarations.Namespace;
+
     private static readonly string[] s_groupAttributes =
     {
         "name", "namespace", "class", "width", "height", "scale", "padding", "x", "y"
@@ -853,7 +960,10 @@ public sealed class ProjectDocument
                 size?.Height,
                 size?.Scale,
                 drawing.ScopedPadding,
-                drawing.Text));
+                // What it is built from rather than what it is: the groups above it declare into it
+                // on the way, and a build that read the drawing alone would generate a Draw with
+                // none of those parameters on it.
+                ProjectDeclarations.Built(drawing, drawing.Text)));
         }
 
         return new SvgcProject(
@@ -935,9 +1045,26 @@ public sealed class ProjectDocument
 
     private void ReadChildren(XElement element, ProjectGroup group)
     {
+        var blocks = 0;
+
         foreach (var child in element.Elements())
         {
             var name = child.Name.LocalName;
+
+            // Not a row, so it is not added to the children: what the group declares is part of what
+            // the group is, like its attributes. Malformed declarations are deliberately not read
+            // here — SKSvg does not fail a load over a bad block either, and the panel is where one
+            // is reported.
+            if (child.Name == Declarations + "code")
+            {
+                if (++blocks > 1)
+                {
+                    throw new SvgcProjectException(
+                        $"<{element.Name.LocalName} name=\"{group.Name}\"> holds more than one <e:code>. A group declares in one block.");
+                }
+
+                continue;
+            }
 
             // Rejected rather than ignored: a mistyped name that bound nothing and still saved
             // would be a project quietly building something else.
@@ -946,7 +1073,7 @@ public sealed class ProjectDocument
                 "drawing" => ReadDrawing(child, group),
                 "group" => ReadGroup(child, group),
                 _ => throw new SvgcProjectException(
-                    $"<{name}> is not allowed in <{element.Name.LocalName}>. Expected <drawing> or <group>.")
+                    $"<{name}> is not allowed in <{element.Name.LocalName}>. Expected <drawing>, <group> or <e:code>.")
             });
         }
     }
@@ -975,6 +1102,14 @@ public sealed class ProjectDocument
     {
         foreach (var attribute in element.Attributes())
         {
+            // A namespace declaration is not a setting. One binding the expression prefix is what a
+            // project holding an <e:code> anywhere may well carry on its root, and refusing it read
+            // as a complaint about a misspelled attribute.
+            if (attribute.IsNamespaceDeclaration)
+            {
+                continue;
+            }
+
             if (Array.IndexOf(allowed, attribute.Name.LocalName) < 0)
             {
                 throw new SvgcProjectException(
