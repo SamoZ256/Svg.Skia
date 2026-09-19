@@ -15,26 +15,13 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// <param name="Bounds">Where it is, in the space the drawings are arranged in.</param>
 /// <param name="Label">What to write above it, or null to write nothing.</param>
 /// <param name="LabelSize">
-/// How tall that writing is, in drawing units, so it is scaled along with everything else. Zero
-/// writes nothing.
+/// The room the writing is given, in drawing units, and zero to write nothing. It is not how big
+/// the writing comes out: a caption is chrome and is drawn at a fixed size on the control, so this
+/// is what an arrangement leaves for one rather than what one measures.
 /// </param>
-public sealed record SvgViewerFrame(SKRect Bounds, string? Label = null, float LabelSize = 0f)
-{
-    /// <summary>The strip the name is written on, which is empty where there is no name.</summary>
-    /// <remarks>
-    /// A frame is taken hold of by its name rather than by anywhere inside it. What is inside it is
-    /// mostly the room between the drawings it holds, and a host that grabbed that had no room left
-    /// to pan in — a press nearly anywhere carried a whole group instead of moving the view.
-    ///
-    /// A quarter of the writing's height below the top edge as well as the room above it, so the
-    /// frame's own line is part of the target and the band is not a hairline at a low zoom.
-    /// </remarks>
-    public SKRect Title
-        => this is { Label.Length: > 0, LabelSize: > 0f }
-            ? new SKRect(
-                Bounds.Left,
-                Bounds.Top - (LabelSize * 1.5f),
-                Bounds.Right,
-                Bounds.Top + (LabelSize * 0.25f))
-            : SKRect.Empty;
-}
+/// <remarks>
+/// Where the name is written, and so where the frame is taken hold of, is
+/// <see cref="SvgViewerCanvas.TitleOf"/>: a caption is drawn at a fixed size on the control, so only
+/// something that knows how far in the view is zoomed can say where it lands.
+/// </remarks>
+public sealed record SvgViewerFrame(SKRect Bounds, string? Label = null, float LabelSize = 0f);

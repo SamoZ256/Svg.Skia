@@ -1406,7 +1406,7 @@ public sealed class GroupPanel : UserControl
         // view from: a press in the gap between two icons carried the whole group instead.
         foreach (var (frame, group) in _framed.OrderBy(framed => framed.Frame.Bounds.Width * framed.Frame.Bounds.Height))
         {
-            if (frame.Title.Contains(at.X, at.Y))
+            if (_canvas.TitleOf(frame).Contains(at.X, at.Y))
             {
                 return (group, frame.Bounds);
             }

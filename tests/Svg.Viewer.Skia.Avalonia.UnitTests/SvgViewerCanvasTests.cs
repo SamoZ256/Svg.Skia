@@ -426,6 +426,65 @@ public class SvgViewerCanvasTests
     /// of the ink inside it — and its name, which is written above its top edge, would be off the
     /// top of the control.
     /// </remarks>
+    /// <summary>
+    /// A frame's name is the same size on the control however far the view is zoomed.
+    /// </summary>
+    /// <remarks>
+    /// A caption names what it sits by; it is not part of what is drawn. Scaled with the drawings it
+    /// was unreadable zoomed out and enormous zoomed in, and the strip a frame is taken hold of by
+    /// went with it — a target that changed size as you approached it.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Frames_Name_Is_The_Same_Size_At_Any_Zoom()
+    {
+        using var drawing = SvgViewerDocument.LoadFromSvg(Wide);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+
+        window.Show();
+
+        var framed = new SvgViewerFrame(new SKRect(-5f, -5f, 105f, 55f), "Large", 4f);
+
+        canvas.Show(new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) }, new[] { framed });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        var wasScale = (float)canvas.Scale;
+        var wasBand = canvas.TitleOf(framed).Height;
+
+        canvas.ZoomIn();
+        canvas.ZoomIn();
+
+        var nowBand = canvas.TitleOf(framed).Height;
+
+        // In the drawings' own units it shrank, by exactly as much as the view grew — which is what
+        // staying one size on the control means.
+        Assert.True(nowBand < wasBand, "Zooming in should shrink the band in the drawings' own units.");
+        Assert.Equal(wasBand * wasScale, nowBand * (float)canvas.Scale, 3);
+    }
+
+    [AvaloniaFact]
+    public void A_Frame_With_No_Name_Has_No_Strip_To_Take_It_By()
+    {
+        using var drawing = SvgViewerDocument.LoadFromSvg(Wide);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+
+        window.Show();
+
+        var framed = new SvgViewerFrame(new SKRect(0f, 0f, 140f, 90f));
+
+        canvas.Show(new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) }, new[] { framed });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        Assert.True(canvas.TitleOf(framed).IsEmpty);
+    }
+
     [AvaloniaFact]
     public void A_Frame_Is_Fitted_With_What_It_Holds()
     {

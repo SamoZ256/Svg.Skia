@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using SkiaSharp;
@@ -16,7 +16,8 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// <param name="At">Where its own origin goes, in drawing units.</param>
 /// <param name="Label">What to write under it, or null to write nothing.</param>
 /// <param name="LabelSize">
-/// How tall that writing is, in drawing units — so it is scaled by the canvas along with everything
-/// else. Zero writes nothing.
+/// The room the writing is given, in drawing units, and zero to write nothing. It is not how big
+/// the writing comes out: a caption is chrome and is drawn at a fixed size on the control, so this
+/// is what an arrangement leaves for one rather than what one measures.
 /// </param>
 public sealed record SvgViewerPlacement(SKSvg Svg, SKPoint At, string? Label = null, float LabelSize = 0f);

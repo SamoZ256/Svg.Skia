@@ -615,9 +615,61 @@ public class SvgViewerCanvas : SKCanvasControl
     private static SKRect? Extent(SvgViewerPlacement placed)
         => placed.Svg.Picture is { CullRect: { Width: > 0f, Height: > 0f } cull } ? cull : null;
 
-    /// <summary>A frame with the room its name needs above it.</summary>
+    /// <summary>How big a caption is drawn, in control pixels.</summary>
+    /// <remarks>
+    /// A caption names what it sits by; it is not part of what is drawn. Scaled with the drawings it
+    /// was unreadable zoomed out and enormous zoomed in, and the strip a frame is taken hold of by
+    /// went with it — a target that changed size as you approached it. The frame's own outline and
+    /// its dashes are already held at one pixel the same way.
+    /// </remarks>
+    private const float CaptionSize = 11f;
+
+    /// <summary>A frame with the room its name needs above it, for fitting the view to.</summary>
+    /// <remarks>
+    /// The room the arrangement left rather than what the writing measures on the control. What a
+    /// caption measures depends on how far the view is zoomed, and this is part of deciding that.
+    /// </remarks>
     private static SKRect Named(SvgViewerFrame framed)
-        => framed.Title.IsEmpty ? framed.Bounds : SKRect.Union(framed.Title, framed.Bounds);
+        => framed is { Label.Length: > 0, LabelSize: > 0f }
+            ? new SKRect(
+                framed.Bounds.Left,
+                framed.Bounds.Top - (framed.LabelSize * 1.5f),
+                framed.Bounds.Right,
+                framed.Bounds.Bottom)
+            : framed.Bounds;
+
+    /// <summary>
+    /// Where <paramref name="framed"/>'s name is written, in the space the drawings are arranged in.
+    /// </summary>
+    /// <remarks>
+    /// So a host can take a frame hold of by its name rather than by anywhere inside it. What is
+    /// inside it is mostly the room between the drawings it holds, and a host that grabbed that left
+    /// nowhere to move the view from.
+    ///
+    /// The strip is a fixed height on the control, like the writing in it, so it comes back here in
+    /// drawing units and changes as the view is zoomed. A quarter of that height below the top edge
+    /// as well as the room above it, so the frame's own line is part of the target.
+    /// </remarks>
+    public SKRect TitleOf(SvgViewerFrame framed)
+    {
+        if (framed is null)
+        {
+            throw new ArgumentNullException(nameof(framed));
+        }
+
+        if (framed is not { Label.Length: > 0, LabelSize: > 0f })
+        {
+            return SKRect.Empty;
+        }
+
+        var tall = (float)(CaptionSize / _scale);
+
+        return new SKRect(
+            framed.Bounds.Left,
+            framed.Bounds.Top - (tall * 1.5f),
+            framed.Bounds.Right,
+            framed.Bounds.Top + (tall * 0.25f));
+    }
 
     private void SetView(double scale, double offsetX, double offsetY)
     {
@@ -1158,12 +1210,16 @@ public class SvgViewerCanvas : SKCanvasControl
 
             if (framed is { Label: { Length: > 0 } name, LabelSize: > 0f })
             {
-                font.Size = framed.LabelSize;
+                // Divided by the scale so it comes out the same size on the control however far the
+                // view is zoomed, which is what the outline above it already does with its width.
+                var tall = (float)(CaptionSize / state.Scale);
+
+                font.Size = tall;
 
                 canvas.DrawText(
                     name,
                     bounds.Left,
-                    bounds.Top - framed.LabelSize * 0.4f,
+                    bounds.Top - (tall * 0.4f),
                     SKTextAlign.Left,
                     font,
                     writing);
@@ -1218,12 +1274,14 @@ public class SvgViewerCanvas : SKCanvasControl
 
                 if (placed is { Label: { Length: > 0 } label, LabelSize: > 0f })
                 {
-                    font.Size = placed.LabelSize;
+                    var tall = (float)(CaptionSize / state.Scale);
+
+                    font.Size = tall;
 
                     canvas.DrawText(
                         label,
                         frame.MidX,
-                        frame.Bottom + placed.LabelSize * 1.2f,
+                        frame.Bottom + (tall * 1.2f),
                         SKTextAlign.Center,
                         font,
                         writing);

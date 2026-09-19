@@ -1186,7 +1186,7 @@ public class MainWindowProjectTests : IDisposable
         var group = (ProjectGroup)window.Workspace!.Document.Root.Children[2];
 
         // The strip the frame's name is written on, which is what takes hold of it.
-        var title = new SKPoint(framed.Title.MidX, framed.Title.MidY);
+        var title = new SKPoint(canvas.TitleOf(framed).MidX, canvas.TitleOf(framed).MidY);
 
         Drag(window, canvas, Over(canvas, title.X, title.Y), Over(canvas, title.X + 30f, title.Y));
 
@@ -1226,7 +1226,7 @@ public class MainWindowProjectTests : IDisposable
 
         var was = window.Workspace!.Document.ToXml();
 
-        var title = new SKPoint(framed.Title.MidX, framed.Title.MidY);
+        var title = new SKPoint(canvas.TitleOf(framed).MidX, canvas.TitleOf(framed).MidY);
 
         Drag(window, canvas, Over(canvas, title.X, title.Y), Over(canvas, title.X + 30f, title.Y));
 

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* **A caption is drawn at one size, whatever the zoom.** A drawing's name and a group's are chrome —
+  they name what they sit by rather than being part of what is drawn — and scaling them with the
+  drawings left them unreadable zoomed out and enormous zoomed in. The strip a frame is taken hold of
+  by went with it, which made the target change size as you approached it. The frame's own outline
+  and its dashes were already held at one pixel the same way.
+
+  `LabelSize` on a placement and on a frame is now the room an arrangement leaves for a caption
+  rather than what the caption measures, and `SvgViewerCanvas.TitleOf` is where a frame's name lands
+  — only something that knows the zoom can say.
+
 * **The board can be moved around again.** Three things had made panning a group's tab nearly
   impossible once it held anything: the wheel always zoomed, a press carried whatever was under it,
   and a frame counted as under the pointer anywhere inside it — which on a full board is nearly
