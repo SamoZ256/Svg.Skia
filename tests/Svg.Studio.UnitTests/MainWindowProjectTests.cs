@@ -3062,6 +3062,146 @@ public class MainWindowProjectTests : IDisposable
         Assert.All(rows, row => Assert.True(row.ShowsOwner));
     }
 
+    /// <summary>Lets at every level of a chain, one of which nothing under it reads.</summary>
+    private string Letting()
+        => Write("icons.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <e:code xmlns:e="https://svg.skia/expr/1.0">
+                <e:param name="span" type="number" default="4" min="0" max="10" />
+                <e:let name="half">span / 2</e:let>
+                <e:let name="idle">span * 9</e:let>
+              </e:code>
+              <group name="Inner">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:let name="ring">half + 1</e:let>
+                </e:code>
+                <drawing name="one">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <circle cx="12" cy="12" r="10" fill="#000000" stroke-width="{{ ring }}" stroke="#000000" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+    /// <summary>
+    /// An inherited let is narrowed and headed the way an inherited parameter is.
+    /// </summary>
+    /// <remarks>
+    /// The drawing reads <c>ring</c>, which reads <c>half</c>, which reads <c>span</c> — so all
+    /// three come down, and <c>idle</c>, which nothing under the selection reads, does not.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task An_Inherited_Let_Is_Narrowed_And_Headed()
+    {
+        var window = await Host(Letting());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        Pick(window, panel, 0);
+
+        var lets = Declarations(panel).Lets!;
+
+        Assert.Equal(new[] { "half", "ring" }, lets.Select(let => let.Name).ToArray());
+        Assert.Equal(new[] { "Project", "Inner" }, lets.Select(let => let.OwnerLabel).ToArray());
+        Assert.All(lets, let => Assert.True(let.ShowsOwner));
+
+        Assert.Equal(new[] { "span" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    /// <summary>
+    /// Declaring a let asks where it goes, the way declaring a parameter does.
+    /// </summary>
+    /// <remarks>
+    /// It used to go straight to the tab's own group, which is the one place a row typed while a
+    /// drawing is picked is least likely to have meant.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Adding_A_Let_Asks_Where_It_Goes()
+    {
+        var window = await Host(Letting());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        Pick(window, panel, 0);
+
+        IReadOnlyList<ProjectNode>? offered = null;
+
+        panel.ChooseOwner = candidates =>
+        {
+            offered = candidates;
+
+            return Task.FromResult<ProjectNode?>(candidates.OfType<ProjectGroup>().Last());
+        };
+
+        Assert.True(await panel.CommitLetAsync(new SvgViewerLet(null) { Name = "wide", Expression = "ring * 2" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            new[] { "Project", "Inner", "one" },
+            offered!.Select(ProjectWorkspace.Label).ToArray());
+
+        var inner = window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single();
+
+        Assert.Contains("wide", inner.CodeText, StringComparison.Ordinal);
+        Assert.DoesNotContain("wide", window.Workspace.Document.Root.CodeText, StringComparison.Ordinal);
+        Assert.DoesNotContain("wide", inner.Drawings.Single().Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A let can name what it inherits, wherever it is declared.
+    /// </summary>
+    /// <remarks>
+    /// The editor held each block on its own and read it on its own, so a group's
+    /// <c>ring = half + 1</c> over a project's <c>half</c> read as a let naming nothing. An edit may
+    /// not strand a name that was resolving, so declaring a let here was refused — on a drawing just
+    /// as on a group. Only the root, which inherits nothing, could take one at all.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Let_Can_Name_What_It_Inherits()
+    {
+        var window = await Host(Letting());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        Pick(window, panel, 0);
+
+        var inner = window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single();
+
+        panel.ChooseOwner = _ => Task.FromResult<ProjectNode?>(inner);
+
+        // 'span' is the project's, two levels up, and 'ring' is the group's own unreadable-alone let.
+        Assert.True(await panel.CommitLetAsync(new SvgViewerLet(null) { Name = "wider", Expression = "span + ring" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("span + ring", inner.CodeText, StringComparison.Ordinal);
+    }
+
+    /// <summary>A let already declared is edited where it is, with nothing asked.</summary>
+    [AvaloniaFact]
+    public async Task Editing_A_Let_Does_Not_Ask()
+    {
+        var window = await Host(Letting());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        Pick(window, panel, 0);
+
+        var asked = false;
+
+        panel.ChooseOwner = _ => { asked = true; return Task.FromResult<ProjectNode?>(null); };
+
+        var ring = Declarations(panel).Lets!.Single(let => let.Name == "ring");
+
+        ring.Expression = "half + 3";
+
+        Assert.True(await panel.CommitLetAsync(ring));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(asked);
+
+        var inner = window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single();
+
+        Assert.Contains("half + 3", inner.CodeText, StringComparison.Ordinal);
+    }
+
     [AvaloniaFact]
     public async Task A_Group_In_The_Middle_Can_Be_Declared_On()
     {

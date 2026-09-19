@@ -276,7 +276,7 @@ public sealed class GroupPanel : UserControl
             }
         };
         _parameters.RemoveRequested += (_, row) => _commands?.Remove(row);
-        _parameters.LetCommitted += (_, let) => _commands?.CommitLet(let);
+        _parameters.LetCommitted += async (_, let) => await CommitLetAsync(let).ConfigureAwait(true);
         _parameters.LetRemoveRequested += (_, let) => _commands?.RemoveLet(let);
         _parameters.LetMoveRequested = (let, to) => _commands?.MoveLet(let, to) == true;
         _parameters.ParameterMoveRequested = (row, to) => _commands?.MoveParameter(row, to) == true;
@@ -861,7 +861,7 @@ public sealed class GroupPanel : UserControl
         // whose answer cannot differ is a click somebody has to make for no reason.
         var owner = candidates.Count == 1
             ? candidates[0]
-            : await (ChooseOwner ?? AskWhereAsync)(candidates).ConfigureAwait(true);
+            : await Where(candidates, _parameters.AddAnchor).ConfigureAwait(true);
 
         if (owner is null)
         {
@@ -916,16 +916,25 @@ public sealed class GroupPanel : UserControl
         return candidates;
     }
 
+    /// <summary>Asks where a new declaration goes, however this panel has been told to ask.</summary>
+    /// <remarks>
+    /// One way in for both kinds, so a test standing in for the menu stands in for it wherever it
+    /// would have been raised.
+    /// </remarks>
+    private Task<ProjectNode?> Where(IReadOnlyList<ProjectNode> candidates, Control anchor)
+        => ChooseOwner is { } ask ? ask(candidates) : AskWhereAsync(candidates, anchor);
+
     /// <summary>Asks which of <paramref name="candidates"/> a new declaration should go to.</summary>
     /// <remarks>
-    /// A menu on the Add button, because that is the button being answered for. Each item says what
-    /// the choice does rather than only where it writes — declaring on the group is a change to every
-    /// drawing under it, which is the whole difference between the two and not obvious from a name.
+    /// A menu on <paramref name="anchor"/>, because that is the button being answered for. Each item
+    /// says what the choice does rather than only where it writes — declaring on the group is a
+    /// change to every drawing under it, which is the whole difference between the two and not
+    /// obvious from a name.
     ///
     /// The dismissal is posted rather than answered on the spot: closing is how a menu item's click
     /// arrives, so answering null there would race the click that chose something.
     /// </remarks>
-    private Task<ProjectNode?> AskWhereAsync(IReadOnlyList<ProjectNode> candidates)
+    private Task<ProjectNode?> AskWhereAsync(IReadOnlyList<ProjectNode> candidates, Control anchor)
     {
         var answer = new TaskCompletionSource<ProjectNode?>();
         var menu = new MenuFlyout();
@@ -943,7 +952,7 @@ public sealed class GroupPanel : UserControl
             () => answer.TrySetResult(null),
             DispatcherPriority.Background);
 
-        menu.ShowAt(_parameters.AddAnchor);
+        menu.ShowAt(anchor);
 
         return answer.Task;
     }
@@ -953,6 +962,56 @@ public sealed class GroupPanel : UserControl
         => candidate is ProjectDrawing
             ? $"{ProjectWorkspace.Label(candidate)} — this drawing alone"
             : $"{ProjectWorkspace.Label(candidate)} — every drawing in it";
+
+    /// <summary>
+    /// Writes what a let row says, asking where a new one goes.
+    /// </summary>
+    /// <remarks>
+    /// The same question adding a parameter asks, for the same reason: a let is declared on a group
+    /// or on a drawing, and which of the two is not something to guess at from the row it was typed
+    /// into. A let that already exists has an answer already — it is written where it is written,
+    /// and this is a change to it rather than a new declaration.
+    /// </remarks>
+    /// <returns>Whether anything was written.</returns>
+    public async Task<bool> CommitLetAsync(SvgViewerLet let)
+    {
+        if (let is null)
+        {
+            throw new ArgumentNullException(nameof(let));
+        }
+
+        if (_commands is not { } commands)
+        {
+            return false;
+        }
+
+        if (let.Declaration is { })
+        {
+            return commands.CommitLet(let);
+        }
+
+        var candidates = Candidates();
+
+        var owner = candidates.Count == 1
+            ? candidates[0]
+            : await Where(candidates, _parameters.AddLetAnchor).ConfigureAwait(true);
+
+        if (owner is null)
+        {
+            return false;
+        }
+
+        _adding = owner;
+
+        try
+        {
+            return commands.CommitLet(let);
+        }
+        finally
+        {
+            _adding = null;
+        }
+    }
 
     /// <summary>Writes every value somebody chose in as the declared default.</summary>
     /// <remarks>

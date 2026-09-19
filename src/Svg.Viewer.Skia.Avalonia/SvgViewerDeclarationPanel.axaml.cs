@@ -259,6 +259,9 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// </remarks>
     public Control AddAnchor => _addButton;
 
+    /// <inheritdoc cref="AddAnchor"/>
+    public Control AddLetAnchor => _addLetButton;
+
     /// <summary>Shows the lets a document declares, keeping any row still being filled in.</summary>
     /// <remarks>
     /// A rebuild is what follows every splice, and one that discarded a draft would take away the
