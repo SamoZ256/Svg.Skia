@@ -2687,6 +2687,111 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains(Declarations(panel).Parameters!, row => row.Name == "sweep" && row.OwnerLabel == "Own");
     }
 
+    /// <summary>The one group of a project written by <see cref="Owned(string, string[])"/>.</summary>
+    private static ProjectGroup GroupOf(MainWindow window)
+        => (ProjectGroup)(ProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!;
+
+    [AvaloniaFact]
+    public async Task Adding_With_Nothing_Picked_Does_Not_Ask()
+    {
+        // One answer, so no question: a click somebody has to make for no reason.
+        var window = await Host(Owned(GroupTint, Using, Using));
+        var panel = await Group(window, 0);
+
+        var asked = false;
+
+        panel.ChooseOwner = _ => { asked = true; return Task.FromResult<ProjectNode?>(null); };
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.True(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(asked);
+        Assert.Contains("sweep", GroupOf(window).CodeText, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Adding_With_A_Drawing_Picked_Asks_Where_It_Goes()
+    {
+        var window = await Host(Owned(GroupTint, Using, Using));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        IReadOnlyList<ProjectNode>? offered = null;
+
+        // The drawing, which is the one the group is not.
+        panel.ChooseOwner = candidates =>
+        {
+            offered = candidates;
+            return Task.FromResult<ProjectNode?>(candidates.OfType<ProjectDrawing>().Single());
+        };
+
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.True(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        var group = GroupOf(window);
+
+        Assert.Equal(new ProjectNode[] { group, group.Drawings.First() }, offered);
+
+        // In the drawing it was declared on, and in neither the group nor its sibling.
+        Assert.Contains("sweep", group.Drawings.First().Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("sweep", group.CodeText, StringComparison.Ordinal);
+        Assert.DoesNotContain("sweep", group.Drawings.Last().Text, StringComparison.Ordinal);
+
+        // And it shows as the drawing's, under what the drawing inherits.
+        var rows = Declarations(panel).Parameters!;
+
+        Assert.Equal(new[] { "tint", "sweep" }, rows.Select(row => row.Name).ToArray());
+        Assert.Equal("one", rows[1].OwnerLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task Choosing_The_Group_Declares_For_Every_Drawing()
+    {
+        var window = await Host(Owned(GroupTint, Using, Using));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        panel.ChooseOwner = candidates => Task.FromResult<ProjectNode?>(candidates.OfType<ProjectGroup>().Single());
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.True(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        var group = GroupOf(window);
+
+        Assert.Contains("sweep", group.CodeText, StringComparison.Ordinal);
+        Assert.All(group.Drawings, drawing => Assert.DoesNotContain("sweep", drawing.Text, StringComparison.Ordinal));
+
+        // Every drawing under it is built with it, which is what declaring on a group means.
+        Assert.All(Drawn(panel), placed => Assert.Equal("4", Value(placed, "sweep")));
+    }
+
+    [AvaloniaFact]
+    public async Task Cancelling_The_Choice_Writes_Nothing()
+    {
+        var window = await Host(Owned(GroupTint, Using, Using));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        panel.ChooseOwner = _ => Task.FromResult<ProjectNode?>(null);
+        panel.ParameterDialogService = new StubParameterDialogService(
+            new SvgExpressionParameter("sweep", ExprType.Number, "4", null, null, null));
+
+        Assert.False(await panel.AddParameterAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain("sweep", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+    }
+
     [AvaloniaFact]
     public async Task A_Group_Is_Written_To_While_One_Of_Its_Drawings_Is_Open()
     {

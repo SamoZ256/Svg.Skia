@@ -15,6 +15,7 @@ using Avalonia.Layout;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using SkiaSharp;
 using Svg.CodeGen.Skia;
@@ -111,6 +112,13 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>One target per group the rows came from.</summary>
     private readonly Dictionary<ProjectGroup, GroupTarget> _targets = new();
+
+    /// <summary>Where a declaration being added right now was sent, while it is being written.</summary>
+    /// <remarks>
+    /// Null at every other moment. The name is not declared anywhere yet, so there is nothing to
+    /// look its holder up by until the write has landed and the rows have been read again.
+    /// </remarks>
+    private ProjectNode? _adding;
 
     /// <summary>The rows the panel last held, kept for <see cref="Carried"/> past it being emptied.</summary>
     /// <remarks>
@@ -419,6 +427,15 @@ public sealed class GroupPanel : UserControl
     public ISvgViewerParameterDialogService ParameterDialogService { get; set; } =
         new SvgViewerParameterDialogService();
 
+    /// <summary>
+    /// How the tab asks where a new declaration should go, or null for the menu it shows itself.
+    /// </summary>
+    /// <remarks>
+    /// Answering null is cancelling, and nothing is written. Replaceable for the reason
+    /// <see cref="ParameterDialogService"/> is: a menu is not something a test can click.
+    /// </remarks>
+    public Func<IReadOnlyList<ProjectNode>, Task<ProjectNode?>>? ChooseOwner { get; set; }
+
     /// <summary>Puts what was typed here into the project, which somebody else then saves.</summary>
     public void Commit()
     {
@@ -659,13 +676,14 @@ public sealed class GroupPanel : UserControl
             _ => string.Empty
         };
 
-    /// <summary>Where a declaration is written: whatever holds it, or this group for a new name.</summary>
+    /// <summary>Where a declaration is written: whatever holds it, or where a new one was sent.</summary>
     /// <remarks>
-    /// A name nobody declares yet is a name being declared now, and it goes where somebody is
-    /// looking — this group, not one above it and not the drawing that happens to be picked.
+    /// A name nobody declares yet is a name being declared now, and <see cref="_adding"/> is where
+    /// somebody has just said to put it. This group is the answer failing that — not one above it,
+    /// and not the drawing that happens to be picked.
     /// </remarks>
     private ProjectNode Holder(string name)
-        => _owners.TryGetValue(name, out var holder) ? holder : Node;
+        => _owners.TryGetValue(name, out var holder) ? holder : _adding ?? Node;
 
     /// <summary>Where <paramref name="holder"/> is written to.</summary>
     /// <remarks>
@@ -700,8 +718,94 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     /// <returns>Whether anything was written.</returns>
     public async Task<bool> AddParameterAsync()
-        => _commands is { } commands
-           && await commands.AddAsync(TopLevel.GetTopLevel(this)).ConfigureAwait(true);
+    {
+        if (_commands is not { } commands)
+        {
+            return false;
+        }
+
+        var candidates = Candidates();
+
+        // Not asked where there is one answer, which is a group with nothing picked. A question
+        // whose answer cannot differ is a click somebody has to make for no reason.
+        var owner = candidates.Count == 1
+            ? candidates[0]
+            : await (ChooseOwner ?? AskWhereAsync)(candidates).ConfigureAwait(true);
+
+        if (owner is null)
+        {
+            return false;
+        }
+
+        // Read by Holder for the duration of the write, since the name is not declared anywhere yet
+        // and there is nothing else to look it up by.
+        _adding = owner;
+
+        try
+        {
+            return await commands.AddAsync(TopLevel.GetTopLevel(this)).ConfigureAwait(true);
+        }
+        finally
+        {
+            _adding = null;
+        }
+    }
+
+    /// <summary>Where a new declaration could go.</summary>
+    /// <remarks>
+    /// This group, and the drawing that is picked. Not the groups above it: a parameter is declared
+    /// where somebody is looking, and reaching up the chain from here would be a way to change what
+    /// every other group's drawings are built with by accident.
+    /// </remarks>
+    private IReadOnlyList<ProjectNode> Candidates()
+    {
+        var candidates = new List<ProjectNode> { Node };
+
+        if (_inspecting is { } inspecting)
+        {
+            candidates.Add(inspecting.Built.Drawing);
+        }
+
+        return candidates;
+    }
+
+    /// <summary>Asks which of <paramref name="candidates"/> a new declaration should go to.</summary>
+    /// <remarks>
+    /// A menu on the Add button, because that is the button being answered for. Each item says what
+    /// the choice does rather than only where it writes — declaring on the group is a change to every
+    /// drawing under it, which is the whole difference between the two and not obvious from a name.
+    ///
+    /// The dismissal is posted rather than answered on the spot: closing is how a menu item's click
+    /// arrives, so answering null there would race the click that chose something.
+    /// </remarks>
+    private Task<ProjectNode?> AskWhereAsync(IReadOnlyList<ProjectNode> candidates)
+    {
+        var answer = new TaskCompletionSource<ProjectNode?>();
+        var menu = new MenuFlyout();
+
+        foreach (var candidate in candidates)
+        {
+            var item = new MenuItem { Header = Declaring(candidate) };
+
+            item.Click += (_, _) => answer.TrySetResult(candidate);
+
+            menu.Items.Add(item);
+        }
+
+        menu.Closed += (_, _) => Dispatcher.UIThread.Post(
+            () => answer.TrySetResult(null),
+            DispatcherPriority.Background);
+
+        menu.ShowAt(_parameters.AddAnchor);
+
+        return answer.Task;
+    }
+
+    /// <summary>What declaring on <paramref name="candidate"/> would mean, as a menu item reads it.</summary>
+    private static string Declaring(ProjectNode candidate)
+        => candidate is ProjectDrawing
+            ? $"{ProjectWorkspace.Label(candidate)} — this drawing alone"
+            : $"{ProjectWorkspace.Label(candidate)} — every drawing in it";
 
     /// <summary>Writes every value somebody chose in as the declared default.</summary>
     /// <remarks>

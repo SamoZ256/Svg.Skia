@@ -243,6 +243,16 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// <summary>The let rows as they stand, drafts included.</summary>
     public IReadOnlyList<SvgViewerLet> Lets => _lets;
 
+    /// <summary>The Add button, for a host that has something to hang off it.</summary>
+    /// <remarks>
+    /// Svg.Studio asks where a new declaration should go before the dialog opens, and a menu about
+    /// a button belongs on that button rather than in the middle of the pane.
+    ///
+    /// Not <c>AddButton</c>: the name generator already makes that from the <c>x:Name</c> in the
+    /// markup, and a second member of the same name does not compile.
+    /// </remarks>
+    public Control AddAnchor => _addButton;
+
     /// <summary>Shows the lets a document declares, keeping any row still being filled in.</summary>
     /// <remarks>
     /// A rebuild is what follows every splice, and one that discarded a draft would take away the
