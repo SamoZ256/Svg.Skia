@@ -422,4 +422,38 @@ public class SKSvgExpressionsTests
         Assert.NotNull(svg.SetExpressionValues(Values(("fade", ExprValue.Number(5f)))));
         Assert.Equal(5f, svg.ExpressionValues!["fade"].AsNumber);
     }
+
+    /// <summary>
+    /// A value bound to an expression is refused rather than ignored.
+    /// </summary>
+    /// <remarks>
+    /// The evaluator builds a fresh table, resolves the parameters into it and then overwrites every
+    /// let name with what its body comes to — so a value supplied under a let's name was dropped on
+    /// the floor, with no error and no effect. A host with a stale dictionary, or one that expected
+    /// to drive a derived value, got silence.
+    /// </remarks>
+    [Fact]
+    public void A_Value_Supplied_For_An_Expression_Is_Refused()
+    {
+        using var svg = Load("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code>
+                  <e:param name="fade" type="number" default="1" />
+                  <e:let name="half">fade / 2</e:let>
+                </e:code>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="#000000" opacity="{{ half }}" />
+            </svg>
+            """);
+
+        var refused = Assert.Throws<ExprException>(() => svg.SetExpressionValues(
+            new Dictionary<string, ExprValue>(StringComparer.Ordinal) { ["half"] = ExprValue.Number(0.25f) }));
+
+        Assert.Equal("'half' is an expression and cannot be given a value.", refused.Message);
+
+        // And the parameter beside it still binds, so the refusal is about the name and not the call.
+        Assert.NotNull(svg.SetExpressionValues(
+            new Dictionary<string, ExprValue>(StringComparer.Ordinal) { ["fade"] = ExprValue.Number(0.5f) }));
+    }
 }

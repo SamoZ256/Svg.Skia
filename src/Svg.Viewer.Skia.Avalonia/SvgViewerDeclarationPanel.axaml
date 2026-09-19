@@ -70,14 +70,6 @@
       <Setter Property="Cursor" Value="SizeNorthSouth" />
     </Style>
 
-    <Style Selector=":is(Panel).letrow:pointerover Border.grip">
-      <Setter Property="Opacity" Value="0.65" />
-    </Style>
-
-    <Style Selector=":is(Panel).letrow:pointerover Button.edit">
-      <Setter Property="Opacity" Value="0.7" />
-    </Style>
-
     <Style Selector="TextBox.field">
       <Setter Property="FontFamily" Value="monospace" />
       <Setter Property="FontSize" Value="12" />
@@ -128,9 +120,6 @@
 
     <DataTemplate DataType="viewer:SvgViewerIntegerParameter">
       <StackPanel>
-        <!-- Said once over the run rather than on every row: the rows arrive in the order
-             they are declared in, grouped by what declares them, and ShowsOwner marks where
-             each run begins. Invisible where everything came from the same place. -->
         <TextBlock Classes="origin" Text="{Binding OwnerLabel}" IsVisible="{Binding ShowsOwner}" />
         <StackPanel Spacing="2" Margin="0,0,0,10" Classes="row">
           <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
@@ -166,9 +155,6 @@
 
     <DataTemplate DataType="viewer:SvgViewerBooleanParameter">
       <StackPanel>
-        <!-- Said once over the run rather than on every row: the rows arrive in the order
-             they are declared in, grouped by what declares them, and ShowsOwner marks where
-             each run begins. Invisible where everything came from the same place. -->
         <TextBlock Classes="origin" Text="{Binding OwnerLabel}" IsVisible="{Binding ShowsOwner}" />
         <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
           <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
@@ -188,9 +174,6 @@
 
     <DataTemplate DataType="viewer:SvgViewerStringParameter">
       <StackPanel>
-        <!-- Said once over the run rather than on every row: the rows arrive in the order
-             they are declared in, grouped by what declares them, and ShowsOwner marks where
-             each run begins. Invisible where everything came from the same place. -->
         <TextBlock Classes="origin" Text="{Binding OwnerLabel}" IsVisible="{Binding ShowsOwner}" />
         <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
           <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
@@ -212,9 +195,6 @@
 
     <DataTemplate DataType="viewer:SvgViewerColorParameter">
       <StackPanel>
-        <!-- Said once over the run rather than on every row: the rows arrive in the order
-             they are declared in, grouped by what declares them, and ShowsOwner marks where
-             each run begins. Invisible where everything came from the same place. -->
         <TextBlock Classes="origin" Text="{Binding OwnerLabel}" IsVisible="{Binding ShowsOwner}" />
         <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10" Classes="row">
           <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
@@ -239,11 +219,8 @@
     -->
     <DataTemplate DataType="viewer:SvgViewerLet">
       <StackPanel>
-        <!-- Said once over the run rather than on every row: the rows arrive in the order
-             they are declared in, grouped by what declares them, and ShowsOwner marks where
-             each run begins. Invisible where everything came from the same place. -->
         <TextBlock Classes="origin" Text="{Binding OwnerLabel}" IsVisible="{Binding ShowsOwner}" />
-        <StackPanel Spacing="3" Margin="0,0,0,12" Classes="letrow">
+        <StackPanel Spacing="3" Margin="0,0,0,12" Classes="row">
 
           <!-- The name and what it is worth; the body gets its own line below. -->
           <Grid ColumnDefinitions="Auto,130,*,Auto">
@@ -307,42 +284,31 @@
     </StackPanel>
 
     <!--
-      Two sections in one scroller rather than two tabs: a let almost always names a parameter, and
-      tabs would hide the half somebody needs while typing the other.
+      One list rather than a section each. A value and an expression are both variables the drawing
+      names, and the reason they were apart was the two kinds behind them rather than anything
+      somebody reading the pane needed to know. The values come first, because that is the only
+      order there is: the model keeps no order between the two kinds.
     -->
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
       <StackPanel Margin="10" x:Name="Sections">
 
-        <TextBlock Classes="section" Text="Parameters" />
+        <TextBlock Classes="section" Text="Variables" />
 
         <!-- Hidden until a drawing is read: an empty pane before anything is open has nothing to
              explain, and one behind a file that would not open has nothing to say about it. -->
         <TextBlock x:Name="EmptyLabel"
-                   Text="This drawing declares no parameters."
+                   Text="This drawing declares no variables."
                    IsVisible="False"
                    Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
 
         <ItemsControl x:Name="Rows" />
 
         <Button x:Name="AddButton"
-                Content="Add parameter…"
-                HorizontalAlignment="Stretch"
-                HorizontalContentAlignment="Center" />
-
-        <TextBlock Classes="section" Text="Lets" Margin="0,18,0,6" />
-
-        <TextBlock x:Name="EmptyLetLabel"
-                   Text="This drawing declares no lets."
-                   IsVisible="False"
-                   Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
-
-        <ItemsControl x:Name="LetRows" />
-
-        <Button x:Name="AddLetButton"
-                Content="Add let…"
+                Content="Add variable…"
                 HorizontalAlignment="Stretch"
                 HorizontalContentAlignment="Center"
-                ToolTip.Tip="Adds an empty row. A let takes a name and an expression; it is written into the drawing once both are filled in and the expression checks." />
+                Margin="0,8,0,0"
+                ToolTip.Tip="Asks for a name and a type. Pick 'expression' for a variable computed from the others rather than supplied." />
 
       </StackPanel>
     </ScrollViewer>

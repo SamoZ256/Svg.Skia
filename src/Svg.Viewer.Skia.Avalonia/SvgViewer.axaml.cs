@@ -417,7 +417,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             tabs.Items.Add(new TabItem { Header = pane.Header, Content = pane.Content });
         }
 
-        tabs.Items.Add(new TabItem { Header = "Parameters", Content = _panel });
+        tabs.Items.Add(new TabItem { Header = "Variables", Content = _panel });
         tabs.Items.Add(new TabItem { Header = "Element", Content = _element });
 
         if (looking is { }
@@ -2144,7 +2144,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         var count = document.Declarations.Parameters.Count;
 
         _statusText.Text = count == 0
-            ? $"{name} — no parameters"
+            ? $"{name} — no variables"
             : $"{name} — {count} parameter{(count == 1 ? string.Empty : "s")}";
     }
 

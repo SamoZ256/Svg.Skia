@@ -8,6 +8,7 @@ using System.ComponentModel;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
@@ -23,20 +24,25 @@ namespace Svg.Viewer.Skia.Avalonia;
 public partial class SvgViewerDeclarationPanel : UserControl
 {
     private readonly ItemsControl _rows;
-    private readonly ItemsControl _letRows;
     private readonly TextBlock _emptyLabel;
-    private readonly TextBlock _emptyLetLabel;
     private readonly StackPanel _actions;
     private readonly TextBlock _commitLabel;
     private readonly Button _commitButton;
     private readonly Button _addButton;
-    private readonly Button _addLetButton;
 
     private readonly ObservableCollection<SvgViewerLet> _lets = new();
     private readonly ObservableCollection<SvgViewerParameter> _parameters = new();
 
-    private readonly RowDrag<SvgViewerLet> _letDrag;
-    private readonly RowDrag<SvgViewerParameter> _parameterDrag;
+    /// <summary>The rows as the pane shows them: the values, and then the expressions.</summary>
+    /// <remarks>
+    /// One list, because a value and an expression are both variables the drawing names. The order
+    /// is the only one there is — <c>SvgExpressionDeclarations</c> keeps two lists and so holds no
+    /// order between the kinds — and it is what makes an index into this list an index into one of
+    /// the two behind it, which is what the document is asked to move things by.
+    /// </remarks>
+    private readonly ObservableCollection<SvgViewerVariable> _variables = new();
+
+    private readonly RowDrag<SvgViewerVariable> _drag;
 
     /// <summary>The rows as they were handed over, so the same list twice can be recognised.</summary>
     private IReadOnlyList<SvgViewerParameter>? _source;
@@ -62,25 +68,18 @@ public partial class SvgViewerDeclarationPanel : UserControl
         AvaloniaXamlLoader.Load(this);
 
         _rows = this.FindControl<ItemsControl>("Rows")!;
-        _letRows = this.FindControl<ItemsControl>("LetRows")!;
         _emptyLabel = this.FindControl<TextBlock>("EmptyLabel")!;
-        _emptyLetLabel = this.FindControl<TextBlock>("EmptyLetLabel")!;
         _actions = this.FindControl<StackPanel>("Actions")!;
         _commitLabel = this.FindControl<TextBlock>("CommitLabel")!;
         _commitButton = this.FindControl<Button>("CommitButton")!;
         _addButton = this.FindControl<Button>("AddButton")!;
-        _addLetButton = this.FindControl<Button>("AddLetButton")!;
 
-        _addButton.Click += (_, _) => AddRequested?.Invoke(this, EventArgs.Empty);
+        _addButton.Click += (_, _) => Offer();
         _commitButton.Click += (_, _) => CommitRequested?.Invoke(this, EventArgs.Empty);
-        _addLetButton.Click += (_, _) => Draft();
 
-        _rows.ItemsSource = _parameters;
-        _letRows.ItemsSource = _lets;
+        _rows.ItemsSource = _variables;
 
-        _letDrag = new RowDrag<SvgViewerLet>(_letRows, _lets, LetWindow, (let, to) => LetMoveRequested?.Invoke(let, to) == true);
-        _parameterDrag = new RowDrag<SvgViewerParameter>(
-            _rows, _parameters, ParameterWindow, (row, to) => ParameterMoveRequested?.Invoke(row, to) == true);
+        _drag = new RowDrag<SvgViewerVariable>(_rows, _variables, VariableWindow, Dropped);
 
         ShowActions();
     }
@@ -140,15 +139,13 @@ public partial class SvgViewerDeclarationPanel : UserControl
         get => _source;
         set
         {
-            ShowOwners(value);
-
             if (ReferenceEquals(_source, value))
             {
                 // The same rows again, which is a reload that changed none of them: rebuilding the
                 // items would throw away whatever row someone is part-way through editing. Only the
-                // label moves, because rows being identical is not the same fact as whether there
-                // is a drawing behind them.
-                ShowEmpty();
+                // headings and the label move, because rows being identical is not the same fact as
+                // whether there is a drawing behind them, nor as where they are declared now.
+                Rebuild();
                 ShowActions();
                 return;
             }
@@ -166,7 +163,7 @@ public partial class SvgViewerDeclarationPanel : UserControl
                 _parameters.Add(parameter);
             }
 
-            ShowEmpty();
+            Rebuild();
 
             ShowActions();
         }
@@ -175,31 +172,51 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// <summary>
     /// Says on each row where it was declared, and which rows begin a run of one place.
     /// </summary>
-    /// <remarks>
-    /// The two lists are sectioned apart, because they are drawn apart: the lets sit under a
-    /// heading of their own, and a run that ended among the parameters has ended.
-    /// </remarks>
-    private void ShowOwners(IReadOnlyList<SvgViewerParameter>? rows)
+    private void ShowOwners()
     {
-        var parameters = rows ?? Array.Empty<SvgViewerParameter>();
+        // Over the list as it is shown, so a run that spans a value and an expression declared in
+        // the same place is one run and wears one heading.
+        var rows = _variables;
 
-        foreach (var row in parameters)
+        foreach (var row in rows)
         {
-            row.OwnerLabel = DeclaredBy?.Invoke(row.Name);
+            row.OwnerLabel = DeclaredBy?.Invoke(NameOf(row));
         }
 
-        Section(parameters.Select(row => row.OwnerLabel), (index, shows) => parameters[index].ShowsOwner = shows);
+        Section(rows.Select(row => row.OwnerLabel), (index, shows) => rows[index].ShowsOwner = shows);
     }
 
-    /// <summary>The same for the lets, whose rows this panel builds itself.</summary>
-    private void ShowLetOwners()
-    {
-        foreach (var let in _lets)
+    /// <summary>What the document calls this row.</summary>
+    /// <remarks>
+    /// Not a member of <see cref="SvgViewerVariable"/>: a parameter's name is its declaration's and
+    /// cannot be typed over, an expression row's is a draft being edited, and C# will not let an
+    /// override add the setter that would need.
+    /// </remarks>
+    private static string NameOf(SvgViewerVariable row)
+        => row switch
         {
-            let.OwnerLabel = DeclaredBy?.Invoke(let.Name);
+            SvgViewerParameter parameter => parameter.Name,
+            SvgViewerLet let => let.Name,
+            _ => string.Empty
+        };
+
+    /// <summary>Fills the shown list from the two the panel keeps, values first.</summary>
+    private void Rebuild()
+    {
+        _variables.Clear();
+
+        foreach (var parameter in _parameters)
+        {
+            _variables.Add(parameter);
         }
 
-        Section(_lets.Select(let => let.OwnerLabel), (index, shows) => _lets[index].ShowsOwner = shows);
+        foreach (var let in _lets)
+        {
+            _variables.Add(let);
+        }
+
+        ShowOwners();
+        ShowEmpty();
     }
 
     /// <summary>Marks the first row of each run of rows declared in the same place.</summary>
@@ -259,9 +276,6 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// </remarks>
     public Control AddAnchor => _addButton;
 
-    /// <inheritdoc cref="AddAnchor"/>
-    public Control AddLetAnchor => _addLetButton;
-
     /// <summary>Shows the lets a document declares, keeping any row still being filled in.</summary>
     /// <remarks>
     /// A rebuild is what follows every splice, and one that discarded a draft would take away the
@@ -277,11 +291,11 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
         // Before the unchanged check as well as after it: the same lets can be held somewhere else
         // than they were, which is what renaming a group above this drawing does.
-        ShowLetOwners();
+        ShowOwners();
 
         if (Unchanged(declared, drafts.Count))
         {
-            _emptyLetLabel.IsVisible = _hasDocument && _lets.Count == 0;
+            Rebuild();
             return;
         }
 
@@ -303,9 +317,9 @@ public partial class SvgViewerDeclarationPanel : UserControl
         }
 
         // Again, over the rows that have just replaced the ones marked above.
-        ShowLetOwners();
+        ShowOwners();
 
-        _emptyLetLabel.IsVisible = _hasDocument && _lets.Count == 0;
+        Rebuild();
 
         Validate();
     }
@@ -356,6 +370,36 @@ public partial class SvgViewerDeclarationPanel : UserControl
         _lets.Add(let);
     }
 
+    /// <summary>Asks which kind of variable to add, and starts it.</summary>
+    /// <remarks>
+    /// One button for both, because to somebody adding one they are both variables. The kinds are
+    /// offered here rather than inside the value form: an expression is written in its own row,
+    /// where what it comes to and what is wrong with it are said as it is typed, and asking for a
+    /// body in a modal would trade that for a sentence after the fact.
+    /// </remarks>
+    private void Offer()
+    {
+        var menu = new MenuFlyout { Placement = PlacementMode.Bottom };
+
+        menu.Items.Add(Choice("Value…", () => AddRequested?.Invoke(this, EventArgs.Empty)));
+        menu.Items.Add(Choice("Expression", AddExpression));
+
+        menu.ShowAt(_addButton);
+    }
+
+    private static MenuItem Choice(string header, Action chosen)
+    {
+        var item = new MenuItem { Header = header };
+
+        item.Click += (_, _) => chosen();
+
+        return item;
+    }
+
+    /// <summary>Starts an expression, as the button's menu does.</summary>
+    /// <remarks>Taking no pointer, so everything but the menu itself can be driven.</remarks>
+    public void AddExpression() => Draft();
+
     /// <summary>Puts an empty row at the end and asks for the keyboard.</summary>
     private void Draft()
     {
@@ -363,11 +407,11 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
         Add(draft);
 
-        _emptyLetLabel.IsVisible = false;
+        Rebuild();
 
         // Posted, since the container for a row added this instant has not been made yet.
         Dispatcher.UIThread.Post(
-            () => (_letRows.ContainerFromIndex(_lets.Count - 1) as Control)
+            () => (_rows.ContainerFromIndex(_variables.Count - 1) as Control)
                 ?.GetVisualDescendants()
                 .OfType<TextBox>()
                 .FirstOrDefault()
@@ -522,7 +566,7 @@ public partial class SvgViewerDeclarationPanel : UserControl
         let.PropertyChanged -= OnLetChanged;
         _lets.Remove(let);
 
-        _emptyLetLabel.IsVisible = _hasDocument && _lets.Count == 0;
+        Rebuild();
     }
 
     // ---- what the language makes of what is typed ------------------------------------------------
@@ -593,31 +637,58 @@ public partial class SvgViewerDeclarationPanel : UserControl
         {
             // A row nobody has written yet is not in the document, so there is no order to move it in.
             case SvgViewerLet { IsDraft: false } let:
-                _letDrag?.Press(let, e);
+                _drag?.Press(let, e);
                 break;
 
             case SvgViewerParameter parameter:
-                _parameterDrag?.Press(parameter, e);
+                _drag?.Press(parameter, e);
                 break;
         }
     }
 
-    /// <summary>How far the let at <paramref name="index"/> can be dragged either way.</summary>
+    /// <summary>How far the row at <paramref name="index"/> can be dragged either way.</summary>
     /// <remarks>
-    /// A window rather than a check on the drop, because a refused drop reads as the drag having
-    /// failed. It is contiguous: moving up is legal until the let passes what it names, and moving
-    /// down until it passes what names it.
+    /// Never across the boundary between the kinds. The two are one list to read, not one list to
+    /// order: the model keeps them apart, so a value dragged among the expressions would be asking
+    /// the document for a position it has nowhere to write.
+    ///
+    /// Within the values, anywhere — a value's position is presentation, and a back end wanting
+    /// some order of its own (the C# generator needs the ones with defaults last) says so when it
+    /// is run. Within the expressions, a window rather than a check on the drop, because a refused
+    /// drop reads as the drag having failed: moving up is legal until the expression passes what it
+    /// names, and down until it passes what names it.
     /// </remarks>
-    private (int Low, int High) LetWindow(int index)
-        => Window(index, _lets.Count, to => Resolves(Reordered(_lets, index, to)));
+    private (int Low, int High) VariableWindow(int index)
+    {
+        var values = Values();
 
-    /// <summary>How far the parameter at <paramref name="index"/> can be dragged: anywhere.</summary>
+        if (index < values)
+        {
+            return (0, values - 1);
+        }
+
+        var lets = _variables.Skip(values).OfType<SvgViewerLet>().ToList();
+        var within = index - values;
+        var (low, high) = Window(within, lets.Count, to => Resolves(Reordered(lets, within, to)));
+
+        return (low + values, high + values);
+    }
+
+    /// <summary>Puts a dropped row to the document, in the index its own kind is counted by.</summary>
     /// <remarks>
-    /// Unlike a let, whose position is what it can name, a parameter's is presentation. A back end
-    /// may want them in some order of its own — the C# generator needs the ones with defaults last
-    /// — and says so when it is run, rather than a drawing being unable to say what it means.
+    /// The shown list is the values and then the expressions, so an index into it is an index into
+    /// one of the two the document holds once the values in front are taken off.
     /// </remarks>
-    private (int Low, int High) ParameterWindow(int index) => (0, _parameters.Count - 1);
+    private bool Dropped(SvgViewerVariable row, int to)
+        => row switch
+        {
+            SvgViewerParameter parameter => ParameterMoveRequested?.Invoke(parameter, to) == true,
+            SvgViewerLet let => LetMoveRequested?.Invoke(let, to - Values()) == true,
+            _ => false
+        };
+
+    /// <summary>How many rows at the front of the shown list are values rather than expressions.</summary>
+    private int Values() => _variables.TakeWhile(row => row is SvgViewerParameter).Count();
 
     /// <summary>The run of positions around <paramref name="index"/> that <paramref name="legal"/> allows.</summary>
     private static (int Low, int High) Window(int index, int count, Func<int, bool> legal)
@@ -867,8 +938,8 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// </remarks>
     private void ShowEmpty()
     {
-        _emptyLabel.IsVisible = _source is { Count: 0 };
-        _emptyLabel.Text = _trouble ?? "This drawing declares no parameters.";
+        _emptyLabel.IsVisible = _source is { } && _variables.Count == 0;
+        _emptyLabel.Text = _trouble ?? "This drawing declares no variables.";
 
         _emptyLabel[!TextBlock.ForegroundProperty] = _trouble is { }
             ? new DynamicResourceExtension("SvgViewerSourceErrorBrush")
@@ -883,7 +954,6 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
         _actions.IsVisible = open;
         _addButton.IsVisible = open;
-        _addLetButton.IsVisible = open;
 
         var changed = 0;
 

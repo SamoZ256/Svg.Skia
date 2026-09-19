@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System.Linq;
 using System.Threading.Tasks;
@@ -80,8 +80,9 @@ public class SvgViewerLetEditingTests
         Dispatcher.UIThread.RunJobs();
     }
 
-    private static Button AddLetButton(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<Button>().First(c => c.Name == "AddLetButton");
+    /// <summary>Starts an expression row the way the Add button's menu does.</summary>
+    private static void AddExpression(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().First().AddExpression();
 
     private static SvgViewerLet Row(SvgViewer viewer, string name)
         => viewer.Lets.Single(let => let.Name == name);
@@ -92,6 +93,69 @@ public class SvgViewerLetEditingTests
             .OfType<TextBox>()
             .First(box => ReferenceEquals(box.DataContext, row) && box.PlaceholderText == placeholder);
 
+    // ---- one list ----
+
+    /// <summary>
+    /// The values and the expressions are one list, values first.
+    /// </summary>
+    /// <remarks>
+    /// One <c>ItemsControl</c> over a mixed collection, which works because Avalonia picks a row's
+    /// template by its type. The order is the only one there is: the model keeps two lists and so
+    /// holds no order between the kinds.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Values_And_The_Expressions_Are_One_List()
+    {
+        var (window, viewer) = await HostLoaded(Grouped);
+
+        var rows = viewer.GetVisualDescendants()
+            .OfType<ItemsControl>()
+            .First(control => control.Name == "Rows")
+            .ItemsSource!
+            .Cast<object>()
+            .ToList();
+
+        Assert.Collection(
+            rows,
+            row => Assert.Equal("tint", Assert.IsAssignableFrom<SvgViewerParameter>(row).Name),
+            row => Assert.Equal("deep", Assert.IsType<SvgViewerLet>(row).Name));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A drag never crosses between the kinds.
+    /// </summary>
+    /// <remarks>
+    /// The two are one list to read, not one list to order: the model has nowhere to write a
+    /// position that puts a value among the expressions, so the drag does not offer one.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task An_Expression_Cannot_Be_Dragged_Among_The_Values()
+    {
+        var (window, viewer) = await HostLoaded(Two);
+
+        // Two expressions over one value: 'b' names nothing 'a' does, so within its own kind it may
+        // move, and the one value above them is not a place it may move to.
+        Assert.True(viewer.MoveLet(Row(viewer, "b"), 0));
+        await Settle();
+
+        Assert.Equal(new[] { "b", "a" }, viewer.Lets.Select(let => let.Name).ToArray());
+
+        // And the value is still the first row of the list, with the expressions after it.
+        var rows = viewer.GetVisualDescendants()
+            .OfType<ItemsControl>()
+            .First(control => control.Name == "Rows")
+            .ItemsSource!
+            .Cast<object>()
+            .ToList();
+
+        Assert.IsAssignableFrom<SvgViewerParameter>(rows[0]);
+        Assert.All(rows.Skip(1), row => Assert.IsType<SvgViewerLet>(row));
+
+        window.Close();
+    }
+
     // ---- adding ----
 
     [AvaloniaFact]
@@ -99,7 +163,7 @@ public class SvgViewerLetEditingTests
     {
         var (window, viewer) = await HostLoaded(Grouped);
 
-        AddLetButton(viewer).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        AddExpression(viewer);
         Dispatcher.UIThread.RunJobs();
 
         var draft = Assert.Single(viewer.Lets, let => let.IsDraft);
@@ -118,7 +182,7 @@ public class SvgViewerLetEditingTests
     {
         var (window, viewer) = await HostLoaded(Grouped);
 
-        AddLetButton(viewer).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        AddExpression(viewer);
         Dispatcher.UIThread.RunJobs();
 
         var draft = Assert.Single(viewer.Lets, let => let.IsDraft);
@@ -142,7 +206,7 @@ public class SvgViewerLetEditingTests
     {
         var (window, viewer) = await HostLoaded(Grouped);
 
-        AddLetButton(viewer).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        AddExpression(viewer);
         Dispatcher.UIThread.RunJobs();
 
         var draft = Assert.Single(viewer.Lets, let => let.IsDraft);
@@ -392,7 +456,7 @@ public class SvgViewerLetEditingTests
     {
         var (window, viewer) = await HostLoaded(Two);
 
-        AddLetButton(viewer).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        AddExpression(viewer);
         Dispatcher.UIThread.RunJobs();
 
         var draft = Assert.Single(viewer.Lets, let => let.IsDraft);
@@ -457,7 +521,7 @@ public class SvgViewerLetEditingTests
 
         Dispatcher.UIThread.RunJobs();
 
-        AddLetButton(viewer).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        AddExpression(viewer);
         Dispatcher.UIThread.RunJobs();
 
         var draft = Assert.Single(viewer.Lets, let => let.IsDraft);

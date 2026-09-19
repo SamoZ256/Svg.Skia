@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+* **The Parameters pane is now Variables, and shows one list.** It had a section per kind because
+  the model behind it keeps two lists — a fact about the language rather than anything a reader
+  needs. A value and an expression are both variables the drawing names, so they are one list now,
+  values first, with one `Add variable…` asking which kind. A run of rows declared in the same place
+  wears one heading across both kinds, where two sections said it twice. Dragging still never
+  crosses between them: the model has nowhere to write a position that puts a value among the
+  expressions.
+
+* **A value bound to an expression is refused rather than ignored.** `SetExpressionValues` resolved
+  the parameters into a fresh table and then wrote each let's own result over that name, so a value
+  supplied under a let's name was dropped without a word — the caller got back the drawing it
+  already had and no reason why. It now says which name it was and what kind of thing that name is.
+
 * **The words of a `<text>` are a row in the Element pane.** They are a child node rather than an
   attribute, so nothing in the editor could reach them, and the one value somebody picked a text
   element for was the one value only a text editor could change. The row is first, above the

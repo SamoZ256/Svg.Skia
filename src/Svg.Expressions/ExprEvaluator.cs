@@ -61,6 +61,15 @@ public sealed class ExprEvaluator
         // to both maps is what makes each one visible to whatever is evaluated after it.
         foreach (var let in declarations.Lets)
         {
+            // Refused rather than overwritten. A let's value is what its body comes to, so a value
+            // supplied under its name used to be dropped here without a word — the caller saw the
+            // drawing it already had and no reason why. Said in the voice a wrongly typed value is
+            // refused in, since the two are the same mistake about the same dictionary.
+            if (parameterValues is { } given && given.ContainsKey(let.Name))
+            {
+                throw new ExprException($"'{let.Name}' is an expression and cannot be given a value.", 0);
+            }
+
             var value = let.DeclaredType is { } declared
                 ? evaluator.EvaluateTo(let.Expression, declared, $"The let '{let.Name}'")
                 : evaluator.Evaluate(let.Expression);
