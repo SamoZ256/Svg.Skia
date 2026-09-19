@@ -994,7 +994,7 @@ public sealed class GroupPanel : UserControl
 
         var owner = candidates.Count == 1
             ? candidates[0]
-            : await Where(candidates, _parameters.AddLetAnchor).ConfigureAwait(true);
+            : await Where(candidates, _parameters.AddAnchor).ConfigureAwait(true);
 
         if (owner is null)
         {

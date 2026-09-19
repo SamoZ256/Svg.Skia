@@ -304,17 +304,11 @@
         <ItemsControl x:Name="Rows" />
 
         <Button x:Name="AddButton"
-                Content="Add value…"
+                Content="Add variable…"
                 HorizontalAlignment="Stretch"
                 HorizontalContentAlignment="Center"
-                Margin="0,8,0,0" />
-
-        <Button x:Name="AddLetButton"
-                Content="Add expression…"
-                HorizontalAlignment="Stretch"
-                HorizontalContentAlignment="Center"
-                Margin="0,6,0,0"
-                ToolTip.Tip="Adds an empty row. An expression variable takes a name and a body; it is written into the drawing once both are filled in and the body checks." />
+                Margin="0,8,0,0"
+                ToolTip.Tip="Asks for a name and a type. Pick 'expression' for a variable computed from the others rather than supplied." />
 
       </StackPanel>
     </ScrollViewer>

@@ -8,6 +8,7 @@ using System.ComponentModel;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
@@ -28,7 +29,6 @@ public partial class SvgViewerDeclarationPanel : UserControl
     private readonly TextBlock _commitLabel;
     private readonly Button _commitButton;
     private readonly Button _addButton;
-    private readonly Button _addLetButton;
 
     private readonly ObservableCollection<SvgViewerLet> _lets = new();
     private readonly ObservableCollection<SvgViewerParameter> _parameters = new();
@@ -73,11 +73,9 @@ public partial class SvgViewerDeclarationPanel : UserControl
         _commitLabel = this.FindControl<TextBlock>("CommitLabel")!;
         _commitButton = this.FindControl<Button>("CommitButton")!;
         _addButton = this.FindControl<Button>("AddButton")!;
-        _addLetButton = this.FindControl<Button>("AddLetButton")!;
 
-        _addButton.Click += (_, _) => AddRequested?.Invoke(this, EventArgs.Empty);
+        _addButton.Click += (_, _) => Offer();
         _commitButton.Click += (_, _) => CommitRequested?.Invoke(this, EventArgs.Empty);
-        _addLetButton.Click += (_, _) => Draft();
 
         _rows.ItemsSource = _variables;
 
@@ -278,9 +276,6 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// </remarks>
     public Control AddAnchor => _addButton;
 
-    /// <inheritdoc cref="AddAnchor"/>
-    public Control AddLetAnchor => _addLetButton;
-
     /// <summary>Shows the lets a document declares, keeping any row still being filled in.</summary>
     /// <remarks>
     /// A rebuild is what follows every splice, and one that discarded a draft would take away the
@@ -374,6 +369,36 @@ public partial class SvgViewerDeclarationPanel : UserControl
         let.PropertyChanged += OnLetChanged;
         _lets.Add(let);
     }
+
+    /// <summary>Asks which kind of variable to add, and starts it.</summary>
+    /// <remarks>
+    /// One button for both, because to somebody adding one they are both variables. The kinds are
+    /// offered here rather than inside the value form: an expression is written in its own row,
+    /// where what it comes to and what is wrong with it are said as it is typed, and asking for a
+    /// body in a modal would trade that for a sentence after the fact.
+    /// </remarks>
+    private void Offer()
+    {
+        var menu = new MenuFlyout { Placement = PlacementMode.Bottom };
+
+        menu.Items.Add(Choice("Value…", () => AddRequested?.Invoke(this, EventArgs.Empty)));
+        menu.Items.Add(Choice("Expression", AddExpression));
+
+        menu.ShowAt(_addButton);
+    }
+
+    private static MenuItem Choice(string header, Action chosen)
+    {
+        var item = new MenuItem { Header = header };
+
+        item.Click += (_, _) => chosen();
+
+        return item;
+    }
+
+    /// <summary>Starts an expression, as the button's menu does.</summary>
+    /// <remarks>Taking no pointer, so everything but the menu itself can be driven.</remarks>
+    public void AddExpression() => Draft();
 
     /// <summary>Puts an empty row at the end and asks for the keyboard.</summary>
     private void Draft()
@@ -929,7 +954,6 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
         _actions.IsVisible = open;
         _addButton.IsVisible = open;
-        _addLetButton.IsVisible = open;
 
         var changed = 0;
 
