@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -72,8 +72,9 @@ public sealed class SvgViewerDocument : IDisposable
 
     /// <summary>What the text goes through on its way to being drawn, or null when it is drawn as written.</summary>
     /// <remarks>
-    /// For a host whose drawing is derived from the file rather than being it — an svgc project
-    /// applying a recipe. Held here rather than by the caller so that every rebuild goes through it,
+    /// For a host whose drawing is derived from the file rather than being it — a Svg.Studio group
+    /// declaring into it, an svgc project applying a recipe. Held here rather than by the caller so
+    /// that every rebuild goes through it,
     /// and <see cref="SourceText"/> stays the file's own: the pane shows, edits and saves the file,
     /// not what was made of it.
     /// </remarks>
@@ -156,21 +157,33 @@ public sealed class SvgViewerDocument : IDisposable
     /// relative — what it references has to be carried in the text.
     /// </remarks>
     public static SvgViewerDocument LoadFromSvg(string svgText, string? path = null, SvgSizeRequest request = default)
+        => LoadFromSvg(svgText, path, request, null);
+
+    /// <summary>The drawing <paramref name="svgText"/> holds, built from what <paramref name="rewrite"/> makes of it.</summary>
+    /// <remarks><see cref="Rewrite"/> says what that is for.</remarks>
+    public static SvgViewerDocument LoadFromSvg(
+        string svgText,
+        string? path,
+        SvgSizeRequest request,
+        Func<string, string>? rewrite)
     {
         if (svgText is null)
         {
             throw new ArgumentNullException(nameof(svgText));
         }
 
+        var built = rewrite is { } ? rewrite(svgText) : svgText;
+
         var svg = new SKSvg();
 
-        if (Text(svg, request, svgText, BaseUri(path)) is null)
+        if (Text(svg, request, built, BaseUri(path)) is null)
         {
             svg.Dispose();
             throw new InvalidOperationException("The text could not be read as SVG.");
         }
 
-        return Describe(svg, path, svgText);
+        // The text, not what was built from it: this document's source is still the drawing's own.
+        return Describe(svg, path, svgText, rewrite: rewrite);
     }
 
     public static SvgViewerDocument Load(Stream stream, string? path = null)

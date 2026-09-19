@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -266,8 +266,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// What a drawing's text goes through before it is drawn, or null to draw it as written.
     /// </summary>
     /// <remarks>
-    /// For a host whose drawing is derived from its file — an svgc project applying a recipe, where
-    /// what is built is not what the file says. <see cref="Source"/> is still the file itself, and
+    /// For a host whose drawing is derived from its file — a Svg.Studio project, where a group
+    /// declares an <c>&lt;e:code&gt;</c> block into everything under it, or an svgc project applying
+    /// a recipe. What is built is not what the file says. <see cref="Source"/> is still the file itself, and
     /// saving writes that, so a document set up this way declares things its own text does not;
     /// where the panel's commands
     /// should write those is <see cref="DeclarationTarget"/>.
@@ -867,7 +868,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Opens a drawing that is held as text — one a project keeps inline.</summary>
     /// <param name="name">What to call it, since there is no file to take a name from.</param>
     public Task<bool> LoadTextAsync(string svgText, string? name = null)
-        => LoadCoreAsync(() => SvgViewerDocument.LoadFromSvg(svgText, null, SizeRequest), name);
+        => LoadCoreAsync(() => SvgViewerDocument.LoadFromSvg(svgText, null, SizeRequest, Rewrite), name);
 
     public Task<bool> LoadAsync(Stream stream)
         => LoadCoreAsync(() => SvgViewerDocument.Load(stream), null);
@@ -1458,8 +1459,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         return refusal;
     }
 
-    /// <summary>The text the declaration commands read.</summary>
-    private string Declarations() => DeclarationTarget?.Text ?? PaneSource();
+    /// <summary>The text an element's readouts are worked out against: the drawing as built.</summary>
+    /// <remarks>
+    /// Not the file. A drawing built through <see cref="Rewrite"/> declares what the blocks written
+    /// into it declare — a Svg.Studio group's, or a recipe's — and a <c>{{ … }}</c> on an element is
+    /// read against those. Without a rewrite the two are the same text.
+    /// </remarks>
+    private string Declarations()
+        => _document is { } document ? document.Built(PaneSource()) : PaneSource();
 
     /// <summary>Whether there is anywhere to write a declaration, saying so when there is not.</summary>
     private bool Editable()

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -1728,6 +1728,10 @@ public partial class MainWindow : Window
         }
 
         viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
+
+        // What the groups above it declare, written into it on the way to being drawn. Source stays
+        // the drawing's own, so the tab still shows, edits and saves the drawing.
+        viewer.Rewrite = own => ProjectDeclarations.Built(drawing, own);
 
         await viewer.LoadTextAsync(drawing.Text, drawing.Name).ConfigureAwait(true);
     }

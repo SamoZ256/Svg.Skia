@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -1538,8 +1538,9 @@ public sealed class GroupPanel : UserControl
     /// Builds a drawing, or hands back the build it already has where nothing it reads has changed.
     /// </summary>
     /// <remarks>
-    /// The two things a build reads are the text and the size it is asked for, so agreeing about
-    /// both is agreeing about the picture. Most of what refreshes this tab changes neither: a drop
+    /// The three things a build reads are the text, what the groups above it declare into that text,
+    /// and the size it is asked for, so agreeing about all three is agreeing about the picture. Most
+    /// of what refreshes this tab changes none of them: a drop
     /// writes x and y, a tree move writes an order, a root setting writes what the code generator
     /// does -- and re-parsing forty drawings to answer any of them cost the zoom, the ring and a
     /// tenth of a second each time.
@@ -1552,10 +1553,12 @@ public sealed class GroupPanel : UserControl
         // Through the host where a tab is holding this drawing, so the canvas shows what that tab
         // shows rather than what the project itself holds.
         var text = TargetOf?.Invoke(drawing)?.Text ?? drawing.Text;
+        var declared = ProjectDeclarations.Declared(drawing);
         var sizing = Sizing(drawing);
 
         if (was is { } already
             && string.Equals(already.Text, text, StringComparison.Ordinal)
+            && string.Equals(already.Declared, declared, StringComparison.Ordinal)
             && already.Sizing == sizing)
         {
             return already;
@@ -1563,7 +1566,13 @@ public sealed class GroupPanel : UserControl
 
         try
         {
-            var document = SvgViewerDocument.LoadFromSvg(text, null, ProjectWorkspace.SizeOf(drawing));
+            // Through the blocks the groups above it declare, which is what the build and the
+            // drawing's own tab read it through too.
+            var document = SvgViewerDocument.LoadFromSvg(
+                text,
+                null,
+                ProjectWorkspace.SizeOf(drawing),
+                own => ProjectDeclarations.Built(drawing, own));
 
             // What the panel would show for this drawing on opening it, which is what a viewer
             // binds and so what the drawing's own tab renders.
@@ -1575,14 +1584,14 @@ public sealed class GroupPanel : UserControl
             {
             }
 
-            return new Drawn(drawing, text, sizing, document, null);
+            return new Drawn(drawing, text, declared, sizing, document, null);
         }
         catch (Exception failure)
         {
             // Anything: this is user data reaching a parser, and it arrives as an XmlException, a
             // FormatException, one of the IO exceptions or the loader's own refusal. A narrower set
             // would eventually let one through, and one bad drawing would cost the whole tab.
-            return new Drawn(drawing, text, sizing, null, failure.Message);
+            return new Drawn(drawing, text, declared, sizing, null, failure.Message);
         }
     }
 
@@ -1816,6 +1825,7 @@ public sealed class GroupPanel : UserControl
     private sealed record Drawn(
         ProjectDrawing Drawing,
         string Text,
+        string Declared,
         (float?, float?, float?, string?) Sizing,
         SvgViewerDocument? Document,
         string? Fault)
