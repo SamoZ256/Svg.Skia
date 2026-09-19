@@ -111,6 +111,12 @@ public class MainWindowProjectTests : IDisposable
     private static TabControl Tabs(MainWindow window) => window.FindControl<TabControl>("Tabs")!;
 
     /// <summary>The tree rows, flattened, by the label each shows.</summary>
+    /// <summary>The node behind the row of <paramref name="name"/>, wherever the pane sorted it to.</summary>
+    private static ProjectNode Row(TreeViewItem item, string name)
+        => (ProjectNode)Assert.Single(
+            item.Items.OfType<TreeViewItem>(),
+            row => row.Tag is ProjectNode node && node.Name == name).Tag!;
+
     private static string[] Rows(TreeViewItem item)
         => new[] { (string)item.Header! }
             .Concat(item.Items.OfType<TreeViewItem>().SelectMany(Rows))
@@ -163,8 +169,46 @@ public class MainWindowProjectTests : IDisposable
         var root = Assert.IsType<TreeViewItem>(Assert.Single(Tree(window).Items));
 
         Assert.Equal(
-            new[] { "Project", "Nav", "home", "Badges", "badge", "badge-huge" },
+            new[] { "Project", "Badges", "badge", "badge-huge", "Nav", "home" },
             Rows(root));
+    }
+
+    /// <summary>
+    /// The pane sorts, and the file it sorted is left as it was found.
+    /// </summary>
+    /// <remarks>
+    /// Sorting the rows rather than the document: the order a project is written in is what the
+    /// board lays its drawings out in and what the generated C# follows, and neither should turn
+    /// over because somebody opened the tree.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Rows_Are_Shown_By_Name_Whatever_Order_The_File_Is_In()
+    {
+        var text = """
+            <studio namespace="Demo.Icons">
+              <drawing name="zebra"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" /></drawing>
+              <group name="Middle">
+                <drawing name="yak"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" /></drawing>
+                <drawing name="Ant"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" /></drawing>
+              </group>
+              <drawing name="apple"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" /></drawing>
+            </studio>
+            """;
+
+        var path = Write("icons.svgstudio", text);
+        var window = await Host(path);
+
+        // Case is not a section of its own: 'Ant' sorts with the a's rather than ahead of them.
+        Assert.Equal(
+            new[] { "Project", "apple", "Middle", "Ant", "yak", "zebra" },
+            Rows((TreeViewItem)Tree(window).Items[0]!));
+
+        // The document is untouched, so what is drawn and what is generated go on as they were.
+        Assert.Equal(
+            new[] { "zebra", "yak", "Ant", "apple" },
+            window.Workspace!.Document.Root.Drawings.Select(drawing => drawing.Name).ToArray());
+
+        Assert.Equal(text, File.ReadAllText(path));
     }
 
     [AvaloniaFact]
@@ -4145,7 +4189,7 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(
-            new[] { "Project", "home", "Large", "badge", "extra" },
+            new[] { "Project", "extra", "home", "Large", "badge" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
         // The drawing itself, on lines of its own rather than sharing the closing tag's — and the
@@ -4465,7 +4509,8 @@ public class MainWindowProjectTests : IDisposable
 
         var group = (TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!;
 
-        await window.ShowAsync((ProjectNode)((TreeViewItem)group.Items[1]!).Tag!);
+        // By name: the pane sorts, so which row sits at which index is not this test's subject.
+        await window.ShowAsync(Row(group, "second"));
         Dispatcher.UIThread.RunJobs();
 
         var tab = Tabs(window).Items.OfType<TabItem>().Single(item => item.Tag is ProjectDrawing);
@@ -4503,7 +4548,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("<drawing name=\"second\" class=\"Second\">", File.ReadAllText(path), StringComparison.Ordinal);
 
         Assert.Equal(
-            new[] { "Project", "Shared", "shared", "second" },
+            new[] { "Project", "Shared", "second", "shared" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
     }
 
@@ -4654,7 +4699,7 @@ public class MainWindowProjectTests : IDisposable
         Pick(window, "home", "Paste");
 
         Assert.Equal(
-            new[] { "Project", "home", "badge", "Large" },
+            new[] { "Project", "badge", "home", "Large" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
         // Once in the file, not twice: what was cut is not still where it was.
@@ -4667,7 +4712,7 @@ public class MainWindowProjectTests : IDisposable
         Pick(window, "Large", "Paste");
 
         Assert.Equal(
-            new[] { "Project", "home", "badge", "Large" },
+            new[] { "Project", "badge", "home", "Large" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
     }
 
@@ -4877,7 +4922,7 @@ public class MainWindowProjectTests : IDisposable
             new[]
             {
                 "Project", "home", "Large", "badge",
-                "home", "drawing"
+                "drawing", "home"
             },
             Rows((TreeViewItem)Tree(window).Items[0]!));
     }
@@ -5078,7 +5123,7 @@ public class MainWindowProjectTests : IDisposable
         await Drop(window, (TreeViewItem)root.Items[0]!, 0.9d, Write("one.svg", Drawing), Write("two.svg", Drawing));
 
         Assert.Equal(
-            new[] { "Project", "home", "one", "two", "Large", "badge" },
+            new[] { "Project", "home", "Large", "badge", "one", "two" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
         // One tab for the run, on the last of them: a folder of drawings is one act.
@@ -5100,7 +5145,7 @@ public class MainWindowProjectTests : IDisposable
         await Drop(window, root, (root.Bounds.Height + 40d) / RowHeight(root), Write("extra.svg", Drawing));
 
         Assert.Equal(
-            new[] { "Project", "home", "Large", "badge", "extra" },
+            new[] { "Project", "extra", "home", "Large", "badge" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
     }
 

@@ -922,7 +922,7 @@ public partial class MainWindow : Window
 
         if (node is ProjectGroup group)
         {
-            foreach (var child in group.Children)
+            foreach (var child in Sorted(group.Children))
             {
                 item.Items.Add(Branch(child, selected));
             }
@@ -930,6 +930,21 @@ public partial class MainWindow : Window
 
         return item;
     }
+
+    /// <summary>A group's rows, in the order the pane shows them.</summary>
+    /// <remarks>
+    /// By name rather than in the order the file writes them. The document's order still decides
+    /// what the board lays out and what the generated C# follows; it is only the pane that sorts,
+    /// so opening a project and closing it leaves the file exactly as it was found.
+    ///
+    /// Invariant rather than the current culture, so the pane reads the same on every machine, and
+    /// ordinal after it so two names differing only in case keep a settled order instead of
+    /// swapping about between rebuilds.
+    /// </remarks>
+    private static IEnumerable<ProjectNode> Sorted(IReadOnlyList<ProjectNode> children)
+        => children
+            .OrderBy(ProjectWorkspace.Label, StringComparer.InvariantCultureIgnoreCase)
+            .ThenBy(ProjectWorkspace.Label, StringComparer.Ordinal);
 
     /// <summary>What can be done to a row, on the row rather than in the menu bar.</summary>
     /// <remarks>
