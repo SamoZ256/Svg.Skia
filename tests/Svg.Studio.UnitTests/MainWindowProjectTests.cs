@@ -2076,6 +2076,15 @@ public class MainWindowProjectTests : IDisposable
         Click(window, canvas, Over(canvas, area.MidX, area.MidY));
     }
 
+    /// <summary>Lets go of the selection by clicking the board beside every drawing on it.</summary>
+    private static void Deselect(MainWindow window, GroupPanel panel)
+    {
+        var canvas = Canvas(panel);
+        var board = Drawn(panel).Select(Area).ToList();
+
+        Click(window, canvas, Over(canvas, board.Max(area => area.Right) + 40f, board.Max(area => area.Bottom) + 40f));
+    }
+
     /// <summary>
     /// A group's tab opens on its parameters, the way a drawing's own tab does.
     /// </summary>
@@ -2602,6 +2611,15 @@ public class MainWindowProjectTests : IDisposable
 
         Pick(window, panel, 0);
 
+        // With a drawing selected the group is above it like anything else, so what it declares and
+        // the drawing does not use goes too.
+        Assert.Equal(
+            new[] { "tint", "ring" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        // And the board beside the drawings is the way back to the group's own.
+        Deselect(window, panel);
+
         Assert.Equal(
             new[] { "tint", "ring", "idle" },
             Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
@@ -2637,6 +2655,41 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(
             new[] { "tint", "shade", "spare", "ring", "idle" },
             Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    /// <summary>
+    /// Clicking the board beside the drawings lets go of the one being looked at.
+    /// </summary>
+    /// <remarks>
+    /// A miss inside a drawing still keeps it — the pane is read alongside the picture and a click
+    /// two pixels wide of the ink should not throw that away — so the board itself is what says
+    /// "none of them", and it is the only way back to what the group declares.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Clicking_The_Board_Lets_Go_Of_The_Drawing()
+    {
+        var window = await Host(Owned(GroupTint, UsingAndDeclaring, Using));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        Assert.Contains("ring", Declarations(panel).Parameters!.Select(row => row.Name));
+
+        Assert.DoesNotContain(
+            panel.GetVisualDescendants().OfType<TextBlock>(),
+            block => block.Text is { } said && said.StartsWith("Click a drawing", StringComparison.Ordinal));
+
+        Deselect(window, panel);
+
+        // The drawing's own rows go with it, and the tree and the line above it say nothing is
+        // being looked at.
+        Assert.DoesNotContain("ring", Declarations(panel).Parameters!.Select(row => row.Name));
+
+        Assert.Contains(
+            panel.GetVisualDescendants().OfType<TextBlock>(),
+            block => block.Text is { } said && said.StartsWith("Click a drawing", StringComparison.Ordinal));
+
+        Assert.Null(Canvas(panel).Highlight);
     }
 
     [AvaloniaFact]
@@ -2948,10 +3001,15 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("sweep", group.CodeText, StringComparison.Ordinal);
         Assert.All(group.Drawings, drawing => Assert.DoesNotContain("sweep", drawing.Text, StringComparison.Ordinal));
 
-        // On the panel as the group's own row, which is what declaring on a group means. It reaches
-        // no drawing yet because none of them names it — that is what narrowing is for.
-        Assert.Contains(Declarations(panel).Parameters!, row => row.Name == "sweep" && row.OwnerLabel == "Own");
+        // Not on the panel while a drawing is selected: it reaches no drawing yet, because none of
+        // them names it, and the pane is about the selection.
+        Assert.DoesNotContain(Declarations(panel).Parameters!, row => row.Name == "sweep");
         Assert.All(Drawn(panel), placed => Assert.DoesNotContain("sweep", placed.Svg.ExpressionValues!.Keys));
+
+        // Letting the drawing go makes the tab about the group again, and there it is.
+        Deselect(window, panel);
+
+        Assert.Contains(Declarations(panel).Parameters!, row => row.Name == "sweep" && row.OwnerLabel == "Own");
     }
 
     [AvaloniaFact]

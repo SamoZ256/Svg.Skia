@@ -15,12 +15,18 @@
 
   A drawing that inherits nothing is unaffected, so `svgc` generates exactly what it did.
 
-  The pane reads the same way. A group's tab lists what is declared further up only where the
-  selection reaches it, since a project's variables are every drawing's to inherit and listing all of
-  them listed mostly rows that drive nothing in front of you. Two blocks are shown whole however
-  little of them is used: the selection's own, and the tab's own group — its rows are what somebody
-  came to that tab to set. What is left out is counted under the panel rather than simply missing,
-  because naming a variable in the drawing is what brings it back and that is not a thing to guess.
+  The pane reads the same way. A group's tab lists what is declared above the selection only where
+  the selection reaches it, since a project's variables are every drawing's to inherit and listing
+  all of them listed mostly rows that drive nothing in front of you. What the selection declares
+  itself is shown whole, being its own to add to and take away from. What is left out is counted
+  under the panel rather than simply missing, because naming a variable in the drawing is what brings
+  it back and that is not a thing to guess.
+
+  **Clicking the board beside the drawings lets go of the one being looked at**, which is what makes
+  that work: with a drawing selected the group is above it like anything else, so the way back to
+  what the group declares is to select none of them. A click that misses the ink *inside* a drawing
+  still keeps it — the pane is read alongside the picture, and missing by two pixels should not throw
+  away what was being looked at.
 
 * **Converting a PaintCode document places its variables where they are shared.** PaintCode declares
   once for the whole library and the conversion gives every drawing a copy of what it uses; a name

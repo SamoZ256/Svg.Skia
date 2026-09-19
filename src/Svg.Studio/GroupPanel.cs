@@ -627,12 +627,11 @@ public sealed class GroupPanel : UserControl
                 ? $"{ProjectWorkspace.Label(holder)} declares something that could not be read: {diagnostics[0].Message}"
                 : null;
 
-            // Two blocks are shown whole however little of them is used: the selection's own, and
-            // this tab's group. The group because the tab is about it — its rows are the ones
-            // somebody came here to set, a click on the board never puts the selection back, and a
-            // variable declared on it would otherwise vanish the moment it was added. Everything
-            // above the tab is shown where the selection reaches it, which is the clutter.
-            var own = ReferenceEquals(holder, subject) || ReferenceEquals(holder, Node);
+            // What the selection declares itself is shown whole, whether it uses it or not: it is
+            // its own to add to and take away from. Everything above it — this tab's own group
+            // included — is shown only where the selection reaches it. Clicking the board beside
+            // the drawings is what puts the tab back to being about the group.
+            var own = ReferenceEquals(holder, subject);
 
             foreach (var parameter in declared.Parameters)
             {
@@ -1549,6 +1548,12 @@ public sealed class GroupPanel : UserControl
     {
         if (!_canvas.TryGetPlacementAt(at, out var placement, out var point) || placement is null)
         {
+            // Beside every drawing rather than inside one, which is the board itself: that is a
+            // click on nothing, and it puts the tab back to being about the group. Without it there
+            // was no way back to what the group declares once a drawing had been picked.
+            Deselect();
+            ShowDeclarations();
+
             return;
         }
 
@@ -1926,26 +1931,37 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void Forget()
     {
-        _canvas.Highlight = null;
-
-        // With the ring, and for its reason: the handles are measured from a scene node of a
-        // document this build may be about to dispose.
-        _gizmo.Track(null, null);
-        _canvas.Gizmo = null;
+        // The tree holds elements of a document that may be about to be disposed, and so do the ring
+        // and the handles. The rows are not let go with them: what is declared does not change
+        // because a board was laid out again.
+        Deselect();
 
         _shown.Clear();
         _framed.Clear();
 
-        // The tree holds elements of a document that may be about to be disposed. The parameters
-        // are not let go with them: they are the group's, and a rebuild of the board is not a
-        // change to what the group declares.
+        Says(null);
+    }
+
+    /// <summary>Lets go of the drawing being looked at, and of the element inside it.</summary>
+    /// <remarks>
+    /// Shows no rows of its own: a rebuild does this on its way past and takes the selection again
+    /// at the end, so the panel would be built twice for one gesture. Whoever is finished with the
+    /// selection rather than passing through it says so itself.
+    /// </remarks>
+    private void Deselect()
+    {
+        _canvas.Highlight = null;
+
+        // With the ring, and for its reason: the handles are measured from a scene node of a
+        // document a build may be about to dispose.
+        _gizmo.Track(null, null);
+        _canvas.Gizmo = null;
+
         _inspecting = null;
         _picked = null;
         _tree.Show(null);
         ShowElement(null);
         _showing.Text = "Click a drawing to see what it is made of.";
-
-        Says(null);
     }
 
     /// <summary>
