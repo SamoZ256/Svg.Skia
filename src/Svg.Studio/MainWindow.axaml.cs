@@ -1741,9 +1741,8 @@ public partial class MainWindow : Window
             ? new GroupTarget(workspace, holder)
             : null;
 
-        viewer.DeclaredBy = name => Declaring(drawing, name) is { } holder
-            ? $"from {ProjectWorkspace.Label(holder)}"
-            : null;
+        viewer.DeclaredBy = name => ProjectWorkspace.Label(
+            Declaring(drawing, name) ?? (ProjectNode)drawing);
 
         await viewer.LoadTextAsync(drawing.Text, drawing.Name).ConfigureAwait(true);
     }

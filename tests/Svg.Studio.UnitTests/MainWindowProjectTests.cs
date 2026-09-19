@@ -2423,8 +2423,12 @@ public class MainWindowProjectTests : IDisposable
         // And each says where it came from, for the one that came from further up.
         var rows = Declarations(panel).Parameters!;
 
-        Assert.Equal("from Project", rows[0].OwnerLabel);
-        Assert.Null(rows[1].OwnerLabel);
+        Assert.Equal("Project", rows[0].OwnerLabel);
+        Assert.Equal("Inner", rows[1].OwnerLabel);
+
+        // Each begins a run of its own, so each wears a heading.
+        Assert.True(rows[0].ShowsOwner);
+        Assert.True(rows[1].ShowsOwner);
     }
 
     /// <summary>A parameter moved on an inherited row moves every drawing under the group holding it.</summary>
@@ -2450,7 +2454,7 @@ public class MainWindowProjectTests : IDisposable
 
         var row = Declarations(panel).Parameters!.Single();
 
-        Assert.Equal("from Project", row.OwnerLabel);
+        Assert.Equal("Project", row.OwnerLabel);
 
         ((SvgViewerColorParameter)row).Color = Colors.Red;
         Dispatcher.UIThread.RunJobs();
@@ -2523,14 +2527,72 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.Equal(new[] { "tint", "ring" }, rows.Select(row => row.Name).ToArray());
 
-        // And each says where it came from, for everything that is not this group's own.
-        Assert.Null(rows[0].OwnerLabel);
-        Assert.Equal("from one", rows[1].OwnerLabel);
+        // And each says where it came from, the group's own included: a run with no heading among
+        // runs that have one would read as belonging to the one above it.
+        Assert.Equal(new[] { "Own", "one" }, rows.Select(row => row.OwnerLabel).ToArray());
+
+        // Each begins a run, so each wears its heading.
+        Assert.Equal(new[] { true, true }, rows.Select(row => row.ShowsOwner).ToArray());
 
         // Picking the one that declares nothing of its own takes the section away again.
         Pick(window, panel, 1);
 
         Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    /// <summary>
+    /// The rows are grouped by what declares them, with a heading over each run.
+    /// </summary>
+    /// <remarks>
+    /// The heading is on the first row of a run rather than on every row, and there is none at all
+    /// where everything came from one place — one heading over the lot says nothing the standing
+    /// "Parameters" heading above it does not.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Rows_Are_Grouped_By_What_Declares_Them()
+    {
+        var path = Write("icons.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <e:code xmlns:e="https://svg.skia/expr/1.0">
+                <e:param name="tint" type="color" default="#00ff00" />
+                <e:param name="shade" type="color" default="#0000ff" />
+              </e:code>
+              <group name="Inner">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="ring" type="number" default="2" min="0" max="10" />
+                </e:code>
+                <drawing name="one">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke="{{ shade }}" stroke-width="{{ ring }}" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+        var window = await Host(path);
+        var panel = await Group(window, 0);
+
+        var rows = Declarations(panel).Parameters!;
+
+        Assert.Equal(new[] { "Project", "Project", "Inner" }, rows.Select(row => row.OwnerLabel).ToArray());
+
+        // Once over the run of two, and again where the next run begins.
+        Assert.Equal(new[] { true, false, true }, rows.Select(row => row.ShowsOwner).ToArray());
+    }
+
+    [AvaloniaFact]
+    public async Task Rows_From_One_Place_Wear_No_Heading()
+    {
+        // A drawing on its own, declaring for itself: there is nowhere else for a row to be from,
+        // and a heading saying so is noise.
+        var window = await Host(Own(Declaring, Declaring));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        Assert.All(Declarations(panel).Parameters!, row => Assert.False(row.ShowsOwner));
     }
 
     /// <summary>
@@ -2622,7 +2684,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("sweep", File.ReadAllText(path), StringComparison.Ordinal);
 
         // And it is on the panel, as the group's own row rather than an inherited one.
-        Assert.Contains(Declarations(panel).Parameters!, row => row.Name == "sweep" && row.OwnerLabel is null);
+        Assert.Contains(Declarations(panel).Parameters!, row => row.Name == "sweep" && row.OwnerLabel == "Own");
     }
 
     [AvaloniaFact]
@@ -2674,7 +2736,7 @@ public class MainWindowProjectTests : IDisposable
         var row = Assert.Single(viewer.Parameters);
 
         Assert.Equal("tint", row.Name);
-        Assert.Equal("from Own", row.OwnerLabel);
+        Assert.Equal("Own", row.OwnerLabel);
 
         // And an edit reaches the group, not the drawing: taking the parameter away is refused
         // because the drawings under that group still use it, which the drawing's own text — where

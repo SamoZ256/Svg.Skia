@@ -172,12 +172,52 @@ public partial class SvgViewerDeclarationPanel : UserControl
         }
     }
 
-    /// <summary>Says on each row where it was declared, for the rows that came from elsewhere.</summary>
+    /// <summary>
+    /// Says on each row where it was declared, and which rows begin a run of one place.
+    /// </summary>
+    /// <remarks>
+    /// The two lists are sectioned apart, because they are drawn apart: the lets sit under a
+    /// heading of their own, and a run that ended among the parameters has ended.
+    /// </remarks>
     private void ShowOwners(IReadOnlyList<SvgViewerParameter>? rows)
     {
-        foreach (var row in rows ?? Array.Empty<SvgViewerParameter>())
+        var parameters = rows ?? Array.Empty<SvgViewerParameter>();
+
+        foreach (var row in parameters)
         {
             row.OwnerLabel = DeclaredBy?.Invoke(row.Name);
+        }
+
+        Section(parameters.Select(row => row.OwnerLabel), (index, shows) => parameters[index].ShowsOwner = shows);
+    }
+
+    /// <summary>The same for the lets, whose rows this panel builds itself.</summary>
+    private void ShowLetOwners()
+    {
+        foreach (var let in _lets)
+        {
+            let.OwnerLabel = DeclaredBy?.Invoke(let.Name);
+        }
+
+        Section(_lets.Select(let => let.OwnerLabel), (index, shows) => _lets[index].ShowsOwner = shows);
+    }
+
+    /// <summary>Marks the first row of each run of rows declared in the same place.</summary>
+    /// <remarks>
+    /// Nothing is marked where every row came from the same place, which is every panel whose host
+    /// does not answer <see cref="DeclaredBy"/> at all: one heading over the lot says nothing the
+    /// heading already above it does not.
+    /// </remarks>
+    private static void Section(IEnumerable<string?> labels, Action<int, bool> mark)
+    {
+        var all = labels.ToList();
+        var many = all.Distinct(StringComparer.Ordinal).Count() > 1;
+
+        for (var index = 0; index < all.Count; index++)
+        {
+            mark(
+                index,
+                many && (index == 0 || !string.Equals(all[index], all[index - 1], StringComparison.Ordinal)));
         }
     }
 
@@ -218,10 +258,7 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
         // Before the unchanged check as well as after it: the same lets can be held somewhere else
         // than they were, which is what renaming a group above this drawing does.
-        foreach (var let in _lets)
-        {
-            let.OwnerLabel = DeclaredBy?.Invoke(let.Name);
-        }
+        ShowLetOwners();
 
         if (Unchanged(declared, drafts.Count))
         {
@@ -238,13 +275,16 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
         foreach (var let in declared ?? Array.Empty<SvgExpressionLet>())
         {
-            Add(new SvgViewerLet(let) { OwnerLabel = DeclaredBy?.Invoke(let.Name) });
+            Add(new SvgViewerLet(let));
         }
 
         foreach (var draft in drafts)
         {
             Add(draft);
         }
+
+        // Again, over the rows that have just replaced the ones marked above.
+        ShowLetOwners();
 
         _emptyLetLabel.IsVisible = _hasDocument && _lets.Count == 0;
 

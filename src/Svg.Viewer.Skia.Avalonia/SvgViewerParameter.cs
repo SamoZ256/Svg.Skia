@@ -19,6 +19,8 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// </remarks>
 public abstract class SvgViewerParameter : INotifyPropertyChanged
 {
+    private bool _showsOwner;
+
     protected SvgViewerParameter(SvgExpressionParameter declaration)
     {
         Declaration = declaration ?? throw new ArgumentNullException(nameof(declaration));
@@ -31,16 +33,34 @@ public abstract class SvgViewerParameter : INotifyPropertyChanged
 
     public SvgExpressionParameter Declaration { get; }
 
-    /// <summary>Where this was declared, where that is worth saying on the row.</summary>
+    /// <summary>Where this was declared, where that is worth saying.</summary>
     /// <remarks>
-    /// Null for a row the document declares itself, which is the ordinary case. A host whose drawing
-    /// inherits — a Svg.Studio project, where a group declares for everything under it — names the
-    /// group here, and the row says so. Set before the row is handed over, so it raises no change.
+    /// The name of whatever declares it, not a sentence about it: the panel says it once over the
+    /// run rather than on every row. Null for a panel whose host does not answer, which is a panel
+    /// whose rows all came from the one document.
     /// </remarks>
     public string? OwnerLabel { get; set; }
 
-    /// <summary>Whether there is an owner worth naming on the row.</summary>
-    public bool HasOwnerLabel => OwnerLabel is { Length: > 0 };
+    /// <summary>Whether this row begins a run declared somewhere new, and so wears the heading.</summary>
+    /// <remarks>
+    /// Set by the panel, which is the only thing that can see a row's neighbours. Raises a change
+    /// because the rows outlive a refresh: the same row can begin a run one moment and sit inside
+    /// one the next, when the section above it appears.
+    /// </remarks>
+    public bool ShowsOwner
+    {
+        get => _showsOwner;
+        set
+        {
+            if (_showsOwner == value)
+            {
+                return;
+            }
+
+            _showsOwner = value;
+            Raise(nameof(ShowsOwner));
+        }
+    }
 
     public string Name => Declaration.Name;
 

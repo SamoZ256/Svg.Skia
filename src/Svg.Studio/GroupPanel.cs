@@ -233,11 +233,11 @@ public sealed class GroupPanel : UserControl
                 UsedElsewhere = name => TargetFor(Holder(name)).UsesElsewhere(name)
             };
 
-            // Where each row was declared, said on the row — everything on the panel but this group.
+            // What declares each row. Every row, including this group's own: the panel groups the
+            // rows under it, and a run with no heading among runs that have one reads as belonging
+            // to the one above it.
             _parameters.DeclaredBy = name =>
-                _owners.TryGetValue(name, out var holder) && !ReferenceEquals(holder, node)
-                    ? $"from {ProjectWorkspace.Label(holder)}"
-                    : null;
+                _owners.TryGetValue(name, out var holder) ? ProjectWorkspace.Label(holder) : null;
         }
 
         _parameters.ValueChanged += (_, _) => Bind();
