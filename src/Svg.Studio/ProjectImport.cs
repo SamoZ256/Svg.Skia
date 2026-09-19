@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -66,11 +66,18 @@ public static class ProjectImport
 
     /// <summary>A PaintCode document as a project: a group per desk, and every canvas drawn into it.</summary>
     /// <param name="baseDirectory">Where the document came from, which its outputs resolve against.</param>
+    /// <param name="organize">
+    /// Whether what the drawings share is placed where they share it, or all of it on the project.
+    /// A parameter rather than a <see cref="PaintCodeImportOptions"/> member because it is about a
+    /// project's tree: svgc's own import writes loose files and an <c>.svgcproj</c>, which has
+    /// nowhere to put a group's block, so an option there would be one it silently ignored.
+    /// </param>
     public static ProjectDocument FromPaintCode(
         PaintCodeDocument source,
         PaintCodeImportOptions options,
         ICollection<PaintCodeImportNote> notes,
-        string baseDirectory)
+        string baseDirectory,
+        bool organize = true)
     {
         if (source is null)
         {
@@ -116,6 +123,10 @@ public static class ProjectImport
                 }
             }
         }
+
+        // Once the tree exists, because where a declaration belongs is a fact about the tree: every
+        // drawing arrives carrying its own copy of what it uses, which is all a canvas could say.
+        ProjectPlacement.Place(document.Root, organize);
 
         return document;
     }
