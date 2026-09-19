@@ -1167,6 +1167,70 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(new[] { "tint", "ring" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
     }
 
+    /// <summary>Two groups whose drawings each reach a different one of the project's variables.</summary>
+    private string Apart()
+        => Write("icons.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <e:code xmlns:e="https://svg.skia/expr/1.0">
+                <e:param name="tint" type="color" default="#00ff00" />
+                <e:param name="shade" type="color" default="#0000ff" />
+              </e:code>
+              <group name="Round" x="0" y="0">
+                <drawing name="one" x="0" y="0">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <circle cx="12" cy="12" r="10" fill="{{ tint }}" />
+                  </svg>
+                </drawing>
+              </group>
+              <group name="Square" x="0" y="80">
+                <drawing name="two" x="0" y="0">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <rect width="24" height="24" fill="{{ shade }}" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+    /// <summary>
+    /// A selected group shows what it reaches, not what the whole board does.
+    /// </summary>
+    /// <remarks>
+    /// The board a tab lays out is every drawing under it; a group selected on that board is one
+    /// branch of it. Asking the board what it reaches answered for every branch at once, so the
+    /// project's own tab filtered nothing at all.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Selected_Group_Shows_Only_What_Its_Own_Drawings_Reach()
+    {
+        var window = await Host(Apart());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        var canvas = Canvas(panel);
+
+        // Nothing selected: the project is the subject, and everything under it reaches one or other.
+        Assert.Equal(
+            new[] { "tint", "shade" },
+            Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        // By the outline, which is the half of a frame's chrome no drawing is ever over.
+        var round = canvas.Frames.Single(one => one.Label == "Round");
+
+        Click(window, canvas, Over(canvas, round.Bounds.Left, round.Bounds.MidY));
+
+        Assert.NotNull(canvas.Highlight);
+
+        // Its one drawing names tint and nothing else.
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        var square = canvas.Frames.Single(one => one.Label == "Square");
+
+        Click(window, canvas, Over(canvas, square.Bounds.Left, square.Bounds.MidY));
+
+        Assert.Equal(new[] { "shade" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
     [AvaloniaFact]
     public async Task A_Selected_Group_Is_Let_Go_Of_By_The_Board()
     {

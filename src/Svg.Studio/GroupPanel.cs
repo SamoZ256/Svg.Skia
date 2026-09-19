@@ -714,27 +714,28 @@ public sealed class GroupPanel : UserControl
     /// what a drawing was built with <em>is</em> what it reaches, narrowed on the way in, so there
     /// is nothing here to read or parse again.
     ///
-    /// For a group that is the union over everything under it, since a name one of its drawings uses
-    /// is a name the group has a reason to show. Null where a drawing would not build or its block
-    /// would not read: not knowing what is reached is not the same as reaching nothing, and hiding a
-    /// row somebody is using is the worse of the two mistakes.
+    /// For a group that is the union over everything under <em>it</em> — one branch of the board,
+    /// not the board. A tab lays out every drawing beneath it, so asking the whole board what it
+    /// reaches answers for every branch at once, and the project's own tab then filtered nothing.
     ///
-    /// Only what sits above this tab is filtered by it — see the call.
+    /// Null where a drawing would not build or its block would not read: not knowing what is
+    /// reached is not the same as reaching nothing, and hiding a row somebody is using is the worse
+    /// of the two mistakes.
     /// </remarks>
     private IReadOnlyCollection<string>? Reaches()
     {
-        var built = _inspecting is { } inspecting ? new[] { inspecting.Built } : _built;
-
-        if (built.Count == 0)
+        // Nothing built at all is a board that has not been laid out yet, which is not the same as
+        // a selection that reaches nothing.
+        if (_built.Count == 0 && ((ProjectGroup)Node).Drawings.Any())
         {
-            // Nothing built yet is a board that has not been laid out, not a group whose drawings
-            // use nothing — and a group that really holds none has nothing above it to hide.
-            return ((ProjectGroup)Node).Drawings.Any() ? null : new HashSet<string>(StringComparer.Ordinal);
+            return null;
         }
 
+        var subject = Subject();
         var names = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var drawn in built)
+        // A drawing descends from itself, so the picked-drawing case needs no rule of its own.
+        foreach (var drawn in _built.Where(one => one.Drawing.DescendsFrom(subject)))
         {
             if (drawn.Document is not { DeclarationError: null } document)
             {
