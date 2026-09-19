@@ -563,39 +563,7 @@ public class SvgViewerCanvasTests
 
     /// <summary>How many pixels of a rectangle are not the drawing's own blue.</summary>
     private static int Written(Window window, PixelRect where)
-    {
-        var frame = window.CaptureRenderedFrame()
-            ?? throw new InvalidOperationException("No rendered frame was captured.");
-
-        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-name-{Guid.NewGuid():N}.png");
-        frame.Save(path);
-
-        try
-        {
-            using var bitmap = SKBitmap.Decode(path);
-
-            var found = 0;
-
-            for (var x = where.X; x < where.Right; x++)
-            {
-                for (var y = where.Y; y < where.Bottom; y++)
-                {
-                    var pixel = bitmap!.GetPixel(x, y);
-
-                    if (pixel.Blue < 200 || pixel.Red > 80)
-                    {
-                        found++;
-                    }
-                }
-            }
-
-            return found;
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
+        => Counted(window, where, pixel => pixel.Blue < 200 || pixel.Red > 80);
 
     /// <summary>
     /// A group's name is drawn over the drawings its frame holds, not under them.
@@ -645,11 +613,23 @@ public class SvgViewerCanvasTests
 
     /// <summary>How much of a rectangle of the frame the selection ring paints.</summary>
     private static int Ringed(Window window, PixelRect where)
+        // Orange: red up, blue down, and green in between — which the blue drawing under it, the
+        // grey bounds outline and the white ground are all outside.
+        => Counted(window, where, pixel => pixel.Red > 180 && pixel.Green is > 70 and < 230 && pixel.Blue < 110);
+
+    /// <summary>How many pixels of a rectangle of the rendered frame <paramref name="is"/> answers for.</summary>
+    /// <remarks>
+    /// One capture and one decode for the whole rectangle, and one place that asks a window what it
+    /// painted: three copies of this had grown, and each of them reached for the deprecated save
+    /// that this repository counts the warnings of.
+    /// </remarks>
+    private static int Counted(Window window, PixelRect where, Func<SKColor, bool> @is)
     {
         var frame = window.CaptureRenderedFrame()
             ?? throw new InvalidOperationException("No rendered frame was captured.");
 
-        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-ring-{Guid.NewGuid():N}.png");
+        var path = Path.Combine(Path.GetTempPath(), $"svg-viewer-pixels-{Guid.NewGuid():N}.png");
+
         frame.Save(path);
 
         try
@@ -662,11 +642,7 @@ public class SvgViewerCanvasTests
             {
                 for (var y = where.Y; y < where.Bottom && y < bitmap.Height; y++)
                 {
-                    var pixel = bitmap.GetPixel(x, y);
-
-                    // Orange: red up, blue down, and green in between — which the blue drawing under
-                    // it, the grey bounds outline and the white ground are all outside.
-                    if (pixel.Red > 180 && pixel.Green is > 70 and < 230 && pixel.Blue < 110)
+                    if (@is(bitmap.GetPixel(x, y)))
                     {
                         found++;
                     }
