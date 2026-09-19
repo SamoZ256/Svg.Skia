@@ -2224,6 +2224,14 @@ public class MainWindowProjectTests : IDisposable
         </svg>
         """;
 
+    /// <summary>Another with a knob of its own, spelled the same and belonging to it alone.</summary>
+    private const string UsingAndDeclaringSquare = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs><e:code><e:param name="ring" type="number" default="2" min="0" max="10" /></e:code></defs>
+          <rect x="3" y="3" width="18" height="18" fill="{{ tint }}" stroke-width="{{ ring }}" stroke="#000000" />
+        </svg>
+        """;
+
     /// <summary>What a group declares for everything under it: one colour.</summary>
     private const string GroupTint = """
         <e:code xmlns:e="https://svg.skia/expr/1.0"><e:param name="tint" type="color" default="#00ff00" /></e:code>
@@ -2475,9 +2483,10 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task Picking_A_Drawing_Leaves_The_Parameters_Alone()
+    public async Task Picking_A_Drawing_Leaves_The_Groups_Rows_Alone()
     {
-        // They are the group's, not the selection's: picking a drawing is about the Element tab.
+        // The selection contributes the last section and nothing else: the chain above it is the
+        // group's either way, and a value somebody dragged there stays where they put it.
         var window = await Host(Owned(GroupTint, Using, UsingAndDeclaring));
         var panel = await Group(window, 0);
 
@@ -2486,10 +2495,100 @@ public class MainWindowProjectTests : IDisposable
 
         Pick(window, panel, 1);
 
-        var row = Declarations(panel).Parameters!.Single();
+        var rows = Declarations(panel).Parameters!;
 
-        Assert.Equal("tint", row.Name);
-        Assert.Equal(Colors.Red, ((SvgViewerColorParameter)row).Color);
+        Assert.Equal(new[] { "tint", "ring" }, rows.Select(row => row.Name).ToArray());
+        Assert.Equal(Colors.Red, ((SvgViewerColorParameter)rows[0]).Color);
+    }
+
+    /// <summary>
+    /// Picking a drawing shows what it declares for itself, under what it inherits.
+    /// </summary>
+    /// <remarks>
+    /// In the order the drawing is built, which is the order its generated arguments come out in:
+    /// the project root's block, each group down to this one, and the drawing's own last.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Picking_A_Drawing_Shows_What_It_Declares_Itself()
+    {
+        var window = await Host(Owned(GroupTint, UsingAndDeclaring, Using));
+        var panel = await Group(window, 0);
+
+        // Nothing picked: the group's chain, and no drawing's section.
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        Pick(window, panel, 0);
+
+        var rows = Declarations(panel).Parameters!;
+
+        Assert.Equal(new[] { "tint", "ring" }, rows.Select(row => row.Name).ToArray());
+
+        // And each says where it came from, for everything that is not this group's own.
+        Assert.Null(rows[0].OwnerLabel);
+        Assert.Equal("from one", rows[1].OwnerLabel);
+
+        // Picking the one that declares nothing of its own takes the section away again.
+        Pick(window, panel, 1);
+
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    /// <summary>
+    /// A row a drawing declares for itself moves that drawing and no other.
+    /// </summary>
+    /// <remarks>
+    /// Two drawings each declaring a `ring` of their own have two parameters that happen to be
+    /// spelled alike. Moving both from one slider is the guess this panel was built to stop making.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Drawings_Own_Row_Moves_That_Drawing_Alone()
+    {
+        var window = await Host(Owned(GroupTint, UsingAndDeclaring, UsingAndDeclaringSquare));
+        var panel = await Group(window, 0);
+
+        var placements = Drawn(panel);
+
+        Pick(window, panel, 0);
+
+        var rows = Declarations(panel).Parameters!;
+
+        ((SvgViewerNumberParameter)rows.Single(row => row.Name == "ring")).Value = 7d;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("7", Value(placements[0], "ring"));
+        Assert.Equal("2", Value(placements[1], "ring"));
+
+        // The group's row still moves both, which is what a group's row is for.
+        ((SvgViewerColorParameter)rows.Single(row => row.Name == "tint")).Color = Colors.Red;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.All(placements, placed => Assert.Equal("#ff0000ff", Value(placed, "tint")));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawings_Own_Row_Is_Written_Into_That_Drawing()
+    {
+        var path = Owned(GroupTint, UsingAndDeclaring, Using);
+        var window = await Host(path);
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var rows = Declarations(panel).Parameters!;
+
+        ((SvgViewerNumberParameter)rows.Single(row => row.Name == "ring")).Value = 7d;
+        Dispatcher.UIThread.RunJobs();
+
+        // Keeping the values writes each row into whatever holds it: the drawing takes its own.
+        Assert.True(panel.CommitDefaults());
+        Dispatcher.UIThread.RunJobs();
+
+        var xml = window.Workspace!.Document.ToXml();
+
+        Assert.Contains("default=\"7\"", xml, StringComparison.Ordinal);
+
+        // In the drawing, under the group's block rather than in it.
+        Assert.True(xml.IndexOf("<drawing", StringComparison.Ordinal) < xml.IndexOf("default=\"7\"", StringComparison.Ordinal));
     }
 
     [AvaloniaFact]
