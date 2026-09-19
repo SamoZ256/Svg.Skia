@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+* **A drawing inherits only the declarations it reaches.** Its own `<e:code>` is its stated API and
+  is built in whole; what a group declares above it is ambient, and only the part its expressions
+  actually name comes with it — closed over the inherited lets, so a let drags in whatever its body
+  needs. Without it every inherited `<e:param>` became an argument of the generated `Draw`, and a
+  project declaring forty variables would have given every icon a forty-argument method.
+
+  The names a drawing's own block declares count as reached even where nothing uses them, so a
+  drawing redeclaring what its group declares is still refused rather than quietly shadowing it. An
+  expression that will not read keeps the whole chain: dropping a declaration that is in fact used
+  breaks the drawing, and whatever reads the text next says what is wrong with it far better.
+
+  A drawing that inherits nothing is unaffected, so `svgc` generates exactly what it did.
+
+* **Converting a PaintCode document places its variables where they are shared.** PaintCode declares
+  once for the whole library and the conversion gives every drawing a copy of what it uses; a name
+  two drawings in a desk share now goes to that desk's group, one two desks share goes to the
+  project, and one drawing's own stays with it. The convert dialog asks, ticked — unticking it puts
+  them all on the project instead.
+
+  It is a project operation rather than a PaintCode one: `ProjectPlacement` reads the blocks the
+  drawings already carry, so any project that repeats a declaration can be tidied the same way.
+  A name two drawings mean differently is left where it is — they are not one declaration, and
+  hoisting either would silently change what the other draws — and a hoisted let brings what it
+  reads up with it, since the blocks merge outermost first.
+
+  This is also what puts back the family slider a PaintCode project lost when the parameter fan-out
+  was scrapped: those identical per-drawing blocks were what used to tie one together.
+
 * **A group in Svg.Studio declares.** A `<group>` — and `<studio>`, which is one — may carry an
   `<e:code>` block, and every drawing under it is built with that block written in front of its own,
   outermost first. One parameter, in one place, driving the family that sits under it.
