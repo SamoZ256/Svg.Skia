@@ -154,6 +154,13 @@ public sealed class GroupPanel : UserControl
     /// <summary>The drawing the tree is showing, and where it sits on the canvas.</summary>
     private (SvgViewerPlacement Placement, Drawn Built)? _inspecting;
 
+    /// <summary>The group that is selected, where one is rather than a drawing.</summary>
+    /// <remarks>
+    /// The two are the one selection and never both: a board has one thing being looked at, and
+    /// <see cref="Subject"/> is what the panes are about.
+    /// </remarks>
+    private ProjectGroup? _selected;
+
     /// <summary>The element being looked at inside it, by the address that survives a rebuild.</summary>
     /// <remarks>
     /// The address and not the element: a drawing read again is a different graph, so the key is the
@@ -775,8 +782,9 @@ public sealed class GroupPanel : UserControl
         yield return subject;
     }
 
-    /// <summary>What the panel is about: the drawing that is picked, or this tab's own group.</summary>
-    private ProjectNode Subject() => _inspecting is { } inspecting ? inspecting.Built.Drawing : Node;
+    /// <summary>What the panel is about: whatever is selected, or this tab's own group.</summary>
+    private ProjectNode Subject()
+        => _inspecting is { } inspecting ? inspecting.Built.Drawing : _selected ?? Node;
 
     /// <summary>The text <paramref name="holder"/> keeps its declarations in.</summary>
     /// <remarks>
@@ -1222,6 +1230,7 @@ public sealed class GroupPanel : UserControl
         // used to empty the Parameters and Element tabs — a settings edit did it, and a drawing
         // moved on the board would do it on every drop.
         var was = _inspecting?.Built.Drawing;
+        var chosen = _selected;
         var picked = _picked;
 
         Forget();
@@ -1298,10 +1307,18 @@ public sealed class GroupPanel : UserControl
 
             TrackGizmo();
         }
+        else if (chosen is { } group
+                 && _framed.FirstOrDefault(framed => ReferenceEquals(framed.Group, group)) is { Group: { } } still)
+        {
+            // A group keeps its ring across a rebuild the way a drawing keeps its own. Its frame is
+            // measured afresh, so the ring is taken from where the board has just put it rather
+            // than from where it was.
+            Choose(still.Group, still.Frame.Bounds);
+        }
         else
         {
-            // Inspect shows the rows for the drawing it takes; nothing was taken, so the panel is
-            // the chain alone and has to be told that the drawing's section has gone.
+            // Inspect and Choose show the rows for what they take; nothing was taken, so the panel
+            // is the chain alone and has to be told that the selection's section has gone.
             ShowDeclarations();
         }
 
@@ -1411,18 +1428,49 @@ public sealed class GroupPanel : UserControl
             }
         }
 
-        // By the name written above it rather than by anywhere inside it. A frame spans the room
-        // between the drawings it holds, so grabbing that left nowhere on a full board to move the
-        // view from: a press in the gap between two icons carried the whole group instead.
+        return Framed(at) is { } framed ? (framed.Group, framed.Bounds) : null;
+    }
+
+    /// <summary>The group whose frame is taken hold of at <paramref name="at"/>, innermost first.</summary>
+    /// <remarks>
+    /// By the name written above it and by the line round it, rather than by anywhere inside it. A
+    /// frame spans the room between the drawings it holds, so answering for that left nowhere on a
+    /// full board to move the view from: a press in the gap between two icons carried the whole
+    /// group instead.
+    /// </remarks>
+    private (ProjectGroup Group, SKRect Bounds)? Framed(SKPoint at)
+    {
         foreach (var (frame, group) in _framed.OrderBy(framed => framed.Frame.Bounds.Width * framed.Frame.Bounds.Height))
         {
-            if (_canvas.TitleOf(frame).Contains(at.X, at.Y))
+            if (_canvas.Grabs(frame, at))
             {
                 return (group, frame.Bounds);
             }
         }
 
         return null;
+    }
+
+    /// <summary>Makes <paramref name="group"/> what the tab is about, and rings it.</summary>
+    /// <remarks>
+    /// The same ring a picked element wears, round the frame instead of round a silhouette: what it
+    /// means is "this is the selection", and a board has one selection whether that is a shape, a
+    /// drawing or a group.
+    /// </remarks>
+    private void Choose(ProjectGroup group, SKRect bounds)
+    {
+        Deselect();
+
+        _selected = group;
+        _showing.Text = ProjectWorkspace.Label(group);
+
+        var ring = new SKPath();
+
+        ring.AddRect(bounds);
+
+        _canvas.Highlight = ring;
+
+        ShowDeclarations();
     }
 
     /// <summary>
@@ -1645,6 +1693,14 @@ public sealed class GroupPanel : UserControl
     {
         if (!_canvas.TryGetPlacementAt(at, out var placement, out var point) || placement is null)
         {
+            // Not on a drawing, so it is either a group's own chrome or the board itself.
+            if (_canvas.TryGetDrawingPoint(at, out var board) && Framed(board) is { } framed)
+            {
+                Choose(framed.Group, framed.Bounds);
+
+                return;
+            }
+
             // Beside every drawing rather than inside one, which is the board itself: that is a
             // click on nothing, and it puts the tab back to being about the group. Without it there
             // was no way back to what the group declares once a drawing had been picked.
@@ -2055,6 +2111,7 @@ public sealed class GroupPanel : UserControl
         _canvas.Gizmo = null;
 
         _inspecting = null;
+        _selected = null;
         _picked = null;
         _tree.Show(null);
         ShowElement(null);

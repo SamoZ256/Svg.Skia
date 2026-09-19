@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **A group is selected by its name or by the line round it**, and wears the same orange ring a
+  picked element does while it is. A board has one selection whether that is a shape, a drawing or a
+  group, so the panes follow it: selecting a group makes the tab about that group, showing what it
+  inherits and what it declares itself. A click on the board beside everything lets it go, and the
+  ring is taken again from where a rebuild has just put the frame.
+
 * **A caption is drawn at one size, whatever the zoom.** A drawing's name and a group's are chrome —
   they name what they sit by rather than being part of what is drawn — and scaling them with the
   drawings left them unreadable zoomed out and enormous zoomed in. The strip a frame is taken hold of
@@ -10,7 +16,9 @@
 
   `LabelSize` on a placement and on a frame is now the room an arrangement leaves for a caption
   rather than what the caption measures, and `SvgViewerCanvas.TitleOf` is where a frame's name lands
-  — only something that knows the zoom can say.
+  — only something that knows the zoom can say. How big it is drawn is **a setting**, since how big
+  is readable is about the screen somebody is at; thirteen pixels to start with rather than eleven,
+  a caption on a board sitting against drawings rather than inside a pane.
 
 * **The board can be moved around again.** Three things had made panning a group's tab nearly
   impossible once it held anything: the wheel always zoomed, a press carried whatever was under it,

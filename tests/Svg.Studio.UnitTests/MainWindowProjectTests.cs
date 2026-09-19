@@ -1257,6 +1257,101 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(window.Redo());
     }
 
+    /// <summary>A project whose nested group declares, so selecting it changes what the pane says.</summary>
+    private string Framed()
+        => Write("icons.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <e:code xmlns:e="https://svg.skia/expr/1.0">
+                <e:param name="tint" type="color" default="#00ff00" />
+              </e:code>
+              <group name="Inner" x="0" y="0">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="ring" type="number" default="2" min="0" max="10" />
+                </e:code>
+                <drawing name="one" x="0" y="0">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <circle cx="12" cy="12" r="10" fill="{{ tint }}" stroke-width="{{ ring }}" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+
+            """);
+
+    /// <summary>
+    /// A group is selected by its name or by the line round it, and wears the ring while it is.
+    /// </summary>
+    /// <remarks>
+    /// The same ring a picked element wears: what it means is "this is the selection", and a board
+    /// has one selection whether that is a shape, a drawing or a group.
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_Group_Is_Selected_By_Its_Name_Or_Its_Outline(bool byName)
+    {
+        var window = await Host(Framed());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        var canvas = Canvas(panel);
+        var framed = Assert.Single(canvas.Frames);
+
+        // Nothing selected: the project's tab is about the project.
+        Assert.Null(canvas.Highlight);
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        var at = byName
+            ? new SKPoint(canvas.TitleOf(framed).MidX, canvas.TitleOf(framed).MidY)
+            : new SKPoint(framed.Bounds.Left, framed.Bounds.MidY);
+
+        Click(window, canvas, Over(canvas, at.X, at.Y));
+
+        // Rung, and the tab is about the group: what it inherits and what it declares itself.
+        Assert.NotNull(canvas.Highlight);
+        Assert.Equal(new[] { "tint", "ring" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    [AvaloniaFact]
+    public async Task A_Selected_Group_Is_Let_Go_Of_By_The_Board()
+    {
+        var window = await Host(Framed());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        var canvas = Canvas(panel);
+        var framed = Assert.Single(canvas.Frames);
+
+        Click(window, canvas, Over(canvas, canvas.TitleOf(framed).MidX, canvas.TitleOf(framed).MidY));
+
+        Assert.NotNull(canvas.Highlight);
+
+        // Beside everything on the board, which is a click on nothing.
+        Click(window, canvas, Over(canvas, framed.Bounds.Right + 60f, framed.Bounds.Bottom + 60f));
+
+        Assert.Null(canvas.Highlight);
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
+    [AvaloniaFact]
+    public async Task A_Selected_Group_Keeps_Its_Ring_Across_A_Rebuild()
+    {
+        var window = await Host(Framed());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        var canvas = Canvas(panel);
+        var framed = Assert.Single(canvas.Frames);
+
+        Click(window, canvas, Over(canvas, canvas.TitleOf(framed).MidX, canvas.TitleOf(framed).MidY));
+
+        Assert.NotNull(canvas.Highlight);
+
+        // The route a saved setting takes, which lays the board out again from scratch.
+        panel.Refresh();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotNull(Canvas(panel).Highlight);
+        Assert.Equal(new[] { "tint", "ring" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+    }
+
     [AvaloniaFact]
     public async Task A_Drag_Inside_A_Frame_Moves_The_View()
     {

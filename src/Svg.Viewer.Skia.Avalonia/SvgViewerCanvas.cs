@@ -686,6 +686,43 @@ public class SvgViewerCanvas : SKCanvasControl
     /// drawing units and changes as the view is zoomed. A quarter of that height below the top edge
     /// as well as the room above it, so the frame's own line is part of the target.
     /// </remarks>
+    /// <summary>How near a frame's outline a press counts as being on it, in control pixels.</summary>
+    /// <remarks>
+    /// A line one pixel wide is not something a pointer can be asked to land on, and the slack is
+    /// held in control pixels for the reason the line's width is: the target must not change size as
+    /// the view is zoomed.
+    /// </remarks>
+    private const double EdgeSlack = 4d;
+
+    /// <summary>
+    /// Whether <paramref name="at"/> is on the chrome <paramref name="framed"/> is taken hold of by.
+    /// </summary>
+    /// <remarks>
+    /// Its name and its outline, and nothing inside them. What is inside a frame is mostly the room
+    /// between the drawings it holds, and a host that answered for all of that left nowhere on a
+    /// full board to move the view from.
+    /// </remarks>
+    public bool Grabs(SvgViewerFrame framed, SKPoint at)
+    {
+        if (framed is null)
+        {
+            throw new ArgumentNullException(nameof(framed));
+        }
+
+        if (TitleOf(framed).Contains(at.X, at.Y))
+        {
+            return true;
+        }
+
+        var slack = (float)(EdgeSlack / _scale);
+
+        // On the line rather than within the frame: the inner rectangle is what the outline encloses
+        // and is nobody's to grab. A frame too small to have an inside is all edge, which is the
+        // right answer for one.
+        return SKRect.Inflate(framed.Bounds, slack, slack).Contains(at.X, at.Y)
+               && !SKRect.Inflate(framed.Bounds, -slack, -slack).Contains(at.X, at.Y);
+    }
+
     public SKRect TitleOf(SvgViewerFrame framed)
     {
         if (framed is null)
