@@ -130,8 +130,14 @@ table everything else here paints an expression with. `SvgExpressionPresenter` i
 in place of a `TextBox`'s own presenter, so the caret, the selection, composition and undo stay the
 box's. Selected text keeps its colours, which is what a reader wants of an expression.
 
-A let has no form and no `⋯`: it is a name and an expression, so the row is the editor. `Add let…`
-leaves an empty row to type into, `Enter` or leaving the row writes it, `Escape` puts it back. What
+The **Variables** pane is one list: the values a host supplies, and then the expressions computed
+from them. Two kinds, one list, because to somebody reading it they are all variables the drawing
+names — and one run of rows declared in the same place wears one heading across both. `Add
+variable…` asks which kind. A drag never crosses between them: the model keeps the two apart, so
+there is no position to write for a value among the expressions.
+
+A let has no form and no `⋯`: it is a name and an expression, so the row is the editor. Choosing
+`Expression` leaves an empty row to type into, `Enter` or leaving the row writes it, `Escape` puts it back. What
 is typed is checked against the parameters and the lets above it as it is typed, and nothing is
 written until it checks. Beside each row is what the let evaluates to right now, which follows the
 sliders, and a `✕` that removes it on the same terms as a parameter — a row nothing has been
