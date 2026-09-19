@@ -204,20 +204,26 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
     /// <summary>Marks the first row of each run of rows declared in the same place.</summary>
     /// <remarks>
-    /// Nothing is marked where every row came from the same place, which is every panel whose host
-    /// does not answer <see cref="DeclaredBy"/> at all: one heading over the lot says nothing the
-    /// heading already above it does not.
+    /// A run is headed whether or not another run is on show beside it. It used to take two to
+    /// write either, on the grounds that one heading over the lot said nothing — but a host that
+    /// narrows its rows to what the selection reaches shows one run most of the time, and the rule
+    /// then hid the origin exactly where it was least obvious: a drawing showing one inherited row
+    /// looked no different from one declaring that row itself.
+    ///
+    /// A row with no label is still unmarked, which is every panel whose host does not answer
+    /// <see cref="DeclaredBy"/> at all — a viewer showing a drawing that came from nowhere in
+    /// particular writes nothing over it.
     /// </remarks>
     private static void Section(IEnumerable<string?> labels, Action<int, bool> mark)
     {
         var all = labels.ToList();
-        var many = all.Distinct(StringComparer.Ordinal).Count() > 1;
 
         for (var index = 0; index < all.Count; index++)
         {
             mark(
                 index,
-                many && (index == 0 || !string.Equals(all[index], all[index - 1], StringComparison.Ordinal)));
+                all[index] is { Length: > 0 }
+                && (index == 0 || !string.Equals(all[index], all[index - 1], StringComparison.Ordinal)));
         }
     }
 

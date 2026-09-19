@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* **A row says where it came from even when every row on show came from the same place.** Heading a
+  run only when another was beside it made sense while a pane usually held several; narrowing the
+  rows to what the selection reaches leaves one run most of the time, so the rule hid the origin
+  exactly where it was least obvious — a drawing showing one inherited row looked no different from
+  one declaring that row itself. A row with no label is still unheaded, which is what keeps a plain
+  viewer plain.
+
 * **A selected group shows what it reaches, not what the board does.** The question "which of the
   names above this are reached" was being asked of every drawing the tab lays out rather than of the
   branch under the selection, so on the project's own tab — where every name is reached by

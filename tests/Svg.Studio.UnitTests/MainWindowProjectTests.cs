@@ -1273,6 +1273,30 @@ public class MainWindowProjectTests : IDisposable
             block => string.Equals(block.Text, "one", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// A row says where it came from even when every row on show came from the same place.
+    /// </summary>
+    /// <remarks>
+    /// Suppressing the heading over a single run made sense while a pane usually held several: one
+    /// heading over the lot said nothing. Narrowing to what the selection reaches leaves one run
+    /// most of the time, so the rule hid the origin exactly where it was least obvious — a drawing
+    /// showing one inherited row looked no different from one declaring that row itself.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Row_Says_Where_It_Came_From_Even_Alone()
+    {
+        var window = await Host(Apart());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        Pick(window, panel, 0);
+
+        var row = Assert.Single(Declarations(panel).Parameters!);
+
+        Assert.Equal("tint", row.Name);
+        Assert.Equal("Project", row.OwnerLabel);
+        Assert.True(row.ShowsOwner, "a row alone should still say where it came from");
+    }
+
     [AvaloniaFact]
     public async Task A_Selected_Group_Is_Let_Go_Of_By_The_Board()
     {
@@ -2874,16 +2898,20 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task Rows_From_One_Place_Wear_No_Heading()
+    public async Task A_Drawings_Own_Rows_Are_Headed_With_The_Drawing()
     {
-        // A drawing on its own, declaring for itself: there is nowhere else for a row to be from,
-        // and a heading saying so is noise.
+        // A drawing declaring for itself, and nothing above it declaring anything: one run, and it
+        // is still worth saying whose. The alternative reads as a row from nowhere, which after
+        // narrowing is what most panes would look like.
         var window = await Host(Own(Declaring, Declaring));
         var panel = await Group(window, 0);
 
         Pick(window, panel, 0);
 
-        Assert.All(Declarations(panel).Parameters!, row => Assert.False(row.ShowsOwner));
+        var row = Assert.Single(Declarations(panel).Parameters!);
+
+        Assert.Equal("one", row.OwnerLabel);
+        Assert.True(row.ShowsOwner);
     }
 
     /// <summary>

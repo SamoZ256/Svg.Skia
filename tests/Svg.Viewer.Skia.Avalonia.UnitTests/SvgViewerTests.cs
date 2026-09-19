@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -62,6 +62,25 @@ public class SvgViewerTests
         Dispatcher.UIThread.RunJobs();
 
         return (window, viewer);
+    }
+
+    /// <summary>
+    /// A viewer nobody has told where the rows came from writes nothing over them.
+    /// </summary>
+    /// <remarks>
+    /// A run is headed whether or not another is on show beside it, so what keeps a plain viewer
+    /// plain is the row having no label rather than there being only one of them.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Rows_Nobody_Has_Placed_Wear_No_Heading()
+    {
+        var (window, viewer) = await HostLoaded();
+
+        Assert.NotEmpty(viewer.Parameters);
+        Assert.All(viewer.Parameters, row => Assert.Null(row.OwnerLabel));
+        Assert.All(viewer.Parameters, row => Assert.False(row.ShowsOwner));
+
+        window.Close();
     }
 
     private const string Plain = """
