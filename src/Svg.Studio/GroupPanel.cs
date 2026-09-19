@@ -1464,11 +1464,11 @@ public sealed class GroupPanel : UserControl
         _selected = group;
         _showing.Text = ProjectWorkspace.Label(group);
 
-        var ring = new SKPath();
+        using var ring = new SKPathBuilder();
 
         ring.AddRect(bounds);
 
-        _canvas.Highlight = ring;
+        _canvas.Highlight = ring.Detach();
 
         ShowDeclarations();
     }
