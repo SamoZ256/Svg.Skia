@@ -1388,9 +1388,12 @@ public sealed class GroupPanel : UserControl
             }
         }
 
+        // By the name written above it rather than by anywhere inside it. A frame spans the room
+        // between the drawings it holds, so grabbing that left nowhere on a full board to move the
+        // view from: a press in the gap between two icons carried the whole group instead.
         foreach (var (frame, group) in _framed.OrderBy(framed => framed.Frame.Bounds.Width * framed.Frame.Bounds.Height))
         {
-            if (frame.Bounds.Contains(at.X, at.Y))
+            if (frame.Title.Contains(at.X, at.Y))
             {
                 return (group, frame.Bounds);
             }

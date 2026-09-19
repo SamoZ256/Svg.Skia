@@ -612,13 +612,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
     /// <summary>A frame with the room its name needs above it.</summary>
     private static SKRect Named(SvgViewerFrame framed)
-        => framed is { Label.Length: > 0, LabelSize: > 0f }
-            ? new SKRect(
-                framed.Bounds.Left,
-                framed.Bounds.Top - framed.LabelSize * 1.5f,
-                framed.Bounds.Right,
-                framed.Bounds.Bottom)
-            : framed.Bounds;
+        => framed.Title.IsEmpty ? framed.Bounds : SKRect.Union(framed.Title, framed.Bounds);
 
     private void SetView(double scale, double offsetX, double offsetY)
     {
