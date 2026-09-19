@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -224,9 +224,10 @@ public static class ExprFunctions
         ExprType.Color => "A paint expression",
         ExprType.Boolean => "A visibility expression",
         ExprType.Number => "An opacity expression",
+        ExprType.String => "A text expression",
 
-        // String and integer fall here rather than being named: no attribute holds either, so no
-        // expression is ever asked to produce one, and there is no use to describe.
+        // Integer falls here rather than being named: no attribute holds one, so no expression is
+        // ever asked to produce one, and there is no use to describe.
         _ => throw Unknown(expected),
     };
 

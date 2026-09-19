@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using Xunit;
 
@@ -99,6 +99,29 @@ public class SvgSourceDiagnosticsTests
         // And the ones that match say nothing.
         Assert.Empty(Of("<rect fill=\"{{ primary }}\" stroke=\"{{ tint }}\" opacity=\"{{ hue / 360 }}\" visibility=\"{{ hue gt 1 }}\" />"));
         Assert.Empty(Of("<stop stop-color=\"{{ tint }}\" />"));
+    }
+
+    /// <summary>
+    /// A string attribute is reported against, not thrown over.
+    /// </summary>
+    /// <remarks>
+    /// <c>DescribeUse</c> named the colour, boolean and number uses and threw on the rest, under a
+    /// comment saying no attribute held a string. Four do — <c>font-family</c>, <c>font-weight</c>,
+    /// <c>font-style</c> and <c>text-anchor</c> — so the throw was reachable from any of them, and
+    /// from a <c>TextChanged</c> handler in the element pane, which catches only an
+    /// <see cref="Svg.Expressions.ExprException"/>.
+    /// </remarks>
+    [Fact]
+    public void A_String_Attribute_Says_What_It_Wanted()
+    {
+        Assert.Equal("A text expression must be a string expression, but this one is a number.",
+            Assert.Single(Of("<text font-family=\"{{ hue }}\">hi</text>")).Message);
+
+        Assert.Equal("A text expression must be a string expression, but this one is a number.",
+            Assert.Single(Of("<text text-anchor=\"{{ hue }}\">hi</text>")).Message);
+
+        // And the one that matches says nothing.
+        Assert.Empty(Of("<text font-family=\"{{ 'Inter' }}\">hi</text>"));
     }
 
     [Fact]
