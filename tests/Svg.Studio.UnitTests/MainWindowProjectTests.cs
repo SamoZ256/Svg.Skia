@@ -188,7 +188,8 @@ public class MainWindowProjectTests : IDisposable
             <studio namespace="Demo.Icons">
               <drawing name="zebra"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" /></drawing>
               <group name="Middle">
-                <drawing name="yak"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" /></drawing>
+                <drawing name="icon10"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" /></drawing>
+                <drawing name="icon2"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" /></drawing>
                 <drawing name="Ant"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" /></drawing>
               </group>
               <drawing name="apple"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" /></drawing>
@@ -199,13 +200,14 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(path);
 
         // Case is not a section of its own: 'Ant' sorts with the a's rather than ahead of them.
+        // And a number reads as a number, so icon2 is above icon10 rather than below it.
         Assert.Equal(
-            new[] { "Project", "apple", "Middle", "Ant", "yak", "zebra" },
+            new[] { "Project", "apple", "Middle", "Ant", "icon2", "icon10", "zebra" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
         // The document is untouched, so what is drawn and what is generated go on as they were.
         Assert.Equal(
-            new[] { "zebra", "yak", "Ant", "apple" },
+            new[] { "zebra", "icon10", "icon2", "Ant", "apple" },
             window.Workspace!.Document.Root.Drawings.Select(drawing => drawing.Name).ToArray());
 
         Assert.Equal(text, File.ReadAllText(path));

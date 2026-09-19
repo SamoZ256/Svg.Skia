@@ -937,14 +937,11 @@ public partial class MainWindow : Window
     /// what the board lays out and what the generated C# follows; it is only the pane that sorts,
     /// so opening a project and closing it leaves the file exactly as it was found.
     ///
-    /// Invariant rather than the current culture, so the pane reads the same on every machine, and
-    /// ordinal after it so two names differing only in case keep a settled order instead of
-    /// swapping about between rebuilds.
+    /// <see cref="NaturalOrder"/> rather than a string comparison: a numbered import is the case
+    /// this is for, and plain text ordering puts icon10 above icon2 throughout it.
     /// </remarks>
     private static IEnumerable<ProjectNode> Sorted(IReadOnlyList<ProjectNode> children)
-        => children
-            .OrderBy(ProjectWorkspace.Label, StringComparer.InvariantCultureIgnoreCase)
-            .ThenBy(ProjectWorkspace.Label, StringComparer.Ordinal);
+        => children.OrderBy(ProjectWorkspace.Label, NaturalOrder.Instance);
 
     /// <summary>What can be done to a row, on the row rather than in the menu bar.</summary>
     /// <remarks>
