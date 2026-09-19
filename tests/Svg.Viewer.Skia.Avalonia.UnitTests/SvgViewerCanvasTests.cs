@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using Avalonia;
 using Avalonia.Controls;
@@ -753,7 +753,7 @@ public class SvgViewerCanvasTests
     {
         // A trackpad two finger scroll arrives as a wheel event with a fractional delta, where a
         // mouse notch is 1. Both have to land on the same curve, or a trackpad either does nothing
-        // or jumps.
+        // or jumps. With the accelerator held, since that is what makes the wheel zoom.
         var (window, canvas, document) = Host();
 
         var start = canvas.Scale;
@@ -763,6 +763,53 @@ public class SvgViewerCanvasTests
         Assert.True(nudged > start, "A fractional delta should still zoom.");
         Assert.True(nudged < start * 1.2d, "A fractional delta should zoom less than a full notch.");
         Assert.Equal(start * Math.Pow(1.2d, 0.1d), nudged, 6);
+
+        window.Close();
+        document.Dispose();
+    }
+
+    /// <summary>
+    /// The wheel on its own moves the view.
+    /// </summary>
+    /// <remarks>
+    /// It used to zoom whatever was held, which left a trackpad with no way to pan: there is no
+    /// middle button on one, and a press pans only where it lands on nothing.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Wheel_With_No_Accelerator_Pans()
+    {
+        var (window, canvas, document) = Host();
+
+        var scale = canvas.Scale;
+        Assert.True(canvas.TryGetDrawingPoint(new Point(200, 100), out var before));
+
+        canvas.RaiseEvent(Wheel(canvas, -1d, new Point(200, 100), KeyModifiers.None, across: 2d));
+
+        Assert.True(canvas.TryGetDrawingPoint(new Point(200, 100), out var after));
+
+        // The view moved and nothing about how close it is changed.
+        Assert.Equal(scale, canvas.Scale, 6);
+        Assert.NotEqual(before.X, after.X, 3);
+        Assert.NotEqual(before.Y, after.Y, 3);
+
+        window.Close();
+        document.Dispose();
+    }
+
+    [AvaloniaFact]
+    public void A_Scroll_Carries_The_Canvas_The_Way_The_Fingers_Went()
+    {
+        var (window, canvas, document) = Host();
+
+        Assert.True(canvas.TryGetDrawingPoint(new Point(200, 100), out var before));
+
+        // A scroll downwards is a negative delta, and it carries what is on the canvas up — so the
+        // point under the pointer is one further down the drawing than it was.
+        canvas.RaiseEvent(Wheel(canvas, -1d, new Point(200, 100), KeyModifiers.None));
+
+        Assert.True(canvas.TryGetDrawingPoint(new Point(200, 100), out var after));
+
+        Assert.True(after.Y > before.Y, "Scrolling down should bring what is below into view.");
 
         window.Close();
         document.Dispose();
@@ -1121,7 +1168,13 @@ public class SvgViewerCanvasTests
             RoutedEvent = InputElement.PointerReleasedEvent
         });
 
-    private static PointerWheelEventArgs Wheel(SvgViewerCanvas canvas, double delta, Point position)
+    /// <summary>A wheel notch, which zooms only while the accelerator is held.</summary>
+    private static PointerWheelEventArgs Wheel(
+        SvgViewerCanvas canvas,
+        double delta,
+        Point position,
+        KeyModifiers modifiers = KeyModifiers.Meta,
+        double across = 0d)
         => new(
             canvas,
             new Pointer(0, PointerType.Mouse, true),
@@ -1129,8 +1182,8 @@ public class SvgViewerCanvasTests
             position,
             0,
             new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.Other),
-            KeyModifiers.None,
-            new Vector(0, delta))
+            modifiers,
+            new Vector(across, delta))
         {
             RoutedEvent = InputElement.PointerWheelChangedEvent
         };

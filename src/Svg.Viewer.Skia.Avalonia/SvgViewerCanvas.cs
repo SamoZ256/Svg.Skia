@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -670,21 +670,54 @@ public class SvgViewerCanvas : SKCanvasControl
     /// A pinch is a separate platform gesture, but Avalonia 12.0.0 keeps <c>Gestures</c> internal,
     /// so there is no public event for it.
     /// </remarks>
+    /// <summary>How far one notch of the wheel moves the view, in pixels.</summary>
+    /// <remarks>
+    /// What a scrolling pane moves by, so a canvas inside an application full of them moves the same
+    /// distance for the same gesture. A trackpad sends fractions of a notch and scales with it.
+    /// </remarks>
+    private const double WheelStep = 50d;
+
+    /// <summary>
+    /// The wheel moves the view, and moves it closer while the accelerator is held.
+    /// </summary>
+    /// <remarks>
+    /// It used to zoom whatever was held, which left a trackpad with no way to pan at all: there is
+    /// no middle button on one, and a press only pans where it lands on nothing — which on a board
+    /// covered in drawings is the margins. Scrolling to pan and accelerator-scrolling to zoom is
+    /// what every canvas this is next to on the same machine does.
+    /// </remarks>
     private void OnWheel(object? sender, PointerWheelEventArgs e)
     {
         // The ground may not move under what is being carried, or the pointer and the thing under
         // it part company.
-        if (_moving is { })
+        if (_moving is { } || _placed.Count == 0)
         {
             return;
         }
 
-        if (!IsZoomEnabled || _placed.Count == 0)
+        // Command on macOS, Control elsewhere, as the keyboard's own zoom is.
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Meta) || e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            if (!IsZoomEnabled)
+            {
+                return;
+            }
+
+            ZoomTo(_scale * Math.Pow(1.2d, e.Delta.Y), e.GetPosition(this));
+            e.Handled = true;
+
+            return;
+        }
+
+        if (!IsPanEnabled || e.Delta == default)
         {
             return;
         }
 
-        ZoomTo(_scale * Math.Pow(1.2d, e.Delta.Y), e.GetPosition(this));
+        // Added, so the view follows the fingers: a scroll downwards carries what is on the canvas
+        // up, which is the direction the platform already means by it.
+        SetView(_scale, _offsetX + (e.Delta.X * WheelStep), _offsetY + (e.Delta.Y * WheelStep));
+
         e.Handled = true;
     }
 
