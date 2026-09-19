@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* **A selected group shows what it reaches, not what the board does.** The question "which of the
+  names above this are reached" was being asked of every drawing the tab lays out rather than of the
+  branch under the selection, so on the project's own tab — where every name is reached by
+  something — selecting a group filtered nothing and showed the whole tree.
+
+* **A frame's name is clicked before the drawings under it.** It is drawn over them, so it has to be
+  answered for over them, or what is clicked is not what is seen. The strip is only as wide as the
+  name: the frame's full width would take the top off every drawing standing under it.
+
 * **A group's name sits inside its frame**, in the top corner, rather than on a line above it. A
   frame is now exactly what its bounds say: nothing is added to it when the view is fitted, and
   `SvgViewerFrame` no longer takes a label size, since there is no room to leave for writing that

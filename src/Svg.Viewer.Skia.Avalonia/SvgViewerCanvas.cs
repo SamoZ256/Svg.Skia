@@ -667,9 +667,9 @@ public class SvgViewerCanvas : SKCanvasControl
     /// inside it is mostly the room between the drawings it holds, and a host that grabbed that left
     /// nowhere to move the view from.
     ///
-    /// The strip is a fixed height on the control, like the writing in it, so it comes back here in
-    /// drawing units and changes as the view is zoomed. It runs down from the top edge, which is
-    /// where the name is written.
+    /// The strip is a fixed size on the control, like the writing in it, so it comes back here in
+    /// drawing units and changes as the view is zoomed. It runs down from the top edge and along as
+    /// far as the name does, which is where the name is written.
     /// </remarks>
     /// <summary>How near a frame's outline a press counts as being on it, in control pixels.</summary>
     /// <remarks>
@@ -715,17 +715,22 @@ public class SvgViewerCanvas : SKCanvasControl
             throw new ArgumentNullException(nameof(framed));
         }
 
-        if (framed is not { Label.Length: > 0 })
+        if (framed is not { Label: { Length: > 0 } name })
         {
             return SKRect.Empty;
         }
 
         var tall = (float)(_captionSize / _scale);
 
+        using var font = new SKFont(SKTypeface.Default, tall);
+
+        // As wide as the name and no wider. The frame's full width would be the whole top of it,
+        // and since this is answered before the drawings are, that would take the top strip off
+        // every drawing standing under it.
         return new SKRect(
             framed.Bounds.Left,
             framed.Bounds.Top,
-            framed.Bounds.Right,
+            framed.Bounds.Left + (tall * 0.7f) + font.MeasureText(name),
             framed.Bounds.Top + (tall * 1.6f));
     }
 

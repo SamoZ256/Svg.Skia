@@ -1425,6 +1425,13 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private (object Item, SKRect Bounds)? Held(SKPoint at)
     {
+        // Before the drawings, for the reason a click is answered that way: a frame's name is drawn
+        // over them, so it has to be taken hold of over them too.
+        if (Framed(at) is { } framed)
+        {
+            return (framed.Group, framed.Bounds);
+        }
+
         for (var index = _shown.Count - 1; index >= 0; index--)
         {
             var area = Area(_shown[index].Placement);
@@ -1435,7 +1442,7 @@ public sealed class GroupPanel : UserControl
             }
         }
 
-        return Framed(at) is { } framed ? (framed.Group, framed.Bounds) : null;
+        return null;
     }
 
     /// <summary>The group whose frame is taken hold of at <paramref name="at"/>, innermost first.</summary>
@@ -1698,16 +1705,18 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void Pick(Point at)
     {
+        // A frame's chrome before the drawings, because it is painted over them: what is clicked has
+        // to be what is seen. Its name is no wider than the name, and its outline sits beyond the
+        // drawings it holds, so what this takes from them is the little it covers.
+        if (_canvas.TryGetDrawingPoint(at, out var board) && Framed(board) is { } framed)
+        {
+            Choose(framed.Group, framed.Bounds);
+
+            return;
+        }
+
         if (!_canvas.TryGetPlacementAt(at, out var placement, out var point) || placement is null)
         {
-            // Not on a drawing, so it is either a group's own chrome or the board itself.
-            if (_canvas.TryGetDrawingPoint(at, out var board) && Framed(board) is { } framed)
-            {
-                Choose(framed.Group, framed.Bounds);
-
-                return;
-            }
-
             // Beside every drawing rather than inside one, which is the board itself: that is a
             // click on nothing, and it puts the tab back to being about the group. Without it there
             // was no way back to what the group declares once a drawing had been picked.

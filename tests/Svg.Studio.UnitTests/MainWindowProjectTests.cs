@@ -1231,6 +1231,48 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(new[] { "shade" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
     }
 
+    /// <summary>
+    /// A name over a drawing is still the group's to click, and the rest of the drawing is not.
+    /// </summary>
+    /// <remarks>
+    /// The name is drawn over the drawings its frame holds, so it has to be answered for over them
+    /// too — what is clicked has to be what is seen. It is no wider than the name, so a drawing
+    /// standing under it keeps everything the writing does not cover.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Name_Over_A_Drawing_Is_Still_The_Groups_To_Click()
+    {
+        var window = await Host(Apart());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        var canvas = Canvas(panel);
+        var round = canvas.Frames.Single(one => one.Label == "Round");
+        var title = canvas.TitleOf(round);
+
+        // The band runs into the drawing the frame holds, which is what makes this worth asking.
+        Assert.True(
+            title.Bottom > Area(Drawn(panel)[0]).Top,
+            "the name should reach into the drawing for this to be about anything");
+
+        Click(window, canvas, Over(canvas, title.MidX, title.MidY));
+
+        // The group, not the drawing under the writing.
+        Assert.NotNull(canvas.Highlight);
+        Assert.Equal(new[] { "tint" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
+
+        // What it takes from the drawing is the little the writing covers: the band stops at the end
+        // of the name rather than running the width of the frame.
+        Assert.True(title.Right < round.Bounds.Right, "the name's band should not span the frame");
+
+        // And the drawing is still the drawing: it declares nothing of its own, so what says so is
+        // the line above the tree rather than a section of the pane.
+        Pick(window, panel, 0);
+
+        Assert.Contains(
+            panel.GetVisualDescendants().OfType<TextBlock>(),
+            block => string.Equals(block.Text, "one", StringComparison.Ordinal));
+    }
+
     [AvaloniaFact]
     public async Task A_Selected_Group_Is_Let_Go_Of_By_The_Board()
     {
