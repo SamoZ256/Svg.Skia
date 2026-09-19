@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+* **The board can be moved around again.** Three things had made panning a group's tab nearly
+  impossible once it held anything: the wheel always zoomed, a press carried whatever was under it,
+  and a frame counted as under the pointer anywhere inside it — which on a full board is nearly
+  everywhere. The way out was the middle button, and a trackpad has none.
+
+  The wheel now moves the view, and Command — Control elsewhere, as the keyboard's own zoom already
+  is — makes it zoom; a trackpad pinch zooms too, the platform reporting that as a gesture of its
+  own rather than as a wheel with a modifier held. A frame is taken hold of by the strip its name is written on rather than by
+  anywhere inside it, which is what Figma does with a frame and what the name is there for; its
+  inside goes back to being canvas. A drawing is still carried from anywhere in its own box, being
+  the thing somebody means to move.
+
+  **A move on a board can now be taken back**, which matters because the first one on a board that
+  was never arranged writes a place for every row on the tab: one drag nobody meant turned a spread
+  into an arrangement, and the project has no undo of its own, so the only way back was by hand.
+  Undo and Redo on a group's tab put every place back, not only the one that was dragged.
+
 * **A drawing inherits only the declarations it reaches.** Its own `<e:code>` is its stated API and
   is built in whole; what a group declares above it is ambient, and only the part its expressions
   actually name comes with it — closed over the inherited lets, so a let drags in whatever its body

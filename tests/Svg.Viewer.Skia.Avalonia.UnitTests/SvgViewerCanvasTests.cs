@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using Avalonia;
 using Avalonia.Controls;
@@ -753,7 +753,7 @@ public class SvgViewerCanvasTests
     {
         // A trackpad two finger scroll arrives as a wheel event with a fractional delta, where a
         // mouse notch is 1. Both have to land on the same curve, or a trackpad either does nothing
-        // or jumps.
+        // or jumps. With the accelerator held, since that is what makes the wheel zoom.
         var (window, canvas, document) = Host();
 
         var start = canvas.Scale;
@@ -763,6 +763,119 @@ public class SvgViewerCanvasTests
         Assert.True(nudged > start, "A fractional delta should still zoom.");
         Assert.True(nudged < start * 1.2d, "A fractional delta should zoom less than a full notch.");
         Assert.Equal(start * Math.Pow(1.2d, 0.1d), nudged, 6);
+
+        window.Close();
+        document.Dispose();
+    }
+
+    /// <summary>
+    /// The wheel on its own moves the view.
+    /// </summary>
+    /// <remarks>
+    /// It used to zoom whatever was held, which left a trackpad with no way to pan: there is no
+    /// middle button on one, and a press pans only where it lands on nothing.
+    /// </remarks>
+    /// <summary>
+    /// A pinch on the trackpad zooms, without a modifier and without the wheel.
+    /// </summary>
+    /// <remarks>
+    /// The platform reports it as a gesture of its own, so it reaches the canvas whatever the wheel
+    /// has been given to do.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Pinch_Zooms_About_The_Pointer()
+    {
+        var (window, canvas, document) = Host();
+
+        var anchor = new Point(310, 140);
+        Assert.True(canvas.TryGetDrawingPoint(anchor, out var before));
+
+        canvas.RaiseEvent(Magnify(canvas, 0.25d, anchor));
+
+        // A quarter larger than it was, and the point under the pointer has not moved.
+        Assert.Equal(4d * 1.25d, canvas.Scale, 6);
+        Assert.True(canvas.TryGetDrawingPoint(anchor, out var after));
+        Assert.Equal(before.X, after.X, 3);
+        Assert.Equal(before.Y, after.Y, 3);
+
+        window.Close();
+        document.Dispose();
+    }
+
+    [AvaloniaFact]
+    public void A_Pinch_Compounds_The_Way_The_Wheel_Does()
+    {
+        var (window, canvas, document) = Host();
+
+        var start = canvas.Scale;
+
+        canvas.RaiseEvent(Magnify(canvas, 0.1d, new Point(200, 100)));
+        canvas.RaiseEvent(Magnify(canvas, 0.1d, new Point(200, 100)));
+
+        // Multiplied rather than added to: the platform says how much larger than a moment ago.
+        Assert.Equal(start * 1.1d * 1.1d, canvas.Scale, 6);
+
+        // And pinching the other way takes it back.
+        canvas.RaiseEvent(Magnify(canvas, -0.5d, new Point(200, 100)));
+
+        Assert.True(canvas.Scale < start * 1.1d * 1.1d, "Pinching in should zoom out.");
+
+        window.Close();
+        document.Dispose();
+    }
+
+    [AvaloniaFact]
+    public void A_Pinch_Is_Read_Whichever_Way_The_Backend_Sends_It()
+    {
+        // macOS has one number and puts it in one of the two; reading the other as well would double
+        // the gesture on a backend that filled in both.
+        var (window, canvas, document) = Host();
+
+        var start = canvas.Scale;
+
+        canvas.RaiseEvent(Magnify(canvas, 0.2d, new Point(200, 100), across: true));
+
+        Assert.Equal(start * 1.2d, canvas.Scale, 6);
+
+        window.Close();
+        document.Dispose();
+    }
+
+    [AvaloniaFact]
+    public void A_Wheel_With_No_Accelerator_Pans()
+    {
+        var (window, canvas, document) = Host();
+
+        var scale = canvas.Scale;
+        Assert.True(canvas.TryGetDrawingPoint(new Point(200, 100), out var before));
+
+        canvas.RaiseEvent(Wheel(canvas, -1d, new Point(200, 100), KeyModifiers.None, across: 2d));
+
+        Assert.True(canvas.TryGetDrawingPoint(new Point(200, 100), out var after));
+
+        // The view moved and nothing about how close it is changed.
+        Assert.Equal(scale, canvas.Scale, 6);
+        Assert.NotEqual(before.X, after.X, 3);
+        Assert.NotEqual(before.Y, after.Y, 3);
+
+        window.Close();
+        document.Dispose();
+    }
+
+    [AvaloniaFact]
+    public void A_Scroll_Carries_The_Canvas_The_Way_The_Fingers_Went()
+    {
+        var (window, canvas, document) = Host();
+
+        Assert.True(canvas.TryGetDrawingPoint(new Point(200, 100), out var before));
+
+        // A scroll downwards is a negative delta, and it carries what is on the canvas up — so the
+        // point under the pointer is one further down the drawing than it was.
+        canvas.RaiseEvent(Wheel(canvas, -1d, new Point(200, 100), KeyModifiers.None));
+
+        Assert.True(canvas.TryGetDrawingPoint(new Point(200, 100), out var after));
+
+        Assert.True(after.Y > before.Y, "Scrolling down should bring what is below into view.");
 
         window.Close();
         document.Dispose();
@@ -1121,7 +1234,30 @@ public class SvgViewerCanvasTests
             RoutedEvent = InputElement.PointerReleasedEvent
         });
 
-    private static PointerWheelEventArgs Wheel(SvgViewerCanvas canvas, double delta, Point position)
+    /// <summary>A trackpad magnify gesture, which the platform reports in one of the two axes.</summary>
+    private static PointerDeltaEventArgs Magnify(
+        SvgViewerCanvas canvas,
+        double magnification,
+        Point position,
+        bool across = false)
+        => new(
+            InputElement.PointerTouchPadGestureMagnifyEvent,
+            canvas,
+            new Pointer(0, PointerType.Mouse, false),
+            canvas,
+            position,
+            0,
+            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.Other),
+            KeyModifiers.None,
+            across ? new Vector(magnification, 0) : new Vector(0, magnification));
+
+    /// <summary>A wheel notch, which zooms only while the accelerator is held.</summary>
+    private static PointerWheelEventArgs Wheel(
+        SvgViewerCanvas canvas,
+        double delta,
+        Point position,
+        KeyModifiers modifiers = KeyModifiers.Meta,
+        double across = 0d)
         => new(
             canvas,
             new Pointer(0, PointerType.Mouse, true),
@@ -1129,8 +1265,8 @@ public class SvgViewerCanvasTests
             position,
             0,
             new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.Other),
-            KeyModifiers.None,
-            new Vector(0, delta))
+            modifiers,
+            new Vector(across, delta))
         {
             RoutedEvent = InputElement.PointerWheelChangedEvent
         };

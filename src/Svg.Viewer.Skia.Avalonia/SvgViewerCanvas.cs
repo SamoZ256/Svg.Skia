@@ -1,4 +1,4 @@
-// Copyright (c) Wiesław Šoltés. All rights reserved.
+﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -117,6 +117,11 @@ public class SvgViewerCanvas : SKCanvasControl
         // Tunnelling, because the pointer and wheel events are forwarded to the document's own
         // interaction dispatcher by anything hosting an SVG, and chrome gets first refusal.
         AddHandler(PointerWheelChangedEvent, OnWheel, RoutingStrategies.Tunnel);
+
+        // The trackpad's own zoom, which the platform reports as a gesture of its own rather than as
+        // a wheel with a modifier held. Bubbling, unlike its neighbours here: that is the only way
+        // this one is raised, and a tunnelling handler on it is never called at all.
+        AddHandler(PointerTouchPadGestureMagnifyEvent, OnMagnify, RoutingStrategies.Bubble);
 
         AddHandler(PointerPressedEvent, OnPressed, RoutingStrategies.Tunnel);
         AddHandler(PointerMovedEvent, OnMoved, RoutingStrategies.Tunnel);
@@ -612,13 +617,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
     /// <summary>A frame with the room its name needs above it.</summary>
     private static SKRect Named(SvgViewerFrame framed)
-        => framed is { Label.Length: > 0, LabelSize: > 0f }
-            ? new SKRect(
-                framed.Bounds.Left,
-                framed.Bounds.Top - framed.LabelSize * 1.5f,
-                framed.Bounds.Right,
-                framed.Bounds.Bottom)
-            : framed.Bounds;
+        => framed.Title.IsEmpty ? framed.Bounds : SKRect.Union(framed.Title, framed.Bounds);
 
     private void SetView(double scale, double offsetX, double offsetY)
     {
@@ -670,21 +669,86 @@ public class SvgViewerCanvas : SKCanvasControl
     /// A pinch is a separate platform gesture, but Avalonia 12.0.0 keeps <c>Gestures</c> internal,
     /// so there is no public event for it.
     /// </remarks>
+    /// <summary>How far one notch of the wheel moves the view, in pixels.</summary>
+    /// <remarks>
+    /// What a scrolling pane moves by, so a canvas inside an application full of them moves the same
+    /// distance for the same gesture. A trackpad sends fractions of a notch and scales with it.
+    /// </remarks>
+    private const double WheelStep = 50d;
+
+    /// <summary>
+    /// The wheel moves the view, and moves it closer while the accelerator is held.
+    /// </summary>
+    /// <remarks>
+    /// It used to zoom whatever was held, which left a trackpad with no way to pan at all: there is
+    /// no middle button on one, and a press only pans where it lands on nothing — which on a board
+    /// covered in drawings is the margins. Scrolling to pan and accelerator-scrolling to zoom is
+    /// what every canvas this is next to on the same machine does.
+    /// </remarks>
     private void OnWheel(object? sender, PointerWheelEventArgs e)
     {
         // The ground may not move under what is being carried, or the pointer and the thing under
         // it part company.
-        if (_moving is { })
+        if (_moving is { } || _placed.Count == 0)
         {
             return;
         }
 
-        if (!IsZoomEnabled || _placed.Count == 0)
+        // Command on macOS, Control elsewhere, as the keyboard's own zoom is.
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Meta) || e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            if (!IsZoomEnabled)
+            {
+                return;
+            }
+
+            ZoomTo(_scale * Math.Pow(1.2d, e.Delta.Y), e.GetPosition(this));
+            e.Handled = true;
+
+            return;
+        }
+
+        if (!IsPanEnabled || e.Delta == default)
         {
             return;
         }
 
-        ZoomTo(_scale * Math.Pow(1.2d, e.Delta.Y), e.GetPosition(this));
+        // Added, so the view follows the fingers: a scroll downwards carries what is on the canvas
+        // up, which is the direction the platform already means by it.
+        SetView(_scale, _offsetX + (e.Delta.X * WheelStep), _offsetY + (e.Delta.Y * WheelStep));
+
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// A pinch on the trackpad zooms about the pointer.
+    /// </summary>
+    /// <remarks>
+    /// The platform reports how much larger the gesture has just made whatever is under it, as a
+    /// fraction: a twentieth means a twentieth bigger than a moment ago, so the scale is multiplied
+    /// rather than added to and a pinch compounds the way the wheel's own notches do.
+    ///
+    /// Which way round the fraction arrives is the backend's business — macOS has one number and
+    /// puts it in one of the two — so whichever is not zero is the one to read. Summing them would
+    /// double the gesture on a backend that filled in both.
+    /// </remarks>
+    private void OnMagnify(object? sender, PointerDeltaEventArgs e)
+    {
+        // The ground may not move under what is being carried, as for the wheel.
+        if (_moving is { } || !IsZoomEnabled || _placed.Count == 0)
+        {
+            return;
+        }
+
+        var magnification = e.Delta.Y != 0d ? e.Delta.Y : e.Delta.X;
+
+        if (magnification == 0d)
+        {
+            return;
+        }
+
+        ZoomTo(_scale * (1d + magnification), e.GetPosition(this));
+
         e.Handled = true;
     }
 
