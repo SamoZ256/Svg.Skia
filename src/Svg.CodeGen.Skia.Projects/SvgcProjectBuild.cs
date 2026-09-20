@@ -268,6 +268,16 @@ public static class SvgcProjectBuild
         // the new size the way the format defines rather than by a scale wrapped around it.
         SvgSceneSizing.Apply(svgDocument, assetLoader, SizeFor(item, settings.Size));
 
+        // Asked for, and loud about it: the rewrite takes the text away from the layouts that
+        // place it per glyph, which is the only way one command can be given a different string.
+        if (settings.TextLayout == SvgTextLayout.Relaxed)
+        {
+            foreach (var given in SvgTextRelaxation.Apply(svgDocument))
+            {
+                log?.Invoke($"warning: {Path.GetFileName(item.Input)}: relaxed text layout -- {given}");
+            }
+        }
+
         // The declared defaults, in the document for as long as the compile lasts. A value the
         // compile consumes -- the text itself, the typeface it is measured with -- has to be there
         // before it is measured, and a build has only the defaults to put there: bound values are

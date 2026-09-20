@@ -16,6 +16,8 @@ internal class Settings
     public string? Cache { get; set; }
     public string? Emit { get; set; }
     public string? SkiaSharp { get; set; }
+
+    public string? TextLayout { get; set; }
     public string? Width { get; set; }
     public string? Height { get; set; }
     public string? Scale { get; set; }

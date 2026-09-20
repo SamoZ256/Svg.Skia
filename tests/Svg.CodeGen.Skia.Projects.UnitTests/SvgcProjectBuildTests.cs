@@ -134,6 +134,25 @@ public class SvgcProjectBuildTests : IDisposable
         Assert.Contains("float spare", code);
     }
 
+    /// <summary>
+    /// Relaxed takes the words away from the layout that placed them, so the argument reaches the
+    /// draw after all -- and says which rule it broke to get there.
+    /// </summary>
+    [Fact]
+    public void Relaxed_Draws_From_The_Argument_And_Says_What_It_Gave_Up()
+    {
+        var log = new List<string>();
+        var code = Build(DrivenPerSpan, SvgTextLayout.Relaxed, log);
+
+        Assert.Contains("public static SKPicture Record(string step = null)", code);
+        Assert.Contains("DrawText(step__default, ", code);
+
+        Assert.Contains(log, line => line.Contains("relaxed text layout") && line.Contains("<tspan>"));
+
+        // And nothing is reported frozen, because nothing was.
+        Assert.DoesNotContain(log, line => line.Contains("is frozen at its default"));
+    }
+
     [Fact]
     public void Strict_Still_Refuses_What_It_Cannot_Vary()
     {

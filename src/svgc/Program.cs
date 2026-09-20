@@ -220,6 +220,13 @@ class Program
         };
         rootCommand.AddOption(optionCache);
 
+        var optionTextLayout = new Option(new[] { "--text-layout" }, "What to do with text an expression drives: strict refuses it, baked writes the default in, relaxed draws it from the argument and gives up the layout rules that cannot follow a string")
+        {
+            IsRequired = false,
+            Argument = new Argument<string?>(getDefaultValue: () => null)
+        };
+        rootCommand.AddOption(optionTextLayout);
+
         var optionNamespace = new Option(new[] { "--namespace", "-n" }, "The generated C# namespace name")
         {
             IsRequired = false,
@@ -254,6 +261,7 @@ class Program
                 var cache = settings.Cache is { } ? SvgcProject.ParseCache(settings.Cache) : project?.Cache ?? SvgPictureCache.None;
                 var scope = settings.HelperScope is { } ? SvgcProject.ParseHelperScope(settings.HelperScope) : project?.HelperScope ?? SvgHelperScope.FileLocal;
                 var skiaSharp = settings.SkiaSharp is { } ? SvgcProject.ParseSkiaSharpTarget(settings.SkiaSharp) : project?.SkiaSharp ?? SkiaSharpTarget.V4;
+                var textLayout = SvgcProject.ParseTextLayout(settings.TextLayout);
                 var namespaceName = settings.Namespace ?? project?.Namespace ?? "Svg";
                 var className = settings.Class ?? project?.Class ?? "Generated";
                 var recipePath = settings.RecipeFile?.FullName ?? project?.Recipe;
@@ -281,6 +289,7 @@ class Program
                     Cache = cache,
                     HelperScope = scope,
                     SkiaSharp = skiaSharp,
+                    TextLayout = textLayout,
                     Namespace = namespaceName,
                     Class = className,
                     Recipe = recipePath,

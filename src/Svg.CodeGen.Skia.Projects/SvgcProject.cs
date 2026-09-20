@@ -209,6 +209,20 @@ public sealed class SvgcProject
         _ => throw new SvgcProjectException($"'{value}' is not a helper scope. Expected file, internal or perClass.")
     };
 
+    /// <summary>How a build treats text an expression drives, as a flag spells it.</summary>
+    /// <remarks>
+    /// Here with the other build settings although the project file carries no such attribute: what
+    /// a drawing gives up to be generated is a decision about one build, and a project that stated
+    /// it would be answering for every machine that ever builds it.
+    /// </remarks>
+    public static SvgTextLayout ParseTextLayout(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        null or "" or "strict" => SvgTextLayout.Strict,
+        "baked" => SvgTextLayout.Baked,
+        "relaxed" => SvgTextLayout.Relaxed,
+        _ => throw new SvgcProjectException($"'{value}' is not a text layout. Expected strict, baked or relaxed.")
+    };
+
     public static SkiaSharpTarget ParseSkiaSharpTarget(string? value) => value?.Trim() switch
     {
         null or "" or "4" => SkiaSharpTarget.V4,
