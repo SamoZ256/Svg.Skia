@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="Svg Studio | Svg.Skia">
-<meta name="twitter:description" content="Svg Studio src/Svg.Studio is the editor for a set of drawings: the icons of one product, built at the sizes and under the names the code that draws them wants. It opens one .svgstudio project at a time, and that project is one file — the settings, the tree and the drawings themselves. The format &lt;!-- icons.svgstudio --> &lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?> &lt;studio namespace=&quot;Demo.Icons&quot; singleFile=&quot;Icons.cs&quot;> &lt;drawing name=&quot;badge&quot; class=&quot;Badge&quot;> &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0...">
+<meta name="twitter:description" content="Svg Studio src/Svg.Studio is the editor for a set of drawings: the icons of one product, built at the sizes and under the names the code that draws them wants. It opens one .svgstudio project at a time, and that project is one file — the settings, the tree and the drawings themselves. The format &lt;!-- icons.svgstudio --> &lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?> &lt;studio namespace=&quot;Demo.Icons&quot;> &lt;drawing name=&quot;badge&quot; class=&quot;Badge&quot;> &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="Svg Studio | Svg.Skia">
 <meta property="og:title" content="Svg Studio | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="Svg Studio src/Svg.Studio is the editor for a set of drawings: the icons of one product, built at the sizes and under the names the code that draws them wants. It opens one .svgstudio project at a time, and that project is one file — the settings, the tree and the drawings themselves. The format &lt;!-- icons.svgstudio --> &lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?> &lt;studio namespace=&quot;Demo.Icons&quot; singleFile=&quot;Icons.cs&quot;> &lt;drawing name=&quot;badge&quot; class=&quot;Badge&quot;> &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0...">
+<meta property="og:description" content="Svg Studio src/Svg.Studio is the editor for a set of drawings: the icons of one product, built at the sizes and under the names the code that draws them wants. It opens one .svgstudio project at a time, and that project is one file — the settings, the tree and the drawings themselves. The format &lt;!-- icons.svgstudio --> &lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?> &lt;studio namespace=&quot;Demo.Icons&quot;> &lt;drawing name=&quot;badge&quot; class=&quot;Badge&quot;> &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="Svg Studio | Svg.Skia">
   </head>
@@ -150,7 +150,7 @@ that project is one file — the settings, the tree and the drawings themselves.
 <h2 id="the-format">The format</h2>
 <pre><code class="language-xml">&lt;!-- icons.svgstudio --&gt;
 &lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?&gt;
-&lt;studio namespace=&quot;Demo.Icons&quot; singleFile=&quot;Icons.cs&quot;&gt;
+&lt;studio namespace=&quot;Demo.Icons&quot;&gt;
 
   &lt;drawing name=&quot;badge&quot; class=&quot;Badge&quot;&gt;
     &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 24 24&quot; width=&quot;24&quot; height=&quot;24&quot;&gt;
@@ -159,7 +159,7 @@ that project is one file — the settings, the tree and the drawings themselves.
   &lt;/drawing&gt;
 
   &lt;group name=&quot;Large&quot; namespace=&quot;Demo.Icons.Large&quot; scale=&quot;2&quot;&gt;
-    &lt;drawing name=&quot;badge-large&quot; class=&quot;BadgeLarge&quot; output=&quot;Large/BadgeLarge.cs&quot;&gt;
+    &lt;drawing name=&quot;badge-large&quot; class=&quot;BadgeLarge&quot;&gt;
       &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 24 24&quot; width=&quot;24&quot; height=&quot;24&quot;&gt;…&lt;/svg&gt;
     &lt;/drawing&gt;
   &lt;/group&gt;
@@ -174,8 +174,9 @@ It is a label rather than an identifier, so a drawing copied three times is thre
 same thing until one of them is renamed.</li>
 <li>Settings are attributes wherever they appear, and a group hands its own down to everything under
 it: <code>namespace</code>, <code>class</code>, <code>padding</code> and the <code>width</code>/<code>height</code>/<code>scale</code> trio, which moves as one. The
-project also carries <code>singleFile</code>, <code>cache</code>, <code>helperScope</code> and <code>skiaSharp</code>, and a drawing carries
-the <code>output</code> its C# goes to.</li>
+project also carries <code>cache</code>, <code>helperScope</code> and <code>skiaSharp</code>. Where the C# goes is not among them:
+an export asks, so nothing in the file can come to disagree with the answer. A project written
+before that carries <code>output</code> or <code>singleFile</code>; they are dropped as it is read.</li>
 <li><code>x</code> and <code>y</code> say where a row sits on the board of the group holding it — both or neither, and
 relative to that board, so a group carries what it holds. They are the one pair that is inherited
 by nobody, and the build never sees them: a group is still folded into its drawings rather than
@@ -183,7 +184,7 @@ composed out of them.</li>
 <li>The file is written back as it was found — comments, attribute order, indentation and the
 drawings' own bytes. Editing one attribute rewrites that attribute.</li>
 </ul>
-<p><code>Project → Build</code> writes the outputs through the build <code>svgc</code> runs, so the two cannot come to
+<p><code>File → Export…</code> writes the project through the build <code>svgc</code> runs, so the two cannot come to
 disagree about what the project says.</p>
 <h2 id="opening-one">Opening one</h2>
 <p><code>File → Open</code>, a drop anywhere on the window including an empty one, or a path on the command line.
@@ -280,9 +281,11 @@ project's own edit. No tab wears a mark for it, because closing a tab would not 
 window title does, and closing the project asks about it by name.</li>
 </ul>
 <p><code>File → Save</code> hands the selected tab's work to the project and writes the project — one file, so one
-write, whatever was typed where. <code>File → Export…</code> writes the drawing being looked at somewhere else
-— as <code>.svg</code>, at the size the project builds it at and without the indentation the project wrote it
-at, or as <code>.cs</code> if the name says so.</p>
+write, whatever was typed where. <code>File → Export…</code> asks for one <code>.cs</code> and writes the whole project
+into it, whatever tab is in front: a project is one build, so there is nothing to pick. It takes the
+tab's own work with it, the same as a save does, and leaves the project where it was. With no project
+open it is the drawing being looked at that goes — as <code>.svg</code> at the size it is being drawn at, or as
+<code>.cs</code> if the name says so.</p>
 <h2 id="the-recovery-copy">The recovery copy</h2>
 <p>Studio keeps a copy of the project under your application data while it has work that is not on disk
 — sooner as more piles up behind it, and never the project's own file. Saving throws the copy away,
