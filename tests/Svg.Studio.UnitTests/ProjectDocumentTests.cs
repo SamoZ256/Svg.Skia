@@ -28,7 +28,7 @@ public class ProjectDocumentTests : IDisposable
     private const string Project = """
         <?xml version="1.0" encoding="utf-8"?>
         <!-- kept, so an edit is proven not to reformat the file -->
-        <studio namespace="Demo.Icons" singleFile="Icons.cs">
+        <studio namespace="Demo.Icons" skiaSharp="4">
 
           <drawing name="Badge" class="Badge">
             <svg xmlns="http://www.w3.org/2000/svg"
@@ -45,7 +45,7 @@ public class ProjectDocumentTests : IDisposable
           </drawing>
 
           <group name="Large" namespace="Demo.Icons.Large" scale="2">
-            <drawing name="BadgeLarge" output="Large/BadgeLarge.cs">
+            <drawing name="BadgeLarge">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
             </drawing>
           </group>
@@ -63,7 +63,7 @@ public class ProjectDocumentTests : IDisposable
 
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
-    private static ProjectDocument Read(string xml = Project) => ProjectDocument.Parse(xml, string.Empty);
+    private static ProjectDocument Read(string xml = Project) => ProjectDocument.Parse(xml);
 
     private static ProjectDrawing First(ProjectDocument document) => document.Root.Drawings.First();
 
@@ -123,9 +123,39 @@ public class ProjectDocumentTests : IDisposable
     {
         var document = Read();
 
-        document.Root.SingleFile = "Other.cs";
+        document.Root.SkiaSharp = SkiaSharpTarget.V3;
 
-        Assert.Equal(Project.Replace("Icons.cs", "Other.cs", StringComparison.Ordinal), document.ToXml());
+        Assert.Equal(Project.Replace("skiaSharp=\"4\"", "skiaSharp=\"3\"", StringComparison.Ordinal), document.ToXml());
+    }
+
+    /// <summary>
+    /// The format used to say where a build wrote, and a project written then still says it. It is
+    /// dropped rather than refused, so opening one works — and it is gone the next time it is
+    /// written, because nothing reads it any more.
+    /// </summary>
+    [Fact]
+    public void A_Project_Naming_Where_Its_Output_Went_Opens_Without_It()
+    {
+        var document = ProjectDocument.Parse("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <studio namespace="Demo.Icons" singleFile="Icons.cs">
+              <drawing name="Badge" output="Badge.cs">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+              </drawing>
+            </studio>
+            """);
+
+        Assert.Equal("Demo.Icons", document.Root.Namespace);
+        Assert.Equal("Badge", Assert.Single(document.Root.Drawings).Name);
+
+        Assert.Equal("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <studio namespace="Demo.Icons">
+              <drawing name="Badge">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+              </drawing>
+            </studio>
+            """, document.ToXml());
     }
 
     [Fact]
@@ -199,7 +229,7 @@ public class ProjectDocumentTests : IDisposable
 
 
               <group name="Large" namespace="Demo.Icons.Large" scale="2">
-                <drawing name="BadgeLarge" output="Large/BadgeLarge.cs">
+                <drawing name="BadgeLarge">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
                 </drawing>
               </group>
@@ -256,7 +286,7 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void Windows_Line_Endings_Survive_A_Save()
     {
-        var document = ProjectDocument.Parse(Project.Replace("\n", "\r\n", StringComparison.Ordinal), string.Empty);
+        var document = ProjectDocument.Parse(Project.Replace("\n", "\r\n", StringComparison.Ordinal));
         var drawing = First(document);
 
         Assert.Null(drawing.SetText(drawing.Text.Replace("#3b82f6", "#ff0000", StringComparison.Ordinal)));
@@ -296,7 +326,7 @@ public class ProjectDocumentTests : IDisposable
     [InlineData("<studio><drawing name=\"x\" x=\"left\" y=\"0\"><svg /></drawing></studio>", "is not a position")]
     public void A_Project_That_Says_Something_Unreadable_Is_Refused(string xml, string says)
     {
-        var refusal = Assert.ThrowsAny<Exception>(() => ProjectDocument.Parse(xml, string.Empty));
+        var refusal = Assert.ThrowsAny<Exception>(() => ProjectDocument.Parse(xml));
 
         Assert.Contains(says, refusal.Message, StringComparison.Ordinal);
     }
@@ -329,7 +359,7 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Place_Is_Read_And_Written_Where_It_Was()
     {
-        var document = ProjectDocument.Parse(Placed, string.Empty);
+        var document = ProjectDocument.Parse(Placed);
         var group = document.Root.Children.OfType<ProjectGroup>().Single();
         var alt = group.Drawings.Last();
 
@@ -347,7 +377,7 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Place_Is_Nobody_Elses_To_Inherit()
     {
-        var document = ProjectDocument.Parse(Placed, string.Empty);
+        var document = ProjectDocument.Parse(Placed);
         var group = document.Root.Children.OfType<ProjectGroup>().Single();
         var large = group.Drawings.First();
 
@@ -365,7 +395,7 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Place_Moved_To_Another_Board_Is_Rewritten_For_It()
     {
-        var document = ProjectDocument.Parse(Placed, string.Empty);
+        var document = ProjectDocument.Parse(Placed);
         var group = document.Root.Children.OfType<ProjectGroup>().Single();
         var badge = document.Root.Drawings.First();
 
@@ -391,7 +421,7 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Copy_Forgets_The_Place_It_Was_Made_From()
     {
-        var document = ProjectDocument.Parse(Placed, string.Empty);
+        var document = ProjectDocument.Parse(Placed);
         var group = document.Root.Children.OfType<ProjectGroup>().Single();
         var alt = group.Drawings.Single(drawing => drawing.Name == "BadgeAlt");
 
@@ -468,7 +498,7 @@ public class ProjectDocumentTests : IDisposable
     {
         // The case that was reported: a row put into a group nested inside another one. The chain is
         // summed, not just the group it lands in.
-        var document = ProjectDocument.Parse(Nested, string.Empty);
+        var document = ProjectDocument.Parse(Nested);
         var inner = Group(document, "Inner");
         var loose = document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Name == "Loose");
 
@@ -485,7 +515,7 @@ public class ProjectDocumentTests : IDisposable
     {
         // A group's own pair is the whole of it: its children are written against it, and laying a
         // board out is a translation, so nothing under it is touched or needs to be.
-        var document = ProjectDocument.Parse(Nested, string.Empty);
+        var document = ProjectDocument.Parse(Nested);
         var inner = Group(document, "Inner");
         var other = Group(document, "Other");
         var deep = inner.Drawings.Single();
@@ -507,7 +537,7 @@ public class ProjectDocumentTests : IDisposable
         // Two arranged boards inside a group that names no place of its own. Summing each chain all
         // the way to the project would give up here, and it does not have to: whatever the two share
         // cancels out of the difference, so the walk stops at the nearest node they have in common.
-        var document = ProjectDocument.Parse(Nested, string.Empty);
+        var document = ProjectDocument.Parse(Nested);
         var right = Group(document, "Right");
         var a = Group(document, "Left").Drawings.Single();
 
@@ -520,7 +550,7 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Row_With_No_Place_Arrives_Without_One()
     {
-        var document = ProjectDocument.Parse(Nested, string.Empty);
+        var document = ProjectDocument.Parse(Nested);
         var nowhere = document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Name == "Nowhere");
 
         Group(document, "Other").Move(nowhere, 0);
@@ -531,7 +561,7 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Place_Is_Forgotten_When_The_Board_It_Arrives_On_Is_A_Grid()
     {
-        var document = ProjectDocument.Parse(Nested, string.Empty);
+        var document = ProjectDocument.Parse(Nested);
         var loose = document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Name == "Loose");
 
         // Rows sit on this board and none of them names a place, so the board is a grid and the grid
@@ -546,7 +576,7 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Board_With_Nothing_On_It_Is_Not_A_Grid()
     {
-        var document = ProjectDocument.Parse(Nested, string.Empty);
+        var document = ProjectDocument.Parse(Nested);
         var loose = document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Name == "Loose");
 
         // Nothing to push: a group holding no rows has no queue for an arriving one to displace.
@@ -559,12 +589,11 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Place_Is_No_Business_Of_The_Build()
     {
-        var placed = ProjectDocument.Parse(Placed, string.Empty).Flatten();
+        var placed = ProjectDocument.Parse(Placed).Flatten();
         var plain = ProjectDocument.Parse(
             Placed.Replace(" x=\"0\" y=\"0\"", string.Empty, StringComparison.Ordinal)
                 .Replace(" x=\"120\" y=\"-40\"", string.Empty, StringComparison.Ordinal)
-                .Replace(" x=\"60\" y=\"8\"", string.Empty, StringComparison.Ordinal),
-            string.Empty).Flatten();
+                .Replace(" x=\"60\" y=\"8\"", string.Empty, StringComparison.Ordinal)).Flatten();
 
         Assert.Equal(plain.Items.Count, placed.Items.Count);
 
@@ -583,8 +612,12 @@ public class ProjectDocumentTests : IDisposable
         var project = Read().Flatten();
 
         Assert.Equal("Demo.Icons", project.Namespace);
-        Assert.Equal("Icons.cs", project.SingleFile);
         Assert.Equal(2, project.Items.Count);
+
+        // Where it goes is not the project's to say: an export lays the file it was asked for over
+        // these settings.
+        Assert.Null(project.SingleFile);
+        Assert.All(project.Items, item => Assert.Null(item.Output));
 
         var badge = project.Items[0];
         var large = project.Items[1];
@@ -1053,7 +1086,7 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Group_Holding_Nothing_Is_Somewhere_To_Declare()
     {
-        var document = ProjectDocument.Empty(_directory);
+        var document = ProjectDocument.Empty();
         var group = document.Root.AddGroup("Large", 0);
 
         Assert.Null(group.SetCode(
@@ -1073,7 +1106,7 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void An_Empty_Project_Is_A_Project_A_Drawing_Can_Be_Added_To()
     {
-        var document = ProjectDocument.Empty(_directory);
+        var document = ProjectDocument.Empty();
 
         // Not a file, and not named one: it becomes one when somebody says where it goes.
         Assert.Empty(document.Root.Children);

@@ -686,14 +686,6 @@ public sealed class ProjectDrawing : ProjectNode
     {
     }
 
-    public string? Output
-    {
-        get => ProjectDocument.Attribute(Element, "output");
-        set => Element.SetAttributeValue("output", Trimmed(value));
-    }
-
-    public string? ResolvedOutput => Owner.Resolve(Output);
-
     /// <summary>The drawing itself: the one <c>&lt;svg&gt;</c> this holds.</summary>
     public XElement Svg => Element.Elements().First();
 
@@ -780,14 +772,6 @@ public sealed class ProjectRoot : ProjectGroup
         set => Element.SetAttributeValue("skiaSharp", value is { } target ? (target == SkiaSharpTarget.V3 ? "3" : "4") : null);
     }
 
-    public string? SingleFile
-    {
-        get => Setting("singleFile");
-        set => Element.SetAttributeValue("singleFile", Trimmed(value));
-    }
-
-    public string? ResolvedSingleFile => Owner.Resolve(SingleFile);
-
     private static string CacheText(SvgPictureCache cache) => cache switch
     {
         SvgPictureCache.LastValue => "lastValue",
@@ -828,9 +812,16 @@ public sealed class ProjectDocument
 {
     private static readonly string[] s_settings =
     {
-        "namespace", "class", "cache", "helperScope", "singleFile", "skiaSharp",
+        "namespace", "class", "cache", "helperScope", "skiaSharp",
         "width", "height", "scale", "padding"
     };
+
+    /// <summary>Attributes the format used to have, which a file written before this still carries.</summary>
+    /// <remarks>
+    /// Dropped as the file is read rather than refused, so a project written by an older Studio
+    /// opens — and written out again without them, since where output goes is now asked for.
+    /// </remarks>
+    private static readonly string[] s_retired = { "output", "singleFile" };
 
     /// <summary>The expression extension, as a namespace rather than as the string it is declared as.</summary>
     /// <remarks>
@@ -839,22 +830,17 @@ public sealed class ProjectDocument
     /// </remarks>
     private static XNamespace Declarations => SvgExpressionDeclarations.Namespace;
 
-    private static readonly string[] s_groupAttributes =
+    // One list for both: a drawing names what a group does, since what it draws is the element's
+    // and not an attribute's.
+    private static readonly string[] s_nodeAttributes =
     {
         "name", "namespace", "class", "width", "height", "scale", "padding", "x", "y"
     };
 
-    // Everything a group can name, and where the generated file goes, which is about one drawing.
-    private static readonly string[] s_drawingAttributes =
-    {
-        "name", "output", "namespace", "class", "width", "height", "scale", "padding", "x", "y"
-    };
-
-    private ProjectDocument(SvgSourceDocument source, string? path, string baseDirectory)
+    private ProjectDocument(SvgSourceDocument source, string? path)
     {
         Source = source;
         Path = path;
-        BaseDirectory = baseDirectory;
         Root = new ProjectRoot(source.Document.Root!, this);
     }
 
@@ -870,14 +856,6 @@ public sealed class ProjectDocument
     /// </remarks>
     public string? Path { get; private set; }
 
-    /// <summary>What every relative path in the project resolves against.</summary>
-    /// <remarks>
-    /// The project's own directory once it has one. Before that it is where the project came from —
-    /// the directory of the document it was converted from — so a carried-over output still means
-    /// what it meant, and empty for a project that came from nowhere.
-    /// </remarks>
-    public string BaseDirectory { get; private set; }
-
     public static ProjectDocument Load(string path)
     {
         var full = System.IO.Path.GetFullPath(path);
@@ -886,17 +864,17 @@ public sealed class ProjectDocument
         // of the document here, and the file would lose three bytes on the first save.
         var text = new System.Text.UTF8Encoding(false).GetString(File.ReadAllBytes(full));
 
-        return Parse(text, System.IO.Path.GetDirectoryName(full) ?? string.Empty, full);
+        return Parse(text, full);
     }
 
-    public static ProjectDocument Parse(string xml, string baseDirectory) => Parse(xml, baseDirectory, null);
+    public static ProjectDocument Parse(string xml) => Parse(xml, null);
 
     /// <summary>A project holding nothing, not yet a file.</summary>
     /// <remarks>
     /// No namespace, because the build already defaults one and a guess written into the file would
     /// have to be found and corrected rather than simply typed.
     /// </remarks>
-    public static ProjectDocument Empty(string baseDirectory) => Parse(Blank, baseDirectory);
+    public static ProjectDocument Empty() => Parse(Blank);
 
     private const string Blank = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<studio>\n</studio>\n";
 
@@ -905,7 +883,7 @@ public sealed class ProjectDocument
     /// For text that is a project's but is not the project's file — a copy of unsaved work, which is
     /// restored as the project it is a copy of rather than as the file it was kept in.
     /// </remarks>
-    public static ProjectDocument Parse(string xml, string baseDirectory, string? path)
+    public static ProjectDocument Parse(string xml, string? path)
     {
         if (SvgSourceDocument.Read(xml, out var refusal) is not { } source)
         {
@@ -922,7 +900,7 @@ public sealed class ProjectDocument
             throw new SvgcProjectException($"The project root must be <studio>, but was <{element.Name.LocalName}>.");
         }
 
-        var document = new ProjectDocument(source, path, baseDirectory);
+        var document = new ProjectDocument(source, path);
 
         RequireKnownAttributes(element, s_settings, "studio");
 
@@ -938,6 +916,10 @@ public sealed class ProjectDocument
     }
 
     /// <summary>The same project as a build: the groups folded away, each drawing carrying itself.</summary>
+    /// <remarks>
+    /// Where the build writes is not among what this carries: the project names no file, so the
+    /// caller that asked for one lays it over these settings.
+    /// </remarks>
     public SvgcProject Flatten()
     {
         var items = new List<SvgcProjectItem>();
@@ -950,7 +932,7 @@ public sealed class ProjectDocument
                 // The name, since there is no file: it is what the build says it is reading and
                 // what a refusal names.
                 drawing.Name,
-                drawing.ResolvedOutput,
+                null,
                 drawing.ScopedNamespace,
                 // Its own name where nothing above claims one, rather than the build's default of
                 // "Generated" — which every drawing of a project would share.
@@ -974,7 +956,7 @@ public sealed class ProjectDocument
             Root.Cache,
             Root.HelperScope,
             Root.SkiaSharp,
-            Root.ResolvedSingleFile,
+            null,
             Root.Width,
             Root.Height,
             Root.Scale,
@@ -993,7 +975,6 @@ public sealed class ProjectDocument
         File.WriteAllText(path, ToXml(), new System.Text.UTF8Encoding(false));
 
         Path = System.IO.Path.GetFullPath(path);
-        BaseDirectory = System.IO.Path.GetDirectoryName(Path) ?? string.Empty;
     }
 
     /// <summary>The root of <paramref name="xml"/>, detached and ready to be put somewhere.</summary>
@@ -1011,7 +992,7 @@ public sealed class ProjectDocument
 
     internal ProjectGroup ReadGroup(XElement element, ProjectGroup parent)
     {
-        RequireKnownAttributes(element, s_groupAttributes, "group");
+        RequireKnownAttributes(element, s_nodeAttributes, "group");
         RequireName(element, "group");
 
         var group = ProjectGroup.Group(element, parent, this);
@@ -1024,7 +1005,7 @@ public sealed class ProjectDocument
 
     internal ProjectDrawing ReadDrawing(XElement element, ProjectGroup parent)
     {
-        RequireKnownAttributes(element, s_drawingAttributes, "drawing");
+        RequireKnownAttributes(element, s_nodeAttributes, "drawing");
 
         var name = RequireName(element, "drawing");
         var children = element.Elements().ToList();
@@ -1100,6 +1081,13 @@ public sealed class ProjectDocument
 
     private static void RequireKnownAttributes(XElement element, string[] allowed, string elementName)
     {
+        // Before the check rather than beside it: taken off the element, a retired attribute is not
+        // read by anything and is not written back either.
+        foreach (var retired in s_retired)
+        {
+            element.Attribute(retired)?.Remove();
+        }
+
         foreach (var attribute in element.Attributes())
         {
             // A namespace declaration is not a setting. One binding the expression prefix is what a
@@ -1158,9 +1146,4 @@ public sealed class ProjectDocument
     /// <summary>The break and indentation <paramref name="element"/> itself sits on.</summary>
     internal static string Leading(XElement element)
         => element.PreviousNode is XText text && text.Value.Contains("\n") ? text.Value : "\n";
-
-    internal string? Resolve(string? path)
-        => path is null || System.IO.Path.IsPathRooted(path) || BaseDirectory.Length == 0
-            ? path
-            : System.IO.Path.Combine(BaseDirectory, path);
 }

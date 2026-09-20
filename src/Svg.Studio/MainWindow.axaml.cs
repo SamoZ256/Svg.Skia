@@ -355,7 +355,7 @@ public partial class MainWindow : Window
     /// their mind. Public for the reason <see cref="ExportAsync"/> is: a way in without the menu.
     /// </remarks>
     public async Task NewProjectAsync()
-        => await OpenProjectAsync(ProjectDocument.Empty(string.Empty), false, Array.Empty<string>(), null)
+        => await OpenProjectAsync(ProjectDocument.Empty(), false, Array.Empty<string>(), null)
             .ConfigureAwait(true);
 
     /// <summary>
@@ -387,7 +387,7 @@ public partial class MainWindow : Window
         {
             // Off the UI thread: the document this was written for is 16 MB and a thousand drawings.
             document = await Task.Run(
-                () => ProjectImport.FromPaintCode(PaintCodeDocument.Load(source), options, notes, directory, organize))
+                () => ProjectImport.FromPaintCode(PaintCodeDocument.Load(source), options, notes, organize))
                 .ConfigureAwait(true);
         }
         catch (Exception failure) when (failure is PaintCodeException or SvgcProjectException or IOException or UnauthorizedAccessException)
@@ -411,6 +411,13 @@ public partial class MainWindow : Window
 
         return true;
     }
+
+    /// <summary>How many things a dialog names before it starts counting instead.</summary>
+    /// <remarks>
+    /// The dialog sizes itself to what it holds and has nothing to scroll, so an import that said
+    /// every note of a thousand-drawing document would make a window taller than the screen.
+    /// </remarks>
+    private const int Listed = 10;
 
     private static string Said(ProjectDocument document, IReadOnlyList<PaintCodeImportNote> notes)
     {
@@ -633,7 +640,7 @@ public partial class MainWindow : Window
         try
         {
             return ProjectRecovery.Read(recovery) is { } text
-                ? ProjectDocument.Parse(text, Path.GetDirectoryName(path) ?? string.Empty, path)
+                ? ProjectDocument.Parse(text, path)
                 : null;
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException)
@@ -715,98 +722,6 @@ public partial class MainWindow : Window
     private static bool Owned(TabItem item) => item.Tag is ProjectNode;
 
     private async void OnCloseProject(object? sender, EventArgs e) => await CloseProjectAsync();
-
-    private async void OnBuild(object? sender, EventArgs e) => await BuildAsync();
-
-    /// <summary>
-    /// Writes the open project's outputs, as svgc would.
-    /// </summary>
-    /// <remarks>
-    /// Through the same build svgc runs rather than one of its own, so what this writes and what
-    /// the tool writes cannot come to differ — they would differ silently, since both outputs
-    /// compile.
-    /// </remarks>
-    /// <returns>Whether anything was written.</returns>
-    public async Task<bool> BuildAsync()
-    {
-        if (_workspace is not { } workspace)
-        {
-            return false;
-        }
-
-        // A project with no file has no directory either, so an output written relative to it would
-        // land wherever Studio was started from. Saving first is the question that answers where —
-        // and it comes before the flatten, which resolves every output against that answer.
-        if (workspace.Document.Path is null && !await WriteAsync(workspace).ConfigureAwait(true))
-        {
-            return false;
-        }
-
-        var project = workspace.Document.Flatten();
-        var log = new List<string>();
-
-        IReadOnlyList<string> written;
-
-        try
-        {
-            // Off the UI thread: a project of any size compiles every drawing it names.
-            written = await Task.Run(
-                () => SvgcProjectBuild.Run(
-                    project,
-                    SvgcBuildSettings.For(project),
-                    new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())),
-                    line => log.Add(line))).ConfigureAwait(true);
-        }
-        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ExprException or IOException or UnauthorizedAccessException)
-        {
-            await Announce("The project couldn't be built", failure.Message).ConfigureAwait(true);
-
-            return false;
-        }
-
-        // The warnings are the half worth reading — a recipe that matched nothing, a default that
-        // will not reach a signature — and there is nowhere else they would be seen.
-        var said = log.Where(line => line.StartsWith("warning:", StringComparison.Ordinal)).ToList();
-
-        await Announce(
-            "Built",
-            said.Count > 0
-                ? string.Join(Environment.NewLine + Environment.NewLine, said.Prepend(Wrote(written)))
-                : Wrote(written)).ConfigureAwait(true);
-
-        return true;
-    }
-
-    /// <summary>How many things a dialog names before it starts counting instead.</summary>
-    /// <remarks>
-    /// The dialog sizes itself to what it holds and has nothing to scroll, so a project with an
-    /// output on every drawing — an ordinary icon set — would make a window taller than the screen.
-    /// </remarks>
-    private const int Listed = 10;
-
-    /// <summary>What a build came to, for the sentence that reports it.</summary>
-    /// <remarks>
-    /// In full. A project decides where its own output goes, and the name alone said nothing about
-    /// where that was — which is the one thing a build cannot be read back off the screen.
-    /// </remarks>
-    private static string Wrote(IReadOnlyList<string> written)
-    {
-        if (written.Count == 1)
-        {
-            return $"Wrote {written[0]}";
-        }
-
-        var lines = new List<string> { $"Wrote {written.Count} files:" };
-
-        lines.AddRange(written.Take(Listed));
-
-        if (written.Count > Listed)
-        {
-            lines.Add($"…and {written.Count - Listed} more.");
-        }
-
-        return string.Join(Environment.NewLine, lines);
-    }
 
     private void ShowProjectPane(bool show)
     {
@@ -2405,8 +2320,9 @@ public partial class MainWindow : Window
     /// </remarks>
     /// <summary>Offers only what the selected tab can do.</summary>
     /// <remarks>
-    /// Exporting is a drawing's, and a group tab holds none — the item stayed live over it and did
-    /// nothing at all when it was picked, which reads as the export having failed silently.
+    /// Without a project, exporting is a drawing's and a group tab holds none — the item stayed live
+    /// over it and did nothing at all when it was picked, which reads as the export having failed
+    /// silently. With one, every tab is a view of the project and the project is what goes.
     /// </remarks>
     private void UpdateMenu()
     {
@@ -2414,7 +2330,7 @@ public partial class MainWindow : Window
 
         if (Item(menu, "Export…") is { } export)
         {
-            export.IsEnabled = Selected() is { Document: { } };
+            export.IsEnabled = _workspace is { } || Selected() is { Document: { } };
         }
 
         if (Item(menu, "Save") is { } save)
@@ -2437,13 +2353,10 @@ public partial class MainWindow : Window
             saveAs.IsEnabled = Selected() is { Document: { } } && _tabs.SelectedItem is not TabItem { Tag: ProjectDrawing };
         }
 
-        // Both act on the project, and both did nothing at all when picked without one.
-        foreach (var header in new[] { "Build", "Close" })
+        // Acts on the project, and did nothing at all when picked without one.
+        if (Item(menu, "Close") is { } close)
         {
-            if (Item(menu, header) is { } item)
-            {
-                item.IsEnabled = _workspace is { };
-            }
+            close.IsEnabled = _workspace is { };
         }
     }
 
@@ -2519,46 +2432,78 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Asks where the selected drawing goes and in which form, and writes it there.
+    /// Asks where what is open goes — the project, or the drawing being looked at — and writes it.
     /// </summary>
     /// <remarks>
-    /// One question, because the panel's own type list answers both halves of it: the suggested
-    /// name is given without an extension, and the panel appends the one belonging to the type
-    /// chosen in it. <see cref="FilePickerSaveOptions.DefaultExtension"/> is left unset for the
+    /// A project is exported whatever tab is in front, because a project is one build: the tabs are
+    /// views of it, and picking one of them would have been asking which part of a build was meant.
+    ///
+    /// One question for a drawing, because the panel's own type list answers both halves of it: the
+    /// suggested name is given without an extension, and the panel appends the one belonging to the
+    /// type chosen in it. <see cref="FilePickerSaveOptions.DefaultExtension"/> is left unset for the
     /// same reason — measured on Avalonia 12.1.0, setting it to <c>svg</c> overrode the chosen
-    /// type, and a name saved under "C# Files" came back as <c>.svg</c>.
+    /// type, and a name saved under "C# Files" came back as <c>.svg</c>. A project has one form, so
+    /// its panel offers the one type and asks only where.
     /// </remarks>
     /// <returns>Whether anything was written.</returns>
     public async Task<bool> ExportAsync()
     {
-        if (Selected() is not { Document: { } } viewer || !StorageProvider.CanSave)
+        if (!StorageProvider.CanSave)
+        {
+            return false;
+        }
+
+        var project = _workspace;
+
+        if (project is null && Selected() is not { Document: { } })
         {
             return false;
         }
 
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "Export drawing",
-            SuggestedFileName = _tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing }
-                ? drawing.Name
-                : viewer.DocumentPath is { } path
-                    ? Path.GetFileNameWithoutExtension(path)
-                    : "drawing",
-            FileTypeChoices = new List<FilePickerFileType> { SvgFileType, CSharpFileType }
+            Title = project is { } ? "Export project" : "Export drawing",
+            SuggestedFileName = project is { } ? ExportName(project) : DrawingName(),
+            FileTypeChoices = project is { }
+                ? new List<FilePickerFileType> { CSharpFileType }
+                : new List<FilePickerFileType> { SvgFileType, CSharpFileType }
         });
 
         return file?.TryGetLocalPath() is { Length: > 0 } target && await ExportAsync(target);
     }
 
+    /// <summary>What to offer the export panel: the project's own file name, made into a class's.</summary>
+    /// <remarks>
+    /// A project that has never been saved has no name to offer, and the file is going to hold every
+    /// drawing it has — which is the only thing left to call it.
+    /// </remarks>
+    private static string ExportName(ProjectWorkspace workspace)
+        => workspace.Document.Path is { } path
+            ? SvgExport.Identifier(Path.GetFileNameWithoutExtension(path))
+            : "Drawings";
+
+    /// <inheritdoc cref="ExportName"/>
+    private string DrawingName()
+        => _tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing }
+            ? drawing.Name
+            : Selected()?.DocumentPath is { } path
+                ? Path.GetFileNameWithoutExtension(path)
+                : "drawing";
+
     /// <summary>
-    /// Writes the selected drawing to <paramref name="target"/>: as C# if it is named <c>.cs</c>,
-    /// as SVG otherwise.
+    /// Writes to <paramref name="target"/>: the open project, or the selected drawing when there is
+    /// none — as C# if it is named <c>.cs</c>, as SVG otherwise.
     /// </summary>
     /// <remarks>
     /// Taking the path rather than asking for it, so everything but the panel can be driven.
     /// </remarks>
     public async Task<bool> ExportAsync(string target)
     {
+        if (_workspace is { })
+        {
+            return await ExportProjectAsync(target).ConfigureAwait(true);
+        }
+
         if (Selected() is not { Document: { } document } viewer)
         {
             return false;
@@ -2576,6 +2521,60 @@ public partial class MainWindow : Window
             await Ask("Export failed", failure.Message, null, "OK");
             return false;
         }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Writes the whole open project to <paramref name="target"/>, as svgc would.
+    /// </summary>
+    /// <remarks>
+    /// Through the same build svgc runs rather than one of its own, so what this writes and what
+    /// the tool writes cannot come to differ — they would differ silently, since both outputs
+    /// compile. The file is the build's <c>singleFile</c>, laid over the project's settings here:
+    /// the project names no path of its own, so the answer to where it goes is the panel's alone.
+    /// </remarks>
+    /// <returns>Whether anything was written.</returns>
+    private async Task<bool> ExportProjectAsync(string target)
+    {
+        if (_workspace is not { } workspace || !await CommitAsync("The project couldn't be exported").ConfigureAwait(true))
+        {
+            return false;
+        }
+
+        var project = workspace.Document.Flatten();
+        var settings = SvgcBuildSettings.For(project);
+        var log = new List<string>();
+
+        settings.SingleFile = target;
+
+        try
+        {
+            // Off the UI thread: a project of any size compiles every drawing it names.
+            await Task.Run(
+                () => SvgcProjectBuild.Run(
+                    project,
+                    settings,
+                    new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())),
+                    line => log.Add(line))).ConfigureAwait(true);
+        }
+        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ExprException or IOException or UnauthorizedAccessException)
+        {
+            await Announce("The project couldn't be exported", failure.Message).ConfigureAwait(true);
+
+            return false;
+        }
+
+        // The warnings are the half worth reading — a recipe that matched nothing, a default that
+        // will not reach a signature — and there is nowhere else they would be seen.
+        var said = log.Where(line => line.StartsWith("warning:", StringComparison.Ordinal)).ToList();
+        var wrote = $"Wrote {target}";
+
+        await Announce(
+            "Exported",
+            said.Count > 0
+                ? string.Join(Environment.NewLine + Environment.NewLine, said.Prepend(wrote))
+                : wrote).ConfigureAwait(true);
 
         return true;
     }
@@ -3217,26 +3216,9 @@ public partial class MainWindow : Window
         {
             await alone.SaveSourceAsync().ConfigureAwait(true);
         }
-        else if (selected?.Content is GroupPanel panel)
+        else if (!await CommitAsync("The drawing couldn't be saved").ConfigureAwait(true))
         {
-            panel.Commit();
-        }
-        else if (selected?.Content is SvgViewer viewer && _workspace is { } holder)
-        {
-            // Both halves, since both are the tab's: the project's say over the drawing, and its text.
-            Settings(viewer)?.Commit();
-
-            if (viewer.IsSourceModified && selected.Tag is ProjectDrawing drawing)
-            {
-                if (drawing.SetText(viewer.Source) is { } refusal)
-                {
-                    await Announce("The drawing couldn't be saved", refusal).ConfigureAwait(true);
-
-                    return;
-                }
-
-                holder.Edit();
-            }
+            return;
         }
 
         if (_workspace is not { } workspace)
@@ -3268,11 +3250,50 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Hands the selected tab's work to the project, which is the half of a save that writes nothing.
+    /// </summary>
+    /// <remarks>
+    /// A tab hands over only what was typed in it — what another tab is holding is in its own boxes.
+    /// Exporting commits too, because what a project is exported from is what the window is showing
+    /// rather than what it last wrote.
+    /// </remarks>
+    /// <param name="title">What a drawing the project will not take is reported under.</param>
+    /// <returns>Whether the tab could be committed; false is a refusal already announced.</returns>
+    private async Task<bool> CommitAsync(string title)
+    {
+        var selected = _tabs.SelectedItem as TabItem;
+
+        if (selected?.Content is GroupPanel panel)
+        {
+            panel.Commit();
+        }
+        else if (selected?.Content is SvgViewer viewer && _workspace is { } holder)
+        {
+            // Both halves, since both are the tab's: the project's say over the drawing, and its text.
+            Settings(viewer)?.Commit();
+
+            if (viewer.IsSourceModified && selected.Tag is ProjectDrawing drawing)
+            {
+                if (drawing.SetText(viewer.Source) is { } refusal)
+                {
+                    await Announce(title, refusal).ConfigureAwait(true);
+
+                    return false;
+                }
+
+                holder.Edit();
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Writes the project, asking where it goes when it has nowhere yet.
     /// </summary>
     /// <remarks>
     /// The one place a project is written, so the panel in front of it is asked once however the
-    /// save was reached — a tab, the menu, or a build that needs somewhere to put its outputs.
+    /// save was reached — a tab or the menu.
     /// </remarks>
     /// <returns>Whether it was written.</returns>
     private async Task<bool> WriteAsync(ProjectWorkspace workspace)

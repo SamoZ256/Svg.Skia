@@ -70,11 +70,14 @@ public class ProjectImportTests : IDisposable
 
         // Held rather than written, and not named either: where it goes is asked when it is saved.
         Assert.Null(project.Path);
-        Assert.Equal(_directory, project.BaseDirectory);
 
         Assert.Empty(notes);
         Assert.Equal("Demo.Icons", project.Root.Namespace);
-        Assert.Equal("Icons.cs", project.Root.SingleFile);
+
+        // The old project's outputs are not carried across: a studio project names no file, and
+        // where its C# goes is asked for when it is exported.
+        Assert.DoesNotContain("Icons.cs", project.ToXml(), StringComparison.Ordinal);
+        Assert.DoesNotContain("BadgeLarge.cs", project.ToXml(), StringComparison.Ordinal);
 
         var drawings = project.Root.Drawings.ToList();
 
@@ -89,7 +92,6 @@ public class ProjectImportTests : IDisposable
 
         Assert.Equal("Large", group.Name);
         Assert.Equal(2f, group.Scale);
-        Assert.Equal("Large/BadgeLarge.cs", drawings[1].Output);
 
         // One file built twice is two drawings now, each holding its own copy of the art: editing
         // one is no longer editing the other.
@@ -232,8 +234,7 @@ public class ProjectImportTests : IDisposable
         => ProjectImport.FromPaintCode(
             PaintCodeDocument.Parse(DeskDocument.Bytes()),
             new PaintCodeImportOptions(_directory),
-            new List<PaintCodeImportNote>(),
-            _directory);
+            new List<PaintCodeImportNote>());
 
     private static (float X, float Y) At(ProjectDocument project, string desk, string drawing)
     {
@@ -256,8 +257,7 @@ public class ProjectImportTests : IDisposable
         var project = ProjectImport.FromPaintCode(
             document,
             new PaintCodeImportOptions(_directory),
-            notes,
-            _directory);
+            notes);
 
         var group = Assert.IsType<ProjectGroup>(Assert.Single(project.Root.Children));
 

@@ -2358,11 +2358,6 @@ public sealed class GroupPanel : UserControl
             Add("name");
         }
 
-        if (node is ProjectDrawing)
-        {
-            Add("output");
-        }
-
         if (node is not ProjectRoot)
         {
             _properties.Children.Add(new Separator { Margin = new Thickness(0, 6) });
@@ -2373,7 +2368,6 @@ public sealed class GroupPanel : UserControl
 
         if (node is ProjectRoot)
         {
-            Add("singleFile");
             Add("cache");
             Add("helperScope");
             Add("skiaSharp");
@@ -2413,9 +2407,6 @@ public sealed class GroupPanel : UserControl
             case "name":
                 node.Name = value!;
                 break;
-            case "output":
-                ((ProjectDrawing)node).Output = value;
-                break;
             case "namespace":
                 node.Namespace = value;
                 break;
@@ -2443,9 +2434,6 @@ public sealed class GroupPanel : UserControl
                 break;
             case "scale":
                 node.Scale = SvgcProject.ParseScale(value);
-                break;
-            case "singleFile":
-                ((ProjectRoot)node).SingleFile = value;
                 break;
             case "cache":
                 ((ProjectRoot)node).Cache = SvgcProject.ParseCache(value);
@@ -2653,7 +2641,6 @@ public sealed class GroupPanel : UserControl
     private static string? Value(ProjectNode node, string name) => name switch
     {
         "name" => node.Name,
-        "output" => (node as ProjectDrawing)?.Output,
         "namespace" => node.Namespace,
         "class" => node.Class,
         "padding" => node.Padding,
@@ -2662,10 +2649,9 @@ public sealed class GroupPanel : UserControl
         "width" => node.Width is { } width ? Number(width) : null,
         "height" => node.Height is { } height ? Number(height) : null,
         "scale" => node.Scale is { } scale ? Number(scale) : null,
-        // The project's own five. Left out, they showed empty however the file was written, and an
+        // The project's own three. Left out, they showed empty however the file was written, and an
         // edit to one could never be recognised as typed back to what the file says — so it stayed
         // pending for ever.
-        "singleFile" => (node as ProjectRoot)?.SingleFile,
         "cache" => Text((node as ProjectRoot)?.Cache),
         "helperScope" => Text((node as ProjectRoot)?.HelperScope),
         "skiaSharp" => (node as ProjectRoot)?.SkiaSharp is { } target

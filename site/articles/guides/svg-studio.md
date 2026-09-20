@@ -13,7 +13,7 @@ that project is one file — the settings, the tree and the drawings themselves.
 ```xml
 <!-- icons.svgstudio -->
 <?xml version="1.0" encoding="utf-8"?>
-<studio namespace="Demo.Icons" singleFile="Icons.cs">
+<studio namespace="Demo.Icons">
 
   <drawing name="badge" class="Badge">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
@@ -22,7 +22,7 @@ that project is one file — the settings, the tree and the drawings themselves.
   </drawing>
 
   <group name="Large" namespace="Demo.Icons.Large" scale="2">
-    <drawing name="badge-large" class="BadgeLarge" output="Large/BadgeLarge.cs">
+    <drawing name="badge-large" class="BadgeLarge">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">…</svg>
     </drawing>
   </group>
@@ -37,8 +37,9 @@ that project is one file — the settings, the tree and the drawings themselves.
   same thing until one of them is renamed.
 - Settings are attributes wherever they appear, and a group hands its own down to everything under
   it: `namespace`, `class`, `padding` and the `width`/`height`/`scale` trio, which moves as one. The
-  project also carries `singleFile`, `cache`, `helperScope` and `skiaSharp`, and a drawing carries
-  the `output` its C# goes to.
+  project also carries `cache`, `helperScope` and `skiaSharp`. Where the C# goes is not among them:
+  an export asks, so nothing in the file can come to disagree with the answer. A project written
+  before that carries `output` or `singleFile`; they are dropped as it is read.
 - `x` and `y` say where a row sits on the board of the group holding it — both or neither, and
   relative to that board, so a group carries what it holds. They are the one pair that is inherited
   by nobody, and the build never sees them: a group is still folded into its drawings rather than
@@ -46,7 +47,7 @@ that project is one file — the settings, the tree and the drawings themselves.
 - The file is written back as it was found — comments, attribute order, indentation and the
   drawings' own bytes. Editing one attribute rewrites that attribute.
 
-`Project → Build` writes the outputs through the build `svgc` runs, so the two cannot come to
+`File → Export…` writes the project through the build `svgc` runs, so the two cannot come to
 disagree about what the project says.
 
 ## Opening one
@@ -164,9 +165,11 @@ project itself, held in the window, which is what every view of it reads.
   window title does, and closing the project asks about it by name.
 
 `File → Save` hands the selected tab's work to the project and writes the project — one file, so one
-write, whatever was typed where. `File → Export…` writes the drawing being looked at somewhere else
-— as `.svg`, at the size the project builds it at and without the indentation the project wrote it
-at, or as `.cs` if the name says so.
+write, whatever was typed where. `File → Export…` asks for one `.cs` and writes the whole project
+into it, whatever tab is in front: a project is one build, so there is nothing to pick. It takes the
+tab's own work with it, the same as a save does, and leaves the project where it was. With no project
+open it is the drawing being looked at that goes — as `.svg` at the size it is being drawn at, or as
+`.cs` if the name says so.
 
 ## The recovery copy
 
