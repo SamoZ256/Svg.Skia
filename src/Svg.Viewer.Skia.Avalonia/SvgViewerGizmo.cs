@@ -81,6 +81,13 @@ public sealed class SvgViewerGizmo
     /// <summary>The element being edited, or null when nothing is.</summary>
     public SvgElement? Element => _element;
 
+    /// <summary>Whether a scale handle keeps the proportions the element was pressed at.</summary>
+    /// <remarks>
+    /// Off unless a host asks for it, so a handle goes on doing what it did. It holds the ratio the
+    /// drag found, not 1:1 — an element already scaled unevenly keeps the shape it is on screen.
+    /// </remarks>
+    public bool LocksAspect { get; set; }
+
     /// <summary>Whether a drag is in flight.</summary>
     public bool IsDragging => _dragging;
 
@@ -268,7 +275,8 @@ public sealed class SvgViewerGizmo
     /// <remarks>
     /// The handle opposite the one being dragged stays where it is, which is what a scale handle
     /// means. An edge handle moves one axis and leaves the other at its factor, so dragging the side
-    /// of a shape does not also stretch it vertically.
+    /// of a shape does not also stretch it vertically — unless <see cref="LocksAspect"/> is asked
+    /// for, and then the axis the pointer pulled furthest leads and the other follows it.
     ///
     /// Written as a translate and a scale rather than the usual three, because
     /// <c>translate(p) scale(s) translate(-p)</c> folds exactly to
@@ -281,6 +289,13 @@ public sealed class SvgViewerGizmo
 
         var x = wide ? Factor(now.X - _pivot.X, _pressed.X - _pivot.X) : 1f;
         var y = tall ? Factor(now.Y - _pivot.Y, _pressed.Y - _pivot.Y) : 1f;
+
+        if (LocksAspect)
+        {
+            // A side handle's other axis is still at 1, so taking the bigger of the two would pin
+            // the ratio wherever the drag started: the axis that moves is the one to follow.
+            x = y = wide && tall && Math.Abs(y) > Math.Abs(x) ? y : wide ? x : y;
+        }
 
         var scaleX = _startScaleX * x;
         var scaleY = _startScaleY * y;

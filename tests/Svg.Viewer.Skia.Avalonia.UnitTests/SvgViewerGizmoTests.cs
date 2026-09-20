@@ -392,6 +392,69 @@ public class SvgViewerGizmoTests
         Assert.Equal("translate(-20, 0) scale(2, 1)", Written(viewer));
     }
 
+    /// <summary>
+    /// A corner dragged unevenly keeps the shape's proportions, which is what the lock is for.
+    /// </summary>
+    /// <remarks>
+    /// Twice as wide and half again as tall is asked for, and twice is what both axes get: the
+    /// pointer went furthest across, so across is the axis the other follows.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Locked_Corner_Follows_The_Axis_Pulled_Furthest()
+    {
+        var (window, viewer) = await Host(Plain);
+
+        Select(window, viewer, 30f, 30f);
+
+        viewer.IsEditing = true;
+        viewer.LocksAspectRatio = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(window, viewer, (40f, 40f), (60f, 50f));
+
+        Assert.Equal("translate(-20, -20) scale(2)", Written(viewer));
+    }
+
+    /// <summary>The same drag without the lock stretches the shape by each axis on its own.</summary>
+    [AvaloniaFact]
+    public async Task An_Unlocked_Corner_Scales_Each_Axis_By_Its_Own_Drag()
+    {
+        var (window, viewer) = await Host(Plain);
+
+        Select(window, viewer, 30f, 30f);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(window, viewer, (40f, 40f), (60f, 50f));
+
+        Assert.Equal("translate(-20, -10) scale(2, 1.5)", Written(viewer));
+    }
+
+    /// <summary>
+    /// A side handle under the lock grows the other axis too, about the middle of the shape.
+    /// </summary>
+    /// <remarks>
+    /// The handle opposite is what a scale turns about, and a side handle's opposite is the far
+    /// edge at the shape's own middle — so the axis nobody dragged grows both ways at once and the
+    /// shape stays where it was.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Locked_Side_Handle_Scales_Both_Axes()
+    {
+        var (window, viewer) = await Host(Plain);
+
+        Select(window, viewer, 30f, 30f);
+
+        viewer.IsEditing = true;
+        viewer.LocksAspectRatio = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(window, viewer, (40f, 30f), (60f, 30f));
+
+        Assert.Equal("translate(-20, -30) scale(2)", Written(viewer));
+    }
+
     /// <summary>Turning the shape writes an angle about the middle of its own bounds.</summary>
     [AvaloniaFact]
     public async Task The_Stalk_Turns_The_Element_About_Its_Middle()

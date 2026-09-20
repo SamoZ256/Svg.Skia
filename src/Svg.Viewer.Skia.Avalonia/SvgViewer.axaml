@@ -40,6 +40,8 @@
                       ToolTip.Tip="Show what the drawing is made of" />
         <ToggleButton x:Name="EditButton" Content="Edit"
                       ToolTip.Tip="Drag the selected element to move it, its handles to scale it, and the stalk above to turn it" />
+        <ToggleButton x:Name="LockRatioButton" Content="Lock ratio"
+                      ToolTip.Tip="Keep the element's proportions while a handle is dragged" />
       </StackPanel>
     </Border>
 

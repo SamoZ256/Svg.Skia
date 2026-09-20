@@ -62,6 +62,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private readonly SvgViewerDeclarationCommands _commands;
     private readonly ToggleButton _elementsButton;
     private readonly ToggleButton _editButton;
+    private readonly ToggleButton _lockRatioButton;
 
     /// <summary>Moving, turning and scaling the selected element by dragging it.</summary>
     private readonly SvgViewerGizmo _gizmo = new();
@@ -137,6 +138,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree = this.FindControl<SvgViewerElementTree>("PART_Elements")!;
         _elementsButton = this.FindControl<ToggleButton>("ElementsButton")!;
         _editButton = this.FindControl<ToggleButton>("EditButton")!;
+        _lockRatioButton = this.FindControl<ToggleButton>("LockRatioButton")!;
 
         _panelWidth = _body.ColumnDefinitions[2].Width;
         _treeHeight = _side.RowDefinitions[2].Height;
@@ -173,6 +175,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _boundsButton.IsCheckedChanged += (_, _) => ShowBounds = _boundsButton.IsChecked == true;
 
         _editButton.IsCheckedChanged += (_, _) => IsEditing = _editButton.IsChecked == true;
+
+        _lockRatioButton.IsCheckedChanged += (_, _) => LocksAspectRatio = _lockRatioButton.IsChecked == true;
 
         _rebuild.Tick += (_, _) =>
         {
@@ -346,6 +350,24 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             }
 
             TrackGizmo();
+        }
+    }
+
+    /// <summary>
+    /// Whether a handle drag keeps the element's proportions.
+    /// </summary>
+    /// <remarks>
+    /// Off, and the way in is the toolbar's own toggle, so a handle drags as it always did until
+    /// somebody asks for the lock. Settable mid-drag as well as before one, since the gizmo reads it
+    /// per frame.
+    /// </remarks>
+    public bool LocksAspectRatio
+    {
+        get => _gizmo.LocksAspect;
+        set
+        {
+            _gizmo.LocksAspect = value;
+            _lockRatioButton.IsChecked = value;
         }
     }
 

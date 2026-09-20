@@ -2279,7 +2279,17 @@ public sealed class GroupPanel : UserControl
             TrackGizmo();
         };
 
+        var ratio = new ToggleButton
+        {
+            Content = "Lock ratio",
+            IsChecked = _gizmo.LocksAspect,
+            [ToolTip.TipProperty] = "Keep the element's proportions while a handle is dragged"
+        };
+
+        ratio.IsCheckedChanged += (_, _) => _gizmo.LocksAspect = ratio.IsChecked == true;
+
         bar.Children.Add(_edit);
+        bar.Children.Add(ratio);
 
         return bar;
     }
