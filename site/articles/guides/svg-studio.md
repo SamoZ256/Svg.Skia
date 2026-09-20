@@ -171,6 +171,23 @@ tab's own work with it, the same as a save does, and leaves the project where it
 open it is the drawing being looked at that goes — as `.svg` at the size it is being drawn at, or as
 `.cs` if the name says so.
 
+### Text an export cannot write out
+
+A drawing whose words an expression writes is generated with the words as an argument, where the
+drawing places them simply enough for that: one run, at one origin, painted by a fill. Where it
+places them per glyph instead — a `<tspan>` of its own, a `textLength` to fit, a `<textPath>`,
+`rotate`, letter- or word-spacing — the positions were measured from the words, so the positions and
+the words cannot both be free.
+
+Exporting such a project names those drawings and asks. **Relaxed text layout** gives the rules up
+and draws the words at the element's own place, so the argument reaches the drawing; leaving it off
+writes the default words in and says which drawings it did that to. Either way the rest of the
+project is unaffected, and what was given up or frozen is listed when the export finishes.
+
+**Remember this answer** puts it in **Settings**, which also holds it directly — ask each time,
+relax the layout, or keep the default text. Nothing is asked for a project with no driven text in
+it, which is most of them.
+
 ## The recovery copy
 
 Studio keeps a copy of the project under your application data while it has work that is not on disk
