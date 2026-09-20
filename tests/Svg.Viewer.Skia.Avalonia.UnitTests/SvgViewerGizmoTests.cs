@@ -74,6 +74,13 @@ public class SvgViewerGizmoTests
         </svg>
         """;
 
+    /// <summary>A shape twice as wide as it is tall, whose diagonal is nothing like forty five degrees.</summary>
+    private const string Oblong = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <rect id="box" x="20" y="20" width="40" height="20" fill="#3366cc" />
+        </svg>
+        """;
+
     /// <summary>A triangle filling the same 20..40 square the rectangle does.</summary>
     private const string Polygon = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
@@ -396,11 +403,13 @@ public class SvgViewerGizmoTests
     /// A corner dragged unevenly keeps the shape's proportions, which is what the lock is for.
     /// </summary>
     /// <remarks>
-    /// Twice as wide and half again as tall is asked for, and twice is what both axes get: the
-    /// pointer went furthest across, so across is the axis the other follows.
+    /// Twice as wide and half again as tall is asked for, and the corner lands between the two: the
+    /// pointer is dropped onto the diagonal it was pressed on, which on this square shape runs at
+    /// forty five degrees from 20,20 — so 60,50 comes to 1.75 rather than to either axis's own 2
+    /// or 1.5.
     /// </remarks>
     [AvaloniaFact]
-    public async Task A_Locked_Corner_Follows_The_Axis_Pulled_Furthest()
+    public async Task A_Locked_Corner_Follows_The_Diagonal_It_Was_Pressed_On()
     {
         var (window, viewer) = await Host(Plain);
 
@@ -412,7 +421,32 @@ public class SvgViewerGizmoTests
 
         Drag(window, viewer, (40f, 40f), (60f, 50f));
 
-        Assert.Equal("translate(-20, -20) scale(2)", Written(viewer));
+        Assert.Equal("translate(-15, -15) scale(1.75)", Written(viewer));
+    }
+
+    /// <summary>
+    /// The line a locked corner runs along is the shape's own diagonal, not forty five degrees.
+    /// </summary>
+    /// <remarks>
+    /// The one case that tells the two apart, and the reason it is worth a test of its own: on a
+    /// 40x20 shape the diagonal out of 20,20 is twice as flat as a forty five degree line, and a
+    /// pointer taken straight out to 80,40 reads 1.4 along it. Following the wider axis on its own
+    /// would say 1.5, and a true forty five degree track about 1.32.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Locked_Corner_Runs_Along_The_Shapes_Own_Diagonal()
+    {
+        var (window, viewer) = await Host(Oblong);
+
+        Select(window, viewer, 40f, 30f);
+
+        viewer.IsEditing = true;
+        viewer.LocksAspectRatio = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(window, viewer, (60f, 40f), (80f, 40f));
+
+        Assert.Equal("translate(-8, -8) scale(1.4)", Written(viewer));
     }
 
     /// <summary>The same drag without the lock stretches the shape by each axis on its own.</summary>

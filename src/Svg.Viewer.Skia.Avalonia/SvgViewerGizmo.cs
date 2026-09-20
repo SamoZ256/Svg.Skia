@@ -276,7 +276,8 @@ public sealed class SvgViewerGizmo
     /// The handle opposite the one being dragged stays where it is, which is what a scale handle
     /// means. An edge handle moves one axis and leaves the other at its factor, so dragging the side
     /// of a shape does not also stretch it vertically — unless <see cref="LocksAspect"/> is asked
-    /// for, and then the axis the pointer pulled furthest leads and the other follows it.
+    /// for, and then a corner takes its factor from <see cref="Along"/> and a side from the one axis
+    /// it moves.
     ///
     /// Written as a translate and a scale rather than the usual three, because
     /// <c>translate(p) scale(s) translate(-p)</c> folds exactly to
@@ -292,9 +293,9 @@ public sealed class SvgViewerGizmo
 
         if (LocksAspect)
         {
-            // A side handle's other axis is still at 1, so taking the bigger of the two would pin
-            // the ratio wherever the drag started: the axis that moves is the one to follow.
-            x = y = wide && tall && Math.Abs(y) > Math.Abs(x) ? y : wide ? x : y;
+            // A side handle has no diagonal to run along — its other axis is still at 1, and taking
+            // the bigger of the two would pin the ratio wherever the drag started.
+            x = y = wide && tall ? Along(now) : wide ? x : y;
         }
 
         var scaleX = _startScaleX * x;
@@ -305,6 +306,32 @@ public sealed class SvgViewerGizmo
             new SvgTranslate(_pivot.X * (1f - scaleX), _pivot.Y * (1f - scaleY)),
             new SvgScale(scaleX, scaleY)
         };
+    }
+
+    /// <summary>How far out the pointer now is along the line the corner was pressed on.</summary>
+    /// <remarks>
+    /// The line out of the pivot through the corner — the box's own diagonal, and the only path a
+    /// corner can take without changing the shape's proportions. The pointer is dropped onto it at a
+    /// right angle, so the corner goes to the nearest point on that line and the pointer reads as
+    /// sliding along it, rather than snapping to whichever side it happened to move most along.
+    ///
+    /// Against the press rather than the corner, which are the same point to within the half handle
+    /// somebody can grab it by; measuring from the press is what makes the factor exactly 1 before
+    /// the pointer has moved, so the shape does not jump on the first frame.
+    ///
+    /// The line is at forty five degrees to both sides only where the box is square. It is the
+    /// diagonal that matters: a true forty five degree track would take the corner off it, and the
+    /// proportions with it.
+    /// </remarks>
+    private float Along(Shim.SKPoint now)
+    {
+        var x = _pressed.X - _pivot.X;
+        var y = _pressed.Y - _pivot.Y;
+        var length = x * x + y * y;
+
+        return length < MinimumFactor * MinimumFactor
+            ? 1f
+            : ((now.X - _pivot.X) * x + (now.Y - _pivot.Y) * y) / length;
     }
 
     /// <remarks><c>ShimSkiaSharp.SKRect</c> carries the four edges and nothing derived from them.</remarks>
