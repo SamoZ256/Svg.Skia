@@ -1707,7 +1707,27 @@ internal static partial class SvgSceneTextCompiler
             ApplyInlineAdvance(resolvedRuns[i].StyleSource, ref runX, ref currentY, resolvedRuns[i].Advance);
         }
 
-        var cullRect = CreateTextLocalCullRect(geometryBounds);
+        // One run, painted by a fill alone, whose text the author drives: the anchor can go to the
+        // command instead of into the origin. It is the one measurement that cannot be taken before
+        // the string is known, and leaving it undone is what lets a generated picture be given a
+        // different one. Everything else still anchors here, exactly as it did.
+        var driven = resolvedRuns.Count == 1 &&
+                     CanDrawResolvedSequentialCompileRunFillOnly(resolvedRuns[0].StyleSource, geometryBounds)
+            ? SvgExpressionAttributes.Lifted(resolvedRuns[0].StyleSource.CustomAttributes, SvgExpressionAttributes.ContentName)
+            : null;
+
+        // The default string's bounds are the node's, since those are what everything measuring the
+        // text -- a transform origin, a clip, a filter region, an ancestor's bounds -- has always
+        // been given. Only the picture recorded here is widened, because a longer string than the
+        // default would be clipped by the rectangle it was recorded into.
+        var recordingBounds = geometryBounds;
+
+        if (driven is { })
+        {
+            UnionBounds(ref recordingBounds, viewport);
+        }
+
+        var cullRect = CreateTextLocalCullRect(recordingBounds);
         if (cullRect.IsEmpty)
         {
             return true;
@@ -1715,10 +1735,54 @@ internal static partial class SvgSceneTextCompiler
 
         var recorder = new SKPictureRecorder();
         var canvas = recorder.BeginRecording(cullRect);
-        DrawResolvedSequentialCompileRuns(resolvedRuns, inlineOrigin, currentY, geometryBounds, ignoreAttributes, canvas, assetLoader, getElementAddressKey, contextPaint);
+
+        if (driven is { } expression)
+        {
+            DrawDrivenSequentialCompileRun(resolvedRuns[0], currentX, currentY, textAlign, expression, geometryBounds, ignoreAttributes, canvas, assetLoader, getElementAddressKey, contextPaint);
+        }
+        else
+        {
+            DrawResolvedSequentialCompileRuns(resolvedRuns, inlineOrigin, currentY, geometryBounds, ignoreAttributes, canvas, assetLoader, getElementAddressKey, contextPaint);
+        }
+
         var recordedModel = recorder.EndRecording();
         localModel = recordedModel.Commands is { Count: > 0 } ? recordedModel : null;
         return true;
+    }
+
+    /// <summary>
+    /// Draws one run whose text is driven, at an origin the anchor has not been applied to.
+    /// </summary>
+    /// <remarks>
+    /// The fill alone, which is why the caller checks there is nothing else: a stroke would need the
+    /// same treatment and a decoration is a rectangle measured from the text, which is exactly the
+    /// kind of thing that cannot follow a string nobody has seen yet.
+    /// </remarks>
+    private static void DrawDrivenSequentialCompileRun(
+        ResolvedSequentialCompileRun run,
+        float x,
+        float y,
+        SKTextAlign textAlign,
+        string expression,
+        SKRect geometryBounds,
+        DrawAttributes ignoreAttributes,
+        SKCanvas canvas,
+        ISvgAssetLoader assetLoader,
+        Func<SvgElement?, string?>? getElementAddressKey,
+        SvgSceneContextPaint? contextPaint)
+    {
+        using var commandSource = PushTextCommandSource(canvas, run.StyleSource, getElementAddressKey);
+
+        var fillPaint = SvgScenePaintingService.GetFillPaint(run.StyleSource, geometryBounds, assetLoader, ignoreAttributes, contextPaint);
+
+        if (fillPaint is null)
+        {
+            return;
+        }
+
+        PaintingService.SetPaintText(run.StyleSource, geometryBounds, fillPaint, run.Typeface);
+        fillPaint.TextAlign = textAlign;
+        canvas.DrawText(run.DrawText, x, y, textAlign, fillPaint, SymNode.Source(expression));
     }
 
     private static bool TryCompileAlignedSequentialText(

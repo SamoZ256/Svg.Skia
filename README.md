@@ -874,6 +874,7 @@ Options:
   --singleFile <singlefile>          Emit every drawing of the batch into one C# file at this path [default: ]
   --helperScope <helperscope>        Where shared helpers go in a single file: file (C# 11), internal, or perClass [default: ]
   --cache <cache>                    Keep the last picture Draw built and reuse it while the arguments are unchanged: none, lastValue or lastValueLocked [default: ]
+  --text-layout <text-layout>        What to do with text an expression drives: strict refuses it, baked writes the default in, relaxed draws it from the argument and gives up the layout rules that cannot follow a string [default: ]
   -n, --namespace <namespace>        The generated C# namespace name [default: ]
   -c, --class <class>                The generated C# class name [default: ]
   --version                          Show version information

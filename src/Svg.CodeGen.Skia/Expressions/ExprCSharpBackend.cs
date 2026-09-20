@@ -160,7 +160,7 @@ internal static class ExprCSharpBackend
     /// against the interpreter's own answer. Anything outside printable ASCII is escaped by code
     /// point, so a generated file is ASCII whatever encoding it is later saved in.
     /// </remarks>
-    private static string Literal(string value)
+    internal static string Literal(string value)
     {
         var literal = new StringBuilder(value.Length + 2);
 

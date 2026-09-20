@@ -242,11 +242,28 @@ takes 1.4 ms, binding the text takes 6.0 ms — about four times as much, and st
 Nothing throttles it, and a host that binds one per keystroke will not notice; a host driving one
 from a slider on a very large document might.
 
-**No generated code.** `svgc` and the source generator bake a picture at build time, with the text
-already measured and the glyph positions already numbers. A parameter driving one of these could
-never vary at run time, so a document using them is **refused** rather than generated with a
-signature that offers something it cannot do. Bind it at run time with `SKSvg.SetExpressionValues`,
-or write the value as a literal to generate from.
+**Generated code, only for the text and only sometimes.** `svgc` and the source generator record a
+picture at build time, with the text measured and the glyph positions written down as numbers. The
+text itself can still vary: a drawing whose words are one run at one origin, painted by a fill
+alone, records the expression beside the string and leaves the anchor to whoever draws it, so the
+generated `Draw` takes the words as an argument. Anything that places the text per glyph — a
+`<tspan>` positioned of its own, a `textLength` to fit, a `<textPath>` to follow, `rotate`,
+letter- or word-spacing — measured the string to do it, and there `--text-layout` decides:
+
+| `--text-layout` | |
+| --- | --- |
+| `strict` | Refuse to generate the drawing at all. The default, so nothing changes for a build that has one. |
+| `baked` | Generate it with the declared default written in, and warn, naming every drawing and value. A parameter left with nothing to do is dropped from the signature rather than offered as one the drawing ignores. |
+| `relaxed` | Give up those rules and draw the words at the element's own place, so the argument reaches the drawing. Every rule dropped is reported. |
+
+The other values a compile consumes — `font-family`, `font-size`, `text-anchor`, `letter-spacing`,
+`word-spacing`, `textLength` — have nowhere in a command to carry an expression and are frozen at
+their defaults under `baked` and `relaxed` alike, with a warning saying so. Bind those at run time
+with `SKSvg.SetExpressionValues`, which recompiles and has no such limit, or write them as literals.
+
+`src/Svg.Studio` asks rather than choosing: an export that would freeze something names the
+drawings and offers the same two answers, with a box to remember one. See
+[Svg Studio](../guides/svg-studio).
 
 A **pattern** fill is the one exception among the opacities: it paints into a picture of its own,
 where the alpha is baked into every command rather than sitting on one colour, so `fill-opacity`

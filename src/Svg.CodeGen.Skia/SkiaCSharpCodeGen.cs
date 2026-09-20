@@ -66,12 +66,18 @@ public enum SvgPictureCache
 /// <summary>One drawing to be emitted, for <see cref="SkiaCSharpCodeGen.GenerateFile"/>.</summary>
 public sealed class SkiaCSharpDrawing
 {
-    public SkiaCSharpDrawing(SKPicture picture, string namespaceName, string className, SvgExpressionDeclarations? declarations)
+    public SkiaCSharpDrawing(
+        SKPicture picture,
+        string namespaceName,
+        string className,
+        SvgExpressionDeclarations? declarations,
+        IReadOnlyList<string>? frozen = null)
     {
         Picture = picture;
         NamespaceName = namespaceName;
         ClassName = className;
         Declarations = declarations ?? SvgExpressionDeclarations.Empty;
+        Frozen = frozen ?? Array.Empty<string>();
     }
 
     public SKPicture Picture { get; }
@@ -81,6 +87,16 @@ public sealed class SkiaCSharpDrawing
     public string ClassName { get; }
 
     public SvgExpressionDeclarations Declarations { get; }
+
+    /// <summary>
+    /// The expressions the picture could not carry, whose values are written into it instead.
+    /// </summary>
+    /// <remarks>
+    /// A parameter these are the only use of has nothing left to do, and is left off the signature
+    /// rather than offered as something the drawing would ignore. One the author declared and never
+    /// used anywhere stays, because that is a signature they wrote on purpose.
+    /// </remarks>
+    public IReadOnlyList<string> Frozen { get; }
 }
 
 public static class SkiaCSharpCodeGen
@@ -104,7 +120,8 @@ public static class SkiaCSharpCodeGen
         string className,
         SvgExpressionDeclarations? declarations,
         SvgPictureCache cache = SvgPictureCache.None,
-        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4)
+        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4,
+        IReadOnlyList<string>? frozen = null)
     {
         var sb = new StringBuilder();
 
@@ -112,7 +129,7 @@ public static class SkiaCSharpCodeGen
 
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine($"{{");
-        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cache, skiaSharp));
+        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cache, skiaSharp, frozen));
         sb.AppendLine($"}}");
 
         return sb.ToString();
@@ -162,7 +179,7 @@ public static class SkiaCSharpCodeGen
 
         var bodies = drawings.ToDictionary(
             drawing => drawing,
-            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cache, skiaSharp));
+            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cache, skiaSharp, drawing.Frozen));
 
         // Which helpers are needed is decided across every class at once, so each appears once.
         var helpers = shared
@@ -227,6 +244,69 @@ public static class SkiaCSharpCodeGen
 
     // Outside the namespace: a using written inside one resolves relative to it first, so
     // `using SkiaSharp;` inside `namespace Foo` binds to `Foo.SkiaSharp` if the consumer has one.
+    /// <summary>The parameters still worth a signature, once something has been frozen.</summary>
+    /// <remarks>
+    /// A value a compile consumed and the picture could not carry -- text frozen into the positions
+    /// it was measured at -- leaves a parameter nothing reads, and a signature offering to vary
+    /// something it cannot is the one thing this generator has always refused to emit. Read off what
+    /// was emitted rather than predicted, the same way the helper methods are chosen; a name that
+    /// only appears inside a string literal keeps its parameter, which is the safe way to be wrong.
+    /// </remarks>
+    private static IReadOnlyList<SvgExpressionParameter> Read(
+        IReadOnlyList<SvgExpressionParameter> parameters,
+        IReadOnlyList<(string Parameter, string Local, string DefaultCode, ExprType Type)> computedDefaults,
+        string emitted,
+        IReadOnlyList<string>? frozen)
+    {
+        if (frozen is not { Count: > 0 })
+        {
+            return parameters;
+        }
+
+        var kept = new List<SvgExpressionParameter>();
+
+        foreach (var parameter in parameters)
+        {
+            // Only a parameter something frozen was the use of: one the author declared and never
+            // used at all is a signature they wrote, and not this to take away.
+            if (!frozen.Any(expression => Mentions(expression, parameter.Name)))
+            {
+                kept.Add(parameter);
+                continue;
+            }
+
+            // Through its local where it has one: that is the name the body was compiled to read.
+            var name = computedDefaults.FirstOrDefault(fallback => string.Equals(fallback.Parameter, parameter.Name, StringComparison.Ordinal)).Local
+                       ?? parameter.Name;
+
+            if (Mentions(emitted, name))
+            {
+                kept.Add(parameter);
+            }
+        }
+
+        return kept.Count == parameters.Count ? parameters : kept;
+    }
+
+    /// <summary>Whether <paramref name="text"/> names <paramref name="name"/> as an identifier.</summary>
+    private static bool Mentions(string text, string name)
+    {
+        for (var at = text.IndexOf(name, StringComparison.Ordinal); at >= 0; at = text.IndexOf(name, at + 1, StringComparison.Ordinal))
+        {
+            var before = at == 0 || !IsIdentifier(text[at - 1]);
+            var after = at + name.Length == text.Length || !IsIdentifier(text[at + name.Length]);
+
+            if (before && after)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsIdentifier(char c) => c == '_' || char.IsLetterOrDigit(c);
+
     private static void AppendPreamble(StringBuilder sb, string? helperClassName)
     {
         sb.AppendLine("// <auto-generated />");
@@ -250,7 +330,8 @@ public static class SkiaCSharpCodeGen
         SvgExpressionDeclarations? declarations,
         bool includeHelpers,
         SvgPictureCache cache,
-        SkiaSharpTarget skiaSharp)
+        SkiaSharpTarget skiaSharp,
+        IReadOnlyList<string>? frozen)
     {
         declarations ??= SvgExpressionDeclarations.Empty;
 
@@ -272,7 +353,24 @@ public static class SkiaCSharpCodeGen
         bodyBuilder.AppendLine($"{indent}return {counter.PictureVarName}{counterPicture};");
         var body = bodyBuilder.ToString();
 
-        var parameters = declarations.Parameters;
+        // Everything the class will say, which is what decides who is read. The lets are in it
+        // because a let is emitted whether or not the body uses what it computed.
+        var emitted = new StringBuilder(body);
+
+        foreach (var let in lets)
+        {
+            emitted.Append(' ').Append(let.Code);
+        }
+
+        var read = emitted.ToString();
+
+        // Before the lets, since a let may reference the parameter and will have been compiled to
+        // read this local.
+        var computedDefaults = declarations.ComputedDefaults()
+            .Where(fallback => Mentions(read, fallback.Local))
+            .ToList();
+
+        var parameters = Read(declarations.Parameters, computedDefaults, read, frozen);
         var isParameterized = parameters.Count > 0;
         var withDefaults = declarations.EmitsDefaultArguments();
         var parameterList = BuildParameterList(parameters, withDefaults);
@@ -332,13 +430,15 @@ public static class SkiaCSharpCodeGen
         sb.AppendLine($"        {(isParameterized ? "public" : "private")} static SKPicture Record({parameterList})");
         sb.AppendLine($"        {{");
 
-        // Before the lets, since a let may reference the parameter and will have been compiled to
-        // read this local.
-        var computedDefaults = declarations.ComputedDefaults();
-
         foreach (var (parameter, local, defaultCode, type) in computedDefaults)
         {
-            sb.AppendLine($"{indent}{ExprCompiler.CSharpTypeOf(type)} {local} = {parameter} ?? {defaultCode};");
+            // A local whose parameter was dropped is still read by a let, and falls straight to the
+            // default there being nothing to coalesce with.
+            var value = parameters.Any(kept => string.Equals(kept.Name, parameter, StringComparison.Ordinal))
+                ? $"{parameter} ?? {defaultCode}"
+                : defaultCode;
+
+            sb.AppendLine($"{indent}{ExprCompiler.CSharpTypeOf(type)} {local} = {value};");
         }
 
         foreach (var (name, type, code) in lets)

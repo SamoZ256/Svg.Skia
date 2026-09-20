@@ -7,6 +7,8 @@ using System.Runtime.Loader;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using SkiaSharp;
 using Svg.CodeGen.Skia;
 using Svg.Expressions;
@@ -47,6 +49,27 @@ public class SkiaCSharpRenderTests
 
         var assetLoader = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()));
         var picture = SvgSceneRuntime.CreateModel(document!, assetLoader);
+        Assert.NotNull(picture);
+
+        return picture!;
+    }
+
+    /// <summary>The model a build compiles: the declared defaults in the document while it is measured.</summary>
+    /// <remarks>
+    /// A value a compile consumes -- the text itself -- has to be in the document before it is
+    /// measured, and what a build has to put there is the default. Without this the element draws
+    /// nothing at all, which is what a document says while an expression has not been resolved.
+    /// </remarks>
+    private static ShimPicture DrivenModel(string svgMarkup)
+    {
+        var document = SvgService.FromSvg(svgMarkup);
+        Assert.NotNull(document);
+
+        using var substitution = SvgExpressionSubstitution.Begin(
+            document!,
+            ExprEvaluator.Create(document!.ExpressionDeclarations, null));
+
+        var picture = SvgSceneRuntime.CreateModel(document!, new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())));
         Assert.NotNull(picture);
 
         return picture!;
@@ -250,6 +273,54 @@ public class SkiaCSharpRenderTests
               <path d="M 2 12 C 2 6 6 2 12 2 A 10 10 0 0 1 22 12 L 12 22 Z" fill="#3b82f6" />
             </svg>
             """);
+
+    /// <summary>
+    /// The one thing about driven text a string assertion cannot show: the argument reaches the
+    /// picture, rather than reaching the source and being drawn over by what was recorded.
+    /// </summary>
+    /// <remarks>
+    /// Two arguments and a difference, rather than a comparison against the runtime renderer at the
+    /// usual zero threshold. The renderer draws text through a shaped blob it builds itself, and
+    /// generated code hands the string to SkiaSharp; measured on this machine the two agree to
+    /// about 0.6% of a 256px render on the same string, which is a gap that predates this and has
+    /// nothing to do with which string is drawn. Comparing generated against generated is the
+    /// question this test is actually asking.
+    /// </remarks>
+    [Fact]
+    public void A_Driven_Text_Draws_The_Argument_It_Is_Given()
+    {
+        const string Markup = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0"
+                 viewBox="0 0 64 24" width="64" height="24">
+              <defs><e:code><e:param name="step" type="string" default="'1'" /></e:code></defs>
+              <text x="4" y="18" font-family="Arial" font-size="12" fill="#111827">{{ step }}</text>
+            </svg>
+            """;
+
+        var model = DrivenModel(Markup);
+        var declarations = SvgExpressionDeclarations.Parse(Markup);
+
+        using var one = Generated(model, "DrivenTextOne", SkiaSharpTarget.V4, declarations, new object?[] { "1" });
+        using var again = Generated(model, "DrivenTextAgain", SkiaSharpTarget.V4, declarations, new object?[] { "1" });
+        using var other = Generated(model, "DrivenTextOther", SkiaSharpTarget.V4, declarations, new object?[] { "8888" });
+
+        // The same argument twice is the same picture, so the difference below is the argument's.
+        AssertSamePicture("DrivenText", one, again);
+
+        var directory = Directory.CreateTempSubdirectory().FullName;
+
+        try
+        {
+            using var drawn = Image.Load<Rgba32>(Draw(one, Path.Combine(directory, "one.png")));
+            using var different = Image.Load<Rgba32>(Draw(other, Path.Combine(directory, "other.png")));
+
+            Assert.True(ImageHelper.CompareImages(different, drawn) > 0d, "The argument did not reach the drawing.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 
     [Fact]
     public void Non_Default_Fill_Rule()

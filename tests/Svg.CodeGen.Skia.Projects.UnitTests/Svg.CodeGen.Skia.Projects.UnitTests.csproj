@@ -13,6 +13,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Svg.CodeGen.Skia.Projects\Svg.CodeGen.Skia.Projects.csproj" />
+    <!-- The real text stack: a drawing with words in it needs a typeface resolved and measured. -->
+    <ProjectReference Include="..\..\src\Svg.Skia\Svg.Skia.csproj" />
   </ItemGroup>
 
 </Project>

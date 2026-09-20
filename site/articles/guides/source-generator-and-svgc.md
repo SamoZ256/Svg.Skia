@@ -348,9 +348,14 @@ than pointing at them — and opens one of these by converting it. See
 | `--helperScope` | Where shared helpers live in that file: `file` (default, C# 11 file-local), `internal`, or `perClass` |
 | `--cache` | `none` (default), `lastValue`, `lastValueLocked` |
 | `--skiaSharp` | The SkiaSharp major version the output is compiled against: `4` (default) or `3` |
+| `--text-layout` | What to do with text an expression drives and the layout was measured with: `strict` (default) refuses the drawing, `baked` writes the default in and warns, `relaxed` draws the argument and gives the layout rules up |
 
 `--helperScope internal` names the helper class after the output file, so two generated files can sit
 in one assembly without colliding on it.
+
+Text whose words are one run at one origin is generated with the words as an argument whatever
+`--text-layout` says; the flag is about text placed per glyph, which was measured to place it. See
+[Svg.Expressions](../packages/svg-expressions).
 
 ### It reports mistakes like a compiler
 

@@ -314,6 +314,18 @@ public class SvgcProjectTests
     public void Cache_Values(string value, SvgPictureCache expected) => Assert.Equal(expected, SvgcProject.ParseCache(value));
 
     [Theory]
+    [InlineData("strict", SvgTextLayout.Strict)]
+    [InlineData("baked", SvgTextLayout.Baked)]
+    [InlineData("Relaxed", SvgTextLayout.Relaxed)]
+    [InlineData("", SvgTextLayout.Strict)]
+    [InlineData(null, SvgTextLayout.Strict)]
+    public void Text_Layout_Values(string? value, SvgTextLayout expected) => Assert.Equal(expected, SvgcProject.ParseTextLayout(value));
+
+    [Fact]
+    public void An_Unknown_Text_Layout_Says_What_It_Takes()
+        => Assert.Contains("Expected strict, baked or relaxed", Assert.Throws<SvgcProjectException>(() => SvgcProject.ParseTextLayout("loose")).Message);
+
+    [Theory]
     [InlineData("3", SkiaSharpTarget.V3)]
     [InlineData("4", SkiaSharpTarget.V4)]
     [InlineData("", SkiaSharpTarget.V4)]

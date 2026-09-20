@@ -41,5 +41,19 @@
                TextWrapping="Wrap"
                Opacity="0.65"
                FontSize="11" />
+
+    <TextBlock Text="Relaxed text layout" Margin="0,14,0,0" />
+
+    <!--
+      Three answers rather than a box, because the third one is the useful default: it only comes up
+      for a drawing whose words an expression writes, and until somebody has seen what it costs
+      there is no answer to remember.
+    -->
+    <ComboBox x:Name="RelaxedTextBox" HorizontalAlignment="Left" Width="200" />
+
+    <TextBlock Text="An export writes text an expression drives as an argument where it can. Where the drawing places that text per glyph — a span of its own, a length to fit, a path to follow — it can either give those rules up and draw the text anyway, or write the default in and tell you which drawings it did that to."
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11" />
   </StackPanel>
 </Window>

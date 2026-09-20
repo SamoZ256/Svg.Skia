@@ -97,6 +97,7 @@ public partial class MainWindow : Window
         ConfirmConvert = AskConvert;
         AskWhereToSave = AskSaveProject;
         ShowSettings = ShowSettingsWindow;
+        ConfirmRelax = AskRelax;
         ConfirmRemove = message => Ask("Remove from the project", message, "Remove", "Cancel");
         Announce = (title, message) => Ask(title, message, null, "Close");
         ShowOnDisk = Reveal;
@@ -2472,6 +2473,38 @@ public partial class MainWindow : Window
         return file?.TryGetLocalPath() is { Length: > 0 } target && await ExportAsync(target);
     }
 
+    /// <summary>
+    /// How this export treats text it cannot write out as the author drives it, or null to stop.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is asked unless there is something to ask about, which a project of ordinary icons
+    /// never has: the survey compiles the drawings to find out, and only a project that drives text
+    /// a layout was measured with pays for it. Studio never asks for Strict -- refusing to write the
+    /// file at all is svgc's answer, for a script that wants a build to stop.
+    /// </remarks>
+    private async Task<SvgTextLayout?> RelaxAsync(SvgcProject project, SvgcBuildSettings settings, Svg.Model.ISvgAssetLoader loader)
+    {
+        if (StudioSettings.RelaxedText is { } answer && answer != RelaxedTextAnswer.Ask)
+        {
+            return answer == RelaxedTextAnswer.Always ? SvgTextLayout.Relaxed : SvgTextLayout.Baked;
+        }
+
+        IReadOnlyList<string> frozen;
+
+        try
+        {
+            frozen = await Task.Run(() => SvgcProjectBuild.Survey(project, settings, loader)).ConfigureAwait(true);
+        }
+        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ExprException)
+        {
+            // Whatever it is, the build below reports it properly. Asking about text on the way to
+            // a failure would be asking about something that is not going to happen.
+            return SvgTextLayout.Baked;
+        }
+
+        return frozen.Count == 0 ? SvgTextLayout.Baked : await ConfirmRelax(frozen).ConfigureAwait(true);
+    }
+
     /// <summary>What to offer the export panel: the project's own file name, made into a class's.</summary>
     /// <remarks>
     /// A project that has never been saved has no name to offer, and the file is going to hold every
@@ -2545,8 +2578,16 @@ public partial class MainWindow : Window
         var project = workspace.Document.Flatten();
         var settings = SvgcBuildSettings.For(project);
         var log = new List<string>();
+        var loader = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()));
 
         settings.SingleFile = target;
+
+        if (await RelaxAsync(project, settings, loader).ConfigureAwait(true) is not { } layout)
+        {
+            return false;
+        }
+
+        settings.TextLayout = layout;
 
         try
         {
@@ -2555,7 +2596,7 @@ public partial class MainWindow : Window
                 () => SvgcProjectBuild.Run(
                     project,
                     settings,
-                    new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())),
+                    loader,
                     line => log.Add(line))).ConfigureAwait(true);
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ExprException or IOException or UnauthorizedAccessException)
@@ -2609,6 +2650,15 @@ public partial class MainWindow : Window
     /// panel dismisses with — Enter and the close box both land on it.
     /// </remarks>
     public Func<string, Task<bool>> ConfirmDiscardRecovery { get; set; }
+
+    /// <summary>
+    /// How the window asks what to do about text it cannot write out.
+    /// </summary>
+    /// <remarks>
+    /// Replaceable for the reason <see cref="ConfirmDiscard"/> is. Null is the answer that stops the
+    /// export, so a test that does not answer does not quietly get one of the two.
+    /// </remarks>
+    public Func<IReadOnlyList<string>, Task<SvgTextLayout?>> ConfirmRelax { get; set; }
 
     /// <summary>
     /// How the window shows the settings.
@@ -2914,6 +2964,54 @@ public partial class MainWindow : Window
     /// <summary>Asks whether edits that are not on disk may be thrown away.</summary>
     private Task<bool> AskDiscard(string message)
         => Ask("Unsaved changes", message, "Discard changes", "Keep editing");
+
+    /// <summary>
+    /// Names the drawings an export cannot write the text of, and asks what to do about them.
+    /// </summary>
+    /// <remarks>
+    /// The box is off, so relaxing is the thing somebody asks for rather than the thing they forget
+    /// to refuse: what it gives up is the drawing's own layout, and the answer that keeps the
+    /// drawing as drawn is the safe one. Remembering is a second box rather than a third button
+    /// because it is about every export after this one, not about this one.
+    /// </remarks>
+    private async Task<SvgTextLayout?> AskRelax(IReadOnlyList<string> frozen)
+    {
+        var relax = new CheckBox { Content = "Relaxed text layout", IsChecked = false };
+        var remember = new CheckBox { Content = "Remember this answer", IsChecked = false };
+
+        var named = frozen.Count <= Listed
+            ? string.Join(Environment.NewLine, frozen)
+            : string.Join(Environment.NewLine, frozen.Take(Listed).Append($"…and {frozen.Count - Listed} more."));
+
+        var asked = await Ask(
+            "Text this export cannot write out",
+            $"{named}{Environment.NewLine}{Environment.NewLine}"
+            + "The generated code draws each of these at the size and in the place the drawing was measured at, "
+            + "so it cannot be given different words. Relaxing the layout draws the words it is given instead, "
+            + "at the element's own place, giving up the spans, lengths and paths that placed them. "
+            + "Without it the default words are written in and the rest of the project is unaffected.",
+            "Export",
+            "Cancel",
+            new StackPanel
+            {
+                Spacing = 8d,
+                Children = { relax, remember }
+            }).ConfigureAwait(true);
+
+        if (!asked)
+        {
+            return null;
+        }
+
+        var layout = relax.IsChecked is true ? SvgTextLayout.Relaxed : SvgTextLayout.Baked;
+
+        if (remember.IsChecked is true)
+        {
+            StudioSettings.RelaxedText = layout == SvgTextLayout.Relaxed ? RelaxedTextAnswer.Always : RelaxedTextAnswer.Never;
+        }
+
+        return layout;
+    }
 
     /// <summary>Says what opening a PaintCode document does, and asks the one question it cannot.</summary>
     /// <remarks>
