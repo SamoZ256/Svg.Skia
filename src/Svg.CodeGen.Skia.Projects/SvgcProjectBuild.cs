@@ -153,6 +153,62 @@ public static class SvgcProjectBuild
         return written;
     }
 
+    /// <summary>
+    /// What a build would have to freeze, without writing anything.
+    /// </summary>
+    /// <remarks>
+    /// For an editor that wants to ask before it exports. It compiles every drawing to find out,
+    /// which is the same work the build does -- asked separately because the answer decides which
+    /// build to run, and a guess made from the document alone would eventually disagree with the
+    /// compiler about what it could carry.
+    ///
+    /// Surveyed as <see cref="SvgTextLayout.Baked"/> whatever <paramref name="settings"/> says,
+    /// since what is being asked is what would be lost by not relaxing.
+    /// </remarks>
+    /// <returns>One line per drawing and value, empty when a build would lose nothing.</returns>
+    public static IReadOnlyList<string> Survey(
+        SvgcProject project,
+        SvgcBuildSettings settings,
+        ISvgAssetLoader assetLoader)
+    {
+        if (project is null)
+        {
+            throw new ArgumentNullException(nameof(project));
+        }
+
+        if (settings is null)
+        {
+            throw new ArgumentNullException(nameof(settings));
+        }
+
+        var frozen = new List<string>();
+        var asked = new SvgcBuildSettings
+        {
+            Emit = settings.Emit,
+            Cache = settings.Cache,
+            HelperScope = settings.HelperScope,
+            SkiaSharp = settings.SkiaSharp,
+            TextLayout = SvgTextLayout.Baked,
+            Namespace = settings.Namespace,
+            Class = settings.Class,
+            Recipe = settings.Recipe,
+            Size = settings.Size
+        };
+
+        foreach (var item in project.Items)
+        {
+            _ = Build(item, asked, assetLoader, line =>
+            {
+                if (line.Contains("is frozen at its default", StringComparison.Ordinal))
+                {
+                    frozen.Add(line.StartsWith("warning: ", StringComparison.Ordinal) ? line.Substring("warning: ".Length) : line);
+                }
+            });
+        }
+
+        return frozen;
+    }
+
     /// <summary>Says why a build cannot be made, before any of it is.</summary>
     private static void Refuse(SvgcProject project, SvgcBuildSettings settings)
     {

@@ -1,6 +1,8 @@
 ﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
+using System;
+using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
@@ -40,13 +42,39 @@ public partial class SettingsWindow : Window
                 StudioSettings.CaptionSize = (double)size;
             }
         };
+
+        RelaxedText = this.FindControl<ComboBox>("RelaxedTextBox")!;
+        RelaxedText.ItemsSource = s_answers.Select(answer => answer.Said).ToList();
+        RelaxedText.SelectedIndex = Array.FindIndex(s_answers, answer => answer.Answer == StudioSettings.RelaxedText);
+        RelaxedText.SelectionChanged += (_, _) =>
+        {
+            if (RelaxedText.SelectedIndex >= 0)
+            {
+                StudioSettings.RelaxedText = s_answers[RelaxedText.SelectedIndex].Answer;
+            }
+        };
     }
+
+    /// <summary>The three answers, in the order the list shows them.</summary>
+    /// <remarks>
+    /// Said as what happens rather than as on and off: "off" for a setting called relaxed layout
+    /// reads as though nothing happens, and what happens is that the drawing keeps its default.
+    /// </remarks>
+    private static readonly (RelaxedTextAnswer Answer, string Said)[] s_answers =
+    {
+        (RelaxedTextAnswer.Ask, "Ask each time"),
+        (RelaxedTextAnswer.Always, "Relax the layout"),
+        (RelaxedTextAnswer.Never, "Keep the default text")
+    };
 
     /// <summary>The box for the recovery copy, for a test to drive.</summary>
     public CheckBox Autosave { get; }
 
     /// <summary>The box for how big a caption is drawn, for a test to drive.</summary>
     public NumericUpDown CaptionSize { get; }
+
+    /// <summary>The list of answers about text an export cannot write out, for a test to drive.</summary>
+    public ComboBox RelaxedText { get; }
 
     /// <inheritdoc />
     /// <remarks>

@@ -17,11 +17,26 @@ namespace Svg.Studio;
 /// the spot the way <see cref="RecentFiles"/> is — a second window sees what the first one changed.
 /// Shaped on that class rather than sharing it: a capped list of paths has nothing in it to widen.
 /// </remarks>
+/// <summary>What an export does about text it cannot write out as the author drives it.</summary>
+public enum RelaxedTextAnswer
+{
+    /// <summary>Ask, every time there is something to ask about.</summary>
+    Ask,
+
+    /// <summary>Always relax, without asking.</summary>
+    Always,
+
+    /// <summary>Never relax: the default text is written in, and the export says which.</summary>
+    Never
+}
+
 public static class StudioSettings
 {
     private const string AutosaveKey = "autosave";
 
     private const string CaptionSizeKey = "captionSize";
+
+    private const string RelaxedTextKey = "relaxedText";
 
     /// <summary>
     /// Where the settings are kept.
@@ -42,6 +57,30 @@ public static class StudioSettings
     {
         get => !string.Equals(Read(AutosaveKey), "off", StringComparison.Ordinal);
         set => Write(AutosaveKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether an export relaxes the text layout, or asks each time.</summary>
+    /// <remarks>
+    /// Ask unless the file says otherwise, for the reason the recovery copy defaults on: an answer
+    /// nobody can read is not an answer, and what this decides is what a drawing comes out looking
+    /// like. It only ever comes up for a project holding text an expression drives, so a set of
+    /// icons without any is never asked at all.
+    /// </remarks>
+    public static RelaxedTextAnswer RelaxedText
+    {
+        get => Read(RelaxedTextKey) switch
+        {
+            "on" => RelaxedTextAnswer.Always,
+            "off" => RelaxedTextAnswer.Never,
+            _ => RelaxedTextAnswer.Ask
+        };
+
+        set => Write(RelaxedTextKey, value switch
+        {
+            RelaxedTextAnswer.Always => "on",
+            RelaxedTextAnswer.Never => "off",
+            _ => "ask"
+        });
     }
 
     /// <summary>How big a group's name on a board is drawn, in control pixels.</summary>
