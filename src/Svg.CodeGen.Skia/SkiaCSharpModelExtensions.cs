@@ -50,11 +50,6 @@ public static class SkiaCSharpModelExtensions
         return string.Concat(value.ToString(s_ci), "f");
     }
 
-    private static string? EspaceString(string? text)
-    {
-        return text?.Replace("\"", "\\\"");
-    }
-
     public static StringBuilder ToByteArray(this byte[] array)
     {
         // Each byte is 1 to 3 chars. Add trailing comma and space, then 5 char is expected for each byte in the array.
@@ -2228,12 +2223,12 @@ public static class SkiaCSharpModelExtensions
 
                             foreach (var fragment in drawPositionedTextRunCanvasCommand.Fragments)
                             {
-                                var text = EspaceString(fragment.Text);
+                                var text = ExprCSharpBackend.Literal(fragment.Text);
                                 var x = fragment.Point.X;
                                 var y = fragment.Point.Y;
                                 if (fragment.RotationDegrees == 0f && fragment.ScaleX == 1f)
                                 {
-                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText(\"{text}\", {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
+                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText({text}, {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
                                     continue;
                                 }
 
@@ -2252,7 +2247,7 @@ public static class SkiaCSharpModelExtensions
                                     sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(ref {counter.MatrixVarName}{counterMatrix});");
                                 }
 
-                                sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText(\"{text}\", {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
+                                sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText({text}, {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
                                 sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Restore();");
                             }
 
@@ -2292,7 +2287,7 @@ public static class SkiaCSharpModelExtensions
                     {
                         if (drawPositionedTextCanvasCommand.TextBlob is { } && drawPositionedTextCanvasCommand.TextBlob.Points is { } && drawPositionedTextCanvasCommand.Paint is { })
                         {
-                            var text = EspaceString(drawPositionedTextCanvasCommand.TextBlob.Text);
+                            var text = ExprCSharpBackend.Literal(drawPositionedTextCanvasCommand.TextBlob.Text);
                             var points = drawPositionedTextCanvasCommand.TextBlob.Points.ToSKPoints();
                             var counterPaint = ++counter.Paint;
                             drawPositionedTextCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
@@ -2306,7 +2301,7 @@ public static class SkiaCSharpModelExtensions
                                 drawPositionedTextCanvasCommand.Paint.ToSKFont(counter, sb, indent);
                             }
                             var counterTextBlob = ++counter.TextBlob;
-                            sb.AppendLine($"{indent}var {counter.TextBlobVarName}{counterTextBlob} = SKTextBlob.CreatePositioned(\"{text}\", {counter.FontVarName}{counterFont}, {points});");
+                            sb.AppendLine($"{indent}var {counter.TextBlobVarName}{counterTextBlob} = SKTextBlob.CreatePositioned({text}, {counter.FontVarName}{counterFont}, {points});");
                             var x = drawPositionedTextCanvasCommand.X;
                             var y = drawPositionedTextCanvasCommand.Y;
                             sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText({counter.TextBlobVarName}{counterTextBlob}, {x.ToFloatString()}, {y.ToFloatString()}, {counter.PaintVarName}{counterPaint});");
@@ -2348,7 +2343,11 @@ public static class SkiaCSharpModelExtensions
                     {
                         if (drawTextCanvasCommand.Paint is { })
                         {
-                            var text = EspaceString(drawTextCanvasCommand.Text);
+                            // The expression where the author drives the text, so the argument reaches the draw; the
+                            // string it was recorded with otherwise.
+                            var text = drawTextCanvasCommand.TextExpression is { } textExpression
+                                ? SymCSharpEmitter.Emit(textExpression, ExprType.String)
+                                : ExprCSharpBackend.Literal(drawTextCanvasCommand.Text);
                             var x = drawTextCanvasCommand.X;
                             var y = drawTextCanvasCommand.Y;
                             var counterPaint = ++counter.Paint;
@@ -2363,7 +2362,7 @@ public static class SkiaCSharpModelExtensions
                                 drawTextCanvasCommand.Paint.ToSKFont(counter, sb, indent);
                             }
                             var textAlign = (drawTextCanvasCommand.TextAlign ?? drawTextCanvasCommand.Paint.TextAlign).ToSKTextAlign();
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText(\"{text}\", {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText({text}, {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
 
                             // NOTE: Do not dispose created SKTypeface by font manager.
 #if USE_DISPOSE_TYPEFACE
@@ -2401,7 +2400,7 @@ public static class SkiaCSharpModelExtensions
                     {
                         if (drawTextOnPathCanvasCommand.Path is { } && drawTextOnPathCanvasCommand.Paint is { })
                         {
-                            var text = EspaceString(drawTextOnPathCanvasCommand.Text);
+                            var text = ExprCSharpBackend.Literal(drawTextOnPathCanvasCommand.Text);
                             var counterPath = ++counter.Path;
                             drawTextOnPathCanvasCommand.Path.ToSKPath(counter, sb, indent);
                             var hOffset = drawTextOnPathCanvasCommand.HOffset;
@@ -2418,7 +2417,7 @@ public static class SkiaCSharpModelExtensions
                                 drawTextOnPathCanvasCommand.Paint.ToSKFont(counter, sb, indent);
                             }
                             var textAlign = (drawTextOnPathCanvasCommand.TextAlign ?? drawTextOnPathCanvasCommand.Paint.TextAlign).ToSKTextAlign();
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawTextOnPath(\"{text}\", {counter.PathVarName}{counterPath}, {hOffset.ToFloatString()}, {vOffset.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawTextOnPath({text}, {counter.PathVarName}{counterPath}, {hOffset.ToFloatString()}, {vOffset.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
 
                             // NOTE: Do not dispose created SKTypeface by font manager.
 #if USE_DISPOSE_TYPEFACE

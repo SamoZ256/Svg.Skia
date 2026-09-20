@@ -27,6 +27,30 @@ namespace Svg;
 /// <see cref="SvgDocument.BeginUseInstanceStyleScope"/>: a copy costs a reflection walk per element
 /// and would need its deferred paint servers rebinding.
 /// </remarks>
+/// <summary>How a build treats text an expression drives.</summary>
+/// <remarks>
+/// A generated picture replays commands rather than a document, so a value the compile consumed --
+/// the text itself, the typeface it was measured with -- can only vary if the command carries the
+/// expression instead of the answer. Some do and some cannot, which is what these three choose
+/// between.
+/// </remarks>
+public enum SvgTextLayout
+{
+    /// <summary>Refuse to generate a document that drives any of it. The tool's own default.</summary>
+    Strict,
+
+    /// <summary>
+    /// Emit what a command can carry, and freeze the rest at its declared default.
+    /// </summary>
+    Baked,
+
+    /// <summary>
+    /// Emit all of it, laying text out the simple way where the real rules cannot follow a string
+    /// nobody has seen yet.
+    /// </summary>
+    Relaxed
+}
+
 public static class SvgExpressionSubstitution
 {
     /// <summary>A scope that substituted nothing, for a document with none to substitute.</summary>
@@ -64,23 +88,44 @@ public static class SvgExpressionSubstitution
     /// Why <paramref name="document"/> cannot be generated as C#, or null when it can.
     /// </summary>
     /// <remarks>
+    /// Only under <see cref="SvgTextLayout.Strict"/>. The other two answer the same question by
+    /// building something rather than by refusing, and say afterwards what they had to freeze.
+    ///
     /// Generated code replays a picture that was recorded at build time, with the text already
     /// measured and the glyph positions already written down as numbers. A value the compile consumed
     /// is therefore frozen into it, and a generated signature offering to vary one would be offering
     /// something it cannot do. Refusing says so once, where it can still be acted on.
     /// </remarks>
-    public static string? WhyNotGeneratable(SvgDocument? document)
+    public static string? WhyNotGeneratable(SvgDocument? document, SvgTextLayout layout = SvgTextLayout.Strict)
     {
+        if (layout != SvgTextLayout.Strict)
+        {
+            return null;
+        }
+
         foreach (var (element, name) in Carriers(document))
         {
-            var what = name == SvgExpressionAttributes.ContentName
-                ? $"the text of <{element.ElementName}>"
-                : $"'{name}' on <{element.ElementName}>";
-
-            return $"{what} is resolved before the drawing is recorded -- the text is measured with it and the positions are baked -- so a generated picture cannot vary it. Bind it at run time with SKSvg.SetExpressionValues, or write the value as a literal to generate from.";
+            return $"{Describe(element, name)} is resolved before the drawing is recorded -- the text is measured with it and the positions are baked -- so a generated picture cannot vary it. Bind it at run time with SKSvg.SetExpressionValues, or write the value as a literal to generate from.";
         }
 
         return null;
+    }
+
+    /// <summary>What a carrier is, as a sentence names it.</summary>
+    /// <remarks>
+    /// Public because the element's own name is this assembly's to read, and everything that reports
+    /// one of these -- a refusal here, a warning from a build -- should call it the same thing.
+    /// </remarks>
+    public static string Describe(SvgElement element, string name)
+    {
+        if (element is null)
+        {
+            throw new ArgumentNullException(nameof(element));
+        }
+
+        return name == SvgExpressionAttributes.ContentName
+            ? $"the text of <{element.ElementName}>"
+            : $"'{name}' on <{element.ElementName}>";
     }
 
     /// <summary>

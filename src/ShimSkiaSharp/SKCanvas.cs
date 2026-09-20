@@ -35,7 +35,7 @@ public abstract record CanvasCommand : IDeepCloneable<CanvasCommand>
                 DrawPathCanvasCommand drawPathCanvasCommand => new DrawPathCanvasCommand(drawPathCanvasCommand.Path?.DeepClone(context), drawPathCanvasCommand.Paint?.DeepClone(context)),
                 DrawPositionedTextRunCanvasCommand drawPositionedTextRunCanvasCommand => new DrawPositionedTextRunCanvasCommand(ClonePositionedTextRunFragments(drawPositionedTextRunCanvasCommand.Fragments), drawPositionedTextRunCanvasCommand.Paint?.DeepClone(context), drawPositionedTextRunCanvasCommand.TextAlign, drawPositionedTextRunCanvasCommand.Font?.DeepClone(context)),
                 DrawTextBlobCanvasCommand drawTextBlobCanvasCommand => new DrawTextBlobCanvasCommand(drawTextBlobCanvasCommand.TextBlob?.DeepClone(context), drawTextBlobCanvasCommand.X, drawTextBlobCanvasCommand.Y, drawTextBlobCanvasCommand.Paint?.DeepClone(context)),
-                DrawTextCanvasCommand drawTextCanvasCommand => new DrawTextCanvasCommand(drawTextCanvasCommand.Text, drawTextCanvasCommand.X, drawTextCanvasCommand.Y, drawTextCanvasCommand.Paint?.DeepClone(context), drawTextCanvasCommand.TextAlign, drawTextCanvasCommand.Font?.DeepClone(context)),
+                DrawTextCanvasCommand drawTextCanvasCommand => new DrawTextCanvasCommand(drawTextCanvasCommand.Text, drawTextCanvasCommand.X, drawTextCanvasCommand.Y, drawTextCanvasCommand.Paint?.DeepClone(context), drawTextCanvasCommand.TextAlign, drawTextCanvasCommand.Font?.DeepClone(context), drawTextCanvasCommand.TextExpression),
                 DrawTextOnPathCanvasCommand drawTextOnPathCanvasCommand => new DrawTextOnPathCanvasCommand(drawTextOnPathCanvasCommand.Text, drawTextOnPathCanvasCommand.Path?.DeepClone(context), drawTextOnPathCanvasCommand.HOffset, drawTextOnPathCanvasCommand.VOffset, drawTextOnPathCanvasCommand.Paint?.DeepClone(context), drawTextOnPathCanvasCommand.TextAlign, drawTextOnPathCanvasCommand.Font?.DeepClone(context)),
                 RestoreCanvasCommand restoreCanvasCommand => new RestoreCanvasCommand(restoreCanvasCommand.Count),
                 SaveCanvasCommand saveCanvasCommand => new SaveCanvasCommand(saveCanvasCommand.Count),
@@ -105,7 +105,18 @@ public record DrawPositionedTextRunCanvasCommand(
 
 public record DrawTextBlobCanvasCommand(SKTextBlob? TextBlob, float X, float Y, SKPaint? Paint) : CanvasCommand;
 
-public record DrawTextCanvasCommand(string Text, float X, float Y, SKPaint? Paint, SKTextAlign? TextAlign = null, SKFont? Font = null) : CanvasCommand;
+/// <param name="Text">
+/// What the drawing was recorded with. Always a string: a back end that cannot vary the text --
+/// every one but the C# generator -- draws this and needs to know nothing about the expression.
+/// </param>
+/// <param name="TextExpression">
+/// What the author wrote, where the text is driven. Carried beside the value rather than instead of
+/// it, the way <see cref="SKPaint.StrokeWidthExpression"/> is, so nothing downstream has to change
+/// to keep working. A command carrying one has an origin that was <em>not</em> anchored for
+/// <paramref name="Text"/>: the anchor is left to <paramref name="TextAlign"/> at draw time,
+/// because it is the one measurement that cannot be taken before the string is known.
+/// </param>
+public record DrawTextCanvasCommand(string Text, float X, float Y, SKPaint? Paint, SKTextAlign? TextAlign = null, SKFont? Font = null, SymNode? TextExpression = null) : CanvasCommand;
 
 public record DrawTextOnPathCanvasCommand(string Text, SKPath? Path, float HOffset, float VOffset, SKPaint? Paint, SKTextAlign? TextAlign = null, SKFont? Font = null) : CanvasCommand;
 
@@ -311,6 +322,17 @@ public class SKCanvas : ICloneable, IDeepCloneable<SKCanvas>
     public void DrawText(string text, float x, float y, SKTextAlign textAlign, SKFont font, SKPaint paint)
     {
         AddCommand(new DrawTextCanvasCommand(text, x, y, paint, textAlign, font));
+    }
+
+    /// <summary>Records text the author drives, at an origin that was not anchored for it.</summary>
+    /// <remarks>
+    /// <paramref name="textAlign"/> is the element's own anchor rather than the left the other
+    /// overloads bake in, because anchoring is what the recorded origin deliberately leaves undone.
+    /// The font comes off the paint, as it does for the overload without one.
+    /// </remarks>
+    public void DrawText(string text, float x, float y, SKTextAlign textAlign, SKPaint paint, SymNode expression)
+    {
+        AddCommand(new DrawTextCanvasCommand(text, x, y, paint, textAlign, TextExpression: expression));
     }
 
     public void DrawTextOnPath(string text, SKPath path, float hOffset, float vOffset, SKPaint paint)

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using ShimSkiaSharp;
 using Svg.Expressions;
 using Svg.Expressions.Recipes;
 using Svg.Model;
@@ -31,6 +32,8 @@ public sealed class SvgcBuildSettings
     public SvgHelperScope HelperScope { get; set; } = SvgHelperScope.FileLocal;
 
     public SkiaSharpTarget SkiaSharp { get; set; } = SkiaSharpTarget.V4;
+
+    public SvgTextLayout TextLayout { get; set; } = SvgTextLayout.Strict;
 
     public string Namespace { get; set; } = "Svg";
 
@@ -60,6 +63,7 @@ public sealed class SvgcBuildSettings
             Cache = project.Cache ?? SvgPictureCache.None,
             HelperScope = project.HelperScope ?? SvgHelperScope.FileLocal,
             SkiaSharp = project.SkiaSharp ?? SkiaSharpTarget.V4,
+            TextLayout = SvgTextLayout.Strict,
             Namespace = project.Namespace ?? "Svg",
             Class = project.Class ?? "Generated",
             Recipe = project.Recipe,
@@ -264,6 +268,15 @@ public static class SvgcProjectBuild
         // the new size the way the format defines rather than by a scale wrapped around it.
         SvgSceneSizing.Apply(svgDocument, assetLoader, SizeFor(item, settings.Size));
 
+        // The declared defaults, in the document for as long as the compile lasts. A value the
+        // compile consumes -- the text itself, the typeface it is measured with -- has to be there
+        // before it is measured, and a build has only the defaults to put there: bound values are
+        // the run-time path's business. Under Strict nothing is substituted, because nothing that
+        // needs it is generated.
+        using var substitution = settings.TextLayout == SvgTextLayout.Strict
+            ? SvgExpressionSubstitution.None
+            : BeginSubstitution(svgDocument);
+
         // Compiled rather than modelled directly, because the refusal below is a question about the
         // scene: which nodes open a layer and which carry a filter are answers compilation has and
         // the document does not.
@@ -275,7 +288,7 @@ public static class SvgcProjectBuild
         }
 
         if ((SvgSceneTransformAudit.WhyUnsound(sceneDocument) ??
-             SvgExpressionSubstitution.WhyNotGeneratable(svgDocument)) is { } refusal)
+             SvgExpressionSubstitution.WhyNotGeneratable(svgDocument, settings.TextLayout)) is { } refusal)
         {
             throw new SvgcProjectException($"{Path.GetFileName(item.Input)}: {refusal}");
         }
@@ -284,11 +297,21 @@ public static class SvgcProjectBuild
 
         Warn(item.Input, declarations, log);
 
+        var frozen = Frozen(svgDocument, picture);
+
+        foreach (var (element, name) in frozen)
+        {
+            log?.Invoke($"warning: {Path.GetFileName(item.Input)}: {SvgExpressionSubstitution.Describe(element, name)} is frozen at its default, "
+                + "because the drawing is measured with it and the positions are written down. "
+                + "The generated code draws the default whatever it is given.");
+        }
+
         return new SkiaCSharpDrawing(
             picture,
             item.Namespace ?? settings.Namespace,
             item.Class ?? settings.Class,
-            declarations);
+            declarations,
+            frozen.Select(carrier => SvgExpressionAttributes.Lifted(carrier.Element.CustomAttributes, carrier.Name) ?? string.Empty).ToList());
     }
 
     /// <summary>
@@ -377,6 +400,72 @@ public static class SvgcProjectBuild
     /// than once per way of being asked. The generated file says the same thing where the signature
     /// is, since that is where a caller reads it.
     /// </remarks>
+    /// <summary>The declared defaults, substituted for as long as the returned scope lives.</summary>
+    /// <remarks>
+    /// An expression that will not resolve leaves the document alone, the same answer a load gives:
+    /// a malformed block is reported by the panel that shows it, not by refusing to build the
+    /// drawings around it.
+    /// </remarks>
+    private static IDisposable BeginSubstitution(SvgDocument document)
+    {
+        if (!SvgExpressionSubstitution.IsNeeded(document))
+        {
+            return SvgExpressionSubstitution.None;
+        }
+
+        try
+        {
+            return SvgExpressionSubstitution.Begin(document, ExprEvaluator.Create(document.ExpressionDeclarations, null));
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            return SvgExpressionSubstitution.None;
+        }
+    }
+
+    /// <summary>Which driven values the picture could not carry, and holds the answer to instead.</summary>
+    /// <remarks>
+    /// Read off the picture rather than guessed from the document: whether a text could keep its
+    /// expression is the compiler's answer, and asking anything else would eventually disagree with
+    /// it.
+    /// </remarks>
+    private static IReadOnlyList<(SvgElement Element, string Name)> Frozen(SvgDocument document, SKPicture picture)
+    {
+        var carried = new HashSet<string>(Carried(picture), StringComparer.Ordinal);
+
+        return SvgExpressionSubstitution.Carriers(document)
+            .Where(carrier => carrier.Name != SvgExpressionAttributes.ContentName ||
+                              SvgExpressionAttributes.Lifted(carrier.Element.CustomAttributes, carrier.Name) is not { } expression ||
+                              !carried.Contains(expression))
+            .ToList();
+    }
+
+    /// <summary>Every expression the picture kept, wherever it is nested.</summary>
+    private static IEnumerable<string> Carried(SKPicture? picture)
+    {
+        if (picture?.Commands is not { } commands)
+        {
+            yield break;
+        }
+
+        foreach (var command in commands)
+        {
+            switch (command)
+            {
+                case DrawTextCanvasCommand { TextExpression: SymSource source }:
+                    yield return source.Text;
+                    break;
+                case DrawPictureCanvasCommand nested:
+                    foreach (var carried in Carried(nested.Picture))
+                    {
+                        yield return carried;
+                    }
+
+                    break;
+            }
+        }
+    }
+
     private static void Warn(string inputPath, SvgExpressionDeclarations declarations, Action<string>? log)
     {
         if (log is null || declarations.EmitsDefaultArguments())
