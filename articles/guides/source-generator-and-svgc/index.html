@@ -460,10 +460,17 @@ than pointing at them — and opens one of these by converting it. See
 <td><code>--skiaSharp</code></td>
 <td>The SkiaSharp major version the output is compiled against: <code>4</code> (default) or <code>3</code></td>
 </tr>
+<tr>
+<td><code>--text-layout</code></td>
+<td>What to do with text an expression drives and the layout was measured with: <code>strict</code> (default) refuses the drawing, <code>baked</code> writes the default in and warns, <code>relaxed</code> draws the argument and gives the layout rules up</td>
+</tr>
 </tbody>
 </table>
 <p><code>--helperScope internal</code> names the helper class after the output file, so two generated files can sit
 in one assembly without colliding on it.</p>
+<p>Text whose words are one run at one origin is generated with the words as an argument whatever
+<code>--text-layout</code> says; the flag is about text placed per glyph, which was measured to place it. See
+<a href="/Svg.Skia/articles/packages/svg-expressions">Svg.Expressions</a>.</p>
 <h3 id="it-reports-mistakes-like-a-compiler">It reports mistakes like a compiler</h3>
 <p>A fault in the input or the command line is a diagnostic, not a stack trace, and sets a non-zero exit
 code:</p>

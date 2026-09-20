@@ -427,11 +427,42 @@ position is said.</p>
 takes 1.4 ms, binding the text takes 6.0 ms — about four times as much, and still inside a frame.
 Nothing throttles it, and a host that binds one per keystroke will not notice; a host driving one
 from a slider on a very large document might.</p>
-<p><strong>No generated code.</strong> <code>svgc</code> and the source generator bake a picture at build time, with the text
-already measured and the glyph positions already numbers. A parameter driving one of these could
-never vary at run time, so a document using them is <strong>refused</strong> rather than generated with a
-signature that offers something it cannot do. Bind it at run time with <code>SKSvg.SetExpressionValues</code>,
-or write the value as a literal to generate from.</p>
+<p><strong>Generated code, only for the text and only sometimes.</strong> <code>svgc</code> and the source generator record a
+picture at build time, with the text measured and the glyph positions written down as numbers. The
+text itself can still vary: a drawing whose words are one run at one origin, painted by a fill
+alone, records the expression beside the string and leaves the anchor to whoever draws it, so the
+generated <code>Draw</code> takes the words as an argument. Anything that places the text per glyph — a
+<code>&lt;tspan&gt;</code> positioned of its own, a <code>textLength</code> to fit, a <code>&lt;textPath&gt;</code> to follow, <code>rotate</code>,
+letter- or word-spacing — measured the string to do it, and there <code>--text-layout</code> decides:</p>
+<table class="table">
+<thead>
+<tr>
+<th><code>--text-layout</code></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>strict</code></td>
+<td>Refuse to generate the drawing at all. The default, so nothing changes for a build that has one.</td>
+</tr>
+<tr>
+<td><code>baked</code></td>
+<td>Generate it with the declared default written in, and warn, naming every drawing and value. A parameter left with nothing to do is dropped from the signature rather than offered as one the drawing ignores.</td>
+</tr>
+<tr>
+<td><code>relaxed</code></td>
+<td>Give up those rules and draw the words at the element's own place, so the argument reaches the drawing. Every rule dropped is reported.</td>
+</tr>
+</tbody>
+</table>
+<p>The other values a compile consumes — <code>font-family</code>, <code>font-size</code>, <code>text-anchor</code>, <code>letter-spacing</code>,
+<code>word-spacing</code>, <code>textLength</code> — have nowhere in a command to carry an expression and are frozen at
+their defaults under <code>baked</code> and <code>relaxed</code> alike, with a warning saying so. Bind those at run time
+with <code>SKSvg.SetExpressionValues</code>, which recompiles and has no such limit, or write them as literals.</p>
+<p><code>src/Svg.Studio</code> asks rather than choosing: an export that would freeze something names the
+drawings and offers the same two answers, with a box to remember one. See
+<a href="/Svg.Skia/articles/guides/svg-studio">Svg Studio</a>.</p>
 <p>A <strong>pattern</strong> fill is the one exception among the opacities: it paints into a picture of its own,
 where the alpha is baked into every command rather than sitting on one colour, so <code>fill-opacity</code>
 still applies but only as the value it had when the drawing was compiled.</p>

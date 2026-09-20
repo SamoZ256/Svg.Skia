@@ -286,6 +286,19 @@ into it, whatever tab is in front: a project is one build, so there is nothing t
 tab's own work with it, the same as a save does, and leaves the project where it was. With no project
 open it is the drawing being looked at that goes — as <code>.svg</code> at the size it is being drawn at, or as
 <code>.cs</code> if the name says so.</p>
+<h3 id="text-an-export-cannot-write-out">Text an export cannot write out</h3>
+<p>A drawing whose words an expression writes is generated with the words as an argument, where the
+drawing places them simply enough for that: one run, at one origin, painted by a fill. Where it
+places them per glyph instead — a <code>&lt;tspan&gt;</code> of its own, a <code>textLength</code> to fit, a <code>&lt;textPath&gt;</code>,
+<code>rotate</code>, letter- or word-spacing — the positions were measured from the words, so the positions and
+the words cannot both be free.</p>
+<p>Exporting such a project names those drawings and asks. <strong>Relaxed text layout</strong> gives the rules up
+and draws the words at the element's own place, so the argument reaches the drawing; leaving it off
+writes the default words in and says which drawings it did that to. Either way the rest of the
+project is unaffected, and what was given up or frozen is listed when the export finishes.</p>
+<p><strong>Remember this answer</strong> puts it in <strong>Settings</strong>, which also holds it directly — ask each time,
+relax the layout, or keep the default text. Nothing is asked for a project with no driven text in
+it, which is most of them.</p>
 <h2 id="the-recovery-copy">The recovery copy</h2>
 <p>Studio keeps a copy of the project under your application data while it has work that is not on disk
 — sooner as more piles up behind it, and never the project's own file. Saving throws the copy away,
