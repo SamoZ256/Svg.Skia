@@ -186,7 +186,8 @@
             <NativeMenuItemSeparator />
             <!--
               One command for both forms: the save panel asks which, and names the file after the
-              answer, so nothing here has to ask twice.
+              answer, so nothing here has to ask twice. With a project open there is one form and
+              one thing to write — the project — so the panel only asks where.
             -->
             <NativeMenuItem Header="Export…" Click="OnExport" />
             <!--
@@ -220,8 +221,8 @@
         </NativeMenuItem.Menu>
       </NativeMenuItem>
       <!--
-        Its own menu rather than an item in File: what it acts on is the whole project, not the
-        drawing being looked at, which is what everything in File and Edit is about.
+        Its own menu rather than items in File: what these two act on is the project itself — which
+        File opens drawings and writes them out of, and Edit edits one in.
       -->
       <NativeMenuItem Header="Project">
         <NativeMenuItem.Menu>
@@ -231,8 +232,6 @@
               would have had to ask which of the two was meant.
             -->
             <NativeMenuItem Header="New" Click="OnNewProject" />
-            <NativeMenuItemSeparator />
-            <NativeMenuItem Header="Build" Click="OnBuild" />
             <NativeMenuItemSeparator />
             <NativeMenuItem Header="Close" Click="OnCloseProject" />
           </NativeMenu>

@@ -1625,27 +1625,21 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task A_Drawing_Exported_Is_Written_As_A_File_Of_Its_Own()
+    public async Task An_Export_Leaves_The_Project_As_It_Was()
     {
-        // Export rather than Save As, which points a tab at the file it wrote and so has nothing to
-        // do for a drawing the project holds.
         var path = Write("icons.svgstudio", Project);
         var window = await Host(path);
+
+        window.Announce = (_, _) => Task.CompletedTask;
 
         await window.ShowAsync((ProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!).Tag!);
         Dispatcher.UIThread.RunJobs();
 
         await Settle(window, "home");
 
-        var copy = Path.Combine(_directory, "copied.svg");
+        Assert.True(await window.ExportAsync(Path.Combine(_directory, "Icons.cs")));
 
-        Assert.True(await window.ExportAsync(copy));
-
-        // Without the indentation it was written at inside the project: what comes out is a drawing
-        // rather than a slice of somebody else's file.
-        Assert.Equal(Drawing, File.ReadAllText(copy));
-
-        // And the project is left exactly as it was: an export is a copy, not a move.
+        // An export is a copy, not a move: it writes the file it was given and nothing else.
         Assert.Equal(Project, File.ReadAllText(path));
     }
 
@@ -1955,12 +1949,11 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
-    /// A build needs somewhere to put what it writes, and a project with no file has no directory
-    /// to be relative to — so building one asks where it goes first, rather than writing beside
-    /// whatever Studio was started from.
+    /// An export names the file it writes, so a project that has never been saved is exported like
+    /// any other: it used to be saved first, because where its outputs went was relative to it.
     /// </summary>
     [AvaloniaFact]
-    public async Task A_Build_From_An_Unnamed_Project_Saves_It_First()
+    public async Task An_Unnamed_Project_Is_Exported_Without_Being_Saved_First()
     {
         Write("badge.svg", Drawing);
 
@@ -1971,49 +1964,29 @@ public class MainWindowProjectTests : IDisposable
             """);
 
         var window = Empty();
-
-        // Somewhere the conversion did not come from, so where the output lands says which
-        // directory the build resolved it against.
-        var elsewhere = Directory.CreateDirectory(Path.Combine(_directory, "moved")).FullName;
-        var target = Path.Combine(elsewhere, "icons.svgstudio");
+        var asked = false;
 
         window.Announce = (_, _) => Task.CompletedTask;
-        window.AskWhereToSave = _ => Task.FromResult<string?>(target);
+        window.AskWhereToSave = _ =>
+        {
+            asked = true;
+
+            return Task.FromResult<string?>(null);
+        };
 
         await window.OpenAsync(new[] { source });
         Dispatcher.UIThread.RunJobs();
 
-        Assert.True(await window.BuildAsync());
+        var target = Path.Combine(_directory, "Icons.cs");
 
-        Assert.True(File.Exists(target));
-        Assert.True(File.Exists(Path.Combine(elsewhere, "Badge.cs")));
+        Assert.True(await window.ExportAsync(target));
+
+        Assert.False(asked);
+        Assert.Null(window.Workspace!.Document.Path);
+        Assert.Contains("class Badge", File.ReadAllText(target), StringComparison.Ordinal);
+
+        // Where the old project said its output went, which a studio project no longer holds.
         Assert.False(File.Exists(Path.Combine(_directory, "Badge.cs")));
-        Assert.False(File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "Badge.cs")));
-    }
-
-    [AvaloniaFact]
-    public async Task A_Build_Nobody_Names_The_Project_For_Writes_Nothing()
-    {
-        Write("badge.svg", Drawing);
-
-        var source = Write("icons.svgcproj", """
-            <svgc namespace="Demo.Icons">
-              <svg input="badge.svg" class="Badge" output="Badge.cs" />
-            </svgc>
-            """);
-
-        var window = Empty();
-
-        window.Announce = (_, _) => Task.CompletedTask;
-        window.AskWhereToSave = _ => Task.FromResult<string?>(null);
-
-        await window.OpenAsync(new[] { source });
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.False(await window.BuildAsync());
-
-        Assert.False(File.Exists(Path.Combine(_directory, "Badge.cs")));
-        Assert.False(File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "Badge.cs")));
     }
 
     /// <summary>
@@ -2186,8 +2159,7 @@ public class MainWindowProjectTests : IDisposable
             .FromPaintCode(
                 PaintCodeDocument.Parse(DeskDocument.Bytes()),
                 new PaintCodeImportOptions(_directory),
-                new List<PaintCodeImportNote>(),
-                _directory)
+                new List<PaintCodeImportNote>())
             .Save(path);
 
         await window.OpenAsync(new[] { path });
@@ -3908,7 +3880,7 @@ public class MainWindowProjectTests : IDisposable
         Write("home.svg", Drawing);
 
         var window = await Host(Write("icons.svgstudio", $"""
-            <studio namespace="Demo.Icons" singleFile="Icons.cs">
+            <studio namespace="Demo.Icons" skiaSharp="3">
             {Holding("home", " class=\"Home\"")}
             </studio>
             """));
@@ -3921,17 +3893,17 @@ public class MainWindowProjectTests : IDisposable
 
         var panel = Panel(window, "Project");
 
-        Assert.Equal("Icons.cs", panel.Shown("singleFile"));
+        Assert.Equal("3", panel.Shown("skiaSharp"));
 
-        panel.Edit("singleFile", "Other.cs");
+        panel.Edit("skiaSharp", "4");
         Assert.True(panel.IsModified);
 
         await Save(window, panel);
 
         // Saved, said to be saved, and nothing left behind to be asked about.
         Assert.False(panel.IsModified);
-        Assert.Equal("Other.cs", panel.Shown("singleFile"));
-        Assert.Contains("singleFile=\"Other.cs\"", File.ReadAllText(Path.Combine(_directory, "icons.svgstudio")));
+        Assert.Equal("4", panel.Shown("skiaSharp"));
+        Assert.Contains("skiaSharp=\"4\"", File.ReadAllText(Path.Combine(_directory, "icons.svgstudio")));
 
         var asked = new List<string>();
         window.ConfirmDiscard = message => { asked.Add(message); return Task.FromResult(true); };
@@ -3949,7 +3921,7 @@ public class MainWindowProjectTests : IDisposable
         Write("home.svg", Drawing);
 
         var window = await Host(Write("icons.svgstudio", $"""
-            <studio namespace="Demo.Icons" singleFile="Icons.cs">
+            <studio namespace="Demo.Icons" skiaSharp="3">
             {Holding("home", " class=\"Home\"")}
             </studio>
             """));
@@ -3961,7 +3933,7 @@ public class MainWindowProjectTests : IDisposable
         var panel = (GroupPanel)item.Content!;
         var marker = (TextBlock)((StackPanel)item.Header!).Children[0];
 
-        panel.Edit("singleFile", "Other.cs");
+        panel.Edit("skiaSharp", "4");
         Dispatcher.UIThread.RunJobs();
 
         // A second setting left in a box with the caret still in it. Saving takes that too, so
@@ -3982,7 +3954,7 @@ public class MainWindowProjectTests : IDisposable
 
         var saved = File.ReadAllText(Path.Combine(_directory, "icons.svgstudio"));
 
-        Assert.Contains("singleFile=\"Other.cs\"", saved);
+        Assert.Contains("skiaSharp=\"4\"", saved);
         Assert.Contains("namespace=\"Typed.Icons\"", saved);
     }
 
@@ -4062,62 +4034,6 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(1, resumed.CaretIndex);
     }
 
-    [AvaloniaFact]
-    public async Task Exporting_A_Drawing_Gives_It_The_Size_The_Project_Builds_It_At()
-    {
-        Write("badge.svg", Drawing);
-
-        var window = await Host(Write("icons.svgstudio", Project));
-
-        var root = (TreeViewItem)Tree(window).Items[0]!;
-
-        await window.ShowAsync((ProjectNode)((TreeViewItem)((TreeViewItem)root.Items[1]!).Items[0]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        var viewer = await Settle(window, "badge");
-
-        Assert.Equal(48f, viewer.Document!.Svg.Picture!.CullRect.Width);
-
-        // What the screen shows is what the project builds, so an export that handed back the file
-        // as written gave something the viewer never showed.
-        var target = Path.Combine(_directory, "exported.svg");
-
-        Assert.True(await window.ExportAsync(target));
-
-        var exported = File.ReadAllText(target);
-
-        Assert.Contains("width=\"48\"", exported);
-        Assert.Contains("height=\"48\"", exported);
-
-        // And the file it came from is untouched, since a project's size is not the drawing's.
-        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "badge.svg")));
-    }
-
-    [AvaloniaFact]
-    public async Task Export_Is_Offered_Only_While_A_Drawing_Is_Open()
-    {
-        Write("badge.svg", Drawing);
-
-        var window = await Host(Write("icons.svgstudio", Project));
-
-        var export = Menu(window, "Export…");
-        var root = (TreeViewItem)Tree(window).Items[0]!;
-
-        // Nothing is open, so there is nothing to export.
-        Assert.False(export.IsEnabled);
-
-        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
-        Dispatcher.UIThread.RunJobs();
-
-        // A group holds no drawing. The item used to stay live and do nothing at all when picked.
-        Assert.False(export.IsEnabled);
-
-        await window.ShowAsync((ProjectNode)((TreeViewItem)((TreeViewItem)root.Items[1]!).Items[0]!).Tag!);
-        await Settle(window, "badge");
-
-        Assert.True(export.IsEnabled);
-    }
-
     /// <summary>The menu item headed <paramref name="header"/>, wherever it lives.</summary>
     private static NativeMenuItem Menu(MainWindow window, string header)
         => NativeMenu.GetMenu(window)!.Items
@@ -4126,68 +4042,13 @@ public class MainWindowProjectTests : IDisposable
             .Single(item => item.Header == header);
 
     [AvaloniaFact]
-    public async Task Building_Several_Files_Names_Every_One_Of_Them()
-    {
-        Write("home.svg", Drawing);
-        Write("badge.svg", Drawing);
-
-        var window = await Host(Write("icons.svgstudio", $"""
-            <studio namespace="Demo.Icons">
-            {Holding("home", " class=\"Home\" output=\"Home.cs\"")}
-            {Holding("badge", " class=\"Badge\" output=\"Badge.cs\"")}
-            </studio>
-            """));
-
-        var said = new List<string>();
-        window.Announce = (_, message) => { said.Add(message); return Task.CompletedTask; };
-
-        Assert.True(await window.BuildAsync());
-
-        var message = Assert.Single(said);
-
-        // A per-item output is shown nowhere else in the window, so this is the only place it is
-        // ever said where one of these went.
-        Assert.Contains("Wrote 2 files:", message);
-        Assert.Contains(Path.Combine(_directory, "Home.cs"), message);
-        Assert.Contains(Path.Combine(_directory, "Badge.cs"), message);
-
-        Assert.True(Path.IsPathRooted(message.Split(Environment.NewLine)[1]));
-    }
-
-    [AvaloniaFact]
-    public async Task Building_Is_Offered_Only_While_A_Project_Is_Open()
-    {
-        Write("home.svg", Drawing);
-
-        var window = await Host(Write("home.svg", Drawing));
-
-        // A drawing on its own is not a project, and Build did nothing at all when picked.
-        Assert.False(Menu(window, "Build").IsEnabled);
-        Assert.False(Menu(window, "Close").IsEnabled);
-
-
-        var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
-
-        Assert.True(await viewer.OpenAsync(new[] { Write("icons.svgstudio", Project) }));
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.True(Menu(window, "Build").IsEnabled);
-        Assert.True(Menu(window, "Close").IsEnabled);
-
-        Assert.True(await window.CloseProjectAsync());
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.False(Menu(window, "Build").IsEnabled);
-    }
-
-    [AvaloniaFact]
-    public async Task Building_Writes_What_Svgc_Would_Write()
+    public async Task Exporting_Writes_What_Svgc_Would_Write()
     {
         Write("home.svg", Drawing);
         Write("badge.svg", Drawing);
 
         var path = Write("icons.svgstudio", $"""
-            <studio namespace="Demo.Icons" singleFile="Icons.cs">
+            <studio namespace="Demo.Icons">
             {Holding("home", " class=\"Home\"")}
               <group name="Large" namespace="Demo.Icons.Large" scale="2">
             {Holding("badge", " class=\"BadgeLarge\"")}
@@ -4196,17 +4057,16 @@ public class MainWindowProjectTests : IDisposable
             """);
 
         var window = await Host(path);
+        var target = Path.Combine(_directory, "Icons.cs");
 
         var said = new List<string>();
         window.Announce = (_, message) => { said.Add(message); return Task.CompletedTask; };
 
-        Assert.True(await window.BuildAsync());
+        Assert.True(await window.ExportAsync(target));
 
-        // In full: a project decides where its own output goes, and the name alone said nothing
-        // about where that was.
-        Assert.Contains($"Wrote {Path.Combine(_directory, "Icons.cs")}", said);
+        Assert.Contains($"Wrote {target}", said);
 
-        var generated = File.ReadAllText(Path.Combine(_directory, "Icons.cs"));
+        var generated = File.ReadAllText(target);
 
         // The same build svgc runs, so the groups decide the namespaces and the sizes exactly as
         // they do on the command line.
@@ -4218,6 +4078,112 @@ public class MainWindowProjectTests : IDisposable
         // 24 as written, and 48 under a group asking for twice the size.
         Assert.Contains("24f, 24f", generated);
         Assert.Contains("48f, 48f", generated);
+    }
+
+    /// <summary>
+    /// A project is one build, so every tab is a view of the same thing to export: the drawing in
+    /// front used to be all that went, and a group tab could not be exported at all.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Exporting_Writes_The_Whole_Project_Whatever_Tab_Is_Open()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        window.Announce = (_, _) => Task.CompletedTask;
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var group = Path.Combine(_directory, "FromGroup.cs");
+
+        // The group's own tab, which holds no drawing of its own.
+        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(await window.ExportAsync(group));
+
+        // And one drawing's, which is a view of the same project.
+        await window.ShowAsync((ProjectNode)((TreeViewItem)((TreeViewItem)root.Items[1]!).Items[0]!).Tag!);
+        await Settle(window, "badge");
+
+        var drawing = Path.Combine(_directory, "FromDrawing.cs");
+
+        Assert.True(await window.ExportAsync(drawing));
+
+        Assert.Equal(File.ReadAllText(group), File.ReadAllText(drawing));
+        Assert.Contains("class Home", File.ReadAllText(group), StringComparison.Ordinal);
+        Assert.Contains("class BadgeLarge", File.ReadAllText(group), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// What is exported is what the window is showing. The tab's text is handed to the project
+    /// first, exactly as a save hands it over, so an export never writes the last saved drawing
+    /// while a newer one is on screen.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Exporting_Writes_What_The_Tabs_Are_Holding()
+    {
+        Write("home.svg", Drawing);
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        window.Announce = (_, _) => Task.CompletedTask;
+
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        await window.ShowAsync(Row(root, "home"));
+
+        var viewer = await Settle(window, "home");
+
+        viewer.SetSource(viewer.Source.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
+        Dispatcher.UIThread.RunJobs();
+
+        var target = Path.Combine(_directory, "Icons.cs");
+
+        Assert.True(await window.ExportAsync(target));
+
+        var generated = File.ReadAllText(target);
+
+        // Red rather than the green the project holds: what was typed reached the build.
+        Assert.Contains("new SKColor(255, 0, 0, 255)", generated, StringComparison.Ordinal);
+
+        // And the tab that was not touched is still what the project says it is.
+        Assert.Contains("new SKColor(0, 255, 0, 255)", generated, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Exporting_Is_Offered_While_A_Project_Or_A_Drawing_Is_Open()
+    {
+        Write("badge.svg", Drawing);
+
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        var export = Menu(window, "Export…");
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+
+        // No tab at all, and still the project to export.
+        Assert.True(export.IsEnabled);
+        Assert.True(Menu(window, "Close").IsEnabled);
+
+        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(export.IsEnabled);
+
+        Assert.True(await window.CloseProjectAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        // Nothing open at all: there is neither a project nor a drawing to write.
+        Assert.False(export.IsEnabled);
+        Assert.False(Menu(window, "Close").IsEnabled);
+
+        // Without a project it is a drawing that is exported, so one open is enough again.
+        await window.OpenAsync(new[] { Path.Combine(_directory, "badge.svg") });
+        await Settle(window, "badge.svg");
+
+        Assert.True(export.IsEnabled);
     }
 
     /// <summary>The open group tab whose node is labelled <paramref name="label"/>.</summary>

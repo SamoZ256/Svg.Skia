@@ -48,16 +48,13 @@ public static class ProjectImport
             throw new ArgumentNullException(nameof(notes));
         }
 
-        // The old project's directory: what it carries over — an output, a single file — was written
-        // relative to that, and stays true until somebody saves this one somewhere else.
-        var document = ProjectDocument.Empty(source.BaseDirectory);
+        var document = ProjectDocument.Empty();
 
         Carry(source.Root, document.Root);
 
         document.Root.Cache = source.Root.Cache;
         document.Root.HelperScope = source.Root.HelperScope;
         document.Root.SkiaSharp = source.Root.SkiaSharp;
-        document.Root.SingleFile = source.Root.SingleFile;
 
         Convert(source.Root, document.Root, notes);
 
@@ -65,7 +62,6 @@ public static class ProjectImport
     }
 
     /// <summary>A PaintCode document as a project: a group per desk, and every canvas drawn into it.</summary>
-    /// <param name="baseDirectory">Where the document came from, which its outputs resolve against.</param>
     /// <param name="organize">
     /// Whether what the drawings share is placed where they share it, or all of it on the project.
     /// A parameter rather than a <see cref="PaintCodeImportOptions"/> member because it is about a
@@ -76,7 +72,6 @@ public static class ProjectImport
         PaintCodeDocument source,
         PaintCodeImportOptions options,
         ICollection<PaintCodeImportNote> notes,
-        string baseDirectory,
         bool organize = true)
     {
         if (source is null)
@@ -84,7 +79,7 @@ public static class ProjectImport
             throw new ArgumentNullException(nameof(source));
         }
 
-        var document = ProjectDocument.Empty(baseDirectory);
+        var document = ProjectDocument.Empty();
 
         document.Root.Namespace = PaintCodeImport.NamespaceOf(source, options);
 
@@ -232,8 +227,6 @@ public static class ProjectImport
                 target.Children.Count);
 
             Carry(drawing, added);
-
-            added.Output = drawing.Output;
         }
     }
 
