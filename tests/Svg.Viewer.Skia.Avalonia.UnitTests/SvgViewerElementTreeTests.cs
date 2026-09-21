@@ -133,6 +133,85 @@ public class SvgViewerElementTreeTests
         Assert.NotSame(before, viewer.Elements.SelectedNode.Element);
     }
 
+    /// <summary>
+    /// Several rows can be selected at once, and the first of them is the one everything follows.
+    /// </summary>
+    /// <remarks>
+    /// The anchor is what keeps every follower written for one row honest while the set grows: the
+    /// property panel, the note line and the outline all still have exactly one row to read.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Several_Rows_Can_Be_Selected_At_Once()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            "rect text",
+            string.Join(" ", viewer.Elements.SelectedNodes.Select(node => node.Label)));
+
+        Assert.Equal("rect", viewer.Elements.SelectedNode!.Label);
+    }
+
+    /// <summary>A selection of several survives a rebuild, as one does.</summary>
+    [AvaloniaFact]
+    public async Task A_Selection_Of_Several_Survives_A_Rebuild()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.SetSource(Markup.Replace("width=\"24\" height=\"24\" fill", "width=\"20\" height=\"20\" fill"));
+
+        Assert.True(viewer.Rebuild());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            "rect text",
+            string.Join(" ", viewer.Elements.SelectedNodes.Select(node => node.Label)));
+    }
+
+    /// <summary>A rebuild drops the rows that have gone and keeps the ones that have not.</summary>
+    [AvaloniaFact]
+    public async Task A_Rebuild_Drops_Only_The_Rows_That_Have_Gone()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.SetSource(Markup.Replace("    <text x=\"2\" y=\"20\">hi</text>\n", string.Empty));
+
+        Assert.True(viewer.Rebuild());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("rect", string.Join(" ", viewer.Elements.SelectedNodes.Select(node => node.Label)));
+    }
+
+    /// <summary>Restoring several rows tells whoever is listening once, not once per row.</summary>
+    [AvaloniaFact]
+    public async Task A_Rebuild_Restoring_Several_Rows_Says_So_Once()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        var said = 0;
+
+        viewer.Elements.Selected += (_, _) => said++;
+
+        viewer.SetSource(Markup.Replace("width=\"24\" height=\"24\" fill", "width=\"20\" height=\"20\" fill"));
+
+        Assert.True(viewer.Rebuild());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0, said);
+    }
+
     [AvaloniaFact]
     public async Task A_Selection_Whose_Element_Has_Gone_Is_Dropped()
     {

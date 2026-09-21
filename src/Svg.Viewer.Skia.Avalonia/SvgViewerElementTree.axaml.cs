@@ -69,7 +69,13 @@ public partial class SvgViewerElementTree : UserControl
     private Point _rowPressedAt;
     private SvgViewerElementNode? _dropOn;
     private SvgElementDrop _dropWhere;
-    private string? _selectedAddress;
+    /// <summary>The rows selected, the first of them being the one the followers are anchored to.</summary>
+    /// <remarks>
+    /// A list rather than a set: the order is what says which row is the anchor, and the restore
+    /// has to put that one back as the tree's own selected item.
+    /// </remarks>
+    private readonly List<string> _selectedAddresses = new();
+
     private bool _restoring;
 
     public SvgViewerElementTree()
@@ -103,7 +109,8 @@ public partial class SvgViewerElementTree : UserControl
                 return;
             }
 
-            _selectedAddress = SelectedNode?.AddressKey;
+            _selectedAddresses.Clear();
+            _selectedAddresses.AddRange(SelectedNodes.Select(node => node.AddressKey));
 
             Selected?.Invoke(this, SelectedNode);
         };
@@ -372,20 +379,26 @@ public partial class SvgViewerElementTree : UserControl
         {
             _tree.ItemsSource = _root is null ? null : new[] { _root };
 
-            if (_selectedAddress is { } address && _byAddress.TryGetValue(address, out var again))
+            var again = _selectedAddresses
+                .Where(address => _byAddress.ContainsKey(address))
+                .Select(address => _byAddress[address])
+                .ToList();
+
+            if (again.Count > 0)
             {
-                _tree.SelectedItem = again;
+                Choose(again);
             }
             else
             {
+                _tree.SelectedItems?.Clear();
                 _tree.SelectedItem = null;
+            }
 
-                // A row the filter is hiding is still the selected row; only one that has gone from
-                // the document stops being it.
-                if (!filtering)
-                {
-                    _selectedAddress = null;
-                }
+            // A row the filter is hiding is still a selected row; only one that has gone from the
+            // document stops being one. Per address, so a selection of six that lost one keeps five.
+            if (!filtering && again.Count < _selectedAddresses.Count)
+            {
+                _selectedAddresses.RemoveAll(address => !_byAddress.ContainsKey(address));
             }
         }
         finally
@@ -401,24 +414,72 @@ public partial class SvgViewerElementTree : UserControl
         set => _filter.Text = value ?? string.Empty;
     }
 
+    /// <summary>Every selected row, the first being the one <see cref="SelectedNode"/> answers.</summary>
+    public IReadOnlyList<SvgViewerElementNode> SelectedNodes
+        => _tree.SelectedItems is { } chosen
+            ? chosen.OfType<SvgViewerElementNode>().ToList()
+            : Array.Empty<SvgViewerElementNode>();
+
     /// <summary>Selects the row at <paramref name="addressKey"/>, opening everything above it.</summary>
     /// <returns>Whether there is a row there.</returns>
     public bool TrySelect(string? addressKey)
+        => addressKey is { } one && TrySelect(new[] { one });
+
+    /// <summary>Selects those rows and no others, opening everything above each of them.</summary>
+    /// <remarks>
+    /// The whole set is handed over in one assignment rather than a row at a time, so a selection
+    /// of six is one thing for the tree to lay out and one event for whoever is listening.
+    /// </remarks>
+    /// <returns>Whether there is a row for every one of them.</returns>
+    public bool TrySelect(IReadOnlyCollection<string> addressKeys)
     {
-        if (addressKey is null || !_byAddress.TryGetValue(addressKey, out var node))
+        var rows = new List<SvgViewerElementNode>();
+
+        foreach (var addressKey in addressKeys)
         {
-            return false;
+            if (_byAddress.TryGetValue(addressKey, out var node))
+            {
+                Reveal(addressKey);
+                rows.Add(node);
+            }
         }
 
-        Reveal(addressKey);
+        if (rows.Count == 0)
+        {
+            return addressKeys.Count == 0;
+        }
 
-        _tree.SelectedItem = node;
+        Choose(rows);
 
         // Posted, because a row inside a branch that was closed a line ago has no container to
         // scroll to until the tree has laid out again.
-        Dispatcher.UIThread.Post(() => _tree.ScrollIntoView(node), DispatcherPriority.Background);
+        Dispatcher.UIThread.Post(() => _tree.ScrollIntoView(rows[0]), DispatcherPriority.Background);
 
-        return true;
+        return rows.Count == addressKeys.Count;
+    }
+
+    /// <summary>Puts those rows, and only those, in the tree's own selection.</summary>
+    private void Choose(IReadOnlyList<SvgViewerElementNode> rows)
+    {
+        if (rows.Count == 1)
+        {
+            // Through the single property, which is what a tree in single-selection mode has, and
+            // what every host that never selects two sees.
+            _tree.SelectedItem = rows[0];
+
+            return;
+        }
+
+        _tree.SelectedItems?.Clear();
+        _tree.SelectedItem = rows[0];
+
+        if (_tree.SelectedItems is { } chosen)
+        {
+            for (var i = 1; i < rows.Count; i++)
+            {
+                chosen.Add(rows[i]);
+            }
+        }
     }
 
     /// <summary>Opens every row above <paramref name="addressKey"/>.</summary>
