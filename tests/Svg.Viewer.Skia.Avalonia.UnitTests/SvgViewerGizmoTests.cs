@@ -234,7 +234,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         var before = ((SvgRectangle)Element(viewer)).X.Value;
@@ -259,7 +258,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Drag(window, viewer, (30f, 30f), (50f, 30f));
@@ -287,7 +285,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         // Clean off a 100x100 page.
@@ -315,7 +312,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Drag(window, viewer, (30f, 30f), (50f, 30f));
@@ -340,7 +336,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Drag(window, viewer, (40f, 30f), (60f, 30f));
@@ -376,7 +371,6 @@ public class SvgViewerGizmoTests
     {
         var (window, viewer) = await Host(Two);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         // Round both shapes, from a corner of the page that is over neither of them.
@@ -412,7 +406,6 @@ public class SvgViewerGizmoTests
     {
         var (window, viewer) = await Host(Two);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         window.MouseDown(At(window, viewer, 5f, 5f), MouseButton.Left);
@@ -462,7 +455,6 @@ public class SvgViewerGizmoTests
     {
         var (window, viewer) = await Host(Two);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         window.MouseDown(At(window, viewer, 5f, 5f), MouseButton.Left);
@@ -502,7 +494,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Assert.NotNull(viewer.SelectedElement);
@@ -538,7 +529,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Drag(window, viewer, (30f, 30f), (50f, 40f));
@@ -558,7 +548,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Drag(window, viewer, (30f, 30f), (50f, 40f));
@@ -580,7 +569,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Drag(window, viewer, (30f, 30f), (40f, 30f));
@@ -601,7 +589,6 @@ public class SvgViewerGizmoTests
 
         SelectById(viewer, "group");
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Drag(window, viewer, (30f, 30f), (40f, 30f));
@@ -618,7 +605,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         window.MouseDown(At(window, viewer, 30f, 30f), MouseButton.Left);
@@ -650,7 +636,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         // The bottom right of a shape spanning 20..40, dragged out to 60: twice as wide and twice as
@@ -668,7 +653,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Drag(window, viewer, (40f, 30f), (60f, 30f));
@@ -692,7 +676,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         viewer.LocksAspectRatio = true;
         Dispatcher.UIThread.RunJobs();
 
@@ -717,7 +700,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 40f, 30f);
 
-        viewer.IsEditing = true;
         viewer.LocksAspectRatio = true;
         Dispatcher.UIThread.RunJobs();
 
@@ -734,7 +716,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Drag(window, viewer, (40f, 40f), (60f, 50f));
@@ -757,7 +738,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         viewer.LocksAspectRatio = true;
         Dispatcher.UIThread.RunJobs();
 
@@ -774,7 +754,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         var box = viewer.Canvas.Gizmo;
@@ -795,7 +774,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         window.MouseDown(At(window, viewer, 30f, 30f), MouseButton.Left);
@@ -831,7 +809,6 @@ public class SvgViewerGizmoTests
 
         SelectById(viewer, id);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         var box = viewer.Canvas.Gizmo;
@@ -865,7 +842,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Drag(window, viewer, (30f, 30f), (50f, 40f));
@@ -889,7 +865,6 @@ public class SvgViewerGizmoTests
 
         SelectById(viewer, "group");
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Drag(window, viewer, (30f, 30f), (50f, 40f));
@@ -916,7 +891,6 @@ public class SvgViewerGizmoTests
 
         Assert.Equal("box", viewer.SelectedElement?.ID);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         // The same shape and the same drag as the rectangle's corner test: 20..40 pulled out to 60.
@@ -940,7 +914,6 @@ public class SvgViewerGizmoTests
 
         SelectById(viewer, "group");
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         // On the rectangle the group holds, which is the only part of the group there is to press.
@@ -965,7 +938,6 @@ public class SvgViewerGizmoTests
 
         SelectById(viewer, "box");
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         Drag(window, viewer, (30f, 30f), (50f, 40f));
@@ -990,7 +962,6 @@ public class SvgViewerGizmoTests
 
         Select(window, viewer, 30f, 30f);
 
-        viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
         var before = viewer.Canvas.Highlight?.Bounds;
@@ -1015,15 +986,13 @@ public class SvgViewerGizmoTests
         Dispatcher.UIThread.RunJobs();
     }
 
-    /// <summary>
-    /// A left drag never moves the view, mode or no mode: it sweeps, and writes nothing.
-    /// </summary>
+    /// <summary>A left drag never moves the view: it sweeps, and writes nothing.</summary>
     /// <remarks>
     /// One meaning for one drag. Two, settled by a toggle somewhere else, is a pointer being fought
     /// over — and the view has gestures of its own that nothing else wants.
     /// </remarks>
     [AvaloniaFact]
-    public async Task A_Drag_Sweeps_Rather_Than_Panning_While_The_Mode_Is_Off()
+    public async Task A_Drag_Sweeps_Rather_Than_Panning()
     {
         var (window, viewer) = await Host(Plain);
 

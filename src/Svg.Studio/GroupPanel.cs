@@ -210,9 +210,6 @@ public sealed class GroupPanel : UserControl
     /// <summary>What a rectangle being swept has caught, and the ring showing it.</summary>
     private readonly SvgViewerSweep _sweep = new();
 
-    /// <summary>Whether a drag moves the element under it rather than the view.</summary>
-    private ToggleButton? _edit;
-
     public GroupPanel(ProjectWorkspace workspace, ProjectNode node)
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
@@ -231,24 +228,24 @@ public sealed class GroupPanel : UserControl
         _canvas.Picked += (_, at) => Pick(at);
         _canvas.Moved += (_, move) => Placed(move);
 
-        // The board is not draggable while the element under the pointer is. The canvas would let
-        // the two share a press -- it offers the edit first, and a miss falls through -- but on a
-        // board a grip answers for anywhere inside a whole drawing, so every press that missed a
-        // handle would carry the drawing instead. One toggle, one meaning.
-        _canvas.Grip = at => _edit?.IsChecked == true ? null : Held(at);
+        _canvas.Grip = Held;
 
+        // Handles, then the line a drawing is carried by, then the gesture's own body — narrowest
+        // first, the order the canvas resolves its own claims in. A shape that fills its page puts
+        // all three over the same pixels, and without the middle rung the board could not be
+        // rearranged at all while anything was selected.
         _canvas.IsEditTarget = at =>
-            _edit?.IsChecked == true
-            && Arranged(at) is { } arranged
-            && _gizmo.Hits(arranged, (float)_canvas.Scale);
+            Arranged(at) is { } arranged
+            && (_gizmo.Hits(arranged, (float)_canvas.Scale, handlesOnly: true)
+                || (!Grabbed(at) && _gizmo.Hits(arranged, (float)_canvas.Scale)));
 
         _canvas.Marqueed += (_, swept) => SelectEnclosed(swept);
 
         _canvas.Marqueeing += (_, swept) => ShowEnclosed(swept);
 
-        // In the mode and out of it alike. A left drag over a drawing still carries the drawing,
-        // because the grip answers first; anywhere else it sweeps up a selection. What it never
-        // does is move the view, which has the middle button, the wheel and two fingers of its own.
+        // A left drag on a drawing's edges carries the drawing, because the grip answers first;
+        // anywhere else it sweeps up a selection. What it never does is move the view, which has
+        // the middle button, the wheel and two fingers of its own.
         _canvas.IsMarqueeEnabled = true;
 
         _canvas.EditBegun += (_, at) => BeginEdit(at);
@@ -1495,9 +1492,16 @@ public sealed class GroupPanel : UserControl
     /// What a press on the board takes hold of: a drawing, or the frame round a group.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A drawing before the frame it sits in, so pressing an icon moves the icon and pressing a
     /// frame's margin or its name moves the group — and the innermost frame first, for the same
     /// reason. Back to front among the drawings, which is the order a click resolves in.
+    /// </para>
+    /// <para>
+    /// Both by their outlines and by nothing inside them. What is inside a drawing is the drawing,
+    /// and it is reached by the same press: there is no mode to turn off any more, so answering for
+    /// all of it would take every press that fell on a shape and leave nowhere to sweep from.
+    /// </para>
     /// </remarks>
     private (object Item, SKRect Bounds)? Held(SKPoint at)
     {
@@ -1512,7 +1516,7 @@ public sealed class GroupPanel : UserControl
         {
             var area = Area(_shown[index].Placement);
 
-            if (area.Width > 0f && area.Contains(at.X, at.Y))
+            if (area.Width > 0f && _canvas.Grabs(area, at))
             {
                 return (_shown[index].Built.Drawing, area);
             }
@@ -1964,17 +1968,24 @@ public sealed class GroupPanel : UserControl
     private ShimSkiaSharp.SKPoint? Arranged(Point at)
         => _canvas.TryGetDrawingPoint(at, out var point) ? new ShimSkiaSharp.SKPoint(point.X, point.Y) : null;
 
+    /// <summary>Whether a press would take hold of something rather than reaching into it.</summary>
+    /// <remarks>
+    /// The same question <see cref="Held"/> answers for the grip, asked before the gesture's body
+    /// claim so the two cannot both take the press. Cheap enough to ask twice: it runs once per
+    /// press, over the drawings on one tab.
+    /// </remarks>
+    private bool Grabbed(Point at)
+        => _canvas.TryGetDrawingPoint(at, out var point) && Held(point) is { };
+
     /// <summary>Puts the handles on the picked element of the picked drawing, or takes them off.</summary>
     private void TrackGizmo()
     {
-        var editing = _edit?.IsChecked == true;
-
         _gizmo.Track(
-            editing ? _inspecting?.Built.Svg : null,
-            editing && _inspecting is { } inspecting
+            _inspecting?.Built.Svg,
+            _inspecting is { } inspecting
                 ? new ShimSkiaSharp.SKPoint(inspecting.Placement.At.X, inspecting.Placement.At.Y)
                 : default,
-            editing ? Members() : Array.Empty<SvgViewerGizmoMember>());
+            Members());
 
         ShowGizmo();
     }
@@ -2355,41 +2366,8 @@ public sealed class GroupPanel : UserControl
             Margin = new Thickness(10, 8, 10, 6)
         };
 
-        var bounds = new ToggleButton
-        {
-            Content = "Bounds",
-            IsChecked = _canvas.ShowBounds,
-            [ToolTip.TipProperty] = "Outline each drawing's own edges"
-        };
-
-        bounds.IsCheckedChanged += (_, _) => _canvas.ShowBounds = bounds.IsChecked == true;
-
         _canvas.ViewChanged += (_, _) =>
             _zoom.Text = (_canvas.Scale * 100d).ToString("0", CultureInfo.CurrentCulture) + "%";
-
-        bar.Children.Add(Tool("Fit", "Fit to window", () => _canvas.Fit()));
-        bar.Children.Add(Tool("1:1", "Actual size", () => _canvas.ActualSize()));
-        bar.Children.Add(Tool("−", "Zoom out, or scroll down", () => _canvas.ZoomOut()));
-        bar.Children.Add(_zoom);
-        bar.Children.Add(Tool("+", "Zoom in, or scroll up", () => _canvas.ZoomIn()));
-        bar.Children.Add(bounds);
-
-        _edit = new ToggleButton
-        {
-            Content = "Edit",
-            [ToolTip.TipProperty] =
-                "Drag the picked element to move it, its handles to scale it, and the stalk above to turn it"
-        };
-
-        _edit.IsCheckedChanged += (_, _) =>
-        {
-            if (_edit.IsChecked != true)
-            {
-                CancelEdit();
-            }
-
-            TrackGizmo();
-        };
 
         var ratio = new ToggleButton
         {
@@ -2400,7 +2378,11 @@ public sealed class GroupPanel : UserControl
 
         ratio.IsCheckedChanged += (_, _) => _gizmo.LocksAspect = ratio.IsChecked == true;
 
-        bar.Children.Add(_edit);
+        bar.Children.Add(Tool("Fit", "Fit to window", () => _canvas.Fit()));
+        bar.Children.Add(Tool("1:1", "Actual size", () => _canvas.ActualSize()));
+        bar.Children.Add(Tool("−", "Zoom out, or scroll down", () => _canvas.ZoomOut()));
+        bar.Children.Add(_zoom);
+        bar.Children.Add(Tool("+", "Zoom in, or scroll up", () => _canvas.ZoomIn()));
         bar.Children.Add(ratio);
 
         return bar;
