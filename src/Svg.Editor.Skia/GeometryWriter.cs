@@ -13,15 +13,14 @@ namespace Svg.Editor.Skia;
 /// <summary>The kind of map a gesture will make, which is what decides whether geometry can hold it.</summary>
 /// <remarks>
 /// Asked before the first frame, where the map is still the identity and says nothing about itself.
-/// An even scale is told from an uneven one because a circle has one radius and can only take the
-/// first.
+/// Whether a scale turns out even is not asked here: a circle can take one and not the other, and
+/// which it is can change halfway through a drag.
 /// </remarks>
 public enum GeometryGesture
 {
     Move,
     Turn,
-    EvenScale,
-    AxisScale
+    Scale
 }
 
 /// <summary>

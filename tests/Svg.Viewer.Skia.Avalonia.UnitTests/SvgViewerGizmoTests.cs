@@ -1,6 +1,7 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -165,7 +166,10 @@ public class SvgViewerGizmoTests
     }
 
     /// <summary>The transform the file now gives the shape, or null where it gives it none.</summary>
-    private static string? Written(SvgViewer viewer, string id = "box")
+    private static string? Written(SvgViewer viewer, string id = "box") => Attribute(viewer, id, "transform");
+
+    /// <summary>What the file now spells for one of the shape's attributes, or null for none.</summary>
+    private static string? Attribute(SvgViewer viewer, string id, string name)
     {
         var source = viewer.Source;
         var at = source.IndexOf($"id=\"{id}\"", StringComparison.Ordinal);
@@ -176,22 +180,32 @@ public class SvgViewerGizmoTests
         var end = source.IndexOf('>', at);
         var element = source.Substring(tag, end - tag);
 
-        var transform = element.IndexOf("transform=\"", StringComparison.Ordinal);
+        var written = element.IndexOf($" {name}=\"", StringComparison.Ordinal);
 
-        if (transform < 0)
+        if (written < 0)
         {
             return null;
         }
 
-        var value = transform + "transform=\"".Length;
+        var value = written + name.Length + 3;
 
         return element.Substring(value, element.IndexOf('"', value) - value);
     }
 
-    /// <summary>A shape whose transform is spelt in its style attribute, where the attribute cannot win.</summary>
+    /// <summary>The four numbers a box-shaped element is written with, so a resize is one assertion.</summary>
+    private static string Box(SvgViewer viewer, string id = "box")
+        => string.Join(
+            " ",
+            new[] { "x", "y", "width", "height" }.Select(name => Attribute(viewer, id, name) ?? "?"));
+
+    /// <summary>A shape whose position is spelt in its style attribute, where the attribute cannot win.</summary>
+    /// <remarks>
+    /// The style shadows whatever the drag would write, which for a rect is now its own x — the
+    /// refusal is by attribute name, so moving the declaration moves which drag it refuses.
+    /// </remarks>
     private const string Shadowed = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
-          <rect id="box" x="20" y="20" width="20" height="20" fill="#3366cc" style="transform: translate(0px, 0px)" />
+          <rect id="box" x="20" y="20" width="20" height="20" fill="#3366cc" style="x: 20" />
         </svg>
         """;
 
@@ -215,7 +229,7 @@ public class SvgViewerGizmoTests
         viewer.IsEditing = true;
         Dispatcher.UIThread.RunJobs();
 
-        var before = Element(viewer).Transforms?.ToString() ?? string.Empty;
+        var before = ((SvgRectangle)Element(viewer)).X.Value;
         var text = viewer.Source;
 
         Drag(window, viewer, (30f, 30f), (50f, 30f));
@@ -224,7 +238,7 @@ public class SvgViewerGizmoTests
         Assert.Equal(text, viewer.Source);
 
         // And the drawing is not left carrying what the file does not say.
-        Assert.Equal(before, Element(viewer).Transforms?.ToString() ?? string.Empty);
+        Assert.Equal(before, ((SvgRectangle)Element(viewer)).X.Value);
 
         window.Close();
     }
@@ -244,7 +258,7 @@ public class SvgViewerGizmoTests
         Drag(window, viewer, (30f, 30f), (50f, 30f));
 
         // Not doubled: the second drag starts from what the first put back, not from what it drew.
-        Assert.Equal(string.Empty, Element(viewer).Transforms?.ToString() ?? string.Empty);
+        Assert.Equal(20f, ((SvgRectangle)Element(viewer)).X.Value);
 
         window.Close();
     }
@@ -298,10 +312,40 @@ public class SvgViewerGizmoTests
 
         Drag(window, viewer, (30f, 30f), (50f, 30f));
 
-        Assert.Equal("translate(20, 0)", Written(viewer));
+        Assert.Equal("40 30 60 30", Ends(viewer));
 
         window.Close();
     }
+
+    /// <summary>
+    /// And stretched along the axis it does have, by the handle at its own end.
+    /// </summary>
+    /// <remarks>
+    /// The axis with no extent scales by 1 whatever the pointer does, so the line grows end to end
+    /// and stays where it was laid — and its stroke, which a transform would have stretched along
+    /// with it, is not touched at all.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Flat_Line_Stretches_Along_Its_Own_Axis()
+    {
+        var (window, viewer) = await Host(Flat);
+
+        Select(window, viewer, 30f, 30f);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(window, viewer, (40f, 30f), (60f, 30f));
+
+        Assert.Equal("20 30 60 30", Ends(viewer));
+        Assert.Null(Written(viewer));
+
+        window.Close();
+    }
+
+    /// <summary>The four numbers a line is written with.</summary>
+    private static string Ends(SvgViewer viewer)
+        => string.Join(" ", new[] { "x1", "y1", "x2", "y2" }.Select(name => Attribute(viewer, "box", name)));
 
     /// <summary>The element the tests drag, as the live document holds it.</summary>
     private static Svg.SvgElement Element(SvgViewer viewer, string id = "box")
@@ -325,11 +369,12 @@ public class SvgViewerGizmoTests
 
         Drag(window, viewer, (30f, 30f), (50f, 40f));
 
-        Assert.Equal("translate(20, 10)", Written(viewer));
+        Assert.Equal("40 30 20 20", Box(viewer));
+        Assert.Null(Written(viewer));
     }
 
     /// <summary>
-    /// The correction the existing editor does without: a transform is read in the element's parent
+    /// The correction the existing editor does without: the delta is read in the element's own
     /// space, so under a group that doubles everything the shape has to be told to move half as far.
     /// </summary>
     [AvaloniaFact]
@@ -344,12 +389,18 @@ public class SvgViewerGizmoTests
 
         Drag(window, viewer, (30f, 30f), (50f, 40f));
 
-        Assert.Equal("translate(10, 5)", Written(viewer));
+        Assert.Equal("20 15 10 10", Box(viewer));
     }
 
-    /// <summary>A second drag carries on from the first rather than writing beside it.</summary>
+    /// <summary>
+    /// A second drag of a shape carries on from the numbers the first one left.
+    /// </summary>
+    /// <remarks>
+    /// Nothing has to fold for that to be true, which is the quiet advantage of writing an
+    /// element's own geometry: the second drag reads what the first one wrote.
+    /// </remarks>
     [AvaloniaFact]
-    public async Task Dragging_Twice_Writes_One_Transform()
+    public async Task Dragging_Twice_Carries_On_From_What_The_First_Wrote()
     {
         var (window, viewer) = await Host(Plain);
 
@@ -361,7 +412,28 @@ public class SvgViewerGizmoTests
         Drag(window, viewer, (30f, 30f), (40f, 30f));
         Drag(window, viewer, (40f, 30f), (50f, 30f));
 
-        Assert.Equal("translate(20, 0)", Written(viewer));
+        Assert.Equal("40 20 20 20", Box(viewer));
+    }
+
+    /// <summary>A second drag of a group folds into the transform the first one wrote.</summary>
+    /// <remarks>
+    /// A group has no geometry of its own, so it is the case that still has to fold — and the one
+    /// that would grow a translate per drag if the folding were ever dropped.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Dragging_A_Group_Twice_Writes_One_Transform()
+    {
+        var (window, viewer) = await Host(Shapes);
+
+        SelectById(viewer, "group");
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(window, viewer, (30f, 30f), (40f, 30f));
+        Drag(window, viewer, (40f, 30f), (50f, 30f));
+
+        Assert.Equal("translate(20, 0)", Written(viewer, "group"));
     }
 
     /// <summary>The whole gesture is one thing to take back, not one per frame of it.</summary>
@@ -388,12 +460,12 @@ public class SvgViewerGizmoTests
         window.MouseUp(At(window, viewer, 50f, 30f), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal("translate(20, 0)", Written(viewer));
+        Assert.Equal("40 20 20 20", Box(viewer));
 
         Assert.True(viewer.Undo());
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Null(Written(viewer));
+        Assert.Equal("20 20 20 20", Box(viewer));
     }
 
     /// <summary>Dragging one corner leaves the opposite one where it was, which is what a handle means.</summary>
@@ -411,7 +483,7 @@ public class SvgViewerGizmoTests
         // tall, about the top left at 20,20.
         Drag(window, viewer, (40f, 40f), (60f, 60f));
 
-        Assert.Equal("translate(-20, -20) scale(2)", Written(viewer));
+        Assert.Equal("20 20 40 40", Box(viewer));
     }
 
     /// <summary>A side handle stretches one axis and leaves the other alone.</summary>
@@ -427,7 +499,7 @@ public class SvgViewerGizmoTests
 
         Drag(window, viewer, (40f, 30f), (60f, 30f));
 
-        Assert.Equal("translate(-20, 0) scale(2, 1)", Written(viewer));
+        Assert.Equal("20 20 40 20", Box(viewer));
     }
 
     /// <summary>
@@ -452,7 +524,7 @@ public class SvgViewerGizmoTests
 
         Drag(window, viewer, (40f, 40f), (60f, 50f));
 
-        Assert.Equal("translate(-15, -15) scale(1.75)", Written(viewer));
+        Assert.Equal("20 20 35 35", Box(viewer));
     }
 
     /// <summary>
@@ -477,7 +549,7 @@ public class SvgViewerGizmoTests
 
         Drag(window, viewer, (60f, 40f), (80f, 40f));
 
-        Assert.Equal("translate(-8, -8) scale(1.4)", Written(viewer));
+        Assert.Equal("20 20 56 28", Box(viewer));
     }
 
     /// <summary>The same drag without the lock stretches the shape by each axis on its own.</summary>
@@ -493,7 +565,7 @@ public class SvgViewerGizmoTests
 
         Drag(window, viewer, (40f, 40f), (60f, 50f));
 
-        Assert.Equal("translate(-20, -10) scale(2, 1.5)", Written(viewer));
+        Assert.Equal("20 20 40 30", Box(viewer));
     }
 
     /// <summary>
@@ -517,7 +589,7 @@ public class SvgViewerGizmoTests
 
         Drag(window, viewer, (40f, 30f), (60f, 30f));
 
-        Assert.Equal("translate(-20, -30) scale(2)", Written(viewer));
+        Assert.Equal("20 10 40 40", Box(viewer));
     }
 
     /// <summary>Turning the shape writes an angle about the middle of its own bounds.</summary>
@@ -562,19 +634,24 @@ public class SvgViewerGizmoTests
         window.MouseUp(At(window, viewer, 50f, 50f), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Null(Written(viewer));
+        Assert.Equal("20 20 20 20", Box(viewer));
     }
 
     /// <summary>
-    /// Every kind of element answers to a scale handle, including the four the editor's own resize
-    /// leaves alone.
+    /// Every kind of element answers to a scale handle, each in whatever it has to answer with.
     /// </summary>
+    /// <remarks>
+    /// The capability table in miniature. An ellipse and a polygon have numbers of their own and
+    /// are written in them; a group has none, and a text run has none that says how big it is, so
+    /// both of those still take a transform. Every one of the four is a shape the editor stack's
+    /// own resize leaves alone entirely.
+    /// </remarks>
     [AvaloniaTheory]
-    [InlineData("group")]
-    [InlineData("ellipse")]
-    [InlineData("text")]
-    [InlineData("polygon")]
-    public async Task Every_Kind_Of_Element_Scales(string id)
+    [InlineData("group", "transform")]
+    [InlineData("ellipse", "rx")]
+    [InlineData("text", "transform")]
+    [InlineData("polygon", "points")]
+    public async Task Every_Kind_Of_Element_Scales(string id, string attribute)
     {
         var (window, viewer) = await Host(Shapes);
 
@@ -590,10 +667,12 @@ public class SvgViewerGizmoTests
         // The measured corner rather than a declared one: a text run's bounds are the glyphs it
         // drew, and no attribute on it says where those end.
         var corner = box!.Value.BR;
+        var before = Attribute(viewer, id, attribute);
 
         Drag(window, viewer, (corner.X, corner.Y), (corner.X + 10f, corner.Y + 10f));
 
-        Assert.Contains("scale(", Written(viewer, id) ?? string.Empty);
+        Assert.NotEqual(before, Attribute(viewer, id, attribute));
+        Assert.NotNull(Attribute(viewer, id, attribute));
     }
 
     /// <summary>
@@ -634,7 +713,7 @@ public class SvgViewerGizmoTests
         // The same shape and the same drag as the rectangle's corner test: 20..40 pulled out to 60.
         Drag(window, viewer, (40f, 40f), (60f, 60f));
 
-        Assert.Equal("translate(-20, -20) scale(2)", Written(viewer));
+        Assert.Equal("20,60 60,60 60,20", Attribute(viewer, "box", "points"));
     }
 
     /// <summary>
@@ -682,7 +761,9 @@ public class SvgViewerGizmoTests
 
         Drag(window, viewer, (30f, 30f), (50f, 40f));
 
-        Assert.Equal("translate(20, 10)", Written(viewer));
+        Assert.Equal("40", Attribute(viewer, "box", "x"));
+        Assert.Equal("30", Attribute(viewer, "box", "y"));
+        Assert.Null(Written(viewer));
     }
 
     /// <summary>

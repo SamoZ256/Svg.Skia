@@ -99,6 +99,13 @@ public sealed class SvgViewerGizmo
 
     private SvgTransformCollection _restore = new();
     private IReadOnlyList<SvgTransform> _head = Array.Empty<SvgTransform>();
+
+    /// <summary>The element's own numbers, where this drag is writing those rather than a transform.</summary>
+    private GeometryWriter? _writer;
+
+    /// <summary>What the file should say as of the last frame, and what it said at the press.</summary>
+    private IReadOnlyList<(string Name, string Value)>? _writes;
+    private IReadOnlyList<(string Name, string Value)> _before = Array.Empty<(string, string)>();
     private float _startX, _startY;
     private float _startAngle;
     private float _startScaleX = 1f, _startScaleY = 1f;
@@ -129,6 +136,8 @@ public sealed class SvgViewerGizmo
         _svg = svg;
         _element = element as SvgVisualElement;
         _node = null;
+        _writer = null;
+        _writes = null;
 
         if (_svg is null || _element is null)
         {
@@ -202,7 +211,36 @@ public sealed class SvgViewerGizmo
         _restore = Clone(_element.Transforms);
         _dragging = true;
 
-        Fold();
+        // Settled once, before a finger has moved: what an element can hold does not change during
+        // a drag, and a shape that changed its mind halfway would jump.
+        _writer = GeometryWriter.Capture(
+            _element,
+            _handle switch
+            {
+                8 => GeometryGesture.Turn,
+                >= 0 => GeometryGesture.Scale,
+                _ => GeometryGesture.Move
+            });
+
+        _pivot = Pivot();
+        _startX = _startY = 0f;
+        _startAngle = 0f;
+        _startScaleX = _startScaleY = 1f;
+        _writes = null;
+
+        if (_writer is { } writer)
+        {
+            // Nothing to fold into: the element's own numbers carry the gesture, and the next drag
+            // reads the ones this one leaves. What it already has in a transform stays where it is.
+            _head = _restore.ToList();
+            _before = writer.Captured;
+        }
+        else
+        {
+            Fold();
+
+            _before = Transformed(_restore);
+        }
 
         return null;
     }
@@ -217,13 +255,27 @@ public sealed class SvgViewerGizmo
 
         var now = _toGeometry.MapPoint(at);
 
-        _element.Transforms = Compose(
-            _handle switch
-            {
-                8 => Rotated(now),
-                >= 0 => Scaled(now),
-                _ => Moved(now)
-            });
+        var tail = _handle switch
+        {
+            8 => Rotated(now),
+            >= 0 => Scaled(now),
+            _ => Moved(now)
+        };
+
+        // The same map either way, so what the two branches draw cannot disagree. A writer that
+        // refuses this particular map — a circle pulled out of round, an arc the map would tilt —
+        // has already put its numbers back, so the transform below is all that is left of the drag.
+        if (_writer is { } writer && writer.Apply(Mapped(tail)) is { } writes)
+        {
+            _element.Transforms = Clone(_restore);
+            _writes = writes;
+        }
+        else
+        {
+            _writer?.Restore();
+            _element.Transforms = Compose(tail);
+            _writes = Transformed(_element.Transforms);
+        }
 
         Redraw();
     }
@@ -236,16 +288,13 @@ public sealed class SvgViewerGizmo
             return null;
         }
 
-        var written = _element.Transforms?.ToString() ?? string.Empty;
-        var before = _restore.ToString();
-
         _dragging = false;
 
-        return string.Equals(written, before, StringComparison.Ordinal)
+        return _writes is not { } written || written.SequenceEqual(_before)
             ? null
             : new SvgViewerEdit(
                 _handle switch { 8 => "rotate an element", >= 0 => "scale an element", _ => "move an element" },
-                new[] { ("transform", written) });
+                written);
     }
 
     /// <summary>Puts the element back where the drag found it.</summary>
@@ -275,6 +324,7 @@ public sealed class SvgViewerGizmo
     {
         if (_element is { })
         {
+            _writer?.Restore();
             _element.Transforms = _restore;
             Redraw();
         }
@@ -370,13 +420,50 @@ public sealed class SvgViewerGizmo
             : ((now.X - _pivot.X) * x + (now.Y - _pivot.Y) * y) / length;
     }
 
+    /// <summary>The same gesture as a map, which is what an element's own numbers take.</summary>
+    /// <remarks>
+    /// Built from the transforms the gestures above already return rather than beside them, so the
+    /// two branches cannot come to disagree about what the drag was. Only the three kinds those
+    /// return are read; anything else would be a gesture nobody wrote.
+    /// </remarks>
+    private static Shim.SKMatrix Mapped(IReadOnlyList<SvgTransform> tail)
+    {
+        var map = Shim.SKMatrix.CreateIdentity();
+
+        foreach (var transform in tail)
+        {
+            map = map.PreConcat(transform switch
+            {
+                SvgTranslate moved => Shim.SKMatrix.CreateTranslation(moved.X, moved.Y),
+                SvgScale scaled => Shim.SKMatrix.CreateScale(scaled.X, scaled.Y),
+                SvgRotate turned => Shim.SKMatrix.CreateRotationDegrees(turned.Angle, turned.CenterX, turned.CenterY),
+                _ => Shim.SKMatrix.CreateIdentity()
+            });
+        }
+
+        return map;
+    }
+
+    /// <summary>The fallback's one attribute, in the shape the geometry writer answers in.</summary>
+    private static IReadOnlyList<(string Name, string Value)> Transformed(SvgTransformCollection? composed)
+        => new[] { ("transform", composed?.ToString() ?? string.Empty) };
+
     /// <remarks><c>ShimSkiaSharp.SKRect</c> carries the four edges and nothing derived from them.</remarks>
     private static float MidX(Shim.SKRect rect) => (rect.Left + rect.Right) / 2f;
 
     private static float MidY(Shim.SKRect rect) => (rect.Top + rect.Bottom) / 2f;
 
+    /// <remarks>
+    /// The guard is on the denominator, so the answer still reaches zero — dragging an edge exactly
+    /// onto the one opposite it. A transform can say <c>scale(0)</c> and be edited back out of the
+    /// text, but a width of zero is a shape with no bounds, and nothing can ever take hold of it
+    /// again. The sign is kept, because a shape pulled through itself is mirrored rather than gone.
+    /// </remarks>
     private static float Factor(float now, float pressed)
-        => Math.Abs(pressed) < MinimumFactor ? 1f : now / pressed;
+        => Math.Abs(pressed) < MinimumFactor ? 1f : Clamped(now / pressed);
+
+    private static float Clamped(float factor)
+        => Math.Abs(factor) >= MinimumFactor ? factor : factor < 0f ? -MinimumFactor : MinimumFactor;
 
     private static float Degrees(Shim.SKPoint from, Shim.SKPoint to)
         => (float)(Math.Atan2(to.Y - from.Y, to.X - from.X) * 180d / Math.PI);
@@ -399,11 +486,6 @@ public sealed class SvgViewerGizmo
     private void Fold()
     {
         var written = _element?.Transforms?.ToList() ?? new List<SvgTransform>();
-
-        _startX = _startY = 0f;
-        _startAngle = 0f;
-        _startScaleX = _startScaleY = 1f;
-        _pivot = Pivot();
 
         switch (_handle)
         {
@@ -530,7 +612,9 @@ public sealed class SvgViewerGizmo
             return;
         }
 
-        if (!svg.TryApplyRetainedSceneMutationAndRender(_element, Transform, out var applied) || applied is null)
+        var changed = _writes?.Select(write => write.Name).ToArray() ?? Transform;
+
+        if (!svg.TryApplyRetainedSceneMutationAndRender(_element, changed, out var applied) || applied is null)
         {
             svg.FromSvgDocument(svg.SourceDocument);
         }

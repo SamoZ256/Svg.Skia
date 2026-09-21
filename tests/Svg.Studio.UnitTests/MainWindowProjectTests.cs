@@ -1007,8 +1007,10 @@ public class MainWindowProjectTests : IDisposable
             Over(canvas, area.MidX, area.MidY),
             Over(canvas, area.MidX + 30f, area.MidY));
 
-        // Into the drawing's own text, as one edit...
-        Assert.Contains("transform=", home.Text, StringComparison.Ordinal);
+        // Into the drawing's own text, as one edit — and into the shape's own x rather than a
+        // transform, which is what keeps the stroke of a shape the width its author gave it.
+        Assert.Contains(" x=\"", home.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("transform=", home.Text, StringComparison.Ordinal);
 
         // ...and the row is on the same spot on the board it was on: the grip never saw the press.
         Assert.Equal(was.X, home.X);

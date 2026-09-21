@@ -51,7 +51,7 @@ public class GeometryWriterTests
     [Fact]
     public void A_Rect_Scales_By_Its_Own_Size()
     {
-        var writer = GeometryWriter.Capture(Box(), GeometryGesture.AxisScale);
+        var writer = GeometryWriter.Capture(Box(), GeometryGesture.Scale);
 
         Assert.Equal("x=20 y=20 width=40 height=40", Says(writer!.Apply(Doubled)));
     }
@@ -66,7 +66,7 @@ public class GeometryWriterTests
     [Fact]
     public void A_Rect_Pulled_Through_Itself_Is_Read_Back_The_Other_Way()
     {
-        var writer = GeometryWriter.Capture(Box(), GeometryGesture.AxisScale);
+        var writer = GeometryWriter.Capture(Box(), GeometryGesture.Scale);
 
         Assert.Equal("x=0 y=20 width=20 height=20", Says(writer!.Apply(Shim.SKMatrix.CreateScale(-1f, 1f, 20f, 20f))));
     }
@@ -80,7 +80,7 @@ public class GeometryWriterTests
         var rect = Box();
         rect.CornerRadiusX = 4f;
 
-        var writer = GeometryWriter.Capture(rect, GeometryGesture.AxisScale);
+        var writer = GeometryWriter.Capture(rect, GeometryGesture.Scale);
 
         Assert.Equal("x=20 y=20 width=40 height=20 rx=8 ry=4", Says(writer!.Apply(Widened)));
     }
@@ -92,7 +92,7 @@ public class GeometryWriterTests
         var rect = Box();
         rect.Width = new SvgUnit(SvgUnitType.Percentage, 20f);
 
-        Assert.Null(GeometryWriter.Capture(rect, GeometryGesture.AxisScale));
+        Assert.Null(GeometryWriter.Capture(rect, GeometryGesture.Scale));
 
         var writer = GeometryWriter.Capture(rect, GeometryGesture.Move);
 
@@ -127,7 +127,7 @@ public class GeometryWriterTests
     public void A_Circle_Takes_An_Even_Scale()
     {
         var circle = new SvgCircle { CenterX = 30f, CenterY = 30f, Radius = 10f };
-        var writer = GeometryWriter.Capture(circle, GeometryGesture.EvenScale);
+        var writer = GeometryWriter.Capture(circle, GeometryGesture.Scale);
 
         Assert.Equal("cx=40 cy=40 r=20", Says(writer!.Apply(Doubled)));
     }
@@ -137,7 +137,7 @@ public class GeometryWriterTests
     public void A_Circle_Refuses_An_Uneven_Scale()
     {
         var circle = new SvgCircle { CenterX = 30f, CenterY = 30f, Radius = 10f };
-        var writer = GeometryWriter.Capture(circle, GeometryGesture.AxisScale);
+        var writer = GeometryWriter.Capture(circle, GeometryGesture.Scale);
 
         Assert.Equal("refused", Says(writer!.Apply(Widened)));
     }
@@ -147,7 +147,7 @@ public class GeometryWriterTests
     public void An_Ellipse_Takes_Each_Axis_On_Its_Own()
     {
         var ellipse = new SvgEllipse { CenterX = 30f, CenterY = 30f, RadiusX = 10f, RadiusY = 10f };
-        var writer = GeometryWriter.Capture(ellipse, GeometryGesture.AxisScale);
+        var writer = GeometryWriter.Capture(ellipse, GeometryGesture.Scale);
 
         Assert.Equal("cx=40 cy=30 rx=20 ry=10", Says(writer!.Apply(Widened)));
     }
@@ -165,7 +165,7 @@ public class GeometryWriterTests
     public void A_Polygon_Scales_Into_Its_Own_Points()
     {
         var poly = new SvgPolygon { Points = new SvgPointCollection { 20f, 40f, 40f, 40f, 40f, 20f } };
-        var writer = GeometryWriter.Capture(poly, GeometryGesture.AxisScale);
+        var writer = GeometryWriter.Capture(poly, GeometryGesture.Scale);
 
         Assert.Equal("points=20,60 60,60 60,20", Says(writer!.Apply(Doubled)));
     }
@@ -206,7 +206,7 @@ public class GeometryWriterTests
     {
         var text = new SvgText { X = new SvgUnitCollection { 20f }, Y = new SvgUnitCollection { 70f } };
 
-        Assert.Null(GeometryWriter.Capture(text, GeometryGesture.EvenScale));
+        Assert.Null(GeometryWriter.Capture(text, GeometryGesture.Scale));
     }
 
     /// <summary>
@@ -219,7 +219,7 @@ public class GeometryWriterTests
         var writer = GeometryWriter.Capture(use, GeometryGesture.Move);
 
         Assert.Equal("x=40 y=30", Says(writer!.Apply(Moved)));
-        Assert.Null(GeometryWriter.Capture(use, GeometryGesture.EvenScale));
+        Assert.Null(GeometryWriter.Capture(use, GeometryGesture.Scale));
     }
 
     /// <summary>A flip cannot be said with a positive width, and a mirrored picture is not the same picture.</summary>
@@ -227,7 +227,7 @@ public class GeometryWriterTests
     public void An_Image_Refuses_A_Flip()
     {
         var image = new SvgImage { X = 20f, Y = 20f, Width = 20f, Height = 20f };
-        var writer = GeometryWriter.Capture(image, GeometryGesture.EvenScale);
+        var writer = GeometryWriter.Capture(image, GeometryGesture.Scale);
 
         Assert.Equal("refused", Says(writer!.Apply(Shim.SKMatrix.CreateScale(-1f, 1f, 20f, 20f))));
     }
@@ -236,7 +236,7 @@ public class GeometryWriterTests
     [Fact]
     public void An_Image_With_No_Size_Of_Its_Own_Will_Not_Scale()
     {
-        Assert.Null(GeometryWriter.Capture(new SvgImage { X = 20f, Y = 20f }, GeometryGesture.EvenScale));
+        Assert.Null(GeometryWriter.Capture(new SvgImage { X = 20f, Y = 20f }, GeometryGesture.Scale));
     }
 
     // ---- the path -----------------------------------------------------------------------------
@@ -276,7 +276,7 @@ public class GeometryWriterTests
     [Fact]
     public void A_Relative_Path_Scales_Its_Deltas()
     {
-        var writer = GeometryWriter.Capture(Drawn("m20,20 h20 v20 h-20 z"), GeometryGesture.EvenScale);
+        var writer = GeometryWriter.Capture(Drawn("m20,20 h20 v20 h-20 z"), GeometryGesture.Scale);
 
         Assert.Equal("d=m20 20 h40 v40 h-40 z", Says(writer!.Apply(Doubled)));
     }
@@ -284,7 +284,7 @@ public class GeometryWriterTests
     [Fact]
     public void A_Path_Scales_Every_Number_It_Has()
     {
-        var writer = GeometryWriter.Capture(Drawn("M20,20 H40 V40 H20 Z"), GeometryGesture.EvenScale);
+        var writer = GeometryWriter.Capture(Drawn("M20,20 H40 V40 H20 Z"), GeometryGesture.Scale);
 
         Assert.Equal("d=M20 20 H60 V60 H20 Z", Says(writer!.Apply(Doubled)));
     }
@@ -308,7 +308,7 @@ public class GeometryWriterTests
     [Fact]
     public void A_Shorthand_Curve_Stays_Shorthand()
     {
-        var writer = GeometryWriter.Capture(Drawn("M20,20 C25,25 35,25 35,30 S30,35 25,30"), GeometryGesture.EvenScale);
+        var writer = GeometryWriter.Capture(Drawn("M20,20 C25,25 35,25 35,30 S30,35 25,30"), GeometryGesture.Scale);
 
         Assert.Equal("d=M20 20 C30 30 50 30 50 40 S40 50 30 40", Says(writer!.Apply(Doubled)));
     }
@@ -317,7 +317,7 @@ public class GeometryWriterTests
     [Fact]
     public void An_Arc_Under_An_Even_Scale_Keeps_Its_Tilt()
     {
-        var writer = GeometryWriter.Capture(Drawn("M25,30 A5,8 30 0 1 35,30"), GeometryGesture.EvenScale);
+        var writer = GeometryWriter.Capture(Drawn("M25,30 A5,8 30 0 1 35,30"), GeometryGesture.Scale);
 
         Assert.Equal("d=M30 40 A10 16 30 0 1 50 40", Says(writer!.Apply(Doubled)));
     }
@@ -326,7 +326,7 @@ public class GeometryWriterTests
     [Fact]
     public void A_Circular_Arc_Comes_Out_Upright()
     {
-        var writer = GeometryWriter.Capture(Drawn("M25,30 A5,5 0 1 1 35,30"), GeometryGesture.AxisScale);
+        var writer = GeometryWriter.Capture(Drawn("M25,30 A5,5 0 1 1 35,30"), GeometryGesture.Scale);
 
         Assert.Equal("d=M30 30 A10 5 0 1 1 50 30", Says(writer!.Apply(Widened)));
     }
@@ -341,7 +341,7 @@ public class GeometryWriterTests
     [Fact]
     public void A_Tilted_Arc_Refuses_An_Uneven_Scale()
     {
-        var writer = GeometryWriter.Capture(Drawn("M25,30 A5,8 30 0 1 35,30"), GeometryGesture.AxisScale);
+        var writer = GeometryWriter.Capture(Drawn("M25,30 A5,8 30 0 1 35,30"), GeometryGesture.Scale);
 
         Assert.Equal("refused", Says(writer!.Apply(Widened)));
     }
@@ -360,7 +360,7 @@ public class GeometryWriterTests
     [Fact]
     public void A_Mirrored_Arc_Sweeps_The_Other_Way()
     {
-        var writer = GeometryWriter.Capture(Drawn("M25,30 A5,5 0 1 1 35,30"), GeometryGesture.EvenScale);
+        var writer = GeometryWriter.Capture(Drawn("M25,30 A5,5 0 1 1 35,30"), GeometryGesture.Scale);
 
         Assert.Equal("d=M15 30 A5 5 0 1 0 5 30", Says(writer!.Apply(Shim.SKMatrix.CreateScale(-1f, 1f, 20f, 20f))));
     }
@@ -396,7 +396,7 @@ public class GeometryWriterTests
     public void Restore_Puts_Back_What_The_Press_Found()
     {
         var rect = Box();
-        var writer = GeometryWriter.Capture(rect, GeometryGesture.AxisScale);
+        var writer = GeometryWriter.Capture(rect, GeometryGesture.Scale);
 
         Assert.Equal("x=20 y=20 width=20 height=20", Says(writer!.Captured));
 
@@ -414,7 +414,7 @@ public class GeometryWriterTests
     [Fact]
     public void Applying_A_Map_Again_Does_Not_Compose_It()
     {
-        var writer = GeometryWriter.Capture(Box(), GeometryGesture.AxisScale);
+        var writer = GeometryWriter.Capture(Box(), GeometryGesture.Scale);
 
         writer!.Apply(Doubled);
 
