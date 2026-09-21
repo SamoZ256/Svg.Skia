@@ -793,10 +793,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Traces the selected element again, for a value that moved where it is drawn.</summary>
     private void RetraceOutline() => _canvas.Retrace(Outline(_elementTree.SelectedNode));
 
+    /// <summary>What the selection covers, as one path the canvas can stroke whole.</summary>
     private SkiaSharp.SKPath? Outline(SvgViewerElementNode? node)
         => node is null || _document is not { } open
             ? null
-            : SvgViewerOutline.Of(open.Svg, node.Element);
+            : SvgViewerPicks.Outline(
+                new[] { new SvgViewerPick(new SvgViewerPlacement(open.Svg, default), node.AddressKey) });
 
     /// <summary>
     /// A standing sentence from the host about the open drawing, said with the viewer's own.

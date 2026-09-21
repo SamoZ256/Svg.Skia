@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -39,6 +40,40 @@ public sealed class SvgElementAddress
         }
 
         return new SvgElementAddress(indexes.ToArray());
+    }
+
+    /// <summary>The address a key spells, or null where it spells no address at all.</summary>
+    /// <remarks>
+    /// The inverse of the key this type writes, and here rather than wherever a key is read back so
+    /// that the convention has one reader. An empty key is the root, which is an address with no
+    /// steps in it rather than no address.
+    /// </remarks>
+    public static SvgElementAddress? Parse(string? key)
+    {
+        if (key is null)
+        {
+            return null;
+        }
+
+        if (key.Length == 0)
+        {
+            return new SvgElementAddress(Array.Empty<int>());
+        }
+
+        var steps = key.Split('/');
+        var indexes = new int[steps.Length];
+
+        for (var i = 0; i < steps.Length; i++)
+        {
+            if (!int.TryParse(steps[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out var index) || index < 0)
+            {
+                return null;
+            }
+
+            indexes[i] = index;
+        }
+
+        return new SvgElementAddress(indexes);
     }
 
     public SvgElement? Resolve(SvgDocument document)

@@ -1872,14 +1872,10 @@ public sealed class GroupPanel : UserControl
         }
     }
 
+    /// <summary>What the selection covers, where its drawings sit on the board.</summary>
     private static SKPath? Outline(SvgViewerPlacement placement, SKSvg svg, SvgElement element)
-    {
-        var outline = SvgViewerOutline.Of(svg, element);
-
-        outline?.Transform(SKMatrix.CreateTranslation(placement.At.X, placement.At.Y));
-
-        return outline;
-    }
+        => SvgViewerPicks.Outline(
+            new[] { new SvgViewerPick(placement, SvgElementAddress.Create(element).Key) });
 
     // ---- editing on the canvas ---------------------------------------------------------------
 

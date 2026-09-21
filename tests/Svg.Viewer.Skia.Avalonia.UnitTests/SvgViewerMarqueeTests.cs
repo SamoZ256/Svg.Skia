@@ -117,6 +117,57 @@ public class SvgViewerMarqueeTests
             canvas.Enclosed(marquee).Select(
                 found => string.Join(" ", found.Elements.Select(element => element.ID ?? "?"))));
 
+    /// <summary>
+    /// A pick names an element through its drawing, and still names it after a rebuild.
+    /// </summary>
+    /// <remarks>
+    /// The reason a selection holds addresses rather than elements: a rebuilt drawing shares no
+    /// element with the one it replaced, so anything holding a reference would be pointing at a
+    /// document nobody is looking at any more.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Pick_Names_An_Element_By_Where_It_Sits()
+    {
+        var (window, canvas, document) = Host();
+        var placement = new SvgViewerPlacement(document.Svg, new SKPoint(200f, 0f));
+        var pick = new SvgViewerPick(placement, "0");
+
+        Assert.Equal("one", pick.Element?.ID);
+
+        // And its outline is traced where its drawing sits, not where the drawing's own origin is.
+        var traced = pick.Outline();
+
+        Assert.NotNull(traced);
+        Assert.True(traced!.Bounds.Left >= 200f, $"the outline is at {traced.Bounds}, not beside its drawing");
+
+        Assert.Null(new SvgViewerPick(placement, "9/9").Element);
+
+        window.Close();
+        document.Dispose();
+    }
+
+    /// <summary>Several picks are one path, which is what lets one ring show a whole selection.</summary>
+    [AvaloniaFact]
+    public void Several_Picks_Are_One_Outline()
+    {
+        var (window, canvas, document) = Host();
+        var placement = new SvgViewerPlacement(document.Svg, default);
+
+        var traced = SvgViewerPicks.Outline(
+            new[] { new SvgViewerPick(placement, "0"), new SvgViewerPick(placement, "1") });
+
+        Assert.NotNull(traced);
+
+        // Spanning both shapes: 10..30 and 60..80.
+        Assert.Equal(10f, traced!.Bounds.Left, 3);
+        Assert.Equal(80f, traced.Bounds.Right, 3);
+
+        Assert.Null(SvgViewerPicks.Outline(Array.Empty<SvgViewerPick>()));
+
+        window.Close();
+        document.Dispose();
+    }
+
     [AvaloniaFact]
     public void Only_What_Is_Wholly_Inside_Is_Caught()
     {
