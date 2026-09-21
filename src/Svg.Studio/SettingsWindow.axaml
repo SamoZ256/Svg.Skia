@@ -13,7 +13,21 @@
     Windows habit, and on macOS a preference takes effect where it is set.
   -->
   <StackPanel Margin="20" Spacing="6">
-    <CheckBox x:Name="AutosaveBox" Content="Keep a copy of unsaved work" />
+    <TextBlock Text="Theme" />
+
+    <!--
+      First, because it is the only setting here that changes what the window in front of you looks
+      like while you are looking at it. Three answers rather than a switch: following the machine is
+      a third thing and not the middle of the other two.
+    -->
+    <ComboBox x:Name="ThemeBox" HorizontalAlignment="Left" Width="200" />
+
+    <TextBlock Text="Which way round Studio is painted. Same as system follows the machine, so an editor left open turns dark with it at sunset."
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11" />
+
+    <CheckBox x:Name="AutosaveBox" Content="Keep a copy of unsaved work" Margin="0,14,0,0" />
 
     <!--
       What it does rather than what it is: the copy is the part nobody would guess, and the sentence

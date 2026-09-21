@@ -1,9 +1,16 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="Svg.Studio.App"
-             RequestedThemeVariant="Dark">
+             x:Class="Svg.Studio.App">
+  <!--
+    No RequestedThemeVariant here: it is a setting, and Initialize puts the answer on file onto the
+    application before anything is shown. It used to say Dark, which is why everything painted for
+    a dark ground and nothing was ever looked at on a light one.
+  -->
   <Application.Styles>
     <FluentTheme />
+
+    <!-- The ground every window stands on, which Fluent leaves pure black in the dark variant. -->
+    <StyleInclude Source="avares://Svg.Studio/StudioChrome.axaml" />
   </Application.Styles>
 
   <!--

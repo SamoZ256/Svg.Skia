@@ -5,18 +5,24 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using Avalonia.Styling;
 using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
 
-/// <summary>
-/// What the editor has been told to do differently, kept between sessions.
-/// </summary>
-/// <remarks>
-/// One file of <c>key=value</c> lines beside the list of what was opened lately, read and written on
-/// the spot the way <see cref="RecentFiles"/> is — a second window sees what the first one changed.
-/// Shaped on that class rather than sharing it: a capped list of paths has nothing in it to widen.
-/// </remarks>
+/// <summary>Which way round the editor is painted.</summary>
+public enum StudioTheme
+{
+    /// <summary>Whatever the machine is set to, and it changes with it.</summary>
+    System,
+
+    /// <summary>Light, whatever the machine is set to.</summary>
+    Light,
+
+    /// <summary>Dark, whatever the machine is set to.</summary>
+    Dark
+}
+
 /// <summary>What an export does about text it cannot write out as the author drives it.</summary>
 public enum RelaxedTextAnswer
 {
@@ -30,6 +36,14 @@ public enum RelaxedTextAnswer
     Never
 }
 
+/// <summary>
+/// What the editor has been told to do differently, kept between sessions.
+/// </summary>
+/// <remarks>
+/// One file of <c>key=value</c> lines beside the list of what was opened lately, read and written on
+/// the spot the way <see cref="RecentFiles"/> is — a second window sees what the first one changed.
+/// Shaped on that class rather than sharing it: a capped list of paths has nothing in it to widen.
+/// </remarks>
 public static class StudioSettings
 {
     private const string AutosaveKey = "autosave";
@@ -37,6 +51,8 @@ public static class StudioSettings
     private const string CaptionSizeKey = "captionSize";
 
     private const string RelaxedTextKey = "relaxedText";
+
+    private const string ThemeKey = "theme";
 
     /// <summary>
     /// Where the settings are kept.
@@ -58,6 +74,48 @@ public static class StudioSettings
         get => !string.Equals(Read(AutosaveKey), "off", StringComparison.Ordinal);
         set => Write(AutosaveKey, value ? "on" : "off");
     }
+
+    /// <summary>Which way round the editor is painted.</summary>
+    /// <remarks>
+    /// The machine's own answer unless the file says otherwise, for the reason the recovery copy
+    /// defaults on: a line nobody can read is not an answer. It is also the only one of the three
+    /// that goes on being right — somebody whose machine turns dark at sunset has said what they
+    /// want once, and the editor follows.
+    /// </remarks>
+    public static StudioTheme Theme
+    {
+        get => Read(ThemeKey) switch
+        {
+            "light" => StudioTheme.Light,
+            "dark" => StudioTheme.Dark,
+            _ => StudioTheme.System
+        };
+
+        set => Write(ThemeKey, value switch
+        {
+            StudioTheme.Light => "light",
+            StudioTheme.Dark => "dark",
+            _ => "system"
+        });
+    }
+
+    /// <summary>
+    /// The theme as Avalonia spells it.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ThemeVariant.Default"/> is the one that follows the machine, which is why nothing
+    /// here asks the platform what it is set to: the variant already does, and it goes on doing it
+    /// while the editor is open.
+    ///
+    /// Here rather than beside the one line that assigns it, because that line is in <c>App</c> —
+    /// the one class the suite cannot reach, since it builds an <c>Application</c> of its own.
+    /// </remarks>
+    public static ThemeVariant Variant => Theme switch
+    {
+        StudioTheme.Light => ThemeVariant.Light,
+        StudioTheme.Dark => ThemeVariant.Dark,
+        _ => ThemeVariant.Default
+    };
 
     /// <summary>Whether an export relaxes the text layout, or asks each time.</summary>
     /// <remarks>

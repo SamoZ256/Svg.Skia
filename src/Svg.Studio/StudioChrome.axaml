@@ -1,0 +1,44 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    The ground the editor stands on.
+
+    Fluent hands every window SystemControlBackgroundAltHighBrush, which is literally Black in the
+    dark variant and White in the light one. White is a fine ground; pure black is not — it reads as
+    a hole rather than as a surface, and since every pane in this editor is transparent over its
+    window, the whole of it came out flat black with the canvas floating in the middle a shade
+    lighter than the chrome around it.
+
+    Its own key rather than an override of Fluent's, which controls paint with as well: a text box
+    given the window's ground would be invisible in it.
+
+    In a file of its own rather than in App.axaml so that the suite can include it — App is the one
+    class a test cannot reach, since it builds an Application of its own, and a colour nothing can
+    look at is a colour nobody checked.
+  -->
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <!-- A shade above the canvas's own #1A1A1E, so the drawing surface reads as sunk into
+               the chrome rather than laid on top of it. Light is the same relation the other way,
+               which is the one Fluent already had right. -->
+          <SolidColorBrush x:Key="StudioWindowBrush" Color="#252528" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="StudioWindowBrush" Color="#FFFFFF" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
+
+  <!--
+    Every window, so the dialogs the viewer opens stand on the same ground as the editor behind them
+    rather than each carrying its own answer.
+  -->
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{DynamicResource StudioWindowBrush}" />
+  </Style>
+
+</Styles>

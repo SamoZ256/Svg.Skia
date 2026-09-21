@@ -559,9 +559,6 @@ public class SvgViewerTests
         window.Close();
     }
 
-    /// <summary>What the canvas paints behind a drawing, which the outline is measured against.</summary>
-    private static readonly SKColor Ground = new(0x1A, 0x1A, 0x1E);
-
     /// <summary>A drawing with a wide transparent margin, so its edges are nowhere its ink is.</summary>
     private const string Margined = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
@@ -609,7 +606,7 @@ public class SvgViewerTests
         // Fitted, a 100 unit drawing fills a 300 pixel pane, so it is drawn at three pixels to the
         // unit — and a line given its width in the drawing's units is three pixels wide before
         // anything has been zoomed at all.
-        Assert.InRange(Thickest(window, Ground), 1, 2);
+        Assert.InRange(Thickest(window, viewer.Canvas.Background), 1, 2);
 
         // Actual size and then in again, which lands at about two and a half times: far enough for
         // a line measured in drawing units to be visibly thick, and near enough that the edges are
@@ -624,7 +621,7 @@ public class SvgViewerTests
         Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
 
         // Two rather than one where the edge falls between two rows and is antialiased across both.
-        Assert.InRange(Thickest(window, Ground), 1, 2);
+        Assert.InRange(Thickest(window, viewer.Canvas.Background), 1, 2);
 
         window.Close();
     }
@@ -673,11 +670,16 @@ public class SvgViewerTests
                                || Math.Abs(pixel.Green - ground.Green) > 8
                                || Math.Abs(pixel.Blue - ground.Blue) > 8;
 
-                    // Grey, whatever it is blended with, which the drawing's red is not — and no
-                    // brighter than the line itself, which the white the splitters let through is.
+                    // Grey, whatever it is blended with, which the drawing's red is not — and not
+                    // the white a splitter lets through.
+                    //
+                    // The cut-off is near white rather than near the line's own grey, because a
+                    // line half covering a pixel blends towards the ground: away from 128 on a dark
+                    // ground and towards 242 on a light one, where anything stricter loses the line
+                    // altogether at the zooms where it falls between two rows.
                     var grey = Math.Max(pixel.Red, Math.Max(pixel.Green, pixel.Blue))
                                - Math.Min(pixel.Red, Math.Min(pixel.Green, pixel.Blue)) < 16
-                               && pixel.Red < 180;
+                               && pixel.Red < 230;
 
                     if (laid && grey)
                     {

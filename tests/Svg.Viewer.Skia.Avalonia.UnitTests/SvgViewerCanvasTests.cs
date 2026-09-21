@@ -6,6 +6,8 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Styling;
+using Avalonia.Threading;
 using SkiaSharp;
 using Xunit;
 
@@ -544,19 +546,24 @@ public class SvgViewerCanvasTests
 
         // Drawn, though — the top edge of the frame runs along the top of what is on show, and the
         // middle of it is still the ground rather than a fill.
+        //
+        // Against the canvas's own ground rather than a threshold, which is the only way to ask
+        // this once for both themes: on a dark ground "darker than 220" was true of every pixel of
+        // the row, ground included, so the line it was looking for never had to be there.
         var edge = 0;
+        var ground = canvas.Background;
 
         for (var x = 100; x < 300; x++)
         {
-            var pixel = Painted(window, x, (int)canvas.OffsetY + 1);
+            var pixel = Painted(window, x, (int)canvas.OffsetY);
 
-            if (pixel.Red < 220 && pixel.Blue < 220)
+            if (pixel != ground)
             {
                 edge++;
             }
         }
 
-        Assert.True(edge > 10, "the frame's top edge was not painted");
+        Assert.True(edge > 10, $"the frame's top edge was not painted on {ground}");
 
         window.Close();
     }
@@ -1104,6 +1111,47 @@ public class SvgViewerCanvasTests
 
     private static void Grab(SvgViewerCanvas canvas, object item, SKRect bounds)
         => canvas.Grip = at => bounds.Contains(at.X, at.Y) ? (item, bounds) : null;
+
+    /// <summary>
+    /// The ground follows the theme, and a host that names one is not overruled by it.
+    /// </summary>
+    /// <remarks>
+    /// The canvas clears its own surface, so the control's background never shows through and a
+    /// light window used to keep a near-black hole where the drawing goes. Asserted on the pixels
+    /// rather than on the property, since the property is only half of it — the other half is that
+    /// the colour reaches the render thread through the snapshot.
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData("Light", 0xF2, 0xF2, 0xF4)]
+    [InlineData("Dark", 0x1A, 0x1A, 0x1E)]
+    public void The_Ground_Is_The_Themes_Until_A_Host_Says_Otherwise(string variant, byte red, byte green, byte blue)
+    {
+        // Square, so a 100x50 drawing fitted across it leaves bare ground above and below it.
+        var (window, canvas, document) = Host(Wide, 400, 400);
+
+        using var owner = document;
+
+        window.RequestedThemeVariant = variant == "Light" ? ThemeVariant.Light : ThemeVariant.Dark;
+
+        Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+        var wanted = new SKColor(red, green, blue);
+
+        Assert.Equal(wanted, canvas.Background);
+
+        // Above the drawing, which is fitted across the middle: this is bare ground.
+        Assert.Equal(wanted, Painted(window, 200, 20));
+
+        // A host that names a ground means it, whatever the window round it is doing.
+        canvas.Background = SKColors.Magenta;
+
+        Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+        Assert.Equal(SKColors.Magenta, canvas.Background);
+        Assert.Equal(SKColors.Magenta, Painted(window, 200, 20));
+
+        window.Close();
+    }
 
     /// <summary>
     /// A rectangle is taken hold of by the line round it and by nothing it encloses, with the same
