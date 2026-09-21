@@ -307,7 +307,7 @@ public sealed class GroupPanel : UserControl
                 _picked.RemoveAll(pick => ReferenceEquals(pick.Placement, inspecting.Placement));
 
                 _picked.AddRange(
-                    _tree.SelectedNodes.Select(row => new SvgViewerPick(inspecting.Placement, row.AddressKey)));
+                    _tree.SelectedAddresses.Select(address => new SvgViewerPick(inspecting.Placement, address)));
             }
 
             Ring();
@@ -1882,6 +1882,9 @@ public sealed class GroupPanel : UserControl
 
         _inspecting = (placement, shown.Built);
 
+        // What the pane was holding is about to mean something else: a group builds one file
+        // several ways, so the drawing arriving spells the same addresses for different shapes.
+        _tree.Forget();
         _tree.Show(svg.SourceDocument);
 
         // The panel ends with what this drawing declares for itself, so it follows the selection.

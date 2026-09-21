@@ -694,16 +694,17 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private IReadOnlyList<SvgViewerGizmoMember> Members()
         => _document is not { } open
             ? Array.Empty<SvgViewerGizmoMember>()
-            : _elementTree.SelectedNodes
-                .Select(node => new SvgViewerGizmoMember(open.Svg, node.Element, node.AddressKey, default))
+            : Picks()
+                .Where(pick => pick.Element is { })
+                .Select(pick => new SvgViewerGizmoMember(open.Svg, pick.Element!, pick.AddressKey, default))
                 .ToList();
 
     /// <summary>What the selection covers, as one path.</summary>
     private IReadOnlyList<SvgViewerPick> Picks()
         => _document is not { } open
             ? Array.Empty<SvgViewerPick>()
-            : _elementTree.SelectedNodes
-                .Select(node => new SvgViewerPick(new SvgViewerPlacement(open.Svg, default), node.AddressKey))
+            : _elementTree.SelectedAddresses
+                .Select(address => new SvgViewerPick(new SvgViewerPlacement(open.Svg, default), address))
                 .ToList();
 
     /// <summary>Hands the canvas the box as it now stands, at the scale it is now drawn at.</summary>

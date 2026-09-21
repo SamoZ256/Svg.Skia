@@ -78,6 +78,9 @@ public partial class SvgViewerElementTree : UserControl
 
     private bool _restoring;
 
+    /// <summary>Whether a set of rows is being handed to the control a row at a time.</summary>
+    private bool _choosing;
+
     public SvgViewerElementTree()
     {
         AvaloniaXamlLoader.Load(this);
@@ -104,7 +107,7 @@ public partial class SvgViewerElementTree : UserControl
 
         _tree.SelectionChanged += (_, _) =>
         {
-            if (_restoring)
+            if (_restoring || _choosing)
             {
                 return;
             }
@@ -394,12 +397,13 @@ public partial class SvgViewerElementTree : UserControl
                 _tree.SelectedItem = null;
             }
 
-            // A row the filter is hiding is still a selected row; only one that has gone from the
-            // document stops being one. Per address, so a selection of six that lost one keeps five.
-            if (!filtering && again.Count < _selectedAddresses.Count)
-            {
-                _selectedAddresses.RemoveAll(address => !_byAddress.ContainsKey(address));
-            }
+            // A row the filter is hiding is still a selected row; one whose element has gone from
+            // the document is not. Asked of the document rather than of the rows on screen, because
+            // those two differ by exactly what is typed in the filter box — and gating the question
+            // on that left a drawing's addresses alive after it was put away, to be restored onto
+            // the next drawing of a group, which spells the same addresses for a different shape.
+            _selectedAddresses.RemoveAll(
+                address => document is null || SvgElementAddress.Parse(address)?.Resolve(document) is null);
         }
         finally
         {
@@ -413,6 +417,14 @@ public partial class SvgViewerElementTree : UserControl
         get => _query;
         set => _filter.Text = value ?? string.Empty;
     }
+
+    /// <summary>Every selected address, including any whose row the filter is hiding.</summary>
+    /// <remarks>
+    /// What a host should read to learn what is selected. <see cref="SelectedNodes"/> is what is on
+    /// screen, which is a different question the moment anything is typed in the filter box — and
+    /// answering the first with the second quietly drops elements from a selection because of it.
+    /// </remarks>
+    public IReadOnlyList<string> SelectedAddresses => _selectedAddresses;
 
     /// <summary>Every selected row, the first being the one <see cref="SelectedNode"/> answers.</summary>
     public IReadOnlyList<SvgViewerElementNode> SelectedNodes
@@ -467,7 +479,10 @@ public partial class SvgViewerElementTree : UserControl
             return addressKeys.Count == 0;
         }
 
-        Choose(rows);
+        // The whole request and not only the rows that can be shown: a row the filter is hiding is
+        // still a selected row, and a host reading back what it just asked for would otherwise find
+        // its selection cut down to whatever is typed in a box.
+        Choose(rows, addressKeys);
 
         // Posted, because a row inside a branch that was closed a line ago has no container to
         // scroll to until the tree has laid out again.
@@ -477,26 +492,79 @@ public partial class SvgViewerElementTree : UserControl
     }
 
     /// <summary>Puts those rows, and only those, in the tree's own selection.</summary>
-    private void Choose(IReadOnlyList<SvgViewerElementNode> rows)
+    /// <remarks>
+    /// The control says it changed once per row it is handed, so six rows told whoever is listening
+    /// seven times — once of them with nothing selected at all, since the set is emptied before it
+    /// is filled. Every follower re-read the selection, re-drew the ring and rebuilt the panel on
+    /// each of those, which is the flicker, the pane that blinks empty, and six re-reads of a file
+    /// nobody changed. It is said once here instead, deliberately, with the set complete.
+    /// </remarks>
+    private void Choose(IReadOnlyList<SvgViewerElementNode> rows, IReadOnlyCollection<string>? asked = null)
     {
-        if (rows.Count == 1)
-        {
-            // Through the single property, which is what a tree in single-selection mode has, and
-            // what every host that never selects two sees.
-            _tree.SelectedItem = rows[0];
+        _choosing = true;
 
+        try
+        {
+            if (rows.Count == 1)
+            {
+                // Through the single property, which is what a tree in single-selection mode has,
+                // and what every host that never selects two sees.
+                _tree.SelectedItem = rows[0];
+            }
+            else
+            {
+                _tree.SelectedItems?.Clear();
+                _tree.SelectedItem = rows[0];
+
+                if (_tree.SelectedItems is { } chosen)
+                {
+                    for (var i = 1; i < rows.Count; i++)
+                    {
+                        chosen.Add(rows[i]);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            _choosing = false;
+        }
+
+        // A rebuild putting back what was already selected is not somebody selecting it, which is
+        // what the other guard has always meant.
+        if (_restoring)
+        {
             return;
         }
 
-        _tree.SelectedItems?.Clear();
-        _tree.SelectedItem = rows[0];
+        _selectedAddresses.Clear();
+        _selectedAddresses.AddRange(asked ?? rows.Select(row => row.AddressKey).ToList());
 
-        if (_tree.SelectedItems is { } chosen)
+        Selected?.Invoke(this, rows[0]);
+    }
+
+    /// <summary>Lets go of what is selected, saying nothing: the rows belong to a drawing being left.</summary>
+    /// <remarks>
+    /// A host changing which drawing the pane is showing is the only thing that can know that the
+    /// addresses it is holding are about to mean something else — a group builds one file several
+    /// ways, so its drawings spell the same addresses for different shapes, and a selection carried
+    /// across would land on rows nobody picked. Silent because the host is mid-change and about to
+    /// say what it has selected instead.
+    /// </remarks>
+    public void Forget()
+    {
+        _selectedAddresses.Clear();
+
+        _restoring = true;
+
+        try
         {
-            for (var i = 1; i < rows.Count; i++)
-            {
-                chosen.Add(rows[i]);
-            }
+            _tree.SelectedItems?.Clear();
+            _tree.SelectedItem = null;
+        }
+        finally
+        {
+            _restoring = false;
         }
     }
 
