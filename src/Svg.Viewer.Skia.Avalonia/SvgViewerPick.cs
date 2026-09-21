@@ -52,6 +52,23 @@ public readonly record struct SvgViewerPick(SvgViewerPlacement Placement, string
 /// <summary>What a selection of several covers.</summary>
 public static class SvgViewerPicks
 {
+    /// <summary>Every element a sweep caught, named by the drawing it was caught in.</summary>
+    public static IReadOnlyList<SvgViewerPick> Of(
+        IReadOnlyList<(SvgViewerPlacement Placement, IReadOnlyList<SvgElement> Elements)> found)
+    {
+        var picks = new List<SvgViewerPick>();
+
+        foreach (var (placement, elements) in found)
+        {
+            foreach (var element in elements)
+            {
+                picks.Add(new SvgViewerPick(placement, SvgElementAddress.Create(element).Key));
+            }
+        }
+
+        return picks;
+    }
+
     /// <summary>
     /// One path holding every piece of every pick, or null where they cover nothing.
     /// </summary>

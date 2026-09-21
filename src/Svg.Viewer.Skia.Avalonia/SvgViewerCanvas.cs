@@ -191,6 +191,16 @@ public class SvgViewerCanvas : SKCanvasControl
     /// </remarks>
     public event EventHandler<SKRect>? Marqueed;
 
+    /// <summary>
+    /// Raised as a sweep is drawn, with the rectangle as it now stands.
+    /// </summary>
+    /// <remarks>
+    /// So that a host can show what the rectangle is over before anybody lets go of it — the answer
+    /// to <see cref="Enclosed"/> is the same one the release will give. Null says the sweep is over
+    /// and chose nothing, which is a host's cue to put back whatever it was showing before.
+    /// </remarks>
+    public event EventHandler<SKRect?>? Marqueeing;
+
     /// <summary>The edit gesture, in control coordinates, as <see cref="Picked"/> reports a click.</summary>
     public event EventHandler<Point>? EditBegun;
 
@@ -1123,6 +1133,8 @@ public class SvgViewerCanvas : SKCanvasControl
                 _marqueeTo = to;
 
                 Publish();
+
+                Marqueeing?.Invoke(this, Spanned(_marqueeFrom, _marqueeTo));
             }
 
             e.Handled = true;
@@ -1471,6 +1483,7 @@ public class SvgViewerCanvas : SKCanvasControl
         }
 
         var swept = _marqueeMoved ? Spanned(_marqueeFrom, _marqueeTo) : (SKRect?)null;
+        var showing = _marqueeMoved;
 
         _marquee = false;
         _marqueeMoved = false;
@@ -1482,6 +1495,14 @@ public class SvgViewerCanvas : SKCanvasControl
         if (commit && swept is { } rectangle)
         {
             Marqueed?.Invoke(this, rectangle);
+
+            return;
+        }
+
+        // Taken back, so whatever the host was showing along the way is about to be wrong.
+        if (showing)
+        {
+            Marqueeing?.Invoke(this, null);
         }
     }
 

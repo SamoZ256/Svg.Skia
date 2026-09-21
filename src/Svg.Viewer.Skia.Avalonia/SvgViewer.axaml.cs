@@ -197,6 +197,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _canvas.Marqueed += (_, swept) => SelectEnclosed(swept);
 
+        _canvas.Marqueeing += (_, swept) => ShowEnclosed(swept);
+
         // Always, and not only while the mode is on. A left drag means one thing here — sweeping up
         // what it goes round — and the view is moved by the gestures that were always for moving it:
         // the middle button, the wheel, and a trackpad's two fingers. Two meanings for one drag,
@@ -574,14 +576,22 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// means — and the only way, in the mode, to put the handles away.
     /// </remarks>
     private void SelectEnclosed(SkiaSharp.SKRect swept)
-    {
-        var caught = _canvas.Enclosed(swept)
-            .SelectMany(found => found.Elements)
-            .Select(element => SvgElementAddress.Create(element).Key)
-            .ToList();
+        => _elementTree.TrySelect(
+            SvgViewerPicks.Of(_canvas.Enclosed(swept)).Select(pick => pick.AddressKey).ToList());
 
-        _elementTree.TrySelect(caught);
-    }
+    /// <summary>Rings what a sweep is over, while it is still being drawn.</summary>
+    /// <remarks>
+    /// The same question the release will ask, asked every frame, so that what the rectangle has
+    /// caught is visible before anybody commits to it. Through Retrace rather than the ring itself:
+    /// setting that restarts the pulse, and a pulse restarted sixty times a second is a flicker.
+    ///
+    /// Null is the sweep being taken back, and the ring goes back to what is actually selected.
+    /// </remarks>
+    private void ShowEnclosed(SkiaSharp.SKRect? swept)
+        => _canvas.Retrace(
+            swept is { } rectangle
+                ? SvgViewerPicks.Outline(SvgViewerPicks.Of(_canvas.Enclosed(rectangle)))
+                : SvgViewerPicks.Outline(Picks()));
 
     /// <summary>
     /// Rings <paramref name="node"/> on the drawing, or clears the ring when there is nothing to ring.

@@ -245,6 +245,8 @@ public sealed class GroupPanel : UserControl
 
         _canvas.Marqueed += (_, swept) => SelectEnclosed(swept);
 
+        _canvas.Marqueeing += (_, swept) => ShowEnclosed(swept);
+
         // In the mode and out of it alike. A left drag over a drawing still carries the drawing,
         // because the grip answers first; anywhere else it sweeps up a selection. What it never
         // does is move the view, which has the middle button, the wheel and two fingers of its own.
@@ -1935,14 +1937,7 @@ public sealed class GroupPanel : UserControl
     private void SelectEnclosed(SKRect swept)
     {
         _picked.Clear();
-
-        foreach (var (placement, elements) in _canvas.Enclosed(swept))
-        {
-            foreach (var element in elements)
-            {
-                _picked.Add(new SvgViewerPick(placement, SvgElementAddress.Create(element).Key));
-            }
-        }
+        _picked.AddRange(SvgViewerPicks.Of(_canvas.Enclosed(swept)));
 
         if (_picked.Count == 0)
         {
@@ -1972,6 +1967,18 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>Rings everything selected, wherever on the board it is.</summary>
     private void Ring() => _canvas.Highlight = SvgViewerPicks.Outline(_picked);
+
+    /// <summary>Rings what a sweep is over, while it is still being drawn.</summary>
+    /// <remarks>
+    /// The same question the release will ask, so what the rectangle has caught is visible before
+    /// anybody commits to it. Retrace rather than the ring itself, which would restart its pulse on
+    /// every frame; null is the sweep taken back, and the ring goes back to what is selected.
+    /// </remarks>
+    private void ShowEnclosed(SKRect? swept)
+        => _canvas.Retrace(
+            swept is { } rectangle
+                ? SvgViewerPicks.Outline(SvgViewerPicks.Of(_canvas.Enclosed(rectangle)))
+                : SvgViewerPicks.Outline(_picked));
 
     /// <summary>
     /// Traces the ring again for an element that has moved under it.

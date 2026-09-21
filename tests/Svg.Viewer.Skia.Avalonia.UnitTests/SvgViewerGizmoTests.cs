@@ -400,6 +400,54 @@ public class SvgViewerGizmoTests
         window.Close();
     }
 
+    /// <summary>
+    /// What a sweep has caught is rung while it is still being drawn.
+    /// </summary>
+    /// <remarks>
+    /// Growing the rectangle over the second shape rings the second shape, before anybody has let
+    /// go — and the ring is what says which of the two answers the question you are asking.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Sweep_Rings_What_It_Is_Over_As_It_Is_Drawn()
+    {
+        var (window, viewer) = await Host(Two);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseDown(At(window, viewer, 5f, 5f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        // Round the first shape only, which spans 20..40.
+        window.MouseMove(At(window, viewer, 45f, 45f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        var one = viewer.Canvas.Highlight?.Bounds;
+
+        Assert.NotNull(one);
+        Assert.True(one!.Value.Right < 50f, $"the ring is {one}, which is more than the first shape");
+
+        // And on over the second, which spans 60..80.
+        window.MouseMove(At(window, viewer, 95f, 95f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        var both = viewer.Canvas.Highlight?.Bounds;
+
+        Assert.NotNull(both);
+        Assert.True(both!.Value.Right > 75f, $"the ring is {both}, which has not reached the second shape");
+
+        // Taken back, the ring goes back to what is actually selected, which is nothing.
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(viewer.Canvas.Highlight);
+
+        window.MouseUp(At(window, viewer, 95f, 95f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        window.Close();
+    }
+
     /// <summary>A sweep that caught nothing puts the selection away.</summary>
     [AvaloniaFact]
     public async Task A_Sweep_Over_Nothing_Clears_The_Selection()
