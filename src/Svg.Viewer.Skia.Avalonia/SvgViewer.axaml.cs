@@ -197,6 +197,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _canvas.Marqueed += (_, swept) => SelectEnclosed(swept);
 
+        // Always, and not only while the mode is on. A left drag means one thing here — sweeping up
+        // what it goes round — and the view is moved by the gestures that were always for moving it:
+        // the middle button, the wheel, and a trackpad's two fingers. Two meanings for one drag,
+        // settled by a toggle somewhere else, is the pair of them fighting over the pointer.
+        _canvas.IsMarqueeEnabled = true;
+
         _canvas.IsEditTarget = at =>
             IsEditing
             && _canvas.TryGetDrawingPoint(at, out var point)
@@ -350,11 +356,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
                 // drawing it is a shape that moves under a pointer nobody can see holding it.
                 CancelEdit();
             }
-
-            // The mode settles what a left press means everywhere the handles are not: in it, a
-            // drag that misses them sweeps a rectangle, and the view is reached by the middle
-            // button. Out of it, every drag pans as it always did.
-            _canvas.IsMarqueeEnabled = value;
 
             TrackGizmo();
         }

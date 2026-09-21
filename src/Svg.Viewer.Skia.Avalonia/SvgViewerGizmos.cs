@@ -171,7 +171,7 @@ public sealed class SvgViewerGizmos
     {
         if (_held.Count <= 1)
         {
-            return _one.Box(scale);
+            return _one.Box(scale) is { } only ? Beside(only, _only?.At ?? default) : null;
         }
 
         if (Spanned() is not { } union || scale <= 0f)
@@ -194,7 +194,7 @@ public sealed class SvgViewerGizmos
     {
         if (_held.Count <= 1)
         {
-            return _one.Hits(at, scale);
+            return _one.Hits(Inside(at), scale);
         }
 
         return (Box(scale) is { } box && _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _) >= 0)
@@ -209,7 +209,7 @@ public sealed class SvgViewerGizmos
     {
         if (_held.Count <= 1)
         {
-            return _one.Begin(at, scale, _only is { } only ? driven?.Invoke(only.Key) : null);
+            return _one.Begin(Inside(at), scale, _only is { } only ? driven?.Invoke(only.Key) : null);
         }
 
         Cancel();
@@ -258,7 +258,7 @@ public sealed class SvgViewerGizmos
     {
         if (_held.Count <= 1)
         {
-            _one.Drag(at);
+            _one.Drag(Inside(at));
 
             return;
         }
@@ -426,6 +426,36 @@ public sealed class SvgViewerGizmos
             held.Resolve();
         }
     }
+
+    /// <summary>
+    /// A point of the shared space in the one member's own drawing.
+    /// </summary>
+    /// <remarks>
+    /// Everything here is said in the space the gesture is made in, whether the selection is one
+    /// element or twenty — a host should not have to know that one of those is answered by
+    /// something that has never heard of a board. In the viewer the drawing is at the origin and
+    /// this is the point itself.
+    /// </remarks>
+    private Shim.SKPoint Inside(Shim.SKPoint at)
+        => _only is { } only ? new Shim.SKPoint(at.X - only.At.X, at.Y - only.At.Y) : at;
+
+    /// <summary>The same box, where its drawing actually sits.</summary>
+    private static BoundsInfo Beside(BoundsInfo box, Shim.SKPoint at)
+        => at.X == 0f && at.Y == 0f
+            ? box
+            : new BoundsInfo(
+                Over(box.TL, at),
+                Over(box.TR, at),
+                Over(box.BR, at),
+                Over(box.BL, at),
+                Over(box.TopMid, at),
+                Over(box.RightMid, at),
+                Over(box.BottomMid, at),
+                Over(box.LeftMid, at),
+                Over(box.Center, at),
+                Over(box.RotHandle, at));
+
+    private static SK.SKPoint Over(SK.SKPoint point, Shim.SKPoint at) => new(point.X + at.X, point.Y + at.Y);
 
     private static float One() => 1f;
 

@@ -595,8 +595,25 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>Drags from one point of the canvas to another, as a hand would.</summary>
-    private static void Drag(Window window, SvgViewerCanvas canvas, Point from, Point to)
+    private static void Drag(
+        Window window,
+        SvgViewerCanvas canvas,
+        Point from,
+        Point to,
+        MouseButton button = MouseButton.Left)
     {
+        var held = button == MouseButton.Middle
+            ? RawInputModifiers.MiddleMouseButton
+            : RawInputModifiers.LeftMouseButton;
+
+        var went = button == MouseButton.Middle
+            ? PointerUpdateKind.MiddleButtonPressed
+            : PointerUpdateKind.LeftButtonPressed;
+
+        var came = button == MouseButton.Middle
+            ? PointerUpdateKind.MiddleButtonReleased
+            : PointerUpdateKind.LeftButtonReleased;
+
         var start = canvas.TranslatePoint(from, window)
                     ?? throw new InvalidOperationException("The canvas is not in the window.");
         var end = canvas.TranslatePoint(to, window)
@@ -608,7 +625,7 @@ public class MainWindowProjectTests : IDisposable
             window,
             start,
             0,
-            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+            new PointerPointProperties(held, went),
             KeyModifiers.None)
         {
             RoutedEvent = InputElement.PointerPressedEvent
@@ -621,7 +638,7 @@ public class MainWindowProjectTests : IDisposable
             window,
             end,
             0,
-            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other),
+            new PointerPointProperties(held, PointerUpdateKind.Other),
             KeyModifiers.None));
 
         canvas.RaiseEvent(new PointerReleasedEventArgs(
@@ -630,9 +647,9 @@ public class MainWindowProjectTests : IDisposable
             window,
             end,
             0,
-            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+            new PointerPointProperties(RawInputModifiers.None, came),
             KeyModifiers.None,
-            MouseButton.Left)
+            button)
         {
             RoutedEvent = InputElement.PointerReleasedEvent
         });
@@ -1028,7 +1045,7 @@ public class MainWindowProjectTests : IDisposable
     /// which one happens to be selected.
     /// </remarks>
     [AvaloniaFact]
-    public async Task Edit_Mode_Takes_The_Board_Out_Of_Reach()
+    public async Task Edit_Mode_Turns_The_Board_Into_A_Marquee()
     {
         var window = await Host(Write("icons.svgstudio", Board()));
         var panel = Panel(window, "Project");
@@ -1050,7 +1067,19 @@ public class MainWindowProjectTests : IDisposable
             Over(canvas, area.MidX, area.MidY),
             Over(canvas, area.MidX + 30f, area.MidY));
 
-        // The view moved under the hand, and the row did not.
+        // Neither the row nor the view moved: in the mode that drag swept a rectangle over the
+        // board, and both the grip and the pan stood aside for it.
+        Assert.Equal(offsetX, canvas.OffsetX);
+        Assert.Equal(was, other.X);
+
+        // The view is still reachable, by the button that was always for reaching it.
+        Drag(
+            window,
+            canvas,
+            Over(canvas, area.MidX, area.MidY),
+            Over(canvas, area.MidX + 30f, area.MidY),
+            MouseButton.Middle);
+
         Assert.NotEqual(offsetX, canvas.OffsetX);
         Assert.Equal(was, other.X);
 
@@ -1064,6 +1093,46 @@ public class MainWindowProjectTests : IDisposable
             Over(canvas, area.MidX + 30f, area.MidY));
 
         Assert.Equal(was!.Value + 30f, other.X!.Value, 1);
+    }
+
+    /// <summary>
+    /// One sweep in edit mode selects elements of every drawing it went over.
+    /// </summary>
+    /// <remarks>
+    /// The tree can only show one drawing's rows — its addresses are unique inside one document —
+    /// so what the board holds and what the tree shows part company here on purpose, and the line
+    /// above the tree is what says so.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Sweep_Across_Two_Drawings_Picks_In_Both()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        Pick(window, panel, 0);
+        Editing(panel, true);
+
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var other = (ProjectDrawing)window.Workspace.Document.Root.Children[1];
+
+        var first = Area(Shown(panel, home));
+        var second = Area(Shown(panel, other));
+
+        var swept = default(SKRect);
+
+        canvas.Marqueed += (_, rectangle) => swept = rectangle;
+
+        // From outside the first drawing to outside the second, round both of them.
+        Drag(
+            window,
+            canvas,
+            Over(canvas, Math.Min(first.Left, second.Left) - 10f, Math.Min(first.Top, second.Top) - 10f),
+            Over(canvas, Math.Max(first.Right, second.Right) + 10f, Math.Max(first.Bottom, second.Bottom) + 10f));
+
+        Assert.Equal(2, canvas.Enclosed(swept).Count);
+
+        window.Close();
     }
 
     /// <summary>Turns the group tab's Edit toggle on or off.</summary>

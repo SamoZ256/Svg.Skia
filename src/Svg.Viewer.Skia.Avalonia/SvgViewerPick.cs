@@ -40,7 +40,7 @@ public readonly record struct SvgViewerPick(SvgViewerPlacement Placement, string
 
         // The viewer's one drawing sits at the origin, so this is the identity there and the
         // difference between the two hosts is a translation by nothing.
-        if (Placement.At != default)
+        if (Placement.At.X != 0f || Placement.At.Y != 0f)
         {
             traced.Transform(SKMatrix.CreateTranslation(Placement.At.X, Placement.At.Y));
         }

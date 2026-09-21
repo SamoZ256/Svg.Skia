@@ -921,9 +921,15 @@ public class SvgViewerGizmoTests
         Dispatcher.UIThread.RunJobs();
     }
 
-    /// <summary>With the mode off the drawing pans as it always did, and nothing is written.</summary>
+    /// <summary>
+    /// A left drag never moves the view, mode or no mode: it sweeps, and writes nothing.
+    /// </summary>
+    /// <remarks>
+    /// One meaning for one drag. Two, settled by a toggle somewhere else, is a pointer being fought
+    /// over — and the view has gestures of its own that nothing else wants.
+    /// </remarks>
     [AvaloniaFact]
-    public async Task A_Drag_Pans_While_The_Mode_Is_Off()
+    public async Task A_Drag_Sweeps_Rather_Than_Panning_While_The_Mode_Is_Off()
     {
         var (window, viewer) = await Host(Plain);
 
@@ -931,9 +937,28 @@ public class SvgViewerGizmoTests
 
         var offset = viewer.Canvas.OffsetX;
 
-        Drag(window, viewer, (30f, 30f), (50f, 30f));
+        Drag(window, viewer, (5f, 5f), (95f, 95f));
 
         Assert.Null(Written(viewer));
+        Assert.Equal(offset, viewer.Canvas.OffsetX);
+
+        // And it selected what it went round, which is the whole of what a sweep is for.
+        Assert.Single(viewer.Elements.SelectedNodes);
+    }
+
+    /// <summary>The view is moved by the button that was always for moving it.</summary>
+    [AvaloniaFact]
+    public async Task The_Middle_Button_Moves_The_View()
+    {
+        var (window, viewer) = await Host(Plain);
+
+        var offset = viewer.Canvas.OffsetX;
+
+        window.MouseDown(At(window, viewer, 30f, 30f), MouseButton.Middle);
+        window.MouseMove(At(window, viewer, 60f, 30f), RawInputModifiers.MiddleMouseButton);
+        window.MouseUp(At(window, viewer, 60f, 30f), MouseButton.Middle);
+        Dispatcher.UIThread.RunJobs();
+
         Assert.NotEqual(offset, viewer.Canvas.OffsetX);
     }
 }
