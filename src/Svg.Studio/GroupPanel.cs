@@ -2024,9 +2024,7 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        var refusal = writing.Target.Commit(
-            edit.Label,
-            source => SvgAttributeEditor.SetAttribute(source, writing.Address, "transform", edit.Transform));
+        var refusal = writing.Target.Commit(edit.Label, source => edit.Write(source, writing.Address));
 
         if (refusal is { })
         {

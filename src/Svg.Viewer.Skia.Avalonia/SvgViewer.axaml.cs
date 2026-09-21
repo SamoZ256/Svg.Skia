@@ -743,9 +743,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // document as it is made, so a release the file will not take — an element whose transform
         // is spelt in its style attribute, which is refused on the way in — would otherwise leave
         // the drawing carrying a transform its own text does not have.
-        var refusal = Written(
-            edit.Label,
-            source => SvgAttributeEditor.SetAttribute(source, address, "transform", edit.Transform));
+        var refusal = Written(edit.Label, source => edit.Write(source, address));
 
         if (refusal is { })
         {
