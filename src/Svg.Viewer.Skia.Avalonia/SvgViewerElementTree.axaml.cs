@@ -69,8 +69,17 @@ public partial class SvgViewerElementTree : UserControl
     private Point _rowPressedAt;
     private SvgViewerElementNode? _dropOn;
     private SvgElementDrop _dropWhere;
-    private string? _selectedAddress;
+    /// <summary>The rows selected, the first of them being the one the followers are anchored to.</summary>
+    /// <remarks>
+    /// A list rather than a set: the order is what says which row is the anchor, and the restore
+    /// has to put that one back as the tree's own selected item.
+    /// </remarks>
+    private readonly List<string> _selectedAddresses = new();
+
     private bool _restoring;
+
+    /// <summary>Whether a set of rows is being handed to the control a row at a time.</summary>
+    private bool _choosing;
 
     public SvgViewerElementTree()
     {
@@ -98,12 +107,13 @@ public partial class SvgViewerElementTree : UserControl
 
         _tree.SelectionChanged += (_, _) =>
         {
-            if (_restoring)
+            if (_restoring || _choosing)
             {
                 return;
             }
 
-            _selectedAddress = SelectedNode?.AddressKey;
+            _selectedAddresses.Clear();
+            _selectedAddresses.AddRange(SelectedNodes.Select(node => node.AddressKey));
 
             Selected?.Invoke(this, SelectedNode);
         };
@@ -372,21 +382,28 @@ public partial class SvgViewerElementTree : UserControl
         {
             _tree.ItemsSource = _root is null ? null : new[] { _root };
 
-            if (_selectedAddress is { } address && _byAddress.TryGetValue(address, out var again))
+            var again = _selectedAddresses
+                .Where(address => _byAddress.ContainsKey(address))
+                .Select(address => _byAddress[address])
+                .ToList();
+
+            if (again.Count > 0)
             {
-                _tree.SelectedItem = again;
+                Choose(again);
             }
             else
             {
+                _tree.SelectedItems?.Clear();
                 _tree.SelectedItem = null;
-
-                // A row the filter is hiding is still the selected row; only one that has gone from
-                // the document stops being it.
-                if (!filtering)
-                {
-                    _selectedAddress = null;
-                }
             }
+
+            // A row the filter is hiding is still a selected row; one whose element has gone from
+            // the document is not. Asked of the document rather than of the rows on screen, because
+            // those two differ by exactly what is typed in the filter box — and gating the question
+            // on that left a drawing's addresses alive after it was put away, to be restored onto
+            // the next drawing of a group, which spells the same addresses for a different shape.
+            _selectedAddresses.RemoveAll(
+                address => document is null || SvgElementAddress.Parse(address)?.Resolve(document) is null);
         }
         finally
         {
@@ -401,24 +418,154 @@ public partial class SvgViewerElementTree : UserControl
         set => _filter.Text = value ?? string.Empty;
     }
 
+    /// <summary>Every selected address, including any whose row the filter is hiding.</summary>
+    /// <remarks>
+    /// What a host should read to learn what is selected. <see cref="SelectedNodes"/> is what is on
+    /// screen, which is a different question the moment anything is typed in the filter box — and
+    /// answering the first with the second quietly drops elements from a selection because of it.
+    /// </remarks>
+    public IReadOnlyList<string> SelectedAddresses => _selectedAddresses;
+
+    /// <summary>Every selected row, the first being the one <see cref="SelectedNode"/> answers.</summary>
+    public IReadOnlyList<SvgViewerElementNode> SelectedNodes
+        => _tree.SelectedItems is { } chosen
+            ? chosen.OfType<SvgViewerElementNode>().ToList()
+            : Array.Empty<SvgViewerElementNode>();
+
     /// <summary>Selects the row at <paramref name="addressKey"/>, opening everything above it.</summary>
     /// <returns>Whether there is a row there.</returns>
     public bool TrySelect(string? addressKey)
+        => addressKey is { } one && TrySelect(new[] { one });
+
+    /// <summary>Selects those rows and no others, opening everything above each of them.</summary>
+    /// <remarks>
+    /// The whole set is handed over in one assignment rather than a row at a time, so a selection
+    /// of six is one thing for the tree to lay out and one event for whoever is listening.
+    /// </remarks>
+    /// <returns>Whether there is a row for every one of them.</returns>
+    public bool TrySelect(IReadOnlyCollection<string> addressKeys)
     {
-        if (addressKey is null || !_byAddress.TryGetValue(addressKey, out var node))
+        var rows = new List<SvgViewerElementNode>();
+
+        foreach (var addressKey in addressKeys)
         {
-            return false;
+            if (_byAddress.TryGetValue(addressKey, out var node))
+            {
+                Reveal(addressKey);
+                rows.Add(node);
+            }
         }
 
-        Reveal(addressKey);
+        if (rows.Count == 0)
+        {
+            // Asking for nothing is asking for nothing to be selected, which is what a sweep that
+            // caught nothing means. Asking for rows that have all gone leaves what was there.
+            if (addressKeys.Count == 0)
+            {
+                _tree.SelectedItems?.Clear();
+                _tree.SelectedItem = null;
 
-        _tree.SelectedItem = node;
+                // Emptied, the control does not always say that it changed — and everything that
+                // follows the selection is told by that one event, so the ring and the handles
+                // would be left standing round a selection that is no longer there.
+                if (_selectedAddresses.Count > 0)
+                {
+                    _selectedAddresses.Clear();
+
+                    Selected?.Invoke(this, null);
+                }
+            }
+
+            return addressKeys.Count == 0;
+        }
+
+        // The whole request and not only the rows that can be shown: a row the filter is hiding is
+        // still a selected row, and a host reading back what it just asked for would otherwise find
+        // its selection cut down to whatever is typed in a box.
+        Choose(rows, addressKeys);
 
         // Posted, because a row inside a branch that was closed a line ago has no container to
         // scroll to until the tree has laid out again.
-        Dispatcher.UIThread.Post(() => _tree.ScrollIntoView(node), DispatcherPriority.Background);
+        Dispatcher.UIThread.Post(() => _tree.ScrollIntoView(rows[0]), DispatcherPriority.Background);
 
-        return true;
+        return rows.Count == addressKeys.Count;
+    }
+
+    /// <summary>Puts those rows, and only those, in the tree's own selection.</summary>
+    /// <remarks>
+    /// The control says it changed once per row it is handed, so six rows told whoever is listening
+    /// seven times — once of them with nothing selected at all, since the set is emptied before it
+    /// is filled. Every follower re-read the selection, re-drew the ring and rebuilt the panel on
+    /// each of those, which is the flicker, the pane that blinks empty, and six re-reads of a file
+    /// nobody changed. It is said once here instead, deliberately, with the set complete.
+    /// </remarks>
+    private void Choose(IReadOnlyList<SvgViewerElementNode> rows, IReadOnlyCollection<string>? asked = null)
+    {
+        _choosing = true;
+
+        try
+        {
+            if (rows.Count == 1)
+            {
+                // Through the single property, which is what a tree in single-selection mode has,
+                // and what every host that never selects two sees.
+                _tree.SelectedItem = rows[0];
+            }
+            else
+            {
+                _tree.SelectedItems?.Clear();
+                _tree.SelectedItem = rows[0];
+
+                if (_tree.SelectedItems is { } chosen)
+                {
+                    for (var i = 1; i < rows.Count; i++)
+                    {
+                        chosen.Add(rows[i]);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            _choosing = false;
+        }
+
+        // A rebuild putting back what was already selected is not somebody selecting it, which is
+        // what the other guard has always meant.
+        if (_restoring)
+        {
+            return;
+        }
+
+        _selectedAddresses.Clear();
+        _selectedAddresses.AddRange(asked ?? rows.Select(row => row.AddressKey).ToList());
+
+        Selected?.Invoke(this, rows[0]);
+    }
+
+    /// <summary>Lets go of what is selected, saying nothing: the rows belong to a drawing being left.</summary>
+    /// <remarks>
+    /// A host changing which drawing the pane is showing is the only thing that can know that the
+    /// addresses it is holding are about to mean something else — a group builds one file several
+    /// ways, so its drawings spell the same addresses for different shapes, and a selection carried
+    /// across would land on rows nobody picked. Silent because the host is mid-change and about to
+    /// say what it has selected instead.
+    /// </remarks>
+    public void Forget()
+    {
+        _selectedAddresses.Clear();
+
+        _restoring = true;
+
+        try
+        {
+            _tree.SelectedItems?.Clear();
+            _tree.SelectedItem = null;
+        }
+        finally
+        {
+            _restoring = false;
+        }
     }
 
     /// <summary>Opens every row above <paramref name="addressKey"/>.</summary>

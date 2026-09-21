@@ -482,13 +482,13 @@ public sealed class SvgViewerGizmo
     /// text, but a width of zero is a shape with no bounds, and nothing can ever take hold of it
     /// again. The sign is kept, because a shape pulled through itself is mirrored rather than gone.
     /// </remarks>
-    private static float Factor(float now, float pressed)
+    internal static float Factor(float now, float pressed)
         => Math.Abs(pressed) < MinimumFactor ? 1f : Clamped(now / pressed);
 
-    private static float Clamped(float factor)
+    internal static float Clamped(float factor)
         => Math.Abs(factor) >= MinimumFactor ? factor : factor < 0f ? -MinimumFactor : MinimumFactor;
 
-    private static float Degrees(Shim.SKPoint from, Shim.SKPoint to)
+    internal static float Degrees(Shim.SKPoint from, Shim.SKPoint to)
         => (float)(Math.Atan2(to.Y - from.Y, to.X - from.X) * 180d / Math.PI);
 
     // ---- what the gesture is written onto -----------------------------------------------------
@@ -564,14 +564,14 @@ public sealed class SvgViewerGizmo
     private static SvgTransform? Last(List<SvgTransform> written)
         => written.Count > 0 ? written[written.Count - 1] : null;
 
-    private static bool Near(float a, float b) => Math.Abs(a - b) <= PivotSlack;
+    internal static bool Near(float a, float b) => Math.Abs(a - b) <= PivotSlack;
 
     /// <remarks>
     /// Empty rather than null for an element carrying no transform. <c>SvgElement.Transforms</c>'s
     /// setter subscribes to what it is handed without looking, so putting a null back is a crash;
     /// an empty list writes the same identity and says the same nothing.
     /// </remarks>
-    private static SvgTransformCollection Clone(SvgTransformCollection? transforms)
+    internal static SvgTransformCollection Clone(SvgTransformCollection? transforms)
     {
         var copy = new SvgTransformCollection();
 

@@ -355,6 +355,172 @@ public class SvgViewerGizmoTests
     private static string Ends(SvgViewer viewer)
         => string.Join(" ", new[] { "x1", "y1", "x2", "y2" }.Select(name => Attribute(viewer, "box", name)));
 
+    /// <summary>Two shapes, swept up together and then dragged as one.</summary>
+    private const string Two = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <rect id="one" x="20" y="20" width="20" height="20" fill="#3366cc" />
+          <rect id="two" x="60" y="60" width="20" height="20" fill="#cc3366" />
+        </svg>
+        """;
+
+    /// <summary>
+    /// A sweep selects what it caught, and the whole of it moves as one.
+    /// </summary>
+    /// <remarks>
+    /// The feature end to end: the press misses the handles, so it sweeps; the release selects both
+    /// shapes; and a drag from inside one of them carries the other with it, in one commit that one
+    /// undo takes back.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Swept_Selection_Is_Dragged_As_One()
+    {
+        var (window, viewer) = await Host(Two);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        // Round both shapes, from a corner of the page that is over neither of them.
+        Drag(window, viewer, (5f, 5f), (95f, 95f));
+
+        Assert.Equal(2, viewer.Elements.SelectedNodes.Count);
+
+        // And now from inside the first, which carries both.
+        Drag(window, viewer, (30f, 30f), (50f, 40f));
+
+        Assert.Equal("40 30 20 20", Box(viewer, "one"));
+        Assert.Equal("80 70 20 20", Box(viewer, "two"));
+
+        // One gesture, one thing to take back.
+        Assert.True(viewer.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("20 20 20 20", Box(viewer, "one"));
+        Assert.Equal("60 60 20 20", Box(viewer, "two"));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// What a sweep has caught is rung while it is still being drawn.
+    /// </summary>
+    /// <remarks>
+    /// Growing the rectangle over the second shape rings the second shape, before anybody has let
+    /// go — and the ring is what says which of the two answers the question you are asking.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Sweep_Rings_What_It_Is_Over_As_It_Is_Drawn()
+    {
+        var (window, viewer) = await Host(Two);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseDown(At(window, viewer, 5f, 5f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        // Round the first shape only, which spans 20..40.
+        window.MouseMove(At(window, viewer, 45f, 45f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        var one = viewer.Canvas.Highlight?.Bounds;
+
+        Assert.NotNull(one);
+        Assert.True(one!.Value.Right < 50f, $"the ring is {one}, which is more than the first shape");
+
+        // And on over the second, which spans 60..80.
+        window.MouseMove(At(window, viewer, 95f, 95f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        var both = viewer.Canvas.Highlight?.Bounds;
+
+        Assert.NotNull(both);
+        Assert.True(both!.Value.Right > 75f, $"the ring is {both}, which has not reached the second shape");
+
+        // Taken back, the ring goes back to what is actually selected, which is nothing.
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(viewer.Canvas.Highlight);
+
+        window.MouseUp(At(window, viewer, 95f, 95f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A sweep that goes on catching the same things keeps the ring it already drew.
+    /// </summary>
+    /// <remarks>
+    /// Most of the moves of most sweeps grow the rectangle across empty canvas. Tracing again there
+    /// would build a path a frame — each left for the finalizer, since the canvas will not free a
+    /// ring the render thread may still be drawing. The path's own identity is the exact observable
+    /// for whether one was built.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Sweep_That_Catches_The_Same_Things_Keeps_Its_Ring()
+    {
+        var (window, viewer) = await Host(Two);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseDown(At(window, viewer, 5f, 5f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        // Round the first shape.
+        window.MouseMove(At(window, viewer, 45f, 45f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        var first = viewer.Canvas.Highlight;
+
+        Assert.NotNull(first);
+
+        // Further across empty canvas, catching nothing new.
+        window.MouseMove(At(window, viewer, 52f, 52f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(first, viewer.Canvas.Highlight);
+
+        // And on over the second, which is something new.
+        window.MouseMove(At(window, viewer, 95f, 95f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotSame(first, viewer.Canvas.Highlight);
+
+        window.MouseUp(At(window, viewer, 95f, 95f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        window.Close();
+    }
+
+    /// <summary>A sweep that caught nothing puts the selection away.</summary>
+    [AvaloniaFact]
+    public async Task A_Sweep_Over_Nothing_Clears_The_Selection()
+    {
+        var (window, viewer) = await Host(Two);
+
+        Select(window, viewer, 30f, 30f);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotNull(viewer.SelectedElement);
+
+        var said = 0;
+
+        viewer.Elements.Selected += (_, _) => said++;
+
+        // A corner of the page with nothing on it.
+        Drag(window, viewer, (85f, 5f), (95f, 15f));
+
+        Assert.Equal(1, said);
+        Assert.Empty(viewer.Elements.SelectedNodes);
+        Assert.Null(viewer.Canvas.Gizmo);
+
+        window.Close();
+    }
+
     /// <summary>The element the tests drag, as the live document holds it.</summary>
     private static Svg.SvgElement Element(SvgViewer viewer, string id = "box")
     {
@@ -849,9 +1015,15 @@ public class SvgViewerGizmoTests
         Dispatcher.UIThread.RunJobs();
     }
 
-    /// <summary>With the mode off the drawing pans as it always did, and nothing is written.</summary>
+    /// <summary>
+    /// A left drag never moves the view, mode or no mode: it sweeps, and writes nothing.
+    /// </summary>
+    /// <remarks>
+    /// One meaning for one drag. Two, settled by a toggle somewhere else, is a pointer being fought
+    /// over — and the view has gestures of its own that nothing else wants.
+    /// </remarks>
     [AvaloniaFact]
-    public async Task A_Drag_Pans_While_The_Mode_Is_Off()
+    public async Task A_Drag_Sweeps_Rather_Than_Panning_While_The_Mode_Is_Off()
     {
         var (window, viewer) = await Host(Plain);
 
@@ -859,9 +1031,28 @@ public class SvgViewerGizmoTests
 
         var offset = viewer.Canvas.OffsetX;
 
-        Drag(window, viewer, (30f, 30f), (50f, 30f));
+        Drag(window, viewer, (5f, 5f), (95f, 95f));
 
         Assert.Null(Written(viewer));
+        Assert.Equal(offset, viewer.Canvas.OffsetX);
+
+        // And it selected what it went round, which is the whole of what a sweep is for.
+        Assert.Single(viewer.Elements.SelectedNodes);
+    }
+
+    /// <summary>The view is moved by the button that was always for moving it.</summary>
+    [AvaloniaFact]
+    public async Task The_Middle_Button_Moves_The_View()
+    {
+        var (window, viewer) = await Host(Plain);
+
+        var offset = viewer.Canvas.OffsetX;
+
+        window.MouseDown(At(window, viewer, 30f, 30f), MouseButton.Middle);
+        window.MouseMove(At(window, viewer, 60f, 30f), RawInputModifiers.MiddleMouseButton);
+        window.MouseUp(At(window, viewer, 60f, 30f), MouseButton.Middle);
+        Dispatcher.UIThread.RunJobs();
+
         Assert.NotEqual(offset, viewer.Canvas.OffsetX);
     }
 }

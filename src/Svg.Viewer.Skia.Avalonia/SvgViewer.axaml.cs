@@ -64,8 +64,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private readonly ToggleButton _editButton;
     private readonly ToggleButton _lockRatioButton;
 
+    /// <summary>What a rectangle being swept has caught, and the ring showing it.</summary>
+    private readonly SvgViewerSweep _sweep = new();
+
     /// <summary>Moving, turning and scaling the selected element by dragging it.</summary>
-    private readonly SvgViewerGizmo _gizmo = new();
+    private readonly SvgViewerGizmos _gizmo = new();
 
     /// <summary>What the panel's column was last set to, so hiding it can be undone.</summary>
     private GridLength _panelWidth;
@@ -194,6 +197,16 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         };
 
         _canvas.Picked += (_, at) => PickElement(at);
+
+        _canvas.Marqueed += (_, swept) => SelectEnclosed(swept);
+
+        _canvas.Marqueeing += (_, swept) => ShowEnclosed(swept);
+
+        // Always, and not only while the mode is on. A left drag means one thing here — sweeping up
+        // what it goes round — and the view is moved by the gestures that were always for moving it:
+        // the middle button, the wheel, and a trackpad's two fingers. Two meanings for one drag,
+        // settled by a toggle somewhere else, is the pair of them fighting over the pointer.
+        _canvas.IsMarqueeEnabled = true;
 
         _canvas.IsEditTarget = at =>
             IsEditing
@@ -560,6 +573,39 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree.TrySelect(SvgElementAddress.Create(element).Key);
     }
 
+    /// <summary>Selects everything a swept rectangle caught, and nothing else.</summary>
+    /// <remarks>
+    /// A sweep that caught nothing clears the selection, which is what a press on bare canvas
+    /// means — and the only way, in the mode, to put the handles away.
+    /// </remarks>
+    private void SelectEnclosed(SkiaSharp.SKRect swept)
+    {
+        _sweep.TryTrace(_canvas, swept, out _);
+
+        _elementTree.TrySelect(_sweep.Caught.Select(pick => pick.AddressKey).ToList());
+
+        _sweep.Forget();
+    }
+
+    /// <summary>Rings what a sweep is over, while it is still being drawn.</summary>
+    /// <remarks>
+    /// The same question the release will ask, asked every frame, so that what the rectangle has
+    /// caught is visible before anybody commits to it. Through Retrace rather than the ring itself:
+    /// setting that restarts the pulse, and a pulse restarted sixty times a second is a flicker.
+    ///
+    /// Null is the sweep being taken back, and the ring goes back to what is actually selected.
+    /// </remarks>
+    private void ShowEnclosed(SkiaSharp.SKRect? swept)
+    {
+        if (!_sweep.TryTrace(_canvas, swept, out var outline))
+        {
+            return;
+        }
+
+        // A sweep taken back leaves the ring on what is actually selected.
+        _canvas.Retrace(swept is { } ? outline : SvgViewerPicks.Outline(Picks()));
+    }
+
     /// <summary>
     /// Rings <paramref name="node"/> on the drawing, or clears the ring when there is nothing to ring.
     /// </summary>
@@ -650,10 +696,32 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         _gizmo.Track(
             IsEditing ? _document?.Svg : null,
-            IsEditing ? _elementTree.SelectedNode?.Element : null);
+            default,
+            IsEditing ? Members() : Array.Empty<SvgViewerGizmoMember>());
 
         ShowGizmo();
     }
+
+    /// <summary>The selected rows, as the gesture knows them.</summary>
+    /// <remarks>
+    /// Keyed by the address of the row, which is what the tree holds and what turns back into an
+    /// address in the file when the gesture comes to be written.
+    /// </remarks>
+    private IReadOnlyList<SvgViewerGizmoMember> Members()
+        => _document is not { } open
+            ? Array.Empty<SvgViewerGizmoMember>()
+            : Picks()
+                .Where(pick => pick.Element is { })
+                .Select(pick => new SvgViewerGizmoMember(pick.Element!, pick.AddressKey))
+                .ToList();
+
+    /// <summary>What the selection covers, as one path.</summary>
+    private IReadOnlyList<SvgViewerPick> Picks()
+        => _document is not { } open
+            ? Array.Empty<SvgViewerPick>()
+            : _elementTree.SelectedAddresses
+                .Select(address => new SvgViewerPick(new SvgViewerPlacement(open.Svg, default), address))
+                .ToList();
 
     /// <summary>Hands the canvas the box as it now stands, at the scale it is now drawn at.</summary>
     private void ShowGizmo() => _canvas.Gizmo = _gizmo.Box((float)_canvas.Scale);
@@ -673,14 +741,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        if (SourceAddress(_elementTree.SelectedNode?.AddressKey) is not { } address)
-        {
-            ShowNote(Unwritten);
-
-            return;
-        }
-
-        ShowNote(_gizmo.Begin(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale, Driven(address)));
+        ShowNote(
+            _gizmo.Begin(
+                new ShimSkiaSharp.SKPoint(point.X, point.Y),
+                (float)_canvas.Scale,
+                key => SourceAddress(key) is { } address ? Driven(address) : null));
 
         ShowGizmo();
     }
@@ -725,18 +790,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        if (SourceAddress(_elementTree.SelectedNode?.AddressKey) is not { } address)
-        {
-            Undo(Unwritten);
-
-            return;
-        }
-
-        // Every exit that does not commit puts the element back. The drag is applied to the built
+        // Every exit that does not commit puts the elements back. The drag is applied to the built
         // document as it is made, so a release the file will not take — an element whose transform
         // is spelt in its style attribute, which is refused on the way in — would otherwise leave
         // the drawing carrying a transform its own text does not have.
-        var refusal = Written(edit.Label, source => edit.Write(source, address));
+        //
+        // However many elements moved, one commit: a document is serialised once and pushed onto
+        // the history once, so a drag of six shapes is one thing to take back.
+        var refusal = Written(edit.Label, source => edit.Write(source, SourceAddress));
 
         if (refusal is { })
         {
@@ -788,15 +849,17 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             : null;
 
     private void OutlineElement(SvgViewerElementNode? node)
-        => _canvas.Highlight = Outline(node);
+        => _canvas.Highlight = node is null ? null : SvgViewerPicks.Outline(Picks());
 
     /// <summary>Traces the selected element again, for a value that moved where it is drawn.</summary>
-    private void RetraceOutline() => _canvas.Retrace(Outline(_elementTree.SelectedNode));
+    private void RetraceOutline() => _canvas.Retrace(SvgViewerPicks.Outline(Picks()));
 
+    /// <summary>What the selection covers, as one path the canvas can stroke whole.</summary>
     private SkiaSharp.SKPath? Outline(SvgViewerElementNode? node)
         => node is null || _document is not { } open
             ? null
-            : SvgViewerOutline.Of(open.Svg, node.Element);
+            : SvgViewerPicks.Outline(
+                new[] { new SvgViewerPick(new SvgViewerPlacement(open.Svg, default), node.AddressKey) });
 
     /// <summary>
     /// A standing sentence from the host about the open drawing, said with the viewer's own.

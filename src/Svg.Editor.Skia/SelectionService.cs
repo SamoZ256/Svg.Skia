@@ -24,7 +24,14 @@ public class SelectionService
         return GetBoundsInfo(sceneNode.GeometryBounds, sceneNode.TotalTransform, getScale);
     }
 
-    private BoundsInfo GetBoundsInfo(Shim.SKRect rect, Shim.SKMatrix matrix, Func<float> getScale)
+    /// <summary>The box and its handles for any rectangle, under any matrix.</summary>
+    /// <remarks>
+    /// Public for the box a selection of several elements is given, which is the upright rectangle
+    /// spanning all of them under no matrix at all: two elements have no frame in common, and a box
+    /// that leaned would be one member's frame imposed on the rest. The stalk's arithmetic is here
+    /// rather than at the caller so that a union box grows one the same length as every other.
+    /// </remarks>
+    public BoundsInfo GetBoundsInfo(Shim.SKRect rect, Shim.SKMatrix matrix, Func<float> getScale)
     {
         var tl = ToSkPoint(matrix.MapPoint(new Shim.SKPoint(rect.Left, rect.Top)));
         var tr = ToSkPoint(matrix.MapPoint(new Shim.SKPoint(rect.Right, rect.Top)));
@@ -50,6 +57,25 @@ public class SelectionService
         var right = Math.Max(Math.Max(b.TL.X, b.TR.X), Math.Max(b.BL.X, b.BR.X));
         var bottom = Math.Max(Math.Max(b.TL.Y, b.TR.Y), Math.Max(b.BL.Y, b.BR.Y));
         return new SK.SKRect(left, top, right, bottom);
+    }
+
+    /// <summary>The upright rectangle spanning every one of the boxes.</summary>
+    /// <returns>Empty where there are no boxes, which is a selection of nothing.</returns>
+    public static SK.SKRect GetBoundsRect(IReadOnlyList<BoundsInfo> boxes)
+    {
+        if (boxes.Count == 0)
+        {
+            return SK.SKRect.Empty;
+        }
+
+        var spanned = GetBoundsRect(boxes[0]);
+
+        for (var i = 1; i < boxes.Count; i++)
+        {
+            spanned = SK.SKRect.Union(spanned, GetBoundsRect(boxes[i]));
+        }
+
+        return spanned;
     }
 
     public static bool ContainsRect(SK.SKRect outer, SK.SKRect inner)

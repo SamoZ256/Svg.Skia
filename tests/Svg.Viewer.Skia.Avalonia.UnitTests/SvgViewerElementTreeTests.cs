@@ -133,6 +133,168 @@ public class SvgViewerElementTreeTests
         Assert.NotSame(before, viewer.Elements.SelectedNode.Element);
     }
 
+    /// <summary>
+    /// Several rows can be selected at once, and the first of them is the one everything follows.
+    /// </summary>
+    /// <remarks>
+    /// The anchor is what keeps every follower written for one row honest while the set grows: the
+    /// property panel, the note line and the outline all still have exactly one row to read.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Several_Rows_Can_Be_Selected_At_Once()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            "rect text",
+            string.Join(" ", viewer.Elements.SelectedNodes.Select(node => node.Label)));
+
+        Assert.Equal("rect", viewer.Elements.SelectedNode!.Label);
+    }
+
+    /// <summary>
+    /// Selecting several rows says so once, with the set complete.
+    /// </summary>
+    /// <remarks>
+    /// The control says it changed once per row, and empties the set before it fills it — so six
+    /// rows told the host seven times, one of those with nothing selected. Every follower redrew on
+    /// each, which is the flicker and the pane that blinks empty halfway through.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Selecting_Several_Rows_Says_So_Once()
+    {
+        var (_, viewer) = await Host();
+
+        var said = 0;
+        var seen = string.Empty;
+
+        viewer.Elements.Selected += (_, _) =>
+        {
+            said++;
+            seen = string.Join(" ", viewer.Elements.SelectedNodes.Select(node => node.Label));
+        };
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, said);
+        Assert.Equal("rect text", seen);
+    }
+
+    /// <summary>
+    /// A filter hides rows; it does not shrink what is selected.
+    /// </summary>
+    /// <remarks>
+    /// A host reads what is selected to know what a drag will move. Answering that with what is on
+    /// screen drops elements from the selection because of what somebody typed in a box.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Filter_Does_Not_Shrink_A_Selection()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.Elements.Filter = "rect";
+        Dispatcher.UIThread.RunJobs();
+
+        // One row is on screen, and both are still selected.
+        Assert.Equal("rect", string.Join(" ", viewer.Elements.SelectedNodes.Select(node => node.Label)));
+        Assert.Equal("1/0 1/1", string.Join(" ", viewer.Elements.SelectedAddresses));
+    }
+
+    /// <summary>
+    /// A drawing let go of takes its selection with it, whatever is typed in the filter.
+    /// </summary>
+    /// <remarks>
+    /// A group builds one file several ways, so its drawings spell the same addresses for different
+    /// shapes. Addresses left alive because a filter was typed came back on the next drawing and
+    /// selected rows nobody picked.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Drawing_Let_Go_Of_Takes_Its_Selection_With_It()
+    {
+        var (_, viewer) = await Host();
+
+        viewer.Elements.Filter = "rect";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.Elements.Forget();
+        viewer.Elements.Show(null);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(viewer.Elements.SelectedAddresses);
+
+        viewer.Elements.Show(viewer.Canvas.Svg?.SourceDocument);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(viewer.Elements.SelectedNodes);
+    }
+
+    /// <summary>A selection of several survives a rebuild, as one does.</summary>
+    [AvaloniaFact]
+    public async Task A_Selection_Of_Several_Survives_A_Rebuild()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.SetSource(Markup.Replace("width=\"24\" height=\"24\" fill", "width=\"20\" height=\"20\" fill"));
+
+        Assert.True(viewer.Rebuild());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            "rect text",
+            string.Join(" ", viewer.Elements.SelectedNodes.Select(node => node.Label)));
+    }
+
+    /// <summary>A rebuild drops the rows that have gone and keeps the ones that have not.</summary>
+    [AvaloniaFact]
+    public async Task A_Rebuild_Drops_Only_The_Rows_That_Have_Gone()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.SetSource(Markup.Replace("    <text x=\"2\" y=\"20\">hi</text>\n", string.Empty));
+
+        Assert.True(viewer.Rebuild());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("rect", string.Join(" ", viewer.Elements.SelectedNodes.Select(node => node.Label)));
+    }
+
+    /// <summary>Restoring several rows tells whoever is listening once, not once per row.</summary>
+    [AvaloniaFact]
+    public async Task A_Rebuild_Restoring_Several_Rows_Says_So_Once()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        var said = 0;
+
+        viewer.Elements.Selected += (_, _) => said++;
+
+        viewer.SetSource(Markup.Replace("width=\"24\" height=\"24\" fill", "width=\"20\" height=\"20\" fill"));
+
+        Assert.True(viewer.Rebuild());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0, said);
+    }
+
     [AvaloniaFact]
     public async Task A_Selection_Whose_Element_Has_Gone_Is_Dropped()
     {
