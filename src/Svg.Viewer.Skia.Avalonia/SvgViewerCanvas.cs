@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls.Skia;
 using Avalonia.Input;
@@ -1277,9 +1278,16 @@ public class SvgViewerCanvas : SKCanvasControl
     /// </para>
     /// </remarks>
     public IReadOnlyList<(SvgViewerPlacement Placement, IReadOnlyList<SvgElement> Elements)> Enclosed(SKRect marquee)
-    {
-        var found = new List<(SvgViewerPlacement, IReadOnlyList<SvgElement>)>();
+        => Sweeping(marquee).ToList();
 
+    /// <inheritdoc cref="Enclosed"/>
+    /// <remarks>
+    /// Drawing by drawing as they are asked for, so a caller that only wants to know whether a
+    /// second one answers can stop there rather than paying for the whole board. The walk itself is
+    /// the same one; this is where it lives and <see cref="Enclosed"/> is it, run to the end.
+    /// </remarks>
+    public IEnumerable<(SvgViewerPlacement Placement, IReadOnlyList<SvgElement> Elements)> Sweeping(SKRect marquee)
+    {
         foreach (var placed in _placed)
         {
             var local = marquee;
@@ -1346,11 +1354,9 @@ public class SvgViewerCanvas : SKCanvasControl
 
             if (elements.Count > 0)
             {
-                found.Add((placed, elements));
+                yield return (placed, elements);
             }
         }
-
-        return found;
     }
 
     /// <summary>Whether nothing above <paramref name="node"/> was caught by the same rectangle.</summary>

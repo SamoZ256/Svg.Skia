@@ -576,8 +576,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// means — and the only way, in the mode, to put the handles away.
     /// </remarks>
     private void SelectEnclosed(SkiaSharp.SKRect swept)
-        => _elementTree.TrySelect(
-            SvgViewerPicks.Of(_canvas.Enclosed(swept)).Select(pick => pick.AddressKey).ToList());
+        => _elementTree.TrySelect(Caught(swept).Select(pick => pick.AddressKey).ToList());
+
+    /// <summary>What a sweep of that rectangle would select: one drawing's elements, or none.</summary>
+    private IReadOnlyList<SvgViewerPick> Caught(SkiaSharp.SKRect swept)
+        => SvgViewerPicks.Only(_canvas.Sweeping(swept)) is { } only
+            ? SvgViewerPicks.Of(new[] { only })
+            : Array.Empty<SvgViewerPick>();
 
     /// <summary>Rings what a sweep is over, while it is still being drawn.</summary>
     /// <remarks>
@@ -590,7 +595,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private void ShowEnclosed(SkiaSharp.SKRect? swept)
         => _canvas.Retrace(
             swept is { } rectangle
-                ? SvgViewerPicks.Outline(SvgViewerPicks.Of(_canvas.Enclosed(rectangle)))
+                ? SvgViewerPicks.Outline(Caught(rectangle))
                 : SvgViewerPicks.Outline(Picks()));
 
     /// <summary>

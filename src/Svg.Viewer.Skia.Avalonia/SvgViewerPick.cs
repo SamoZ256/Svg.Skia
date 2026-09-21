@@ -52,6 +52,36 @@ public readonly record struct SvgViewerPick(SvgViewerPlacement Placement, string
 /// <summary>What a selection of several covers.</summary>
 public static class SvgViewerPicks
 {
+    /// <summary>
+    /// The one drawing a rectangle caught anything in, or null where that is none or several.
+    /// </summary>
+    /// <remarks>
+    /// A selection is of one drawing. A rectangle that went over two has not said which was meant,
+    /// and every way of guessing — the bigger catch, the drawing already open, where the press
+    /// began — silently throws away elements somebody swept over and watched the ring go round.
+    /// Nothing is the one answer that cannot be wrong about what was meant, and with the sweep's
+    /// own ring obeying the same rule it says so while the rectangle is still in the hand.
+    ///
+    /// Stops at the second drawing, so a board of forty is not walked to answer it.
+    /// </remarks>
+    public static (SvgViewerPlacement Placement, IReadOnlyList<SvgElement> Elements)? Only(
+        IEnumerable<(SvgViewerPlacement Placement, IReadOnlyList<SvgElement> Elements)> found)
+    {
+        (SvgViewerPlacement Placement, IReadOnlyList<SvgElement> Elements)? one = null;
+
+        foreach (var caught in found)
+        {
+            if (one is { })
+            {
+                return null;
+            }
+
+            one = caught;
+        }
+
+        return one;
+    }
+
     /// <summary>Every element a sweep caught, named by the drawing it was caught in.</summary>
     public static IReadOnlyList<SvgViewerPick> Of(
         IReadOnlyList<(SvgViewerPlacement Placement, IReadOnlyList<SvgElement> Elements)> found)

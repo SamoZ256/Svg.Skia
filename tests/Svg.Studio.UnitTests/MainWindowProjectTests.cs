@@ -1096,15 +1096,17 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
-    /// One sweep in edit mode selects elements of every drawing it went over.
+    /// A sweep that went over two drawings selects in neither of them.
     /// </summary>
     /// <remarks>
-    /// The tree can only show one drawing's rows — its addresses are unique inside one document —
-    /// so what the board holds and what the tree shows part company here on purpose, and the line
-    /// above the tree is what says so.
+    /// A selection is of one drawing. A rectangle over two has not said which was meant, and every
+    /// way of guessing throws away elements somebody swept over and watched the ring go round —
+    /// so it selects nothing, which is the one answer that cannot be wrong about what was meant.
+    /// The canvas still answers honestly that its rectangle crossed two; keeping one of them is the
+    /// panel's rule, not the geometry's.
     /// </remarks>
     [AvaloniaFact]
-    public async Task A_Sweep_Across_Two_Drawings_Picks_In_Both()
+    public async Task A_Sweep_Across_Two_Drawings_Picks_In_Neither()
     {
         var window = await Host(Write("icons.svgstudio", Board()));
         var panel = Panel(window, "Project");
@@ -1132,7 +1134,85 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.Equal(2, canvas.Enclosed(swept).Count);
 
+        // And nothing came of it: no ring, and no handles.
+        Assert.Null(canvas.Highlight);
+        Assert.Null(canvas.Gizmo);
+
         window.Close();
+    }
+
+    /// <summary>
+    /// A sweep inside one drawing selects in it, and says so while it is still being drawn.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the rule, and the half that has to agree with it: the ring goes out the
+    /// moment the rectangle reaches a second drawing and comes back when it no longer does, so the
+    /// rectangle never promises what the drop will discard.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Sweep_Says_While_It_Is_Drawn_Whether_It_Will_Select()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        Pick(window, panel, 0);
+        Editing(panel, true);
+
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var other = (ProjectDrawing)window.Workspace.Document.Root.Children[1];
+
+        var first = Area(Shown(panel, home));
+        var second = Area(Shown(panel, other));
+
+        var from = Over(canvas, first.Left - 5f, first.Top - 5f);
+
+        canvas.RaiseEvent(new PointerPressedEventArgs(
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            canvas.TranslatePoint(from, window)!.Value,
+            0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+            KeyModifiers.None)
+        {
+            RoutedEvent = InputElement.PointerPressedEvent
+        });
+
+        Dispatcher.UIThread.RunJobs();
+
+        // Round the first drawing only.
+        Sweeping(window, canvas, Over(canvas, first.Right + 2f, first.Bottom + 5f));
+
+        Assert.NotNull(canvas.Highlight);
+
+        // And on over the second, which is one drawing too many.
+        Sweeping(window, canvas, Over(canvas, second.Right + 5f, second.Bottom + 5f));
+
+        Assert.Null(canvas.Highlight);
+
+        // Back inside the first, and it is a selection again.
+        Sweeping(window, canvas, Over(canvas, first.Right + 2f, first.Bottom + 5f));
+
+        Assert.NotNull(canvas.Highlight);
+
+        window.Close();
+    }
+
+    /// <summary>Moves a sweep on without letting go of it.</summary>
+    private static void Sweeping(Window window, SvgViewerCanvas canvas, Point to)
+    {
+        canvas.RaiseEvent(new PointerEventArgs(
+            InputElement.PointerMovedEvent,
+            canvas,
+            new Pointer(0, PointerType.Mouse, true),
+            window,
+            canvas.TranslatePoint(to, window)!.Value,
+            0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other),
+            KeyModifiers.None));
+
+        Dispatcher.UIThread.RunJobs();
     }
 
     /// <summary>Turns the group tab's Edit toggle on or off.</summary>

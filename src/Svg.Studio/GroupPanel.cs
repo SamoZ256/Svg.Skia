@@ -1940,7 +1940,7 @@ public sealed class GroupPanel : UserControl
     private void SelectEnclosed(SKRect swept)
     {
         _picked.Clear();
-        _picked.AddRange(SvgViewerPicks.Of(_canvas.Enclosed(swept)));
+        _picked.AddRange(Caught(swept));
 
         if (_picked.Count == 0)
         {
@@ -1980,8 +1980,18 @@ public sealed class GroupPanel : UserControl
     private void ShowEnclosed(SKRect? swept)
         => _canvas.Retrace(
             swept is { } rectangle
-                ? SvgViewerPicks.Outline(SvgViewerPicks.Of(_canvas.Enclosed(rectangle)))
+                ? SvgViewerPicks.Outline(Caught(rectangle))
                 : SvgViewerPicks.Outline(_picked));
+
+    /// <summary>What a sweep of that rectangle would select: one drawing's elements, or none.</summary>
+    /// <remarks>
+    /// The rule and the ring showing it are the same call, so the rectangle cannot promise what the
+    /// drop then discards.
+    /// </remarks>
+    private IReadOnlyList<SvgViewerPick> Caught(SKRect swept)
+        => SvgViewerPicks.Only(_canvas.Sweeping(swept)) is { } only
+            ? SvgViewerPicks.Of(new[] { only })
+            : Array.Empty<SvgViewerPick>();
 
     /// <summary>
     /// Traces the ring again for an element that has moved under it.
