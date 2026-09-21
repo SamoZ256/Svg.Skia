@@ -125,6 +125,13 @@ public sealed class SvgViewerGizmos
             : _one.Element is { } only ? new[] { only } : Array.Empty<SvgElement>();
 
     /// <summary>Follows the selection, and has to be called again after every rebuild.</summary>
+    /// <remarks>
+    /// What survives is settled before the branch, not after. A member may be asked for and not be
+    /// there — a row naming something that does not draw, or a scene node that will not resolve —
+    /// and counting the request rather than the survivors is how a selection of two with one
+    /// survivor ended up delegating to a gizmo that had been tracked with nothing: no box, no
+    /// handles, no drag, and not a word about why.
+    /// </remarks>
     public void Track(IReadOnlyList<SvgViewerGizmoMember> members)
     {
         Cancel();
@@ -132,16 +139,7 @@ public sealed class SvgViewerGizmos
         _held.Clear();
         _only = null;
 
-        if (members.Count == 1)
-        {
-            _only = members[0];
-
-            _one.Track(members[0].Svg, members[0].Element);
-
-            return;
-        }
-
-        _one.Track(null, null);
+        var held = new List<Held>();
 
         foreach (var member in members)
         {
@@ -150,15 +148,27 @@ public sealed class SvgViewerGizmos
                 continue;
             }
 
-            var held = new Held(member, drawn);
+            var one = new Held(member, drawn);
 
-            held.Resolve();
+            one.Resolve();
 
-            if (held.Node is { })
+            if (one.Node is { })
             {
-                _held.Add(held);
+                held.Add(one);
             }
         }
+
+        if (held.Count == 1)
+        {
+            _only = held[0].Member;
+
+            _one.Track(held[0].Member.Svg, held[0].Member.Element);
+
+            return;
+        }
+
+        _one.Track(null, null);
+        _held.AddRange(held);
     }
 
     /// <summary>The box round the whole selection, or null where there is nothing to draw one on.</summary>
@@ -413,9 +423,21 @@ public sealed class SvgViewerGizmos
     {
         foreach (var drawing in _held.Select(held => held.Member.Svg).Distinct())
         {
-            var last = _held.Last(held => ReferenceEquals(held.Member.Svg, drawing));
+            var mine = _held.Where(held => ReferenceEquals(held.Member.Svg, drawing)).ToList();
+            var applied = true;
 
-            if (!drawing.TryApplyRetainedSceneMutationAndRender(last.Element, null, out var applied) || applied is null)
+            // Every member, because what is recompiled is an element and not a drawing: applying
+            // one member's and rendering left the rest drawn from the nodes they had before the
+            // frame, so a selection of six followed the pointer one shape at a time.
+            for (var i = 0; i < mine.Count - 1; i++)
+            {
+                applied &= drawing.ApplyRetainedSceneMutation(mine[i].Element).Succeeded;
+            }
+
+            // The last one carries the render, so a drawing is still drawn once a frame.
+            if (!applied
+                || !drawing.TryApplyRetainedSceneMutationAndRender(mine[^1].Element, null, out var rendered)
+                || rendered is null)
             {
                 drawing.FromSvgDocument(drawing.SourceDocument);
             }
@@ -482,7 +504,14 @@ public sealed class SvgViewerGizmos
 
         private Shim.SKMatrix _toGeometry = Shim.SKMatrix.CreateIdentity();
         private Shim.SKMatrix _from = Shim.SKMatrix.CreateIdentity();
-        private SvgTransformCollection _restore = new();
+        /// <summary>What the element was written with at the press, or null where it was never held.</summary>
+        /// <remarks>
+        /// Null and not an empty collection, because the two mean opposite things: an element that
+        /// carries no transform has an empty one, and an element this never took hold of has none
+        /// to put back. Putting an empty collection back on a member a refused press skipped is how
+        /// a whole selection lost its transforms — and the next drag then wrote the wiped value.
+        /// </remarks>
+        private SvgTransformCollection? _restore;
         private IReadOnlyList<SvgTransform> _head = Array.Empty<SvgTransform>();
         private GeometryWriter? _writer;
         private string? _written;
@@ -525,7 +554,7 @@ public sealed class SvgViewerGizmos
 
             _before = _writer is { } writer
                 ? writer.Captured
-                : new[] { ("transform", _written ?? _restore.ToString()) };
+                : new[] { ("transform", _written ?? _restore!.ToString()) };
 
             return null;
         }
@@ -537,7 +566,7 @@ public sealed class SvgViewerGizmos
 
             if (_writer is { } writer && writer.Apply(mine) is { } written)
             {
-                Element.Transforms = SvgViewerGizmo.Clone(_restore);
+                Element.Transforms = SvgViewerGizmo.Clone(_restore!);
                 Writes = written;
 
                 return;
@@ -570,8 +599,13 @@ public sealed class SvgViewerGizmos
 
         public void Revert()
         {
+            if (_restore is not { } restore)
+            {
+                return;
+            }
+
             _writer?.Restore();
-            Element.Transforms = _restore;
+            Element.Transforms = restore;
         }
 
         /// <summary>

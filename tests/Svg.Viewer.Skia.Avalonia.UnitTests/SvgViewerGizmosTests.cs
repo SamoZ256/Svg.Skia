@@ -33,6 +33,22 @@ public class SvgViewerGizmosTests
         </svg>
         """;
 
+    /// <summary>One shape that draws, and one tucked away in defs that does not.</summary>
+    private const string Hidden = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <defs><rect id="away" x="60" y="60" width="20" height="20" /></defs>
+          <rect id="one" x="20" y="20" width="20" height="20" fill="#3366cc" />
+        </svg>
+        """;
+
+    /// <summary>A shape beside one drawn so flat there is no way back from the pointer to it.</summary>
+    private const string Flattened = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <rect id="one" x="20" y="20" width="20" height="20" transform="translate(1, 1)" fill="#3366cc" />
+          <rect id="flat" x="60" y="60" width="20" height="20" transform="scale(0)" fill="#cc3366" />
+        </svg>
+        """;
+
     private static SKSvg Drawn(string markup)
     {
         var svg = new SKSvg();
@@ -94,6 +110,51 @@ public class SvgViewerGizmosTests
         Assert.Equal(50f, box.Value.Center.X);
     }
 
+    /// <summary>A member asked for that is not there leaves the rest with their handles.</summary>
+    /// <remarks>
+    /// A row can name something that does not draw. Counting what was asked for rather than what
+    /// was found once left a selection of two with one survivor holding nothing at all — no box, no
+    /// handles, and no drag — because everything was delegating to a gizmo tracked with nothing.
+    /// </remarks>
+    [Fact]
+    public void A_Member_That_Is_Not_There_Leaves_The_Rest_With_Their_Handles()
+    {
+        using var svg = Drawn(Hidden);
+        var gizmos = Tracking(svg, "one", "away");
+        var box = gizmos.Box(1f);
+
+        Assert.NotNull(box);
+        Assert.Equal(20f, box!.Value.TL.X);
+        Assert.Equal(40f, box.Value.BR.X);
+
+        Assert.Equal("x=40 y=30", Wrote(Drag(gizmos, (30f, 30f), (50f, 40f)), "one"));
+    }
+
+    /// <summary>
+    /// A press one member refuses leaves every member's transform exactly as it was.
+    /// </summary>
+    /// <remarks>
+    /// A press is all or none, so a refusal puts everything back — and "back" for a member the
+    /// press never reached is where it already is. Putting an empty collection there instead took
+    /// the transform off every shape in the selection, and the next drag wrote the loss to the file.
+    /// </remarks>
+    [Fact]
+    public void A_Press_One_Member_Refuses_Leaves_Every_Transform_Alone()
+    {
+        using var svg = Drawn(Flattened);
+        var gizmos = Tracking(svg, "one", "flat");
+
+        var one = svg.SourceDocument!.GetElementById("one");
+        var flat = svg.SourceDocument.GetElementById("flat");
+
+        var before = (One: one.Transforms?.ToString(), Flat: flat.Transforms?.ToString());
+
+        Assert.NotNull(gizmos.Begin(new Shim.SKPoint(30f, 30f), 1f));
+
+        Assert.Equal(before.One, one.Transforms?.ToString());
+        Assert.Equal(before.Flat, flat.Transforms?.ToString());
+    }
+
     /// <summary>
     /// The inside of the box belongs to nobody where no member is drawn there.
     /// </summary>
@@ -122,6 +183,33 @@ public class SvgViewerGizmosTests
 
         Assert.Equal("x=40 y=30", Wrote(edits, "one"));
         Assert.Equal("x=80 y=70", Wrote(edits, "two"));
+    }
+
+    /// <summary>
+    /// Every member follows the pointer while the drag runs, not only at the drop.
+    /// </summary>
+    /// <remarks>
+    /// Read off the scene before the gesture ends, which is the only place the difference shows: a
+    /// release rebuilds the drawing from its text and puts everything right, so a drag that moved
+    /// one shape at a time looked correct the moment anybody let go of it.
+    /// </remarks>
+    [Fact]
+    public void Every_Member_Is_Redrawn_While_The_Drag_Runs()
+    {
+        using var svg = Drawn(Pair);
+        var gizmos = Tracking(svg, "one", "two");
+
+        Assert.Null(gizmos.Begin(new Shim.SKPoint(30f, 30f), 1f));
+
+        gizmos.Drag(new Shim.SKPoint(50f, 40f));
+
+        // The first member, which is not the one that carries the render.
+        var one = svg.SourceDocument!.GetElementById("one");
+
+        Assert.True(svg.TryGetRetainedSceneNodes(one, out var nodes) && nodes.Count > 0);
+        Assert.Equal(40f, nodes[0].TransformedBounds.Left, 3);
+
+        gizmos.Cancel();
     }
 
     /// <summary>A corner scales everything about the corner of the box opposite it.</summary>
