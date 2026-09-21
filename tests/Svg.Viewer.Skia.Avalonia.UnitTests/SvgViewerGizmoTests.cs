@@ -448,6 +448,52 @@ public class SvgViewerGizmoTests
         window.Close();
     }
 
+    /// <summary>
+    /// A sweep that goes on catching the same things keeps the ring it already drew.
+    /// </summary>
+    /// <remarks>
+    /// Most of the moves of most sweeps grow the rectangle across empty canvas. Tracing again there
+    /// would build a path a frame — each left for the finalizer, since the canvas will not free a
+    /// ring the render thread may still be drawing. The path's own identity is the exact observable
+    /// for whether one was built.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Sweep_That_Catches_The_Same_Things_Keeps_Its_Ring()
+    {
+        var (window, viewer) = await Host(Two);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseDown(At(window, viewer, 5f, 5f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        // Round the first shape.
+        window.MouseMove(At(window, viewer, 45f, 45f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        var first = viewer.Canvas.Highlight;
+
+        Assert.NotNull(first);
+
+        // Further across empty canvas, catching nothing new.
+        window.MouseMove(At(window, viewer, 52f, 52f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(first, viewer.Canvas.Highlight);
+
+        // And on over the second, which is something new.
+        window.MouseMove(At(window, viewer, 95f, 95f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotSame(first, viewer.Canvas.Highlight);
+
+        window.MouseUp(At(window, viewer, 95f, 95f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        window.Close();
+    }
+
     /// <summary>A sweep that caught nothing puts the selection away.</summary>
     [AvaloniaFact]
     public async Task A_Sweep_Over_Nothing_Clears_The_Selection()

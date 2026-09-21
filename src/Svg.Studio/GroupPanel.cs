@@ -211,6 +211,9 @@ public sealed class GroupPanel : UserControl
     /// <summary>Moving, turning and scaling the picked element by dragging it on the canvas.</summary>
     private readonly SvgViewerGizmos _gizmo = new();
 
+    /// <summary>What a rectangle being swept has caught, and the ring showing it.</summary>
+    private readonly SvgViewerSweep _sweep = new();
+
     /// <summary>Whether a drag moves the element under it rather than the view.</summary>
     private ToggleButton? _edit;
 
@@ -1939,8 +1942,12 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void SelectEnclosed(SKRect swept)
     {
+        _sweep.TryTrace(_canvas, swept, out _);
+
         _picked.Clear();
-        _picked.AddRange(Caught(swept));
+        _picked.AddRange(_sweep.Caught);
+
+        _sweep.Forget();
 
         if (_picked.Count == 0)
         {
@@ -1978,20 +1985,15 @@ public sealed class GroupPanel : UserControl
     /// every frame; null is the sweep taken back, and the ring goes back to what is selected.
     /// </remarks>
     private void ShowEnclosed(SKRect? swept)
-        => _canvas.Retrace(
-            swept is { } rectangle
-                ? SvgViewerPicks.Outline(Caught(rectangle))
-                : SvgViewerPicks.Outline(_picked));
+    {
+        if (!_sweep.TryTrace(_canvas, swept, out var outline))
+        {
+            return;
+        }
 
-    /// <summary>What a sweep of that rectangle would select: one drawing's elements, or none.</summary>
-    /// <remarks>
-    /// The rule and the ring showing it are the same call, so the rectangle cannot promise what the
-    /// drop then discards.
-    /// </remarks>
-    private IReadOnlyList<SvgViewerPick> Caught(SKRect swept)
-        => SvgViewerPicks.Only(_canvas.Sweeping(swept)) is { } only
-            ? SvgViewerPicks.Of(new[] { only })
-            : Array.Empty<SvgViewerPick>();
+        // A sweep taken back leaves the ring on what is actually selected.
+        _canvas.Retrace(swept is { } ? outline : SvgViewerPicks.Outline(_picked));
+    }
 
     /// <summary>
     /// Traces the ring again for an element that has moved under it.

@@ -64,6 +64,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private readonly ToggleButton _editButton;
     private readonly ToggleButton _lockRatioButton;
 
+    /// <summary>What a rectangle being swept has caught, and the ring showing it.</summary>
+    private readonly SvgViewerSweep _sweep = new();
+
     /// <summary>Moving, turning and scaling the selected element by dragging it.</summary>
     private readonly SvgViewerGizmos _gizmo = new();
 
@@ -576,13 +579,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// means — and the only way, in the mode, to put the handles away.
     /// </remarks>
     private void SelectEnclosed(SkiaSharp.SKRect swept)
-        => _elementTree.TrySelect(Caught(swept).Select(pick => pick.AddressKey).ToList());
+    {
+        _sweep.TryTrace(_canvas, swept, out _);
 
-    /// <summary>What a sweep of that rectangle would select: one drawing's elements, or none.</summary>
-    private IReadOnlyList<SvgViewerPick> Caught(SkiaSharp.SKRect swept)
-        => SvgViewerPicks.Only(_canvas.Sweeping(swept)) is { } only
-            ? SvgViewerPicks.Of(new[] { only })
-            : Array.Empty<SvgViewerPick>();
+        _elementTree.TrySelect(_sweep.Caught.Select(pick => pick.AddressKey).ToList());
+
+        _sweep.Forget();
+    }
 
     /// <summary>Rings what a sweep is over, while it is still being drawn.</summary>
     /// <remarks>
@@ -593,10 +596,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// Null is the sweep being taken back, and the ring goes back to what is actually selected.
     /// </remarks>
     private void ShowEnclosed(SkiaSharp.SKRect? swept)
-        => _canvas.Retrace(
-            swept is { } rectangle
-                ? SvgViewerPicks.Outline(Caught(rectangle))
-                : SvgViewerPicks.Outline(Picks()));
+    {
+        if (!_sweep.TryTrace(_canvas, swept, out var outline))
+        {
+            return;
+        }
+
+        // A sweep taken back leaves the ring on what is actually selected.
+        _canvas.Retrace(swept is { } ? outline : SvgViewerPicks.Outline(Picks()));
+    }
 
     /// <summary>
     /// Rings <paramref name="node"/> on the drawing, or clears the ring when there is nothing to ring.
