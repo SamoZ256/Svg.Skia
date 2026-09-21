@@ -55,17 +55,6 @@ public readonly record struct SvgViewerEdits(
         return null;
     }
 
-    /// <summary>The members whose keys <paramref name="mine"/> claims, or null where none are.</summary>
-    /// <remarks>
-    /// For a board, where a selection may span several drawings and each is written on its own.
-    /// </remarks>
-    public SvgViewerEdits? For(Func<string, bool> mine)
-    {
-        var claimed = Members.Where(member => mine(member.Key)).ToList();
-
-        return claimed.Count == 0 ? null : new SvgViewerEdits(Label, claimed);
-    }
-
     private const string Unwritten = "That element is not written in this drawing's file, so it cannot be dragged.";
 }
 

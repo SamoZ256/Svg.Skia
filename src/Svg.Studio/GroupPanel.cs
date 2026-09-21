@@ -161,18 +161,14 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private ProjectGroup? _selected;
 
-    /// <summary>The element being looked at inside it, by the address that survives a rebuild.</summary>
+    /// <summary>What is selected inside the drawing being looked at, by address.</summary>
     /// <remarks>
-    /// The address and not the element: a drawing read again is a different graph, so the key is the
-    /// only thing the two have in common. It is what <see cref="Pick"/> already selects rows by.
+    /// Addresses and not elements: a drawing read again is a different graph, so the key is the only
+    /// thing the two have in common. Which drawing they are in is <see cref="_inspecting"/> and is
+    /// not held twice — a selection is of one drawing, which is why the tree showing one drawing's
+    /// rows can show the whole of it.
     /// </remarks>
-    /// <summary>What is selected on the board, which may span several of its drawings.</summary>
-    /// <remarks>
-    /// The tree can only show one drawing's rows — its addresses are unique inside one document —
-    /// so a selection reaching past that drawing is shown by the ring and the box, and counted in
-    /// the label above the tree.
-    /// </remarks>
-    private readonly List<SvgViewerPick> _picked = new();
+    private readonly List<string> _picked = new();
 
     /// <summary>Whether this is the tab being looked at.</summary>
     /// <remarks>
@@ -303,21 +299,13 @@ public sealed class GroupPanel : UserControl
         // the one the tree is showing.
         _tree.Selected += (_, node) =>
         {
-            if (_inspecting is { } inspecting)
-            {
-                // Only this drawing's: a pane that can address one drawing cannot mean to drop what
-                // is selected in the others.
-                _picked.RemoveAll(pick => ReferenceEquals(pick.Placement, inspecting.Placement));
-
-                _picked.AddRange(
-                    _tree.SelectedAddresses.Select(address => new SvgViewerPick(inspecting.Placement, address)));
-            }
+            _picked.Clear();
+            _picked.AddRange(_tree.SelectedAddresses);
 
             Ring();
 
             TrackGizmo();
             ShowElement(node?.AddressKey);
-            Recount();
         };
 
         Recaption();
@@ -1322,12 +1310,8 @@ public sealed class GroupPanel : UserControl
         var was = _inspecting?.Built.Drawing;
         var chosen = _selected;
 
-        // By the drawing the project owns rather than by the placement, which this build is about
-        // to throw away along with the SKSvg under it.
-        var picked = _picked
-            .Select(pick => (Drawing: Shown(pick.Placement)?.Built.Drawing, pick.AddressKey))
-            .Where(saved => saved.Drawing is { })
-            .ToList();
+        // The addresses alone: which drawing they are in is `was`, which this already holds.
+        var picked = _picked.ToList();
 
         Forget();
 
@@ -1399,26 +1383,12 @@ public sealed class GroupPanel : UserControl
             // And the elements inside it, which ring their drawings and fill the Element tab through
             // the same handler a click on a row does. A key the drawing no longer has selects
             // nothing, which is the honest answer: the element it named has been edited away.
-            _picked.Clear();
-
-            foreach (var saved in picked)
-            {
-                if (_shown.FirstOrDefault(shown => ReferenceEquals(shown.Built.Drawing, saved.Drawing)) is
-                    { Built.Svg: { } } back)
-                {
-                    _picked.Add(new SvgViewerPick(back.Placement, saved.AddressKey));
-                }
-            }
-
-            _tree.TrySelect(
-                _picked
-                    .Where(pick => ReferenceEquals(pick.Placement, again.Placement))
-                    .Select(pick => pick.AddressKey)
-                    .ToList());
+            // Through the tree, which is what fills _picked again — and which drops any address
+            // the rebuilt drawing no longer has, the element it named having been edited away.
+            _tree.TrySelect(picked);
 
             Ring();
             TrackGizmo();
-            Recount();
         }
         else if (chosen is { } group
                  && _framed.FirstOrDefault(framed => ReferenceEquals(framed.Group, group)) is { Group: { } } still)
@@ -1850,9 +1820,9 @@ public sealed class GroupPanel : UserControl
         Inspect(_shown[index], placement, svg);
 
         _picked.Clear();
-        _picked.Add(new SvgViewerPick(placement, SvgElementAddress.Create(element).Key));
+        _picked.Add(SvgElementAddress.Create(element).Key);
 
-        _tree.TrySelect(_picked[0].AddressKey);
+        _tree.TrySelect(_picked[0]);
 
         // Rung here rather than left to the row being selected. A group usually builds one file
         // several ways, so its drawings give their elements the same addresses; picking a shape in
@@ -1905,51 +1875,23 @@ public sealed class GroupPanel : UserControl
         => _canvas.Highlight = Outline(placement, svg, element);
 
     /// <summary>
-    /// Says what the tree is showing, and how much of the selection it cannot show.
+    /// Selects what a swept rectangle caught, where it caught it all in one drawing.
     /// </summary>
     /// <remarks>
-    /// The tree keys its rows by a path that is unique only inside one document, so it can only
-    /// ever show one drawing's. A selection reaching past that drawing is on the board in the ring
-    /// and the box, and this line is the only place that says so in words.
-    /// </remarks>
-    private void Recount()
-    {
-        if (_inspecting is not { } inspecting)
-        {
-            return;
-        }
-
-        var label = ProjectWorkspace.Label(inspecting.Built.Drawing);
-        var drawings = _picked.Select(pick => pick.Placement).Distinct().Count();
-
-        _showing.Text = drawings <= 1
-            ? label
-            : string.Format(
-                CultureInfo.CurrentCulture,
-                "{0} — {1} of {2} selected, in {3} drawings",
-                label,
-                _picked.Count(pick => ReferenceEquals(pick.Placement, inspecting.Placement)),
-                _picked.Count,
-                drawings);
-    }
-
-    /// <summary>
-    /// Selects everything a swept rectangle caught, in every drawing it went over.
-    /// </summary>
-    /// <remarks>
-    /// The tree follows whichever drawing the first of them is in, because that is all it can show;
-    /// the rest are on the board in the ring and counted in the line above the tree.
+    /// A rectangle over two drawings has not said which was meant, and selects nothing — which is
+    /// also what a rectangle over nothing does, so the two share the answer.
     /// </remarks>
     private void SelectEnclosed(SKRect swept)
     {
         _sweep.TryTrace(_canvas, swept, out _);
 
-        _picked.Clear();
-        _picked.AddRange(_sweep.Caught);
+        var caught = _sweep.Caught;
 
         _sweep.Forget();
 
-        if (_picked.Count == 0)
+        // Nothing caught, or caught in more than one drawing, which is the same answer: a selection
+        // is of one drawing, and a rectangle over two has not said which.
+        if (caught.Count == 0 || Shown(caught[0].Placement) is not { } shown || shown.Built.Svg is not { } svg)
         {
             Deselect();
             ShowDeclarations();
@@ -1957,26 +1899,24 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        var first = _picked[0].Placement;
+        Inspect(shown, caught[0].Placement, svg);
 
-        if (Shown(first) is { } shown && shown.Built.Svg is { } svg)
-        {
-            Inspect(shown, first, svg);
-        }
-
-        _tree.TrySelect(
-            _picked
-                .Where(pick => ReferenceEquals(pick.Placement, first))
-                .Select(pick => pick.AddressKey)
-                .ToList());
+        // Through the tree, which is what tells everything else — including this panel's own
+        // handler, which is where _picked is filled from.
+        _tree.TrySelect(caught.Select(pick => pick.AddressKey).ToList());
 
         Ring();
         TrackGizmo();
-        Recount();
     }
 
     /// <summary>Rings everything selected, wherever on the board it is.</summary>
-    private void Ring() => _canvas.Highlight = SvgViewerPicks.Outline(_picked);
+    private void Ring() => _canvas.Highlight = SvgViewerPicks.Outline(Picks());
+
+    /// <summary>What is selected, as the drawing it is in and the addresses inside it.</summary>
+    private IReadOnlyList<SvgViewerPick> Picks()
+        => _inspecting is { } inspecting
+            ? _picked.Select(address => new SvgViewerPick(inspecting.Placement, address)).ToList()
+            : Array.Empty<SvgViewerPick>();
 
     /// <summary>Rings what a sweep is over, while it is still being drawn.</summary>
     /// <remarks>
@@ -1992,7 +1932,7 @@ public sealed class GroupPanel : UserControl
         }
 
         // A sweep taken back leaves the ring on what is actually selected.
-        _canvas.Retrace(swept is { } ? outline : SvgViewerPicks.Outline(_picked));
+        _canvas.Retrace(swept is { } ? outline : SvgViewerPicks.Outline(Picks()));
     }
 
     /// <summary>
@@ -2004,7 +1944,7 @@ public sealed class GroupPanel : UserControl
     /// pulse announcing a new selection: at one frame per pointer move that is a ring flashing for
     /// as long as the drag lasts, about something nobody just picked.
     /// </remarks>
-    private void Retrace() => _canvas.Retrace(SvgViewerPicks.Outline(_picked));
+    private void Retrace() => _canvas.Retrace(SvgViewerPicks.Outline(Picks()));
 
     /// <summary>What the selection covers, where its drawings sit on the board.</summary>
     private static SKPath? Outline(SvgViewerPlacement placement, SKSvg svg, SvgElement element)
@@ -2045,18 +1985,19 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private IReadOnlyList<SvgViewerGizmoMember> Members()
     {
+        if (_inspecting is not { } inspecting || inspecting.Built.Svg is not { } svg)
+        {
+            return Array.Empty<SvgViewerGizmoMember>();
+        }
+
+        var at = new ShimSkiaSharp.SKPoint(inspecting.Placement.At.X, inspecting.Placement.At.Y);
         var members = new List<SvgViewerGizmoMember>();
 
-        for (var i = 0; i < _picked.Count; i++)
+        foreach (var pick in Picks())
         {
-            if (_picked[i].Element is { } element)
+            if (pick.Element is { } element)
             {
-                members.Add(
-                    new SvgViewerGizmoMember(
-                        _picked[i].Placement.Svg,
-                        element,
-                        i.ToString(CultureInfo.InvariantCulture),
-                        new ShimSkiaSharp.SKPoint(_picked[i].Placement.At.X, _picked[i].Placement.At.Y)));
+                members.Add(new SvgViewerGizmoMember(svg, element, pick.AddressKey, at));
             }
         }
 
@@ -2081,29 +2022,33 @@ public sealed class GroupPanel : UserControl
     /// drawing as the project built it, and the file it came from spells the row differently. Null
     /// where the row is the recipe's own invention and the file has nowhere to put it.
     /// </remarks>
-    private IReadOnlyList<(string Key, ISvgViewerDeclarationTarget Target, string Address)> Writing()
+    private (ISvgViewerDeclarationTarget Target, IReadOnlyDictionary<string, string> Addresses)? Writing()
     {
-        var writing = new List<(string, ISvgViewerDeclarationTarget, string)>();
-
-        for (var i = 0; i < _picked.Count; i++)
+        if (_inspecting is not { } inspecting
+            || inspecting.Built.Document is not { } document
+            || document.SourceText is null
+            || _picked.Count == 0)
         {
-            if (Shown(_picked[i].Placement) is not { } shown
-                || shown.Built.Document is not { } document
-                || document.SourceText is null)
-            {
-                continue;
-            }
+            return null;
+        }
 
-            var target = TargetOf?.Invoke(shown.Built.Drawing) ?? new DrawingTarget(Workspace, shown.Built.Drawing);
+        var target = TargetOf?.Invoke(inspecting.Built.Drawing)
+                     ?? new DrawingTarget(Workspace, inspecting.Built.Drawing);
 
-            if (SvgSourceElements.Addresses(target.Text, document.Built(target.Text))
-                .TryGetValue(_picked[i].AddressKey, out var mine))
+        // Once for the whole selection. The table is the file read and walked, and asking for it
+        // per element made a drag of twenty elements twenty parses of the same text.
+        var spelt = SvgSourceElements.Addresses(target.Text, document.Built(target.Text));
+        var addresses = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var address in _picked)
+        {
+            if (spelt.TryGetValue(address, out var mine))
             {
-                writing.Add((i.ToString(CultureInfo.InvariantCulture), target, mine));
+                addresses[address] = mine;
             }
         }
 
-        return writing;
+        return addresses.Count == 0 ? null : (target, addresses);
     }
 
     /// <summary>The board's own record of a drawing that is on it, or null where it is not.</summary>
@@ -2127,14 +2072,16 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        if (Writing().Count == 0)
+        if (Writing() is not { } writing)
         {
             Says(Unwritten);
 
             return;
         }
 
-        Says(_gizmo.Begin(arranged, (float)_canvas.Scale, Driven));
+        // The table once, rather than once per member: it is the file read and walked, and asking
+        // the gesture to ask for it per element made a drag of twenty twenty parses of one text.
+        Says(_gizmo.Begin(arranged, (float)_canvas.Scale, key => Driven(writing, key)));
 
         ShowGizmo();
     }
@@ -2172,60 +2119,26 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        var writing = Writing();
-
-        if (writing.Count == 0)
+        if (Writing() is not { } writing)
         {
             Undo(Unwritten);
 
             return;
         }
 
-        var byTarget = writing
-            .GroupBy(one => one.Target)
-            .Select(group => (group.Key, Addresses: group.ToDictionary(one => one.Key, one => one.Address)))
-            .ToList();
+        // One drawing, so one commit — and one commit is one entry in that drawing's history and
+        // all or nothing besides: a refusal on the fourth element puts the first three back with it.
+        var refusal = writing.Target.Commit(
+            edit.Label,
+            source => edit.Write(
+                source,
+                key => writing.Addresses.TryGetValue(key, out var at) ? at : null));
 
-        // Every drawing is asked before any drawing is written. The commits are independent —
-        // a document is where a history lives, and there is no history spanning two — so a refusal
-        // from the third drawing could not put the first two back. The only place to find out is
-        // before the first one lands.
-        foreach (var (target, addresses) in byTarget)
+        if (refusal is { })
         {
-            if (SvgSourceDocument.Read(target.Text, out var unreadable) is not { } trial)
-            {
-                Undo(unreadable ?? Unwritten);
+            Undo(refusal);
 
-                return;
-            }
-
-            if (edit.For(addresses.ContainsKey) is { } mine
-                && mine.Write(trial, key => addresses.TryGetValue(key, out var at) ? at : null) is { } refused)
-            {
-                Undo(refused);
-
-                return;
-            }
-        }
-
-        foreach (var (target, addresses) in byTarget)
-        {
-            if (edit.For(addresses.ContainsKey) is not { } mine)
-            {
-                continue;
-            }
-
-            // One entry per drawing, since that is what a drawing's own history can hold.
-            var refusal = target.Commit(
-                edit.Label,
-                source => mine.Write(source, key => addresses.TryGetValue(key, out var at) ? at : null));
-
-            if (refusal is { })
-            {
-                Undo(refusal);
-
-                return;
-            }
+            return;
         }
 
         Says(null);
@@ -2263,24 +2176,15 @@ public sealed class GroupPanel : UserControl
     /// hold does not touch the transform at all, and one that cannot is composed onto this text
     /// instead of onto the number the expression came to.
     /// </remarks>
-    private string? Driven(string key)
-    {
-        foreach (var (mine, target, address) in Writing())
-        {
-            if (!string.Equals(mine, key, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            return SvgSourceDocument.Read(target.Text, out _) is { } source
-                   && SvgAttributeEditor.Attribute(source, address, "transform") is { } written
-                   && written.Contains("{{", StringComparison.Ordinal)
-                ? written
-                : null;
-        }
-
-        return null;
-    }
+    private static string? Driven(
+        (ISvgViewerDeclarationTarget Target, IReadOnlyDictionary<string, string> Addresses) writing,
+        string key)
+        => writing.Addresses.TryGetValue(key, out var address)
+           && SvgSourceDocument.Read(writing.Target.Text, out _) is { } source
+           && SvgAttributeEditor.Attribute(source, address, "transform") is { } written
+           && written.Contains("{{", StringComparison.Ordinal)
+            ? written
+            : null;
 
     /// <summary>One drawing built the way the project builds it, or why it could not be.</summary>
     /// <summary>
