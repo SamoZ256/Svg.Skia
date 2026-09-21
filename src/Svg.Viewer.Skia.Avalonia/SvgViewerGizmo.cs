@@ -174,17 +174,27 @@ public sealed class SvgViewerGizmo
         }
 
         _handle = _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _);
+        _geometry = node.GeometryBounds;
+
+        // Both, not either: a horizontal line covers nothing in y and is still a shape somebody can
+        // take hold of and stretch along its own axis.
+        if (_geometry.Width <= 0f && _geometry.Height <= 0f)
+        {
+            return Sizeless;
+        }
+
+        // On a shape with no thickness the handles for the collapsed axis sit on the shape itself,
+        // and one of them is what a press in the middle finds first. Left as a handle it would pin
+        // the shape where it is — Factor answers 1 for an axis with no extent — so the press is
+        // handed to the move instead, which is the only thing it could have meant.
+        if (_handle is 1 or 5 && _geometry.Height <= 0f || _handle is 3 or 7 && _geometry.Width <= 0f)
+        {
+            _handle = -1;
+        }
 
         if (_handle < 0 && !Covers(at))
         {
             return null;
-        }
-
-        _geometry = node.GeometryBounds;
-
-        if (_geometry.Width <= 0f || _geometry.Height <= 0f)
-        {
-            return Sizeless;
         }
 
         _toGeometry = toGeometry;

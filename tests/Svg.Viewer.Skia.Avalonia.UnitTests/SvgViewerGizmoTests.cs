@@ -74,6 +74,13 @@ public class SvgViewerGizmoTests
         </svg>
         """;
 
+    /// <summary>A line lying flat, whose bounds are twenty wide and nothing tall.</summary>
+    private const string Flat = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <line id="box" x1="20" y1="30" x2="40" y2="30" stroke="#3366cc" stroke-width="4" />
+        </svg>
+        """;
+
     /// <summary>A shape twice as wide as it is tall, whose diagonal is nothing like forty five degrees.</summary>
     private const string Oblong = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
@@ -268,6 +275,30 @@ public class SvgViewerGizmoTests
 
         Assert.NotNull(box);
         Assert.True(box!.Value.TL.X > 80f, $"the handles are at {box.Value.TL}, not on the shape that was dragged off");
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A shape with no thickness can still be taken hold of.
+    /// </summary>
+    /// <remarks>
+    /// Its bounds are a line, and a drag used to be refused outright for covering nothing — which
+    /// took a horizontal line, the shape most likely to want stretching, out of the editor entirely.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Flat_Line_Can_Be_Dragged_At_All()
+    {
+        var (window, viewer) = await Host(Flat);
+
+        Select(window, viewer, 30f, 30f);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(window, viewer, (30f, 30f), (50f, 30f));
+
+        Assert.Equal("translate(20, 0)", Written(viewer));
 
         window.Close();
     }
