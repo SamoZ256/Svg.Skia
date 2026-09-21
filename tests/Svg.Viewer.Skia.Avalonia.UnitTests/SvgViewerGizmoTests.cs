@@ -355,6 +355,78 @@ public class SvgViewerGizmoTests
     private static string Ends(SvgViewer viewer)
         => string.Join(" ", new[] { "x1", "y1", "x2", "y2" }.Select(name => Attribute(viewer, "box", name)));
 
+    /// <summary>Two shapes, swept up together and then dragged as one.</summary>
+    private const string Two = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <rect id="one" x="20" y="20" width="20" height="20" fill="#3366cc" />
+          <rect id="two" x="60" y="60" width="20" height="20" fill="#cc3366" />
+        </svg>
+        """;
+
+    /// <summary>
+    /// A sweep selects what it caught, and the whole of it moves as one.
+    /// </summary>
+    /// <remarks>
+    /// The feature end to end: the press misses the handles, so it sweeps; the release selects both
+    /// shapes; and a drag from inside one of them carries the other with it, in one commit that one
+    /// undo takes back.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Swept_Selection_Is_Dragged_As_One()
+    {
+        var (window, viewer) = await Host(Two);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        // Round both shapes, from a corner of the page that is over neither of them.
+        Drag(window, viewer, (5f, 5f), (95f, 95f));
+
+        Assert.Equal(2, viewer.Elements.SelectedNodes.Count);
+
+        // And now from inside the first, which carries both.
+        Drag(window, viewer, (30f, 30f), (50f, 40f));
+
+        Assert.Equal("40 30 20 20", Box(viewer, "one"));
+        Assert.Equal("80 70 20 20", Box(viewer, "two"));
+
+        // One gesture, one thing to take back.
+        Assert.True(viewer.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("20 20 20 20", Box(viewer, "one"));
+        Assert.Equal("60 60 20 20", Box(viewer, "two"));
+
+        window.Close();
+    }
+
+    /// <summary>A sweep that caught nothing puts the selection away.</summary>
+    [AvaloniaFact]
+    public async Task A_Sweep_Over_Nothing_Clears_The_Selection()
+    {
+        var (window, viewer) = await Host(Two);
+
+        Select(window, viewer, 30f, 30f);
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotNull(viewer.SelectedElement);
+
+        var said = 0;
+
+        viewer.Elements.Selected += (_, _) => said++;
+
+        // A corner of the page with nothing on it.
+        Drag(window, viewer, (85f, 5f), (95f, 15f));
+
+        Assert.Equal(1, said);
+        Assert.Empty(viewer.Elements.SelectedNodes);
+        Assert.Null(viewer.Canvas.Gizmo);
+
+        window.Close();
+    }
+
     /// <summary>The element the tests drag, as the live document holds it.</summary>
     private static Svg.SvgElement Element(SvgViewer viewer, string id = "box")
     {

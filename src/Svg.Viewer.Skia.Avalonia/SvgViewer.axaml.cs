@@ -65,7 +65,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private readonly ToggleButton _lockRatioButton;
 
     /// <summary>Moving, turning and scaling the selected element by dragging it.</summary>
-    private readonly SvgViewerGizmo _gizmo = new();
+    private readonly SvgViewerGizmos _gizmo = new();
 
     /// <summary>What the panel's column was last set to, so hiding it can be undone.</summary>
     private GridLength _panelWidth;
@@ -194,6 +194,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         };
 
         _canvas.Picked += (_, at) => PickElement(at);
+
+        _canvas.Marqueed += (_, swept) => SelectEnclosed(swept);
 
         _canvas.IsEditTarget = at =>
             IsEditing
@@ -348,6 +350,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
                 // drawing it is a shape that moves under a pointer nobody can see holding it.
                 CancelEdit();
             }
+
+            // The mode settles what a left press means everywhere the handles are not: in it, a
+            // drag that misses them sweeps a rectangle, and the view is reached by the middle
+            // button. Out of it, every drag pans as it always did.
+            _canvas.IsMarqueeEnabled = value;
 
             TrackGizmo();
         }
@@ -560,6 +567,21 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree.TrySelect(SvgElementAddress.Create(element).Key);
     }
 
+    /// <summary>Selects everything a swept rectangle caught, and nothing else.</summary>
+    /// <remarks>
+    /// A sweep that caught nothing clears the selection, which is what a press on bare canvas
+    /// means — and the only way, in the mode, to put the handles away.
+    /// </remarks>
+    private void SelectEnclosed(SkiaSharp.SKRect swept)
+    {
+        var caught = _canvas.Enclosed(swept)
+            .SelectMany(found => found.Elements)
+            .Select(element => SvgElementAddress.Create(element).Key)
+            .ToList();
+
+        _elementTree.TrySelect(caught);
+    }
+
     /// <summary>
     /// Rings <paramref name="node"/> on the drawing, or clears the ring when there is nothing to ring.
     /// </summary>
@@ -648,12 +670,30 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Puts the handles on whatever is selected, or takes them off.</summary>
     private void TrackGizmo()
     {
-        _gizmo.Track(
-            IsEditing ? _document?.Svg : null,
-            IsEditing ? _elementTree.SelectedNode?.Element : null);
+        _gizmo.Track(IsEditing ? Members() : Array.Empty<SvgViewerGizmoMember>());
 
         ShowGizmo();
     }
+
+    /// <summary>The selected rows, as the gesture knows them.</summary>
+    /// <remarks>
+    /// Keyed by the address of the row, which is what the tree holds and what turns back into an
+    /// address in the file when the gesture comes to be written.
+    /// </remarks>
+    private IReadOnlyList<SvgViewerGizmoMember> Members()
+        => _document is not { } open
+            ? Array.Empty<SvgViewerGizmoMember>()
+            : _elementTree.SelectedNodes
+                .Select(node => new SvgViewerGizmoMember(open.Svg, node.Element, node.AddressKey, default))
+                .ToList();
+
+    /// <summary>What the selection covers, as one path.</summary>
+    private IReadOnlyList<SvgViewerPick> Picks()
+        => _document is not { } open
+            ? Array.Empty<SvgViewerPick>()
+            : _elementTree.SelectedNodes
+                .Select(node => new SvgViewerPick(new SvgViewerPlacement(open.Svg, default), node.AddressKey))
+                .ToList();
 
     /// <summary>Hands the canvas the box as it now stands, at the scale it is now drawn at.</summary>
     private void ShowGizmo() => _canvas.Gizmo = _gizmo.Box((float)_canvas.Scale);
@@ -673,14 +713,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        if (SourceAddress(_elementTree.SelectedNode?.AddressKey) is not { } address)
-        {
-            ShowNote(Unwritten);
-
-            return;
-        }
-
-        ShowNote(_gizmo.Begin(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale, Driven(address)));
+        ShowNote(
+            _gizmo.Begin(
+                new ShimSkiaSharp.SKPoint(point.X, point.Y),
+                (float)_canvas.Scale,
+                key => SourceAddress(key) is { } address ? Driven(address) : null));
 
         ShowGizmo();
     }
@@ -725,18 +762,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        if (SourceAddress(_elementTree.SelectedNode?.AddressKey) is not { } address)
-        {
-            Undo(Unwritten);
-
-            return;
-        }
-
-        // Every exit that does not commit puts the element back. The drag is applied to the built
+        // Every exit that does not commit puts the elements back. The drag is applied to the built
         // document as it is made, so a release the file will not take — an element whose transform
         // is spelt in its style attribute, which is refused on the way in — would otherwise leave
         // the drawing carrying a transform its own text does not have.
-        var refusal = Written(edit.Label, source => edit.Write(source, address));
+        //
+        // However many elements moved, one commit: a document is serialised once and pushed onto
+        // the history once, so a drag of six shapes is one thing to take back.
+        var refusal = Written(edit.Label, source => edit.Write(source, SourceAddress));
 
         if (refusal is { })
         {
@@ -788,10 +821,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             : null;
 
     private void OutlineElement(SvgViewerElementNode? node)
-        => _canvas.Highlight = Outline(node);
+        => _canvas.Highlight = node is null ? null : SvgViewerPicks.Outline(Picks());
 
     /// <summary>Traces the selected element again, for a value that moved where it is drawn.</summary>
-    private void RetraceOutline() => _canvas.Retrace(Outline(_elementTree.SelectedNode));
+    private void RetraceOutline() => _canvas.Retrace(SvgViewerPicks.Outline(Picks()));
 
     /// <summary>What the selection covers, as one path the canvas can stroke whole.</summary>
     private SkiaSharp.SKPath? Outline(SvgViewerElementNode? node)

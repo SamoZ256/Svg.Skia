@@ -446,6 +446,24 @@ public partial class SvgViewerElementTree : UserControl
 
         if (rows.Count == 0)
         {
+            // Asking for nothing is asking for nothing to be selected, which is what a sweep that
+            // caught nothing means. Asking for rows that have all gone leaves what was there.
+            if (addressKeys.Count == 0)
+            {
+                _tree.SelectedItems?.Clear();
+                _tree.SelectedItem = null;
+
+                // Emptied, the control does not always say that it changed — and everything that
+                // follows the selection is told by that one event, so the ring and the handles
+                // would be left standing round a selection that is no longer there.
+                if (_selectedAddresses.Count > 0)
+                {
+                    _selectedAddresses.Clear();
+
+                    Selected?.Invoke(this, null);
+                }
+            }
+
             return addressKeys.Count == 0;
         }
 
