@@ -64,6 +64,18 @@ public class SvgViewerCanvas : SKCanvasControl
     private bool _editMoved;
     private IPointer? _editPointer;
 
+    /// <summary>The rectangle being swept, in the space the drawings are arranged in.</summary>
+    /// <remarks>
+    /// Arranged space and not the control's, because that is the space the query answers in and the
+    /// space it is drawn in. Safe to hold across the gesture because the view is held still for the
+    /// length of one: neither corner can be moved under the hand.
+    /// </remarks>
+    private bool _marquee;
+    private bool _marqueeMoved;
+    private SKPoint _marqueeFrom;
+    private SKPoint _marqueeTo;
+    private IPointer? _marqueePointer;
+
     /// <summary>How long the ring has been up, which is what the pulse is a function of.</summary>
     private readonly Stopwatch _highlightAge = new();
 
@@ -84,7 +96,7 @@ public class SvgViewerCanvas : SKCanvasControl
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
         Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, true, null, 0d, null, null,
-        DefaultCaptionSize);
+        DefaultCaptionSize, null);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -97,7 +109,8 @@ public class SvgViewerCanvas : SKCanvasControl
         double HighlightAge,
         (SKRect Bounds, SKPoint By, IReadOnlySet<SvgViewerPlacement> Carried)? Moving,
         BoundsInfo? Gizmo,
-        double CaptionSize);
+        double CaptionSize,
+        SKRect? Marquee);
 
     public SvgViewerCanvas()
     {
@@ -149,6 +162,29 @@ public class SvgViewerCanvas : SKCanvasControl
     /// it always did.
     /// </remarks>
     public Func<Point, bool>? IsEditTarget { get; set; }
+
+    /// <summary>
+    /// Whether a left press that missed the narrower claims sweeps a rectangle rather than pans.
+    /// </summary>
+    /// <remarks>
+    /// A plain switch and not a question like <see cref="IsEditTarget"/>, which needs the point
+    /// because its answer differs from pixel to pixel — is this handle mine? A sweep's answer is the
+    /// same everywhere the handles are not, so asking per point would be a lie about what varies.
+    ///
+    /// The view is still reachable while this is on: a middle drag pans, as does a two finger
+    /// scroll, neither of which a sweep ever claims.
+    /// </remarks>
+    public bool IsMarqueeEnabled { get; set; }
+
+    /// <summary>Raised where a sweep came to rest, as <see cref="Picked"/> reports a click.</summary>
+    /// <remarks>
+    /// In the space the drawings are arranged in, unlike <see cref="Picked"/>, which is in control
+    /// coordinates: a rectangle is a question about the drawings rather than a place on the screen,
+    /// and <see cref="Enclosed"/> — the only thing there is to ask of it — answers in that space.
+    ///
+    /// Only for a sweep that travelled. One that did not is a click, and <see cref="Picked"/> has it.
+    /// </remarks>
+    public event EventHandler<SKRect>? Marqueed;
 
     /// <summary>The edit gesture, in control coordinates, as <see cref="Picked"/> reports a click.</summary>
     public event EventHandler<Point>? EditBegun;
@@ -363,6 +399,10 @@ public class SvgViewerCanvas : SKCanvasControl
         EndMove();
         EndEdit(commit: false);
 
+        // And a rectangle measured on an arrangement about to be replaced names nothing in the one
+        // that follows it.
+        EndMarquee(commit: false);
+
         _placed = placed;
         _frames = frames;
 
@@ -549,7 +589,7 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         // A pane resized while something is being carried or edited must not refit under it: the
         // gesture captured where it started from, and the ground would move under the hand.
-        if (_moving is { } || _editing || size.Width <= 0d || size.Height <= 0d || !TryGetCullRect(out var bounds))
+        if (_moving is { } || _editing || _marquee || size.Width <= 0d || size.Height <= 0d || !TryGetCullRect(out var bounds))
         {
             return false;
         }
@@ -773,7 +813,11 @@ public class SvgViewerCanvas : SKCanvasControl
             // Not while something is being carried: the box is measured from a drawing that is on
             // its way somewhere else, so it would be left hanging over the board it has left.
             _moving is { } && _moved ? null : _gizmo,
-            _captionSize);
+            _captionSize,
+
+            // Only once it has travelled, as the carried rectangle is: a press inside the slack has
+            // no rectangle yet, and a zero-sized one would flash a dot under every click.
+            _marquee && _marqueeMoved ? Spanned(_marqueeFrom, _marqueeTo) : null);
 
         InvalidateVisual();
     }
@@ -805,7 +849,7 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         // The ground may not move under what is being carried, or the pointer and the thing under
         // it part company.
-        if (_moving is { } || _placed.Count == 0)
+        if (_moving is { } || _marquee || _placed.Count == 0)
         {
             return;
         }
@@ -851,7 +895,7 @@ public class SvgViewerCanvas : SKCanvasControl
     private void OnMagnify(object? sender, PointerDeltaEventArgs e)
     {
         // The ground may not move under what is being carried, as for the wheel.
-        if (_moving is { } || !IsZoomEnabled || _placed.Count == 0)
+        if (_moving is { } || _marquee || !IsZoomEnabled || _placed.Count == 0)
         {
             return;
         }
@@ -879,6 +923,16 @@ public class SvgViewerCanvas : SKCanvasControl
         {
             EndEdit(commit: false);
 
+            e.Handled = true;
+
+            return;
+        }
+
+        // A sweep taken back raises nothing: a rectangle let go of selects nothing.
+        if (e.Key == Key.Escape && _marquee)
+        {
+            EndMarquee(commit: false);
+            _pressed = false;
             e.Handled = true;
 
             return;
@@ -957,6 +1011,29 @@ public class SvgViewerCanvas : SKCanvasControl
             return;
         }
 
+        // Then the sweep, above the grip for the reason the edit claim is above it: a grip answers
+        // for anywhere inside a whole drawing, so below it a sweep begun over an icon would carry
+        // the icon instead. Below the handles, because a press on one of those means the handle.
+        if (properties.IsLeftButtonPressed
+            && IsMarqueeEnabled
+            && TryGetDrawingPoint(_pressOrigin, out var swept))
+        {
+            Focus();
+
+            _marquee = true;
+            _marqueeMoved = false;
+            _marqueeFrom = swept;
+            _marqueeTo = swept;
+            _marqueePointer = e.Pointer;
+
+            e.Pointer.Capture(this);
+            e.Handled = true;
+
+            // _pressed is left standing, as the grip leaves it: a sweep that never travels is a
+            // click, and with nothing selected yet a click is the only way to select anything.
+            return;
+        }
+
         // Then the host's grip, before the pan, which used to claim every press before anything knew
         // what was under the pointer — so nothing on a canvas could ever be taken hold of. The
         // middle button still pans over an item, which is the way out when a board is covered in them.
@@ -1027,6 +1104,24 @@ public class SvgViewerCanvas : SKCanvasControl
             return;
         }
 
+        if (_marquee)
+        {
+            // Behind the same slack, so nothing is drawn under a click; and handled either way, so
+            // a pan can never start underneath a sweep that has not travelled yet.
+            if ((_marqueeMoved || Away(e.GetPosition(this), _pressOrigin))
+                && TryGetDrawingPoint(e.GetPosition(this), out var to))
+            {
+                _marqueeMoved = true;
+                _marqueeTo = to;
+
+                Publish();
+            }
+
+            e.Handled = true;
+
+            return;
+        }
+
         if (_moving is { })
         {
             if (Away(e.GetPosition(this), _pressOrigin) && TryGetDrawingPoint(e.GetPosition(this), out var carried))
@@ -1074,6 +1169,24 @@ public class SvgViewerCanvas : SKCanvasControl
             EndEdit(commit: true, at: e.GetPosition(this));
 
             e.Handled = true;
+
+            return;
+        }
+
+        if (_marquee)
+        {
+            // Read before EndMarquee gives the pointer up, which is a capture lost and clears it.
+            var picked = _pressed;
+
+            EndMarquee(commit: true);
+
+            _pressed = false;
+            e.Handled = true;
+
+            if (picked)
+            {
+                Picked?.Invoke(this, e.GetPosition(this));
+            }
 
             return;
         }
@@ -1217,6 +1330,45 @@ public class SvgViewerCanvas : SKCanvasControl
         _pulse.IsEnabled = false;
     }
 
+    /// <summary>Lets go of a swept rectangle, saying whether the host is to be told about it.</summary>
+    /// <remarks>
+    /// Shaped like <see cref="EndEdit"/>: the flag goes down before the capture is given back,
+    /// because giving it back is a capture lost and that comes straight back in here; the rectangle
+    /// leaves the screen before the host is told; and the host is told last, because it calls back
+    /// in and a handler that throws must not leave a gesture stuck to the pointer.
+    ///
+    /// A sweep taken back raises nothing, as a carry taken back does: nothing was held.
+    /// </remarks>
+    private void EndMarquee(bool commit)
+    {
+        if (!_marquee)
+        {
+            return;
+        }
+
+        var swept = _marqueeMoved ? Spanned(_marqueeFrom, _marqueeTo) : (SKRect?)null;
+
+        _marquee = false;
+        _marqueeMoved = false;
+        _marqueePointer?.Capture(null);
+        _marqueePointer = null;
+
+        Publish();
+
+        if (commit && swept is { } rectangle)
+        {
+            Marqueed?.Invoke(this, rectangle);
+        }
+    }
+
+    /// <summary>The rectangle two corners span, whichever way round they were drawn.</summary>
+    private static SKRect Spanned(SKPoint from, SKPoint to)
+        => new(
+            Math.Min(from.X, to.X),
+            Math.Min(from.Y, to.Y),
+            Math.Max(from.X, to.X),
+            Math.Max(from.Y, to.Y));
+
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
     {
         base.OnPointerCaptureLost(e);
@@ -1231,6 +1383,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
         // A gesture the window took away writes nothing either.
         EndEdit(commit: false);
+        EndMarquee(commit: false);
     }
 
     // ---- drawing ----------------------------------------------------------------------------
@@ -1380,11 +1533,19 @@ public class SvgViewerCanvas : SKCanvasControl
         }
 
         // Last, so a handle is never drawn under the shape it is for. Never in the same frame as the
-        // rectangle above it: a carry suppresses the box, which is measured from what is being
-        // carried.
+        // carried rectangle above it, which suppresses the box: that one is measured from a drawing
+        // on its way somewhere else. A swept rectangle does share the frame — nothing is moving, so
+        // the handles are still telling the truth about what is selected.
         if (state.Gizmo is { } gizmo)
         {
             Handles(canvas, gizmo, state.Scale);
+        }
+
+        // Over the handles, because this is what the hand is doing now and the selection behind it
+        // is what it is about to replace.
+        if (state.Marquee is { } swept)
+        {
+            Marquee(canvas, swept, state.Scale);
         }
 
         canvas.Restore();
@@ -1553,5 +1714,31 @@ public class SvgViewerCanvas : SKCanvasControl
         // A stroke straddles what it is drawn on, so half of it would fall outside the drawing.
         // Half a pixel in puts the whole line within the edges it is about.
         canvas.DrawRect(SKRect.Inflate(frame, -hairline / 2f, -hairline / 2f), paint);
+    }
+
+    /// <summary>The rectangle being swept, as the hand is drawing it.</summary>
+    /// <remarks>
+    /// Dashed like <see cref="Outline"/> and coloured like <see cref="Ring"/>, which is what it is:
+    /// a selection that has not happened yet. The colour is what keeps the two dashes apart — grey
+    /// dashes already mean a drawing's own edges, and a second grey rectangle over a board of them
+    /// would read as one more page.
+    ///
+    /// Drawn on the line rather than half a hairline inside it, unlike the one above: this rectangle
+    /// is the question being asked, and the only honest place to draw it is where it will be asked.
+    /// </remarks>
+    private static void Marquee(SKCanvas canvas, SKRect swept, double scale)
+    {
+        var hairline = (float)(1d / scale);
+
+        using var paint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            Color = s_ringSettled,
+            StrokeWidth = hairline,
+            PathEffect = SKPathEffect.CreateDash(new[] { 4f * hairline, 4f * hairline }, 0f)
+        };
+
+        canvas.DrawRect(swept, paint);
     }
 }
