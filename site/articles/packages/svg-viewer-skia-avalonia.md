@@ -55,12 +55,11 @@ await Viewer.LoadAsync("badge.svg");
 | `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` | Supplying your own chrome. `ShowDeclarationPanel` is the whole right-hand strip, element tree included |
 | `ShowElementTree` / `Elements` | The tree under the parameters — on by default; `Elements.Filter` is the box above it |
 | `SelectedElement` / `ElementSelected` | Which element is picked |
-| `ShowBounds` | Outlining the drawing's own edges — on by default, since an icon with transparent margins otherwise ends nowhere the eye can see |
 | `SidePanels` | Panels of your own beside the parameters: the right pane becomes a strip of tabs while there are any, yours first and so the first one it opens on, and holds the parameters alone again when there are none |
 | `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
 | `DeclarationTarget` | Where the parameter panel writes, when the drawing's declarations are not in the drawing |
 | `FileDialogService` | Custom storage or picker integration |
-| `Canvas` | Direct access to the surface for zoom and pan; `Show` lays out several drawings at once — with `SvgViewerFrame`s drawn under them where a host wants to say that some belong together — and `Rearrange` lays the same set out again without re-fitting, so a host that moves one of them keeps the view on the rest. `TryGetPlacementAt` says which drawing a click fell on, and `Grip` with `Moved` lets a press take hold of something and carry it |
+| `Canvas` | Direct access to the surface for zoom and pan; `Grabs` says whether a press is on the line round a rectangle rather than inside it, which is how a host lets a drawing be carried without taking the presses that belong to the shapes in it; `Show` lays out several drawings at once — with `SvgViewerFrame`s drawn under them where a host wants to say that some belong together — and `Rearrange` lays the same set out again without re-fitting, so a host that moves one of them keeps the view on the rest. `TryGetPlacementAt` says which drawing a click fell on, and `Grip` with `Moved` lets a press take hold of something and carry it |
 | `DocumentOpened` / `ErrorRaised` / `ParameterValueChanged` | Syncing host titles and status |
 | `SvgViewerSourceColorizer` / `SourceResourceKey` | Colouring a source view of your own the way this one is coloured |
 

@@ -63,7 +63,6 @@ public class SvgViewerCanvas : SKCanvasControl
     private readonly SelectionService _selection = new();
 
     private Cursor? _restoreCursor;
-    private bool _showBounds = true;
     private SKPath? _highlight;
     private BoundsInfo? _gizmo;
     private bool _editing;
@@ -101,7 +100,7 @@ public class SvgViewerCanvas : SKCanvasControl
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
-        Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, true, null, 0d, null, null,
+        Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, null, 0d, null, null,
         DefaultCaptionSize, null);
 
     private sealed record Snapshot(
@@ -110,7 +109,6 @@ public class SvgViewerCanvas : SKCanvasControl
         double Scale,
         double OffsetX,
         double OffsetY,
-        bool Bounds,
         SKPath? Highlight,
         double HighlightAge,
         (SKRect Bounds, SKPoint By, IReadOnlySet<SvgViewerPlacement> Carried)? Moving,
@@ -314,24 +312,6 @@ public class SvgViewerCanvas : SKCanvasControl
         _highlight = highlight;
 
         Publish();
-    }
-
-    public bool ShowBounds
-    {
-        get => _showBounds;
-        set
-        {
-            if (_showBounds == value)
-            {
-                return;
-            }
-
-            _showBounds = value;
-
-            // Through the snapshot like everything else the frame is drawn from: the render thread
-            // may read nothing else, so a flag it could see change mid-frame is not an option.
-            Publish();
-        }
     }
 
     /// <summary>The drawing on show. Assigning a different one starts it fitted.</summary>
@@ -727,7 +707,7 @@ public class SvgViewerCanvas : SKCanvasControl
     /// drawing units and changes as the view is zoomed. It runs down from the top edge and along as
     /// far as the name does, which is where the name is written.
     /// </remarks>
-    /// <summary>How near a frame's outline a press counts as being on it, in control pixels.</summary>
+    /// <summary>How near an outline a press counts as being on it, in control pixels.</summary>
     /// <remarks>
     /// A line one pixel wide is not something a pointer can be asked to land on, and the slack is
     /// held in control pixels for the reason the line's width is: the target must not change size as
@@ -736,13 +716,26 @@ public class SvgViewerCanvas : SKCanvasControl
     private const double EdgeSlack = 4d;
 
     /// <summary>
-    /// Whether <paramref name="at"/> is on the chrome <paramref name="framed"/> is taken hold of by.
+    /// Whether <paramref name="at"/> is on the line round <paramref name="bounds"/>.
     /// </summary>
     /// <remarks>
-    /// Its name and its outline, and nothing inside them. What is inside a frame is mostly the room
-    /// between the drawings it holds, and a host that answered for all of that left nowhere on a
-    /// full board to move the view from.
+    /// On the line rather than within it: what a rectangle encloses is the drawing, or the room
+    /// between the drawings a frame holds, and a host that answered for all of that would take every
+    /// press that fell on a shape. A rectangle too small to have an inside is all edge, which is the
+    /// right answer for one.
     /// </remarks>
+    public bool Grabs(SKRect bounds, SKPoint at)
+    {
+        var slack = (float)(EdgeSlack / _scale);
+
+        return SKRect.Inflate(bounds, slack, slack).Contains(at.X, at.Y)
+               && !SKRect.Inflate(bounds, -slack, -slack).Contains(at.X, at.Y);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="at"/> is on the chrome <paramref name="framed"/> is taken hold of by.
+    /// </summary>
+    /// <remarks>Its name as well as its outline, which a drawing has no equivalent of.</remarks>
     public bool Grabs(SvgViewerFrame framed, SKPoint at)
     {
         if (framed is null)
@@ -750,18 +743,7 @@ public class SvgViewerCanvas : SKCanvasControl
             throw new ArgumentNullException(nameof(framed));
         }
 
-        if (TitleOf(framed).Contains(at.X, at.Y))
-        {
-            return true;
-        }
-
-        var slack = (float)(EdgeSlack / _scale);
-
-        // On the line rather than within the frame: the inner rectangle is what the outline encloses
-        // and is nobody's to grab. A frame too small to have an inside is all edge, which is the
-        // right answer for one.
-        return SKRect.Inflate(framed.Bounds, slack, slack).Contains(at.X, at.Y)
-               && !SKRect.Inflate(framed.Bounds, -slack, -slack).Contains(at.X, at.Y);
+        return TitleOf(framed).Contains(at.X, at.Y) || Grabs(framed.Bounds, at);
     }
 
     public SKRect TitleOf(SvgViewerFrame framed)
@@ -821,7 +803,6 @@ public class SvgViewerCanvas : SKCanvasControl
             _scale,
             _offsetX,
             _offsetY,
-            _showBounds,
             _highlight,
             _highlightAge.Elapsed.TotalSeconds,
             _moving is { } && _moved ? (_movingBounds, _movingBy, Carried()) : null,
@@ -1616,7 +1597,7 @@ public class SvgViewerCanvas : SKCanvasControl
                 canvas.Restore();
             }
 
-            if (state.Bounds && page is { } frame)
+            if (page is { } frame)
             {
                 Outline(canvas, frame, state.Scale);
             }

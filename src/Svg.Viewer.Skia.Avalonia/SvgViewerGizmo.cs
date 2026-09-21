@@ -156,9 +156,16 @@ public sealed class SvgViewerGizmo
         => _node is { } node && scale > 0f ? _selection.GetBoundsInfo(node, () => scale) : null;
 
     /// <summary>Whether a press at <paramref name="at"/> is this gizmo's to answer rather than a pan.</summary>
-    public bool Hits(Shim.SKPoint at, float scale)
+    /// <param name="handlesOnly">
+    /// Whether the squares and the stalk answer on their own, leaving the shape under them to
+    /// whatever claim comes next. A host with something else over the same pixels — a board, where
+    /// a drawing is carried by the line round it — asks twice: the handles before that line, and
+    /// the shape after it. Narrowest first, which is what the claims are ordered by.
+    /// </param>
+    public bool Hits(Shim.SKPoint at, float scale, bool handlesOnly = false)
         => Box(scale) is { } box
-           && (_selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _) >= 0 || Covers(at));
+           && (_selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _) >= 0
+               || (!handlesOnly && Covers(at)));
 
     /// <summary>
     /// Starts a drag, or says why it will not.

@@ -51,7 +51,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private readonly Grid _errorPanel;
     private readonly SelectableTextBlock _errorText;
     private readonly TextBlock _noteText;
-    private readonly ToggleButton _boundsButton;
     private readonly Grid _body;
     private readonly Grid _side;
     private readonly Border _treeHost;
@@ -61,7 +60,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>What the panel's buttons do. Shared with any other host that shows one.</summary>
     private readonly SvgViewerDeclarationCommands _commands;
     private readonly ToggleButton _elementsButton;
-    private readonly ToggleButton _editButton;
     private readonly ToggleButton _lockRatioButton;
 
     /// <summary>What a rectangle being swept has caught, and the ring showing it.</summary>
@@ -133,14 +131,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _errorPanel = this.FindControl<Grid>("ErrorPanel")!;
         _errorText = this.FindControl<SelectableTextBlock>("ErrorText")!;
         _noteText = this.FindControl<TextBlock>("NoteText")!;
-        _boundsButton = this.FindControl<ToggleButton>("BoundsButton")!;
         _body = this.FindControl<Grid>("Body")!;
         _side = this.FindControl<Grid>("Side")!;
         _treeHost = this.FindControl<Border>("ElementTreeHost")!;
         _treeSplitter = this.FindControl<GridSplitter>("TreeSplitter")!;
         _elementTree = this.FindControl<SvgViewerElementTree>("PART_Elements")!;
         _elementsButton = this.FindControl<ToggleButton>("ElementsButton")!;
-        _editButton = this.FindControl<ToggleButton>("EditButton")!;
         _lockRatioButton = this.FindControl<ToggleButton>("LockRatioButton")!;
 
         _panelWidth = _body.ColumnDefinitions[2].Width;
@@ -174,11 +170,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             ElementSelected?.Invoke(this, node?.Element);
         };
 
-        _boundsButton.IsChecked = ShowBounds;
-        _boundsButton.IsCheckedChanged += (_, _) => ShowBounds = _boundsButton.IsChecked == true;
-
-        _editButton.IsCheckedChanged += (_, _) => IsEditing = _editButton.IsChecked == true;
-
         _lockRatioButton.IsCheckedChanged += (_, _) => LocksAspectRatio = _lockRatioButton.IsChecked == true;
 
         _rebuild.Tick += (_, _) =>
@@ -202,15 +193,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _canvas.Marqueeing += (_, swept) => ShowEnclosed(swept);
 
-        // Always, and not only while the mode is on. A left drag means one thing here — sweeping up
-        // what it goes round — and the view is moved by the gestures that were always for moving it:
-        // the middle button, the wheel, and a trackpad's two fingers. Two meanings for one drag,
-        // settled by a toggle somewhere else, is the pair of them fighting over the pointer.
+        // A left drag means one thing here — sweeping up what it goes round — and the view is moved
+        // by the gestures that were always for moving it: the middle button, the wheel, and a
+        // trackpad's two fingers. Two meanings for one drag, told apart by something elsewhere on
+        // screen, is the pair of them fighting over the pointer.
         _canvas.IsMarqueeEnabled = true;
 
         _canvas.IsEditTarget = at =>
-            IsEditing
-            && _canvas.TryGetDrawingPoint(at, out var point)
+            _canvas.TryGetDrawingPoint(at, out var point)
             && _gizmo.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale);
 
         _canvas.EditBegun += (_, at) => BeginEdit(at);
@@ -323,47 +313,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         set => _toolBar.IsVisible = value;
     }
 
-    /// <inheritdoc cref="SvgViewerCanvas.ShowBounds"/>
-    public bool ShowBounds
-    {
-        get => _canvas.ShowBounds;
-        set
-        {
-            _canvas.ShowBounds = value;
-            _boundsButton.IsChecked = value;
-        }
-    }
-
     public bool ShowStatusBar
     {
         get => _statusPanel.IsVisible;
         set => _statusPanel.IsVisible = value;
-    }
-
-    /// <summary>
-    /// Whether the selected element can be dragged about rather than only looked at.
-    /// </summary>
-    /// <remarks>
-    /// Off by default, and a mode rather than a gesture, because the drawing already answers to a
-    /// left drag by panning and the two cannot share it. What it acts on is whatever the element
-    /// tree has selected, so there is one selection and not a second one nobody asked for.
-    /// </remarks>
-    public bool IsEditing
-    {
-        get => _editButton.IsChecked == true;
-        set
-        {
-            _editButton.IsChecked = value;
-
-            if (!value)
-            {
-                // Rather than left in flight: the handles are about to go, and a drag with nothing
-                // drawing it is a shape that moves under a pointer nobody can see holding it.
-                CancelEdit();
-            }
-
-            TrackGizmo();
-        }
     }
 
     /// <summary>
@@ -694,10 +647,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Puts the handles on whatever is selected, or takes them off.</summary>
     private void TrackGizmo()
     {
-        _gizmo.Track(
-            IsEditing ? _document?.Svg : null,
-            default,
-            IsEditing ? Members() : Array.Empty<SvgViewerGizmoMember>());
+        _gizmo.Track(_document?.Svg, default, Members());
 
         ShowGizmo();
     }

@@ -470,15 +470,6 @@ public class MainWindowProjectTests : IDisposable
         Press(panel, "Fit");
         Assert.Equal(fitted, canvas.Scale, 6);
 
-        // Outlines are on to begin with — a drawing with transparent margins ends where the eye
-        // cannot see — and the button turns them off.
-        Assert.True(canvas.ShowBounds);
-
-        Toggle(panel, "Bounds");
-        Assert.False(canvas.ShowBounds);
-
-        Toggle(panel, "Bounds");
-        Assert.True(canvas.ShowBounds);
     }
 
     /// <summary>Presses one of the canvas's own buttons.</summary>
@@ -488,17 +479,6 @@ public class MainWindowProjectTests : IDisposable
             .OfType<Button>()
             .First(button => Equals(button.Content, content))
             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-
-        Dispatcher.UIThread.RunJobs();
-    }
-
-    private static void Toggle(GroupPanel panel, string content)
-    {
-        var button = panel.GetVisualDescendants()
-            .OfType<ToggleButton>()
-            .First(candidate => Equals(candidate.Content, content));
-
-        button.IsChecked = !(button.IsChecked == true);
 
         Dispatcher.UIThread.RunJobs();
     }
@@ -657,6 +637,18 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>
+    /// Where a drawing is taken hold of: on the line round it, a quarter of the way down its left
+    /// edge.
+    /// </summary>
+    /// <remarks>
+    /// Not the middle of it, which reaches the shapes inside; and not the middle of the edge or a
+    /// corner, where a selected element's handles sit — those answer before the grip does.
+    /// </remarks>
+    /// <param name="by">How far along the arrangement to shift it, for the far end of a drag.</param>
+    private static Point Edge(SvgViewerCanvas canvas, SKRect area, float by = 0f)
+        => Over(canvas, area.Left + by, area.Top + area.Height / 4f);
+
     /// <summary>Where a placement sits in the arrangement, as a rectangle.</summary>
     private static SKRect Area(SvgViewerPlacement placement)
     {
@@ -740,7 +732,7 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.All(workspace.Document.Root.Children, child => Assert.False(child.HasPosition));
 
-        Drag(window, canvas, Over(canvas, home.MidX, home.MidY), Over(canvas, home.MidX + 40f, home.MidY));
+        Drag(window, canvas, Edge(canvas, home), Edge(canvas, home, 40f));
 
         // Every row of the tab, not only the one that was moved.
         var moved = (ProjectDrawing)workspace.Document.Root.Children[0];
@@ -813,14 +805,15 @@ public class MainWindowProjectTests : IDisposable
         var home = Area(Drawn(panel)[0]);
 
         // About the middle of what is being dragged, so the point it is grabbed by does not move.
-        var at = Over(canvas, home.MidX, home.MidY);
-
-        canvas.ZoomTo(canvas.Scale * 2d, at);
+        canvas.ZoomTo(canvas.Scale * 2d, Over(canvas, home.MidX, home.MidY));
 
         var scale = canvas.Scale;
         var offsetX = canvas.OffsetX;
         var offsetY = canvas.OffsetY;
         var pictures = Drawn(panel).Select(placed => placed.Svg).ToList();
+
+        // Read after the zoom, which is what decides where a drawing unit lands on the control.
+        var at = Edge(canvas, home);
 
         Drag(window, canvas, at, at + new Point(40d, 0d));
 
@@ -916,11 +909,7 @@ public class MainWindowProjectTests : IDisposable
 
         var home = Area(Drawn(panel)[0]);
 
-        Drag(
-            window,
-            canvas,
-            Over(canvas, home.MidX, home.MidY),
-            Over(canvas, home.MidX + 40f, home.MidY));
+        Drag(window, canvas, Edge(canvas, home), Edge(canvas, home, 40f));
 
         var ring = canvas.Highlight;
 
@@ -991,16 +980,16 @@ public class MainWindowProjectTests : IDisposable
             .Single(pair => ReferenceEquals(pair.one, drawing)).index];
 
     /// <summary>
-    /// On a board, Edit mode drags the shape inside a drawing and leaves the drawing where it is.
+    /// On a board, a drag inside a drawing moves the shape and leaves the drawing where it is.
     /// </summary>
     /// <remarks>
-    /// The one place the two gestures meet. A board hands the canvas a grip that answers for
-    /// anywhere inside a whole drawing, and Edit mode wants the same button over the same pixels, so
-    /// the toggle takes the grip away for as long as it is on: one toggle, one meaning. Neither the
-    /// viewer's suite nor the canvas's can see this — both run with a grip that is never set.
+    /// The one place the two gestures meet, and nothing settles it but where the press lands: the
+    /// grip answers for the line round a drawing, and everything inside that line is the drawing.
+    /// Neither the viewer's suite nor the canvas's can see this — both run with a grip that is
+    /// never set.
     /// </remarks>
     [AvaloniaFact]
-    public async Task Edit_Mode_Moves_The_Shape_And_Leaves_The_Board_Alone()
+    public async Task A_Drag_Inside_A_Drawing_Moves_The_Shape_And_Leaves_The_Board_Alone()
     {
         var window = await Host(Write("icons.svgstudio", Board()));
         var panel = Panel(window, "Project");
@@ -1008,8 +997,6 @@ public class MainWindowProjectTests : IDisposable
 
         // Picked first: handles are what a selection has, so there is nothing to grab until then.
         Pick(window, panel, 0);
-
-        Editing(panel, true);
 
         Assert.NotNull(canvas.Gizmo);
 
@@ -1035,24 +1022,23 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
-    /// While Edit mode is on, a press that is not on the handles pans — it does not carry a drawing.
+    /// A press inside a drawing nobody is editing sweeps a rectangle. It does not carry the drawing,
+    /// and it does not move the view.
     /// </summary>
     /// <remarks>
     /// The press is on the drawing BESIDE the one being edited, which is the case that decides it.
-    /// The canvas offers the edit claim before the grip, so the handles are reachable either way;
-    /// what the toggle settles is everything else on the board. Letting the grip through would make
-    /// a press mean two different things depending on which drawing it landed on, told apart only by
-    /// which one happens to be selected.
+    /// A press meaning two different things depending on which drawing it landed on — told apart
+    /// only by which one happens to be selected — is the thing there is no way to learn; inside is
+    /// the drawing everywhere, and the line round it is the drawing itself.
     /// </remarks>
     [AvaloniaFact]
-    public async Task Edit_Mode_Turns_The_Board_Into_A_Marquee()
+    public async Task A_Drag_Inside_A_Drawing_Sweeps_Rather_Than_Carrying_It()
     {
         var window = await Host(Write("icons.svgstudio", Board()));
         var panel = Panel(window, "Project");
         var canvas = Canvas(panel);
 
         Pick(window, panel, 0);
-        Editing(panel, true);
 
         // The one that is NOT being edited.
         var other = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
@@ -1067,8 +1053,8 @@ public class MainWindowProjectTests : IDisposable
             Over(canvas, area.MidX, area.MidY),
             Over(canvas, area.MidX + 30f, area.MidY));
 
-        // Neither the row nor the view moved: in the mode that drag swept a rectangle over the
-        // board, and both the grip and the pan stood aside for it.
+        // Neither the row nor the view moved: that drag swept a rectangle over the board, and both
+        // the grip and the pan stood aside for it.
         Assert.Equal(offsetX, canvas.OffsetX);
         Assert.Equal(was, other.X);
 
@@ -1082,17 +1068,47 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.NotEqual(offsetX, canvas.OffsetX);
         Assert.Equal(was, other.X);
+    }
 
-        // And with the toggle off it is a board again.
-        Editing(panel, false);
+    /// <summary>
+    /// A drawing is carried by the line round its own edges, selection or no selection.
+    /// </summary>
+    /// <remarks>
+    /// The whole of what rearranging a board is now that there is no mode to leave, and the line is
+    /// drawn whether anything is selected or not, which is what makes it something to aim at.
+    ///
+    /// Done with the shape inside it selected, because that is the case that decides the order: a
+    /// rect filling its page puts the gesture's handles, the line and the gesture's own body over
+    /// the same pixels. The body answering first would leave a board with a selection on it
+    /// impossible to rearrange — and would drag the shape out of its page instead.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Drawing_Is_Carried_By_Its_Edges()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
 
-        Drag(
-            window,
-            canvas,
-            Over(canvas, area.MidX, area.MidY),
-            Over(canvas, area.MidX + 30f, area.MidY));
+        var other = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var was = other.X!.Value;
 
-        Assert.Equal(was!.Value + 30f, other.X!.Value, 1);
+        var area = Area(Shown(panel, other));
+
+        Click(window, canvas, Over(canvas, area.MidX, area.MidY));
+
+        Assert.NotNull(canvas.Gizmo);
+
+        var text = other.Text;
+
+        Drag(window, canvas, Edge(canvas, area), Edge(canvas, area, 30f));
+
+        Assert.Equal(was + 30f, other.X!.Value, 1);
+
+        // The drawing moved and the shape in it did not: the line answered, not the box over it.
+        Assert.Equal(text, other.Text);
+
+        // And what was carried is the drawing, not what it is standing on: nothing else moved.
+        Assert.Equal(0f, ((ProjectDrawing)window.Workspace.Document.Root.Children[0]).X!.Value, 1);
     }
 
     /// <summary>
@@ -1113,7 +1129,6 @@ public class MainWindowProjectTests : IDisposable
         var canvas = Canvas(panel);
 
         Pick(window, panel, 0);
-        Editing(panel, true);
 
         var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
         var other = (ProjectDrawing)window.Workspace.Document.Root.Children[1];
@@ -1157,7 +1172,6 @@ public class MainWindowProjectTests : IDisposable
         var canvas = Canvas(panel);
 
         Pick(window, panel, 0);
-        Editing(panel, true);
 
         var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
         var other = (ProjectDrawing)window.Workspace.Document.Root.Children[1];
@@ -1211,18 +1225,6 @@ public class MainWindowProjectTests : IDisposable
             0,
             new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other),
             KeyModifiers.None));
-
-        Dispatcher.UIThread.RunJobs();
-    }
-
-    /// <summary>Turns the group tab's Edit toggle on or off.</summary>
-    private static void Editing(GroupPanel panel, bool on)
-    {
-        var toggle = panel.GetVisualDescendants()
-            .OfType<ToggleButton>()
-            .First(button => Equals(button.Content, "Edit"));
-
-        toggle.IsChecked = on;
 
         Dispatcher.UIThread.RunJobs();
     }
@@ -2353,7 +2355,7 @@ public class MainWindowProjectTests : IDisposable
         var moved = workspace.Document.Root.Drawings.Single(drawing => drawing.Name == "one");
         var area = Area(Drawn(panel).First());
 
-        Drag(window, canvas, Over(canvas, area.MidX, area.MidY), Over(canvas, area.MidX + 40f, area.MidY));
+        Drag(window, canvas, Edge(canvas, area), Edge(canvas, area, 40f));
         Dispatcher.UIThread.RunJobs();
 
         // The one dragged moved, and it is the only thing that did.
@@ -2671,7 +2673,7 @@ public class MainWindowProjectTests : IDisposable
 
         var area = Area(Drawn(panel)[1]);
 
-        Drag(window, canvas, Over(canvas, area.MidX, area.MidY), Over(canvas, area.MidX + 40f, area.MidY));
+        Drag(window, canvas, Edge(canvas, area), Edge(canvas, area, 40f));
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(Colors.Red, ((SvgViewerColorParameter)Declarations(panel).Parameters!.Single()).Color);

@@ -341,8 +341,8 @@ public class SvgViewerMarqueeTests
     /// </summary>
     /// <remarks>
     /// Load-bearing rather than a nicety: with nothing selected the host's handles answer for
-    /// nothing, so in the mode every press reaches the sweep — and without this there would be no
-    /// way to select a first element and nothing would ever get handles.
+    /// nothing, so every press reaches the sweep — and without this there would be no way to select
+    /// a first element and nothing would ever get handles.
     /// </remarks>
     [AvaloniaFact]
     public void A_Sweep_That_Never_Travels_Is_A_Pick()

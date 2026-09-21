@@ -120,10 +120,15 @@ is why the button says so and why one undo puts it back.
 ## Embedding it
 
 `SvgViewer` is the drop-in. `ShowToolBar`, `ShowDeclarationPanel` and `ShowStatusBar` turn off the
-chrome, `ShowBounds` turns off the outline around the drawing's own edges — on by default, since an
-icon with transparent margins otherwise ends nowhere the eye can see — and `SvgViewerCanvas` and
-`SvgViewerDeclarationPanel` are usable on their own for a host that wants to supply its own. `SvgViewerDocument` and `SvgViewerParameterFactory` are plain classes with
-no UI, for a host that only wants the loading and seeding.
+chrome, and `SvgViewerCanvas` and `SvgViewerDeclarationPanel` are usable on their own for a host
+that wants to supply its own. `SvgViewerDocument` and `SvgViewerParameterFactory` are plain classes
+with no UI, for a host that only wants the loading and seeding.
+
+The outline round the drawing's own edges is always drawn, and a selected element always has its
+handles. Both used to be toggles; neither is worth one. An icon with transparent margins ends
+nowhere the eye can see without the outline, a host arranging several drawings takes hold of one by
+that very line, and a drag that means one thing whatever a button somewhere else says is the
+gesture people can learn.
 
 Opening is the host's to offer: the toolbar zooms and shows the elements, and `OpenAsync()` is the
 picker — `src/Svg.Studio` calls it from File → Open…. Replace `FileDialogService` to open files some

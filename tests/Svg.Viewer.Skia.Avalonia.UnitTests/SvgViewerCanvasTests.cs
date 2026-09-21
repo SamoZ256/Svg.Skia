@@ -174,7 +174,7 @@ public class SvgViewerCanvasTests
         using var stays = SvgViewerDocument.LoadFromSvg(Blue);
         using var moves = SvgViewerDocument.LoadFromSvg(Wide);
 
-        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var canvas = new SvgViewerCanvas();
         var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
 
         window.Show();
@@ -284,7 +284,7 @@ public class SvgViewerCanvasTests
         using var escaped = SvgViewerDocument.LoadFromSvg(Escaped);
         using var neighbour = SvgViewerDocument.LoadFromSvg(Blue);
 
-        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var canvas = new SvgViewerCanvas();
         var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
 
         window.Show();
@@ -324,7 +324,7 @@ public class SvgViewerCanvasTests
         using var escaped = SvgViewerDocument.LoadFromSvg(Escaped);
         using var neighbour = SvgViewerDocument.LoadFromSvg(Blue);
 
-        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var canvas = new SvgViewerCanvas();
         var window = new Window { Width = 400, Height = 200, Content = canvas };
 
         window.Show();
@@ -384,7 +384,7 @@ public class SvgViewerCanvasTests
         using var first = SvgViewerDocument.LoadFromSvg(Blue);
         using var second = SvgViewerDocument.LoadFromSvg(Blue);
 
-        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var canvas = new SvgViewerCanvas();
         var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
 
         window.Show();
@@ -522,7 +522,7 @@ public class SvgViewerCanvasTests
     {
         using var drawing = SvgViewerDocument.LoadFromSvg(Blue);
 
-        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var canvas = new SvgViewerCanvas();
         var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
 
         window.Show();
@@ -580,7 +580,7 @@ public class SvgViewerCanvasTests
     {
         using var drawing = SvgViewerDocument.LoadFromSvg(Blue);
 
-        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var canvas = new SvgViewerCanvas();
         var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
 
         window.Show();
@@ -670,7 +670,7 @@ public class SvgViewerCanvasTests
         using var left = SvgViewerDocument.LoadFromSvg(Blue);
         using var right = SvgViewerDocument.LoadFromSvg(Blue);
 
-        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var canvas = new SvgViewerCanvas();
         var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
 
         window.Show();
@@ -1089,7 +1089,7 @@ public class SvgViewerCanvasTests
     private static (Window Window, SvgViewerCanvas Canvas, SvgViewerDocument Drawing) Held()
     {
         var drawing = SvgViewerDocument.LoadFromSvg(Blue);
-        var canvas = new SvgViewerCanvas { ShowBounds = false };
+        var canvas = new SvgViewerCanvas();
         var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
 
         window.Show();
@@ -1104,6 +1104,45 @@ public class SvgViewerCanvasTests
 
     private static void Grab(SvgViewerCanvas canvas, object item, SKRect bounds)
         => canvas.Grip = at => bounds.Contains(at.X, at.Y) ? (item, bounds) : null;
+
+    /// <summary>
+    /// A rectangle is taken hold of by the line round it and by nothing it encloses, with the same
+    /// slack on the control however far the view is zoomed.
+    /// </summary>
+    /// <remarks>
+    /// What a drawing is carried by on a board. Inside it belongs to the shapes, which a press has
+    /// to reach; and the slack is held in control pixels, so zooming out does not shrink the only
+    /// target there is down to nothing.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Rectangle_Is_Grabbed_By_Its_Line_And_Not_By_What_It_Holds()
+    {
+        var (window, canvas, drawing) = Held();
+
+        using var owner = drawing;
+
+        var area = new SKRect(0f, 0f, 100f, 50f);
+
+        // 100x50 fitted in 400x200 is four control pixels to the unit, so the four pixels of slack
+        // are one unit either side of the line.
+        Assert.Equal(4d, canvas.Scale, 6);
+
+        Assert.True(canvas.Grabs(area, new SKPoint(0f, 25f)), "the line itself");
+        Assert.True(canvas.Grabs(area, new SKPoint(-0.9f, 25f)), "just outside the line");
+        Assert.True(canvas.Grabs(area, new SKPoint(0.9f, 25f)), "just inside the line");
+        Assert.False(canvas.Grabs(area, new SKPoint(1.1f, 25f)), "past the slack");
+        Assert.False(canvas.Grabs(area, new SKPoint(50f, 25f)), "the middle, which is the drawing");
+
+        canvas.ActualSize();
+
+        // A quarter of the way zoomed out, so the same four pixels are four units.
+        Assert.Equal(1d, canvas.Scale, 6);
+
+        Assert.True(canvas.Grabs(area, new SKPoint(3.9f, 25f)), "inside the line at this zoom");
+        Assert.False(canvas.Grabs(area, new SKPoint(4.1f, 25f)), "past the slack at this zoom");
+
+        window.Close();
+    }
 
     [AvaloniaFact]
     public void A_Press_On_Something_Held_Moves_It_Rather_Than_Panning()

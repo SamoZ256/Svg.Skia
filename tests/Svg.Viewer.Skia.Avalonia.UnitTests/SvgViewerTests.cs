@@ -588,20 +588,14 @@ public class SvgViewerTests
     [AvaloniaFact]
     public async Task A_Drawing_Is_Outlined_At_Its_Own_Edges()
     {
-        var (window, viewer) = await Bounded();
+        var (window, _) = await Bounded();
 
-        // On by default: an icon with transparent margins ends somewhere the eye cannot otherwise
-        // see, and where it ends is what an export writes.
-        Assert.True(viewer.ShowBounds);
+        // Without being asked, and with nothing to ask with: an icon with transparent margins ends
+        // somewhere the eye cannot otherwise see, where it ends is what an export writes, and the
+        // line round it is what a drawing is taken hold of by on a board.
         Assert.True(Painted(window, SKColors.Gray) > 0, "the drawing's edges were not outlined");
 
-        viewer.ShowBounds = false;
-        Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
-
-        // And nothing of it left behind, so a host embedding the viewer gets the drawing alone.
-        Assert.Equal(0, Painted(window, SKColors.Gray));
-
-        // The drawing itself is untouched either way.
+        // The drawing itself is untouched by it.
         Assert.True(Painted(window, SKColors.Red) > 0);
 
         window.Close();

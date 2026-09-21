@@ -203,17 +203,22 @@ public sealed class SvgViewerGizmos
     /// A handle, or a member's own ink. Not the inside of the box: the one round two shapes at
     /// opposite corners of a drawing covers a great deal of canvas that belongs to nobody.
     /// </remarks>
-    public bool Hits(Shim.SKPoint at, float scale)
+    /// <inheritdoc cref="SvgViewerGizmo.Hits" path="/param[@name='handlesOnly']"/>
+    public bool Hits(Shim.SKPoint at, float scale, bool handlesOnly = false)
     {
         if (_held.Count <= 1)
         {
-            return _one.Hits(Inside(at), scale);
+            return _one.Hits(Inside(at), scale, handlesOnly);
+        }
+
+        if (Box(scale) is { } box && _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _) >= 0)
+        {
+            return true;
         }
 
         var inside = Inside(at);
 
-        return (Box(scale) is { } box && _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _) >= 0)
-               || _held.Any(held => held.Covers(inside));
+        return !handlesOnly && _held.Any(held => held.Covers(inside));
     }
 
     /// <summary>Starts a drag, or says why it will not.</summary>
