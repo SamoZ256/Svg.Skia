@@ -11,7 +11,9 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using SkiaSharp;
 using Svg.Editor.Skia;
+using Svg.SceneGraph;
 using Svg.Skia;
+using Shim = ShimSkiaSharp;
 
 namespace Svg.Viewer.Skia.Avalonia;
 
@@ -55,6 +57,9 @@ public class SvgViewerCanvas : SKCanvasControl
     private SKPoint _movingBy;
     private bool _moved;
     private IPointer? _movingPointer;
+
+    /// <summary>The box arithmetic the editor stack already draws selections with.</summary>
+    private readonly SelectionService _selection = new();
 
     private Cursor? _restoreCursor;
     private bool _showBounds = true;
@@ -1236,6 +1241,122 @@ public class SvgViewerCanvas : SKCanvasControl
         e.Pointer.Capture(null);
         e.Handled = true;
     }
+
+    /// <summary>
+    /// Every element wholly inside <paramref name="marquee"/>, under the drawing it belongs to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Geometry, which is all the canvas has, as <see cref="Carried"/> is: which of them a host
+    /// then selects, and how it names them, is the host's arrangement to know.
+    /// </para>
+    /// <para>
+    /// The rectangle arrives in the space the drawings are arranged in and each drawing is asked in
+    /// its own, which is the whole of what lets one sweep catch elements of several drawings at
+    /// once.
+    /// </para>
+    /// <para>
+    /// Wholly inside, measured on the same box the handles are drawn on — so what a sweep catches
+    /// is exactly what you can see a box would be put round. Asked at a scale of one because that
+    /// box's corners do not depend on the scale; only the stalk does, and no corner is the stalk.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<(SvgViewerPlacement Placement, IReadOnlyList<SvgElement> Elements)> Enclosed(SKRect marquee)
+    {
+        var found = new List<(SvgViewerPlacement, IReadOnlyList<SvgElement>)>();
+
+        foreach (var placed in _placed)
+        {
+            var local = marquee;
+
+            local.Offset(-placed.At.X, -placed.At.Y);
+
+            if (Extent(placed) is not { } extent || !extent.IntersectsWith(local))
+            {
+                continue;
+            }
+
+            var caught = new List<SvgSceneNode>();
+            var inside = new HashSet<SvgSceneNode>();
+
+            // The scene graph speaks the recorded model's rectangle, not Skia's own.
+            var asked = new Shim.SKRect(local.Left, local.Top, local.Right, local.Bottom);
+
+            foreach (var node in placed.Svg.HitTestSceneNodes(asked))
+            {
+                // The page is not something anybody swept for: a rectangle round a whole drawing
+                // would otherwise answer with the drawing and nothing that is on it.
+                if (node.Parent is null || node.Element is null or SvgFragment)
+                {
+                    continue;
+                }
+
+                // The rectangle walk does not drop what is not drawn, though the point walk does.
+                if (node.IsDisplayNone || !node.IsVisible)
+                {
+                    continue;
+                }
+
+                if (!SelectionService.ContainsRect(
+                        local,
+                        SelectionService.GetBoundsRect(_selection.GetBoundsInfo(node, Unscaled))))
+                {
+                    continue;
+                }
+
+                caught.Add(node);
+                inside.Add(node);
+            }
+
+            var elements = new List<SvgElement>();
+            var seen = new HashSet<SvgElement>();
+
+            foreach (var node in caught)
+            {
+                // A group inside the rectangle brings everything under it, and the walk hands back
+                // both. Answering with both would have a gesture applied to a shape and again to
+                // the group holding it.
+                if (!Outermost(node, inside))
+                {
+                    continue;
+                }
+
+                var element = node.HitTestTargetElement ?? node.Element!;
+
+                if (seen.Add(element))
+                {
+                    elements.Add(element);
+                }
+            }
+
+            if (elements.Count > 0)
+            {
+                found.Add((placed, elements));
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>Whether nothing above <paramref name="node"/> was caught by the same rectangle.</summary>
+    /// <remarks>
+    /// Walked rather than read off the order the nodes arrived in: that order belongs to a service
+    /// in another assembly, and this answer does not depend on it.
+    /// </remarks>
+    private static bool Outermost(SvgSceneNode node, HashSet<SvgSceneNode> caught)
+    {
+        for (var above = node.Parent; above is { }; above = above.Parent)
+        {
+            if (caught.Contains(above))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static float Unscaled() => 1f;
 
     /// <summary>
     /// What travels with the rectangle being carried: everything drawn wholly inside it.

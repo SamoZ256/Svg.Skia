@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -30,6 +31,26 @@ public class SvgViewerMarqueeTests
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
           <rect id="one" x="10" y="10" width="20" height="20" fill="#3366cc" />
           <rect id="two" x="60" y="60" width="20" height="20" fill="#cc3366" />
+        </svg>
+        """;
+
+    /// <summary>A group of two shapes, and a loose one beside them.</summary>
+    private const string Grouped = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <g id="pair">
+            <rect id="a" x="10" y="10" width="20" height="20" fill="#3366cc" />
+            <rect id="b" x="40" y="10" width="20" height="20" fill="#33cc66" />
+          </g>
+          <rect id="loose" x="10" y="60" width="20" height="20" fill="#cc3366" />
+        </svg>
+        """;
+
+    /// <summary>Two shapes that are not drawn, and one that is.</summary>
+    private const string Unseen = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <rect id="gone" x="10" y="10" width="20" height="20" display="none" />
+          <rect id="unseen" x="40" y="10" width="20" height="20" visibility="hidden" />
+          <rect id="drawn" x="70" y="10" width="20" height="20" fill="#3366cc" />
         </svg>
         """;
 
@@ -87,6 +108,114 @@ public class SvgViewerMarqueeTests
         canvas.Marqueed += (_, rectangle) => swept.Add(rectangle);
 
         return swept;
+    }
+
+    /// <summary>The ids a sweep of that rectangle caught, per drawing, as one string.</summary>
+    private static string Caught(SvgViewerCanvas canvas, SKRect marquee)
+        => string.Join(
+            " | ",
+            canvas.Enclosed(marquee).Select(
+                found => string.Join(" ", found.Elements.Select(element => element.ID ?? "?"))));
+
+    [AvaloniaFact]
+    public void Only_What_Is_Wholly_Inside_Is_Caught()
+    {
+        var (window, canvas, document) = Host();
+
+        // Round the first shape, and two units short of the second.
+        Assert.Equal("one", Caught(canvas, new SKRect(0f, 0f, 78f, 78f)));
+
+        // And round both.
+        Assert.Equal("one two", Caught(canvas, new SKRect(0f, 0f, 100f, 100f)));
+
+        // A rectangle inside a shape catches nothing: the shape is not inside it.
+        Assert.Equal(string.Empty, Caught(canvas, new SKRect(12f, 12f, 28f, 28f)));
+
+        window.Close();
+        document.Dispose();
+    }
+
+    /// <summary>
+    /// A group caught whole is the answer, rather than the group and everything under it.
+    /// </summary>
+    /// <remarks>
+    /// The walk hands back both, and answering with both would have a gesture applied to a shape
+    /// and then again to the group holding it.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Group_Is_Caught_Instead_Of_Its_Children()
+    {
+        var (window, canvas, document) = Host(Grouped);
+
+        Assert.Equal("pair", Caught(canvas, new SKRect(0f, 0f, 70f, 40f)));
+
+        window.Close();
+        document.Dispose();
+    }
+
+    /// <summary>And a child on its own where the group around it is not caught.</summary>
+    [AvaloniaFact]
+    public void A_Child_Is_Caught_Where_Its_Group_Is_Not()
+    {
+        var (window, canvas, document) = Host(Grouped);
+
+        Assert.Equal("a", Caught(canvas, new SKRect(0f, 0f, 35f, 40f)));
+
+        window.Close();
+        document.Dispose();
+    }
+
+    /// <summary>What is not drawn is not caught, which the rectangle walk does not answer itself.</summary>
+    [AvaloniaFact]
+    public void What_Is_Not_Drawn_Is_Not_Caught()
+    {
+        var (window, canvas, document) = Host(Unseen);
+
+        Assert.Equal("drawn", Caught(canvas, new SKRect(0f, 0f, 100f, 100f)));
+
+        window.Close();
+        document.Dispose();
+    }
+
+    /// <summary>
+    /// One sweep catches elements of every drawing it covers.
+    /// </summary>
+    /// <remarks>
+    /// The rectangle is taken into each drawing's own space in turn, which is the whole of how a
+    /// board of several drawings is swept by one gesture.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Sweep_Catches_Elements_Across_Several_Drawings()
+    {
+        using var left = SvgViewerDocument.LoadFromSvg(Pair);
+        using var right = SvgViewerDocument.LoadFromSvg(Pair);
+
+        var canvas = new SvgViewerCanvas();
+        var placed = new[]
+        {
+            new SvgViewerPlacement(left.Svg, new SKPoint(0f, 0f)),
+            new SvgViewerPlacement(right.Svg, new SKPoint(200f, 0f))
+        };
+
+        var window = new Window { Width = 400, Height = 400, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+        canvas.Show(placed);
+        canvas.Measure(new Size(400, 400));
+        canvas.Arrange(new Rect(0, 0, 400, 400));
+        Dispatcher.UIThread.RunJobs();
+
+        // Over both drawings at once.
+        Assert.Equal("one two | one two", Caught(canvas, new SKRect(0f, 0f, 300f, 100f)));
+
+        // And over only the second, which sits a hundred units past the first.
+        Assert.Equal("one two", Caught(canvas, new SKRect(150f, 0f, 300f, 100f)));
+
+        var alone = canvas.Enclosed(new SKRect(150f, 0f, 300f, 100f));
+
+        Assert.Same(placed[1], Assert.Single(alone).Placement);
+
+        window.Close();
     }
 
     [AvaloniaFact]
