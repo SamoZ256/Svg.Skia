@@ -76,6 +76,26 @@ public static class SvgAttributeEditor
                 .ToList();
     }
 
+    /// <summary>What one of an element's attributes says, as the file spells it.</summary>
+    /// <remarks>
+    /// The text and not a reading of it: an attribute an expression writes is wanted with the
+    /// expression still in it, which is the whole reason for asking the source rather than the
+    /// document built from it.
+    /// </remarks>
+    /// <returns>The attribute's value, or null where the element carries no such attribute.</returns>
+    public static string? Attribute(SvgSourceDocument source, string addressKey, string name)
+    {
+        foreach (var attribute in Attributes(source, addressKey))
+        {
+            if (string.Equals(attribute.Name, name, StringComparison.Ordinal))
+            {
+                return attribute.Value;
+            }
+        }
+
+        return null;
+    }
+
     /// <inheritdoc cref="SetAttribute(string, string, string, string?)"/>
     /// <returns>The sentence refusing the edit, or null where it was made.</returns>
     /// <remarks>

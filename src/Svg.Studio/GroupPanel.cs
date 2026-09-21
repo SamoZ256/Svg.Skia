@@ -1969,17 +1969,7 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        if (SvgSourceDocument.Read(writing.Target.Text, out _) is { } source
-            && SvgAttributeEditor.Attributes(source, writing.Address).Any(
-                attribute => string.Equals(attribute.Name, "transform", StringComparison.Ordinal)
-                             && attribute.Value.Contains("{{", StringComparison.Ordinal)))
-        {
-            Says(Expressed);
-
-            return;
-        }
-
-        Says(_gizmo.Begin(aimed, (float)_canvas.Scale));
+        Says(_gizmo.Begin(aimed, (float)_canvas.Scale, Driven(writing)));
 
         ShowGizmo();
     }
@@ -2024,9 +2014,7 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        var refusal = writing.Target.Commit(
-            edit.Label,
-            source => SvgAttributeEditor.SetAttribute(source, writing.Address, "transform", edit.Transform));
+        var refusal = writing.Target.Commit(edit.Label, source => edit.Write(source, writing.Address));
 
         if (refusal is { })
         {
@@ -2061,8 +2049,21 @@ public sealed class GroupPanel : UserControl
 
     private const string Unwritten = "That row is not written in this drawing's file, so it cannot be dragged.";
 
-    private const string Expressed =
-        "That element's transform is written by an expression, so dragging it would overwrite what moves it.";
+    /// <summary>
+    /// The element's transform as the file spells it, where an expression writes it, and null
+    /// otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Handed to the drag rather than used to refuse it: a gesture the element's own geometry can
+    /// hold does not touch the transform at all, and one that cannot is composed onto this text
+    /// instead of onto the number the expression came to.
+    /// </remarks>
+    private static string? Driven((ISvgViewerDeclarationTarget Target, string Address) writing)
+        => SvgSourceDocument.Read(writing.Target.Text, out _) is { } source
+           && SvgAttributeEditor.Attribute(source, writing.Address, "transform") is { } written
+           && written.Contains("{{", StringComparison.Ordinal)
+            ? written
+            : null;
 
     /// <summary>One drawing built the way the project builds it, or why it could not be.</summary>
     /// <summary>

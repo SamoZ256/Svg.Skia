@@ -680,14 +680,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        if (IsDriven(address))
-        {
-            ShowNote(Expressed);
-
-            return;
-        }
-
-        ShowNote(_gizmo.Begin(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale));
+        ShowNote(_gizmo.Begin(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale, Driven(address)));
 
         ShowGizmo();
     }
@@ -743,9 +736,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // document as it is made, so a release the file will not take — an element whose transform
         // is spelt in its style attribute, which is refused on the way in — would otherwise leave
         // the drawing carrying a transform its own text does not have.
-        var refusal = Written(
-            edit.Label,
-            source => SvgAttributeEditor.SetAttribute(source, address, "transform", edit.Transform));
+        var refusal = Written(edit.Label, source => edit.Write(source, address));
 
         if (refusal is { })
         {
@@ -778,20 +769,23 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _canvas.Publish();
     }
 
-    /// <summary>Whether an expression writes the element's transform, in the text as it stands.</summary>
+    /// <summary>
+    /// The element's transform as the file spells it, where an expression writes it, and null
+    /// otherwise.
+    /// </summary>
     /// <remarks>
     /// Read off the source rather than the compiled scene, because a document whose values have
     /// never been bound draws its placeholders and carries no symbolic matrix to be found — and the
-    /// expression is still there in the file, waiting to be overwritten by a number.
+    /// expression is still there in the file, waiting to be overwritten by a number. Handed to the
+    /// drag so that a gesture it cannot put in the geometry is composed onto this text rather than
+    /// onto the number the expression came to.
     /// </remarks>
-    private bool IsDriven(string address)
+    private string? Driven(string address)
         => SvgSourceDocument.Read(PaneSource(), out _) is { } source
-           && SvgAttributeEditor.Attributes(source, address).Any(
-               attribute => string.Equals(attribute.Name, "transform", StringComparison.Ordinal)
-                            && attribute.Value.Contains("{{", StringComparison.Ordinal));
-
-    private const string Expressed =
-        "That element's transform is written by an expression, so dragging it would overwrite what moves it.";
+           && SvgAttributeEditor.Attribute(source, address, "transform") is { } written
+           && written.Contains("{{", StringComparison.Ordinal)
+            ? written
+            : null;
 
     private void OutlineElement(SvgViewerElementNode? node)
         => _canvas.Highlight = Outline(node);
