@@ -1,6 +1,7 @@
 using Svg.Editor.Skia;
 using Svg.Skia;
 using Xunit;
+using Shim = ShimSkiaSharp;
 using SK = SkiaSharp;
 
 namespace Svg.Editor.Skia.UnitTests;
@@ -19,6 +20,45 @@ public class SelectionServiceTests
         Assert.Equal(20, service.Snap(17));
         Assert.True(SelectionService.ContainsRect(new SK.SKRect(0, 0, 100, 100), new SK.SKRect(10, 10, 90, 90)));
         Assert.False(SelectionService.ContainsRect(new SK.SKRect(0, 0, 10, 10), new SK.SKRect(-1, -1, 5, 5)));
+    }
+
+    /// <summary>
+    /// The box a rectangle is given, and where its stalk stands.
+    /// </summary>
+    /// <remarks>
+    /// The arithmetic a selection of several elements gets its one box from: no matrix, because the
+    /// only frame several elements agree on is the upright one. The stalk is twenty screen pixels
+    /// out from the top middle, so at twice the scale it is ten units up in the drawing.
+    /// </remarks>
+    [Fact]
+    public void GetBoundsInfo_PutsTheStalkAboveAnUprightRectangle()
+    {
+        var service = new SelectionService();
+        var box = service.GetBoundsInfo(
+            new Shim.SKRect(20f, 20f, 80f, 80f),
+            Shim.SKMatrix.CreateIdentity(),
+            () => 2f);
+
+        Assert.Equal(new SK.SKPoint(50f, 20f), box.TopMid);
+        Assert.Equal(new SK.SKPoint(50f, 50f), box.Center);
+        Assert.Equal(new SK.SKPoint(50f, 10f), box.RotHandle);
+    }
+
+    /// <summary>Several boxes span one rectangle, which is what a selection of several is given.</summary>
+    [Fact]
+    public void GetBoundsRect_SpansEveryBox()
+    {
+        var service = new SelectionService();
+        var identity = Shim.SKMatrix.CreateIdentity();
+
+        var boxes = new[]
+        {
+            service.GetBoundsInfo(new Shim.SKRect(20f, 20f, 40f, 40f), identity, () => 1f),
+            service.GetBoundsInfo(new Shim.SKRect(60f, 60f, 80f, 80f), identity, () => 1f)
+        };
+
+        Assert.Equal(new SK.SKRect(20f, 20f, 80f, 80f), SelectionService.GetBoundsRect(boxes));
+        Assert.Equal(SK.SKRect.Empty, SelectionService.GetBoundsRect(System.Array.Empty<BoundsInfo>()));
     }
 
     [Fact]
