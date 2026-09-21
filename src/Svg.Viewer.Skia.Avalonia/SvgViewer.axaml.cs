@@ -694,7 +694,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Puts the handles on whatever is selected, or takes them off.</summary>
     private void TrackGizmo()
     {
-        _gizmo.Track(IsEditing ? Members() : Array.Empty<SvgViewerGizmoMember>());
+        _gizmo.Track(
+            IsEditing ? _document?.Svg : null,
+            default,
+            IsEditing ? Members() : Array.Empty<SvgViewerGizmoMember>());
 
         ShowGizmo();
     }
@@ -709,7 +712,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             ? Array.Empty<SvgViewerGizmoMember>()
             : Picks()
                 .Where(pick => pick.Element is { })
-                .Select(pick => new SvgViewerGizmoMember(open.Svg, pick.Element!, pick.AddressKey, default))
+                .Select(pick => new SvgViewerGizmoMember(pick.Element!, pick.AddressKey))
                 .ToList();
 
     /// <summary>What the selection covers, as one path.</summary>

@@ -63,13 +63,9 @@ public class SvgViewerGizmosTests
         var gizmos = new SvgViewerGizmos();
 
         gizmos.Track(
-            ids.Select(
-                    id => new SvgViewerGizmoMember(
-                        svg,
-                        svg.SourceDocument!.GetElementById(id),
-                        id,
-                        default))
-                .ToList());
+            svg,
+            default,
+            ids.Select(id => new SvgViewerGizmoMember(svg.SourceDocument!.GetElementById(id), id)).ToList());
 
         return gizmos;
     }
@@ -321,37 +317,40 @@ public class SvgViewerGizmosTests
         Assert.Equal("move an element", edits!.Value.Label);
     }
 
-    /// <summary>A member of another drawing is carried by where that drawing was put.</summary>
+    /// <summary>
+    /// A drawing put elsewhere on a board is dragged where it sits, and written where it is.
+    /// </summary>
+    /// <remarks>
+    /// Everything a host says and hears is in the space the drawings are arranged in; everything
+    /// inside is in the drawing's own. Here the two are two hundred apart, so a box at 220 and a
+    /// press at 230 are answers about a shape whose own numbers say 20 and 30.
+    /// </remarks>
     [Fact]
-    public void A_Member_Of_Another_Drawing_Is_Dragged_Where_It_Sits()
+    public void A_Drawing_Put_Elsewhere_Is_Dragged_Where_It_Sits()
     {
-        using var left = Drawn(Pair);
-        using var right = Drawn(Pair);
+        using var svg = Drawn(Pair);
 
         var gizmos = new SvgViewerGizmos();
 
         gizmos.Track(
+            svg,
+            new Shim.SKPoint(200f, 0f),
             new[]
             {
-                new SvgViewerGizmoMember(left, left.SourceDocument!.GetElementById("one"), "left", default),
-                new SvgViewerGizmoMember(
-                    right,
-                    right.SourceDocument!.GetElementById("one"),
-                    "right",
-                    new Shim.SKPoint(200f, 0f))
+                new SvgViewerGizmoMember(svg.SourceDocument!.GetElementById("one"), "one"),
+                new SvgViewerGizmoMember(svg.SourceDocument.GetElementById("two"), "two")
             });
 
         var box = gizmos.Box(1f);
 
         Assert.NotNull(box);
-        Assert.Equal(20f, box!.Value.TL.X);
-        Assert.Equal(240f, box.Value.BR.X);
+        Assert.Equal(220f, box!.Value.TL.X);
+        Assert.Equal(280f, box.Value.BR.X);
 
-        // Pressed over the left shape, which is where both drawings' own coordinates agree.
-        var edits = Drag(gizmos, (30f, 30f), (50f, 40f));
+        // Pressed over the first shape, two hundred along from where the drawing says it is.
+        var edits = Drag(gizmos, (230f, 30f), (250f, 40f));
 
-        // Both move by the same twenty and ten, each in its own drawing's numbers.
-        Assert.Equal("x=40 y=30", Wrote(edits, "left"));
-        Assert.Equal("x=40 y=30", Wrote(edits, "right"));
+        Assert.Equal("x=40 y=30", Wrote(edits, "one"));
+        Assert.Equal("x=80 y=70", Wrote(edits, "two"));
     }
 }

@@ -1969,7 +1969,12 @@ public sealed class GroupPanel : UserControl
     {
         var editing = _edit?.IsChecked == true;
 
-        _gizmo.Track(editing ? Members() : Array.Empty<SvgViewerGizmoMember>());
+        _gizmo.Track(
+            editing ? _inspecting?.Built.Svg : null,
+            editing && _inspecting is { } inspecting
+                ? new ShimSkiaSharp.SKPoint(inspecting.Placement.At.X, inspecting.Placement.At.Y)
+                : default,
+            editing ? Members() : Array.Empty<SvgViewerGizmoMember>());
 
         ShowGizmo();
     }
@@ -1984,25 +1989,10 @@ public sealed class GroupPanel : UserControl
     /// an address there.
     /// </remarks>
     private IReadOnlyList<SvgViewerGizmoMember> Members()
-    {
-        if (_inspecting is not { } inspecting || inspecting.Built.Svg is not { } svg)
-        {
-            return Array.Empty<SvgViewerGizmoMember>();
-        }
-
-        var at = new ShimSkiaSharp.SKPoint(inspecting.Placement.At.X, inspecting.Placement.At.Y);
-        var members = new List<SvgViewerGizmoMember>();
-
-        foreach (var pick in Picks())
-        {
-            if (pick.Element is { } element)
-            {
-                members.Add(new SvgViewerGizmoMember(svg, element, pick.AddressKey, at));
-            }
-        }
-
-        return members;
-    }
+        => Picks()
+            .Where(pick => pick.Element is { })
+            .Select(pick => new SvgViewerGizmoMember(pick.Element!, pick.AddressKey))
+            .ToList();
 
     /// <summary>
     /// Hands the canvas the box as it now stands.
@@ -2304,7 +2294,7 @@ public sealed class GroupPanel : UserControl
 
         // With the ring, and for its reason: the handles are measured from a scene node of a
         // document a build may be about to dispose.
-        _gizmo.Track(Array.Empty<SvgViewerGizmoMember>());
+        _gizmo.Track(null, default, Array.Empty<SvgViewerGizmoMember>());
         _canvas.Gizmo = null;
 
         _inspecting = null;

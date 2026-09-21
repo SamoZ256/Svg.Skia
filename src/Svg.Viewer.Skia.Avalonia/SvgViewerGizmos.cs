@@ -15,11 +15,9 @@ using SK = SkiaSharp;
 namespace Svg.Viewer.Skia.Avalonia;
 
 /// <summary>One element a gesture is to move, as the host that owns the selection knows it.</summary>
-/// <param name="Svg">The drawing it is drawn in.</param>
-/// <param name="Element">The element itself, in that drawing's live document.</param>
+/// <param name="Element">The element itself, in the drawing's live document.</param>
 /// <param name="Key">What the host calls it; handed back unread with whatever was written.</param>
-/// <param name="At">Where that drawing's own origin sits in the space the gesture is made in.</param>
-public readonly record struct SvgViewerGizmoMember(SKSvg Svg, SvgElement Element, string Key, Shim.SKPoint At);
+public readonly record struct SvgViewerGizmoMember(SvgElement Element, string Key);
 
 /// <summary>What a finished gesture wants written, for however many elements it moved.</summary>
 public readonly record struct SvgViewerEdits(
@@ -87,6 +85,15 @@ public sealed class SvgViewerGizmos
     private readonly SvgViewerGizmo _one = new();
     private readonly List<Held> _held = new();
 
+    /// <summary>The drawing the selection is in, and where its own origin sits on the canvas.</summary>
+    /// <remarks>
+    /// One of each, because a selection is of one drawing. Everything a host says and hears is in
+    /// the space the canvas arranges drawings in; everything inside is in the drawing's own, and
+    /// the two are a translation apart which is nothing at all in a viewer showing one drawing.
+    /// </remarks>
+    private SKSvg? _svg;
+    private Shim.SKPoint _at;
+
     /// <summary>The one member, where there is one: the inner gizmo does not carry its key.</summary>
     private SvgViewerGizmoMember? _only;
 
@@ -121,29 +128,34 @@ public sealed class SvgViewerGizmos
     /// survivor ended up delegating to a gizmo that had been tracked with nothing: no box, no
     /// handles, no drag, and not a word about why.
     /// </remarks>
-    public void Track(IReadOnlyList<SvgViewerGizmoMember> members)
+    public void Track(SKSvg? svg, Shim.SKPoint at, IReadOnlyList<SvgViewerGizmoMember> members)
     {
         Cancel();
 
         _held.Clear();
         _only = null;
+        _svg = svg;
+        _at = at;
 
         var held = new List<Held>();
 
-        foreach (var member in members)
+        if (svg is { })
         {
-            if (member.Element is not SvgVisualElement drawn)
+            foreach (var member in members)
             {
-                continue;
-            }
+                if (member.Element is not SvgVisualElement drawn)
+                {
+                    continue;
+                }
 
-            var one = new Held(member, drawn);
+                var one = new Held(svg, member, drawn);
 
-            one.Resolve();
+                one.Resolve();
 
-            if (one.Node is { })
-            {
-                held.Add(one);
+                if (one.Node is { })
+                {
+                    held.Add(one);
+                }
             }
         }
 
@@ -151,7 +163,7 @@ public sealed class SvgViewerGizmos
         {
             _only = held[0].Member;
 
-            _one.Track(held[0].Member.Svg, held[0].Member.Element);
+            _one.Track(svg, held[0].Member.Element);
 
             return;
         }
@@ -170,7 +182,7 @@ public sealed class SvgViewerGizmos
     {
         if (_held.Count <= 1)
         {
-            return _one.Box(scale) is { } only ? Beside(only, _only?.At ?? default) : null;
+            return _one.Box(scale) is { } only ? Beside(only, _at) : null;
         }
 
         if (Spanned() is not { } union || scale <= 0f)
@@ -178,10 +190,12 @@ public sealed class SvgViewerGizmos
             return null;
         }
 
-        return _selection.GetBoundsInfo(
-            new Shim.SKRect(union.Left, union.Top, union.Right, union.Bottom),
-            Shim.SKMatrix.CreateIdentity(),
-            () => scale);
+        return Beside(
+            _selection.GetBoundsInfo(
+                new Shim.SKRect(union.Left, union.Top, union.Right, union.Bottom),
+                Shim.SKMatrix.CreateIdentity(),
+                () => scale),
+            _at);
     }
 
     /// <summary>Whether a press belongs to this rather than to a pan or a sweep.</summary>
@@ -196,8 +210,10 @@ public sealed class SvgViewerGizmos
             return _one.Hits(Inside(at), scale);
         }
 
+        var inside = Inside(at);
+
         return (Box(scale) is { } box && _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _) >= 0)
-               || _held.Any(held => held.Covers(at));
+               || _held.Any(held => held.Covers(inside));
     }
 
     /// <summary>Starts a drag, or says why it will not.</summary>
@@ -218,9 +234,11 @@ public sealed class SvgViewerGizmos
             return null;
         }
 
+        var inside = Inside(at);
+
         _handle = _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _);
 
-        if (_handle < 0 && !_held.Any(held => held.Covers(at)))
+        if (_handle < 0 && !_held.Any(held => held.Covers(inside)))
         {
             return null;
         }
@@ -231,7 +249,7 @@ public sealed class SvgViewerGizmos
         }
 
         _union = union;
-        _pressed = at;
+        _pressed = inside;
         _pivot = Pivot();
         _centre = new Shim.SKPoint(union.MidX, union.MidY);
 
@@ -267,7 +285,7 @@ public sealed class SvgViewerGizmos
             return;
         }
 
-        var map = Shared(at);
+        var map = Shared(Inside(at));
 
         foreach (var held in _held)
         {
@@ -363,8 +381,6 @@ public sealed class SvgViewerGizmos
 
             var box = SelectionService.GetBoundsRect(_selection.GetBoundsInfo(node, One));
 
-            box.Offset(held.Member.At.X, held.Member.At.Y);
-
             union = union is { } spanned ? SK.SKRect.Union(spanned, box) : box;
         }
 
@@ -410,26 +426,27 @@ public sealed class SvgViewerGizmos
     /// <summary>Renders every drawing a member moved, once each.</summary>
     private void Redraw()
     {
-        foreach (var drawing in _held.Select(held => held.Member.Svg).Distinct())
+        if (_svg is not { } drawing || _held.Count == 0)
         {
-            var mine = _held.Where(held => ReferenceEquals(held.Member.Svg, drawing)).ToList();
-            var applied = true;
+            return;
+        }
 
-            // Every member, because what is recompiled is an element and not a drawing: applying
-            // one member's and rendering left the rest drawn from the nodes they had before the
-            // frame, so a selection of six followed the pointer one shape at a time.
-            for (var i = 0; i < mine.Count - 1; i++)
-            {
-                applied &= drawing.ApplyRetainedSceneMutation(mine[i].Element).Succeeded;
-            }
+        var applied = true;
 
-            // The last one carries the render, so a drawing is still drawn once a frame.
-            if (!applied
-                || !drawing.TryApplyRetainedSceneMutationAndRender(mine[^1].Element, null, out var rendered)
-                || rendered is null)
-            {
-                drawing.FromSvgDocument(drawing.SourceDocument);
-            }
+        // Every member, because what is recompiled is an element and not a drawing: applying one
+        // member's and rendering left the rest drawn from the nodes they had before the frame, so a
+        // selection of six followed the pointer one shape at a time.
+        for (var i = 0; i < _held.Count - 1; i++)
+        {
+            applied &= drawing.ApplyRetainedSceneMutation(_held[i].Element).Succeeded;
+        }
+
+        // The last one carries the render, so the drawing is still drawn once a frame.
+        if (!applied
+            || !drawing.TryApplyRetainedSceneMutationAndRender(_held[^1].Element, null, out var rendered)
+            || rendered is null)
+        {
+            drawing.FromSvgDocument(drawing.SourceDocument);
         }
 
         foreach (var held in _held)
@@ -438,17 +455,13 @@ public sealed class SvgViewerGizmos
         }
     }
 
-    /// <summary>
-    /// A point of the shared space in the one member's own drawing.
-    /// </summary>
+    /// <summary>A point of the space the drawings are arranged in, inside the drawing's own.</summary>
     /// <remarks>
-    /// Everything here is said in the space the gesture is made in, whether the selection is one
-    /// element or twenty — a host should not have to know that one of those is answered by
-    /// something that has never heard of a board. In the viewer the drawing is at the origin and
-    /// this is the point itself.
+    /// Everything a host says and hears is in the arranged space, whether the selection is one
+    /// element or twenty; everything inside is in the drawing's own. In a viewer showing one
+    /// drawing at the origin the two are the same and this is the point itself.
     /// </remarks>
-    private Shim.SKPoint Inside(Shim.SKPoint at)
-        => _only is { } only ? new Shim.SKPoint(at.X - only.At.X, at.Y - only.At.Y) : at;
+    private Shim.SKPoint Inside(Shim.SKPoint at) => new(at.X - _at.X, at.Y - _at.Y);
 
     /// <summary>The same box, where its drawing actually sits.</summary>
     private static BoundsInfo Beside(BoundsInfo box, Shim.SKPoint at)
@@ -475,11 +488,14 @@ public sealed class SvgViewerGizmos
     /// <summary>One member of the selection, and everything its own drag needs.</summary>
     private sealed class Held
     {
-        public Held(SvgViewerGizmoMember member, SvgVisualElement element)
+        public Held(SKSvg svg, SvgViewerGizmoMember member, SvgVisualElement element)
         {
+            _svg = svg;
             Member = member;
             Element = element;
         }
+
+        private readonly SKSvg _svg;
 
         public SvgViewerGizmoMember Member { get; }
 
@@ -507,7 +523,7 @@ public sealed class SvgViewerGizmos
         private IReadOnlyList<(string Name, string Value)> _before = Array.Empty<(string, string)>();
 
         public void Resolve()
-            => Node = Member.Svg.TryGetRetainedSceneNodes(Element, out var nodes) && nodes.Count > 0 ? nodes[0] : null;
+            => Node = _svg.TryGetRetainedSceneNodes(Element, out var nodes) && nodes.Count > 0 ? nodes[0] : null;
 
         /// <summary>Takes hold of this member, or says why the whole gesture will not run.</summary>
         public string? Begin(int handle, Func<string, string?>? driven)
@@ -517,9 +533,10 @@ public sealed class SvgViewerGizmos
                 return Flattened;
             }
 
-            // Where the member's own geometry sits in the space the gesture is made in: its own
-            // transform and every ancestor's, and then where its drawing was put on the canvas.
-            _from = Shim.SKMatrix.CreateTranslation(Member.At.X, Member.At.Y).PreConcat(node.TotalTransform);
+            // Where the member's own geometry sits in its drawing: its own transform and every
+            // ancestor's. Where the drawing sits on the canvas is the set's, and the gesture is
+            // brought into the drawing before it ever reaches here.
+            _from = node.TotalTransform;
 
             if (!_from.TryInvert(out var toGeometry))
             {
@@ -675,12 +692,10 @@ public sealed class SvgViewerGizmos
             return upright || flipped;
         }
 
-        /// <summary>Whether this member's own ink is under the pointer.</summary>
+        /// <summary>Whether this member's own ink is under the pointer, which is in its drawing.</summary>
         public bool Covers(Shim.SKPoint at)
         {
-            var local = new Shim.SKPoint(at.X - Member.At.X, at.Y - Member.At.Y);
-
-            for (var hit = Member.Svg.HitTestTopmostElement(local); hit is { }; hit = hit.Parent)
+            for (var hit = _svg.HitTestTopmostElement(at); hit is { }; hit = hit.Parent)
             {
                 if (ReferenceEquals(hit, Element))
                 {
