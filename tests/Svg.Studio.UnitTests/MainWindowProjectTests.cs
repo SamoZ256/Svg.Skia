@@ -1455,8 +1455,17 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(new[] { "tint", "ring" }, Declarations(panel).Parameters!.Select(row => row.Name).ToArray());
     }
 
+    /// <summary>
+    /// A drag in a frame's own margin sweeps a rectangle; it neither carries the frame nor moves
+    /// the view.
+    /// </summary>
+    /// <remarks>
+    /// What this has always been about is that the margin is not a handle on the group: the group
+    /// stays where it is and nothing is written. What has changed is the other half — a left drag
+    /// is for pointing at things now, and the view keeps the gestures that were always its own.
+    /// </remarks>
     [AvaloniaFact]
-    public async Task A_Drag_Inside_A_Frame_Moves_The_View()
+    public async Task A_Drag_Inside_A_Frame_Sweeps_Rather_Than_Moving_It()
     {
         var path = Write("icons.svgstudio", Board());
         var window = await Host(path);
@@ -1479,14 +1488,26 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(canvas.TryGetDrawingPoint(from, out var before));
 
+        var swept = 0;
+
+        canvas.Marqueed += (_, _) => swept++;
+
         Drag(window, canvas, from, to);
 
         Assert.True(canvas.TryGetDrawingPoint(from, out var after));
 
-        // The view moved and the project did not.
-        Assert.True(after.X < before.X, "Dragging right should bring what is left of it into view.");
+        // Neither the view nor the project moved, and a rectangle was swept over the board.
+        Assert.Equal(before.X, after.X, 3);
+        Assert.Equal(1, swept);
         Assert.Equal(was, (group.X, group.Y));
         Assert.Equal(edits, window.Workspace!.Edits);
+
+        // The view is still reachable, by the button that was always for reaching it.
+        Drag(window, canvas, from, to, MouseButton.Middle);
+
+        Assert.True(canvas.TryGetDrawingPoint(from, out var moved));
+        Assert.True(moved.X < before.X, "Dragging right should bring what is left of it into view.");
+        Assert.Equal(was, (group.X, group.Y));
     }
 
     [AvaloniaFact]

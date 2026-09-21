@@ -245,6 +245,11 @@ public sealed class GroupPanel : UserControl
 
         _canvas.Marqueed += (_, swept) => SelectEnclosed(swept);
 
+        // In the mode and out of it alike. A left drag over a drawing still carries the drawing,
+        // because the grip answers first; anywhere else it sweeps up a selection. What it never
+        // does is move the view, which has the middle button, the wheel and two fingers of its own.
+        _canvas.IsMarqueeEnabled = true;
+
         _canvas.EditBegun += (_, at) => BeginEdit(at);
         _canvas.EditMoved += (_, at) => DragEdit(at);
         _canvas.EditEnded += (_, _) => EndEdit();
@@ -2466,10 +2471,6 @@ public sealed class GroupPanel : UserControl
             {
                 CancelEdit();
             }
-
-            // In the mode a left drag sweeps up a selection; out of it the same drag carries a
-            // drawing about the board, which is the other thing a left button means here.
-            _canvas.IsMarqueeEnabled = _edit.IsChecked == true;
 
             TrackGizmo();
         };

@@ -1016,29 +1016,6 @@ public class SvgViewerCanvas : SKCanvasControl
             return;
         }
 
-        // Then the sweep, above the grip for the reason the edit claim is above it: a grip answers
-        // for anywhere inside a whole drawing, so below it a sweep begun over an icon would carry
-        // the icon instead. Below the handles, because a press on one of those means the handle.
-        if (properties.IsLeftButtonPressed
-            && IsMarqueeEnabled
-            && TryGetDrawingPoint(_pressOrigin, out var swept))
-        {
-            Focus();
-
-            _marquee = true;
-            _marqueeMoved = false;
-            _marqueeFrom = swept;
-            _marqueeTo = swept;
-            _marqueePointer = e.Pointer;
-
-            e.Pointer.Capture(this);
-            e.Handled = true;
-
-            // _pressed is left standing, as the grip leaves it: a sweep that never travels is a
-            // click, and with nothing selected yet a click is the only way to select anything.
-            return;
-        }
-
         // Then the host's grip, before the pan, which used to claim every press before anything knew
         // what was under the pointer — so nothing on a canvas could ever be taken hold of. The
         // middle button still pans over an item, which is the way out when a board is covered in them.
@@ -1064,6 +1041,32 @@ public class SvgViewerCanvas : SKCanvasControl
             return;
         }
 
+        // Last of the left button's meanings, and the widest: a press that was not a handle and not
+        // something to carry is the start of a rectangle over whatever is there. It sits below the
+        // grip because carrying a drawing is the narrower thing to have meant — a grip answers only
+        // where a drawing is, and a sweep answers everywhere else.
+        if (properties.IsLeftButtonPressed
+            && IsMarqueeEnabled
+            && TryGetDrawingPoint(_pressOrigin, out var swept))
+        {
+            Focus();
+
+            _marquee = true;
+            _marqueeMoved = false;
+            _marqueeFrom = swept;
+            _marqueeTo = swept;
+            _marqueePointer = e.Pointer;
+
+            e.Pointer.Capture(this);
+            e.Handled = true;
+
+            // _pressed is left standing, as the grip leaves it: a sweep that never travels is a
+            // click, and with nothing selected yet a click is the only way to select anything.
+            return;
+        }
+
+        // What is left is the view's own, and the left button is not among its gestures wherever a
+        // sweep is offered: it was claimed above, and never reaches here.
         if (!IsPanEnabled || _placed.Count == 0 || !(properties.IsLeftButtonPressed || properties.IsMiddleButtonPressed))
         {
             return;

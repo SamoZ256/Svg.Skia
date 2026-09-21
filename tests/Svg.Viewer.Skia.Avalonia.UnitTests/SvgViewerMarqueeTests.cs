@@ -392,6 +392,40 @@ public class SvgViewerMarqueeTests
         document.Dispose();
     }
 
+    /// <summary>
+    /// Something to carry answers before the sweep, and the sweep answers everywhere else.
+    /// </summary>
+    /// <remarks>
+    /// The two are offered together on a board of drawings: a left drag over one of them carries
+    /// it, and the same drag on bare board draws a rectangle. Carrying is the narrower thing to
+    /// have meant, because a grip answers only where a drawing is.
+    /// </remarks>
+    [AvaloniaFact]
+    public void Something_To_Carry_Answers_Before_The_Sweep()
+    {
+        var (window, canvas, document) = Host();
+        var swept = Swept(canvas);
+        var carried = 0;
+
+        // A grip over the left half of the drawing, and nothing over the right.
+        canvas.Grip = at => at.X < 50f ? ("held", new SKRect(0f, 0f, 50f, 100f)) : null;
+        canvas.Moved += (_, _) => carried++;
+
+        Drag(window, canvas, (10f, 10f), (40f, 40f));
+
+        Assert.Equal(1, carried);
+        Assert.Empty(swept);
+
+        // And past it, where there is nothing to take hold of.
+        Drag(window, canvas, (60f, 10f), (90f, 40f));
+
+        Assert.Equal(1, carried);
+        Assert.Single(swept);
+
+        window.Close();
+        document.Dispose();
+    }
+
     [AvaloniaFact]
     public void Escape_Takes_The_Sweep_Back()
     {
