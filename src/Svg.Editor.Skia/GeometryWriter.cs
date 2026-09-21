@@ -131,7 +131,7 @@ public sealed class GeometryWriter
     /// certainly the sine's and a coordinate that small may be the drawing's. A factor never lands
     /// here — the gesture clamps one to a hundredth before it is composed.
     /// </remarks>
-    private static Shim.SKMatrix Settled(Shim.SKMatrix map)
+    public static Shim.SKMatrix Settled(Shim.SKMatrix map)
     {
         map.ScaleX = Swept(map.ScaleX);
         map.ScaleY = Swept(map.ScaleY);
