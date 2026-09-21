@@ -89,6 +89,14 @@ public class SvgViewerGizmoTests
         </svg>
         """;
 
+    /// <summary>A group an expression moves, which has no geometry of its own to be moved by.</summary>
+    private const string DrivenGroup = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 100 100" width="100" height="100">
+          <defs><e:code><e:param name="shift" type="number" default="0" /></e:code></defs>
+          <g id="group" transform="translate({{ shift }}, 0)"><rect x="20" y="20" width="20" height="20" fill="#3366cc" /></g>
+        </svg>
+        """;
+
     /// <summary>A triangle filling the same 20..40 square the rectangle does.</summary>
     private const string Polygon = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
@@ -676,11 +684,16 @@ public class SvgViewerGizmoTests
     }
 
     /// <summary>
-    /// A transform an expression writes is refused rather than flattened into the number it happens
-    /// to come to.
+    /// A shape an expression moves is dragged by its own numbers, and the expression is left alone.
     /// </summary>
+    /// <remarks>
+    /// This used to be refused outright, because writing the transform back would have spelt the
+    /// number the expression came to and thrown away the thing that made it move. A geometry
+    /// attribute cannot hold an expression at all — only paint, font and the transform can — so
+    /// there is nothing here for the drag to overwrite.
+    /// </remarks>
     [AvaloniaFact]
-    public async Task A_Driven_Transform_Refuses_The_Drag()
+    public async Task A_Driven_Transform_Is_Left_Where_It_Is()
     {
         var (window, viewer) = await Host(Driven);
 
@@ -691,7 +704,37 @@ public class SvgViewerGizmoTests
 
         Drag(window, viewer, (30f, 30f), (50f, 40f));
 
+        Assert.Equal("40 30 20 20", Box(viewer));
         Assert.Equal("translate({{ shift }}, 0)", Written(viewer));
+    }
+
+    /// <summary>A driven element with no geometry is offset rather than overwritten.</summary>
+    /// <remarks>
+    /// A group has nothing of its own to write, so the gesture has to go into the transform the
+    /// expression is in — after it, onto the text the file holds rather than onto the number the
+    /// document was built with. Nothing can fold into an expression, so the second drag adds a term
+    /// rather than rewriting the first: the growth is the price of not having to read the file's
+    /// transform text with a second parser that could disagree with the one that renders it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Driven_Group_Is_Offset_Rather_Than_Overwritten()
+    {
+        var (window, viewer) = await Host(DrivenGroup);
+
+        SelectById(viewer, "group");
+
+        viewer.IsEditing = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(window, viewer, (30f, 30f), (50f, 40f));
+
+        Assert.Equal("translate({{ shift }}, 0) translate(20, 10)", Written(viewer, "group"));
+
+        Drag(window, viewer, (50f, 40f), (60f, 40f));
+
+        Assert.Equal(
+            "translate({{ shift }}, 0) translate(20, 10) translate(10, 0)",
+            Written(viewer, "group"));
     }
 
     /// <summary>

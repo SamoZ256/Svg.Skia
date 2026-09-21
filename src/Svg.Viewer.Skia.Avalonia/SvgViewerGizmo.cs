@@ -103,6 +103,9 @@ public sealed class SvgViewerGizmo
     /// <summary>The element's own numbers, where this drag is writing those rather than a transform.</summary>
     private GeometryWriter? _writer;
 
+    /// <summary>The element's transform as the file spells it, where an expression writes it.</summary>
+    private string? _written;
+
     /// <summary>What the file should say as of the last frame, and what it said at the press.</summary>
     private IReadOnlyList<(string Name, string Value)>? _writes;
     private IReadOnlyList<(string Name, string Value)> _before = Array.Empty<(string, string)>();
@@ -161,20 +164,18 @@ public sealed class SvgViewerGizmo
     /// Starts a drag, or says why it will not.
     /// </summary>
     /// <returns>The sentence refusing the gesture, or null where it began.</returns>
-    public string? Begin(Shim.SKPoint at, float scale)
+    /// <param name="written">
+    /// The element's transform as the file spells it, where an expression writes it. The built
+    /// document holds the number that expression came to, so a gesture that has to go into a
+    /// transform is composed onto this text instead of onto what is drawn.
+    /// </param>
+    public string? Begin(Shim.SKPoint at, float scale, string? written = null)
     {
         Cancel();
 
         if (_element is null || _node is not { } node || Box(scale) is not { } box)
         {
             return null;
-        }
-
-        // A transform an expression writes is not a number this can add to. Rewriting it as one
-        // would draw the right picture once and throw away the thing that made it move.
-        if (node.SymbolicTransform is { })
-        {
-            return Driven;
         }
 
         if (!node.TotalTransform.TryInvert(out var toGeometry))
@@ -209,6 +210,7 @@ public sealed class SvgViewerGizmo
         _toGeometry = toGeometry;
         _pressed = toGeometry.MapPoint(at);
         _restore = Clone(_element.Transforms);
+        _written = written;
         _dragging = true;
 
         // Settled once, before a finger has moved: what an element can hold does not change during
@@ -234,6 +236,15 @@ public sealed class SvgViewerGizmo
             // reads the ones this one leaves. What it already has in a transform stays where it is.
             _head = _restore.ToList();
             _before = writer.Captured;
+        }
+        else if (_written is { } spelt)
+        {
+            // An expression's transform cannot be folded into, because taking an entry off the
+            // evaluated list does not take the function that made it out of the file's text. The
+            // gesture is composed onto the end of that text instead, so a repeated drag on such an
+            // element adds a term rather than rewriting one.
+            _head = _restore.ToList();
+            _before = new[] { ("transform", spelt) };
         }
         else
         {
@@ -274,7 +285,7 @@ public sealed class SvgViewerGizmo
         {
             _writer?.Restore();
             _element.Transforms = Compose(tail);
-            _writes = Transformed(_element.Transforms);
+            _writes = Transformed(_element.Transforms, tail);
         }
 
         Redraw();
@@ -445,8 +456,20 @@ public sealed class SvgViewerGizmo
     }
 
     /// <summary>The fallback's one attribute, in the shape the geometry writer answers in.</summary>
-    private static IReadOnlyList<(string Name, string Value)> Transformed(SvgTransformCollection? composed)
-        => new[] { ("transform", composed?.ToString() ?? string.Empty) };
+    /// <remarks>
+    /// Where an expression writes the transform, what goes in the file is the file's own text with
+    /// this gesture after it. The composed collection spells the number the expression came to, and
+    /// writing that back would draw the right picture once and throw away the thing that moved it.
+    /// </remarks>
+    private IReadOnlyList<(string Name, string Value)> Transformed(
+        SvgTransformCollection? composed,
+        IReadOnlyList<SvgTransform>? tail = null)
+        => new[]
+        {
+            ("transform", _written is { } spelt && tail is { }
+                ? (spelt + " " + string.Join(" ", tail)).Trim()
+                : composed?.ToString() ?? string.Empty)
+        };
 
     /// <remarks><c>ShimSkiaSharp.SKRect</c> carries the four edges and nothing derived from them.</remarks>
     private static float MidX(Shim.SKRect rect) => (rect.Left + rect.Right) / 2f;
@@ -633,9 +656,6 @@ public sealed class SvgViewerGizmo
            && svg.TryGetRetainedSceneNodes(element, out var nodes) && nodes.Count > 0
             ? nodes[0]
             : null;
-
-    private const string Driven =
-        "That element's transform is written by an expression, so dragging it would overwrite what moves it.";
 
     private const string Flattened =
         "That element is drawn flat, so there is no way back from the pointer to where it is written.";
