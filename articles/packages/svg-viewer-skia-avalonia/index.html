@@ -249,10 +249,6 @@
 <td>Which element is picked</td>
 </tr>
 <tr>
-<td><code>ShowBounds</code></td>
-<td>Outlining the drawing's own edges — on by default, since an icon with transparent margins otherwise ends nowhere the eye can see</td>
-</tr>
-<tr>
 <td><code>SidePanels</code></td>
 <td>Panels of your own beside the parameters: the right pane becomes a strip of tabs while there are any, yours first and so the first one it opens on, and holds the parameters alone again when there are none</td>
 </tr>
@@ -270,7 +266,7 @@
 </tr>
 <tr>
 <td><code>Canvas</code></td>
-<td>Direct access to the surface for zoom and pan; <code>Show</code> lays out several drawings at once — with <code>SvgViewerFrame</code>s drawn under them where a host wants to say that some belong together — and <code>Rearrange</code> lays the same set out again without re-fitting, so a host that moves one of them keeps the view on the rest. <code>TryGetPlacementAt</code> says which drawing a click fell on, and <code>Grip</code> with <code>Moved</code> lets a press take hold of something and carry it</td>
+<td>Direct access to the surface for zoom and pan; <code>Grabs</code> says whether a press is on the line round a rectangle rather than inside it, which is how a host lets a drawing be carried without taking the presses that belong to the shapes in it; <code>Show</code> lays out several drawings at once — with <code>SvgViewerFrame</code>s drawn under them where a host wants to say that some belong together — and <code>Rearrange</code> lays the same set out again without re-fitting, so a host that moves one of them keeps the view on the rest. <code>TryGetPlacementAt</code> says which drawing a click fell on, and <code>Grip</code> with <code>Moved</code> lets a press take hold of something and carry it</td>
 </tr>
 <tr>
 <td><code>DocumentOpened</code> / <code>ErrorRaised</code> / <code>ParameterValueChanged</code></td>
