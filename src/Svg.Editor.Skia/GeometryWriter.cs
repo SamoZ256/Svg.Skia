@@ -192,6 +192,16 @@ public sealed class GeometryWriter
 
         return new GeometryWriter(map =>
         {
+            // A shape whose sides are its own axes cannot be a parallelogram, and a map that
+            // leans asks for exactly that. Nothing composed in one element's own space can lean —
+            // a scale there is always along the axes — but a gesture shared by a selection is
+            // composed in a space the element may sit at an angle to, and the answer then is a
+            // transform, where it is exact.
+            if (!moving && !Flat(map))
+            {
+                return null;
+            }
+
             var corner = Placed(map, new PointF(x.Value, y.Value));
             var opposite = Placed(map, new PointF(x.Value + width.Value, y.Value + height.Value));
 
@@ -253,6 +263,16 @@ public sealed class GeometryWriter
 
         return new GeometryWriter(map =>
         {
+            // A shape whose sides are its own axes cannot be a parallelogram, and a map that
+            // leans asks for exactly that. Nothing composed in one element's own space can lean —
+            // a scale there is always along the axes — but a gesture shared by a selection is
+            // composed in a space the element may sit at an angle to, and the answer then is a
+            // transform, where it is exact.
+            if (!moving && !Flat(map))
+            {
+                return null;
+            }
+
             // One radius cannot say that the two axes differ. Turning the element into an ellipse
             // would be a larger thing than a drag, so the gesture goes into a transform instead.
             if (!moving && map.ScaleX != map.ScaleY)
@@ -298,6 +318,16 @@ public sealed class GeometryWriter
 
         return new GeometryWriter(map =>
         {
+            // A shape whose sides are its own axes cannot be a parallelogram, and a map that
+            // leans asks for exactly that. Nothing composed in one element's own space can lean —
+            // a scale there is always along the axes — but a gesture shared by a selection is
+            // composed in a space the element may sit at an angle to, and the answer then is a
+            // transform, where it is exact.
+            if (!moving && !Flat(map))
+            {
+                return null;
+            }
+
             var centre = Placed(map, new PointF(cx.Value, cy.Value));
 
             ellipse.CenterX = Same(cx, centre.X);
@@ -442,6 +472,16 @@ public sealed class GeometryWriter
 
         return new GeometryWriter(map =>
         {
+            // A shape whose sides are its own axes cannot be a parallelogram, and a map that
+            // leans asks for exactly that. Nothing composed in one element's own space can lean —
+            // a scale there is always along the axes — but a gesture shared by a selection is
+            // composed in a space the element may sit at an angle to, and the answer then is a
+            // transform, where it is exact.
+            if (!moving && !Flat(map))
+            {
+                return null;
+            }
+
             // Under anything but "none" the picture is fitted inside the declared box, so an uneven
             // scale of the box is not an even scale of what is drawn in it; and a flip cannot be
             // said with a positive width at all.

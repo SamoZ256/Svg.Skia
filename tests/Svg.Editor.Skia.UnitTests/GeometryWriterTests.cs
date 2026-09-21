@@ -27,6 +27,17 @@ public class GeometryWriterTests
 
     private static Shim.SKMatrix Turned => Shim.SKMatrix.CreateRotationDegrees(90f, 30f, 30f);
 
+    /// <summary>A doubling along an axis that is not the element's own, which leans what it takes.</summary>
+    /// <remarks>
+    /// What a selection's shared pivot makes of a member sitting at an angle to it: the map is a
+    /// scale in somebody else's frame, which in this element's own frame has skew in it. Nothing
+    /// composed in one element's own space can look like this.
+    /// </remarks>
+    private static Shim.SKMatrix Leaning
+        => Shim.SKMatrix.CreateRotationDegrees(-30f)
+            .PreConcat(Shim.SKMatrix.CreateScale(2f, 1f))
+            .PreConcat(Shim.SKMatrix.CreateRotationDegrees(30f));
+
     /// <summary>What the file would say, as one string, so a test is one assertion.</summary>
     private static string Says(IReadOnlyList<(string Name, string Value)>? written)
         => written is null
@@ -237,6 +248,56 @@ public class GeometryWriterTests
     public void An_Image_With_No_Size_Of_Its_Own_Will_Not_Scale()
     {
         Assert.Null(GeometryWriter.Capture(new SvgImage { X = 20f, Y = 20f }, GeometryGesture.Scale));
+    }
+
+    /// <summary>
+    /// A shape whose sides are its own axes will not take a map that leans.
+    /// </summary>
+    /// <remarks>
+    /// Such a map asks for a parallelogram, and a rect, a circle, an ellipse and an image can only
+    /// be upright in their own frame — there is no precision at which one of them could say it. The
+    /// drag writes a transform instead, where the answer is exact.
+    /// </remarks>
+    [Theory]
+    [InlineData("rect")]
+    [InlineData("circle")]
+    [InlineData("ellipse")]
+    [InlineData("image")]
+    public void An_Upright_Shape_Refuses_A_Scale_That_Leans(string kind)
+    {
+        SvgElement shape = kind switch
+        {
+            "rect" => Box(),
+            "circle" => new SvgCircle { CenterX = 30f, CenterY = 30f, Radius = 10f },
+            "ellipse" => new SvgEllipse { CenterX = 30f, CenterY = 30f, RadiusX = 10f, RadiusY = 10f },
+            _ => new SvgImage { X = 20f, Y = 20f, Width = 20f, Height = 20f }
+        };
+
+        var writer = GeometryWriter.Capture(shape, GeometryGesture.Scale);
+
+        Assert.Equal("refused", Says(writer!.Apply(Leaning)));
+    }
+
+    /// <summary>A shape made of points takes it, which is what says the refusal is not a blanket.</summary>
+    [Fact]
+    public void A_Polygon_Takes_A_Scale_That_Leans()
+    {
+        var poly = new SvgPolygon { Points = new SvgPointCollection { 20f, 20f, 40f, 20f, 40f, 40f } };
+        var writer = GeometryWriter.Capture(poly, GeometryGesture.Scale);
+
+        // Worked by hand against the same composition: the triangle leans the way the map does.
+        Assert.Equal(
+            "points=26.33975,16.33975 61.33974,7.679493 52.67949,32.67949",
+            Says(writer!.Apply(Leaning)));
+    }
+
+    /// <summary>A move is a move at any angle: the map that carries it cannot lean.</summary>
+    [Fact]
+    public void A_Rect_Still_Moves_Under_A_Map_That_Leans()
+    {
+        var writer = GeometryWriter.Capture(Box(), GeometryGesture.Move);
+
+        Assert.Equal("x=40 y=30", Says(writer!.Apply(Moved)));
     }
 
     // ---- the path -----------------------------------------------------------------------------
