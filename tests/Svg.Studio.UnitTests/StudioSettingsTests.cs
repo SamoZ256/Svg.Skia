@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using Avalonia.Styling;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
@@ -83,6 +84,48 @@ public class StudioSettingsTests : IDisposable
         File.WriteAllText(StudioSettings.Store, $"captionSize={written}");
 
         Assert.Equal(SvgViewerCanvas.DefaultCaptionSize, StudioSettings.CaptionSize);
+    }
+
+    [Fact]
+    public void The_Theme_Nobody_Has_Set_Is_The_Machines()
+    {
+        // The one answer that goes on being right: somebody whose machine turns dark at sunset has
+        // said what they want once.
+        Assert.Equal(StudioTheme.System, StudioSettings.Theme);
+        Assert.Equal(ThemeVariant.Default, StudioSettings.Variant);
+    }
+
+    [Theory]
+    [InlineData(StudioTheme.System, "system")]
+    [InlineData(StudioTheme.Light, "light")]
+    [InlineData(StudioTheme.Dark, "dark")]
+    public void A_Theme_Survives_Being_Written(StudioTheme theme, string written)
+    {
+        StudioSettings.Theme = theme;
+
+        Assert.Equal(theme, StudioSettings.Theme);
+        Assert.Contains($"theme={written}", File.ReadAllText(StudioSettings.Store), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(StudioTheme.System, "Default")]
+    [InlineData(StudioTheme.Light, "Light")]
+    [InlineData(StudioTheme.Dark, "Dark")]
+    public void A_Theme_Is_The_Variant_Avalonia_Spells_It(StudioTheme theme, string variant)
+    {
+        StudioSettings.Theme = theme;
+
+        // Asserted here rather than where it is assigned, because where it is assigned is App —
+        // the one class the suite cannot reach, since it builds an Application of its own.
+        Assert.Equal(variant, StudioSettings.Variant.Key);
+    }
+
+    [Fact]
+    public void A_Theme_Nobody_Can_Read_Is_The_Theme_Nobody_Wrote()
+    {
+        File.WriteAllText(StudioSettings.Store, "theme=chartreuse\n");
+
+        Assert.Equal(StudioTheme.System, StudioSettings.Theme);
     }
 
     [Fact]

@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Linq;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
@@ -23,6 +24,23 @@ public partial class SettingsWindow : Window
     public SettingsWindow()
     {
         InitializeComponent();
+
+        Theme = this.FindControl<ComboBox>("ThemeBox")!;
+        Theme.ItemsSource = s_themes.Select(theme => theme.Said).ToList();
+        Theme.SelectedIndex = Array.FindIndex(s_themes, theme => theme.Theme == StudioSettings.Theme);
+
+        // Applied here and not left to the host to re-read afterwards, which is what every other
+        // setting on this window does. This window is modal: a theme applied once it closed would
+        // be one nobody could see themselves picking.
+        Theme.SelectionChanged += (_, _) =>
+        {
+            if (Theme.SelectedIndex >= 0)
+            {
+                StudioSettings.Theme = s_themes[Theme.SelectedIndex].Theme;
+
+                Repaint();
+            }
+        };
 
         Autosave = this.FindControl<CheckBox>("AutosaveBox")!;
         Autosave.IsChecked = StudioSettings.Autosave;
@@ -55,6 +73,32 @@ public partial class SettingsWindow : Window
         };
     }
 
+    /// <summary>Puts the theme now on file onto the application, wherever the window is shown.</summary>
+    /// <remarks>
+    /// The variant is the application's rather than a window's, so this reaches the editor behind
+    /// this window as well as this one. <see cref="Application.Current"/> because a settings window
+    /// belongs to whichever application opened it, including the one a test builds.
+    /// </remarks>
+    public static void Repaint()
+    {
+        if (Application.Current is { } application)
+        {
+            application.RequestedThemeVariant = StudioSettings.Variant;
+        }
+    }
+
+    /// <summary>The three themes, in the order the list shows them.</summary>
+    /// <remarks>
+    /// Following the machine first, because it is the answer somebody who has not thought about it
+    /// wants and the one this starts on.
+    /// </remarks>
+    private static readonly (StudioTheme Theme, string Said)[] s_themes =
+    {
+        (StudioTheme.System, "Same as system"),
+        (StudioTheme.Light, "Light"),
+        (StudioTheme.Dark, "Dark")
+    };
+
     /// <summary>The three answers, in the order the list shows them.</summary>
     /// <remarks>
     /// Said as what happens rather than as on and off: "off" for a setting called relaxed layout
@@ -66,6 +110,9 @@ public partial class SettingsWindow : Window
         (RelaxedTextAnswer.Always, "Relax the layout"),
         (RelaxedTextAnswer.Never, "Keep the default text")
     };
+
+    /// <summary>The list of themes, for a test to drive.</summary>
+    public ComboBox Theme { get; }
 
     /// <summary>The box for the recovery copy, for a test to drive.</summary>
     public CheckBox Autosave { get; }

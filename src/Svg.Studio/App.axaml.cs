@@ -8,7 +8,14 @@ namespace Svg.Studio;
 
 public partial class App : Application
 {
-    public override void Initialize() => AvaloniaXamlLoader.Load(this);
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+
+        // Before anything is shown, so a launch opens in the theme somebody picked rather than
+        // flashing the other one on the way there.
+        SettingsWindow.Repaint();
+    }
 
     /// <summary>Opens the settings, from the macOS application menu.</summary>
     /// <remarks>

@@ -9,6 +9,7 @@ using Avalonia;
 using Avalonia.Controls.Skia;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using SkiaSharp;
 using Svg.Editor.Skia;
@@ -63,6 +64,9 @@ public class SvgViewerCanvas : SKCanvasControl
     private readonly SelectionService _selection = new();
 
     private Cursor? _restoreCursor;
+
+    /// <summary>The ground a host pinned, or null while it is the theme's to say.</summary>
+    private SKColor? _background;
     private SKPath? _highlight;
     private BoundsInfo? _gizmo;
     private bool _editing;
@@ -100,8 +104,8 @@ public class SvgViewerCanvas : SKCanvasControl
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
-        Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, null, 0d, null, null,
-        DefaultCaptionSize, null);
+        Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, new(0x1A, 0x1A, 0x1E), null,
+        0d, null, null, DefaultCaptionSize, null);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -109,6 +113,7 @@ public class SvgViewerCanvas : SKCanvasControl
         double Scale,
         double OffsetX,
         double OffsetY,
+        SKColor Ground,
         SKPath? Highlight,
         double HighlightAge,
         (SKRect Bounds, SKPoint By, IReadOnlySet<SvgViewerPlacement> Carried)? Moving,
@@ -145,6 +150,10 @@ public class SvgViewerCanvas : SKCanvasControl
         AddHandler(PointerPressedEvent, OnPressed, RoutingStrategies.Tunnel);
         AddHandler(PointerMovedEvent, OnMoved, RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent, OnReleased, RoutingStrategies.Tunnel);
+
+        // A machine set to turn dark at sunset changes this under an editor nobody has touched,
+        // and the ground is read from the variant.
+        ActualThemeVariantChanged += (_, _) => Publish();
     }
 
     /// <summary>Raised whenever the scale or offset changes, for a zoom readout.</summary>
@@ -251,7 +260,37 @@ public class SvgViewerCanvas : SKCanvasControl
     /// </remarks>
     public event EventHandler<SvgViewerMove>? Moved;
 
-    public SKColor Background { get; set; } = new(0x1A, 0x1A, 0x1E);
+    /// <summary>
+    /// What the surface is cleared to, which follows the theme unless a host says otherwise.
+    /// </summary>
+    /// <remarks>
+    /// The canvas paints its own ground rather than letting the control's background through, so
+    /// without this a light window kept a near-black hole where the drawing goes. Assigning it pins
+    /// it: a host showing a drawing against a ground of its own — a thumbnail, a contrast check —
+    /// means that ground whatever the window around it is doing.
+    /// </remarks>
+    public SKColor Background
+    {
+        get => _background ?? Grounded(ActualThemeVariant);
+
+        set
+        {
+            _background = value;
+
+            Publish();
+        }
+    }
+
+    /// <summary>
+    /// The ground each variant is painted on.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors of one another, and the light one is deliberately not white: the gizmo's handles are
+    /// filled white so they read on whatever they sit on, and on white they would be an outline
+    /// round nothing.
+    /// </remarks>
+    private static SKColor Grounded(ThemeVariant variant)
+        => variant == ThemeVariant.Light ? new SKColor(0xF2, 0xF2, 0xF4) : new SKColor(0x1A, 0x1A, 0x1E);
 
     public bool IsZoomEnabled { get; set; } = true;
 
@@ -803,6 +842,10 @@ public class SvgViewerCanvas : SKCanvasControl
             _scale,
             _offsetX,
             _offsetY,
+
+            // Resolved here rather than in the draw: the variant is the UI thread's to read, and
+            // the render thread may read nothing but this.
+            Background,
             _highlight,
             _highlightAge.Elapsed.TotalSeconds,
             _moving is { } && _moved ? (_movingBounds, _movingBy, Carried()) : null,
@@ -1526,7 +1569,7 @@ public class SvgViewerCanvas : SKCanvasControl
         var state = _snapshot;
         var canvas = e.Canvas;
 
-        canvas.Clear(Background);
+        canvas.Clear(state.Ground);
 
         if (state.Placed.Count == 0 && state.Frames.Count == 0)
         {

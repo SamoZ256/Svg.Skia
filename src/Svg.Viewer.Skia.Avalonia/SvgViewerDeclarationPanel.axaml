@@ -252,7 +252,8 @@
                    PlaceholderText="expression"
                    KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
 
-          <TextBlock Text="{Binding Trouble}" Foreground="#e05252" FontSize="11" TextWrapping="Wrap"
+          <TextBlock Text="{Binding Trouble}" Foreground="{DynamicResource SvgViewerSourceErrorBrush}"
+                     FontSize="11" TextWrapping="Wrap"
                      Margin="20,0,0,0"
                      IsVisible="{Binding HasTrouble}" />
         </StackPanel>

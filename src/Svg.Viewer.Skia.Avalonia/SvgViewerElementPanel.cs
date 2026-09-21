@@ -302,12 +302,17 @@ public sealed class SvgViewerElementPanel : UserControl
 
         var trouble = new TextBlock
         {
-            Foreground = new SolidColorBrush(Color.Parse("#e05252")),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 0),
             IsVisible = false
         };
+
+        // The themed brush rather than the dark-theme red it used to be written as, which is the
+        // same red and unreadable on a light ground. Every other line saying something is wrong
+        // already goes through this key.
+        trouble[!TextBlock.ForegroundProperty] =
+            new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("SvgViewerSourceErrorBrush");
 
         var line = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
 
