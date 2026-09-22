@@ -18,6 +18,7 @@ namespace Svg.Studio.UnitTests;
 /// <see cref="ProjectRecovery.Pulse"/> is one turn of it, so a test that would otherwise sleep for
 /// half a minute moves the clock and asks for the tick.
 /// </remarks>
+[Collection("settings")]
 public class MainWindowAutosaveTests : IDisposable
 {
     private const string Drawing = """

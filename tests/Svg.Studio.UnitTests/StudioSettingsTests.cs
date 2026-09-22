@@ -10,6 +10,7 @@ namespace Svg.Studio.UnitTests;
 /// The settings the editor keeps between sessions, and the rules that decide them: the copy is on
 /// unless the file says otherwise, and a size nobody can use is the one nobody set.
 /// </summary>
+[Collection("settings")]
 public class StudioSettingsTests : IDisposable
 {
     private readonly string _was = StudioSettings.Store;

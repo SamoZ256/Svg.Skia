@@ -16,6 +16,7 @@ namespace Svg.Studio.UnitTests;
 /// are put back afterwards the way <see cref="StudioSettingsTests"/> puts the store back. Without
 /// that, a run of this leaves every later test looking at whichever theme it finished on.
 /// </remarks>
+[Collection("settings")]
 public class SettingsThemeTests : IDisposable
 {
     private readonly StudioTheme _was = StudioSettings.Theme;
