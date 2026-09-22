@@ -448,6 +448,59 @@ public class ProjectGroup : ProjectNode
         return copy;
     }
 
+    /// <summary>
+    /// What this group holds now, as something that puts it back.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The capture every structural gesture wants — add, remove, paste, a row dragged in or out —
+    /// and it is the group rather than the row because a row being added does not exist yet when the
+    /// state before is taken. What was there is a list, and putting it back is putting that list
+    /// back.
+    /// </para>
+    /// <para>
+    /// The XML nodes and not the children: a group holds comments and the whitespace that lays it
+    /// out as well as rows, and an undo that put the rows back by index moved them across a comment
+    /// that had been sitting between two of them. What a file said is every node in the order it
+    /// said them.
+    /// </para>
+    /// <para>
+    /// The very nodes, re-attached rather than re-read, so identity survives: every open tab holds
+    /// its node by reference, and a row put back as a copy would leave the tab that was open on it
+    /// editing something the document no longer contains.
+    /// </para>
+    /// </remarks>
+    internal Action Contents()
+    {
+        var nodes = Element.Nodes().ToList();
+        var children = _children.ToList();
+
+        return () =>
+        {
+            Element.RemoveNodes();
+
+            foreach (var node in nodes)
+            {
+                // A row dragged into another group is parented there, and adding a parented node
+                // copies it rather than moving it — which would put a stranger back in its place.
+                if (node.Parent is { })
+                {
+                    node.Remove();
+                }
+
+                Element.Add(node);
+            }
+
+            _children.Clear();
+            _children.AddRange(children);
+
+            foreach (var child in children)
+            {
+                child.Parent = this;
+            }
+        };
+    }
+
     /// <summary>Takes a node out of this group, with everything under it.</summary>
     public void Remove(ProjectNode child)
     {

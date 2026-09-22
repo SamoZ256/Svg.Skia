@@ -16,6 +16,7 @@ namespace Svg.Studio.UnitTests;
 /// Driven through <see cref="MainWindow.ExportAsync(string)"/> and the replaceable dialog, for the
 /// reason every other modal here is: a panel nobody clicks blocks a headless run for ever.
 /// </remarks>
+[Collection("settings")]
 public class MainWindowTextLayoutTests : IDisposable
 {
     /// <summary>A drawing laid out the one way that can carry a parameter: one run, one origin.</summary>

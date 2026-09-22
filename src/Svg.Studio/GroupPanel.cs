@@ -191,19 +191,6 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private readonly Dictionary<string, string?> _pending = new(StringComparer.Ordinal);
 
-    /// <summary>Where every row sat before each move on this board, newest first.</summary>
-    /// <remarks>
-    /// Held here rather than in the project because it is this tab's board: two tabs open on two
-    /// groups arrange two different things, and taking back the last move means the last move on
-    /// the board somebody is looking at.
-    /// </remarks>
-    private readonly Stack<IReadOnlyList<Place>> _undone = new();
-
-    private readonly Stack<IReadOnlyList<Place>> _redone = new();
-
-    /// <summary>One row and where it sat.</summary>
-    private readonly record struct Place(ProjectNode Node, float? X, float? Y);
-
     /// <summary>Moving, turning and scaling the picked element by dragging it on the canvas.</summary>
     private readonly SvgViewerGizmos _gizmo = new();
 
@@ -502,17 +489,24 @@ public sealed class GroupPanel : UserControl
         var setting = typing?.Tag as string;
 
         var was = IsModified;
+        var writing = _pending.ToList();
 
-        foreach (var edit in _pending)
-        {
-            Write(Node, edit.Key, edit.Value);
-        }
-
-        _pending.Clear();
+        // Every setting typed since the last commit as one thing to take back, which is what was
+        // handed over: the boxes are filled in together and committed together.
+        Workspace.Do(
+            $"change {ProjectWorkspace.Label(Node)}",
+            () => ProjectSnapshot.Attributes(Node),
+            () =>
+            {
+                foreach (var edit in writing)
+                {
+                    Write(Node, edit.Key, edit.Value);
+                }
+            });
 
         // Cleared before the project hears about it, which is honest now that this does not write:
         // the tab really is holding nothing, and what it handed over is the project's to report.
-        Workspace.Edit();
+        _pending.Clear();
 
         // What is true, not the false this used to announce. Committing rebuilds the rows, which
         // detaches whichever box had focus, and a box losing focus records what is in it — so this
@@ -1588,83 +1582,22 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        // Before Settle, which is the half worth being able to take back: the first move on a board
-        // that has never been arranged writes a place for every row on the tab, so one drag nobody
-        // meant to make turns a spread into an arrangement.
-        _undone.Push(Places());
-        _redone.Clear();
-
-        Settle();
-
-        node.X = ProjectNode.Rounded((node.X ?? 0f) + move.By.X);
-        node.Y = ProjectNode.Rounded((node.Y ?? 0f) + move.By.Y);
-
-        Workspace.Edit();
-    }
-
-    /// <summary>
-    /// Puts the board back the way it was before the last move, and answers whether there was one.
-    /// </summary>
-    /// <remarks>
-    /// Places and nothing else. A move writes x and y — its own, and through <see cref="Settle"/>
-    /// every other row's — so putting those back is the whole of putting the move back.
-    ///
-    /// The project has no undo of its own: what a board writes goes straight in, and until now the
-    /// only way back from a drag nobody meant was to put everything where it had been by hand.
-    /// </remarks>
-    public bool Undo() => Step(_undone, _redone);
-
-    /// <inheritdoc cref="Undo"/>
-    public bool Redo() => Step(_redone, _undone);
-
-    private bool Step(Stack<IReadOnlyList<Place>> from, Stack<IReadOnlyList<Place>> to)
-    {
-        if (from.Count == 0)
-        {
-            return false;
-        }
-
-        to.Push(Places());
-
-        foreach (var (node, x, y) in from.Pop())
-        {
-            // A row taken out of the project since, or dragged out from under this tab, is not this
-            // tab's to write to any more.
-            if (!node.DescendsFrom(Node))
+        // The whole tab and not the row that was dragged, because Settle is inside the gesture: the
+        // first move on a board that has never been arranged writes a place for every row on it, so
+        // one drag nobody meant to make turns a spread into an arrangement, and all of that is what
+        // there is to take back.
+        Workspace.Do(
+            $"move {ProjectWorkspace.Label(node)}",
+            () => Node is ProjectGroup board
+                ? ProjectSnapshot.Places(board)
+                : ProjectSnapshot.Attributes(Node),
+            () =>
             {
-                continue;
-            }
+                Settle();
 
-            node.X = x;
-            node.Y = y;
-        }
-
-        Workspace.Edit();
-
-        return true;
-    }
-
-    /// <summary>Where every row under this tab sits, as the file says.</summary>
-    private IReadOnlyList<Place> Places()
-    {
-        var places = new List<Place>();
-
-        Walk(Node);
-
-        return places;
-
-        void Walk(ProjectNode node)
-        {
-            places.Add(new Place(node, node.X, node.Y));
-
-            if (node is ProjectGroup group)
-            {
-                foreach (var child in group.Children)
-                {
-                    Walk(child);
-                }
-            }
-        }
+                node.X = ProjectNode.Rounded((node.X ?? 0f) + move.By.X);
+                node.Y = ProjectNode.Rounded((node.Y ?? 0f) + move.By.Y);
+            });
     }
 
     /// <summary>Gives every row of the tab the place it is already being drawn at.</summary>

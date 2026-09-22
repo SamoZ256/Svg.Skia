@@ -1312,6 +1312,131 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(window.Redo());
     }
 
+    /// <summary>
+    /// Every gesture that edits the project is one thing to take back.
+    /// </summary>
+    /// <remarks>
+    /// The point of the history rather than a list of what happens to be on it: until there was one,
+    /// the half of the editor that wrote into the project rather than into a tab's buffer — the tree,
+    /// the settings panel, a declaration held by a group — had no way back at all, and only a board
+    /// drag did, on a stack of its own that answered only while its own tab was in front.
+    ///
+    /// Byte for byte, because that is the contract the format keeps: what an undo restores is the
+    /// file that would have been written a moment earlier, not merely something that reads the same.
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData("add group")]
+    [InlineData("add a drawing")]
+    [InlineData("paste a copy")]
+    [InlineData("drag a row into a group")]
+    [InlineData("commit a setting")]
+    public async Task A_Gesture_On_The_Project_Is_One_Thing_To_Take_Back(string gesture)
+    {
+        var path = Write("icons.svgstudio", Project);
+        var window = await Host(path);
+
+        var root = window.Workspace!.Document.Root;
+        var was = window.Workspace.Document.ToXml();
+
+        switch (gesture)
+        {
+            case "add group":
+                await window.AddGroupAsync(root.Children[0]);
+                break;
+
+            case "add a drawing":
+                await window.AddDrawingsAsync(root, root.Children.Count, new[] { Write("extra.svg", Drawing) });
+                break;
+
+            case "paste a copy":
+                Pick(window, "home", "Copy");
+                Pick(window, "Large", "Paste");
+                break;
+
+            case "drag a row into a group":
+                Assert.True(window.Move(root.Children[0], root.Children[1]));
+                break;
+
+            case "commit a setting":
+                await window.ShowAsync(root.Children[1]);
+                Dispatcher.UIThread.RunJobs();
+                Panel(window, "Large").Edit("scale", "4");
+                Panel(window, "Large").Commit();
+                break;
+        }
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotEqual(was, window.Workspace.Document.ToXml());
+        Assert.True(window.Workspace.CanUndo);
+
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was, window.Workspace.Document.ToXml());
+
+        // And forward again, so it is a step rather than a thing that only goes one way.
+        Assert.True(window.Redo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotEqual(was, window.Workspace.Document.ToXml());
+
+        // Nothing reached the file either way: an undo is an edit to the project like any other.
+        Assert.Equal(Project, File.ReadAllText(path));
+    }
+
+    /// <summary>
+    /// A row put back is the row that was taken out, not a copy of it.
+    /// </summary>
+    /// <remarks>
+    /// The whole reason this history restores in place rather than re-reading the project's text.
+    /// Every open tab holds its node by reference and is matched with ReferenceEquals, so a row that
+    /// came back as a copy would leave the tab that was open on it editing a node the document no
+    /// longer contains — reporting itself saved while writing into nothing.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Row_Put_Back_Is_The_Row_That_Was_Taken_Out()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        var drawing = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+
+        await window.ShowAsync(drawing);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains(Tabs(window).Items.OfType<TabItem>(), item => ReferenceEquals(item.Tag, drawing));
+
+        Assert.True(await window.RemoveAsync(drawing));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        var back = Assert.IsType<ProjectDrawing>(window.Workspace.Document.Root.Children[0]);
+
+        Assert.Same(drawing, back);
+        Assert.Same(window.Workspace.Document.Root, back.Parent);
+    }
+
+    /// <summary>The menu says what it would take back, and stops offering what it cannot.</summary>
+    [AvaloniaFact]
+    public async Task The_Menu_Names_What_It_Would_Take_Back()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        var edit = NativeMenu.GetMenu(window)!.Items.OfType<NativeMenuItem>().Single(item => item.Header == "Edit");
+        var undo = edit.Menu!.Items.OfType<NativeMenuItem>().Single(item => item.Header?.StartsWith("Undo") == true);
+
+        Assert.False(undo.IsEnabled);
+        Assert.Equal("Undo", undo.Header);
+
+        Assert.True(await window.RemoveAsync(window.Workspace!.Document.Root.Children[0]));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(undo.IsEnabled);
+        Assert.Equal("Undo remove home", undo.Header);
+    }
+
     /// <summary>A project whose nested group declares, so selecting it changes what the pane says.</summary>
     private string Framed()
         => Write("icons.svgstudio", """
@@ -4480,8 +4605,6 @@ public class MainWindowProjectTests : IDisposable
         var path = Write("icons.svgstudio", Project);
         var window = await Host(path);
 
-        window.ConfirmRemove = _ => Task.FromResult(true);
-
         var root = (TreeViewItem)Tree(window).Items[0]!;
         var group = (TreeViewItem)root.Items[1]!;
 
@@ -4510,23 +4633,42 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("<drawing name=\"home\" class=\"Home\">", written, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A branch removed comes back whole, with the rows under it.
+    /// </summary>
+    /// <remarks>
+    /// This used to be a question, asked because removing a branch could not be taken back. It can
+    /// be, so it is not asked any more, and this is what makes that a fair trade: the document is
+    /// what it was, byte for byte, and the very node that was taken out is the one that is back —
+    /// not a copy read out of text, which every tab still holding it would have been left behind by.
+    /// </remarks>
     [AvaloniaFact]
-    public async Task A_Branch_Refused_At_The_Question_Stays()
+    public async Task A_Branch_Removed_Comes_Back_Whole()
     {
-
         var path = Write("icons.svgstudio", Project);
         var window = await Host(path);
 
-        var asked = new List<string>();
-
-        window.ConfirmRemove = message => { asked.Add(message); return Task.FromResult(false); };
-
+        var was = window.Workspace!.Document.ToXml();
         var group = (ProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!;
 
-        Assert.False(await window.RemoveAsync(group));
+        Assert.True(await window.RemoveAsync(group));
+        Dispatcher.UIThread.RunJobs();
 
-        // Asked because it takes a row with it, and the file is untouched.
-        Assert.Contains("holds 1 row", Assert.Single(asked));
+        Assert.DoesNotContain(window.Workspace.Document.Root.Children, child => ReferenceEquals(child, group));
+
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was, window.Workspace.Document.ToXml());
+        Assert.Contains(window.Workspace.Document.Root.Children, child => ReferenceEquals(child, group));
+
+        // And forward again, so the gesture is a step rather than a thing that only goes one way.
+        Assert.True(window.Redo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain(window.Workspace.Document.Root.Children, child => ReferenceEquals(child, group));
+
+        // Nothing reached the file either way.
         Assert.Equal(Project, File.ReadAllText(path));
     }
 
@@ -4537,7 +4679,6 @@ public class MainWindowProjectTests : IDisposable
         var path = Write("icons.svgstudio", Project);
         var window = await Host(path);
 
-        window.ConfirmRemove = _ => Task.FromResult(true);
         window.ConfirmDiscard = _ => Task.FromResult(false);
 
         var group = (ProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!;

@@ -2032,6 +2032,22 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         RaiseModified();
     }
 
+    /// <summary>Whether the drawing has an edit to take back, for a host that draws a menu.</summary>
+    /// <remarks>
+    /// The workspace has answered this all along; nothing asked, so a host's menu item was live
+    /// whether or not it would reach anything. A drawing that is not open has nothing either way.
+    /// </remarks>
+    public bool CanUndo => _workspace?.CanUndo == true;
+
+    /// <inheritdoc cref="CanUndo"/>
+    public bool CanRedo => _workspace?.CanRedo == true;
+
+    /// <summary>What taking one back would take back, for a menu to name it.</summary>
+    public string? UndoLabel => _workspace?.UndoLabel;
+
+    /// <inheritdoc cref="UndoLabel"/>
+    public string? RedoLabel => _workspace?.RedoLabel;
+
     /// <summary>Takes back the last edit to the drawing's text.</summary>
     /// <remarks>
     /// For a host with a menu: the canvas binds the platform's gestures itself, and a menu item

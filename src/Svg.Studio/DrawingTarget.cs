@@ -13,9 +13,9 @@ namespace Svg.Studio;
 /// in Studio writes the buffer behind its tab; there is no buffer here, so the edit goes straight
 /// into the project, where the tree and every other view read it.
 ///
-/// What that costs is the buffer's two services: there is nothing to take back with ⌘Z, and no mark
-/// of its own, since no tab is holding it. The project carries it as it carries a row dragged in the
-/// tree, so it is not on disk and not silent — the title says the project is unsaved.
+/// What that costs is the buffer's one remaining service: no mark of its own, since no tab is
+/// holding it. The project carries it as it carries a row dragged in the tree — not on disk and not
+/// silent, since the title says the project is unsaved, and ⌘Z takes it back like anything else.
 /// </remarks>
 public sealed class DrawingTarget : ISvgViewerDeclarationTarget
 {
@@ -66,13 +66,10 @@ public sealed class DrawingTarget : ISvgViewerDeclarationTarget
             return null;
         }
 
-        if (_drawing.SetText(written) is { } bad)
-        {
-            return bad;
-        }
+        string? bad = null;
 
-        _workspace.Edit();
+        _workspace.Do(label, () => ProjectSnapshot.Text(_drawing), () => bad = _drawing.SetText(written));
 
-        return null;
+        return bad;
     }
 }

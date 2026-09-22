@@ -65,14 +65,11 @@ public sealed class GroupTarget : ISvgViewerDeclarationTarget, IEquatable<GroupT
             return null;
         }
 
-        if (_group.SetCode(written) is { } bad)
-        {
-            return bad;
-        }
+        string? bad = null;
 
-        _workspace.Edit();
+        _workspace.Do(label, () => ProjectSnapshot.Code(_group), () => bad = _group.SetCode(written));
 
-        return null;
+        return bad;
     }
 
     /// <summary>The group is the identity: two targets over one group are one place to write.</summary>
