@@ -112,7 +112,12 @@ public partial class SettingsWindow : Window
     };
 
     /// <summary>The list of themes, for a test to drive.</summary>
-    public ComboBox Theme { get; }
+    /// <remarks>
+    /// <c>new</c> because a Window already has a Theme, which is its control template. Named for
+    /// what it is here rather than renamed around the collision: the other three boxes on this
+    /// window are named after their setting, and this is the setting's box.
+    /// </remarks>
+    public new ComboBox Theme { get; }
 
     /// <summary>The box for the recovery copy, for a test to drive.</summary>
     public CheckBox Autosave { get; }
