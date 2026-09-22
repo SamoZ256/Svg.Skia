@@ -98,7 +98,6 @@ public partial class MainWindow : Window
         AskWhereToSave = AskSaveProject;
         ShowSettings = ShowSettingsWindow;
         ConfirmRelax = AskRelax;
-        ConfirmRemove = message => Ask("Remove from the project", message, "Remove", "Cancel");
         Announce = (title, message) => Ask(title, message, null, "Close");
         ShowOnDisk = Reveal;
 
@@ -961,14 +960,18 @@ public partial class MainWindow : Window
         }
 
         var (parent, index) = Beside(target);
-        var copy = parent.Copy(held, index);
+        ProjectNode? copy = null;
+
+        workspace.Do(
+            $"paste {ProjectWorkspace.Label(held)}",
+            () => ProjectSnapshot.Contents(parent),
+            () => copy = parent.Copy(held, index));
 
         // Once, as a cut is: the hold is what a paste hears before the system clipboard, and a copy
         // that outlived its paste would go on answering for every paste made afterwards — including
         // the one meant for an icon copied in another program. Twice is Copy, Paste, Copy, Paste.
         _held = null;
 
-        workspace.Edit();
         BuildTree(copy);
     }
 
@@ -1060,9 +1063,18 @@ public partial class MainWindow : Window
         }
 
         var (parent, index) = Beside(beside);
-        var group = parent.AddGroup("group", index);
+        ProjectGroup? group = null;
 
-        workspace.Edit();
+        workspace.Do(
+            "add group",
+            () => ProjectSnapshot.Contents(parent),
+            () => group = parent.AddGroup("group", index));
+
+        if (group is null)
+        {
+            return;
+        }
+
         BuildTree(group);
 
         // Named "group" until something better is typed into its settings, which is what the tab
@@ -1128,18 +1140,52 @@ public partial class MainWindow : Window
             return;
         }
 
-        ProjectDrawing? added = null;
+        // Read before any of them is added, so the whole run is one gesture: what follows cannot
+        // stop to ask a question part way through, and a run where every file was unreadable never
+        // becomes a step with nothing in it.
+        var reading = new List<(string Name, string Text)>();
 
         foreach (var path in paths)
         {
             try
             {
-                added = parent.AddDrawing(Path.GetFileNameWithoutExtension(path), File.ReadAllText(path), index++);
+                reading.Add((Path.GetFileNameWithoutExtension(path), File.ReadAllText(path)));
             }
-            catch (Exception failure) when (failure is SvgcProjectException or IOException or UnauthorizedAccessException)
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
                 await Announce("That drawing couldn't be added", $"{Path.GetFileName(path)}: {failure.Message}").ConfigureAwait(true);
             }
+        }
+
+        if (reading.Count == 0)
+        {
+            return;
+        }
+
+        ProjectDrawing? added = null;
+        var refused = new List<string>();
+
+        workspace.Do(
+            reading.Count == 1 ? $"add {reading[0].Name}" : $"add {reading.Count} drawings",
+            () => ProjectSnapshot.Contents(parent),
+            () =>
+            {
+                foreach (var (name, text) in reading)
+                {
+                    try
+                    {
+                        added = parent.AddDrawing(name, text, index++);
+                    }
+                    catch (SvgcProjectException failure)
+                    {
+                        refused.Add($"{name}: {failure.Message}");
+                    }
+                }
+            });
+
+        foreach (var refusal in refused)
+        {
+            await Announce("That drawing couldn't be added", refusal).ConfigureAwait(true);
         }
 
         if (added is null)
@@ -1147,7 +1193,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        workspace.Edit();
         BuildTree(added);
 
         await ShowAsync(added).ConfigureAwait(true);
@@ -1161,20 +1206,31 @@ public partial class MainWindow : Window
             return;
         }
 
-        ProjectDrawing added;
+        ProjectDrawing? added = null;
+        string? refusal = null;
 
-        try
+        workspace.Do(
+            $"add {name}",
+            () => ProjectSnapshot.Contents(parent),
+            () =>
+            {
+                try
+                {
+                    added = parent.AddDrawing(name, svgText, index);
+                }
+                catch (SvgcProjectException failure)
+                {
+                    refusal = failure.Message;
+                }
+            });
+
+        if (added is null)
         {
-            added = parent.AddDrawing(name, svgText, index);
-        }
-        catch (SvgcProjectException failure)
-        {
-            await Announce("That drawing couldn't be added", failure.Message).ConfigureAwait(true);
+            await Announce("That drawing couldn't be added", refusal ?? "It could not be read.").ConfigureAwait(true);
 
             return;
         }
 
-        workspace.Edit();
         BuildTree(added);
 
         await ShowAsync(added).ConfigureAwait(true);
@@ -1196,14 +1252,6 @@ public partial class MainWindow : Window
             return false;
         }
 
-        // Only when it takes something with it. A row removed by mistake is one add away; a branch
-        // is not, and there is no undo.
-        if (node is ProjectGroup { Children.Count: > 0 } group
-            && !await ConfirmRemove(Removing(group)).ConfigureAwait(true))
-        {
-            return false;
-        }
-
         foreach (var item in _tabs.Items.OfType<TabItem>()
                      .Where(item => item.Tag is ProjectNode held && held.DescendsFrom(node))
                      .ToList())
@@ -1214,9 +1262,11 @@ public partial class MainWindow : Window
             }
         }
 
-        parent.Remove(node);
+        workspace.Do(
+            $"remove {ProjectWorkspace.Label(node)}",
+            () => ProjectSnapshot.Contents(parent),
+            () => parent.Remove(node));
 
-        workspace.Edit();
         BuildTree();
 
         return true;
@@ -1453,16 +1503,41 @@ public partial class MainWindow : Window
             return false;
         }
 
-        try
-        {
-            landing.Move(node, landing.Children.Count);
-        }
-        catch (SvgcProjectException)
+        var refused = false;
+
+        // Read now and closed over, not asked inside the capture: the capture runs on both sides of
+        // the move, and by the second one the row's parent is the group it landed in — so the group
+        // it came from would never be captured at all, and the one it went to would be captured
+        // twice, which puts the row in both.
+        var from = node.Parent;
+
+        // Both groups and the row itself: a move rewrites the row's own place against wherever it
+        // lands, and takes it out of one list and puts it into another.
+        workspace.Do(
+            $"move {ProjectWorkspace.Label(node)}",
+            () => ProjectSnapshot.All(
+                // First, while where it sits still says what depth it was written at.
+                ProjectSnapshot.Indentation(node),
+                ProjectSnapshot.Contents(landing),
+                from is { } origin ? ProjectSnapshot.Contents(origin) : () => { },
+                ProjectSnapshot.Attributes(node)),
+            () =>
+            {
+                try
+                {
+                    landing.Move(node, landing.Children.Count);
+                }
+                catch (SvgcProjectException)
+                {
+                    refused = true;
+                }
+            });
+
+        if (refused)
         {
             return false;
         }
 
-        workspace.Edit();
         BuildTree(node);
 
         return true;
@@ -1530,14 +1605,6 @@ public partial class MainWindow : Window
     {
         _dropLine.IsVisible = false;
         _dropOn = null;
-    }
-
-    private static string Removing(ProjectGroup group)
-    {
-        var rows = group.Children.Count;
-
-        return $"{ProjectWorkspace.Label(group)} holds {rows} {(rows == 1 ? "row" : "rows")}, "
-               + "which will be removed with it. This cannot be undone.";
     }
 
     /// <summary>Every drawing under <paramref name="node"/>, whatever kind of node it is.</summary>
@@ -2268,11 +2335,19 @@ public partial class MainWindow : Window
 
     private void OnRedo(object? sender, EventArgs e) => Redo();
 
-    /// <summary>Takes back the last edit, in whatever is being typed in.</summary>
+    /// <summary>
+    /// Takes back the last edit: the one made here, and then the one made to the project.
+    /// </summary>
     /// <remarks>
-    /// A menu item's gesture is the window's on macOS, so it arrives here wherever the caret is —
-    /// including a box in the parameter panel, which keeps its own stack and would otherwise have
-    /// its keystroke taken by the drawing's.
+    /// Three tiers, narrowest first. A menu item's gesture is the window's on macOS, so it arrives
+    /// wherever the caret is — including a box in the parameter panel, which keeps its own stack and
+    /// would otherwise have its keystroke taken by the drawing's. Then the drawing in front, whose
+    /// text is its tab's buffer and is not in the project until it is saved. Then the project, which
+    /// is one history for every gesture made to it from any tab.
+    ///
+    /// <c>||</c> rather than <c>??</c>: a drawing with nothing left to take back answers false, and
+    /// the project is asked. The other way round, a group tab answered for a board that had never
+    /// been dragged and the gesture reached nothing at all.
     /// </remarks>
     /// <returns>Whether there was anything to take back.</returns>
     public bool Undo()
@@ -2286,7 +2361,7 @@ public partial class MainWindow : Window
             return true;
         }
 
-        return Board()?.Undo() ?? Selected()?.Undo() == true;
+        return Selected()?.Undo() == true || _workspace?.Undo() == true;
     }
 
     /// <inheritdoc cref="Undo"/>
@@ -2299,15 +2374,8 @@ public partial class MainWindow : Window
             return true;
         }
 
-        return Board()?.Redo() ?? Selected()?.Redo() == true;
+        return Selected()?.Redo() == true || _workspace?.Redo() == true;
     }
-
-    /// <summary>The group tab being looked at, whose board has a move of its own to take back.</summary>
-    /// <remarks>
-    /// A group tab holds no drawing, so the Edit menu's Undo reached nothing over one and the drag
-    /// that arranged a board could not be taken back at all.
-    /// </remarks>
-    private GroupPanel? Board() => (_tabs.SelectedItem as TabItem)?.Content as GroupPanel;
 
     private IInputElement? Focused() => FocusManager?.GetFocusedElement();
 
@@ -2359,7 +2427,30 @@ public partial class MainWindow : Window
         {
             close.IsEnabled = _workspace is { };
         }
+
+        // What the gesture would reach, named. The tiers are the ones Undo walks, minus the focused
+        // box — a menu is drawn before the click that would focus anything, so the box it would
+        // reach is not knowable here and the drawing's answer is the honest one to show.
+        if (Item(menu, "Undo") is { } undo)
+        {
+            undo.IsEnabled = Selected()?.CanUndo == true || _workspace?.CanUndo == true;
+            undo.Header = Taking("Undo", Selected()?.UndoLabel ?? _workspace?.UndoLabel);
+        }
+
+        if (Item(menu, "Redo") is { } redo)
+        {
+            redo.IsEnabled = Selected()?.CanRedo == true || _workspace?.CanRedo == true;
+            redo.Header = Taking("Redo", Selected()?.RedoLabel ?? _workspace?.RedoLabel);
+        }
     }
+
+    /// <summary>"Undo", or "Undo remove Large" where the history knows what it was.</summary>
+    /// <remarks>
+    /// A label is what the gesture was called where it was made, so a history that never named one
+    /// leaves the item reading as it always did rather than inventing a name for it.
+    /// </remarks>
+    private static string Taking(string command, string? label)
+        => label is { Length: > 0 } said ? $"{command} {said}" : command;
 
     private void ShowMenuGestures()
     {
@@ -2692,16 +2783,6 @@ public partial class MainWindow : Window
     /// What the conversion was asked for, or null where the document is not to be converted.
     /// </returns>
     public Func<string, Task<(bool Integers, bool Organize)?>> ConfirmConvert { get; set; }
-
-    /// <summary>
-    /// How the window asks whether a branch of the project may go.
-    /// </summary>
-    /// <remarks>
-    /// Its own rather than <see cref="ConfirmDiscard"/> widened: the two differ in their title and
-    /// in both button labels, so one seam carrying the wording would take four arguments and every
-    /// caller that only reads the message would have to pass values it ignores.
-    /// </remarks>
-    public Func<string, Task<bool>> ConfirmRemove { get; set; }
 
     /// <summary>
     /// How the window shows a file where it lives.
@@ -3372,14 +3453,19 @@ public partial class MainWindow : Window
 
             if (viewer.IsSourceModified && selected.Tag is ProjectDrawing drawing)
             {
-                if (drawing.SetText(viewer.Source) is { } refusal)
+                string? refusal = null;
+
+                holder.Do(
+                    $"save {ProjectWorkspace.Label(drawing)}",
+                    () => ProjectSnapshot.Text(drawing),
+                    () => refusal = drawing.SetText(viewer.Source));
+
+                if (refusal is { })
                 {
                     await Announce(title, refusal).ConfigureAwait(true);
 
                     return false;
                 }
-
-                holder.Edit();
             }
         }
 

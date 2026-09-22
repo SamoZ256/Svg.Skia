@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Svg.Skia;
 
@@ -37,6 +38,21 @@ public sealed class ProjectWorkspace
     }
 
     public ProjectDocument Document { get; }
+
+    /// <summary>
+    /// How many gestures to keep. The same bound a drawing's own history uses, and here for the same
+    /// reason: far past what anyone reaches for, so a long session cannot grow without one.
+    /// </summary>
+    private const int Depth = 200;
+
+    private readonly List<Gesture> _steps = new();
+
+    /// <summary>How many of <see cref="_steps"/> have been done: the index of the next redo.</summary>
+    private int _at;
+
+    private bool _applying;
+
+    private readonly record struct Gesture(string Label, Action Back, Action Again);
 
     /// <summary>Raised when the document has changed, so every view of it can follow.</summary>
     public event EventHandler? Edited;
@@ -75,8 +91,135 @@ public sealed class ProjectWorkspace
     /// </remarks>
     public bool IsEdited => Edits > 0;
 
+    /// <summary>Whether there is a gesture to take back.</summary>
+    public bool CanUndo => _at > 0;
+
+    /// <summary>Whether there is one to put again.</summary>
+    public bool CanRedo => _at < _steps.Count;
+
+    /// <summary>What taking one back would take back, for a menu to name it.</summary>
+    public string? UndoLabel => CanUndo ? _steps[_at - 1].Label : null;
+
+    /// <inheritdoc cref="UndoLabel"/>
+    public string? RedoLabel => CanRedo ? _steps[_at].Label : null;
+
+    /// <summary>
+    /// Runs one gesture against the document and keeps what it takes to put it back.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the only way to edit a project, and that is the point of it: an edit that cannot be
+    /// taken back cannot be recorded, so "everything is undoable" is a thing the compiler asks for
+    /// rather than a thing anyone has to remember. What used to be here was a bare counter, and the
+    /// half of the editor that wrote through it had no way back at all.
+    /// </para>
+    /// <para>
+    /// One entry per gesture, not per attribute — settling a board writes a place on every row under
+    /// a tab, and what somebody wants back is the drag.
+    /// </para>
+    /// </remarks>
+    /// <param name="label">What the person did, for a menu to say "Undo remove Large".</param>
+    /// <param name="capture">
+    /// The state this gesture is about to change, as something that puts it back. Called twice, once
+    /// on each side of <paramref name="edit"/>, so one closure gives both the way back and the way
+    /// forward.
+    /// </param>
+    /// <param name="edit">The mutation, which has already happened by the time this returns.</param>
+    public void Do(string label, Func<Action> capture, Action edit)
+    {
+        if (capture is null)
+        {
+            throw new ArgumentNullException(nameof(capture));
+        }
+
+        if (edit is null)
+        {
+            throw new ArgumentNullException(nameof(edit));
+        }
+
+        var undo = capture();
+
+        edit();
+
+        // Nothing is kept while one is being applied: an undo is itself a change to the document,
+        // and recording it would put the way back onto the history as a step of its own.
+        if (_applying)
+        {
+            return;
+        }
+
+        var redo = capture();
+
+        // Whatever was taken back and not put again is gone the moment something else is done,
+        // which is what every text editor does with a redo tail.
+        _steps.RemoveRange(_at, _steps.Count - _at);
+        _steps.Add(new Gesture(label, undo, redo));
+
+        if (_steps.Count > Depth)
+        {
+            _steps.RemoveAt(0);
+        }
+
+        _at = _steps.Count;
+
+        Edit();
+    }
+
+    /// <summary>Takes back the last gesture.</summary>
+    /// <returns>Whether there was anything to take back.</returns>
+    /// <remarks>
+    /// The answer matters: a host with more than one history behind it — a drawing's text, and the
+    /// project holding that drawing — asks each in turn and stops at the first that says yes.
+    /// </remarks>
+    public bool Undo()
+    {
+        if (!CanUndo)
+        {
+            return false;
+        }
+
+        Apply(_steps[_at - 1].Back);
+
+        _at--;
+
+        Edit();
+
+        return true;
+    }
+
+    /// <inheritdoc cref="Undo"/>
+    public bool Redo()
+    {
+        if (!CanRedo)
+        {
+            return false;
+        }
+
+        Apply(_steps[_at].Again);
+
+        _at++;
+
+        Edit();
+
+        return true;
+    }
+
+    private void Apply(Action way)
+    {
+        _applying = true;
+
+        try
+        {
+            way();
+        }
+        finally
+        {
+            _applying = false;
+        }
+    }
+
     /// <summary>Records one edit to the document, which is left for somebody to save.</summary>
-    public void Edit()
+    private void Edit()
     {
         Edits++;
         Edited?.Invoke(this, EventArgs.Empty);
