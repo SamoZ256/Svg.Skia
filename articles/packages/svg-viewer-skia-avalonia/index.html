@@ -249,6 +249,10 @@
 <td>Which element is picked</td>
 </tr>
 <tr>
+<td><code>SnapsToGrid</code> / <code>Grid</code> / <code>SnapChanged</code></td>
+<td>Landing a drag on a grid rather than where the pointer stopped — a move puts the element's own corner on a line, a handle puts the edge it is dragging on one, a turn lands on <code>Grid.Turn</code> degrees, and the drawing's own edges do the same. The two are held apart: <code>Grid</code> is the steps whether or not anything is landing on them, and <code>SnapsToGrid</code> is the toolbar's toggle, which raises <code>SnapChanged</code> when a hand rather than the host flips it. The lines are in the space the canvas draws in, so a host arranging several drawings gets one grid across all of them</td>
+</tr>
+<tr>
 <td><code>SidePanels</code></td>
 <td>Panels of your own beside the parameters: the right pane becomes a strip of tabs while there are any, yours first and so the first one it opens on, and holds the parameters alone again when there are none</td>
 </tr>
