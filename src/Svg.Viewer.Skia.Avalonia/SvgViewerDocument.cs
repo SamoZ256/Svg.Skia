@@ -308,6 +308,87 @@ public sealed class SvgViewerDocument : IDisposable
     }
 
     /// <summary>
+    /// Moves the drawing's own edges, leaving what is drawn inside them where it is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What a handle dragged on the page means, and the difference between it and
+    /// <see cref="Resize(SvgSourceDocument, SvgSizeRequest)"/> is the whole point: a resize changes
+    /// the size the drawing <em>is</em> and the ink comes with it, because the viewBox it is mapped
+    /// through does not move. Dragging the page is the other thing — the frame moves and the drawing
+    /// stays the size it was, gaining room on the side that was dragged.
+    /// </para>
+    /// <para>
+    /// Both the viewport and the viewBox, by the same factor per axis, which is what holds the scale
+    /// between them still. The edges are given as fractions of the page as it stands, so the caller
+    /// needs to know nothing about the drawing's own numbers: 0 and 1 are where the page is now, and
+    /// dragging the right edge half as wide again is a right of 1.5.
+    /// </para>
+    /// <para>
+    /// A drawing with no viewBox has its viewport for one — without a viewBox, width and height are
+    /// a viewport and nothing is mapped through anything, so the frame it implies is its own size.
+    /// </para>
+    /// </remarks>
+    /// <returns>The sentence refusing it, or null where the page was moved.</returns>
+    public string? Reframe(SvgSourceDocument source, float left, float top, float right, float bottom)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        var across = right - left;
+        var down = bottom - top;
+
+        if (across <= 0f || down <= 0f)
+        {
+            return "A drawing cannot be given a page of nothing.";
+        }
+
+        if (left.Equals(0f) && top.Equals(0f) && across.Equals(1f) && down.Equals(1f))
+        {
+            return null;
+        }
+
+        var own = global::Svg.Model.Services.SvgService.FromSvg(source.ToText());
+
+        if (own is null)
+        {
+            return "This drawing cannot be read as SVG yet, so there is no page to move.";
+        }
+
+        var width = own.Width.Value;
+        var height = own.Height.Value;
+
+        if (width <= 0f || height <= 0f)
+        {
+            return "This drawing has no size to move the edges of.";
+        }
+
+        var frame = own.ViewBox;
+
+        if (frame.Width <= 0f || frame.Height <= 0f)
+        {
+            frame = new SvgViewBox(0f, 0f, width, height);
+        }
+
+        return SvgFrameEditor.SetFrame(
+            source,
+            Number(width * across),
+            Number(height * down),
+            Frame(new SvgViewBox(
+                frame.MinX + (frame.Width * left),
+                frame.MinY + (frame.Height * top),
+                frame.Width * across,
+                frame.Height * down)));
+    }
+
+    /// <summary>A length as the file spells one.</summary>
+    private static string Number(float value)
+        => value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The edits that resize <paramref name="svgText"/> as <paramref name="request"/> asks.    /// <summary>
     /// The edits that resize <paramref name="svgText"/> as <paramref name="request"/> asks.
     /// </summary>
     /// <remarks>

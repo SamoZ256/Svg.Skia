@@ -295,7 +295,7 @@ public class MainWindowAutosaveTests : IDisposable
 
         await window.SaveAsync();
 
-        window.Workspace.Edit();
+        window.Workspace!.Edit();
 
         _now = _now.AddSeconds(31d);
 

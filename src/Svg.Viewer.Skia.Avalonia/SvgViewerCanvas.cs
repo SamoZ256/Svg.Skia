@@ -69,6 +69,7 @@ public class SvgViewerCanvas : SKCanvasControl
     private SKColor? _background;
     private SKPath? _highlight;
     private BoundsInfo? _gizmo;
+    private bool _gizmoTurns = true;
     private bool _editing;
     private bool _editMoved;
     private IPointer? _editPointer;
@@ -105,7 +106,7 @@ public class SvgViewerCanvas : SKCanvasControl
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
         Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, new(0x1A, 0x1A, 0x1E), null,
-        0d, null, null, DefaultCaptionSize, null);
+        0d, null, null, true, DefaultCaptionSize, null);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -118,6 +119,7 @@ public class SvgViewerCanvas : SKCanvasControl
         double HighlightAge,
         (SKRect Bounds, SKPoint By, IReadOnlySet<SvgViewerPlacement> Carried)? Moving,
         BoundsInfo? Gizmo,
+        bool GizmoTurns,
         double CaptionSize,
         SKRect? Marquee);
 
@@ -234,6 +236,29 @@ public class SvgViewerCanvas : SKCanvasControl
         set
         {
             _gizmo = value;
+
+            Publish();
+        }
+    }
+
+    /// <summary>Whether the box drawn by <see cref="Gizmo"/> is of something that can be turned.</summary>
+    /// <remarks>
+    /// The stalk and its circle, which a page has no use for: a drawing's own edges are what its
+    /// width and height say, and there is nowhere for a turned one to be written. Set beside the
+    /// box rather than read off it, because a box is only eight points and a centre — what can be
+    /// done to the thing under it is the host's to say.
+    /// </remarks>
+    public bool GizmoTurns
+    {
+        get => _gizmoTurns;
+        set
+        {
+            if (_gizmoTurns == value)
+            {
+                return;
+            }
+
+            _gizmoTurns = value;
 
             Publish();
         }
@@ -688,7 +713,11 @@ public class SvgViewerCanvas : SKCanvasControl
         => Math.Abs(moved.X - from.X) > PickSlack || Math.Abs(moved.Y - from.Y) > PickSlack;
 
     /// <summary>One placed drawing's own edges, in its own space, or null where it has none.</summary>
-    private static SKRect? Extent(SvgViewerPlacement placed)
+    /// <remarks>
+    /// Its own space and not the board's: a host that wants the page where it is drawn offsets by
+    /// the placement, which is nothing for the one drawing a viewer shows.
+    /// </remarks>
+    public static SKRect? Extent(SvgViewerPlacement placed)
         => placed.Svg.Picture is { CullRect: { Width: > 0f, Height: > 0f } cull } ? cull : null;
 
     /// <summary>How big a caption is drawn where nobody says otherwise, in control pixels.</summary>
@@ -853,6 +882,7 @@ public class SvgViewerCanvas : SKCanvasControl
             // Not while something is being carried: the box is measured from a drawing that is on
             // its way somewhere else, so it would be left hanging over the board it has left.
             _moving is { } && _moved ? null : _gizmo,
+            _gizmoTurns,
             _captionSize,
 
             // Only once it has travelled, as the carried rectangle is: a press inside the slack has
@@ -1713,7 +1743,7 @@ public class SvgViewerCanvas : SKCanvasControl
         // the handles are still telling the truth about what is selected.
         if (state.Gizmo is { } gizmo)
         {
-            Handles(canvas, gizmo, state.Scale);
+            Handles(canvas, gizmo, state.Scale, state.GizmoTurns);
         }
 
         // Over the handles, because this is what the hand is doing now and the selection behind it
@@ -1814,7 +1844,7 @@ public class SvgViewerCanvas : SKCanvasControl
     /// every zoom. The rotate handle's own distance from the box is already in those units — it
     /// comes out of <c>SelectionService.GetBoundsInfo</c>, which was given the same scale.
     /// </remarks>
-    private static void Handles(SKCanvas canvas, BoundsInfo box, double scale)
+    private static void Handles(SKCanvas canvas, BoundsInfo box, double scale, bool turns)
     {
         var hairline = (float)(1d / scale);
         var half = HandleWidth / 2f * hairline;
@@ -1840,10 +1870,13 @@ public class SvgViewerCanvas : SKCanvasControl
 
         canvas.DrawPath(frame, line);
 
-        // The stalk before the handle, so the line stops under the circle rather than through it.
-        canvas.DrawLine(box.TopMid, box.RotHandle, line);
-        canvas.DrawCircle(box.RotHandle, half, fill);
-        canvas.DrawCircle(box.RotHandle, half, line);
+        if (turns)
+        {
+            // The stalk before the handle, so the line stops under the circle rather than through it.
+            canvas.DrawLine(box.TopMid, box.RotHandle, line);
+            canvas.DrawCircle(box.RotHandle, half, fill);
+            canvas.DrawCircle(box.RotHandle, half, line);
+        }
 
         foreach (var handle in new[] { box.TL, box.TopMid, box.TR, box.RightMid, box.BR, box.BottomMid, box.BL, box.LeftMid })
         {
