@@ -703,6 +703,15 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>A project whose rows say where they sit: two on the board, two inside a group.</summary>
+    /// <summary>A drawing whose ink is a corner of it, so most of its page is bare.</summary>
+    private const string Blank = """
+          <drawing name="blank" class="Blank" x="200" y="0">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect width="6" height="6" fill="#00ff00" />
+            </svg>
+          </drawing>
+        """;
+
     private static string Board(string extra = "") => $$"""
         <studio namespace="Demo.Icons">
         {{Holding("home", " class=\"Home\" x=\"0\" y=\"0\"")}}
@@ -1435,6 +1444,127 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(undo.IsEnabled);
         Assert.Equal("Undo remove home", undo.Header);
+    }
+
+    /// <summary>
+    /// A click on a tile's page, off every shape in it, selects that drawing.
+    /// </summary>
+    /// <remarks>
+    /// The third thing a board's one selection can be. It used to be the click that did nothing —
+    /// kept that way so missing a shape by two pixels did not throw away what was being read — and
+    /// missing one now lands on the drawing the shape is in, which is the next thing out.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Clicking_A_Tiles_Page_Selects_The_Drawing()
+    {
+        var window = await Host(Write("icons.svgstudio", Board(Blank)));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var blank = (ProjectDrawing)((ProjectGroup)window.Workspace!.Document.Root.Children[2]).Children[1];
+        var area = Area(Shown(panel, blank));
+
+        // Inside its page and clear of the small shape drawn in its corner.
+        Click(window, canvas, Over(canvas, area.Right - 2f, area.Bottom - 2f));
+
+        // Ringed, and the ring is the page itself rather than a silhouette.
+        Assert.NotNull(canvas.Highlight);
+        Assert.Equal(area, canvas.Highlight!.Bounds);
+
+        // And it wears the handles that resize it, without the stalk that would turn it.
+        Assert.NotNull(canvas.Gizmo);
+        Assert.False(canvas.GizmoTurns);
+    }
+
+    /// <summary>
+    /// Dragging a tile's edge moves the drawing's own edges, and not what is drawn inside them.
+    /// </summary>
+    /// <remarks>
+    /// The drawing's own page, which is what the handle is on: the outline round a tile is the
+    /// drawing's own edges. What the project asks for it to be built at is a separate setting and a
+    /// separate row, and this does not touch it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Dragging_A_Tiles_Edge_Moves_The_Drawings_Page()
+    {
+        var window = await Host(Write("icons.svgstudio", Board(Blank)));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var blank = (ProjectDrawing)((ProjectGroup)window.Workspace!.Document.Root.Children[2]).Children[1];
+        var area = Area(Shown(panel, blank));
+
+        Click(window, canvas, Over(canvas, area.Right - 2f, area.Bottom - 2f));
+
+        Drag(
+            window,
+            canvas,
+            Over(canvas, area.Right, area.MidY),
+            Over(canvas, area.Right + 24f, area.MidY));
+
+        Dispatcher.UIThread.RunJobs();
+
+        // The drawing's own units, not the board's: the tile is drawn at the group's scale="2", so
+        // dragging its 48-unit page out by 24 makes the 24-unit drawing 36. Writing 72 here is the
+        // trap — the next build would scale it again.
+        Assert.Contains("width=\"36\"", blank.Text, StringComparison.Ordinal);
+
+        // And the frame moves with it, so what is drawn inside stays the size it was and the room
+        // appears on the side that was dragged.
+        Assert.Contains("viewBox=\"0 0 36 24\"", blank.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Where the project pins a width, the drag resizes the drawing and says why nothing moved.
+    /// </summary>
+    /// <remarks>
+    /// The cost of one rule everywhere, and the reason the note exists. A tile is the drawing built
+    /// at the size the project asks for, reapplied on every build — so with a width pinned the file
+    /// says something new and the tile keeps the width it had. A scale is different and needs no
+    /// note: it is a factor of whatever the drawing is, so the tile follows the drag.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Drag_Under_A_Pinned_Width_Resizes_The_File_And_Says_So()
+    {
+        var project = $$"""
+            <studio namespace="Demo.Icons">
+            {{Holding("home", " class=\"Home\" x=\"0\" y=\"0\"")}}
+              <drawing name="blank" class="Blank" x="200" y="0" width="60">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                  <rect width="6" height="6" fill="#00ff00" />
+                </svg>
+              </drawing>
+            </studio>
+            """;
+
+        var window = await Host(Write("icons.svgstudio", project));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var blank = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var area = Area(Shown(panel, blank));
+
+        Assert.Equal(60f, blank.EffectiveWidth);
+
+        Click(window, canvas, Over(canvas, area.Right - 2f, area.Bottom - 2f));
+
+        Drag(
+            window,
+            canvas,
+            Over(canvas, area.Right, area.MidY),
+            Over(canvas, area.Right + 30f, area.MidY));
+
+        Dispatcher.UIThread.RunJobs();
+
+        // The drawing's page is wider: 60 dragged to 90 is half as wide again, and half again of
+        // the drawing's own 24 is 36.
+        Assert.Contains("width=\"36\"", blank.Text, StringComparison.Ordinal);
+        Assert.Contains("viewBox=\"0 0 36 24\"", blank.Text, StringComparison.Ordinal);
+
+        // The tile is not, because the project writes 60 over it on every build — and the note is
+        // the only thing that says so.
+        Assert.Equal(60f, Area(Shown(panel, blank)).Width);
+        Assert.Contains("builds it at the width its settings ask for", panel.Notice, StringComparison.Ordinal);
     }
 
     /// <summary>A project whose nested group declares, so selecting it changes what the pane says.</summary>

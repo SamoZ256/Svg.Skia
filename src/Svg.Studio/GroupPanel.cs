@@ -154,6 +154,17 @@ public sealed class GroupPanel : UserControl
     /// <summary>The drawing the tree is showing, and where it sits on the canvas.</summary>
     private (SvgViewerPlacement Placement, Drawn Built)? _inspecting;
 
+    /// <summary>Dragging a drawing's own edges to change the size it is.</summary>
+    private readonly SvgViewerPage _paging = new();
+
+    /// <summary>Whether the page of <see cref="_inspecting"/> is what is selected.</summary>
+    /// <remarks>
+    /// The third thing a board's one selection can be, beside a group and an element. It rides on
+    /// <see cref="_inspecting"/> rather than naming a drawing of its own, because the drawing being
+    /// looked at is what it is the page of — and the panes are already about that drawing.
+    /// </remarks>
+    private bool _page;
+
     /// <summary>The group that is selected, where one is rather than a drawing.</summary>
     /// <remarks>
     /// The two are the one selection and never both: a board has one thing being looked at, and
@@ -224,6 +235,7 @@ public sealed class GroupPanel : UserControl
         _canvas.IsEditTarget = at =>
             Arranged(at) is { } arranged
             && (_gizmo.Hits(arranged, (float)_canvas.Scale, handlesOnly: true)
+                || _paging.Hits(new SKPoint(arranged.X, arranged.Y), (float)_canvas.Scale)
                 || (!Grabbed(at) && _gizmo.Hits(arranged, (float)_canvas.Scale)));
 
         _canvas.Marqueed += (_, swept) => SelectEnclosed(swept);
@@ -1303,6 +1315,7 @@ public sealed class GroupPanel : UserControl
 
         // The addresses alone: which drawing they are in is `was`, which this already holds.
         var picked = _picked.ToList();
+        var paged = _page;
 
         Forget();
 
@@ -1377,6 +1390,10 @@ public sealed class GroupPanel : UserControl
             // Through the tree, which is what fills _picked again — and which drops any address
             // the rebuilt drawing no longer has, the element it named having been edited away.
             _tree.TrySelect(picked);
+
+            // Put back after the tree, which clears it: selecting rows is what a drawing's own
+            // selection is, and a page has none to select.
+            _page = paged;
 
             Ring();
             TrackGizmo();
@@ -1748,14 +1765,27 @@ public sealed class GroupPanel : UserControl
 
         if (svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) is not { } element)
         {
-            // A click on the drawing but not on any of its ink. Leaving the ring where it is beats
-            // clearing it: the pane is read alongside the picture, and a click that missed by two
-            // pixels should not throw away what was being looked at.
+            // On the drawing but on none of its ink, which is the page — a thing in its own right,
+            // the way a group's frame is. This used to be a click that did nothing, kept that way so
+            // that missing a shape by two pixels did not throw away what was being read; missing it
+            // now lands on the drawing the shape is in, which is the next thing out.
+            Inspect(_shown[index], placement, svg);
+
+            _picked.Clear();
+            _tree.TrySelect(Array.Empty<string>());
+
+            _page = true;
+
+            Ring();
+            ShowElement(null);
+            TrackGizmo();
+
             return;
         }
 
         Inspect(_shown[index], placement, svg);
 
+        _page = false;
         _picked.Clear();
         _picked.Add(SvgElementAddress.Create(element).Key);
 
@@ -1847,7 +1877,33 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>Rings everything selected, wherever on the board it is.</summary>
-    private void Ring() => _canvas.Highlight = SvgViewerPicks.Outline(Picks());
+    private void Ring() => _canvas.Highlight = Ringed();
+
+    /// <summary>
+    /// What the selection covers: the page, or the silhouette of every element picked in it.
+    /// </summary>
+    /// <remarks>
+    /// A rectangle for a page, which is the same shape a selected group wears — what a ring means
+    /// here is "this is the selection", whether that is a shape, a drawing or a group.
+    /// </remarks>
+    private SKPath? Ringed()
+    {
+        if (!_page)
+        {
+            return SvgViewerPicks.Outline(Picks());
+        }
+
+        if (_inspecting is not { } inspecting || Area(inspecting.Placement) is not { Width: > 0f } page)
+        {
+            return null;
+        }
+
+        using var ring = new SKPathBuilder();
+
+        ring.AddRect(page);
+
+        return ring.Detach();
+    }
 
     /// <summary>What is selected, as the drawing it is in and the addresses inside it.</summary>
     private IReadOnlyList<SvgViewerPick> Picks()
@@ -1913,6 +1969,8 @@ public sealed class GroupPanel : UserControl
     /// <summary>Puts the handles on the picked element of the picked drawing, or takes them off.</summary>
     private void TrackGizmo()
     {
+        _paging.Track(_page && _inspecting is { } paged ? Area(paged.Placement) : null);
+
         _gizmo.Track(
             _inspecting?.Built.Svg,
             _inspecting is { } inspecting
@@ -1946,7 +2004,24 @@ public sealed class GroupPanel : UserControl
     /// and answers in the space the board is arranged in, which is the only space a box round
     /// elements of two different drawings could be in.
     /// </remarks>
-    private void ShowGizmo() => _canvas.Gizmo = _gizmo.Box((float)_canvas.Scale);
+    /// <remarks>
+    /// The page's box or the elements', never both, because a board has one selection. A page's
+    /// carries no stalk: a drawing's edges are what its width and height say, and there is nowhere
+    /// in a document for a turned one to be written.
+    /// </remarks>
+    private void ShowGizmo()
+    {
+        if (_page)
+        {
+            _canvas.GizmoTurns = false;
+            _canvas.Gizmo = _paging.Box((float)_canvas.Scale);
+
+            return;
+        }
+
+        _canvas.GizmoTurns = true;
+        _canvas.Gizmo = _gizmo.Box((float)_canvas.Scale);
+    }
 
     /// <summary>
     /// What a drag would be written into: the drawing's own file, at the address it spells there.
@@ -2006,6 +2081,13 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
+        if (_page)
+        {
+            _paging.Begin(new SKPoint(arranged.X, arranged.Y), (float)_canvas.Scale);
+
+            return;
+        }
+
         if (Writing() is not { } writing)
         {
             Says(Unwritten);
@@ -2024,6 +2106,17 @@ public sealed class GroupPanel : UserControl
     {
         if (Arranged(at) is not { } arranged)
         {
+            return;
+        }
+
+        if (_paging.IsDragging)
+        {
+            _paging.Drag(new SKPoint(arranged.X, arranged.Y));
+
+            // The handles follow the pointer and the tile does not: a drawing built at a new size is
+            // a re-parse, and one of those per frame is what this tab already refuses to do.
+            ShowGizmo();
+
             return;
         }
 
@@ -2046,6 +2139,13 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void EndEdit()
     {
+        if (_paging.IsDragging)
+        {
+            EndPage();
+
+            return;
+        }
+
         if (_gizmo.End() is not { } edit)
         {
             ShowGizmo();
@@ -2090,8 +2190,77 @@ public sealed class GroupPanel : UserControl
         _canvas.Publish();
     }
 
+    /// <summary>
+    /// Writes the size the page was dragged to, into the drawing's own file.
+    /// </summary>
+    /// <remarks>
+    /// The drawing's own width and height and not the size this project asks for it to be built at.
+    /// Where the project does ask, the two disagree and the project wins on the next build — so the
+    /// tile stays the size it was while the file underneath it says something else, and the note is
+    /// the only place that says so.
+    /// </remarks>
+    private void EndPage()
+    {
+        var edges = _paging.End();
+
+        if (edges is not { } moved || _inspecting is not { } inspecting || inspecting.Built.Document is not { } document)
+        {
+            ShowGizmo();
+
+            return;
+        }
+
+        if (document.SourceText is null)
+        {
+            Says(Unwritten);
+            ShowGizmo();
+
+            return;
+        }
+
+        // The target alone, not Writing(): that answers for a selection of elements and builds the
+        // table of where each is spelt in the file. A page is not one of them and has no address —
+        // what a resize needs is only the file to write into.
+        var target = TargetOf?.Invoke(inspecting.Built.Drawing)
+                     ?? new DrawingTarget(Workspace, inspecting.Built.Drawing);
+
+        var refusal = target.Commit(
+            "resize the page",
+            source => document.Reframe(source, moved.Left, moved.Top, moved.Right, moved.Bottom));
+
+        if (refusal is null)
+        {
+            Written();
+        }
+
+        // After the rebuild, which lays the board out again and says what it has to say about that:
+        // said before it, this is wiped by the very thing the drag asked for.
+        Says(refusal ?? Pinned(inspecting.Built.Drawing));
+
+        ShowGizmo();
+    }
+
+    /// <summary>
+    /// What to say when the drawing has just been resized under a project that pins its size.
+    /// </summary>
+    /// <remarks>
+    /// A width or a height and not a scale. A scale is a factor of whatever the drawing is, so a
+    /// drawing made half as wide again is still drawn half as wide again and the tile follows the
+    /// drag — there is nothing to say. A width is a number the build writes over the drawing's own,
+    /// so the file says one thing and the tile goes on saying another, and a drag that left the tile
+    /// where it was is otherwise silent. Silence there reads as a gesture that did not work.
+    /// </remarks>
+    private static string? Pinned(ProjectNode drawing)
+        => drawing.EffectiveWidth is { } || drawing.EffectiveHeight is { }
+            ? $"{ProjectWorkspace.Label(drawing)} is now that size, but this project builds it at the width its settings ask for."
+            : null;
+
     private void CancelEdit()
     {
+        // The page goes back to the size the file says, which is where it was: nothing is written
+        // while the handles follow the pointer.
+        _paging.Cancel();
+
         _gizmo.Cancel();
 
         ShowGizmo();
@@ -2243,6 +2412,7 @@ public sealed class GroupPanel : UserControl
 
         _inspecting = null;
         _selected = null;
+        _page = false;
         _picked.Clear();
         _tree.Show(null);
         ShowElement(null);
@@ -2266,6 +2436,10 @@ public sealed class GroupPanel : UserControl
             }
         }
     }
+
+    /// <summary>The line above the canvas, or null where there is none.</summary>
+    /// <remarks>For a host or a test to read what the board last had to say about a gesture.</remarks>
+    public string? Notice => _notice.IsVisible ? _notice.Text : null;
 
     /// <summary>Puts a line above the canvas, or takes it away.</summary>
     private void Says(string? said)

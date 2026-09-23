@@ -62,6 +62,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private readonly ToggleButton _elementsButton;
     private readonly ToggleButton _lockRatioButton;
 
+    /// <summary>Whether the drawing's page is what is selected, rather than one of its elements.</summary>
+    private bool _page;
+
+    /// <summary>Dragging the drawing's own edges to change the size it is.</summary>
+    private readonly SvgViewerPage _paging = new();
+
     /// <summary>What a rectangle being swept has caught, and the ring showing it.</summary>
     private readonly SvgViewerSweep _sweep = new();
 
@@ -162,6 +168,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _elementTree.Selected += (_, node) =>
         {
+            if (node is { })
+            {
+                _page = false;
+            }
+
             OutlineElement(node);
             TrackGizmo();
 
@@ -201,7 +212,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _canvas.IsEditTarget = at =>
             _canvas.TryGetDrawingPoint(at, out var point)
-            && _gizmo.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale);
+            && (_gizmo.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale)
+                || _paging.Hits(new SkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale));
 
         _canvas.EditBegun += (_, at) => BeginEdit(at);
         _canvas.EditMoved += (_, at) => DragEdit(at);
@@ -502,13 +514,18 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     public event EventHandler<SvgElement?>? ElementSelected;
 
     /// <summary>
-    /// Selects the row for whatever was clicked at <paramref name="at"/>.
+    /// Selects whatever was clicked at <paramref name="at"/>: an element, the page, or nothing.
     /// </summary>
     /// <remarks>
-    /// A click that lands on nothing changes nothing. Clearing the selection is the design tool's
-    /// convention and it is the wrong one here: the tree exists to be read alongside the drawing,
-    /// and a click that missed by two pixels would throw away the row and the element panel with
-    /// it.
+    /// Three answers where there used to be one and a half. A click on a shape selects its row, as
+    /// it always did. A click that misses every shape but lands on the page selects the page, which
+    /// is a thing in its own right and the reason a click into the margin is no longer a click on
+    /// nothing. Off the page altogether is the one that clears, which is what a sweep over nothing
+    /// already meant.
+    ///
+    /// The page being answerable is what lets the viewer tell those last two apart at all: the
+    /// unproject succeeds for any point on the control, so before this a click in the grey and a
+    /// click in the drawing's own margin were the same event and neither did anything.
     ///
     /// What is picked is the element that was drawn, so clicking a shape placed by <c>&lt;use&gt;</c>
     /// selects the definition it was drawn from — which is where it is written, and the only row
@@ -516,15 +533,78 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private void PickElement(Point at)
     {
-        if (_document is not { } open
-            || !_canvas.TryGetDrawingPoint(at, out var point)
-            || open.Svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) is not { } element)
+        if (_document is not { } open || !_canvas.TryGetDrawingPoint(at, out var point))
         {
             return;
         }
 
-        _elementTree.TrySelect(SvgElementAddress.Create(element).Key);
+        if (open.Svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) is { } element)
+        {
+            SelectPage(false);
+            _elementTree.TrySelect(SvgElementAddress.Create(element).Key);
+
+            return;
+        }
+
+        SelectPage(_canvas.TryGetPlacementAt(at, out _, out _));
     }
+
+    /// <summary>Whether the drawing's page is what is selected.</summary>
+    /// <remarks>
+    /// Its own state rather than a row in the tree, because the page is not one of the drawing's
+    /// elements: the fragment is what everything else hangs from, it is deliberately left out of
+    /// what a sweep catches, and it is the one thing here whose size is the drawing's own.
+    /// </remarks>
+    public bool IsPageSelected => _page;
+
+    private void SelectPage(bool selected)
+    {
+        if (_page == selected)
+        {
+            return;
+        }
+
+        _page = selected;
+
+        if (selected)
+        {
+            // One selection: the page and a row are never both it, and the tree is what says so.
+            _elementTree.TrySelect(Array.Empty<string>());
+        }
+
+        _paging.Track(selected ? Page() : null);
+
+        ShowPage();
+        ShowGizmo();
+    }
+
+    /// <summary>Rings the page, or takes the ring off it.</summary>
+    private void ShowPage()
+    {
+        if (!_page)
+        {
+            _canvas.Highlight = null;
+
+            return;
+        }
+
+        if (Page() is not { } page)
+        {
+            return;
+        }
+
+        using var ring = new SkiaSharp.SKPathBuilder();
+
+        ring.AddRect(page);
+
+        _canvas.Highlight = ring.Detach();
+    }
+
+    /// <summary>Where the drawing's own edges are, which is where it sits: the origin.</summary>
+    private SkiaSharp.SKRect? Page()
+        => _document is { } open
+            ? SvgViewerCanvas.Extent(new SvgViewerPlacement(open.Svg, default))
+            : null;
 
     /// <summary>Selects everything a swept rectangle caught, and nothing else.</summary>
     /// <remarks>
@@ -534,6 +614,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private void SelectEnclosed(SkiaSharp.SKRect swept)
     {
         _sweep.TryTrace(_canvas, swept, out _);
+
+        // A sweep is about what is on the page rather than about the page, so drawing one is a way
+        // of letting go of it as much as a way of taking rows.
+        _page = false;
 
         _elementTree.TrySelect(_sweep.Caught.Select(pick => pick.AddressKey).ToList());
 
@@ -674,7 +758,26 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
                 .ToList();
 
     /// <summary>Hands the canvas the box as it now stands, at the scale it is now drawn at.</summary>
-    private void ShowGizmo() => _canvas.Gizmo = _gizmo.Box((float)_canvas.Scale);
+    /// <summary>
+    /// Hands the canvas the box as it now stands: the page's, or the selected elements'.
+    /// </summary>
+    /// <remarks>
+    /// Never both, because there is one selection. The page's box carries no stalk — a drawing's
+    /// edges are what its width and height say, and a turned one has nowhere to be written.
+    /// </remarks>
+    private void ShowGizmo()
+    {
+        if (_page)
+        {
+            _canvas.GizmoTurns = false;
+            _canvas.Gizmo = _paging.Box((float)_canvas.Scale);
+
+            return;
+        }
+
+        _canvas.GizmoTurns = true;
+        _canvas.Gizmo = _gizmo.Box((float)_canvas.Scale);
+    }
 
     /// <summary>
     /// Takes hold of the element, having first settled whether the file would take the result.
@@ -691,6 +794,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
+        if (_page)
+        {
+            _paging.Begin(new SkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale);
+
+            return;
+        }
+
         ShowNote(
             _gizmo.Begin(
                 new ShimSkiaSharp.SKPoint(point.X, point.Y),
@@ -704,6 +814,17 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         if (!_canvas.TryGetDrawingPoint(at, out var point))
         {
+            return;
+        }
+
+        if (_paging.IsDragging)
+        {
+            _paging.Drag(new SkiaSharp.SKPoint(point.X, point.Y));
+
+            // The handles follow the pointer and the drawing does not: rebuilding a document at a
+            // new size is a re-parse, and one of those per frame is what a board already refuses.
+            ShowGizmo();
+
             return;
         }
 
@@ -733,6 +854,25 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private void EndEdit()
     {
+        if (_paging.IsDragging)
+        {
+            // One resize for the whole drag, through the path Edit → Resize… already writes by, so
+            // it is one entry in the history and says the same word.
+            if (_paging.End() is { } edges)
+            {
+                Reframe(edges.Left, edges.Top, edges.Right, edges.Bottom);
+            }
+
+            // Tracked again from the drawing as it now is: the commit rebuilt it, and where the file
+            // would not take the size the page is still whatever it was.
+            _paging.Track(Page());
+
+            ShowPage();
+            ShowGizmo();
+
+            return;
+        }
+
         if (_gizmo.End() is not { } edit)
         {
             ShowGizmo();
@@ -774,6 +914,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private void CancelEdit()
     {
         _gizmo.Cancel();
+
+        // The page goes back to the size the file says, which is where it was: nothing was written
+        // while the handles followed the pointer.
+        _paging.Cancel();
 
         ShowGizmo();
         RetraceOutline();
@@ -1262,6 +1406,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // For the reason the ring is traced again: a rebuild compiles a new drawing, and the scene
         // node the gizmo measured its box from belongs to the one before it.
         TrackGizmo();
+
+        // And the page with it, which a resize is the whole point of having just moved.
+        _paging.Track(_page ? Page() : null);
+
+        ShowPage();
+        ShowGizmo();
 
         // The tree raises nothing while it restores a selection, so the panel would go on showing
         // the text as it was before the keystroke that rebuilt it.
@@ -1977,6 +2127,20 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         return Commit("resize", source => document.Resize(source, request));
     }
+
+    /// <summary>
+    /// Moves the drawing's own edges, leaving what is drawn inside them where it is.
+    /// </summary>
+    /// <remarks>
+    /// What a handle dragged on the page asks for, and the other thing from <see cref="Resize"/>:
+    /// the frame moves and the picture stays the size it was. The edges are fractions of the page as
+    /// it stands, because what is on screen is the drawing built at whatever
+    /// <see cref="SizeRequest"/> asked for rather than at its own size.
+    /// </remarks>
+    /// <returns>Whether anything was rewritten.</returns>
+    public bool Reframe(float left, float top, float right, float bottom)
+        => _document is { } document
+           && Commit("resize the page", source => document.Reframe(source, left, top, right, bottom));
 
     /// <summary>
     /// Writes the drawing's text back to a file.

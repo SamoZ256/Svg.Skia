@@ -506,11 +506,51 @@ public class SvgViewerElementTreeTests
         Assert.Null(viewer.Elements.SelectedNode);
     }
 
+    /// <summary>
+    /// A click that misses every shape but lands on the page selects the page.
+    /// </summary>
+    /// <remarks>
+    /// This used to leave the selection alone, and the reason given was a good one: clearing on a
+    /// near miss is the design tool's convention, and it would throw away the row and the place in
+    /// the text somebody was reading. What changed is that a miss now lands on something — the page
+    /// is a thing in its own right, the way a group's frame is on a board — so the row goes because
+    /// something else was selected rather than because nothing was.
+    /// </remarks>
     [AvaloniaFact]
-    public async Task Clicking_Nothing_Leaves_The_Selection_Alone()
+    public async Task Clicking_The_Page_Off_Every_Shape_Selects_The_Page()
     {
-        // Clearing on a miss is the design tool's convention and the wrong one here: a click two
-        // pixels off would throw away the row and the place in the text somebody was reading.
+        var (window, viewer) = await Host(Tiles);
+
+        Arrange(window);
+
+        Click(window, viewer.Canvas, Over(viewer.Canvas, 5d, 5d));
+
+        Assert.Equal("0", viewer.Elements.SelectedNode!.AddressKey);
+        Assert.False(viewer.IsPageSelected);
+
+        // Inside the 40x20 page, and between the two tiles rather than on either.
+        Click(window, viewer.Canvas, Over(viewer.Canvas, 35d, 15d));
+
+        Assert.True(viewer.IsPageSelected);
+        Assert.Null(viewer.Elements.SelectedNode);
+
+        // And the ring is the page itself, which is the same shape a selected group wears.
+        Assert.Equal(new SKRect(0f, 0f, 40f, 20f), viewer.Canvas.Highlight!.Bounds);
+    }
+
+    /// <summary>A click off the drawing altogether still leaves the selection alone.</summary>
+    /// <remarks>
+    /// The half of the old rule that keeps its reason. Clearing on a miss would throw away the row
+    /// and the place in the text somebody was reading, and a click in the grey is not a request for
+    /// anything — it is the page that is now selectable, not the board around it.
+    ///
+    /// Worth asserting rather than assuming, because the viewer could not tell this from a click on
+    /// the page's own margin until the page answered a hit test: unprojecting a point succeeds
+    /// anywhere on the control, so the two were one event.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Clicking_Off_The_Drawing_Leaves_The_Selection_Alone()
+    {
         var (window, viewer) = await Host(Tiles);
 
         Arrange(window);
@@ -519,9 +559,10 @@ public class SvgViewerElementTreeTests
 
         Assert.Equal("0", viewer.Elements.SelectedNode!.AddressKey);
 
-        Click(window, viewer.Canvas, Over(viewer.Canvas, 35d, 15d));
+        Click(window, viewer.Canvas, Over(viewer.Canvas, -30d, -30d));
 
         Assert.Equal("0", viewer.Elements.SelectedNode!.AddressKey);
+        Assert.False(viewer.IsPageSelected);
     }
 
     // ---- ringing the element on the drawing ----------------------------------------------------
