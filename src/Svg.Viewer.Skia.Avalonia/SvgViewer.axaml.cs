@@ -61,6 +61,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private readonly SvgViewerDeclarationCommands _commands;
     private readonly ToggleButton _elementsButton;
     private readonly ToggleButton _lockRatioButton;
+    private readonly ToggleButton _snapButton;
 
     /// <summary>Whether the drawing's page is what is selected, rather than one of its elements.</summary>
     private bool _page;
@@ -144,6 +145,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree = this.FindControl<SvgViewerElementTree>("PART_Elements")!;
         _elementsButton = this.FindControl<ToggleButton>("ElementsButton")!;
         _lockRatioButton = this.FindControl<ToggleButton>("LockRatioButton")!;
+        _snapButton = this.FindControl<ToggleButton>("SnapButton")!;
 
         _panelWidth = _body.ColumnDefinitions[2].Width;
         _treeHeight = _side.RowDefinitions[2].Height;
@@ -182,6 +184,20 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         };
 
         _lockRatioButton.IsCheckedChanged += (_, _) => LocksAspectRatio = _lockRatioButton.IsChecked == true;
+
+        _snapButton.IsCheckedChanged += (_, _) =>
+        {
+            if (SnapsToGrid == (_snapButton.IsChecked == true))
+            {
+                return;
+            }
+
+            SnapsToGrid = _snapButton.IsChecked == true;
+
+            // Only where a hand did it. A host setting the property is the one telling everybody
+            // else, and told back it would go round again.
+            SnapChanged?.Invoke(this, EventArgs.Empty);
+        };
 
         _rebuild.Tick += (_, _) =>
         {
@@ -347,6 +363,62 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             _gizmo.LocksAspect = value;
             _lockRatioButton.IsChecked = value;
         }
+    }
+
+    /// <summary>Somebody pressed the toolbar's own snap toggle.</summary>
+    /// <remarks>
+    /// So a host keeping several viewers and a setting in step is told what a hand did to this one
+    /// without having to watch the button. Not raised for a host's own assignment, which is that
+    /// host already knowing.
+    /// </remarks>
+    public event EventHandler? SnapChanged;
+
+    private SvgViewerGrid _grid = new((float)SvgViewerGrid.DefaultStep, (float)SvgViewerGrid.DefaultTurn);
+
+    private bool _snaps;
+
+    /// <summary>Whether a drag lands on the grid rather than where the pointer stopped.</summary>
+    /// <remarks>
+    /// Off, and the way in is the toolbar's own toggle, the way the aspect lock is. Kept apart from
+    /// <see cref="Grid"/> so that switching it off and on again is the grid somebody had set rather
+    /// than the one this starts with.
+    /// </remarks>
+    public bool SnapsToGrid
+    {
+        get => _snaps;
+        set
+        {
+            _snaps = value;
+            _snapButton.IsChecked = value;
+
+            Regrid();
+        }
+    }
+
+    /// <summary>How far apart the lines are, and the angles a turn lands on.</summary>
+    /// <remarks>
+    /// Held whether or not <see cref="SnapsToGrid"/> is on, which is what the canvas draws and what
+    /// every gesture is handed once it is.
+    /// </remarks>
+    public SvgViewerGrid Grid
+    {
+        get => _grid;
+        set
+        {
+            _grid = value;
+
+            Regrid();
+        }
+    }
+
+    /// <summary>Tells the canvas and the three gestures what the grid now is.</summary>
+    private void Regrid()
+    {
+        var grid = _snaps ? _grid : SvgViewerGrid.None;
+
+        _canvas.Grid = grid;
+        _gizmo.Grid = grid;
+        _paging.Grid = grid;
     }
 
     /// <summary>

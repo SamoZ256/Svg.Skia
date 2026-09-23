@@ -168,6 +168,17 @@ public partial class MainWindow : Window
     {
         var viewer = new SvgViewer { FileDialogService = new StudioFileDialogService() };
 
+        Regrid(viewer);
+
+        // The toolbar's toggle is the settings window's checkbox by another route, so what one tab
+        // was told goes to the rest of them and is there again next time.
+        viewer.SnapChanged += (_, _) =>
+        {
+            StudioSettings.SnapToGrid = viewer.SnapsToGrid;
+
+            Reread();
+        };
+
         // Both are dressed by the window's styles, which is also where the trimming that keeps one
         // long file name from filling the strip lives.
         var title = new TextBlock { Text = "Untitled", Classes = { "title" } };
@@ -1691,7 +1702,11 @@ public partial class MainWindow : Window
 
         if (node is ProjectGroup group)
         {
-            AddNodeTab(new GroupPanel(workspace, group) { TargetOf = DrawingOf }, node, ProjectWorkspace.Label(node));
+            var board = new GroupPanel(workspace, group) { TargetOf = DrawingOf };
+
+            board.SnapChanged += (_, _) => Reread();
+
+            AddNodeTab(board, node, ProjectWorkspace.Label(node));
             return;
         }
 
@@ -2317,12 +2332,41 @@ public partial class MainWindow : Window
             ProjectRecovery.Clear();
         }
 
-        // Every board, not only the one in front: a caption size is about the screen, and the tabs
-        // behind this one are on the same screen.
-        foreach (var board in _tabs.Items.OfType<TabItem>().Select(item => item.Content).OfType<GroupPanel>())
+        Reread();
+    }
+
+    /// <summary>Tells every tab what the settings now say.</summary>
+    /// <remarks>
+    /// Every tab and not only the one in front: a caption size is about the screen, a grid is about
+    /// how the editor is being used, and the tabs behind this one are the same screen and the same
+    /// use. Both kinds, because a drawing's tab is a viewer and a group's is a board.
+    /// </remarks>
+    private void Reread()
+    {
+        foreach (var content in _tabs.Items.OfType<TabItem>().Select(item => item.Content))
         {
-            board.Recaption();
+            switch (content)
+            {
+                case GroupPanel board:
+                    board.Reread();
+                    break;
+
+                case SvgViewer viewer:
+                    Regrid(viewer);
+                    break;
+            }
         }
+    }
+
+    /// <summary>Puts the grid the settings say onto one drawing's tab.</summary>
+    /// <remarks>
+    /// The steps and the switch apart, the way the viewer holds them: the numbers are the numbers
+    /// whether or not anything is landing on them.
+    /// </remarks>
+    private static void Regrid(SvgViewer viewer)
+    {
+        viewer.Grid = StudioSettings.Grid;
+        viewer.SnapsToGrid = StudioSettings.SnapToGrid;
     }
 
     private async void OnSave(object? sender, EventArgs e) => await SaveAsync();

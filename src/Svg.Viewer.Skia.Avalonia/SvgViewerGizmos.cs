@@ -104,11 +104,39 @@ public sealed class SvgViewerGizmos
     private Shim.SKPoint _pivot;
     private Shim.SKPoint _centre;
 
+    private SvgViewerGrid _grid = SvgViewerGrid.None;
+
+    /// <summary>The grid in the drawing's own space, which is the board's shifted by the placement.</summary>
+    private SvgViewerGrid _inside = SvgViewerGrid.None;
+
     /// <inheritdoc cref="SvgViewerGizmo.LocksAspect"/>
     public bool LocksAspect
     {
         get => _one.LocksAspect;
         set => _one.LocksAspect = value;
+    }
+
+    /// <inheritdoc cref="SvgViewerGizmo.Grid"/>
+    /// <remarks>
+    /// Given in the space the host speaks, as everything here is, and shifted once into the
+    /// drawing's own — a selection of six is composed inside that drawing, and the inner gizmo is
+    /// handed points that have been through <see cref="Inside"/> as well.
+    /// </remarks>
+    public SvgViewerGrid Grid
+    {
+        get => _grid;
+        set
+        {
+            _grid = value;
+
+            Regrid();
+        }
+    }
+
+    private void Regrid()
+    {
+        _inside = _grid.From(_at.X, _at.Y);
+        _one.Grid = _inside;
     }
 
     /// <summary>Whether a drag is in flight.</summary>
@@ -136,6 +164,9 @@ public sealed class SvgViewerGizmos
         _only = null;
         _svg = svg;
         _at = at;
+
+        // The placement is what the grid is shifted by, and it has just changed.
+        Regrid();
 
         var held = new List<Held>();
 
@@ -403,19 +434,28 @@ public sealed class SvgViewerGizmos
     {
         if (_handle == 8)
         {
+            // The turn since the press rather than an angle on the file: several elements have no
+            // one angle between them, so a step is a step of the gesture.
             return Shim.SKMatrix.CreateRotationDegrees(
-                SvgViewerGizmo.Degrees(_centre, now) - SvgViewerGizmo.Degrees(_centre, _pressed),
+                _inside.Turns(SvgViewerGizmo.Degrees(_centre, now) - SvgViewerGizmo.Degrees(_centre, _pressed)),
                 _centre.X,
                 _centre.Y);
         }
 
         if (_handle < 0)
         {
-            return Shim.SKMatrix.CreateTranslation(now.X - _pressed.X, now.Y - _pressed.Y);
+            // The union box's own corner lands on the line, which is the box somebody is looking at.
+            return _inside.IsOn
+                ? Shim.SKMatrix.CreateTranslation(
+                    _inside.SnapX(_union.Left + (now.X - _pressed.X)) - _union.Left,
+                    _inside.SnapY(_union.Top + (now.Y - _pressed.Y)) - _union.Top)
+                : Shim.SKMatrix.CreateTranslation(now.X - _pressed.X, now.Y - _pressed.Y);
         }
 
         var wide = _handle is 0 or 2 or 3 or 4 or 6 or 7;
         var tall = _handle is 0 or 1 or 2 or 4 or 5 or 6;
+
+        now = Edged(now, wide, tall);
 
         var x = wide ? SvgViewerGizmo.Factor(now.X - _pivot.X, _pressed.X - _pivot.X) : 1f;
         var y = tall ? SvgViewerGizmo.Factor(now.Y - _pivot.Y, _pressed.Y - _pivot.Y) : 1f;
@@ -426,6 +466,30 @@ public sealed class SvgViewerGizmos
         }
 
         return Shim.SKMatrix.CreateScale(x, y, _pivot.X, _pivot.Y);
+    }
+
+    /// <summary>A scale, with the edge being dragged put on the grid.</summary>
+    /// <remarks>
+    /// The union box's edge, for the reason the move snaps its corner, and answered as a pointer
+    /// position so the factors below are the arithmetic they were. The pivot is the corner opposite
+    /// the handle, so the handle is the pivot mirrored through the box.
+    /// </remarks>
+    private Shim.SKPoint Edged(Shim.SKPoint now, bool wide, bool tall)
+    {
+        if (!_inside.IsOn)
+        {
+            return now;
+        }
+
+        var handle = new Shim.SKPoint(
+            _handle switch { 0 or 6 or 7 => _union.Left, 2 or 3 or 4 => _union.Right, _ => _union.MidX },
+            _handle switch { 0 or 1 or 2 => _union.Top, 4 or 5 or 6 => _union.Bottom, _ => _union.MidY });
+
+        var moved = new Shim.SKPoint(handle.X + (now.X - _pressed.X), handle.Y + (now.Y - _pressed.Y));
+
+        return new Shim.SKPoint(
+            wide ? _pressed.X + (_inside.SnapX(moved.X) - handle.X) : now.X,
+            tall ? _pressed.Y + (_inside.SnapY(moved.Y) - handle.Y) : now.Y);
     }
 
     /// <summary>Renders every drawing a member moved, once each.</summary>

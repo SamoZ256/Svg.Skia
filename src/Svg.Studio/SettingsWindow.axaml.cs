@@ -46,10 +46,11 @@ public partial class SettingsWindow : Window
         Autosave.IsChecked = StudioSettings.Autosave;
         Autosave.IsCheckedChanged += (_, _) => StudioSettings.Autosave = Autosave.IsChecked is true;
 
-        CaptionSize = this.FindControl<NumericUpDown>("CaptionSizeBox")!;
-        CaptionSize.Minimum = (decimal)SvgViewerCanvas.MinimumCaptionSize;
-        CaptionSize.Maximum = (decimal)SvgViewerCanvas.MaximumCaptionSize;
-        CaptionSize.Value = (decimal)StudioSettings.CaptionSize;
+        CaptionSize = Stepped(
+            "CaptionSizeBox",
+            SvgViewerCanvas.MinimumCaptionSize,
+            SvgViewerCanvas.MaximumCaptionSize,
+            StudioSettings.CaptionSize);
 
         // Only a value: the box empties itself while somebody is part way through typing one, and
         // writing that would be writing a setting nobody asked for.
@@ -58,6 +59,28 @@ public partial class SettingsWindow : Window
             if (CaptionSize.Value is { } size)
             {
                 StudioSettings.CaptionSize = (double)size;
+            }
+        };
+
+        SnapToGrid = this.FindControl<CheckBox>("SnapToGridBox")!;
+        SnapToGrid.IsChecked = StudioSettings.SnapToGrid;
+        SnapToGrid.IsCheckedChanged += (_, _) => StudioSettings.SnapToGrid = SnapToGrid.IsChecked is true;
+
+        GridSize = Stepped("GridSizeBox", SvgViewerGrid.MinimumStep, SvgViewerGrid.MaximumStep, StudioSettings.GridSize);
+        GridSize.ValueChanged += (_, _) =>
+        {
+            if (GridSize.Value is { } step)
+            {
+                StudioSettings.GridSize = (double)step;
+            }
+        };
+
+        RotationStep = Stepped("RotationStepBox", SvgViewerGrid.MinimumTurn, SvgViewerGrid.MaximumTurn, StudioSettings.RotationStep);
+        RotationStep.ValueChanged += (_, _) =>
+        {
+            if (RotationStep.Value is { } turn)
+            {
+                StudioSettings.RotationStep = (double)turn;
             }
         };
 
@@ -71,6 +94,23 @@ public partial class SettingsWindow : Window
                 StudioSettings.RelaxedText = s_answers[RelaxedText.SelectedIndex].Answer;
             }
         };
+    }
+
+    /// <summary>A box holding a number between two bounds, seeded from what is on file.</summary>
+    /// <remarks>
+    /// Three boxes on this window are that, and the bounds have to be the ones the setting itself
+    /// falls back on — a box that will take a number the setting then refuses is a box that silently
+    /// does nothing.
+    /// </remarks>
+    private NumericUpDown Stepped(string name, double least, double most, double value)
+    {
+        var box = this.FindControl<NumericUpDown>(name)!;
+
+        box.Minimum = (decimal)least;
+        box.Maximum = (decimal)most;
+        box.Value = (decimal)value;
+
+        return box;
     }
 
     /// <summary>Puts the theme now on file onto the application, wherever the window is shown.</summary>
@@ -124,6 +164,15 @@ public partial class SettingsWindow : Window
 
     /// <summary>The box for how big a caption is drawn, for a test to drive.</summary>
     public NumericUpDown CaptionSize { get; }
+
+    /// <summary>The box for whether a gesture lands on the grid, for a test to drive.</summary>
+    public CheckBox SnapToGrid { get; }
+
+    /// <summary>The box for how far apart the grid lines are, for a test to drive.</summary>
+    public NumericUpDown GridSize { get; }
+
+    /// <summary>The box for how far apart the angles a turn lands on are, for a test to drive.</summary>
+    public NumericUpDown RotationStep { get; }
 
     /// <summary>The list of answers about text an export cannot write out, for a test to drive.</summary>
     public ComboBox RelaxedText { get; }

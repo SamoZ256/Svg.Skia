@@ -56,6 +56,48 @@
                Opacity="0.65"
                FontSize="11" />
 
+    <CheckBox x:Name="SnapToGridBox" Content="Snap to grid" Margin="0,14,0,0" />
+
+    <!--
+      What it covers rather than what it is: "snap to grid" says nothing about the angle, and a
+      gesture that stops writing what the pointer said is worth knowing about before it happens.
+    -->
+    <TextBlock Text="Everything dragged on a canvas lands on the grid rather than where the pointer stopped: a drawing's place on a board, an element inside one, the size of either, and the angle a turn comes to. The grid is drawn while this is on. Numbers you type are still the numbers you typed."
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11"
+               Margin="26,0,0,0" />
+
+    <TextBlock Text="Grid size" Margin="0,14,0,0" />
+
+    <NumericUpDown x:Name="GridSizeBox"
+                   HorizontalAlignment="Left"
+                   Width="120"
+                   Increment="1"
+                   FormatString="0.##" />
+
+    <TextBlock Text="How far apart the lines are, in the units a board arranges drawings in — which in a drawing's own tab are the drawing's own."
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11" />
+
+    <TextBlock Text="Rotation step" Margin="0,14,0,0" />
+
+    <!--
+      Its own number because a grid has no angle, and the two are not the same kind of thing: a step
+      of ten lines is a length, a step of ten degrees is a sixth of a right angle.
+    -->
+    <NumericUpDown x:Name="RotationStepBox"
+                   HorizontalAlignment="Left"
+                   Width="120"
+                   Increment="5"
+                   FormatString="0.##" />
+
+    <TextBlock Text="How far apart the angles a turn lands on are, in degrees."
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11" />
+
     <TextBlock Text="Relaxed text layout" Margin="0,14,0,0" />
 
     <!--

@@ -38,6 +38,8 @@
                       ToolTip.Tip="Show what the drawing is made of" />
         <ToggleButton x:Name="LockRatioButton" Content="Lock ratio"
                       ToolTip.Tip="Keep the element's proportions while a handle is dragged" />
+        <ToggleButton x:Name="SnapButton" Content="Snap"
+                      ToolTip.Tip="Land what is dragged on the grid rather than where the pointer stopped" />
       </StackPanel>
     </Border>
 

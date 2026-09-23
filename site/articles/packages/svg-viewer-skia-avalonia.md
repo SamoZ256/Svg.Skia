@@ -55,6 +55,7 @@ await Viewer.LoadAsync("badge.svg");
 | `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` | Supplying your own chrome. `ShowDeclarationPanel` is the whole right-hand strip, element tree included |
 | `ShowElementTree` / `Elements` | The tree under the parameters — on by default; `Elements.Filter` is the box above it |
 | `SelectedElement` / `ElementSelected` | Which element is picked |
+| `SnapsToGrid` / `Grid` / `SnapChanged` | Landing a drag on a grid rather than where the pointer stopped — a move puts the element's own corner on a line, a handle puts the edge it is dragging on one, a turn lands on `Grid.Turn` degrees, and the drawing's own edges do the same. The two are held apart: `Grid` is the steps whether or not anything is landing on them, and `SnapsToGrid` is the toolbar's toggle, which raises `SnapChanged` when a hand rather than the host flips it. The lines are in the space the canvas draws in, so a host arranging several drawings gets one grid across all of them |
 | `SidePanels` | Panels of your own beside the parameters: the right pane becomes a strip of tabs while there are any, yours first and so the first one it opens on, and holds the parameters alone again when there are none |
 | `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
 | `DeclarationTarget` | Where the parameter panel writes, when the drawing's declarations are not in the drawing |

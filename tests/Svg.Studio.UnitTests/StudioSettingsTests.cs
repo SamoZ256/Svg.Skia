@@ -130,6 +130,60 @@ public class StudioSettingsTests : IDisposable
     }
 
     [Fact]
+    public void Snapping_Is_Off_Until_Somebody_Asks_For_It()
+    {
+        // The other way round from the recovery copy, and for the opposite reason: a drag that does
+        // not write what was dragged is a surprise, so only the line the toggle writes turns it on.
+        Assert.False(StudioSettings.SnapToGrid);
+
+        Assert.Equal(SvgViewerGrid.DefaultStep, StudioSettings.GridSize);
+        Assert.Equal(SvgViewerGrid.DefaultTurn, StudioSettings.RotationStep);
+    }
+
+    [Fact]
+    public void Snapping_Survives_Being_Switched_On()
+    {
+        StudioSettings.SnapToGrid = true;
+
+        Assert.True(StudioSettings.SnapToGrid);
+        Assert.Contains("snapToGrid=on", File.ReadAllText(StudioSettings.Store), StringComparison.Ordinal);
+
+        StudioSettings.SnapToGrid = false;
+
+        Assert.False(StudioSettings.SnapToGrid);
+    }
+
+    [Fact]
+    public void The_Two_Steps_Survive_Being_Written()
+    {
+        StudioSettings.GridSize = 12.5d;
+        StudioSettings.RotationStep = 45d;
+
+        Assert.Equal(12.5d, StudioSettings.GridSize);
+        Assert.Equal(45d, StudioSettings.RotationStep);
+
+        // Invariant, for the reason a caption size is: a machine writing a decimal comma would save
+        // a step the next one reads as nothing.
+        Assert.Contains("gridSize=12.5", File.ReadAllText(StudioSettings.Store), StringComparison.Ordinal);
+
+        // And they are the grid a tab is handed, whether or not anything is landing on it.
+        Assert.Equal(12.5f, StudioSettings.Grid.Step);
+        Assert.Equal(45f, StudioSettings.Grid.Turn);
+    }
+
+    [Theory]
+    [InlineData("nonsense")]
+    [InlineData("0")]
+    [InlineData("9999")]
+    public void A_Step_Nobody_Can_Use_Is_The_Default(string written)
+    {
+        File.WriteAllText(StudioSettings.Store, $"gridSize={written}\nrotationStep={written}");
+
+        Assert.Equal(SvgViewerGrid.DefaultStep, StudioSettings.GridSize);
+        Assert.Equal(SvgViewerGrid.DefaultTurn, StudioSettings.RotationStep);
+    }
+
+    [Fact]
     public void A_Caption_Size_Is_Written_The_Same_Way_Wherever_It_Is_Read()
     {
         // Invariant, so a machine that writes a decimal comma does not save a setting the next one
