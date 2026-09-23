@@ -47,6 +47,16 @@ public sealed class SvgViewerPage
     private SK.SKRect _from;
     private SK.SKRect _to;
 
+    /// <summary>Where inside the handle the press landed, which is not part of what it meant.</summary>
+    private SK.SKPoint _slack;
+
+    /// <inheritdoc cref="SvgViewerGizmo.Grid"/>
+    /// <remarks>
+    /// In the space this is tracked in, which is the board's — a page is where the canvas draws it,
+    /// so the lines it lands on are the ones drawn under it.
+    /// </remarks>
+    public SvgViewerGrid Grid { get; set; } = SvgViewerGrid.None;
+
     /// <summary>Whether a drag is in flight.</summary>
     public bool IsDragging => _handle >= 0;
 
@@ -105,6 +115,10 @@ public sealed class SvgViewerPage
         _from = page;
         _to = page;
 
+        _slack = new SK.SKPoint(
+            at.X - (_handle switch { 0 or 6 or 7 => page.Left, 2 or 3 or 4 => page.Right, _ => page.MidX }),
+            at.Y - (_handle switch { 0 or 1 or 2 => page.Top, 4 or 5 or 6 => page.Bottom, _ => page.MidY }));
+
         return true;
     }
 
@@ -126,17 +140,24 @@ public sealed class SvgViewerPage
         var right = _from.Right;
         var bottom = _from.Bottom;
 
+        // Where the edge has reached rather than where the hand is: the press is anywhere within
+        // half a handle of the edge it took hold of, and a line the hand lands on is not the line
+        // the edge lands on. Only under a grid, since without one the two come to the same page.
+        var to = Grid.IsOn
+            ? new SK.SKPoint(Grid.SnapX(at.X - _slack.X), Grid.SnapY(at.Y - _slack.Y))
+            : at;
+
         // The order SelectionService hands them out: TL, top, TR, right, BR, bottom, BL, left.
         switch (_handle)
         {
-            case 0: left = at.X; top = at.Y; break;
-            case 1: top = at.Y; break;
-            case 2: right = at.X; top = at.Y; break;
-            case 3: right = at.X; break;
-            case 4: right = at.X; bottom = at.Y; break;
-            case 5: bottom = at.Y; break;
-            case 6: left = at.X; bottom = at.Y; break;
-            case 7: left = at.X; break;
+            case 0: left = to.X; top = to.Y; break;
+            case 1: top = to.Y; break;
+            case 2: right = to.X; top = to.Y; break;
+            case 3: right = to.X; break;
+            case 4: right = to.X; bottom = to.Y; break;
+            case 5: bottom = to.Y; break;
+            case 6: left = to.X; bottom = to.Y; break;
+            case 7: left = to.X; break;
         }
 
         // Clamped rather than allowed to cross: a page turned inside out is a negative width, which
@@ -184,6 +205,9 @@ public sealed class SvgViewerPage
     /// and 72 written into a drawing that is 24 would be squared by the next build. A fraction means
     /// the same thing whatever the drawing is being shown at.
     ///
+    /// A fraction has no grid, which is why the snap is upstream of this: what lands on a line is
+    /// the edge while it is being dragged, and this is only how far that got.
+    ///
     /// Null for a drag that ended where it began, so a press that wandered inside the slack and came
     /// back is not an edit and costs no step in the history.
     /// </remarks>
@@ -217,5 +241,6 @@ public sealed class SvgViewerPage
         _handle = -1;
         _from = default;
         _to = default;
+        _slack = default;
     }
 }

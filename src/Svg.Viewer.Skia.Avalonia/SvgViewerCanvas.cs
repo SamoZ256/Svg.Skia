@@ -106,7 +106,7 @@ public class SvgViewerCanvas : SKCanvasControl
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
         Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, new(0x1A, 0x1A, 0x1E), null,
-        0d, null, null, true, DefaultCaptionSize, null);
+        0d, null, null, true, DefaultCaptionSize, SvgViewerGrid.None, null);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -121,6 +121,7 @@ public class SvgViewerCanvas : SKCanvasControl
         BoundsInfo? Gizmo,
         bool GizmoTurns,
         double CaptionSize,
+        SvgViewerGrid Grid,
         SKRect? Marquee);
 
     public SvgViewerCanvas()
@@ -712,6 +713,20 @@ public class SvgViewerCanvas : SKCanvasControl
     private static bool Away(Point moved, Point from)
         => Math.Abs(moved.X - from.X) > PickSlack || Math.Abs(moved.Y - from.Y) > PickSlack;
 
+    /// <summary>A carry, with the rectangle being carried put on the grid.</summary>
+    /// <remarks>
+    /// The rectangle and not the pointer: what somebody is lining up is the edge they can see, and
+    /// where inside it they happened to press is not part of what they meant. Here rather than
+    /// where the host writes the drop, so that the preview and what is written cannot disagree —
+    /// what the host is handed is already the snapped carry.
+    /// </remarks>
+    private SKPoint Snapped(SKPoint by)
+        => _grid.IsOn
+            ? new SKPoint(
+                _grid.SnapX(_movingBounds.Left + by.X) - _movingBounds.Left,
+                _grid.SnapY(_movingBounds.Top + by.Y) - _movingBounds.Top)
+            : by;
+
     /// <summary>One placed drawing's own edges, in its own space, or null where it has none.</summary>
     /// <remarks>
     /// Its own space and not the board's: a host that wants the page where it is drawn offsets by
@@ -758,6 +773,30 @@ public class SvgViewerCanvas : SKCanvasControl
             }
 
             _captionSize = wanted;
+
+            Publish();
+        }
+    }
+
+    private SvgViewerGrid _grid = SvgViewerGrid.None;
+
+    /// <summary>The lines a carry lands on, and the ones drawn under the drawings.</summary>
+    /// <remarks>
+    /// The canvas snaps only what it carries itself. Everything else a gesture writes is the host's
+    /// — the gizmos and the page hold their own copy of this, since what they are snapping is the
+    /// inside of a drawing rather than its place on the board.
+    /// </remarks>
+    public SvgViewerGrid Grid
+    {
+        get => _grid;
+        set
+        {
+            if (_grid == value)
+            {
+                return;
+            }
+
+            _grid = value;
 
             Publish();
         }
@@ -884,6 +923,7 @@ public class SvgViewerCanvas : SKCanvasControl
             _moving is { } && _moved ? null : _gizmo,
             _gizmoTurns,
             _captionSize,
+            _grid,
 
             // Only once it has travelled, as the carried rectangle is: a press inside the slack has
             // no rectangle yet, and a zero-sized one would flash a dot under every click.
@@ -1208,7 +1248,7 @@ public class SvgViewerCanvas : SKCanvasControl
                     Cursor = s_grabCursor;
                 }
 
-                _movingBy = new SKPoint(carried.X - _movingFrom.X, carried.Y - _movingFrom.Y);
+                _movingBy = Snapped(new SKPoint(carried.X - _movingFrom.X, carried.Y - _movingFrom.Y));
 
                 Publish();
             }
@@ -1615,6 +1655,9 @@ public class SvgViewerCanvas : SKCanvasControl
         using var font = new SKFont(SKTypeface.Default, 1f);
         using var writing = new SKPaint { IsAntialias = true, Color = SKColors.Gray };
 
+        // Under even the frames: the grid is what the board is standing on.
+        Lines(canvas, state.Grid, state.Scale);
+
         // Under the drawings, since a frame is a ground rather than an overlay, and outside their
         // transforms for the reason the ring is: a frame is in the arrangement's own space.
         foreach (var framed in state.Frames)
@@ -1884,6 +1927,44 @@ public class SvgViewerCanvas : SKCanvasControl
 
             canvas.DrawRect(square, fill);
             canvas.DrawRect(square, line);
+        }
+    }
+
+    /// <summary>The grid, across whatever of the board is on screen.</summary>
+    /// <remarks>
+    /// The visible area rather than the arrangement's own extent, which would draw a rectangle of
+    /// lines and read as one more thing on the board.
+    ///
+    /// Nothing is drawn once a step is under three device pixels. That is where lines stop being
+    /// lines and the board turns into a wash — and where a far enough zoom would otherwise cost
+    /// thousands of strokes a frame for it. Not antialiased, for the same reason: a hairline on a
+    /// fractional coordinate comes out as two grey rows, and a grid of those is the wash again.
+    /// </remarks>
+    private static void Lines(SKCanvas canvas, SvgViewerGrid grid, double scale)
+    {
+        if (!grid.IsOn || grid.Step * scale < 3d)
+        {
+            return;
+        }
+
+        var seen = canvas.LocalClipBounds;
+
+        using var paint = new SKPaint
+        {
+            IsAntialias = false,
+            Style = SKPaintStyle.Stroke,
+            Color = SKColors.Gray.WithAlpha(0x38),
+            StrokeWidth = (float)(1d / scale)
+        };
+
+        for (var x = grid.SnapX(seen.Left); x <= seen.Right; x += grid.Step)
+        {
+            canvas.DrawLine(x, seen.Top, x, seen.Bottom, paint);
+        }
+
+        for (var y = grid.SnapY(seen.Top); y <= seen.Bottom; y += grid.Step)
+        {
+            canvas.DrawLine(seen.Left, y, seen.Right, y, paint);
         }
     }
 

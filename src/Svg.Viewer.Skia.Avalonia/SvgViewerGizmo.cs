@@ -97,6 +97,9 @@ public sealed class SvgViewerGizmo
     /// </remarks>
     private Shim.SKMatrix _toGeometry = Shim.SKMatrix.CreateIdentity();
 
+    /// <summary>The way out again, for the one thing that is not reckoned in geometry: the grid.</summary>
+    private Shim.SKMatrix _fromGeometry = Shim.SKMatrix.CreateIdentity();
+
     private SvgTransformCollection _restore = new();
     private IReadOnlyList<SvgTransform> _head = Array.Empty<SvgTransform>();
 
@@ -123,6 +126,17 @@ public sealed class SvgViewerGizmo
     /// drag found, not 1:1 — an element already scaled unevenly keeps the shape it is on screen.
     /// </remarks>
     public bool LocksAspect { get; set; }
+
+    /// <summary>The lines a drag lands on, in the space the host speaks — none unless a host asks.</summary>
+    /// <remarks>
+    /// Off unless a host sets it, so a drag goes on doing what it did. Read per frame like
+    /// <see cref="LocksAspect"/>, so it can be switched while one is in flight.
+    ///
+    /// The grid is the board's, not the element's: it is given in the space the pointer arrives in,
+    /// and everything here is composed in the element's own geometry. So a snap is the one thing
+    /// that leaves that space and comes back — see <see cref="Anchored"/>.
+    /// </remarks>
+    public SvgViewerGrid Grid { get; set; } = SvgViewerGrid.None;
 
     /// <summary>Whether a drag is in flight.</summary>
     public bool IsDragging => _dragging;
@@ -215,6 +229,7 @@ public sealed class SvgViewerGizmo
         }
 
         _toGeometry = toGeometry;
+        _fromGeometry = node.TotalTransform;
         _pressed = toGeometry.MapPoint(at);
         _restore = Clone(_element.Transforms);
         _written = written;
@@ -276,7 +291,7 @@ public sealed class SvgViewerGizmo
         var tail = _handle switch
         {
             8 => Rotated(now),
-            >= 0 => Scaled(now),
+            >= 0 => Scaled(Edged(now)),
             _ => Moved(now)
         };
 
@@ -355,12 +370,71 @@ public sealed class SvgViewerGizmo
     /// thing and needs no vector mapping: the translation in the inverse cancels between them.
     /// </remarks>
     private IReadOnlyList<SvgTransform> Moved(Shim.SKPoint now)
-        => new SvgTransform[]
+    {
+        var by = Anchored(new Shim.SKPoint(now.X - _pressed.X, now.Y - _pressed.Y));
+
+        return new SvgTransform[] { new SvgTranslate(_startX + by.X, _startY + by.Y) };
+    }
+
+    /// <summary>A move, with the element's own corner put on the grid.</summary>
+    /// <remarks>
+    /// The corner rather than the pointer, which is the difference between the shape lining up with
+    /// the lines and the shape holding still at whatever offset it was grabbed at.
+    ///
+    /// Out to the space the grid is in and back, because that is the only space the lines mean
+    /// anything in: an element inside a scaled or turned group has geometry units of its own, and
+    /// ten of those is not ten of the board's. Under a turn the corner that lands on the line is
+    /// the shape's own, which is the one somebody can see.
+    /// </remarks>
+    private Shim.SKPoint Anchored(Shim.SKPoint by)
+    {
+        if (!Grid.IsOn)
         {
-            new SvgTranslate(
-                _selection.Snap(_startX + (now.X - _pressed.X)),
-                _selection.Snap(_startY + (now.Y - _pressed.Y)))
-        };
+            return by;
+        }
+
+        var drawn = _fromGeometry.MapPoint(new Shim.SKPoint(_geometry.Left + by.X, _geometry.Top + by.Y));
+
+        var back = _toGeometry.MapPoint(new Shim.SKPoint(Grid.SnapX(drawn.X), Grid.SnapY(drawn.Y)));
+
+        return new Shim.SKPoint(back.X - _geometry.Left, back.Y - _geometry.Top);
+    }
+
+    /// <summary>A scale, with the edge being dragged put on the grid.</summary>
+    /// <remarks>
+    /// The edge and not the factor: a grid is about where things are, and a factor rounded to a
+    /// tenth is a shape that lands nowhere in particular. Answered as a pointer position rather
+    /// than as a factor so that <see cref="Scaled"/> and <see cref="Along"/> are the arithmetic they
+    /// were — what moves is where the drag is taken to have reached.
+    ///
+    /// Only the axes the handle moves, so dragging a side does not quietly settle the other one.
+    /// <see cref="LocksAspect"/> wins over this, as it wins over everything else about a handle: the
+    /// ratio is kept and the edge lands wherever that leaves it.
+    /// </remarks>
+    private Shim.SKPoint Edged(Shim.SKPoint now)
+    {
+        if (!Grid.IsOn)
+        {
+            return now;
+        }
+
+        // The handle being dragged, which is the corner opposite the one Pivot answers.
+        var handle = new Shim.SKPoint(
+            _handle switch { 0 or 6 or 7 => _geometry.Left, 2 or 3 or 4 => _geometry.Right, _ => MidX(_geometry) },
+            _handle switch { 0 or 1 or 2 => _geometry.Top, 4 or 5 or 6 => _geometry.Bottom, _ => MidY(_geometry) });
+
+        var wide = _handle is 0 or 2 or 3 or 4 or 6 or 7;
+        var tall = _handle is 0 or 1 or 2 or 4 or 5 or 6;
+
+        var drawn = _fromGeometry.MapPoint(
+            new Shim.SKPoint(handle.X + (now.X - _pressed.X), handle.Y + (now.Y - _pressed.Y)));
+
+        var back = _toGeometry.MapPoint(new Shim.SKPoint(
+            wide ? Grid.SnapX(drawn.X) : drawn.X,
+            tall ? Grid.SnapY(drawn.Y) : drawn.Y));
+
+        return new Shim.SKPoint(_pressed.X + (back.X - handle.X), _pressed.Y + (back.Y - handle.Y));
+    }
 
     /// <remarks>
     /// About the middle of the element's own bounds, and measured in the same space, so what is
@@ -373,7 +447,7 @@ public sealed class SvgViewerGizmo
         var centre = new Shim.SKPoint(MidX(_geometry), MidY(_geometry));
         var turned = Degrees(centre, now) - Degrees(centre, _pressed);
 
-        return new SvgTransform[] { new SvgRotate(_startAngle + turned, centre.X, centre.Y) };
+        return new SvgTransform[] { new SvgRotate(Grid.Turns(_startAngle + turned), centre.X, centre.Y) };
     }
 
     /// <remarks>

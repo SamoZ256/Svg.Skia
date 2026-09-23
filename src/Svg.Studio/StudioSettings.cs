@@ -54,6 +54,12 @@ public static class StudioSettings
 
     private const string ThemeKey = "theme";
 
+    private const string SnapToGridKey = "snapToGrid";
+
+    private const string GridSizeKey = "gridSize";
+
+    private const string RotationStepKey = "rotationStep";
+
     /// <summary>
     /// Where the settings are kept.
     /// </summary>
@@ -151,14 +157,62 @@ public static class StudioSettings
     /// </remarks>
     public static double CaptionSize
     {
-        get => double.TryParse(Read(CaptionSizeKey), NumberStyles.Float, CultureInfo.InvariantCulture, out var size)
-               && size >= SvgViewerCanvas.MinimumCaptionSize
-               && size <= SvgViewerCanvas.MaximumCaptionSize
-            ? size
-            : SvgViewerCanvas.DefaultCaptionSize;
+        get => Read(
+            CaptionSizeKey,
+            SvgViewerCanvas.DefaultCaptionSize,
+            SvgViewerCanvas.MinimumCaptionSize,
+            SvgViewerCanvas.MaximumCaptionSize);
 
         set => Write(CaptionSizeKey, value.ToString(CultureInfo.InvariantCulture));
     }
+
+    /// <summary>Whether a gesture lands on the grid rather than where the pointer stopped.</summary>
+    /// <remarks>
+    /// Off unless the file says otherwise, which is the other way round from the recovery copy: a
+    /// drag that does not write what was dragged is a surprise, and nobody who has not asked for a
+    /// grid should meet one.
+    /// </remarks>
+    public static bool SnapToGrid
+    {
+        get => string.Equals(Read(SnapToGridKey), "on", StringComparison.Ordinal);
+        set => Write(SnapToGridKey, value ? "on" : "off");
+    }
+
+    /// <summary>How far apart the grid lines are, in the space the drawings are arranged in.</summary>
+    /// <remarks>
+    /// Read the way a caption size is, and for the same reason: a settings file is not something to
+    /// fail over, so anything that cannot be read and anything out of range is the default.
+    /// </remarks>
+    public static double GridSize
+    {
+        get => Read(GridSizeKey, SvgViewerGrid.DefaultStep, SvgViewerGrid.MinimumStep, SvgViewerGrid.MaximumStep);
+        set => Write(GridSizeKey, value.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>How far apart the angles a turn lands on are, in degrees.</summary>
+    /// <remarks>Its own number because a grid has no angle. See <see cref="SvgViewerGrid"/>.</remarks>
+    public static double RotationStep
+    {
+        get => Read(RotationStepKey, SvgViewerGrid.DefaultTurn, SvgViewerGrid.MinimumTurn, SvgViewerGrid.MaximumTurn);
+        set => Write(RotationStepKey, value.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>The two steps as one, which is what a canvas and a gesture are handed.</summary>
+    /// <remarks>
+    /// The steps whether or not <see cref="SnapToGrid"/> is on, so switching it off and on again is
+    /// the grid somebody set rather than the one it started at. Here rather than at each of the
+    /// places that push it onto a tab, so a board, a drawing tab and the one a test builds cannot
+    /// come to disagree about what the settings say.
+    /// </remarks>
+    public static SvgViewerGrid Grid => new((float)GridSize, (float)RotationStep);
+
+    /// <summary>A number the file holds, or the default where it holds nothing usable.</summary>
+    private static double Read(string key, double fallback, double least, double most)
+        => double.TryParse(Read(key), NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+           && value >= least
+           && value <= most
+            ? value
+            : fallback;
 
     private static string? Read(string key)
     {

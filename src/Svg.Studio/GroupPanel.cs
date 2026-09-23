@@ -157,6 +157,9 @@ public sealed class GroupPanel : UserControl
     /// <summary>Dragging a drawing's own edges to change the size it is.</summary>
     private readonly SvgViewerPage _paging = new();
 
+    /// <summary>The board's own snap toggle, which follows the setting rather than holding it.</summary>
+    private ToggleButton? _snapping;
+
     /// <summary>Whether the page of <see cref="_inspecting"/> is what is selected.</summary>
     /// <remarks>
     /// The third thing a board's one selection can be, beside a group and an element. It rides on
@@ -304,7 +307,7 @@ public sealed class GroupPanel : UserControl
             ShowElement(node?.AddressKey);
         };
 
-        Recaption();
+        Reread();
 
         // A group edited in another tab changes what this one inherits, so every tab follows the
         // one document rather than the copy it was opened with. Anything typed here and not
@@ -627,13 +630,36 @@ public sealed class GroupPanel : UserControl
     /// <summary>Lets go of the drawings this tab built. The tab is finished with after it.</summary>
     public void Close() => Release();
 
-    /// <summary>Draws the captions at whatever size the settings now say.</summary>
+    /// <summary>Somebody pressed this board's own snap toggle.</summary>
+    /// <remarks>
+    /// The toggle writes the setting itself; this is for the window to tell every other tab, which
+    /// is what makes the two toggles and the settings window one switch rather than three.
+    /// </remarks>
+    public event EventHandler? SnapChanged;
+
+    /// <summary>Draws and drags at whatever the settings now say.</summary>
     /// <remarks>
     /// Asked again rather than told, for the reason the settings window answers nothing: the setting
     /// outlives every window that reads it, and a tab holding its own copy would be one more thing
     /// to keep in step.
     /// </remarks>
-    public void Recaption() => _canvas.CaptionSize = StudioSettings.CaptionSize;
+    public void Reread()
+    {
+        _canvas.CaptionSize = StudioSettings.CaptionSize;
+
+        var grid = StudioSettings.SnapToGrid ? StudioSettings.Grid : SvgViewerGrid.None;
+
+        // All three, because all three write a place: the canvas carries a drawing about, the gizmo
+        // moves what is inside one, and the page is the drawing's own edges.
+        _canvas.Grid = grid;
+        _gizmo.Grid = grid;
+        _paging.Grid = grid;
+
+        if (_snapping is { })
+        {
+            _snapping.IsChecked = StudioSettings.SnapToGrid;
+        }
+    }
 
     /// <summary>
     /// Shows everything the drawings here are built with: the chain, then what the picked one
@@ -1612,12 +1638,19 @@ public sealed class GroupPanel : UserControl
             {
                 Settle();
 
+                // The carry arrives on the grid already, put there by the canvas so that what was
+                // drawn following the pointer is what gets written.
                 node.X = ProjectNode.Rounded((node.X ?? 0f) + move.By.X);
                 node.Y = ProjectNode.Rounded((node.Y ?? 0f) + move.By.Y);
             });
     }
 
     /// <summary>Gives every row of the tab the place it is already being drawn at.</summary>
+    /// <remarks>
+    /// Not put on the grid, even while one is on: what this writes is where things already are, and
+    /// a row nobody has touched moving because somebody dragged another one is the one thing this
+    /// exists to prevent.
+    /// </remarks>
     private void Settle()
     {
         var at = new Dictionary<ProjectNode, SKPoint>();
@@ -2485,12 +2518,38 @@ public sealed class GroupPanel : UserControl
 
         ratio.IsCheckedChanged += (_, _) => _gizmo.LocksAspect = ratio.IsChecked == true;
 
+        var snap = new ToggleButton
+        {
+            Content = "Snap",
+            IsChecked = StudioSettings.SnapToGrid,
+            [ToolTip.TipProperty] = "Land what is dragged on the grid rather than where the pointer stopped"
+        };
+
+        // Straight into the setting, unlike the lock beside it: where a gesture lands is remembered
+        // between sessions, and a board that asked only itself would disagree with the next tab.
+        snap.IsCheckedChanged += (_, _) =>
+        {
+            if (StudioSettings.SnapToGrid == (snap.IsChecked == true))
+            {
+                return;
+            }
+
+            StudioSettings.SnapToGrid = snap.IsChecked == true;
+
+            Reread();
+
+            SnapChanged?.Invoke(this, EventArgs.Empty);
+        };
+
+        _snapping = snap;
+
         bar.Children.Add(Tool("Fit", "Fit to window", () => _canvas.Fit()));
         bar.Children.Add(Tool("1:1", "Actual size", () => _canvas.ActualSize()));
         bar.Children.Add(Tool("−", "Zoom out, or scroll down", () => _canvas.ZoomOut()));
         bar.Children.Add(_zoom);
         bar.Children.Add(Tool("+", "Zoom in, or scroll up", () => _canvas.ZoomIn()));
         bar.Children.Add(ratio);
+        bar.Children.Add(snap);
 
         return bar;
     }
@@ -2629,6 +2688,9 @@ public sealed class GroupPanel : UserControl
                 break;
             case "x":
                 node.X = SvgcProject.ParseLength(value, "position");
+                // Written as typed, grid or no grid: a number somebody has entered is the number
+                // they meant, and rounding it would be the box arguing with them.
+                //
                 // Both or neither, as the format asks. Typing one of them places the node at the
                 // board's origin on the other axis; clearing either takes the place away.
                 node.Y = node.X is { } ? node.Y ?? 0f : null;
