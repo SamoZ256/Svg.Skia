@@ -869,14 +869,89 @@ public class SvgViewerCanvas : SKCanvasControl
 
         using var font = new SKFont(SKTypeface.Default, tall);
 
+        if (!Fits(font, name, framed.Bounds.Size))
+        {
+            return SKRect.Empty;
+        }
+
         // As wide as the name and no wider. The frame's full width would be the whole top of it,
         // and since this is answered before the drawings are, that would take the top strip off
         // every drawing standing under it.
+        //
+        // Every number here is the size the writing came out at rather than the size a caption is,
+        // so a name shrunk to fit a narrow frame is taken hold of by a strip round where it ended
+        // up. Measured against the nominal size the strip would hang off a frame the writing had to
+        // shrink into — which is the same mistake as drawing the name there.
         return new SKRect(
             framed.Bounds.Left,
             framed.Bounds.Top,
-            framed.Bounds.Left + (tall * 0.7f) + font.MeasureText(name),
-            framed.Bounds.Top + (tall * 1.6f));
+            framed.Bounds.Left + (font.Size * Inset * 2f) + font.MeasureText(name),
+            framed.Bounds.Top + (font.Size * Band));
+    }
+
+    /// <summary>How far in from the box's edges a name is written, in multiples of its own size.</summary>
+    private const float Inset = 0.35f;
+
+    /// <summary>How far below the box's top the name's baseline sits, the same way.</summary>
+    private const float Line = 1.15f;
+
+    /// <summary>How tall the strip a frame is taken hold of by is, the same way.</summary>
+    /// <remarks>The line, and what hangs under it.</remarks>
+    private const float Band = Line + 0.35f;
+
+    /// <summary>
+    /// Sizes <paramref name="font"/> so the whole of <paramref name="name"/> fits in
+    /// <paramref name="room"/>, and answers whether there is anything to write.
+    /// </summary>
+    /// <remarks>
+    /// A name is chrome and what it names is not: a group frame is as wide as the drawings inside it
+    /// and a drawing is as wide as it is, so a caption written whole would run out over whatever is
+    /// beside it — which a group called after what it holds routinely did.
+    ///
+    /// Smaller rather than cut short. A name is what tells one row from another, and the half of it
+    /// that fits often does not — a set of icons is full of names that differ at the end.
+    ///
+    /// A typeface advances in proportion to its size, so the size that fits is one division rather
+    /// than a search. The loop is for the rounding at the end of it: a size is measured in whole
+    /// pixels of hinting, so the first answer can come back a hair wide.
+    ///
+    /// Static, because the two callers are on different threads: the strip a frame is taken hold of
+    /// is measured on the UI thread and the writing is drawn on the render thread, and a strip that
+    /// did not end where the writing does would be a target nobody can see.
+    /// </remarks>
+    internal static bool Fits(SKFont font, string name, SKSize room)
+    {
+        // Never taller than the box either. A frame round two small icons is a few units deep, and
+        // a name written a whole line below its top would be a line below the frame.
+        font.Size = Math.Min(font.Size, room.Height / Band);
+
+        for (var attempt = 0; attempt < 8 && font.Size > 0f; attempt++)
+        {
+            // The insets are the writing's own, so they come off at whatever size it is now: taken
+            // at the size a caption nominally is, a name shrunk to a tenth of that would be written
+            // from an inset ten times its own height and end up outside the box it was fitted to.
+            var across = room.Width - (font.Size * Inset * 2f);
+
+            if (across <= 0f)
+            {
+                // Smaller until there is something left over. Halving rather than solving, because
+                // what is left grows as the writing shrinks and two or three of these reach it.
+                font.Size /= 2f;
+
+                continue;
+            }
+
+            var width = font.MeasureText(name);
+
+            if (width <= across)
+            {
+                return font.Size > 0f;
+            }
+
+            font.Size *= across / width;
+        }
+
+        return false;
     }
 
     private void SetView(double scale, double offsetX, double offsetY)
@@ -1741,12 +1816,57 @@ public class SvgViewerCanvas : SKCanvasControl
 
             font.Size = tall;
 
-            // Inside its top corner, off both edges by a third of the writing's height so it does
-            // not sit on the line it is naming.
+            // Never out past the frame it is naming, which a group called after what it holds is
+            // wider than. TitleOf sizes it by the same rule, so the strip ends where the writing does.
+            if (!Fits(font, name, framed.Bounds.Size))
+            {
+                continue;
+            }
+
+            // Inside its top corner, off both edges by a third of the writing's own height so it
+            // does not sit on the line it is naming. Its own, because the writing is not always the
+            // size a caption nominally is: an inset measured against that would put a name that had
+            // to shrink outside the frame it shrank to fit.
             canvas.DrawText(
                 name,
-                framed.Bounds.Left + by.X + (tall * 0.35f),
-                framed.Bounds.Top + by.Y + (tall * 1.15f),
+                framed.Bounds.Left + by.X + (font.Size * Inset),
+                framed.Bounds.Top + by.Y + (font.Size * Line),
+                SKTextAlign.Left,
+                font,
+                writing);
+        }
+
+        // And the drawings' own names, after them for the reason the frames' are: a name is not the
+        // picture, and the picture is what a page clips.
+        foreach (var placed in state.Placed)
+        {
+            if (placed is not { Label: { Length: > 0 } name } || Extent(placed) is not { } page)
+            {
+                continue;
+            }
+
+            var by = state.Moving is { } moving && moving.Carried.Contains(placed)
+                ? moving.By
+                : default;
+
+            font.Size = (float)(state.CaptionSize / state.Scale);
+
+            // The room is the drawing and nothing else, which is the whole of the rule: a name any
+            // wider would be written over whatever stands in the next column.
+            if (!Fits(font, name, page.Size))
+            {
+                continue;
+            }
+
+            // Inside the page rather than under it, and in its top corner, which is where a frame's
+            // name is: one rule for both, so a board reads the same whether what is named is a group
+            // or a drawing. A drawing is exactly what its page says, so a name hanging below one is
+            // a name outside everything that decides where anything goes — the arrangement, the fit,
+            // and what a click falls on.
+            canvas.DrawText(
+                name,
+                placed.At.X + by.X + page.Left + (font.Size * Inset),
+                placed.At.Y + by.Y + page.Top + (font.Size * Line),
                 SKTextAlign.Left,
                 font,
                 writing);

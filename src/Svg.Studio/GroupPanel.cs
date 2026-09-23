@@ -160,6 +160,12 @@ public sealed class GroupPanel : UserControl
     /// <summary>The board's own snap toggle, which follows the setting rather than holding it.</summary>
     private ToggleButton? _snapping;
 
+    /// <summary>The board's own captions toggle, which follows the setting the same way.</summary>
+    private ToggleButton? _captions;
+
+    /// <summary>Whether the board in front of us was laid out with names on its drawings.</summary>
+    private bool _named = StudioSettings.DrawingCaptions;
+
     /// <summary>Whether the page of <see cref="_inspecting"/> is what is selected.</summary>
     /// <remarks>
     /// The third thing a board's one selection can be, beside a group and an element. It rides on
@@ -469,9 +475,10 @@ public sealed class GroupPanel : UserControl
     /// <summary>Which drawing each placement on the board came from, in the board's order.</summary>
     /// <remarks>
     /// The canvas is handed placements and hands back nothing about where they came from, so this
-    /// is the pairing — index for index with what it was shown. A caption used to be the answer, a
-    /// caller reading the row's name off the writing under it; there is no writing under a drawing
-    /// any more, and a picture was never a good place to keep an identity.
+    /// is the pairing — index for index with what it was shown. The caption used to be the answer, a
+    /// caller reading the row's name off the writing under it. That is worse than it looks even now
+    /// the writing is back: it can be switched off, and a picture was never a good place to keep an
+    /// identity.
     /// </remarks>
     public IReadOnlyList<ProjectDrawing> Board => _shown.Select(shown => shown.Built.Drawing).ToList();
 
@@ -630,12 +637,14 @@ public sealed class GroupPanel : UserControl
     /// <summary>Lets go of the drawings this tab built. The tab is finished with after it.</summary>
     public void Close() => Release();
 
-    /// <summary>Somebody pressed this board's own snap toggle.</summary>
+    /// <summary>Somebody pressed one of this board's own toggles, and it wrote a setting.</summary>
     /// <remarks>
     /// The toggle writes the setting itself; this is for the window to tell every other tab, which
-    /// is what makes the two toggles and the settings window one switch rather than three.
+    /// is what makes a toolbar, the settings window and every other board one switch rather than
+    /// several. One event for all of them because what a listener does about it is the same — ask
+    /// the settings again — and which toggle it was is not something anybody has needed.
     /// </remarks>
-    public event EventHandler? SnapChanged;
+    public event EventHandler? SettingChanged;
 
     /// <summary>Draws and drags at whatever the settings now say.</summary>
     /// <remarks>
@@ -659,7 +668,38 @@ public sealed class GroupPanel : UserControl
         {
             _snapping.IsChecked = StudioSettings.SnapToGrid;
         }
+
+        if (_captions is { })
+        {
+            _captions.IsChecked = StudioSettings.DrawingCaptions;
+        }
+
+        // The one that is not a render flag: a name is written into the placement when the board is
+        // laid out, so this has to be laid out again. Only when it changed, or a theme picked in the
+        // settings would re-lay every board open behind it.
+        if (_named != StudioSettings.DrawingCaptions)
+        {
+            _named = StudioSettings.DrawingCaptions;
+
+            // ShowDrawings rather than something narrower: it reuses the drawings it has built
+            // instead of reading them again, keeps whatever is being inspected, and takes the
+            // Rearrange branch, so the view neither jumps nor refits.
+            if (_canvas.Placements.Count > 0)
+            {
+                ShowDrawings();
+            }
+        }
     }
+
+    /// <summary>What a drawing is called on a board, or null where nothing is written under it.</summary>
+    /// <remarks>
+    /// The name and nothing else. It used to be two lines — the name, then the class and the size —
+    /// because the columns were sized to hold whichever was wider. They are not any more: what is
+    /// written is shrunk to the drawing, and a second line twice as wide as an icon would shrink to
+    /// nothing anybody could read.
+    /// </remarks>
+    private static string? Caption(ProjectDrawing drawing)
+        => StudioSettings.DrawingCaptions ? drawing.Name : null;
 
     /// <summary>
     /// Shows everything the drawings here are built with: the chain, then what the picked one
@@ -1487,7 +1527,7 @@ public sealed class GroupPanel : UserControl
             switch (child)
             {
                 case ProjectDrawing drawing when made.TryGetValue(drawing, out var built):
-                    Put(new SvgViewerPlacement(built.Svg!, to), built);
+                    Put(new SvgViewerPlacement(built.Svg!, to, Caption(drawing)), built);
                     break;
 
                 case ProjectGroup inner:
@@ -1519,7 +1559,13 @@ public sealed class GroupPanel : UserControl
         {
             // The copy, and only the copy, goes into both lists: a click pairs a placement back to
             // its drawing by reference, and `with` makes a new record.
-            Put(placement with { At = new SKPoint(placement.At.X + block.X, placement.At.Y + block.Y) }, made[drawing]);
+            Put(
+                placement with
+                {
+                    At = new SKPoint(placement.At.X + block.X, placement.At.Y + block.Y),
+                    Label = Caption(drawing)
+                },
+                made[drawing]);
         }
     }
 
@@ -2538,7 +2584,7 @@ public sealed class GroupPanel : UserControl
 
             Reread();
 
-            SnapChanged?.Invoke(this, EventArgs.Empty);
+            SettingChanged?.Invoke(this, EventArgs.Empty);
         };
 
         _snapping = snap;
@@ -2548,8 +2594,32 @@ public sealed class GroupPanel : UserControl
         bar.Children.Add(Tool("−", "Zoom out, or scroll down", () => _canvas.ZoomOut()));
         bar.Children.Add(_zoom);
         bar.Children.Add(Tool("+", "Zoom in, or scroll up", () => _canvas.ZoomIn()));
+        var captions = new ToggleButton
+        {
+            Content = "Captions",
+            IsChecked = StudioSettings.DrawingCaptions,
+            [ToolTip.TipProperty] = "Write each drawing's name inside its own top corner"
+        };
+
+        captions.IsCheckedChanged += (_, _) =>
+        {
+            if (StudioSettings.DrawingCaptions == (captions.IsChecked == true))
+            {
+                return;
+            }
+
+            StudioSettings.DrawingCaptions = captions.IsChecked == true;
+
+            Reread();
+
+            SettingChanged?.Invoke(this, EventArgs.Empty);
+        };
+
+        _captions = captions;
+
         bar.Children.Add(ratio);
         bar.Children.Add(snap);
+        bar.Children.Add(captions);
 
         return bar;
     }
@@ -2563,7 +2633,7 @@ public sealed class GroupPanel : UserControl
         return button;
     }
 
-    /// <summary>What a drawing is called and what it is built at, over two lines.</summary>
+    /// <summary>Where this tab's own assets are, for an icon a row is drawn with.</summary>
     private static readonly Uri Home = new("avares://Svg.Studio/");
 
     /// <remarks>

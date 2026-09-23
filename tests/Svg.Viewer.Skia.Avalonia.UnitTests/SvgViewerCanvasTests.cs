@@ -20,6 +20,13 @@ public class SvgViewerCanvasTests
 {
     // 100x50 in a 400x200 pane: fit is bounded by width, so the two axes disagree and a bug that
     // picks the wrong one shows up.
+    /// <summary>The same page, with its top left empty for a name to be written in.</summary>
+    private const string Roomy = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50">
+          <rect x="0" y="30" width="100" height="20" fill="#ff0000" />
+        </svg>
+        """;
+
     private const string Wide = """
         <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50">
           <rect x="0" y="0" width="100" height="50" fill="#ff0000" />
@@ -351,6 +358,19 @@ public class SvgViewerCanvasTests
     /// <summary>What the frame is painted at one point of the control.</summary>
     private static SKColor Painted(Window window, int x, int y)
     {
+        using var shot = Shot(window);
+
+        return shot.GetPixel(x, y);
+    }
+
+    /// <summary>The whole control as it was painted.</summary>
+    /// <remarks>
+    /// Asked for once and read many times. Capturing per pixel is what <see cref="Painted"/> does
+    /// and is fine for a row of them; a band is thousands, and every one of those is a render, a
+    /// PNG written to disk and a decode.
+    /// </remarks>
+    private static SKBitmap Shot(Window window)
+    {
         var frame = window.CaptureRenderedFrame()
             ?? throw new InvalidOperationException("No rendered frame was captured.");
 
@@ -359,14 +379,31 @@ public class SvgViewerCanvasTests
 
         try
         {
-            using var bitmap = SKBitmap.Decode(path);
-
-            return bitmap!.GetPixel(x, y);
+            return SKBitmap.Decode(path)!;
         }
         finally
         {
             File.Delete(path);
         }
+    }
+
+    /// <summary>How many pixels of a band are something other than the canvas's own ground.</summary>
+    private static int Inked(SKBitmap shot, SKColor ground, int left, int top, int right, int bottom)
+    {
+        var inked = 0;
+
+        for (var y = Math.Max(top, 0); y < Math.Min(bottom, shot.Height); y++)
+        {
+            for (var x = Math.Max(left, 0); x < Math.Min(right, shot.Width); x++)
+            {
+                if (shot.GetPixel(x, y) != ground)
+                {
+                    inked++;
+                }
+            }
+        }
+
+        return inked;
     }
 
     /// <summary>
@@ -378,7 +415,8 @@ public class SvgViewerCanvasTests
     /// <see cref="SvgViewerCanvas.TryGetDrawingPoint"/> mapped back as though they had been — so a
     /// pointer and a picture disagreed by however far from the origin the arrangement was laid out.
     /// A single drawing sits at the origin and never noticed; a project group centres each drawing
-    /// in a column as wide as its caption, and the first of them can start hundreds of units in.
+    /// in a column as wide as the widest of them, and a board arranged into places can start
+    /// hundreds of units in.
     /// </remarks>
     [AvaloniaFact]
     public void An_Arrangement_Away_From_The_Origin_Is_Drawn_Where_It_Is_Mapped()
@@ -420,14 +458,6 @@ public class SvgViewerCanvasTests
         Assert.True(painted.Blue > 200 && painted.Red < 100, $"{painted} is not the drawing's blue");
     }
 
-    /// <summary>
-    /// A frame is part of what is on show, so the fit holds the whole of it.
-    /// </summary>
-    /// <remarks>
-    /// Left out of the union, a frame drawn round a group of drawings would be cut off at the edge
-    /// of the ink inside it — and its name, which is written above its top edge, would be off the
-    /// top of the control.
-    /// </remarks>
     /// <summary>
     /// A frame's name is the same size on the control however far the view is zoomed.
     /// </summary>
@@ -491,6 +521,222 @@ public class SvgViewerCanvasTests
         Assert.True(canvas.TitleOf(framed).IsEmpty);
     }
 
+    /// <summary>
+    /// A name too long for its frame is trimmed rather than written out past it.
+    /// </summary>
+    /// <remarks>
+    /// A group is usually called after what it holds, so its name is routinely wider than the
+    /// drawings it is round — and written whole it ran out over whatever was beside it, taking the
+    /// strip the frame is grabbed by with it. At actual size, so the trim does not depend on a fit.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Frames_Name_Stops_Where_Its_Frame_Does()
+    {
+        using var drawing = SvgViewerDocument.LoadFromSvg(Wide);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+
+        window.Show();
+
+        var framed = new SvgViewerFrame(new SKRect(-5f, -5f, 105f, 55f), "ElementBackgroundLarge");
+
+        canvas.Show(new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) }, new[] { framed });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        canvas.ActualSize();
+
+        Assert.Equal(1d, canvas.Scale, 6);
+
+        using var font = new SKFont(SKTypeface.Default, (float)SvgViewerCanvas.DefaultCaptionSize);
+
+        // The case only exists where the name really is too wide, which at this size it is.
+        Assert.True(
+            font.MeasureText(framed.Label) > framed.Bounds.Width,
+            "the name fits, so there is nothing for the trim to do.");
+
+        var strip = canvas.TitleOf(framed);
+
+        Assert.False(strip.IsEmpty, "something should still be written.");
+        Assert.True(strip.Right <= framed.Bounds.Right, $"{strip.Right} is past the frame's {framed.Bounds.Right}.");
+    }
+
+    /// <summary>
+    /// A drawing is named inside its own page, in the corner a frame's name is in.
+    /// </summary>
+    /// <remarks>
+    /// The whole of the rule, asked of the pixels: something is written inside the drawing's top
+    /// corner, and nothing at all is written beside it. Written at the size a caption is, a name of
+    /// twenty-two characters is wider than a hundred units of picture.
+    ///
+    /// Inside rather than under, which is what makes a name cost nothing: the page is what the
+    /// arrangement, the fit and a click all go by, and a name hanging below one is outside all three.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Drawings_Name_Is_Written_In_Its_Own_Top_Corner()
+    {
+        using var drawing = SvgViewerDocument.LoadFromSvg(Roomy);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        canvas.Show(new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f), "ElementBackgroundLarge") });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        var band = Band(canvas, out var left, out var right);
+
+        using var shot = Shot(window);
+
+        Assert.True(
+            Inked(shot, canvas.Background, left + 3, band.Top, right - 3, band.Bottom) > 5,
+            "nothing was written in the drawing's corner.");
+
+        // And the width it was given is the page: the band beside it is untouched. Clear of the
+        // page's own dashed outline, which runs down both edges of it.
+        Assert.Equal(0, Inked(shot, canvas.Background, right + 4, band.Top, right + 60, band.Bottom));
+    }
+
+    /// <summary>
+    /// A drawing nobody named has nothing written on it, and a name costs no room either way.
+    /// </summary>
+    /// <remarks>
+    /// The same fit as the one above, which is the point of writing a name inside the page: an
+    /// arrangement of named drawings is laid out and fitted exactly as the same drawings unnamed.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Drawing_With_No_Name_Has_Nothing_Written_On_It()
+    {
+        using var drawing = SvgViewerDocument.LoadFromSvg(Roomy);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Background = Brushes.White, Content = canvas };
+
+        window.Show();
+
+        canvas.Show(new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        // 100x50 in 400x200: bounded either way at 4, named or not.
+        Assert.Equal(4d, canvas.Scale, 6);
+
+        var band = Band(canvas, out var left, out var right);
+
+        using var shot = Shot(window);
+
+        // Inside the outline down either edge, which is drawn whether or not anything is named.
+        Assert.Equal(0, Inked(shot, canvas.Background, left + 3, band.Top, right - 3, band.Bottom));
+    }
+
+    /// <summary>The rows a name is written on, and the columns the page covers.</summary>
+    /// <remarks>
+    /// The band inside the page's own top edge, where the writing sits. Asked of the canvas rather
+    /// than worked out, since the fit decides where 100x50 lands.
+    /// </remarks>
+    private static SKRectI Band(SvgViewerCanvas canvas, out int left, out int right)
+    {
+        Assert.True(canvas.TryGetControlPoint(new SKPoint(0f, 0f), out var corner));
+        Assert.True(canvas.TryGetControlPoint(new SKPoint(100f, 0f), out var beside));
+
+        left = (int)corner.X;
+        right = (int)beside.X;
+
+        // Down from the page's own top edge, which is what the baseline is measured off — and clear
+        // of the edge itself, which the dashed outline is drawn on.
+        return new SKRectI(
+            left,
+            (int)corner.Y + 3,
+            right,
+            (int)corner.Y + (int)(SvgViewerCanvas.DefaultCaptionSize * 1.5d));
+    }
+
+    /// <summary>
+    /// A frame with hardly any room for a name writes the whole of it, very small.
+    /// </summary>
+    /// <remarks>
+    /// Eight units across for a name of twenty-two characters at thirteen: the writing ends up a
+    /// fraction of the size a caption is, and inside the frame, which is the point. It would be
+    /// outside it if the inset it is written from were the size a caption nominally is rather than
+    /// the size this one came out at.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Frame_With_Hardly_Any_Room_Still_Holds_The_Whole_Name()
+    {
+        using var drawing = SvgViewerDocument.LoadFromSvg(Wide);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+
+        window.Show();
+
+        var framed = new SvgViewerFrame(new SKRect(0f, 0f, 8f, 60f), "ElementBackgroundLarge");
+
+        canvas.Show(new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) }, new[] { framed });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        canvas.ActualSize();
+
+        var strip = canvas.TitleOf(framed);
+
+        Assert.False(strip.IsEmpty);
+        Assert.True(strip.Right <= framed.Bounds.Right, $"{strip.Right} is past the frame's {framed.Bounds.Right}.");
+
+        // And the frame is still something to take hold of.
+        Assert.True(canvas.Grabs(framed, new SKPoint(0f, 30f)));
+    }
+
+    /// <summary>
+    /// A frame too shallow for a name keeps it inside all the same.
+    /// </summary>
+    /// <remarks>
+    /// The reported case. A name sits a line below the top of what it names, and a line is however
+    /// tall the writing is — so a frame shallower than one line had the name written out below its
+    /// bottom edge, over whatever was there. The writing shrinks to the frame both ways now.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Frame_Shallower_Than_A_Line_Keeps_Its_Name_Inside()
+    {
+        using var drawing = SvgViewerDocument.LoadFromSvg(Wide);
+
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 400, Height = 200, Content = canvas };
+
+        window.Show();
+
+        var framed = new SvgViewerFrame(new SKRect(0f, 0f, 100f, 6f), "Large");
+
+        canvas.Show(new[] { new SvgViewerPlacement(drawing.Svg, new SKPoint(0f, 0f)) }, new[] { framed });
+
+        canvas.Measure(new Size(400, 200));
+        canvas.Arrange(new Rect(0, 0, 400, 200));
+
+        canvas.ActualSize();
+
+        // Six units for writing that is thirteen tall and wants a line and a half of them.
+        var strip = canvas.TitleOf(framed);
+
+        Assert.False(strip.IsEmpty);
+        Assert.True(strip.Bottom <= framed.Bounds.Bottom, $"{strip.Bottom} is below the frame's {framed.Bounds.Bottom}.");
+        Assert.True(strip.Right <= framed.Bounds.Right, $"{strip.Right} is past the frame's {framed.Bounds.Right}.");
+    }
+
+    /// <summary>
+    /// A frame is part of what is on show, so the fit holds the whole of it.
+    /// </summary>
+    /// <remarks>
+    /// Left out of the union, a frame drawn round a group of drawings would be cut off at the edge
+    /// of the ink inside it. Its name needs nothing added for — it is written inside the frame's own
+    /// top corner, and trimmed where the frame is too narrow to hold it.
+    /// </remarks>
     [AvaloniaFact]
     public void A_Frame_Is_Fitted_With_What_It_Holds()
     {

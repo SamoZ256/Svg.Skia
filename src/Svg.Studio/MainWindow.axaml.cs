@@ -1704,7 +1704,7 @@ public partial class MainWindow : Window
         {
             var board = new GroupPanel(workspace, group) { TargetOf = DrawingOf };
 
-            board.SnapChanged += (_, _) => Reread();
+            board.SettingChanged += (_, _) => Reread();
 
             AddNodeTab(board, node, ProjectWorkspace.Label(node));
             return;

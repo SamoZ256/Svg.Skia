@@ -21,6 +21,12 @@ namespace Svg.Viewer.Skia.Avalonia;
 public static class SvgViewerSpread
 {
     /// <summary>One drawing to place: the picture and how big it is.</summary>
+    /// <remarks>
+    /// Nothing about what is written on a drawing, which a spread used to be told: a name is drawn
+    /// inside the page at whatever size fits within it, so it takes no room of its own in either
+    /// direction. A spread of captioned icons once widened every column to hold writing and kept two
+    /// lines free under every row, which is what made naming a board something to switch off.
+    /// </remarks>
     public readonly record struct Item(SKSvg Svg, SKSize Size);
 
     /// <summary>

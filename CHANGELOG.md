@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+* **A name on a board is shrunk to fit what it names, and drawings are named again.** A group's name
+  is written inside its frame and was written whole, so a group called after what it holds ran out
+  over whatever was beside it — and the strip the frame is taken hold of went with it. It is now
+  sized to the frame, across it and down it, and whole rather than cut short: half a name is no use
+  where a set of icons is full of names that differ at the end. On the same rule each drawing is
+  named again, in its own top corner: the row's own name, one line, shrunk to the drawing. So a
+  name costs nothing — the arrangement and the fit never hear about it, and a board that names what
+  is on it is laid out exactly like one that does not, where the writing used to widen every column
+  and keep two lines free under every row. On unless you say otherwise, from the board's **Captions**
+  toggle or from Settings.
+
 * **The Parameters pane is now Variables, and shows one list.** It had a section per kind because
   the model behind it keeps two lists — a fact about the language rather than anything a reader
   needs. A value and an expression are both variables the drawing names, so they are one list now,
