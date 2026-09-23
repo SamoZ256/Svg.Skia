@@ -512,9 +512,9 @@ public class MainWindowProjectTests : IDisposable
 
     /// <summary>Where in the control a point of the arrangement is, checked by mapping it back.</summary>
     /// <remarks>
-    /// The arrangement does not have to start at the origin — a spread whose first drawing is
-    /// narrower than its caption begins part way in — so where it does start is asked for rather
-    /// than assumed: the control's own origin maps to it.
+    /// The arrangement does not have to start at the origin — a board arranged into places begins
+    /// wherever the places say — so where it does start is asked for rather than assumed: the
+    /// control's own origin maps to it.
     /// </remarks>
     private static Point Over(SvgViewerCanvas canvas, float x, float y)
     {

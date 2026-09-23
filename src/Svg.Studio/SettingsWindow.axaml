@@ -51,10 +51,23 @@
                    Increment="1"
                    FormatString="0" />
 
-    <TextBlock Text="How big the name above a group's frame is drawn on a board. It does not change with the zoom."
+    <TextBlock Text="How big the name under a drawing, and the name inside a group's frame, is drawn on a board. It does not change with the zoom."
                TextWrapping="Wrap"
                Opacity="0.65"
                FontSize="11" />
+
+    <CheckBox x:Name="DrawingCaptionsBox" Content="Name each drawing on a board" Margin="0,14,0,0" />
+
+    <!--
+      On, unlike the toggle this replaces. A name is now written inside the drawing and shrunk to fit
+      across it, so a board that names what is on it is laid out exactly like one that does not —
+      the room the writing used to take is what made it something to turn off.
+    -->
+    <TextBlock Text="Writes each drawing's name inside its own top corner, where a group's name sits in its frame. The name is shrunk until it fits the drawing, so nothing moves either way. A group's own name is written whatever this says."
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11"
+               Margin="26,0,0,0" />
 
     <CheckBox x:Name="SnapToGridBox" Content="Snap to grid" Margin="0,14,0,0" />
 

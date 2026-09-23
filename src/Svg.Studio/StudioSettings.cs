@@ -50,6 +50,8 @@ public static class StudioSettings
 
     private const string CaptionSizeKey = "captionSize";
 
+    private const string DrawingCaptionsKey = "drawingCaptions";
+
     private const string RelaxedTextKey = "relaxedText";
 
     private const string ThemeKey = "theme";
@@ -147,7 +149,7 @@ public static class StudioSettings
         });
     }
 
-    /// <summary>How big a group's name on a board is drawn, in control pixels.</summary>
+    /// <summary>How big a name on a board is drawn, in control pixels.</summary>
     /// <remarks>
     /// A caption is chrome rather than part of a drawing, so how big is readable is about the screen
     /// somebody is at — which is the one thing neither the canvas nor the project can work out.
@@ -164,6 +166,18 @@ public static class StudioSettings
             SvgViewerCanvas.MaximumCaptionSize);
 
         set => Write(CaptionSizeKey, value.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>Whether each drawing on a board is named under it.</summary>
+    /// <remarks>
+    /// On unless the file says otherwise, the way the recovery copy is: a board that names what is
+    /// on it is the one somebody reading a project wants, and a name is written inside the drawing
+    /// it belongs to, so a board of them is laid out exactly like a board without.
+    /// </remarks>
+    public static bool DrawingCaptions
+    {
+        get => !string.Equals(Read(DrawingCaptionsKey), "off", StringComparison.Ordinal);
+        set => Write(DrawingCaptionsKey, value ? "on" : "off");
     }
 
     /// <summary>Whether a gesture lands on the grid rather than where the pointer stopped.</summary>

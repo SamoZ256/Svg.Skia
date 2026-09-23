@@ -130,11 +130,10 @@ public static class ProjectImport
     /// The room to leave between two desks on the board.
     /// </summary>
     /// <remarks>
-    /// Taken from what the board itself spaces things by rather than picked: a caption is five per
-    /// cent of the largest drawing on the tab, and that is the unit every gap on a board is counted
-    /// in. Six of them is the two frames' inflation, the room a spread leaves between its own, and
-    /// the line a frame writes its name on above itself — which is what two desks need between them
-    /// to read as two.
+    /// Taken from what the board itself spaces things by rather than picked: five per cent of the
+    /// largest drawing on the tab is the unit every gap on a board is counted in. Six of them is the
+    /// two frames' inflation, the room a spread leaves between its own, and a line of air besides —
+    /// which is what two desks need between them to read as two.
     ///
     /// It is also what an empty desk is given for a height, that being the box a frame round
     /// nothing is drawn at.

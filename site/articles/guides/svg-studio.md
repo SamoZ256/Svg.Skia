@@ -120,11 +120,16 @@ and one with a group between them that names no place of its own.
 A drag writes the file as it is made, like every other arrangement edit, and like those it cannot be
 undone.
 
-**Captions** writes each drawing's name and the class it builds as underneath it. A board comes up
-without them — a set of icons is read as pictures, and two lines of text under every one is what the
-eye has to get past — and the rows close up to suit, so turning them on makes the board taller.
-Nothing sizes a column to hold a caption once a board is explicit, so two rows put close together can
-have their captions overlap — move one.
+**Captions** writes each drawing's name inside its own top corner, where a group's name sits in its
+frame, and a board comes up with them. The name is shrunk until it fits the drawing — across it and
+down it — so it takes no room at all: a board that names what is on it is laid out and fitted exactly
+like one that does not, and switching them off moves nothing. That is also why the name is only the
+row's own — the class and the size used to be a second line, about twice as wide as the icon above
+it, and on a small icon it would shrink to nothing legible. Switching them off is remembered, and
+**Settings** has the same box.
+
+A group's own name is written the same way whatever the captions are doing, and shrinks to its frame
+where the frame is small.
 
 **The board holds still while you work on it.** A tab is fitted when it first opens and never again
 on its own: a drop leaves what you dropped where you let go of it, and zooming in on one icon to line

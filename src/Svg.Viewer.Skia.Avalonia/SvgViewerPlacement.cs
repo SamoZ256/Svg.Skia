@@ -14,4 +14,12 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// </remarks>
 /// <param name="Svg">The drawing.</param>
 /// <param name="At">Where its own origin goes, in drawing units.</param>
-public sealed record SvgViewerPlacement(SKSvg Svg, SKPoint At);
+/// <param name="Label">
+/// What to write under it, or null to write nothing.
+/// </param>
+/// <remarks>
+/// There is no size beside the label. A name is written inside the page's own top corner, at
+/// whatever size fits within it, so the room it is given is the drawing itself and an arrangement
+/// has nothing to say about it at all.
+/// </remarks>
+public sealed record SvgViewerPlacement(SKSvg Svg, SKPoint At, string? Label = null);

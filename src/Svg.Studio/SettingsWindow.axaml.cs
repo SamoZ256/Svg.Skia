@@ -62,6 +62,11 @@ public partial class SettingsWindow : Window
             }
         };
 
+        DrawingCaptions = this.FindControl<CheckBox>("DrawingCaptionsBox")!;
+        DrawingCaptions.IsChecked = StudioSettings.DrawingCaptions;
+        DrawingCaptions.IsCheckedChanged += (_, _) =>
+            StudioSettings.DrawingCaptions = DrawingCaptions.IsChecked is true;
+
         SnapToGrid = this.FindControl<CheckBox>("SnapToGridBox")!;
         SnapToGrid.IsChecked = StudioSettings.SnapToGrid;
         SnapToGrid.IsCheckedChanged += (_, _) => StudioSettings.SnapToGrid = SnapToGrid.IsChecked is true;
@@ -164,6 +169,9 @@ public partial class SettingsWindow : Window
 
     /// <summary>The box for how big a caption is drawn, for a test to drive.</summary>
     public NumericUpDown CaptionSize { get; }
+
+    /// <summary>The box for whether a drawing is named under it, for a test to drive.</summary>
+    public CheckBox DrawingCaptions { get; }
 
     /// <summary>The box for whether a gesture lands on the grid, for a test to drive.</summary>
     public CheckBox SnapToGrid { get; }
