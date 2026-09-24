@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+* **Panels split panes instead of taking sides, and the project tree is one of them.** A panel
+  dropped along the bottom ran the full width of the window and cut the strip beside the drawing in
+  half, with no way to ask for anything else — the foot was a row of the body and the sides were
+  columns inside it, so the shape was the model rather than a choice. There are no sides now: a
+  panel dropped on the edge of a pane splits that pane, so against the foot of the drawing it sits
+  under the drawing and against the edge of the window it runs under everything. Same gesture, two
+  targets, no setting — which is how Visual Studio, Rider and Qt Creator all answer it. The project
+  tree joins the same arrangement, so it can be folded, carried to the other side, or put behind the
+  variables; and the panels belong to the window rather than to a tab, showing whatever is in front,
+  so the arrangement holds still while you move between drawings. A strip keeps the width it is given
+  and the runs dividing it keep their share of it. A window nobody has arranged comes up with a
+  300px strip either side of the drawing — the project tree over the variables on the left, the
+  settings and the elements sharing a run over the attributes on the right. **Reset layout** in
+  Settings now moves the panels while you are looking at them, rather than waiting for the window to
+  close.
+
+* **The panels round a drawing are arranged, and the arrangement is kept.** Four of them shared one
+  340-wide column and did not fit: the attributes got 217px of the 1200 they ask for, while the
+  element tree — the one panel whose content is elastic — had a fixed 200 and was the best served of
+  the four. A splitter could rub a panel out with no way back, and hiding the tree left the 6px
+  splitter row under it behind, so every drawing tab paid for a splitter nobody could see. They come
+  up two open and two in a strip now — the tree and the project's say sharing the run at the top,
+  the variables and the attributes with a run each, weighted 1 : 1.3 : 1.7 so the panel that wants
+  most stops getting least. Fold a run to its header with its chevron; take a panel by that header
+  and drop it on another to sit behind it, above or below a run, or on an edge of the drawing to
+  start a strip down the other side or along its foot, with the landing drawn before you let go.
+  One arrangement for every tab, written into the settings file and there again next time, with
+  **Reset layout** in Settings for when it has gone somewhere you would rather it had not. The
+  viewer's body and the copy Svg.Studio kept for a group's board are one class now, which is how the
+  board got all of this without being told about any of it.
+
 * **A variable is dragged onto the attribute it should drive.** Binding one meant reading its name
   off the Variables pane, clicking over to Element, finding the row and typing `{{ name }}` into it
   — carrying the name in your head and spelling it right, with nothing anywhere saying which

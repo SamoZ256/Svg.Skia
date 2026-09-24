@@ -245,18 +245,16 @@
 
     <!--
       The tree belongs to the window rather than to a tab: it names the drawings the tabs hold, so
-      it has to stay up while one of them is being looked at. Collapsed to nothing until a project
-      is opened, so a session that only opens drawings looks exactly as it did.
-    -->
-    <Grid x:Name="Shell">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="0" />
-        <ColumnDefinition Width="0" />
-        <ColumnDefinition Width="*" MinWidth="320" />
-      </Grid.ColumnDefinitions>
+      it has to stay up while one of them is being looked at. It is a panel of the window's dock like
+      any other, so it can be folded, carried to the other side, or put behind the variables — and
+      it is taken off the arrangement entirely until a project is opened.
 
-      <Border x:Name="ProjectPaneHost" Grid.Column="0" IsVisible="False"
-              BorderThickness="0,0,1,0" BorderBrush="#20808080">
+      Both of these are declared here and handed over: the dock arranges them, and a control cannot
+      be added to a second parent, so the panel this sits in lets go of them first.
+    -->
+    <Panel x:Name="Shell">
+
+      <Border x:Name="ProjectPaneHost">
         <DockPanel>
           <TextBlock x:Name="ProjectName" DockPanel.Dock="Top" Margin="10,10,10,6"
                      FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" />
@@ -286,11 +284,8 @@
         </DockPanel>
       </Border>
 
-      <GridSplitter x:Name="ProjectSplitter" Grid.Column="1" IsVisible="False"
-                    ResizeDirection="Columns" Background="Transparent" />
-
-      <TabControl x:Name="Tabs" Grid.Column="2" Padding="0" />
-    </Grid>
+      <TabControl x:Name="Tabs" Padding="0" />
+    </Panel>
   </DockPanel>
 
 </Window>

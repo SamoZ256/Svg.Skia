@@ -124,5 +124,14 @@
                TextWrapping="Wrap"
                Opacity="0.65"
                FontSize="11" />
+
+    <TextBlock Text="Panels" Margin="0,14,0,0" />
+
+    <Button x:Name="ResetLayoutButton" Content="Reset layout" HorizontalAlignment="Left" />
+
+    <TextBlock Text="Panels can be folded to their header, carried by that header to either side of the drawing or along its foot, and dropped on another panel's header to sit behind it. This puts them back where they started, for when an arrangement has gone somewhere you would rather it had not."
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11" />
   </StackPanel>
 </Window>

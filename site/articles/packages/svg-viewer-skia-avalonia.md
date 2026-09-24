@@ -27,7 +27,8 @@ dotnet add package Svg.Viewer.Skia.Avalonia
 | `SvgViewerCanvas` | The drawing surface alone, owning scale and offset |
 | `SvgViewerDeclarationPanel` | One control per declared parameter, and one row per declared let |
 | `SvgViewerElementPanel` | The attributes of the picked element, each editable as the file writes it |
-| `SvgViewerSide` | The strip down the right: your panes, the variables, the attributes, the tree |
+| `SvgViewerDock` | The body: the middle, and the panels arranged round it as a tree of splits |
+| `SvgViewerRegion` | One panel the dock arranges — an id a written layout names it by, a header, and the control |
 | `SvgViewerVariableDrag` | What a variable dragged from one of those onto another carries |
 | `SvgViewerElementTree` | Every element of the open drawing, as a tree, with a filter box |
 | `SvgViewerElementNode` | One row: the element, its address, its name and its id |
@@ -55,11 +56,14 @@ await Viewer.LoadAsync("badge.svg");
 | `Close` | Releasing the open document when the viewer itself is discarded |
 | `Parameters` / `ParameterValues` | Reading what is declared and what is bound |
 | `TrySetParameterValue` / `ResetParameters` | Driving values from host UI |
-| `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` | Supplying your own chrome. `ShowDeclarationPanel` is the whole right-hand strip, element tree included |
-| `ShowElementTree` / `Elements` | The tree at the foot of the strip — on by default; `Elements.Filter` is the box above it |
+| `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` | Supplying your own chrome. `ShowDeclarationPanel` is every docked panel at once, element tree included |
+| `Layout` / `LayoutChanged` / `Fallback` | How the panels are arranged, as one line to store and hand back. `LayoutChanged` is raised only where a hand rearranged something, never for a layout you set — so a host can write it down without hearing its own echo. `Fallback` is what an unreadable line comes back to |
+| `Panels` / `ArrangesPanels` | Taking the panels to arrange yourself, which is what a window of tabs wants |
+| `Rebuilding` / `Rebuilt` | Putting back what being taken out of the visual tree disturbs — a tab strip's selection, say |
+| `ShowElementTree` / `Elements` | Whether the tree has a place at all — on by default; `Elements.Filter` is the box above it. Taking it away rather than folding it, because a run can hold more than one panel and folding would take its neighbour with it |
 | `SelectedElement` / `ElementSelected` | Which element is picked |
 | `SnapsToGrid` / `Grid` / `SnapChanged` | Landing a drag on a grid rather than where the pointer stopped — a move puts the element's own corner on a line, a handle puts the edge it is dragging on one, a turn lands on `Grid.Turn` degrees, and the drawing's own edges do the same. The two are held apart: `Grid` is the steps whether or not anything is landing on them, and `SnapsToGrid` is the toolbar's toggle, which raises `SnapChanged` when a hand rather than the host flips it. The lines are in the space the canvas draws in, so a host arranging several drawings gets one grid across all of them |
-| `SidePanels` | Panels of your own at the top of the right-hand strip: they get a tab strip to themselves while there are any and take no room at all when there are none. The variables and the picked element's attributes are not among them — they are the viewer's own and each has a region below, because a variable is dragged onto an attribute and behind a tab each would hide the other |
+| `SidePanels` | Panels of your own, arranged beside the viewer's like any other: foldable, carried to either side or the foot, dropped behind one of the viewer's own. The default sits the first of them beside the element tree. A pane the stored arrangement has never heard of is given a place rather than left out |
 | `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
 | `DeclarationTarget` | Where the parameter panel writes, when the drawing's declarations are not in the drawing |
 | `FileDialogService` | Custom storage or picker integration |
@@ -228,21 +232,62 @@ because the pane had to hold the text, and there is no pane.
 rather than whatever the file says later, and unchanged by edits. Drawings loaded from text or from a
 stream carry it too, so a viewer fed by a database or an archive answers like any other.
 
-## The right-hand strip
+## The body
 
-Four regions down one column, each with a splitter: the host's own panes, the **Variables**, the
-**Element** panel, and the element tree. The column is the full height of the viewer and the drawing
-has the rest of it; `ShowDeclarationPanel = false` gives the whole width back.
+`SvgViewerDock` owns the whole of it: a **middle** — the drawing, or whatever a host puts there — and
+the panels arranged round it. There are no named sides. Every panel sits in a **leaf**; a leaf
+holding several ids shows them as tabs read one at a time, and a **split** puts its children in a row
+or a column. `ShowDeclarationPanel = false` takes every panel away and gives the middle the room.
 
-They are regions rather than tabs because a variable is **dragged from one onto the other**. Behind a
-tab each hides the other, and there would be no moment when both ends of that gesture are on screen —
-the argument the element tree was given from the start, applied to the two panes it was not applied
-to. Only the host's panes keep a strip of tabs, since a host may hand over several and they are read
-one at a time. A host that hands over none has no strip at all rather than an empty one.
+The middle is a leaf like any other, written `*`. That is what lets a panel be dropped against it
+without the middle being a special case in the drop code; that it cannot be folded, carried or closed
+is the whole of what the tree knows about it.
 
-`SvgViewerSide` is the column itself, built in code rather than in markup because `Svg.Studio` builds
-the same one for a group's board, which is not a viewer. The two used to be written out separately
-and had already drifted — a 220 tall tree against a 200 tall one.
+The **default** is two open and two in a strip: the tree and the host's own pane share the leaf at the
+top of the strip, and the variables and the attributes get one each. Those two cannot share, because
+a variable is **dragged from one onto the other** and behind a tab each would hide the other. The
+three are weighted 1 : 1.3 : 1.7 rather than split evenly — measured, not chosen: the attributes want
+about 1200px and were getting 217 when they were equal.
+
+**Arranging it.** A panel is taken by its header and dropped on another header to sit behind it, or
+on the edge of a pane to split that pane. Dropping against the foot of the drawing puts it under the
+drawing; dropping against the **body's own rim** runs it under everything. That is the difference
+three fixed sides could not say, and there is no setting for it — where you let go is the answer,
+which is how Visual Studio, Rider and Qt Creator all put it. Where it would land is drawn before you
+let go. The chevron on a header folds that leaf; the splitters size everything.
+
+**Storing it.** `Layout` is the whole arrangement as one line, in both directions, and
+`LayoutChanged` says when a hand changed it:
+
+```
+row(*/1,col(project+elements/1/elements/open,variables/1.3/variables/open,element/1.7/element/open)/340px)
+
+node := body "/" size [ "/" on top "/" open or folded ]
+body := ids | "row(" node ("," node)* ")" | "col(" node ("," node)* ")"
+ids  := id ("+" id)*        several means tabs, read one at a time
+size := number              a share of whatever it sits among
+      | number "px"         a width or a height it keeps
+```
+
+A strip is `px` because a column of controls wants the width it wants; the runs dividing that strip
+are shares, because they want a proportion of it. Dragging either leaves it the kind it was.
+
+A line that cannot be read is replaced whole by `Fallback` — `Default` unless a host sets its own,
+which a host with panels of its own wants: nothing in the viewer's default knows where a project tree
+goes. A panel the line says nothing about is given a place rather than left out, and a leaf naming a
+panel nothing supplies keeps the name and takes no room — so a pane a host stops offering and later
+offers again comes back where somebody put it. `Show(id, false)` remembers the arrangement it took
+the panel out of, and putting it back puts it there.
+
+**Handing the panels over.** `Panels` is what the viewer would arrange, offered so a host can arrange
+it instead; `ArrangesPanels = false` says it has. `Svg.Studio` takes them, because a window of tabs
+wants one arrangement round the lot rather than one inside each tab — which is how VS Code and Rider
+put a project tree beside whatever document is in front.
+
+**A host that keeps state in the middle** should listen to `Rebuilding` and `Rebuilt`. Rearranging
+moves the middle, and a control taken out of the visual tree loses what its parent was keeping for
+it — a `TabControl` comes back showing its first tab, so folding a panel would put you on a different
+document. What that state is, and whether it matters, is the host's to know; the dock only says when.
 
 ## Dragging a variable onto an attribute
 
@@ -269,10 +314,10 @@ carrying no file, which is every drag of a variable.
 
 ## The element tree
 
-At the foot of that column, it lists **every** element of the open drawing — `<defs>` and its
+Wherever it has been put, it lists **every** element of the open drawing — `<defs>` and its
 contents, the `<e:code>` block, a `<title>` — because what is in a file is the question it answers,
 and half of that never reaches the canvas. On by default;
-`ShowElementTree = false` gives the height back and stops the work — a hidden tree holds nothing,
+`ShowElementTree = false` takes its place away and stops the work — a hidden tree holds nothing,
 because it is rebuilt every time typing pauses and that is 27ms at 4,000 elements.
 
 Picking a row rings the element on the drawing and fills the **Element** panel with the attributes

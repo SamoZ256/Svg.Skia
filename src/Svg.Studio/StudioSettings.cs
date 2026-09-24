@@ -62,6 +62,8 @@ public static class StudioSettings
 
     private const string RotationStepKey = "rotationStep";
 
+    private const string LayoutKey = "layout";
+
     /// <summary>
     /// Where the settings are kept.
     /// </summary>
@@ -210,6 +212,39 @@ public static class StudioSettings
         get => Read(RotationStepKey, SvgViewerGrid.DefaultTurn, SvgViewerGrid.MinimumTurn, SvgViewerGrid.MaximumTurn);
         set => Write(RotationStepKey, value.ToString(CultureInfo.InvariantCulture));
     }
+
+    /// <summary>
+    /// How the panels are arranged around a drawing, as <see cref="SvgViewerDock"/> writes it.
+    /// </summary>
+    /// <remarks>
+    /// One arrangement for every tab, because arranging the strip once should arrange it everywhere:
+    /// a drawing's tab and a group's board are the same four panels in the same body.
+    ///
+    /// Stored as it was written and handed back the same way — this is the one setting whose meaning
+    /// is somebody else's. What a line this reads back cannot say is the dock's to answer, and it
+    /// answers by falling back whole to its own default, so nothing here has to know the grammar.
+    /// </remarks>
+    public static string Layout
+    {
+        get => Read(LayoutKey) is { Length: > 0 } written ? written : DefaultLayout;
+        set => Write(LayoutKey, value ?? DefaultLayout);
+    }
+
+    /// <summary>What a window nobody has arranged comes up in.</summary>
+    /// <remarks>
+    /// A strip either side of the drawing, both 300px so neither reads as the important one: the
+    /// project tree over the variables it declares on the left, and on the right the settings and
+    /// the elements sharing a run over the picked element's attributes. The tree gets the deeper
+    /// share of its column — it is the list you scroll, where the variables are a handful of rows.
+    ///
+    /// Studio's rather than the viewer's, because the tree is Studio's panel and nothing in
+    /// <see cref="SvgViewerDock.Default"/> knows where one goes. A layout naming a panel nothing
+    /// supplies keeps the name and takes no room, so this is the right line for a drawing opened
+    /// outside a project too.
+    /// </remarks>
+    public const string DefaultLayout =
+        "row(col(tree/1.4/tree/open,variables/1/variables/open)/300px,*/1,"
+        + "col(project+elements/1/project/open,element/1/element/open)/300px)";
 
     /// <summary>The two steps as one, which is what a canvas and a gesture are handed.</summary>
     /// <remarks>

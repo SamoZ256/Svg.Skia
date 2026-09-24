@@ -44,15 +44,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     private readonly Border _toolBar;
     private readonly Border _statusPanel;
-    private readonly Border _panelHost;
-    private readonly GridSplitter _splitter;
     private readonly TextBlock _statusText;
     private readonly TextBlock _zoomText;
     private readonly Grid _errorPanel;
     private readonly SelectableTextBlock _errorText;
     private readonly TextBlock _noteText;
-    private readonly Grid _body;
-    private readonly SvgViewerSide _side;
+    private readonly SvgViewerDock _dock;
     private readonly SvgViewerElementTree _elementTree = new();
 
     /// <summary>What the panel's buttons do. Shared with any other host that shows one.</summary>
@@ -79,9 +76,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>Moving, turning and scaling the selected element by dragging it.</summary>
     private readonly SvgViewerGizmos _gizmo = new();
-
-    /// <summary>What the panel's column was last set to, so hiding it can be undone.</summary>
-    private GridLength _panelWidth;
 
     /// <summary>What is wrong with the drawing, for whatever a pointer comes to rest on.</summary>
     private IReadOnlyList<SvgSourceDiagnostic> _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
@@ -123,6 +117,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private int _loadVersion;
     private bool _applyQueued;
     private string? _notice;
+    private IReadOnlyList<SvgViewerPane> _sidePanels = Array.Empty<SvgViewerPane>();
+    private bool _arranges = true;
 
     public SvgViewer()
     {
@@ -131,19 +127,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _canvas = this.FindControl<SvgViewerCanvas>("PART_Canvas")!;
         _toolBar = this.FindControl<Border>("ToolBarPanel")!;
         _statusPanel = this.FindControl<Border>("StatusPanel")!;
-        _panelHost = this.FindControl<Border>("DeclarationPanelHost")!;
-        _splitter = this.FindControl<GridSplitter>("Splitter")!;
         _statusText = this.FindControl<TextBlock>("StatusText")!;
         _zoomText = this.FindControl<TextBlock>("ZoomText")!;
         _errorPanel = this.FindControl<Grid>("ErrorPanel")!;
         _errorText = this.FindControl<SelectableTextBlock>("ErrorText")!;
         _noteText = this.FindControl<TextBlock>("NoteText")!;
-        _body = this.FindControl<Grid>("Body")!;
         _elementsButton = this.FindControl<ToggleButton>("ElementsButton")!;
         _lockRatioButton = this.FindControl<ToggleButton>("LockRatioButton")!;
         _snapButton = this.FindControl<ToggleButton>("SnapButton")!;
-
-        _panelWidth = _body.ColumnDefinitions[2].Width;
 
         this.FindControl<Button>("FitButton")!.Click += (_, _) => _canvas.Fit();
         this.FindControl<Button>("ActualSizeButton")!.Click += (_, _) => _canvas.ActualSize();
@@ -160,10 +151,19 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // recipe, and a fill on a rect has no business being written there.
         _element = new SvgViewerElementPanel(PaneSource, Declarations, Written, Values);
 
-        // Built here rather than in the markup because Svg.Studio builds the same column for a
-        // group's board, which is not a viewer, and the two had already drifted apart once.
-        _side = new SvgViewerSide(_panel, _element, _elementTree);
-        _panelHost.Child = _side.Root;
+        // The centre is declared in the markup and handed over: a control cannot be added to a
+        // second parent, so the body has to let go of it first.
+        var body = this.FindControl<Border>("Body")!;
+        var centre = this.FindControl<Grid>("Centre")!;
+
+        body.Child = null;
+
+        _dock = new SvgViewerDock(centre);
+        _dock.LayoutChanged += (_, _) => LayoutChanged?.Invoke(this, EventArgs.Empty);
+
+        body.Child = _dock.Root;
+
+        Regions();
 
         _elementTree.MoveRequested = MoveElement;
         _elementTree.NewGroupRequested = NewGroup;
@@ -418,55 +418,102 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     }
 
     /// <summary>
-    /// Panels of the host's own, shown at the top of the right-hand strip.
+    /// Panels of the host's own, arranged around the drawing beside the viewer's own.
     /// </summary>
     /// <remarks>
-    /// They get a strip of tabs to themselves, and take no room at all while there are none. The
-    /// variables and the picked element's attributes are not among them: they are the viewer's own
-    /// and each has a region below, because a variable is dragged onto an attribute and behind a tab
-    /// each would hide the other. See <see cref="SvgViewerPane"/> for what belongs in one, and
-    /// <see cref="SvgViewerSide"/> for the column they go in.
+    /// A host's pane is a panel of the dock like any other: it can be folded, dragged to another
+    /// side, or put behind one of the viewer's own — the arrangement decides, not this. A pane the
+    /// arrangement has never heard of is given a place rather than left out. See
+    /// <see cref="SvgViewerPane"/> for what belongs in one and <see cref="SvgViewerDock"/> for where
+    /// they all go.
     /// </remarks>
     public IReadOnlyList<SvgViewerPane> SidePanels
     {
-        get => _side.Panes;
-        set => _side.Panes = value ?? Array.Empty<SvgViewerPane>();
-    }
-
-    public bool ShowDeclarationPanel
-    {
-        get => _panelHost.IsVisible;
+        get => _sidePanels;
         set
         {
-            if (_panelHost.IsVisible == value)
+            var panes = value ?? Array.Empty<SvgViewerPane>();
+
+            if (_sidePanels.Count == panes.Count
+                && _sidePanels.Zip(panes).All(
+                    pair => ReferenceEquals(pair.First.Content, pair.Second.Content)
+                            && string.Equals(pair.First.Header, pair.Second.Header, StringComparison.Ordinal)))
             {
                 return;
             }
 
-            // The column carries the width, so hiding the panel has to zero it — and its minimum
-            // with it — or the drawing keeps paying for a strip it cannot see. What the splitter was
-            // dragged to comes back. The element tree is in the same column and goes with it: what
-            // this hides is the whole right-hand strip, not one pane of it. The strip is the full
-            // height of the viewer, so this is the width of everything but the drawing and its text.
-            if (value)
-            {
-                _body.ColumnDefinitions[2].MinWidth = PanelMinimum;
-                _body.ColumnDefinitions[2].Width = _panelWidth;
-            }
-            else
-            {
-                _panelWidth = _body.ColumnDefinitions[2].Width;
-                _body.ColumnDefinitions[2].MinWidth = 0d;
-                _body.ColumnDefinitions[2].Width = new GridLength(0d);
-            }
+            _sidePanels = panes;
 
-            _panelHost.IsVisible = value;
-            _splitter.IsVisible = value;
+            Regions();
+
+            PanelsChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
-    /// <summary>The narrowest the panel is worth being, matching what the markup declares.</summary>
-    private const double PanelMinimum = 260d;
+    /// <summary>Hands the dock everything there is to arrange, the host's panes first.</summary>
+    private void Regions() => _dock.Regions = _arranges ? Panels : Array.Empty<SvgViewerRegion>();
+
+    /// <summary>Everything this viewer has to show beside the drawing, the host's own first.</summary>
+    /// <remarks>
+    /// Offered so a host can arrange them itself. <c>Svg.Studio</c> takes them, because a window of
+    /// tabs wants one arrangement around the lot rather than one inside each tab — which is how
+    /// VS Code and Rider put a project tree beside whatever document is in front. A host that takes
+    /// them turns <see cref="ArrangesPanels"/> off, and the viewer is then a toolbar, a drawing and a
+    /// status bar.
+    /// </remarks>
+    public IReadOnlyList<SvgViewerRegion> Panels
+        => _sidePanels
+            .Select(pane => new SvgViewerRegion(SvgViewerRegion.IdFor(pane.Header), pane.Header, pane.Content))
+            .Concat(new[]
+            {
+                new SvgViewerRegion("variables", "Variables", _panel),
+                new SvgViewerRegion("element", "Element", _element),
+                new SvgViewerRegion("elements", "Elements", _elementTree)
+            })
+            .ToList();
+
+    /// <summary>Raised when <see cref="Panels"/> is no longer what it was.</summary>
+    /// <remarks>
+    /// For a host arranging them itself: a tab is opened and selected before whatever it is a tab
+    /// of has handed over its panes, so a host that only looked when the tab came forward would
+    /// never see the ones that arrived after.
+    /// </remarks>
+    public event EventHandler? PanelsChanged;
+
+    /// <summary>Whether the viewer puts <see cref="Panels"/> round its own drawing. On unless a host says not.</summary>
+    public bool ArrangesPanels
+    {
+        get => _arranges;
+        set
+        {
+            if (_arranges == value)
+            {
+                return;
+            }
+
+            _arranges = value;
+
+            Regions();
+        }
+    }
+
+    /// <summary>How the panels are arranged around the drawing, as one line. See <see cref="SvgViewerDock.Layout"/>.</summary>
+    public string Layout
+    {
+        get => _dock.Layout;
+        set => _dock.Layout = value;
+    }
+
+    /// <summary>Raised when a hand rearranged the panels, so a host can remember where they are.</summary>
+    /// <remarks>Only where a hand did it, for the reason <see cref="SnapChanged"/> is.</remarks>
+    public event EventHandler? LayoutChanged;
+
+    /// <summary>Whether the docked panels are shown at all, the drawing having the room when not.</summary>
+    public bool ShowDeclarationPanel
+    {
+        get => _dock.ShowsRegions;
+        set => _dock.ShowsRegions = value;
+    }
 
     /// <summary>
     /// Whether the drawing's elements are listed under the parameters.
@@ -478,15 +525,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     public bool ShowElementTree
     {
-        get => _side.ShowsTree;
+        get => _dock.Shows("elements");
         set
         {
-            if (_side.ShowsTree == value)
+            if (_dock.Shows("elements") == value)
             {
                 return;
             }
 
-            _side.ShowsTree = value;
+            _dock.Show("elements", value);
             _elementsButton.IsChecked = value;
 
             // Filled on the way up and emptied on the way down, which is what makes turning it off
@@ -1421,7 +1468,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private void UpdateElementTree()
     {
-        _elementTree.Show(_side.ShowsTree ? _document?.Svg.SourceDocument : null);
+        _elementTree.Show(_dock.Shows("elements") ? _document?.Svg.SourceDocument : null);
 
         OutlineElement(_elementTree.SelectedNode);
 

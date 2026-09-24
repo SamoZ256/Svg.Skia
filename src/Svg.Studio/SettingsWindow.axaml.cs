@@ -89,6 +89,17 @@ public partial class SettingsWindow : Window
             }
         };
 
+        ResetLayout = this.FindControl<Button>("ResetLayoutButton")!;
+
+        // Written rather than cleared, so the line on file is the arrangement rather than a gap
+        // meaning "whatever the default happens to be next time".
+        ResetLayout.Click += (_, _) =>
+        {
+            StudioSettings.Layout = StudioSettings.DefaultLayout;
+
+            Applied?.Invoke();
+        };
+
         RelaxedText = this.FindControl<ComboBox>("RelaxedTextBox")!;
         RelaxedText.ItemsSource = s_answers.Select(answer => answer.Said).ToList();
         RelaxedText.SelectedIndex = Array.FindIndex(s_answers, answer => answer.Answer == StudioSettings.RelaxedText);
@@ -100,6 +111,20 @@ public partial class SettingsWindow : Window
             }
         };
     }
+
+    /// <summary>Puts the panels back where they started.</summary>
+    public Button ResetLayout { get; }
+
+    /// <summary>
+    /// Asked when something changed here has to reach what is already open, before this closes.
+    /// </summary>
+    /// <remarks>
+    /// Everything else on this window is read again when it closes, which is soon enough for a grid
+    /// size and much too late for the panels moving: a button that appears to do nothing is a button
+    /// nobody presses twice. The theme has the same problem and answers it the same way, by applying
+    /// itself rather than waiting. What "apply" means is the host's, not this window's.
+    /// </remarks>
+    public Action? Applied { get; set; }
 
     /// <summary>A box holding a number between two bounds, seeded from what is on file.</summary>
     /// <remarks>

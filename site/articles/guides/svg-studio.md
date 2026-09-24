@@ -53,8 +53,9 @@ disagree about what the project says.
 ## Opening one
 
 `File → Open`, a drop anywhere on the window including an empty one, or a path on the command line.
-A project opens as a workspace rather than as a document: the tree goes in a pane beside the tabs
-and the project itself takes no tab, one project at a time, closed with `Project → Close`.
+A project opens as a workspace rather than as a document: the tree goes in a panel beside the tabs —
+one you can fold, move or put behind another — and the project itself takes no tab, one project at a
+time, closed with `Project → Close`.
 
 Two other things open as a project, by being converted into one:
 
@@ -83,10 +84,24 @@ it lands beside it, and in the middle it goes inside. Adding an `.svg` file read
 pasting one, or pasting the SVG a drawing program puts on the clipboard. Adding, removing and moving
 edit the project; nothing reaches the file until you save it.
 
-The right pane is one column of four: the project's say over the drawing, then the **Variables** it
-declares, then the **Element** picked in it, then the tree those elements come from. Only the first
-is a tab; the rest are regions with a splitter each, so a variable can be dragged onto an attribute
-without either of them having to be found first. A group's tab has the same column.
+Five panels sit round the tabs: the **Project** tree, the **Settings** for whatever is in front, the
+**Variables** it declares, the **Element** picked in it, and the **Elements** those come from. They
+belong to the window rather than to a tab, and show whatever tab is in front — so the arrangement
+holds still while you move between drawings, and the tree that names them stays beside all of them.
+
+They come up as a strip either side of the drawing, both the same width so neither reads as the
+important one: the tree over the variables it declares on the left, and on the right the settings and
+the elements sharing a run over the picked element's attributes. The tree gets the deeper share of
+its column, being the list you scroll where the variables are a handful of rows. The variables and
+the element are apart on purpose — a variable is dragged onto an attribute, and behind a tab each
+would hide the other.
+
+**Arrange them as you like.** The chevron on a header folds that panel away. Take a panel by its
+header and drop it on another header to sit behind it, or on the edge of a panel to split that panel.
+Drop it against the foot of the drawing and it sits under the drawing; drop it against the **edge of
+the window** and it runs under everything, taking nothing from the strip beside it. Where it would
+land is drawn while you carry it. The arrangement is remembered, so it is there again next time, and
+**Settings** has **Reset layout** for when it has gone somewhere you would rather it had not.
 
 ## A group's tab: several icons at once
 
@@ -218,8 +233,8 @@ the drawing; typing `#00ff00` back writes that. Binding and unbinding are the sa
 nothing has to remember what a value used to be, and emptying the box takes the attribute away.
 Typing into one of the empty rows adds it.
 
-**Or drag the variable onto the row.** The panes are stacked rather than behind tabs, so
-**Variables** and **Element** are both on screen at once: take a variable by its name — not the grip
+**Or drag the variable onto the row.** **Variables** and **Element** have a run each rather than
+sharing one, so both are on screen at once: take a variable by its name — not the grip
 beside it, which reorders the list — and let go of it over an attribute's box, and the box becomes
 `{%{{{ that name }}}%}`. While you are carrying one, every row it could be written into is
 outlined, so what a variable is good for is something you can see rather than something to try. A

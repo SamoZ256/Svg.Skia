@@ -134,6 +134,40 @@ public sealed class GroupPanel : UserControl
     /// <summary>The Element tab's content: a panel for the picked element, or a line saying why not.</summary>
     private readonly ContentControl _elementHost = new();
 
+    /// <summary>How the panels beside the board are arranged. Null on a drawing's settings pane.</summary>
+    private SvgViewerDock? _dock;
+
+    /// <summary>The board's own arrangement, as <see cref="SvgViewerDock.Layout"/> writes it.</summary>
+    /// <remarks>Null where this is a drawing's settings pane, which has no body to arrange.</remarks>
+    public string? Layout => _dock?.Layout;
+
+    private IReadOnlyList<SvgViewerRegion> _panels = Array.Empty<SvgViewerRegion>();
+    private bool _arranges = true;
+
+    /// <summary>Everything this board has to show beside its drawings.</summary>
+    /// <inheritdoc cref="SvgViewer.Panels" path="/remarks"/>
+    public IReadOnlyList<SvgViewerRegion> Panels => _panels;
+
+    /// <summary>Whether the board puts <see cref="Panels"/> round its own canvas.</summary>
+    public bool ArrangesPanels
+    {
+        get => _arranges;
+        set
+        {
+            if (_arranges == value)
+            {
+                return;
+            }
+
+            _arranges = value;
+
+            if (_dock is { })
+            {
+                _dock.Regions = _arranges ? _panels : Array.Empty<SvgViewerRegion>();
+            }
+        }
+    }
+
     private readonly TextBlock _elementNote = new()
     {
         Margin = new Thickness(10),
@@ -221,13 +255,6 @@ public sealed class GroupPanel : UserControl
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         Node = node ?? throw new ArgumentNullException(nameof(node));
-
-        // The viewer's own strip wears these, and a second strip that was meant to look the same
-        // would not stay that way if it wore a copy.
-        Styles.Add(new StyleInclude(Home)
-        {
-            Source = new Uri("avares://Svg.Viewer.Skia.Avalonia/SvgViewerPaneTabs.axaml")
-        });
 
         Content = node is ProjectGroup ? Built() : Alone();
 
@@ -323,14 +350,14 @@ public sealed class GroupPanel : UserControl
         Refresh();
     }
 
-    /// <summary>A group's tab: what it builds beside the settings that decide it.</summary>
+    /// <summary>A group's tab: what it builds, and the panels arranged around it.</summary>
+    /// <remarks>
+    /// The viewer's own body, built by the viewer's own class. A board is not a viewer, so this used
+    /// to be a second copy of the arrangement — and the two had drifted: a 220 tall tree against a
+    /// 200 tall one, and no minimum width at all where the viewer had 260.
+    /// </remarks>
     private Control Built()
     {
-        var grid = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("*,6,340")
-        };
-
         var centre = new DockPanel();
         var tools = Tools();
 
@@ -345,54 +372,42 @@ public sealed class GroupPanel : UserControl
 
         centre.Children.Add(_canvas);
 
-        grid.Children.Add(centre);
-
-        var splitter = new GridSplitter { Background = Brushes.Transparent };
-
-        Grid.SetColumn(splitter, 1);
-        grid.Children.Add(splitter);
-
-        var right = new Border
-        {
-            BorderThickness = new Thickness(1, 0, 0, 0),
-            BorderBrush = new SolidColorBrush(Color.Parse("#20808080")),
-            Child = Side()
-        };
-
-        Grid.SetColumn(right, 2);
-        grid.Children.Add(right);
-
-        return grid;
-    }
-
-    /// <summary>
-    /// The strip beside a group's drawings: what the settings say, and what the drawings are made of.
-    /// </summary>
-    /// <remarks>
-    /// The viewer's own column, built by the viewer's own class, so the two cannot drift apart —
-    /// which they had, a 220 tall tree here against a 200 tall one there. What a person learns on one
-    /// of them holds on the other because there is only one of them.
-    /// </remarks>
-    private Control Side()
-    {
         var parameters = new DockPanel();
 
         DockPanel.SetDock(_parameterNote, Dock.Bottom);
         parameters.Children.Add(_parameterNote);
         parameters.Children.Add(_parameters);
 
-        var below = new DockPanel();
+        var tree = new DockPanel();
 
         DockPanel.SetDock(_showing, Dock.Top);
-        below.Children.Add(_showing);
-        below.Children.Add(_tree);
+        tree.Children.Add(_showing);
+        tree.Children.Add(_tree);
 
-        var side = new SvgViewerSide(parameters, _elementHost, below)
+        _panels = new[]
         {
-            Panes = new[] { new SvgViewerPane("Project", new ScrollViewer { Content = _properties }) }
+            new SvgViewerRegion("project", "Settings", new ScrollViewer { Content = _properties }),
+            new SvgViewerRegion("variables", "Variables", parameters),
+            new SvgViewerRegion("element", "Element", _elementHost),
+            new SvgViewerRegion("elements", "Elements", tree)
         };
 
-        return side.Root;
+        _dock = new SvgViewerDock(centre)
+        {
+            Regions = _arranges ? _panels : Array.Empty<SvgViewerRegion>(),
+            Layout = StudioSettings.Layout
+        };
+
+        // The same route the toolbar's toggles take: what one board was arranged into is written
+        // down, and the window hands it to every other tab.
+        _dock.LayoutChanged += (_, _) =>
+        {
+            StudioSettings.Layout = _dock.Layout;
+
+            SettingChanged?.Invoke(this, EventArgs.Empty);
+        };
+
+        return _dock.Root;
     }
 
     /// <summary>A drawing's settings, with nothing beside them, for the pane.</summary>
@@ -509,10 +524,15 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>The box being typed in, if the caret is in one of this panel's.</summary>
+    /// <remarks>
+    /// Asked of the settings form rather than of this panel. The form is arranged by the window now
+    /// and is no longer inside the board it belongs to, so a board that looked for itself above the
+    /// caret found nothing and stopped putting the caret back after a rebuild.
+    /// </remarks>
     private TextBox? Typing()
         => TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox box
            && box.Tag is string
-           && ReferenceEquals(box.FindAncestorOfType<GroupPanel>(), this)
+           && box.GetVisualAncestors().Contains(_properties)
             ? box
             : null;
 
@@ -622,6 +642,11 @@ public sealed class GroupPanel : UserControl
     public void Reread()
     {
         _canvas.CaptionSize = StudioSettings.CaptionSize;
+
+        if (_dock is { })
+        {
+            _dock.Layout = StudioSettings.Layout;
+        }
 
         var grid = StudioSettings.SnapToGrid ? StudioSettings.Grid : SvgViewerGrid.None;
 

@@ -267,13 +267,12 @@ public class SvgViewerTests
     }
 
     /// <summary>
-    /// The variables and the picked element's attributes are regions of the strip, never tabs of it.
+    /// The variables and the picked element's attributes are each their own run of the dock.
     /// </summary>
     /// <remarks>
-    /// The whole of what makes a variable draggable onto an attribute: behind a tab, each would hide
-    /// the other, and there would be no moment when both ends of that gesture are on screen. The
-    /// host's own panes keep a strip, because a host may hand over several and they are read one at a
-    /// time.
+    /// The whole of what makes a variable draggable onto an attribute: sharing a run, each would
+    /// hide the other, and there would be no moment when both ends of that gesture are on screen.
+    /// The host's own panes are panels like any other and share the run at the top with the tree.
     /// </remarks>
     [AvaloniaFact]
     public async Task The_Variables_And_The_Attributes_Are_Both_On_Screen_At_Once()
@@ -283,60 +282,44 @@ public class SvgViewerTests
         var variables = window.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
         var attributes = window.GetVisualDescendants().OfType<SvgViewerElementPanel>().Single();
 
-        // Nothing from a host, so no strip at all rather than a strip of one thing.
-        Assert.Empty(window.GetVisualDescendants().OfType<TabControl>());
+        Assert.True(variables.IsEffectivelyVisible);
+        Assert.True(attributes.IsEffectivelyVisible);
+
+        // Neither shares a run with anything, so neither can be behind anything.
+        Assert.Equal("variables", viewer.Layout.Contains("variables/") ? "variables" : viewer.Layout);
+        Assert.DoesNotContain("variables+", viewer.Layout, StringComparison.Ordinal);
+        Assert.DoesNotContain("+variables", viewer.Layout, StringComparison.Ordinal);
+        Assert.DoesNotContain("element+", viewer.Layout, StringComparison.Ordinal);
 
         var mine = new TextBlock { Text = "the host's own" };
 
         viewer.SidePanels = new[] { new SvgViewerPane("Project", mine) };
         Dispatcher.UIThread.RunJobs();
 
-        var tabs = window.GetVisualDescendants().OfType<TabControl>().Single();
+        // Beside the tree, at the top, which is where the default has it — and the two of them still
+        // have a run each.
+        Assert.Contains("project+elements", viewer.Layout, StringComparison.Ordinal);
+        Assert.True(variables.IsEffectivelyVisible);
+        Assert.True(attributes.IsEffectivelyVisible);
 
-        Assert.Equal(new[] { "Project" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
-        Assert.Same(mine, ((TabItem)tabs.Items[0]!).Content);
-
-        // And a strip arriving does not swallow them: both are still their own regions beside it.
-        Assert.DoesNotContain(variables, tabs.GetVisualDescendants());
-        Assert.DoesNotContain(attributes, tabs.GetVisualDescendants());
-
-        // Several of them, in the order they were given.
+        // A pane the arrangement has never heard of is given a place rather than left out.
         var second = new TextBlock { Text = "and another" };
 
         viewer.SidePanels = new[] { new SvgViewerPane("Project", mine), new SvgViewerPane("Replacements", second) };
         Dispatcher.UIThread.RunJobs();
 
-        tabs = window.GetVisualDescendants().OfType<TabControl>().Single();
-        tabs.SelectedItem = tabs.Items[1];
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(
-            new[] { "Project", "Replacements" },
-            tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
-        Assert.Same(second, ((TabItem)tabs.Items[1]!).Content);
-
-        // A strip rebuilt around another pane is still showing the same one: a host that recomposes
-        // this whenever its settings are saved must not take the reader back to the first tab.
-        viewer.SidePanels = new[]
-        {
-            new SvgViewerPane("Project", mine),
-            new SvgViewerPane("Replacements", second),
-            new SvgViewerPane("Notes", new TextBlock())
-        };
-        Dispatcher.UIThread.RunJobs();
-
-        tabs = window.GetVisualDescendants().OfType<TabControl>().Single();
-
-        Assert.Equal("Replacements", (string)((TabItem)tabs.SelectedItem!).Header!);
+        Assert.Contains("replacements", viewer.Layout, StringComparison.Ordinal);
+        Assert.True(second.IsEffectivelyVisible || viewer.Layout.Contains("replacements", StringComparison.Ordinal));
 
         viewer.SidePanels = System.Array.Empty<SvgViewerPane>();
         Dispatcher.UIThread.RunJobs();
 
-        // And the strip goes again, with the declarations panel itself rather than a new one — it is
-        // the viewer's, and everything wired to it is still wired.
-        Assert.Empty(window.GetVisualDescendants().OfType<TabControl>());
+        // The panels go, and the declarations panel is the viewer's own rather than a new one —
+        // everything wired to it is still wired.
         Assert.Same(variables, window.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single());
         Assert.NotEmpty(viewer.Parameters!);
+
+        window.Close();
     }
 
     [AvaloniaFact]
@@ -1115,8 +1098,10 @@ public class SvgViewerTests
     private static TextBlock Status(SvgViewer viewer)
         => viewer.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "StatusText");
 
+    /// <summary>The variables panel's own "declares nothing" line. The tree has one of the same name.</summary>
     private static TextBlock Empty(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "EmptyLabel");
+        => viewer.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single()
+            .GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "EmptyLabel");
 
     private static TextBlock Note(SvgViewer viewer)
         => viewer.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "NoteText");
@@ -1724,46 +1709,71 @@ public class SvgViewerTests
         }
     }
 
-    // ---- the panel's width lives on its column ----
+    // ---- how much room the panels take ----
 
+    /// <summary>The width of a strip is the layout's, and moving it there moves what is on screen.</summary>
+    /// <remarks>
+    /// One place rather than two. A width on the panel as well as on its column left the splitter
+    /// moving the column while the panel stayed the size it was born, which is what dragging it used
+    /// to do — and there is nowhere to write a width the layout does not carry.
+    ///
+    /// <c>px</c> rather than a share: a column of controls wants the width it wants, where the runs
+    /// dividing that column up want to keep their proportion of it.
+    /// </remarks>
     [AvaloniaFact]
-    public async Task The_Panel_Takes_Its_Width_From_Its_Column_And_Not_From_Itself()
+    public async Task The_Width_Of_A_Strip_Is_The_Layouts()
     {
         var (window, viewer) = await HostLoaded();
 
-        // A Width on the border would leave the splitter moving the column while the panel stayed
-        // the size it was born, which is what dragging it used to do.
-        var host = viewer.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "DeclarationPanelHost");
+        Assert.Contains("/340px)", viewer.Layout, StringComparison.Ordinal);
 
-        Assert.True(double.IsNaN(host.Width), "The panel sets its own width, so the splitter cannot.");
-        Assert.True(Column(viewer).Width.Value > 0d);
+        Lay(window);
+
+        var drawing = Canvas(viewer).Bounds.Width;
+
+        viewer.Layout = viewer.Layout.Replace("/340px)", "/420px)", StringComparison.Ordinal);
+        Lay(window);
+
+        Assert.Equal(drawing - 80d, Canvas(viewer).Bounds.Width, 1d);
 
         window.Close();
     }
 
     [AvaloniaFact]
-    public async Task Hiding_The_Panel_Gives_Its_Width_Back_To_The_Drawing()
+    public async Task Hiding_The_Panels_Gives_Their_Width_Back_To_The_Drawing()
     {
         var (window, viewer) = await HostLoaded();
 
-        var column = Column(viewer);
-        var was = column.Width;
+        Lay(window);
+
+        var narrow = Canvas(viewer).Bounds.Width;
 
         viewer.ShowDeclarationPanel = false;
-        Dispatcher.UIThread.RunJobs();
+        Lay(window);
 
-        // Zeroed, minimum included: a hidden panel that still holds 340px of the window is a strip
+        // The splitter goes with them: a hidden strip that still holds 340px of the window is room
         // the drawing pays for and nobody can see.
-        Assert.Equal(0d, column.Width.Value);
-        Assert.Equal(0d, column.MinWidth);
+        Assert.True(
+            Canvas(viewer).Bounds.Width >= narrow + 340d,
+            $"{Canvas(viewer).Bounds.Width} is not {narrow} plus the strip");
 
         viewer.ShowDeclarationPanel = true;
-        Dispatcher.UIThread.RunJobs();
+        Lay(window);
 
-        Assert.Equal(was.Value, column.Width.Value);
-        Assert.True(column.MinWidth > 0d);
+        Assert.Equal(narrow, Canvas(viewer).Bounds.Width, 1d);
 
         window.Close();
+    }
+
+    private static SvgViewerCanvas Canvas(SvgViewer viewer)
+        => viewer.GetVisualDescendants().OfType<SvgViewerCanvas>().First();
+
+    /// <summary>Lays the window out wide enough that a side's width is not up against a floor.</summary>
+    private static void Lay(Window window)
+    {
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
     }
 
     [AvaloniaFact]
@@ -1800,9 +1810,6 @@ public class SvgViewerTests
 
         window.Close();
     }
-
-    private static ColumnDefinition Column(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "Body").ColumnDefinitions[2];
 
     private sealed class StubFileDialogService : ISvgViewerFileDialogService
     {
