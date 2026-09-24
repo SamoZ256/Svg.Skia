@@ -83,10 +83,18 @@ it lands beside it, and in the middle it goes inside. Adding an `.svg` file read
 pasting one, or pasting the SVG a drawing program puts on the clipboard. Adding, removing and moving
 edit the project; nothing reaches the file until you save it.
 
-The right pane is one column of four: the project's say over the drawing, then the **Variables** it
-declares, then the **Element** picked in it, then the tree those elements come from. Only the first
-is a tab; the rest are regions with a splitter each, so a variable can be dragged onto an attribute
-without either of them having to be found first. A group's tab has the same column.
+Four panels sit round the drawing: the project's say over it, the **Variables** it declares, the
+**Element** picked in it, and the tree those elements come from. They come up two open and two in a
+strip — the tree and the project's say share the run at the top, and the variables and the element
+get a run each, so a variable can be dragged onto an attribute without either of them having to be
+found first.
+
+**Arrange them as you like.** The chevron on a run folds it away to its header. Take a panel by its
+header and drop it on another header to sit behind it, above or below a run to go there, or on an
+edge of the drawing to start a strip down the other side or along the foot. Where it would land is
+drawn while you carry it. The arrangement is one for every tab — a group's board is the same four
+panels — and it is remembered, so it is there again next time. **Settings** has **Reset layout** for
+when it has gone somewhere you would rather it had not.
 
 ## A group's tab: several icons at once
 
@@ -218,8 +226,8 @@ the drawing; typing `#00ff00` back writes that. Binding and unbinding are the sa
 nothing has to remember what a value used to be, and emptying the box takes the attribute away.
 Typing into one of the empty rows adds it.
 
-**Or drag the variable onto the row.** The panes are stacked rather than behind tabs, so
-**Variables** and **Element** are both on screen at once: take a variable by its name — not the grip
+**Or drag the variable onto the row.** **Variables** and **Element** have a run each rather than
+sharing one, so both are on screen at once: take a variable by its name — not the grip
 beside it, which reorders the list — and let go of it over an attribute's box, and the box becomes
 `{%{{{ that name }}}%}`. While you are carrying one, every row it could be written into is
 outlined, so what a variable is good for is something you can see rather than something to try. A

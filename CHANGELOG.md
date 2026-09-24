@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+* **The panels round a drawing are arranged, and the arrangement is kept.** Four of them shared one
+  340-wide column and did not fit: the attributes got 217px of the 1200 they ask for, while the
+  element tree — the one panel whose content is elastic — had a fixed 200 and was the best served of
+  the four. A splitter could rub a panel out with no way back, and hiding the tree left the 6px
+  splitter row under it behind, so every drawing tab paid for a splitter nobody could see. They come
+  up two open and two in a strip now — the tree and the project's say sharing the run at the top,
+  the variables and the attributes with a run each, weighted 1 : 1.3 : 1.7 so the panel that wants
+  most stops getting least. Fold a run to its header with its chevron; take a panel by that header
+  and drop it on another to sit behind it, above or below a run, or on an edge of the drawing to
+  start a strip down the other side or along its foot, with the landing drawn before you let go.
+  One arrangement for every tab, written into the settings file and there again next time, with
+  **Reset layout** in Settings for when it has gone somewhere you would rather it had not. The
+  viewer's body and the copy Svg.Studio kept for a group's board are one class now, which is how the
+  board got all of this without being told about any of it.
+
 * **A variable is dragged onto the attribute it should drive.** Binding one meant reading its name
   off the Variables pane, clicking over to Element, finding the row and typing `{{ name }}` into it
   — carrying the name in your head and spelling it right, with nothing anywhere saying which
