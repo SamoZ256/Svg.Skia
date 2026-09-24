@@ -83,14 +83,16 @@ it lands beside it, and in the middle it goes inside. Adding an `.svg` file read
 pasting one, or pasting the SVG a drawing program puts on the clipboard. Adding, removing and moving
 edit the project; nothing reaches the file until you save it.
 
-A drawing's tab has its settings in the right pane, in front of the parameters the drawing declares —
-the same pane a group keeps its settings in, and the tab a drawing opened from the tree lands on.
+The right pane is one column of four: the project's say over the drawing, then the **Variables** it
+declares, then the **Element** picked in it, then the tree those elements come from. Only the first
+is a tab; the rest are regions with a splitter each, so a variable can be dragged onto an attribute
+without either of them having to be found first. A group's tab has the same column.
 
 ## A group's tab: several icons at once
 
 A group's tab is a canvas of **every drawing under it**, built the way the project builds them.
 Clicking a shape on it — or a row in the **element tree** beside it — picks that drawing, and the
-**Parameters** and **Element** tabs then behave as they would on that drawing's own tab. Until
+**Variables** and **Element** panes then behave as they would on that drawing's own tab. Until
 something is picked they say so, because a group builds several drawings and cannot guess which is
 meant.
 
@@ -215,6 +217,15 @@ A row's box holds the value itself, whatever it is. Typing `{%{{{ tint }}}%}` in
 the drawing; typing `#00ff00` back writes that. Binding and unbinding are the same gesture, so
 nothing has to remember what a value used to be, and emptying the box takes the attribute away.
 Typing into one of the empty rows adds it.
+
+**Or drag the variable onto the row.** The panes are stacked rather than behind tabs, so
+**Variables** and **Element** are both on screen at once: take a variable by its name — not the grip
+beside it, which reorders the list — and let go of it over an attribute's box, and the box becomes
+`{%{{{ that name }}}%}`. While you are carrying one, every row it could be written into is
+outlined, so what a variable is good for is something you can see rather than something to try. A
+number will not land on a `fill`, and nothing lands on `transform`, where an expression has to be one
+function argument rather than the whole value. A row under **Not set** takes one too, which adds the
+attribute already bound.
 
 Only an expression is judged: what it comes to is read out beside it, an expression of the wrong type
 is caught in the box, and one written on an attribute the parser lifts nothing out of is refused

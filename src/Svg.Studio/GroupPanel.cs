@@ -369,45 +369,17 @@ public sealed class GroupPanel : UserControl
     /// The strip beside a group's drawings: what the settings say, and what the drawings are made of.
     /// </summary>
     /// <remarks>
-    /// The same two halves the viewer's own side pane has, and deliberately the same shape — a strip
-    /// of tabs over a tree, split by a splitter. Built in code because everything in this panel is,
-    /// and wearing the viewer's tab style so the two strips cannot drift apart: the same three tabs
-    /// in the same order, and what a person learns on one of them holds on the other.
+    /// The viewer's own column, built by the viewer's own class, so the two cannot drift apart —
+    /// which they had, a 220 tall tree here against a 200 tall one there. What a person learns on one
+    /// of them holds on the other because there is only one of them.
     /// </remarks>
     private Control Side()
     {
-        var side = new Grid { RowDefinitions = new RowDefinitions("*,6,220") };
-
-        var tabs = new TabControl { Classes = { "panes" }, Padding = new Thickness(0) };
-
-        tabs.Items.Add(new TabItem
-        {
-            Header = "Project",
-            Content = new ScrollViewer { Content = _properties }
-        });
-
         var parameters = new DockPanel();
 
         DockPanel.SetDock(_parameterNote, Dock.Bottom);
         parameters.Children.Add(_parameterNote);
         parameters.Children.Add(_parameters);
-
-        var showing = new TabItem { Header = "Variables", Content = parameters };
-
-        tabs.Items.Add(showing);
-        tabs.Items.Add(new TabItem { Header = "Element", Content = _elementHost });
-
-        // Opened on, rather than the settings that come first in the strip: what a drawing declares
-        // is what moves the board, and the settings are read when a row is set up and then left.
-        // The same tab a drawing's own strip opens on, which is the point of the two being alike.
-        tabs.SelectedItem = showing;
-
-        side.Children.Add(tabs);
-
-        var splitter = new GridSplitter { Background = Brushes.Transparent };
-
-        Grid.SetRow(splitter, 1);
-        side.Children.Add(splitter);
 
         var below = new DockPanel();
 
@@ -415,17 +387,12 @@ public sealed class GroupPanel : UserControl
         below.Children.Add(_showing);
         below.Children.Add(_tree);
 
-        var host = new Border
+        var side = new SvgViewerSide(parameters, _elementHost, below)
         {
-            BorderThickness = new Thickness(0, 1, 0, 0),
-            BorderBrush = new SolidColorBrush(Color.Parse("#20808080")),
-            Child = below
+            Panes = new[] { new SvgViewerPane("Project", new ScrollViewer { Content = _properties }) }
         };
 
-        Grid.SetRow(host, 2);
-        side.Children.Add(host);
-
-        return side;
+        return side.Root;
     }
 
     /// <summary>A drawing's settings, with nothing beside them, for the pane.</summary>

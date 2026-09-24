@@ -5,8 +5,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -804,6 +807,51 @@ public class SvgViewerParameterEditingTests
         await Settle();
 
         Assert.DoesNotContain(viewer.Parameters, row => row.Name == "radius");
+
+        window.Close();
+    }
+    /// <summary>
+    /// A row has two drags, and the one that carries the name does not reorder the list.
+    /// </summary>
+    /// <remarks>
+    /// The grip moves a row up and down, because where a let sits decides what it can name; the name
+    /// itself is carried onto an attribute. Two grab points on one row, so a press on one must not
+    /// do the other's work — which is the thing a shared handle would have risked.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Dragging_A_Name_Does_Not_Reorder_The_List()
+    {
+        var (window, viewer) = await HostLoaded(Parametric);
+
+        var asked = 0;
+
+        var panel = viewer.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
+
+        panel.ParameterMoveRequested = (_, _) =>
+        {
+            asked++;
+
+            return true;
+        };
+
+        var names = viewer.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.Classes.Contains("name"))
+            .ToList();
+
+        Assert.Equal(2, names.Count);
+
+        var from = names[0].TranslatePoint(new Point(4d, 4d), window);
+
+        Assert.NotNull(from);
+
+        window.MouseDown(from!.Value, MouseButton.Left);
+        window.MouseMove(new Point(from.Value.X, from.Value.Y + 60d), RawInputModifiers.LeftMouseButton);
+        Dispatcher.UIThread.RunJobs();
+        window.MouseUp(new Point(from.Value.X, from.Value.Y + 60d), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0, asked);
+        Assert.Equal(new[] { "tint", "fade" }, viewer.Parameters!.Select(row => row.Name));
 
         window.Close();
     }

@@ -2711,9 +2711,11 @@ public class MainWindowProjectTests : IDisposable
             group => Assert.Equal(desks[group.Name], (group.X, group.Y)));
     }
 
-    /// <summary>Opens one pane of a drawing's right-hand strip, by the name on its tab.</summary>
+    /// <summary>Opens one of the host's own panes, by the name on its tab.</summary>
     /// <remarks>
     /// A tab that is not selected has no visual tree, so what is in one cannot be found until it is.
+    /// Only the host's panes are tabs — the variables and the picked element's attributes are
+    /// regions below them and are always there.
     /// </remarks>
     private static void Open(SvgViewer viewer, string pane)
     {
@@ -2724,8 +2726,7 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
-    /// <summary>Opens one pane of a group tab's strip, by the name on its tab.</summary>
-    /// <remarks>Same reason as the viewer's: an unselected tab has nothing in the visual tree.</remarks>
+    /// <inheritdoc cref="Open(SvgViewer, string)"/>
     private static TabControl Open(GroupPanel panel, string pane)
     {
         var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
@@ -2736,13 +2737,9 @@ public class MainWindowProjectTests : IDisposable
         return tabs;
     }
 
-    /// <summary>The declaration panel on a group's Parameters tab, which the tab must be on to hold.</summary>
+    /// <summary>The declaration panel in a group's strip.</summary>
     private static SvgViewerDeclarationPanel Declarations(GroupPanel panel)
-    {
-        Open(panel, "Variables");
-
-        return panel.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
-    }
+        => panel.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
 
     private static async Task<GroupPanel> Group(MainWindow window, int child)
         => await Opened(window, (ProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[child]!).Tag!);
@@ -2781,25 +2778,26 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
-    /// A group's tab opens on its parameters, the way a drawing's own tab does.
+    /// A group's strip is the viewer's, built by the viewer: the project's say in a tab, and the
+    /// variables and the attributes in regions of their own.
     /// </summary>
     /// <remarks>
-    /// The settings are first in the strip, and were what it opened on: they are filled in once
-    /// when a group is set up, where the parameters are what a board is looked at with.
+    /// The point of the two hosts sharing one column. A variable is dragged onto an attribute here
+    /// as well, so neither can be behind the other here either.
     /// </remarks>
     [AvaloniaFact]
-    public async Task A_Groups_Tab_Opens_On_Its_Parameters()
+    public async Task A_Groups_Strip_Is_The_Same_Column_A_Drawings_Tab_Has()
     {
         var window = await Host(Write("icons.svgstudio", Pair));
         var panel = await Group(window, 0);
 
-        var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
+        var tabs = panel.GetVisualDescendants().OfType<TabControl>().Single();
 
-        Assert.Equal(
-            new[] { "Project", "Variables", "Element" },
-            tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        Assert.Equal(new[] { "Project" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
 
-        Assert.Equal("Variables", (string)((TabItem)tabs.SelectedItem!).Header!);
+        var variables = panel.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
+
+        Assert.DoesNotContain(variables, tabs.GetVisualDescendants());
     }
 
     [AvaloniaFact]
@@ -3937,9 +3935,9 @@ public class MainWindowProjectTests : IDisposable
         Assert.DoesNotContain("e:param", viewer.Source, StringComparison.Ordinal);
     }
 
-    /// <summary>The Element tab's content, whatever it currently is.</summary>
+    /// <summary>The attribute panel in a group's strip, or null while nothing is picked.</summary>
     private static object? Element(GroupPanel panel)
-        => ((TabItem)Open(panel, "Element").SelectedItem!).Content is ContentControl host ? host.Content : null;
+        => panel.GetVisualDescendants().OfType<SvgViewerElementPanel>().SingleOrDefault();
 
     [AvaloniaFact]
     public async Task Picking_A_Shape_Shows_What_It_Is_Written_With()
@@ -3974,6 +3972,47 @@ public class MainWindowProjectTests : IDisposable
         // Into the drawing, which is where an element's attribute lives — and so into the project,
         // which is where the drawing lives.
         Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(path));
+    }
+
+    /// <summary>
+    /// A variable dragged onto an attribute on a group's board writes the binding into the drawing.
+    /// </summary>
+    /// <remarks>
+    /// The drag is injected rather than started, the way the viewer's own suite does it: nothing here
+    /// drives a real drag source headlessly. What this adds over that suite is the board — a group's
+    /// tab is not a viewer, and the window behind it opens any file dropped anywhere on it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Variable_Dragged_Onto_An_Attribute_Binds_It_On_A_Board()
+    {
+        var path = Own(Unbound, Declaring);
+        var window = await Host(path);
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "fill"));
+
+        // Scrolled to first, as somebody dragging would have to: the rows outrun their region.
+        box.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+
+        var carried = new DataTransfer();
+
+        carried.Add(DataTransferItem.Create(SvgViewerVariableDrag.Format, "tint"));
+
+        var at = box.TranslatePoint(new Point(box.Bounds.Width / 2d, box.Bounds.Height / 2d), window);
+
+        Assert.NotNull(at);
+
+        foreach (var stage in new[] { RawDragEventType.DragEnter, RawDragEventType.DragOver, RawDragEventType.Drop })
+        {
+            window.DragDrop(at!.Value, stage, carried, DragDropEffects.Link, RawInputModifiers.None);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(path), StringComparison.Ordinal);
     }
 
     /// <summary>A drawing whose words are worth editing.</summary>
@@ -5094,12 +5133,9 @@ public class MainWindowProjectTests : IDisposable
         var panel = Assert.IsType<GroupPanel>(Assert.Single(viewer.SidePanels).Content);
         var panes = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
 
-        // First of the three, and not the one shown: a drawing is opened to be looked at, and what
-        // it declares is what moves the picture, so the project's say over it is a click away.
-        Assert.Equal(new[] { "Project", "Variables", "Element" }, panes.Items.OfType<TabItem>().Select(item => (string)item.Header!));
-        Assert.Equal("Variables", (string)((TabItem)panes.SelectedItem!).Header!);
-
-        Open(viewer, "Project");
+        // The strip is the host's alone: what a drawing declares and what an element is written
+        // with are the viewer's own, and each has a region under this.
+        Assert.Equal(new[] { "Project" }, panes.Items.OfType<TabItem>().Select(item => (string)item.Header!));
 
         var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "class"));
 
