@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+* **Panels split panes instead of taking sides, and the project tree is one of them.** A panel
+  dropped along the bottom ran the full width of the window and cut the strip beside the drawing in
+  half, with no way to ask for anything else — the foot was a row of the body and the sides were
+  columns inside it, so the shape was the model rather than a choice. There are no sides now: a
+  panel dropped on the edge of a pane splits that pane, so against the foot of the drawing it sits
+  under the drawing and against the edge of the window it runs under everything. Same gesture, two
+  targets, no setting — which is how Visual Studio, Rider and Qt Creator all answer it. The project
+  tree joins the same arrangement, so it can be folded, carried to the other side, or put behind the
+  variables; and the panels belong to the window rather than to a tab, showing whatever is in front,
+  so the arrangement holds still while you move between drawings. A strip keeps the width it is given
+  and the runs dividing it keep their share of it. **Reset layout** in Settings now moves the panels
+  while you are looking at them, rather than waiting for the window to close.
+
 * **The panels round a drawing are arranged, and the arrangement is kept.** Four of them shared one
   340-wide column and did not fit: the attributes got 217px of the 1200 they ask for, while the
   element tree — the one panel whose content is elastic — had a fixed 200 and was the best served of

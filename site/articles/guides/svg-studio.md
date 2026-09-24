@@ -53,8 +53,9 @@ disagree about what the project says.
 ## Opening one
 
 `File → Open`, a drop anywhere on the window including an empty one, or a path on the command line.
-A project opens as a workspace rather than as a document: the tree goes in a pane beside the tabs
-and the project itself takes no tab, one project at a time, closed with `Project → Close`.
+A project opens as a workspace rather than as a document: the tree goes in a panel beside the tabs —
+one you can fold, move or put behind another — and the project itself takes no tab, one project at a
+time, closed with `Project → Close`.
 
 Two other things open as a project, by being converted into one:
 
@@ -83,18 +84,21 @@ it lands beside it, and in the middle it goes inside. Adding an `.svg` file read
 pasting one, or pasting the SVG a drawing program puts on the clipboard. Adding, removing and moving
 edit the project; nothing reaches the file until you save it.
 
-Four panels sit round the drawing: the project's say over it, the **Variables** it declares, the
-**Element** picked in it, and the tree those elements come from. They come up two open and two in a
-strip — the tree and the project's say share the run at the top, and the variables and the element
-get a run each, so a variable can be dragged onto an attribute without either of them having to be
-found first.
+Five panels sit round the tabs: the **Project** tree, the **Settings** for whatever is in front, the
+**Variables** it declares, the **Element** picked in it, and the **Elements** those come from. They
+belong to the window rather than to a tab, and show whatever tab is in front — so the arrangement
+holds still while you move between drawings, and the tree that names them stays beside all of them.
 
-**Arrange them as you like.** The chevron on a run folds it away to its header. Take a panel by its
-header and drop it on another header to sit behind it, above or below a run to go there, or on an
-edge of the drawing to start a strip down the other side or along the foot. Where it would land is
-drawn while you carry it. The arrangement is one for every tab — a group's board is the same four
-panels — and it is remembered, so it is there again next time. **Settings** has **Reset layout** for
-when it has gone somewhere you would rather it had not.
+They come up with the tree down the left and, beside the drawing, the elements and the settings
+sharing a strip at the top over the variables and the element. The variables and the element cannot
+share, because a variable is dragged onto an attribute and behind a tab each would hide the other.
+
+**Arrange them as you like.** The chevron on a header folds that panel away. Take a panel by its
+header and drop it on another header to sit behind it, or on the edge of a panel to split that panel.
+Drop it against the foot of the drawing and it sits under the drawing; drop it against the **edge of
+the window** and it runs under everything, taking nothing from the strip beside it. Where it would
+land is drawn while you carry it. The arrangement is remembered, so it is there again next time, and
+**Settings** has **Reset layout** for when it has gone somewhere you would rather it had not.
 
 ## A group's tab: several icons at once
 
