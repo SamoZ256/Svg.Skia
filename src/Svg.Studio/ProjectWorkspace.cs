@@ -137,6 +137,36 @@ public sealed class ProjectWorkspace
             throw new ArgumentNullException(nameof(edit));
         }
 
+        // A gesture inside a gesture is part of it. The one outside has already captured the whole
+        // of what is about to change, so this has nothing to add — and a second entry for one thing
+        // somebody did is an entry that takes half of it back. It arises where a gesture both writes
+        // a drawing's text, through the seam that records it, and moves something about the row the
+        // text belongs to: a page dragged wider on a board is both.
+        if (_inside)
+        {
+            edit();
+
+            return;
+        }
+
+        _inside = true;
+
+        try
+        {
+            Step(label, capture, edit);
+        }
+        finally
+        {
+            _inside = false;
+        }
+    }
+
+    /// <summary>Whether a gesture is already being recorded, and anything inside it is part of it.</summary>
+    private bool _inside;
+
+    /// <summary>Records one gesture, having settled that it is not inside another.</summary>
+    private void Step(string label, Func<Action> capture, Action edit)
+    {
         var undo = capture();
 
         edit();
