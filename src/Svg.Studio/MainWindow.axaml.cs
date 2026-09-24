@@ -47,9 +47,16 @@ public partial class MainWindow : Window
     private readonly TabControl _tabs;
 
     private readonly TreeView _projectTree;
-    private readonly ColumnDefinition _projectColumn;
     private readonly Border _projectPaneHost;
-    private readonly GridSplitter _projectSplitter;
+
+    /// <summary>The window's own body: the tabs, and the panels arranged round them.</summary>
+    /// <remarks>
+    /// One arrangement for the window rather than one inside every tab. The project tree names the
+    /// drawings the tabs hold, so it belongs beside all of them; and the panels a tab offers are
+    /// re-pointed at whatever is in front, which is how a window of documents comes to have one set
+    /// of panels rather than a set per document.
+    /// </remarks>
+    private readonly SvgViewerDock _dock;
     private readonly TextBlock _projectName;
     private readonly TextBox _projectSearch;
     private readonly TextBlock _projectSearchCount;
@@ -107,13 +114,12 @@ public partial class MainWindow : Window
             UpdateTitle();
             UpdateMenu();
             Refill();
+            Panels();
             Reveal();
         };
 
         _projectTree = this.FindControl<TreeView>("ProjectTree")!;
-        _projectColumn = this.FindControl<Grid>("Shell")!.ColumnDefinitions[0];
         _projectPaneHost = this.FindControl<Border>("ProjectPaneHost")!;
-        _projectSplitter = this.FindControl<GridSplitter>("ProjectSplitter")!;
         _projectName = this.FindControl<TextBlock>("ProjectName")!;
         _projectSearch = this.FindControl<TextBox>("ProjectSearch")!;
         _projectSearchCount = this.FindControl<TextBlock>("ProjectSearchCount")!;
@@ -122,6 +128,51 @@ public partial class MainWindow : Window
         _projectTree.KeyDown += OnProjectTreeKeyDown;
         _dropLine = this.FindControl<Border>("DropLine")!;
         _dropHost = (Grid)_dropLine.Parent!;
+
+        var shell = this.FindControl<Panel>("Shell")!;
+
+        // Both are declared in the markup and handed over: a control cannot be added to a second
+        // parent, so the panel holding them lets go first.
+        shell.Children.Remove(_projectPaneHost);
+        shell.Children.Remove(_tabs);
+
+        // Fallback first: it is what an unreadable line comes back to, and where a panel taken off
+        // the arrangement is put when it comes back.
+        _dock = new SvgViewerDock(_tabs)
+        {
+            Fallback = StudioSettings.DefaultLayout,
+            Regions = Panelled(),
+            Layout = StudioSettings.Layout
+        };
+
+        // A TabControl taken out of the tree and put back comes back showing its first tab, and
+        // rearranging the panels moves the middle — so without this, folding one would put you on a
+        // different document.
+        _dock.Rebuilding += (_, _) => _front = _tabs.SelectedItem;
+
+        // Posted rather than done here: the strip does not lose the selection when it is taken out
+        // of the tree but when it is measured again on the way back, which is after this returns.
+        _dock.Rebuilt += (_, _) => Dispatcher.UIThread.Post(() =>
+        {
+            if (_front is { } item && _tabs.Items.Contains(item))
+            {
+                _tabs.SelectedItem = item;
+            }
+        });
+
+        _dock.LayoutChanged += (_, _) =>
+        {
+            StudioSettings.Layout = _dock.Layout;
+
+            Reread();
+        };
+
+        shell.Children.Add(_dock.Root);
+
+        // The tree is off the arrangement until a project opens; the rest follow the front tab.
+        _dock.Show(ProjectTreePanel, false);
+
+        Panels();
 
         // Tunnelling, because TreeViewItem takes a press itself to become selected.
         _projectTree.AddHandler(PointerPressedEvent, OnRowPressed, RoutingStrategies.Tunnel);
@@ -166,7 +217,9 @@ public partial class MainWindow : Window
     /// <summary>Adds an empty tab, selects it, and returns the viewer that fills it.</summary>
     private SvgViewer AddTab()
     {
-        var viewer = new SvgViewer { FileDialogService = new StudioFileDialogService() };
+        // The window arranges them, not the tab: one set of panels round a strip of tabs rather
+        // than a set inside each of them.
+        var viewer = new SvgViewer { FileDialogService = new StudioFileDialogService(), ArrangesPanels = false };
 
         Regrid(viewer);
 
@@ -743,12 +796,88 @@ public partial class MainWindow : Window
 
     private async void OnCloseProject(object? sender, EventArgs e) => await CloseProjectAsync();
 
+    /// <summary>How the panels round the tabs are arranged. See <see cref="SvgViewerDock.Layout"/>.</summary>
+    /// <remarks>Setting it arranges the window; it does not write the setting, which is what a hand
+    /// moving something is for.</remarks>
+    public string Layout
+    {
+        get => _dock.Layout;
+        set => _dock.Layout = value;
+    }
+
+    /// <summary>What the arrangement calls the project tree.</summary>
+    private const string ProjectTreePanel = "tree";
+
+    /// <summary>
+    /// The panels the window arranges, one host each, filled from whichever tab is in front.
+    /// </summary>
+    /// <remarks>
+    /// The hosts are made once and never replaced. Handing the dock a fresh set of panels on every
+    /// tab change would have it rebuild the body — and a tab change can arrive in the middle of a
+    /// layout pass, where re-parenting what a grid is measuring leaves that grid reading a cell it
+    /// no longer has. Swapping what is inside a host is an ordinary content change and safe
+    /// anywhere.
+    ///
+    /// It is also what should happen: the headers are the window's, so they do not flicker as one
+    /// tab hands over to the next, and the arrangement cannot move when nothing about it changed.
+    /// </remarks>
+    private readonly Dictionary<string, Border> _panels = new(StringComparer.Ordinal);
+
+    /// <summary>The tab in front while the panels are being rearranged around it.</summary>
+    private object? _front;
+
+    private IReadOnlyList<SvgViewerRegion> Panelled()
+    {
+        var named = new (string Id, string Header)[]
+        {
+            ("project", "Settings"),
+            ("variables", "Variables"),
+            ("element", "Element"),
+            ("elements", "Elements")
+        };
+
+        foreach (var (id, _) in named)
+        {
+            _panels[id] = new Border();
+        }
+
+        return new[] { new SvgViewerRegion(ProjectTreePanel, "Project", _projectPaneHost) }
+            .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id])))
+            .ToList();
+    }
+
+    /// <summary>Fills the panels from whatever the tab in front has to show.</summary>
+    private void Panels()
+    {
+        var front = (_tabs.SelectedItem as TabItem)?.Content switch
+        {
+            SvgViewer viewer => viewer.Panels,
+            GroupPanel board => board.Panels,
+            _ => Array.Empty<SvgViewerRegion>()
+        };
+
+        // Emptied first, all of them: a control cannot be added to a second parent, and the tab
+        // going away is still holding on to everything the one arriving is about to hand over.
+        foreach (var host in _panels.Values)
+        {
+            host.Child = null;
+        }
+
+        foreach (var region in front)
+        {
+            if (_panels.TryGetValue(region.Id, out var host))
+            {
+                host.Child = region.Content;
+            }
+        }
+
+    }
+
     private void ShowProjectPane(bool show)
     {
-        _projectPaneHost.IsVisible = show;
-        _projectSplitter.IsVisible = show;
-        _projectColumn.Width = show ? new GridLength(260) : new GridLength(0);
-        _projectColumn.MinWidth = show ? 180 : 0;
+        // Off the arrangement rather than hidden in it: a panel with nothing in it would still hold
+        // a strip of the window, and a session that only opens drawings should look as it always did.
+        _dock.Show(ProjectTreePanel, show);
 
         if (!show)
         {
@@ -1711,7 +1840,7 @@ public partial class MainWindow : Window
 
         if (node is ProjectGroup group)
         {
-            var board = new GroupPanel(workspace, group) { TargetOf = DrawingOf };
+            var board = new GroupPanel(workspace, group) { TargetOf = DrawingOf, ArrangesPanels = false };
 
             board.SettingChanged += (_, _) => Reread();
 
@@ -1887,6 +2016,11 @@ public partial class MainWindow : Window
     /// <remarks>The jump a search makes, and the one picking a tab makes: the same one.</remarks>
     private void Reveal(ProjectNode node)
     {
+        // Opened before anything is looked for: a folded panel has no rows laid out, so bringing one
+        // into view below would scroll nothing and the tree would appear to have lost the drawing
+        // being looked at. Being asked to show a row is reason enough to open the panel it is in.
+        _dock.Fold(ProjectTreePanel, false);
+
         if (_projectTree.Items.OfType<TreeViewItem>().FirstOrDefault() is not { } root
             || Route(root, node) is not { } path)
         {
@@ -2354,6 +2488,9 @@ public partial class MainWindow : Window
     /// </remarks>
     private void Reread()
     {
+        // The arrangement is the window's now, so it is read here rather than once per tab.
+        _dock.Layout = StudioSettings.Layout;
+
         foreach (var content in _tabs.Items.OfType<TabItem>().Select(item => item.Content))
         {
             switch (content)
@@ -2378,7 +2515,6 @@ public partial class MainWindow : Window
     {
         viewer.Grid = StudioSettings.Grid;
         viewer.SnapsToGrid = StudioSettings.SnapToGrid;
-        viewer.Layout = StudioSettings.Layout;
     }
 
     private async void OnSave(object? sender, EventArgs e) => await SaveAsync();

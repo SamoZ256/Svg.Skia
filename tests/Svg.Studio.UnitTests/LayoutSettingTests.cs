@@ -32,7 +32,8 @@ public class LayoutSettingTests : IDisposable
 {
     /// <summary>An arrangement nothing would land in by itself, so finding it means it travelled.</summary>
     private const string Arranged =
-        "row(variables/300px/variables/open,*/1,col(project+elements/1/elements/open,element/1/element/open)/340px)";
+        "row(tree/260px/tree/open,variables/300px/variables/open,*/1,"
+        + "col(project+elements/1/elements/open,element/1/element/open)/340px)";
 
     private const string Project = """
         <studio namespace="Demo.Icons">
@@ -90,7 +91,7 @@ public class LayoutSettingTests : IDisposable
     [Fact]
     public void An_Arrangement_Is_Written_Down_As_It_Was_Made()
     {
-        Assert.Equal(SvgViewerDock.Default, StudioSettings.Layout);
+        Assert.Equal(StudioSettings.DefaultLayout, StudioSettings.Layout);
 
         StudioSettings.Layout = Arranged;
 
@@ -115,6 +116,7 @@ public class LayoutSettingTests : IDisposable
 
         var viewer = new SvgViewer { Layout = StudioSettings.Layout };
 
+        // The viewer's own default, not Studio's: a viewer knows nothing about a project tree.
         Assert.Equal(SvgViewerDock.Default, viewer.Layout);
     }
 
@@ -127,16 +129,16 @@ public class LayoutSettingTests : IDisposable
 
         var board = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
 
-        Assert.Equal(Arranged, board.Layout);
+        Assert.Equal(Arranged, window.Layout);
 
+        // And it does not move when the tab does: the panels are the window's and show whatever is
+        // in front, so changing tab changes what is inside them and nothing about where they are.
         var drawing = ((ProjectGroup)board.Node).Drawings.Single();
 
         await window.ShowAsync(drawing);
         Dispatcher.UIThread.RunJobs();
 
-        var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
-
-        Assert.Equal(Arranged, viewer.Layout);
+        Assert.Equal(Arranged, window.Layout);
 
         window.Close();
     }
@@ -168,14 +170,15 @@ public class LayoutSettingTests : IDisposable
         => visual.TranslatePoint(new Point(visual.Bounds.Width / 2d, visual.Bounds.Height / 2d), window)!.Value;
 
     /// <summary>
-    /// A panel carried on one tab is carried on all of them, and is still there next time.
+    /// A panel carried anywhere is written down, and is where it was left whatever tab is in front.
     /// </summary>
     /// <remarks>
-    /// The whole route in one: a hand on a drawing's tab, the settings file, and the board behind it
-    /// — which is a different control built by a different class around the same dock.
+    /// The whole route in one: a hand on the panels, the settings file, and the arrangement holding
+    /// still across a change of tab — which is what one dock round the window buys over one inside
+    /// each of them.
     /// </remarks>
     [AvaloniaFact]
-    public async Task Arranging_One_Tab_Arranges_Every_Other_One()
+    public async Task Arranging_The_Panels_Holds_Across_Every_Tab()
     {
         var window = await Host(Write("icons.svgstudio", Project));
 
@@ -189,18 +192,20 @@ public class LayoutSettingTests : IDisposable
         window.Arrange(new Rect(0, 0, 900, 600));
         Dispatcher.UIThread.RunJobs();
 
-        var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
-
-        Assert.Equal(SvgViewerDock.Default, viewer.Layout);
-        Assert.Equal(SvgViewerDock.Default, board.Layout);
+        Assert.Equal(StudioSettings.DefaultLayout, window.Layout);
 
         Carry(window, "Variables", "Element");
 
-        Assert.Contains("element+variables", viewer.Layout, StringComparison.Ordinal);
+        Assert.Contains("element+variables", window.Layout, StringComparison.Ordinal);
 
-        // The file, and the tab behind this one.
-        Assert.Equal(viewer.Layout, StudioSettings.Layout);
-        Assert.Equal(viewer.Layout, board.Layout);
+        // Written down, so it is there again next time.
+        Assert.Equal(window.Layout, StudioSettings.Layout);
+
+        // And still there behind whichever tab you go to next.
+        await window.ShowAsync(board.Node);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("element+variables", window.Layout, StringComparison.Ordinal);
 
         window.Close();
     }
@@ -211,9 +216,7 @@ public class LayoutSettingTests : IDisposable
         StudioSettings.Layout = Arranged;
 
         var window = await Host(Write("icons.svgstudio", Project));
-        var board = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
-
-        Assert.Equal(Arranged, board.Layout);
+        Assert.Equal(Arranged, window.Layout);
 
         // Through the settings window's own button, and out to the tabs the way closing it does.
         window.ShowSettings = () =>
@@ -228,8 +231,8 @@ public class LayoutSettingTests : IDisposable
         await window.ShowSettingsAsync();
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(SvgViewerDock.Default, StudioSettings.Layout);
-        Assert.Equal(SvgViewerDock.Default, board.Layout);
+        Assert.Equal(StudioSettings.DefaultLayout, StudioSettings.Layout);
+        Assert.Equal(StudioSettings.DefaultLayout, window.Layout);
 
         window.Close();
     }
@@ -250,7 +253,95 @@ public class LayoutSettingTests : IDisposable
 
         settings.ResetLayout.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
-        Assert.Equal(SvgViewerDock.Default, StudioSettings.Layout);
+        Assert.Equal(StudioSettings.DefaultLayout, StudioSettings.Layout);
         Assert.Equal(1, applied);
+    }
+    // ---- the project tree is a panel like any other ----------------------------------------------
+
+    [AvaloniaFact]
+    public async Task The_Project_Tree_Is_A_Panel_Of_The_Window()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        // Down the left, where Studio's own default puts it.
+        Assert.StartsWith("row(tree/", window.Layout, StringComparison.Ordinal);
+
+        // And it is carried by its header like the rest: dropped on the variables it sits behind
+        // them, which is a place three fixed sides could not have put it.
+        Carry(window, "Project", "Variables");
+
+        Assert.Contains("variables+tree", window.Layout, StringComparison.Ordinal);
+        Assert.Equal(window.Layout, StudioSettings.Layout);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// Rearranging the panels does not change which document is in front.
+    /// </summary>
+    /// <remarks>
+    /// The strip of tabs is the middle of the arrangement, so rearranging moves it — and a
+    /// TabControl taken out of the tree and put back comes back showing its first tab. Folding a
+    /// panel would have put you on a different drawing.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Rearranging_The_Panels_Leaves_The_Tab_In_Front_Alone()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        var board = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        await window.ShowAsync(((ProjectGroup)board.Node).Drawings.Single());
+        Dispatcher.UIThread.RunJobs();
+
+        var front = Tabs(window).SelectedItem;
+
+        Assert.IsType<SvgViewer>(((TabItem)front!).Content);
+
+        // Anything that rebuilds the body will do; folding a panel is the cheapest to ask for.
+        window.Layout = window.Layout.Replace("/elements/open", "/elements/folded", StringComparison.Ordinal);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(front, Tabs(window).SelectedItem);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Closing_Every_Tab_Leaves_The_Tree_Up()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        foreach (var item in Tabs(window).Items.OfType<TabItem>().ToList())
+        {
+            Tabs(window).Items.Remove(item);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+
+        // The tree names the drawings the tabs hold, so it does not go when the last of them does.
+        Assert.Contains("tree/", window.Layout, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    /// <summary>Looking a drawing up opens the tree first, or it would scroll nothing.</summary>
+    [AvaloniaFact]
+    public async Task Revealing_A_Row_Opens_The_Tree_It_Is_In()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        window.Layout = window.Layout.Replace("/tree/open", "/tree/folded", StringComparison.Ordinal);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("/tree/folded", window.Layout, StringComparison.Ordinal);
+
+        // Looked for by name, which is the gesture that ends in a row being brought into view.
+        window.FindControl<TextBox>("ProjectSearch")!.Text = "home";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("/tree/open", window.Layout, StringComparison.Ordinal);
+
+        window.Close();
     }
 }

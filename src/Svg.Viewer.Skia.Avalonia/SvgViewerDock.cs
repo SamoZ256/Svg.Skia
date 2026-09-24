@@ -114,6 +114,14 @@ public sealed class SvgViewerDock
     /// </remarks>
     private readonly HashSet<string> _dropped = new(StringComparer.Ordinal);
 
+    /// <summary>The arrangement each dropped panel was taken out of, so it can go back into it.</summary>
+    /// <remarks>
+    /// Where it was, rather than where the default would put it: a host that turns the element tree
+    /// off and on again is not asking for the rest of the strip to be reordered around it. Only used
+    /// while the arrangement has not otherwise moved, which is the case that needs it.
+    /// </remarks>
+    private readonly Dictionary<string, string> _was = new(StringComparer.Ordinal);
+
     private bool _shows = true;
 
     /// <summary>What was built last time, so a drag can ask what is under the pointer.</summary>
@@ -155,8 +163,36 @@ public sealed class SvgViewerDock
     /// <summary>The body itself, to be put wherever the host keeps it.</summary>
     public Control Root => _shell;
 
+    /// <summary>
+    /// The arrangement to fall back on, and to put a panel back into. <see cref="Default"/> unless a
+    /// host says otherwise.
+    /// </summary>
+    /// <remarks>
+    /// A host with panels of its own has a default of its own: <c>Svg.Studio</c>'s project tree goes
+    /// down the left, and nothing in <see cref="Default"/> knows that, so a tree taken off the
+    /// arrangement and put back came home to the wrong side of the drawing. Set it before
+    /// <see cref="Layout"/>, since that is when it is first wanted.
+    /// </remarks>
+    public string Fallback { get; set; } = Default;
+
     /// <summary>Raised when a hand rearranged something — never for a layout the host set.</summary>
     public event EventHandler? LayoutChanged;
+
+    /// <summary>
+    /// Raised either side of the picture being built again, for a host to put back what being
+    /// taken out of the tree and put back disturbs.
+    /// </summary>
+    /// <remarks>
+    /// Rearranging moves the middle, and a control taken out of the visual tree loses state its
+    /// parent was keeping for it. <c>Svg.Studio</c> puts a strip of tabs in the middle, and a
+    /// TabControl re-parented comes back showing its first tab — so folding a panel would have put
+    /// you on a different document. What state that is, and whether it matters, is the host's to
+    /// know; all this can do is say when.
+    /// </remarks>
+    public event EventHandler? Rebuilding;
+
+    /// <inheritdoc cref="Rebuilding"/>
+    public event EventHandler? Rebuilt;
 
     /// <summary>The panels there are to arrange, in the order they are offered a place.</summary>
     public IReadOnlyList<SvgViewerRegion> Regions
@@ -244,11 +280,23 @@ public sealed class SvgViewerDock
         if (shown)
         {
             _dropped.Remove(id);
-            Restore(id);
+
+            if (_was.Remove(id, out var back)
+                && Parsed(back) is { } whole
+                && string.Equals(Without(back, id), Layout, StringComparison.Ordinal))
+            {
+                _tree = whole;
+            }
+            else
+            {
+                Restore(id);
+            }
         }
         else
         {
             _dropped.Add(id);
+            _was[id] = Layout;
+
             Take(id);
         }
 
@@ -434,9 +482,12 @@ public sealed class SvgViewerDock
     /// </remarks>
     private void Restore(string id)
     {
-        if (Parsed(Default) is { } fresh
-            && Walk(fresh).OfType<Leaf>().FirstOrDefault(leaf => leaf.Ids.Contains(id, StringComparer.Ordinal))
-                is { } wanted
+        var wanted = Parsed(Fallback) is { } fresh
+            ? Walk(fresh).OfType<Leaf>().FirstOrDefault(leaf => leaf.Ids.Contains(id, StringComparer.Ordinal))
+            : null;
+
+        // Beside the neighbours the default gives it, where any of them are still about.
+        if (wanted is { }
             && Walk(_tree).OfType<Leaf>().FirstOrDefault(
                    leaf => !leaf.IsMiddle
                            && wanted.Ids.Any(other => leaf.Ids.Contains(other, StringComparer.Ordinal)))
@@ -448,7 +499,42 @@ public sealed class SvgViewerDock
             return;
         }
 
-        Beside(Holding(Centre)!, Made(id), across: true, before: false);
+        var made = Made(id);
+
+        // Otherwise the side of the middle the default puts it on, at the size the default gives it.
+        // A panel that sits on its own there — a project tree down the left — has no neighbour to be
+        // found beside, and landing it all on the right would be putting it somewhere nobody asked.
+        var before = wanted is { } && Parsed(Fallback) is { } again
+                     && Walk(again).OfType<Leaf>().TakeWhile(leaf => !leaf.IsMiddle)
+                         .Any(leaf => leaf.Ids.Contains(id, StringComparer.Ordinal));
+
+        Beside(Holding(Centre)!, made, across: true, before: before);
+
+        if (wanted is { })
+        {
+            made.Reach = wanted.Reach;
+        }
+    }
+
+    /// <summary>What a line would say with one panel taken out of it, or null where it would say nothing.</summary>
+    private static string? Without(string line, string id)
+    {
+        if (Parsed(line) is not { } tree)
+        {
+            return null;
+        }
+
+        var apart = new SvgViewerDock(tree);
+
+        apart.Take(id);
+
+        return apart.Layout;
+    }
+
+    /// <summary>A dock over a tree and nothing else, for working a line out without building one.</summary>
+    private SvgViewerDock(Node tree)
+    {
+        _tree = tree;
     }
 
     private static Leaf Made(string id)
@@ -553,8 +639,9 @@ public sealed class SvgViewerDock
         return line.ToString();
     }
 
-    private static Node Read(string? line)
+    private Node Read(string? line)
         => Parsed(line)
+           ?? Parsed(Fallback)
            ?? Parsed(Default)
            ?? throw new InvalidOperationException("The default layout does not read back.");
 
@@ -707,6 +794,8 @@ public sealed class SvgViewerDock
     {
         _building = true;
 
+        Rebuilding?.Invoke(this, EventArgs.Empty);
+
         try
         {
             foreach (var host in _filled)
@@ -730,6 +819,8 @@ public sealed class SvgViewerDock
         {
             _building = false;
         }
+
+        Rebuilt?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Takes a control off whatever is holding it, so it can be held by something else.</summary>
@@ -832,6 +923,7 @@ public sealed class SvgViewerDock
         var header = Header(leaf);
 
         Grid.SetRow(header, 0);
+        Grid.SetColumn(header, 0);
         grid.Children.Add(header);
 
         if (!leaf.Folded)
@@ -857,6 +949,7 @@ public sealed class SvgViewerDock
             }
 
             Grid.SetRow(body, 1);
+            Grid.SetColumn(body, 0);
             grid.Children.Add(body);
         }
 
@@ -1292,15 +1385,22 @@ public sealed class SvgViewerDock
         }
     }
 
+    /// <summary>Puts a control in a grid, saying where on both axes.</summary>
+    /// <remarks>
+    /// Both, because where a control sat last time is still written on it. The middle is the one
+    /// thing carried between builds, so a rearrangement that turned a row into a column left it
+    /// claiming a row the new grid does not have — which a grid answers by throwing while it
+    /// measures rather than by drawing it in the wrong place.
+    /// </remarks>
     private static void Place(Grid grid, bool across, Control control, int at)
     {
-        if (across)
+        Grid.SetColumn(control, across ? at : 0);
+        Grid.SetRow(control, across ? 0 : at);
+
+        if (across ? at >= grid.ColumnDefinitions.Count : at >= grid.RowDefinitions.Count)
         {
-            Grid.SetColumn(control, at);
-        }
-        else
-        {
-            Grid.SetRow(control, at);
+            throw new InvalidOperationException(
+                $"DIAG place {control.GetType().Name} at {at} across={across} cols={grid.ColumnDefinitions.Count} rows={grid.RowDefinitions.Count}");
         }
 
         grid.Children.Add(control);

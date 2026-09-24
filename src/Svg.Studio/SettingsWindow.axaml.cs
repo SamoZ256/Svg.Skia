@@ -95,7 +95,7 @@ public partial class SettingsWindow : Window
         // meaning "whatever the default happens to be next time".
         ResetLayout.Click += (_, _) =>
         {
-            StudioSettings.Layout = SvgViewerDock.Default;
+            StudioSettings.Layout = StudioSettings.DefaultLayout;
 
             Applied?.Invoke();
         };

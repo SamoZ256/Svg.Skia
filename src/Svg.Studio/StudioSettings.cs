@@ -226,9 +226,19 @@ public static class StudioSettings
     /// </remarks>
     public static string Layout
     {
-        get => Read(LayoutKey) is { Length: > 0 } written ? written : SvgViewerDock.Default;
-        set => Write(LayoutKey, value ?? SvgViewerDock.Default);
+        get => Read(LayoutKey) is { Length: > 0 } written ? written : DefaultLayout;
+        set => Write(LayoutKey, value ?? DefaultLayout);
     }
+
+    /// <summary>What a window nobody has arranged comes up in.</summary>
+    /// <remarks>
+    /// The viewer's own default with the project tree added down the left, because the tree is
+    /// Studio's panel and not the viewer's. A layout naming a panel nothing supplies keeps the name
+    /// and takes no room, so this is the right line for a drawing opened outside a project too.
+    /// </remarks>
+    public const string DefaultLayout =
+        "row(tree/260px/tree/open,*/1,"
+        + "col(project+elements/1/elements/open,variables/1.3/variables/open,element/1.7/element/open)/340px)";
 
     /// <summary>The two steps as one, which is what a canvas and a gesture are handed.</summary>
     /// <remarks>

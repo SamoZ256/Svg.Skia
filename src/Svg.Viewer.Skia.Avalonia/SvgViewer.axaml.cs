@@ -118,6 +118,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private bool _applyQueued;
     private string? _notice;
     private IReadOnlyList<SvgViewerPane> _sidePanels = Array.Empty<SvgViewerPane>();
+    private bool _arranges = true;
 
     public SvgViewer()
     {
@@ -448,8 +449,18 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     }
 
     /// <summary>Hands the dock everything there is to arrange, the host's panes first.</summary>
-    private void Regions()
-        => _dock.Regions = _sidePanels
+    private void Regions() => _dock.Regions = _arranges ? Panels : Array.Empty<SvgViewerRegion>();
+
+    /// <summary>Everything this viewer has to show beside the drawing, the host's own first.</summary>
+    /// <remarks>
+    /// Offered so a host can arrange them itself. <c>Svg.Studio</c> takes them, because a window of
+    /// tabs wants one arrangement around the lot rather than one inside each tab — which is how
+    /// VS Code and Rider put a project tree beside whatever document is in front. A host that takes
+    /// them turns <see cref="ArrangesPanels"/> off, and the viewer is then a toolbar, a drawing and a
+    /// status bar.
+    /// </remarks>
+    public IReadOnlyList<SvgViewerRegion> Panels
+        => _sidePanels
             .Select(pane => new SvgViewerRegion(SvgViewerRegion.IdFor(pane.Header), pane.Header, pane.Content))
             .Concat(new[]
             {
@@ -458,6 +469,23 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
                 new SvgViewerRegion("elements", "Elements", _elementTree)
             })
             .ToList();
+
+    /// <summary>Whether the viewer puts <see cref="Panels"/> round its own drawing. On unless a host says not.</summary>
+    public bool ArrangesPanels
+    {
+        get => _arranges;
+        set
+        {
+            if (_arranges == value)
+            {
+                return;
+            }
+
+            _arranges = value;
+
+            Regions();
+        }
+    }
 
     /// <summary>How the panels are arranged around the drawing, as one line. See <see cref="SvgViewerDock.Layout"/>.</summary>
     public string Layout

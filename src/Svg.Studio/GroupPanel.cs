@@ -141,6 +141,33 @@ public sealed class GroupPanel : UserControl
     /// <remarks>Null where this is a drawing's settings pane, which has no body to arrange.</remarks>
     public string? Layout => _dock?.Layout;
 
+    private IReadOnlyList<SvgViewerRegion> _panels = Array.Empty<SvgViewerRegion>();
+    private bool _arranges = true;
+
+    /// <summary>Everything this board has to show beside its drawings.</summary>
+    /// <inheritdoc cref="SvgViewer.Panels" path="/remarks"/>
+    public IReadOnlyList<SvgViewerRegion> Panels => _panels;
+
+    /// <summary>Whether the board puts <see cref="Panels"/> round its own canvas.</summary>
+    public bool ArrangesPanels
+    {
+        get => _arranges;
+        set
+        {
+            if (_arranges == value)
+            {
+                return;
+            }
+
+            _arranges = value;
+
+            if (_dock is { })
+            {
+                _dock.Regions = _arranges ? _panels : Array.Empty<SvgViewerRegion>();
+            }
+        }
+    }
+
     private readonly TextBlock _elementNote = new()
     {
         Margin = new Thickness(10),
@@ -364,15 +391,17 @@ public sealed class GroupPanel : UserControl
         tree.Children.Add(_showing);
         tree.Children.Add(_tree);
 
+        _panels = new[]
+        {
+            new SvgViewerRegion("project", "Settings", new ScrollViewer { Content = _properties }),
+            new SvgViewerRegion("variables", "Variables", parameters),
+            new SvgViewerRegion("element", "Element", _elementHost),
+            new SvgViewerRegion("elements", "Elements", tree)
+        };
+
         _dock = new SvgViewerDock(centre)
         {
-            Regions = new[]
-            {
-                new SvgViewerRegion("project", "Project", new ScrollViewer { Content = _properties }),
-                new SvgViewerRegion("variables", "Variables", parameters),
-                new SvgViewerRegion("element", "Element", _elementHost),
-                new SvgViewerRegion("elements", "Elements", tree)
-            },
+            Regions = _arranges ? _panels : Array.Empty<SvgViewerRegion>(),
             Layout = StudioSettings.Layout
         };
 
@@ -502,10 +531,15 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>The box being typed in, if the caret is in one of this panel's.</summary>
+    /// <remarks>
+    /// Asked of the settings form rather than of this panel. The form is arranged by the window now
+    /// and is no longer inside the board it belongs to, so a board that looked for itself above the
+    /// caret found nothing and stopped putting the caret back after a rebuild.
+    /// </remarks>
     private TextBox? Typing()
         => TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox box
            && box.Tag is string
-           && ReferenceEquals(box.FindAncestorOfType<GroupPanel>(), this)
+           && box.GetVisualAncestors().Contains(_properties)
             ? box
             : null;
 

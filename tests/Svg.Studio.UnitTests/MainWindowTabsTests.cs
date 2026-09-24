@@ -63,6 +63,19 @@ public class MainWindowTabsTests
 
             // Laid out, for the tests that measure tabs. The drawings are already in: the window
             // hands back what it started and OpenAsync waits on it.
+            //
+            // Measured outright rather than left to a pass that may or may not have run: the strip
+            // shares the window with the panels now, so how wide a tab is depends on a layout having
+            // settled, and a test that works a point out against tabs half a pass old aims at where
+            // they used to be.
+            Dispatcher.UIThread.RunJobs();
+
+            // Wide enough that four tabs still fit side by side. The panels share the window with
+            // the strip now and take 340 of it, and a strip that has to scroll is a different test.
+            var wide = window.Width + 340d;
+
+            window.Measure(new Size(wide, window.Height));
+            window.Arrange(new Rect(0, 0, wide, window.Height));
             Dispatcher.UIThread.RunJobs();
         }
         finally
