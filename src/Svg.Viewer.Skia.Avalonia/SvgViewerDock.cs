@@ -12,6 +12,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 
 namespace Svg.Viewer.Skia.Avalonia;
 
@@ -70,7 +71,27 @@ public sealed class SvgViewerDock
 
     private static readonly IBrush Divider = new SolidColorBrush(Color.Parse("#20808080"));
 
+    /// <summary>The body, and the line showing where a panel being carried would land.</summary>
+    private readonly Panel _shell = new();
+
     private readonly Grid _root = new();
+
+    /// <summary>
+    /// Where a dragged panel would land, drawn over everything.
+    /// </summary>
+    /// <remarks>
+    /// The indicator both trees already use: a border over the top, not hit-testable, hidden until
+    /// there is somewhere to land. Over the body rather than inside a run, because a drag crosses
+    /// from one side of the drawing to the other.
+    /// </remarks>
+    private readonly Border _hint = new()
+    {
+        Name = "Landing",
+        IsVisible = false,
+        IsHitTestVisible = false,
+        HorizontalAlignment = HorizontalAlignment.Left,
+        VerticalAlignment = VerticalAlignment.Top
+    };
 
     /// <summary>The drawing's row of the body, kept rather than remade: it holds the drawing.</summary>
     /// <remarks>
@@ -111,6 +132,17 @@ public sealed class SvgViewerDock
 
     private bool _shows = true;
 
+    /// <summary>What was built last time, so a drag can ask what is under the pointer.</summary>
+    private readonly List<Landing> _built = new();
+
+    /// <summary>The panel a press took hold of, and where the press was.</summary>
+    private string? _carried;
+    private Point _pressedAt;
+    private bool _dragging;
+
+    /// <summary>Where it would go if it were let go of now.</summary>
+    private (Site Side, Slot? Join, Slot? Beside, bool After)? _landing;
+
     /// <summary>True while the picture is being rebuilt, so nothing it does reads as a hand.</summary>
     private bool _building;
 
@@ -118,12 +150,25 @@ public sealed class SvgViewerDock
     {
         _centre.Child = centre ?? throw new ArgumentNullException(nameof(centre));
 
+        _hint[!Border.BackgroundProperty] =
+            new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("TabItemHeaderSelectedPipeFill");
+
+        _shell.Children.Add(_root);
+        _shell.Children.Add(_hint);
+
+        _shell.PointerMoved += OnMoved;
+        _shell.PointerReleased += (_, e) => Land(e);
+        _shell.PointerCaptureLost += (_, _) => Let();
+
         Read(Default);
         Rebuild();
     }
 
     /// <summary>The body itself, to be put wherever the host keeps it.</summary>
-    public Control Root => _root;
+    public Control Root => _shell;
+
+    /// <summary>One run as it was built, so a drag can say what the pointer is over.</summary>
+    private sealed record Landing(Site Side, Slot Slot, Control Header, Control Run);
 
     /// <summary>Raised when a hand rearranged something — never for a layout the host set.</summary>
     public event EventHandler? LayoutChanged;
@@ -500,6 +545,7 @@ public sealed class SvgViewerDock
             }
 
             _filled.Clear();
+            _built.Clear();
 
             _middle.Children.Clear();
             _middle.ColumnDefinitions.Clear();
@@ -624,7 +670,11 @@ public sealed class SvgViewerDock
                 Watch(splitter, side);
             }
 
-            Place(grid, down, Shown(slots[index], index > 0 && down), at++);
+            var run = Shown(slots[index], index > 0 && down, out var header);
+
+            _built.Add(new Landing(side, slots[index], header, run));
+
+            Place(grid, down, run, at++);
         }
 
         return new Border
@@ -641,7 +691,7 @@ public sealed class SvgViewerDock
     }
 
     /// <summary>One run: its header, and whatever of it is on top.</summary>
-    private Control Shown(Slot slot, bool lined)
+    private Control Shown(Slot slot, bool lined, out Control bar)
     {
         var grid = new Grid
         {
@@ -649,6 +699,8 @@ public sealed class SvgViewerDock
         };
 
         var header = Header(slot);
+
+        bar = header;
 
         Grid.SetRow(header, 0);
         grid.Children.Add(header);
@@ -740,6 +792,17 @@ public sealed class SvgViewerDock
             {
                 e.Handled = true;
 
+                if (!e.GetCurrentPoint(_shell).Properties.IsLeftButtonPressed)
+                {
+                    return;
+                }
+
+                // Taken hold of either way: a press that goes nowhere is the panel being chosen,
+                // and one that travels is it being carried somewhere else.
+                _carried = chosen;
+                _pressedAt = e.GetPosition(_shell);
+                _dragging = false;
+
                 if (string.Equals(slot.Selected, chosen, StringComparison.Ordinal))
                 {
                     return;
@@ -755,6 +818,238 @@ public sealed class SvgViewerDock
         }
 
         return new Border { Classes = { "slot" }, Background = Brushes.Transparent, Child = bar };
+    }
+
+    // ---- carrying a panel somewhere else -------------------------------------------------------
+
+    /// <summary>How far a press travels before it is a drag rather than a click.</summary>
+    private const double DragThreshold = 4d;
+
+    /// <summary>How much of a run's depth counts as its edge rather than its middle.</summary>
+    private const double Edge = 0.35d;
+
+    private void OnMoved(object? sender, PointerEventArgs e)
+    {
+        if (_carried is null)
+        {
+            return;
+        }
+
+        if (!e.GetCurrentPoint(_shell).Properties.IsLeftButtonPressed)
+        {
+            Let();
+
+            return;
+        }
+
+        var at = e.GetPosition(_shell);
+
+        if (!_dragging)
+        {
+            if (Math.Abs(at.X - _pressedAt.X) < DragThreshold && Math.Abs(at.Y - _pressedAt.Y) < DragThreshold)
+            {
+                return;
+            }
+
+            _dragging = true;
+        }
+
+        _landing = Where(at);
+
+        Hint();
+    }
+
+    /// <summary>What letting go here would mean, or null for nowhere.</summary>
+    /// <remarks>
+    /// A header takes the panel in beside what it already holds; the top or bottom of a run puts it
+    /// before or after that run; and the drawing's own edges are how a side nothing is on yet is
+    /// reached at all — there is no run there to aim at.
+    /// </remarks>
+    private (Site Side, Slot? Join, Slot? Beside, bool After)? Where(Point at)
+    {
+        foreach (var landing in _built)
+        {
+            if (Over(landing.Header, at) is { })
+            {
+                // Beside what it is already beside is not a move.
+                return landing.Slot.Ids.Contains(_carried!, StringComparer.Ordinal) && landing.Slot.Ids.Count == 1
+                    ? null
+                    : (landing.Side, landing.Slot, null, false);
+            }
+
+            if (Over(landing.Run, at) is not { } inside)
+            {
+                continue;
+            }
+
+            var down = landing.Side.Where != SvgViewerDockSide.Bottom;
+            var along = down ? inside.Y / landing.Run.Bounds.Height : inside.X / landing.Run.Bounds.Width;
+
+            if (along > Edge && along < 1d - Edge)
+            {
+                return (landing.Side, landing.Slot, null, false);
+            }
+
+            return (landing.Side, null, landing.Slot, along >= 0.5d);
+        }
+
+        if (Over(_centre, at) is not { } middle)
+        {
+            return null;
+        }
+
+        // Which edge of the drawing the pointer is nearest, so an empty side can be reached.
+        var west = middle.X;
+        var east = _centre.Bounds.Width - middle.X;
+        var south = _centre.Bounds.Height - middle.Y;
+
+        if (south < west && south < east)
+        {
+            return (Of(SvgViewerDockSide.Bottom), null, null, true);
+        }
+
+        return west < east
+            ? (Of(SvgViewerDockSide.Left), null, null, true)
+            : (Of(SvgViewerDockSide.Right), null, null, true);
+    }
+
+    private Point? Over(Visual visual, Point at)
+    {
+        if (visual.Bounds.Width <= 0d || visual.Bounds.Height <= 0d)
+        {
+            return null;
+        }
+
+        var corner = visual.TranslatePoint(default, _shell);
+
+        if (corner is not { } origin)
+        {
+            return null;
+        }
+
+        var inside = new Point(at.X - origin.X, at.Y - origin.Y);
+
+        return inside.X >= 0d && inside.Y >= 0d
+               && inside.X <= visual.Bounds.Width && inside.Y <= visual.Bounds.Height
+            ? inside
+            : null;
+    }
+
+    /// <summary>Draws the landing, or takes the line away where there is none.</summary>
+    private void Hint()
+    {
+        if (!_dragging || _landing is not { } landing)
+        {
+            _hint.IsVisible = false;
+
+            return;
+        }
+
+        var thickness = 3d;
+
+        if (landing.Join is { } join && Built(join) is { } joined)
+        {
+            Show(joined.Header, joined.Header.Bounds.Width, joined.Header.Bounds.Height, 0d, 0d);
+        }
+        else if (landing.Beside is { } beside && Built(beside) is { } near)
+        {
+            var down = landing.Side.Where != SvgViewerDockSide.Bottom;
+
+            Show(
+                near.Run,
+                down ? near.Run.Bounds.Width : thickness,
+                down ? thickness : near.Run.Bounds.Height,
+                down || !landing.After ? 0d : near.Run.Bounds.Width - thickness,
+                !down || !landing.After ? 0d : near.Run.Bounds.Height - thickness);
+        }
+        else
+        {
+            var band = landing.Side.Where == SvgViewerDockSide.Bottom ? FootMinimum : SideMinimum;
+            var down = landing.Side.Where != SvgViewerDockSide.Bottom;
+
+            Show(
+                _centre,
+                down ? band : _centre.Bounds.Width,
+                down ? _centre.Bounds.Height : band,
+                landing.Side.Where == SvgViewerDockSide.Right ? _centre.Bounds.Width - band : 0d,
+                landing.Side.Where == SvgViewerDockSide.Bottom ? _centre.Bounds.Height - band : 0d);
+        }
+
+        _hint.Opacity = 0.35d;
+        _hint.IsVisible = true;
+    }
+
+    private void Show(Visual over, double wide, double tall, double right, double down)
+    {
+        if (over.TranslatePoint(default, _shell) is not { } corner)
+        {
+            _hint.IsVisible = false;
+
+            return;
+        }
+
+        _hint.Width = Math.Max(wide, 0d);
+        _hint.Height = Math.Max(tall, 0d);
+        _hint.Margin = new Thickness(corner.X + right, corner.Y + down, 0d, 0d);
+    }
+
+    private Landing? Built(Slot slot) => _built.FirstOrDefault(landing => ReferenceEquals(landing.Slot, slot));
+
+    private void Land(PointerReleasedEventArgs e)
+    {
+        var carried = _carried;
+        var landing = _landing;
+        var dragged = _dragging;
+
+        Let();
+
+        if (!dragged || carried is null || landing is not { } where)
+        {
+            return;
+        }
+
+        e.Handled = true;
+
+        var was = Holding(carried);
+
+        if (where.Join is { } join && ReferenceEquals(join, was) && join.Ids.Count > 1)
+        {
+            // Already in that run. Dropping it on its own header is not a move.
+            return;
+        }
+
+        var beside = where.Beside;
+
+        Drop(carried);
+
+        if (where.Join is { } into && Holder(into) is { })
+        {
+            into.Ids.Add(carried);
+            into.Selected = carried;
+        }
+        else
+        {
+            var made = new Slot { Selected = carried };
+
+            made.Ids.Add(carried);
+
+            var at = beside is { } && Holder(beside) is { } holding && ReferenceEquals(holding, where.Side)
+                ? where.Side.Slots.IndexOf(beside) + (where.After ? 1 : 0)
+                : where.Side.Slots.Count;
+
+            where.Side.Slots.Insert(Math.Clamp(at, 0, where.Side.Slots.Count), made);
+        }
+
+        Rebuild();
+        Moved();
+    }
+
+    private void Let()
+    {
+        _carried = null;
+        _dragging = false;
+        _landing = null;
+        _hint.IsVisible = false;
     }
 
     /// <summary>Takes the sizes back off the grid once a hand has finished dragging a splitter.</summary>

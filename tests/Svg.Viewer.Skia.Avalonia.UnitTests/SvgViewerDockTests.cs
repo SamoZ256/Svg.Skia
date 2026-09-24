@@ -4,7 +4,9 @@ using System;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -274,6 +276,143 @@ public class SvgViewerDockTests
         Lay(window);
 
         Assert.Equal(narrow, Wide(drawing), 1d);
+
+        window.Close();
+    }
+    // ---- carrying a panel somewhere else ---------------------------------------------------------
+
+    /// <summary>A simulated move does not carry the button by itself.</summary>
+    private const RawInputModifiers Held = RawInputModifiers.LeftMouseButton;
+
+    private static Border Tab(Window window, string header)
+        => window.GetVisualDescendants().OfType<Border>()
+            .First(found => found.Classes.Contains("pane")
+                            && found.Child is TextBlock said
+                            && string.Equals(said.Text, header, StringComparison.Ordinal));
+
+    private static Point Middle(Window window, Visual visual)
+        => visual.TranslatePoint(new Point(visual.Bounds.Width / 2d, visual.Bounds.Height / 2d), window)!.Value;
+
+    /// <summary>Takes a panel by its header and lets go of it at <paramref name="to"/>.</summary>
+    /// <remarks>
+    /// Past the threshold first, in a move of its own, because one long move would rearrange the
+    /// body without ever proving that a press on its own does not.
+    /// </remarks>
+    private static void Carry(Window window, string header, Point to)
+    {
+        var from = Middle(window, Tab(window, header));
+
+        window.MouseDown(from, MouseButton.Left);
+        window.MouseMove(new Point(from.X + 10d, from.Y), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseMove(to, Held);
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseUp(to, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Lay(window);
+    }
+
+    [AvaloniaFact]
+    public void A_Press_That_Goes_Nowhere_Only_Chooses_The_Panel()
+    {
+        var (window, dock, panels) = Host();
+
+        var at = Middle(window, Tab(window, "Project"));
+
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Lay(window);
+
+        // Only which of the two is on top has changed; nothing has moved.
+        Assert.Equal(SvgViewerDock.Default, dock.Layout.Replace("/project/", "/elements/", StringComparison.Ordinal));
+        Assert.Equal("project", dock.Selected("elements"));
+        Assert.True(panels[0].IsEffectivelyVisible);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Panel_Dropped_On_A_Header_Goes_In_Beside_What_It_Holds()
+    {
+        var (window, dock, _) = Host();
+
+        Carry(window, "Variables", Middle(window, Tab(window, "Element")));
+
+        Assert.Contains("element+variables", dock.Layout, StringComparison.Ordinal);
+
+        // And the one carried is the one on top of the run it landed in.
+        Assert.Equal("variables", dock.Selected("element"));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Panel_Dropped_On_The_Edge_Of_A_Run_Goes_Above_Or_Below_It()
+    {
+        var (window, dock, panels) = Host();
+
+        // The top of the run the attributes are in, which is below the variables to begin with.
+        var element = panels[2];
+        var top = element.TranslatePoint(new Point(element.Bounds.Width / 2d, 2d), window)!.Value;
+
+        Carry(window, "Elements", top);
+
+        var order = dock.Layout.Split(' ').Where(word => word.Contains('/')).Select(word => word.Split('/')[0]).ToList();
+
+        Assert.Equal(new[] { "project", "variables", "elements", "element" }, order);
+
+        window.Close();
+    }
+
+    /// <summary>The drawing's own edges are how a side nothing is on yet is reached.</summary>
+    /// <remarks>There is no run there to aim at, so the band along that edge is the target.</remarks>
+    [AvaloniaFact]
+    public void A_Panel_Dropped_On_The_Foot_Of_The_Drawing_Goes_Along_The_Bottom()
+    {
+        var (window, dock, _) = Host();
+
+        var drawing = window.GetVisualDescendants().OfType<Border>().First(found => found.Name == "drawing");
+        var foot = drawing.TranslatePoint(new Point(drawing.Bounds.Width / 2d, drawing.Bounds.Height - 8d), window)!.Value;
+
+        Carry(window, "Element", foot);
+
+        Assert.Contains("bottom ", dock.Layout, StringComparison.Ordinal);
+        Assert.Contains("element/", dock.Layout.Split(';').Single(part => part.StartsWith("bottom", StringComparison.Ordinal)),
+            StringComparison.Ordinal);
+
+        // And what is left on the right closes up behind it.
+        Assert.DoesNotContain("element/", dock.Layout.Split(';').Single(part => part.StartsWith("right", StringComparison.Ordinal)),
+            StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Carrying_A_Panel_Says_Where_It_Would_Land()
+    {
+        var (window, _, _) = Host();
+
+        var hint = window.GetVisualDescendants().OfType<Border>().Single(found => found.Name == "Landing");
+
+        Assert.False(hint.IsVisible);
+
+        var from = Middle(window, Tab(window, "Variables"));
+        var onto = Middle(window, Tab(window, "Element"));
+
+        window.MouseDown(from, MouseButton.Left);
+        window.MouseMove(new Point(from.X + 10d, from.Y), Held);
+        window.MouseMove(onto, Held);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(hint.IsVisible);
+
+        window.MouseUp(onto, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(hint.IsVisible);
 
         window.Close();
     }
