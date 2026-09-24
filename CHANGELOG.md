@@ -12,8 +12,11 @@
   tree joins the same arrangement, so it can be folded, carried to the other side, or put behind the
   variables; and the panels belong to the window rather than to a tab, showing whatever is in front,
   so the arrangement holds still while you move between drawings. A strip keeps the width it is given
-  and the runs dividing it keep their share of it. **Reset layout** in Settings now moves the panels
-  while you are looking at them, rather than waiting for the window to close.
+  and the runs dividing it keep their share of it. A window nobody has arranged comes up with a
+  300px strip either side of the drawing — the project tree over the variables on the left, the
+  settings and the elements sharing a run over the attributes on the right. **Reset layout** in
+  Settings now moves the panels while you are looking at them, rather than waiting for the window to
+  close.
 
 * **The panels round a drawing are arranged, and the arrangement is kept.** Four of them shared one
   340-wide column and did not fit: the attributes got 217px of the 1200 they ask for, while the

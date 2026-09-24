@@ -263,8 +263,8 @@ public class LayoutSettingTests : IDisposable
     {
         var window = await Host(Write("icons.svgstudio", Project));
 
-        // Down the left, where Studio's own default puts it.
-        Assert.StartsWith("row(tree/", window.Layout, StringComparison.Ordinal);
+        // Down the left, over the variables, where Studio's own default puts it.
+        Assert.StartsWith("row(col(tree/", window.Layout, StringComparison.Ordinal);
 
         // And it is carried by its header like the rest: dropped on the variables it sits behind
         // them, which is a place three fixed sides could not have put it.

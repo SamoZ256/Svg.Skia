@@ -2822,13 +2822,17 @@ public class MainWindowProjectTests : IDisposable
         // onto an attribute here as well.
         Assert.True(variables.IsEffectivelyVisible);
 
-        // The board's settings share a run with something, so they are not on show to begin with —
-        // and their header brings them out.
-        Assert.DoesNotContain(window.GetVisualDescendants().OfType<StackPanel>(), found => found.Name == "Settings");
-
-        Open(window, window, "Settings");
-
+        // The board's settings share a run with the element tree, and the default reads them first.
         Assert.True(
+            window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Settings")
+                .IsEffectivelyVisible);
+
+        // The other header brings its own panel out, and takes the settings off show with it. Off
+        // show rather than away: a panel already built stays in the tree behind the one on top, so
+        // what it says can still be asked for.
+        Open(window, window, "Elements");
+
+        Assert.False(
             window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Settings")
                 .IsEffectivelyVisible);
     }

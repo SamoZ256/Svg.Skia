@@ -89,9 +89,12 @@ Five panels sit round the tabs: the **Project** tree, the **Settings** for whate
 belong to the window rather than to a tab, and show whatever tab is in front — so the arrangement
 holds still while you move between drawings, and the tree that names them stays beside all of them.
 
-They come up with the tree down the left and, beside the drawing, the elements and the settings
-sharing a strip at the top over the variables and the element. The variables and the element cannot
-share, because a variable is dragged onto an attribute and behind a tab each would hide the other.
+They come up as a strip either side of the drawing, both the same width so neither reads as the
+important one: the tree over the variables it declares on the left, and on the right the settings and
+the elements sharing a run over the picked element's attributes. The tree gets the deeper share of
+its column, being the list you scroll where the variables are a handful of rows. The variables and
+the element are apart on purpose — a variable is dragged onto an attribute, and behind a tab each
+would hide the other.
 
 **Arrange them as you like.** The chevron on a header folds that panel away. Take a panel by its
 header and drop it on another header to sit behind it, or on the edge of a panel to split that panel.

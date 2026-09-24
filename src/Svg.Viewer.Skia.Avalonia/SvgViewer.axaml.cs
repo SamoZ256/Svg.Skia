@@ -445,6 +445,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             _sidePanels = panes;
 
             Regions();
+
+            PanelsChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -469,6 +471,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
                 new SvgViewerRegion("elements", "Elements", _elementTree)
             })
             .ToList();
+
+    /// <summary>Raised when <see cref="Panels"/> is no longer what it was.</summary>
+    /// <remarks>
+    /// For a host arranging them itself: a tab is opened and selected before whatever it is a tab
+    /// of has handed over its panes, so a host that only looked when the tab came forward would
+    /// never see the ones that arrived after.
+    /// </remarks>
+    public event EventHandler? PanelsChanged;
 
     /// <summary>Whether the viewer puts <see cref="Panels"/> round its own drawing. On unless a host says not.</summary>
     public bool ArrangesPanels

@@ -71,8 +71,9 @@ public class MainWindowTabsTests
             Dispatcher.UIThread.RunJobs();
 
             // Wide enough that four tabs still fit side by side. The panels share the window with
-            // the strip now and take 340 of it, and a strip that has to scroll is a different test.
-            var wide = window.Width + 340d;
+            // the strip now and take a 300px column either side of it, and a strip that has to
+            // scroll is a different test.
+            var wide = window.Width + 600d;
 
             window.Measure(new Size(wide, window.Height));
             window.Arrange(new Rect(0, 0, wide, window.Height));

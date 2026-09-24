@@ -232,6 +232,10 @@ public partial class MainWindow : Window
             Reread();
         };
 
+        // A tab is added and selected before it has been given the project's pane, so what it has to
+        // show is asked for again when it changes rather than only when the tab comes forward.
+        viewer.PanelsChanged += (_, _) => Panels();
+
         // Arranged once, arranged everywhere: the same route the toolbar's toggles take, so the tab
         // behind this one is the same body and comes up the same way next time.
         viewer.LayoutChanged += (_, _) =>

@@ -232,13 +232,19 @@ public static class StudioSettings
 
     /// <summary>What a window nobody has arranged comes up in.</summary>
     /// <remarks>
-    /// The viewer's own default with the project tree added down the left, because the tree is
-    /// Studio's panel and not the viewer's. A layout naming a panel nothing supplies keeps the name
-    /// and takes no room, so this is the right line for a drawing opened outside a project too.
+    /// A strip either side of the drawing, both 300px so neither reads as the important one: the
+    /// project tree over the variables it declares on the left, and on the right the settings and
+    /// the elements sharing a run over the picked element's attributes. The tree gets the deeper
+    /// share of its column — it is the list you scroll, where the variables are a handful of rows.
+    ///
+    /// Studio's rather than the viewer's, because the tree is Studio's panel and nothing in
+    /// <see cref="SvgViewerDock.Default"/> knows where one goes. A layout naming a panel nothing
+    /// supplies keeps the name and takes no room, so this is the right line for a drawing opened
+    /// outside a project too.
     /// </remarks>
     public const string DefaultLayout =
-        "row(tree/260px/tree/open,*/1,"
-        + "col(project+elements/1/elements/open,variables/1.3/variables/open,element/1.7/element/open)/340px)";
+        "row(col(tree/1.4/tree/open,variables/1/variables/open)/300px,*/1,"
+        + "col(project+elements/1/project/open,element/1/element/open)/300px)";
 
     /// <summary>The two steps as one, which is what a canvas and a gesture are handed.</summary>
     /// <remarks>

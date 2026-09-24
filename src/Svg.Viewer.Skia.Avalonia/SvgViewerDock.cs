@@ -523,7 +523,10 @@ public sealed class SvgViewerDock
 
         Beside(Holding(Centre)!, made, across: true, before: before);
 
-        if (wanted is { })
+        // The width the default gives it, where the default gives it one. A share would be a share
+        // of the whole body, and a panel that is a third of a window beside the drawing is not what
+        // a line saying "a third of this column" meant.
+        if (wanted is { Reach.Kept: true })
         {
             made.Reach = wanted.Reach;
         }
