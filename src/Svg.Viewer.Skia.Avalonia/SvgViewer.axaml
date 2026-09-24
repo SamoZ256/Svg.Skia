@@ -7,7 +7,7 @@
   <UserControl.Styles>
 
     <!-- The side pane's tab strip, shared with any other host that grows one. -->
-    <StyleInclude Source="avares://Svg.Viewer.Skia.Avalonia/SvgViewerPaneTabs.axaml" />
+    <StyleInclude Source="avares://Svg.Viewer.Skia.Avalonia/SvgViewerDockHeaders.axaml" />
 
   </UserControl.Styles>
 
@@ -58,24 +58,14 @@
     </Border>
 
     <!--
-      The width is the whole of this split now that the drawing's column holds only the drawing:
-      what the columns are still for is keeping the side strip at the window's full height, which a
-      row of columns above a full-width panel would not do.
-
-      The width is on the column, not on the border in it. With Auto plus a Width="300" child, the
-      splitter moved the column and the panel stayed 300 wide — so dragging it did nothing. Both
-      ends have a minimum, because a splitter that can be dragged until one side vanishes gives no
-      way back.
+      The drawing, and whatever is docked around it. What goes where is SvgViewerDock's, built in
+      code rather than here because Svg.Studio arranges a group's board the same way and a board is
+      not a viewer. The centre is declared here and handed over: it is the one part of the body that
+      is the viewer's own.
     -->
-    <Grid x:Name="Body">
+    <Border x:Name="Body">
 
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" MinWidth="160" />
-        <ColumnDefinition Width="6" />
-        <ColumnDefinition Width="340" MinWidth="260" />
-      </Grid.ColumnDefinitions>
-
-      <Grid Grid.Column="0">
+      <Grid x:Name="Centre">
 
         <viewer:SvgViewerCanvas x:Name="PART_Canvas" />
 
@@ -108,21 +98,7 @@
 
       </Grid>
 
-      <GridSplitter x:Name="Splitter" Grid.Column="1"
-                    ResizeDirection="Columns" Background="Transparent" />
-
-      <!--
-        The divider is on the strip rather than on each pane in it, or the splitter between them
-        leaves a six pixel hole in a line that now runs the whole height of the window.
-
-        What goes inside is SvgViewerSide, built in code because Svg.Studio builds the same column
-        for a group's board and is not a viewer. Named for what hiding it means: the whole strip goes,
-        which is what ShowDeclarationPanel has always done.
-      -->
-      <Border x:Name="DeclarationPanelHost" Grid.Column="2"
-              BorderThickness="1,0,0,0" BorderBrush="#20808080" />
-
-    </Grid>
+    </Border>
 
   </DockPanel>
 

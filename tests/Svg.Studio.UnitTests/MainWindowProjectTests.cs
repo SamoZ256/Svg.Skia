@@ -2711,30 +2711,35 @@ public class MainWindowProjectTests : IDisposable
             group => Assert.Equal(desks[group.Name], (group.X, group.Y)));
     }
 
-    /// <summary>Opens one of the host's own panes, by the name on its tab.</summary>
+    /// <summary>
+    /// Brings the panel called <paramref name="header"/> to the front of whatever run it shares.
+    /// </summary>
     /// <remarks>
-    /// A tab that is not selected has no visual tree, so what is in one cannot be found until it is.
-    /// Only the host's panes are tabs — the variables and the picked element's attributes are
-    /// regions below them and are always there.
+    /// By clicking its header, because that is the only way there is. A panel sharing a run with
+    /// another is not measured while the other is on top, so what is inside it is not built yet —
+    /// anything asking a panel a question has to bring it forward first.
     /// </remarks>
-    private static void Open(SvgViewer viewer, string pane)
+    private static void Open(Window window, Visual root, string header)
     {
-        var panes = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
-
-        panes.SelectedItem = panes.Items.OfType<TabItem>().Single(item => Equals(item.Header, pane));
-
-        Dispatcher.UIThread.RunJobs();
-    }
-
-    /// <inheritdoc cref="Open(SvgViewer, string)"/>
-    private static TabControl Open(GroupPanel panel, string pane)
-    {
-        var tabs = panel.GetVisualDescendants().OfType<TabControl>().First();
-
-        tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, pane));
+        // Laid out first: a header nobody has measured is at nought by nought, and a click there
+        // lands on whatever the window put in the corner.
+        window.Measure(new Size(window.Width, window.Height));
+        window.Arrange(new Rect(0, 0, window.Width, window.Height));
         Dispatcher.UIThread.RunJobs();
 
-        return tabs;
+        var tab = root.GetVisualDescendants().OfType<Border>()
+            .First(found => found.Classes.Contains("pane")
+                            && found.Child is TextBlock said
+                            && string.Equals(said.Text, header, StringComparison.Ordinal));
+
+        var at = tab.TranslatePoint(new Point(tab.Bounds.Width / 2d, tab.Bounds.Height / 2d), window);
+
+        Assert.NotNull(at);
+
+        window.MouseDown(at!.Value, MouseButton.Left);
+        window.MouseUp(at!.Value, MouseButton.Left);
+
+        Dispatcher.UIThread.RunJobs();
     }
 
     /// <summary>The declaration panel in a group's strip.</summary>
@@ -2778,26 +2783,32 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
-    /// A group's strip is the viewer's, built by the viewer: the project's say in a tab, and the
-    /// variables and the attributes in regions of their own.
+    /// A group's board is arranged by the viewer's own dock, panel for panel.
     /// </summary>
     /// <remarks>
-    /// The point of the two hosts sharing one column. A variable is dragged onto an attribute here
-    /// as well, so neither can be behind the other here either.
+    /// The point of the two hosts sharing one body. A variable is dragged onto an attribute here as
+    /// well, so neither of those two can be behind the other here either.
     /// </remarks>
     [AvaloniaFact]
-    public async Task A_Groups_Strip_Is_The_Same_Column_A_Drawings_Tab_Has()
+    public async Task A_Groups_Board_Is_Arranged_By_The_Same_Dock_A_Drawings_Tab_Has()
     {
         var window = await Host(Write("icons.svgstudio", Pair));
         var panel = await Group(window, 0);
 
-        var tabs = panel.GetVisualDescendants().OfType<TabControl>().Single();
-
-        Assert.Equal(new[] { "Project" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
-
         var variables = panel.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
 
-        Assert.DoesNotContain(variables, tabs.GetVisualDescendants());
+        // Its own run, so nothing can be in front of it — which is what lets a variable be dragged
+        // onto an attribute here as well.
+        Assert.True(variables.IsEffectivelyVisible);
+
+        // The project's say shares the run at the top with the tree, and its header brings it out.
+        Assert.Empty(panel.GetVisualDescendants().OfType<StackPanel>().Where(found => found.Name == "Settings"));
+
+        Open(window, panel, "Project");
+
+        Assert.True(
+            panel.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Settings")
+                .IsEffectivelyVisible);
     }
 
     [AvaloniaFact]
@@ -4490,7 +4501,9 @@ public class MainWindowProjectTests : IDisposable
         // A second setting left in a box with the caret still in it. Saving takes that too, so
         // nothing is left pending behind a tab that has just reported itself saved — which is what
         // used to leave a tab with no mark and an unsaved warning waiting at the close button.
-        var box = Open(panel, "Project").GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "namespace"));
+        Open(window, panel, "Project");
+
+        var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "namespace"));
 
         box.Focus();
         Dispatcher.UIThread.RunJobs();
@@ -4525,7 +4538,9 @@ public class MainWindowProjectTests : IDisposable
         var panel = (GroupPanel)item.Content!;
         var marker = (TextBlock)((StackPanel)item.Header!).Children[0];
 
-        var box = Open(panel, "Project").GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
+        Open(window, panel, "Project");
+
+        var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
 
         box.Focus();
         Dispatcher.UIThread.RunJobs();
@@ -4564,7 +4579,9 @@ public class MainWindowProjectTests : IDisposable
 
         // Typed into, and the caret left where it is. An edit is recorded when the box loses focus,
         // so a save used to find nothing pending and write nothing at all.
-        var box = Open(panel, "Project").GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
+        Open(window, panel, "Project");
+
+        var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
 
         box.Focus();
         Dispatcher.UIThread.RunJobs();
@@ -4579,7 +4596,9 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(panel.IsModified);
 
         // And the caret is still in the box it was in, not thrown out by the rows being rebuilt.
-        var resumed = Open(panel, "Project").GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
+        Open(window, panel, "Project");
+
+        var resumed = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
 
         Assert.True(resumed.IsFocused);
         Assert.Equal(1, resumed.CaretIndex);
@@ -5074,7 +5093,7 @@ public class MainWindowProjectTests : IDisposable
         var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
         var settings = (GroupPanel)Assert.Single(viewer.SidePanels).Content;
 
-        Open(viewer, "Project");
+        Open(window, viewer, "Project");
 
         var box = settings.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "x"));
 
@@ -5131,11 +5150,12 @@ public class MainWindowProjectTests : IDisposable
 
         // Beside the drawing's own parameters, in the pane a group keeps its settings in.
         var panel = Assert.IsType<GroupPanel>(Assert.Single(viewer.SidePanels).Content);
-        var panes = viewer.GetVisualDescendants().OfType<TabControl>().Single(control => control.Classes.Contains("panes"));
 
-        // The strip is the host's alone: what a drawing declares and what an element is written
-        // with are the viewer's own, and each has a region under this.
-        Assert.Equal(new[] { "Project" }, panes.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        // A host's pane is a panel of the dock like any other, and the default sits it beside the
+        // tree at the top of the strip.
+        Assert.Contains("project+elements", viewer.Layout, StringComparison.Ordinal);
+
+        Open(window, viewer, "Project");
 
         var box = panel.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "class"));
 

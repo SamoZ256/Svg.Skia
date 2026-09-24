@@ -1,0 +1,54 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    The bar at the top of every run of the dock: a chevron that folds it, and a name per panel in it.
+
+    Written out rather than templated over TabItem, which is what this used to be. Fluent styles a
+    TabItem as a pivot header — 24pt type over a sliding pipe — half the width of the strip it sits
+    in, and even re-templated it swapped its content out when the tab changed, so nothing about a
+    panel could be found until somebody had clicked it. These are the same two states painted on a
+    Border, and every panel's content stays in the tree whether or not it is the one on top.
+
+    Its own file because the dock is not the only thing wearing them: a project group's board in
+    Svg.Studio builds the same body, and two strips meant to look alike would not stay that way.
+  -->
+
+  <Style Selector="Border.slot">
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="BorderBrush" Value="#18808080" />
+    <Setter Property="MinHeight" Value="26" />
+  </Style>
+
+  <Style Selector="Border.pane">
+    <Setter Property="Padding" Value="8,4" />
+    <Setter Property="Opacity" Value="0.6" />
+    <Setter Property="BorderThickness" Value="0,0,0,2" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+
+  <Style Selector="Border.pane > TextBlock">
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+
+  <!-- The brush Fluent paints a selected tab's pipe with, so only the line's position has changed. -->
+  <Style Selector="Border.pane.selected">
+    <Setter Property="Opacity" Value="1" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TabItemHeaderSelectedPipeFill}" />
+  </Style>
+
+  <Style Selector="Border.pane:pointerover">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+
+  <Style Selector="Border.chevron">
+    <Setter Property="Opacity" Value="0.45" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+
+  <Style Selector="Border.chevron:pointerover">
+    <Setter Property="Opacity" Value="0.9" />
+  </Style>
+
+</Styles>
