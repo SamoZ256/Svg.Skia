@@ -261,6 +261,44 @@ public class SvgViewerPageTests
         Assert.Contains("viewBox=\"-24 0 48 24\"", viewer.Source, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// What is drawn stays under the pointer when the page grows on the left.
+    /// </summary>
+    /// <remarks>
+    /// The file has it right and the screen did not. A page that grows leftwards moves its own
+    /// frame's origin, so what is written stays where it is written — but the drawing is placed on
+    /// the canvas by the page's top corner, and that corner does not move, so the whole of the ink
+    /// slid right by however much room was added the moment the drag was let go of.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task What_Is_Drawn_Stays_Where_It_Is_When_The_Page_Grows_Left()
+    {
+        var (window, viewer) = await Host();
+
+        SelectPage(window, viewer);
+
+        // The middle of the shape, which is where it is on the control both sides of the drag: the
+        // view is not refitted by a commit.
+        var ink = Over(viewer.Canvas, 12d, 12d);
+        var scale = viewer.Canvas.Scale;
+
+        Drag(window, viewer, Over(viewer.Canvas, 0d, 12d), Over(viewer.Canvas, -24d, 12d));
+
+        Assert.Contains("viewBox=\"-24 0 48 24\"", viewer.Source, StringComparison.Ordinal);
+
+        // Asked of the canvas rather than of the file: a click where the shape was still finds it.
+        Press(window, viewer.Canvas, ink);
+        Release(window, viewer.Canvas, ink);
+        Dispatcher.UIThread.RunJobs();
+
+        // At the zoom the drag was let go of at, rather than fitted afresh: the page is twice as
+        // wide now, and a fit would have halved the scale and re-centred everything on the way.
+        Assert.Equal(scale, viewer.Canvas.Scale);
+
+        Assert.NotNull(viewer.SelectedElement);
+        Assert.False(viewer.IsPageSelected);
+    }
+
     /// <summary>Escape puts the page back, having written nothing on the way.</summary>
     [AvaloniaFact]
     public async Task Escape_Leaves_The_Page_The_Size_It_Was()

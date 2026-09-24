@@ -440,7 +440,13 @@ public class SvgViewerCanvas : SKCanvasControl
     /// open one being edited: re-fitting would throw away where the reader was looking, on every
     /// keystroke. A view nobody has adjusted still re-fits, since the size may be what was edited.
     /// </remarks>
-    public void Replace(SKSvg? svg)
+    /// <param name="mayFit">
+    /// Whether this is a new drawing to be fitted, or the same one built again. The single-drawing
+    /// answer to <see cref="Show"/> and <see cref="Rearrange"/>, and the same rule: a drawing whose
+    /// page has just been dragged wider is not a drawing somebody has just opened, and fitting it
+    /// would zoom out from under the hand that dragged it.
+    /// </param>
+    public void Replace(SKSvg? svg, bool mayFit = true)
     {
         if (ReferenceEquals(Svg, svg))
         {
@@ -450,7 +456,7 @@ public class SvgViewerCanvas : SKCanvasControl
         Place(
             svg is { } ? new[] { new SvgViewerPlacement(svg, default) } : Array.Empty<SvgViewerPlacement>(),
             Array.Empty<SvgViewerFrame>(),
-            mayFit: true);
+            mayFit);
     }
 
     private void Place(IReadOnlyList<SvgViewerPlacement> placed, IReadOnlyList<SvgViewerFrame> frames, bool mayFit)
@@ -504,6 +510,21 @@ public class SvgViewerCanvas : SKCanvasControl
             SetView(1d, 0d, 0d);
         }
     }
+
+    /// <summary>
+    /// Moves what is on show by so many control pixels, leaving the zoom alone.
+    /// </summary>
+    /// <remarks>
+    /// For a host that has changed what it is showing in a way that would otherwise move it under
+    /// the reader. A drawing is placed by the corner of its own page, so one whose page has just
+    /// grown on its left is placed by the same corner it always was and everything inside it steps
+    /// to the right — unless the view steps with it.
+    ///
+    /// Not marked as the view having been adjusted, which is about the reader having chosen where
+    /// to look: a correction that keeps what was on screen on screen is the opposite of that, and a
+    /// pane resized afterwards is still free to fit the lot again.
+    /// </remarks>
+    public void Shift(double x, double y) => SetView(_scale, _offsetX + x, _offsetY + y);
 
     /// <summary>One drawing unit per pixel, centred.</summary>
     public void ActualSize()

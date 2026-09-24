@@ -2300,12 +2300,39 @@ public sealed class GroupPanel : UserControl
         // The target alone, not Writing(): that answers for a selection of elements and builds the
         // table of where each is spelt in the file. A page is not one of them and has no address —
         // what a resize needs is only the file to write into.
-        var target = TargetOf?.Invoke(inspecting.Built.Drawing)
-                     ?? new DrawingTarget(Workspace, inspecting.Built.Drawing);
+        var drawing = inspecting.Built.Drawing;
 
-        var refusal = target.Commit(
+        var target = TargetOf?.Invoke(drawing) ?? new DrawingTarget(Workspace, drawing);
+
+        // Where the page grew on its left, that is room the tile needs on its left — see Growing.
+        var by = Growing(drawing, Area(inspecting.Placement), moved);
+
+        string? refusal = null;
+
+        Workspace.Do(
             "resize the page",
-            source => document.Reframe(source, moved.Left, moved.Top, moved.Right, moved.Bottom));
+            () => Node is ProjectGroup board
+                ? ProjectSnapshot.All(ProjectSnapshot.Text(drawing), ProjectSnapshot.Places(board))
+                : ProjectSnapshot.Text(drawing),
+            () =>
+            {
+                refusal = target.Commit(
+                    "resize the page",
+                    source => document.Reframe(source, moved.Left, moved.Top, moved.Right, moved.Bottom));
+
+                if (refusal is { } || by == default)
+                {
+                    return;
+                }
+
+                // The whole tab, for the reason a carry settles it: a board that has never been
+                // arranged has no place to move, and writing one for the row alone would push
+                // everything nobody touched out to the right of it.
+                Settle();
+
+                drawing.X = ProjectNode.Rounded((drawing.X ?? 0f) + by.X);
+                drawing.Y = ProjectNode.Rounded((drawing.Y ?? 0f) + by.Y);
+            });
 
         if (refusal is null)
         {
@@ -2318,6 +2345,25 @@ public sealed class GroupPanel : UserControl
 
         ShowGizmo();
     }
+
+    /// <summary>
+    /// How far the tile has to move so that the edge that was dragged is the edge that moved.
+    /// </summary>
+    /// <remarks>
+    /// A page that grows on its left moves its own frame's origin, so what is written inside keeps
+    /// the numbers it is written with. On a board that reads backwards: a drawing is placed by the
+    /// corner of its page, that corner has not moved, and so everything inside the tile steps right
+    /// by whatever was added on the left. The place moves with the edge instead.
+    ///
+    /// Per axis, and nothing on an axis the project pins. There the tile is built at the width the
+    /// settings ask for whatever the file now says, so no room appears on either side of it and
+    /// there is nothing to move — which is what <see cref="Pinned"/> is already there to say out
+    /// loud. A scale is not a pin: it is a factor of whatever the drawing is, so the tile follows.
+    /// </remarks>
+    private static SKPoint Growing(ProjectDrawing drawing, SKRect was, (float Left, float Top, float Right, float Bottom) moved)
+        => new(
+            drawing.EffectiveWidth is { } ? 0f : moved.Left * was.Width,
+            drawing.EffectiveHeight is { } ? 0f : moved.Top * was.Height);
 
     /// <summary>
     /// What to say when the drawing has just been resized under a project that pins its size.

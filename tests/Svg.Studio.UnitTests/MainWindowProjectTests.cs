@@ -106,6 +106,21 @@ public class MainWindowProjectTests : IDisposable
           </drawing>
         """;
 
+    /// <summary>A project holding one drawing with room inside its page to click on.</summary>
+    /// <remarks>
+    /// The ink is the middle third of it, so there is page to press that is not a shape — which is
+    /// what selects the page rather than what is drawn on it.
+    /// </remarks>
+    private static string Roomy() => """
+        <studio namespace="Demo.Icons">
+          <drawing name="home" class="Home">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="8" y="8" width="8" height="8" fill="#00ff00" />
+            </svg>
+          </drawing>
+        </studio>
+        """;
+
     private static TreeView Tree(MainWindow window) => window.FindControl<TreeView>("ProjectTree")!;
 
     private static TabControl Tabs(MainWindow window) => window.FindControl<TabControl>("Tabs")!;
@@ -274,6 +289,74 @@ public class MainWindowProjectTests : IDisposable
         {{Holding("five")}}
         </studio>
         """;
+
+    /// <summary>
+    /// A tile whose page is dragged leftwards grows to the left, and what it holds does not move.
+    /// </summary>
+    /// <remarks>
+    /// A page that grows on its left moves its own frame's origin, so what is written inside it
+    /// keeps the numbers it is written with — and slides right by that much when it is drawn,
+    /// because a drawing is placed on the board by the corner of its page and that corner had not
+    /// moved. The place moves with the edge now, which is the only way the drag can mean what it
+    /// looks like it means.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Page_Dragged_Left_Grows_Left_On_The_Board()
+    {
+        var window = await Host(Write("icons.svgstudio", Roomy()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var was = Area(Drawn(panel)[0]);
+
+        // Inside the page and off the ink, which is what selects the page.
+        Click(window, canvas, Over(canvas, was.Left + 2f, was.Top + 2f));
+
+        // The left edge, halfway down it, pulled twenty-four further left.
+        Drag(window, canvas, Over(canvas, was.Left, was.MidY), Over(canvas, was.Left - 24f, was.MidY));
+
+        var now = Area(Drawn(panel)[0]);
+
+        Assert.Equal(was.Left - 24f, now.Left, 1);
+
+        // And the far edge is where it was, which is what says the page grew rather than moved.
+        Assert.Equal(was.Right, now.Right, 1);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// The resize and the move it needed are one thing to take back.
+    /// </summary>
+    /// <remarks>
+    /// Two entries would be worse than none: the first ⌘Z would put the tile back where it was and
+    /// leave it the size the drag made it, which is a board nobody asked for. The drawing is open in
+    /// no tab here, so its text and its place are both the project's to record.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Resize_And_The_Move_It_Needed_Are_One_Step()
+    {
+        var window = await Host(Write("icons.svgstudio", Roomy()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var was = Area(Drawn(panel)[0]);
+        var xml = window.Workspace!.Document.ToXml();
+
+        Click(window, canvas, Over(canvas, was.Left + 2f, was.Top + 2f));
+        Drag(window, canvas, Over(canvas, was.Left, was.MidY), Over(canvas, was.Left - 24f, was.MidY));
+
+        Assert.NotEqual(xml, window.Workspace!.Document.ToXml());
+
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(xml, window.Workspace!.Document.ToXml());
+        Assert.Equal(was.Left, Area(Drawn(panel)[0]).Left, 1);
+        Assert.Equal(was.Right, Area(Drawn(panel)[0]).Right, 1);
+
+        window.Close();
+    }
 
     /// <summary>The whole branch, which is what the group builds.</summary>
     [AvaloniaFact]
