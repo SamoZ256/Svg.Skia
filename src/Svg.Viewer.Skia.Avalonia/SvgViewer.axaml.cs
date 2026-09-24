@@ -66,6 +66,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Whether the drawing's page is what is selected, rather than one of its elements.</summary>
     private bool _page;
 
+    /// <summary>Whether the rebuild a commit is about to cause must leave the view where it is.</summary>
+    /// <remarks>
+    /// A field because what asks for it and what has to honour it are a commit apart: the gesture
+    /// knows, and the only thing that can act on it is the rebuild the commit runs on its way back.
+    /// </remarks>
+    private bool _holdingView;
+
     /// <summary>Dragging the drawing's own edges to change the size it is.</summary>
     private readonly SvgViewerPage _paging = new();
 
@@ -928,11 +935,42 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         if (_paging.IsDragging)
         {
+            // Read before the commit, which rebuilds the drawing: it is the page the fractions
+            // below are fractions of.
+            var was = Page();
+
             // One resize for the whole drag, through the path Edit → Resize… already writes by, so
             // it is one entry in the history and says the same word.
             if (_paging.End() is { } edges)
             {
-                Reframe(edges.Left, edges.Top, edges.Right, edges.Bottom);
+                // The drag is direct: the page is where the box was when it was let go of, at the
+                // zoom it was let go of at. Fitted instead, a page dragged twice as wide came back
+                // at half the scale and in the middle of the pane, so what the hand had just done
+                // was the one thing that could not be seen.
+                _holdingView = true;
+
+                var moved = false;
+
+                try
+                {
+                    moved = Reframe(edges.Left, edges.Top, edges.Right, edges.Bottom);
+                }
+                finally
+                {
+                    _holdingView = false;
+                }
+
+                if (moved && was is { } page)
+                {
+                    // The room a page gains on its left is room its own origin moves back by, so
+                    // what is drawn in it keeps the numbers it is written with. On screen it is the
+                    // other way round: the drawing is placed by the corner of its page and that
+                    // corner has not moved, so everything inside it would step right by whatever
+                    // was added. The view steps with it, and the edge stays under the pointer.
+                    _canvas.Shift(
+                        edges.Left * page.Width * _canvas.Scale,
+                        edges.Top * page.Height * _canvas.Scale);
+                }
             }
 
             // Tracked again from the drawing as it now is: the commit rebuilt it, and where the file
@@ -1631,7 +1669,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
 
         _document = rebuilt;
-        _canvas.Replace(rebuilt.Svg);
+        _canvas.Replace(rebuilt.Svg, mayFit: !_holdingView);
 
         RebuildParameters(rebuilt);
 
