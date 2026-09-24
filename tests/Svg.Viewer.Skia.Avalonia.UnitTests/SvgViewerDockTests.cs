@@ -111,9 +111,14 @@ public class SvgViewerDockTests
     {
         var (window, _, panels) = Host();
 
-        var strip = panels[3].Bounds.Height;
-        var variables = panels[1].Bounds.Height;
-        var element = panels[2].Bounds.Height;
+        // A run is its header and its body, and the weights are shares of the run: measuring the
+        // bodies alone takes a header's worth off each of them and skews the proportion.
+        var header = window.GetVisualDescendants().OfType<Border>()
+            .First(found => found.Classes.Contains("slot")).Bounds.Height;
+
+        var strip = panels[3].Bounds.Height + header;
+        var variables = panels[1].Bounds.Height + header;
+        var element = panels[2].Bounds.Height + header;
 
         Assert.True(element > variables, $"the attributes got {element} against {variables}");
         Assert.True(variables > strip, $"the variables got {variables} against {strip}");
@@ -451,6 +456,43 @@ public class SvgViewerDockTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(hint.IsVisible);
+
+        window.Close();
+    }
+    /// <summary>
+    /// The headers are styled wherever the dock is put, not only inside a viewer.
+    /// </summary>
+    /// <remarks>
+    /// The styles used to come from the viewer's own markup, which reaches a dock inside a viewer
+    /// and nothing else. Svg.Studio arranges a whole window with one, and its headers came out with
+    /// no padding, no pipe under the chosen one and no dimming of the rest — so a run holding three
+    /// panels read as "ProjectVariablesElement". This window is a bare one: no viewer, no board.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Run_Of_Several_Panels_Keeps_Their_Headers_Apart()
+    {
+        var (window, dock, _) = Host();
+
+        dock.Layout = "row(*/1,project+variables+elements/300px/project/open)";
+        Lay(window);
+
+        var headers = new[] { Tab(window, "Project"), Tab(window, "Variables"), Tab(window, "Elements") };
+
+        Assert.All(headers, header => Assert.True(header.Padding.Left > 0d, $"{header.Padding} is no gap"));
+
+        // And they really are laid out clear of one another, rather than running together.
+        for (var index = 1; index < headers.Length; index++)
+        {
+            var left = headers[index - 1].TranslatePoint(new Point(headers[index - 1].Bounds.Width, 0), window)!.Value;
+            var right = headers[index].TranslatePoint(default, window)!.Value;
+
+            Assert.True(right.X >= left.X, $"{headers[index].Child} starts before the one before it ends");
+        }
+
+        // The one being read wears the line under it; the rest are dimmed.
+        Assert.Contains("selected", headers[0].Classes);
+        Assert.DoesNotContain("selected", headers[1].Classes);
+        Assert.True(headers[1].Opacity < headers[0].Opacity);
 
         window.Close();
     }

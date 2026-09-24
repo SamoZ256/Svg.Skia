@@ -11,6 +11,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 
@@ -44,6 +45,8 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// </remarks>
 public sealed class SvgViewerDock
 {
+    private static readonly Uri Home = new("avares://Svg.Viewer.Skia.Avalonia/");
+
     /// <summary>What a written layout calls the middle.</summary>
     public const string Centre = "*";
 
@@ -144,6 +147,16 @@ public sealed class SvgViewerDock
     public SvgViewerDock(Control centre)
     {
         _middle.Child = centre ?? throw new ArgumentNullException(nameof(centre));
+
+        // Carried here rather than left to whoever puts this in a window. The headers used to be
+        // styled by the viewer's own markup, which reaches a dock inside a viewer and nothing else:
+        // Svg.Studio arranges a whole window with one, and its headers came out with no padding, no
+        // pipe under the chosen one and no dimming of the rest — so a run of three read as
+        // "ProjectVariablesElement".
+        _shell.Styles.Add(new StyleInclude(Home)
+        {
+            Source = new Uri("avares://Svg.Viewer.Skia.Avalonia/SvgViewerDockHeaders.axaml")
+        });
 
         _hint[!Border.BackgroundProperty] =
             new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("TabItemHeaderSelectedPipeFill");

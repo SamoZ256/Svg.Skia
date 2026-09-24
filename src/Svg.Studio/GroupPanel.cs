@@ -256,13 +256,6 @@ public sealed class GroupPanel : UserControl
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         Node = node ?? throw new ArgumentNullException(nameof(node));
 
-        // The viewer's own dock wears these, and a board that was meant to look the same would not
-        // stay that way if it wore a copy.
-        Styles.Add(new StyleInclude(Home)
-        {
-            Source = new Uri("avares://Svg.Viewer.Skia.Avalonia/SvgViewerDockHeaders.axaml")
-        });
-
         Content = node is ProjectGroup ? Built() : Alone();
 
         // Harmless on a drawing's settings pane, which has no canvas and so no placements to fall on.

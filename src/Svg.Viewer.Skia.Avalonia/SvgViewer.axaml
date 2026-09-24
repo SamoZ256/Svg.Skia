@@ -7,7 +7,6 @@
   <UserControl.Styles>
 
     <!-- The side pane's tab strip, shared with any other host that grows one. -->
-    <StyleInclude Source="avares://Svg.Viewer.Skia.Avalonia/SvgViewerDockHeaders.axaml" />
 
   </UserControl.Styles>
 
