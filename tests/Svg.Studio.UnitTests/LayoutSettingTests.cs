@@ -230,4 +230,24 @@ public class LayoutSettingTests : IDisposable
 
         window.Close();
     }
+    /// <summary>
+    /// Reset reaches what is open before the settings window closes.
+    /// </summary>
+    /// <remarks>
+    /// Everything else on that window is read again when it closes. The panels moving cannot wait
+    /// that long: a button that appears to do nothing is a button nobody presses twice.
+    /// </remarks>
+    [AvaloniaFact]
+    public void Resetting_Applies_While_The_Window_Is_Still_Open()
+    {
+        StudioSettings.Layout = Arranged;
+
+        var applied = 0;
+        var settings = new SettingsWindow { Applied = () => applied++ };
+
+        settings.ResetLayout.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Equal(SvgViewerDock.Default, StudioSettings.Layout);
+        Assert.Equal(1, applied);
+    }
 }

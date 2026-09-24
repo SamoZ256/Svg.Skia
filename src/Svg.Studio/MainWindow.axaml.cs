@@ -2306,7 +2306,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new SettingsWindow();
+        // Reread rather than nothing: what this window changes is read again when it closes, and
+        // the panels moving is the one thing that has to happen while somebody is looking at it.
+        var window = new SettingsWindow { Applied = Reread };
 
         _settings = window;
 
