@@ -137,6 +137,10 @@ public sealed class GroupPanel : UserControl
     /// <summary>How the panels beside the board are arranged. Null on a drawing's settings pane.</summary>
     private SvgViewerDock? _dock;
 
+    /// <summary>The board's own arrangement, as <see cref="SvgViewerDock.Layout"/> writes it.</summary>
+    /// <remarks>Null where this is a drawing's settings pane, which has no body to arrange.</remarks>
+    public string? Layout => _dock?.Layout;
+
     private readonly TextBlock _elementNote = new()
     {
         Margin = new Thickness(10),
@@ -368,7 +372,17 @@ public sealed class GroupPanel : UserControl
                 new SvgViewerRegion("variables", "Variables", parameters),
                 new SvgViewerRegion("element", "Element", _elementHost),
                 new SvgViewerRegion("elements", "Elements", tree)
-            }
+            },
+            Layout = StudioSettings.Layout
+        };
+
+        // The same route the toolbar's toggles take: what one board was arranged into is written
+        // down, and the window hands it to every other tab.
+        _dock.LayoutChanged += (_, _) =>
+        {
+            StudioSettings.Layout = _dock.Layout;
+
+            SettingChanged?.Invoke(this, EventArgs.Empty);
         };
 
         return _dock.Root;
@@ -601,6 +615,11 @@ public sealed class GroupPanel : UserControl
     public void Reread()
     {
         _canvas.CaptionSize = StudioSettings.CaptionSize;
+
+        if (_dock is { })
+        {
+            _dock.Layout = StudioSettings.Layout;
+        }
 
         var grid = StudioSettings.SnapToGrid ? StudioSettings.Grid : SvgViewerGrid.None;
 

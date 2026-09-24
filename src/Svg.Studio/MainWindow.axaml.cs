@@ -179,6 +179,15 @@ public partial class MainWindow : Window
             Reread();
         };
 
+        // Arranged once, arranged everywhere: the same route the toolbar's toggles take, so the tab
+        // behind this one is the same body and comes up the same way next time.
+        viewer.LayoutChanged += (_, _) =>
+        {
+            StudioSettings.Layout = viewer.Layout;
+
+            Reread();
+        };
+
         // Both are dressed by the window's styles, which is also where the trimming that keeps one
         // long file name from filling the strip lives.
         var title = new TextBlock { Text = "Untitled", Classes = { "title" } };
@@ -2367,6 +2376,7 @@ public partial class MainWindow : Window
     {
         viewer.Grid = StudioSettings.Grid;
         viewer.SnapsToGrid = StudioSettings.SnapToGrid;
+        viewer.Layout = StudioSettings.Layout;
     }
 
     private async void OnSave(object? sender, EventArgs e) => await SaveAsync();

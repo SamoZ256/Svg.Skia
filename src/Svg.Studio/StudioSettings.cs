@@ -62,6 +62,8 @@ public static class StudioSettings
 
     private const string RotationStepKey = "rotationStep";
 
+    private const string LayoutKey = "layout";
+
     /// <summary>
     /// Where the settings are kept.
     /// </summary>
@@ -209,6 +211,23 @@ public static class StudioSettings
     {
         get => Read(RotationStepKey, SvgViewerGrid.DefaultTurn, SvgViewerGrid.MinimumTurn, SvgViewerGrid.MaximumTurn);
         set => Write(RotationStepKey, value.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// How the panels are arranged around a drawing, as <see cref="SvgViewerDock"/> writes it.
+    /// </summary>
+    /// <remarks>
+    /// One arrangement for every tab, because arranging the strip once should arrange it everywhere:
+    /// a drawing's tab and a group's board are the same four panels in the same body.
+    ///
+    /// Stored as it was written and handed back the same way — this is the one setting whose meaning
+    /// is somebody else's. What a line this reads back cannot say is the dock's to answer, and it
+    /// answers by falling back whole to its own default, so nothing here has to know the grammar.
+    /// </remarks>
+    public static string Layout
+    {
+        get => Read(LayoutKey) is { Length: > 0 } written ? written : SvgViewerDock.Default;
+        set => Write(LayoutKey, value ?? SvgViewerDock.Default);
     }
 
     /// <summary>The two steps as one, which is what a canvas and a gesture are handed.</summary>

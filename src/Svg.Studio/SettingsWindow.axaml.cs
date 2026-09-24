@@ -89,6 +89,12 @@ public partial class SettingsWindow : Window
             }
         };
 
+        ResetLayout = this.FindControl<Button>("ResetLayoutButton")!;
+
+        // Written rather than cleared, so the line on file is the arrangement rather than a gap
+        // meaning "whatever the default happens to be next time".
+        ResetLayout.Click += (_, _) => StudioSettings.Layout = SvgViewerDock.Default;
+
         RelaxedText = this.FindControl<ComboBox>("RelaxedTextBox")!;
         RelaxedText.ItemsSource = s_answers.Select(answer => answer.Said).ToList();
         RelaxedText.SelectedIndex = Array.FindIndex(s_answers, answer => answer.Answer == StudioSettings.RelaxedText);
@@ -100,6 +106,9 @@ public partial class SettingsWindow : Window
             }
         };
     }
+
+    /// <summary>Puts the panels back where they started.</summary>
+    public Button ResetLayout { get; }
 
     /// <summary>A box holding a number between two bounds, seeded from what is on file.</summary>
     /// <remarks>
