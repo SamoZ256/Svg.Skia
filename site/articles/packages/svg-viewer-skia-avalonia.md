@@ -26,6 +26,9 @@ dotnet add package Svg.Viewer.Skia.Avalonia
 | `SvgViewer` | The drop-in: toolbar, canvas, parameter panel and status strip |
 | `SvgViewerCanvas` | The drawing surface alone, owning scale and offset |
 | `SvgViewerDeclarationPanel` | One control per declared parameter, and one row per declared let |
+| `SvgViewerElementPanel` | The attributes of the picked element, each editable as the file writes it |
+| `SvgViewerSide` | The strip down the right: your panes, the variables, the attributes, the tree |
+| `SvgViewerVariableDrag` | What a variable dragged from one of those onto another carries |
 | `SvgViewerElementTree` | Every element of the open drawing, as a tree, with a filter box |
 | `SvgViewerElementNode` | One row: the element, its address, its name and its id |
 | `SvgViewerLet` | A let row: the name and body being typed, what it evaluates to, and what is wrong with it |
@@ -53,10 +56,10 @@ await Viewer.LoadAsync("badge.svg");
 | `Parameters` / `ParameterValues` | Reading what is declared and what is bound |
 | `TrySetParameterValue` / `ResetParameters` | Driving values from host UI |
 | `ShowToolBar` / `ShowDeclarationPanel` / `ShowStatusBar` | Supplying your own chrome. `ShowDeclarationPanel` is the whole right-hand strip, element tree included |
-| `ShowElementTree` / `Elements` | The tree under the parameters — on by default; `Elements.Filter` is the box above it |
+| `ShowElementTree` / `Elements` | The tree at the foot of the strip — on by default; `Elements.Filter` is the box above it |
 | `SelectedElement` / `ElementSelected` | Which element is picked |
 | `SnapsToGrid` / `Grid` / `SnapChanged` | Landing a drag on a grid rather than where the pointer stopped — a move puts the element's own corner on a line, a handle puts the edge it is dragging on one, a turn lands on `Grid.Turn` degrees, and the drawing's own edges do the same. The two are held apart: `Grid` is the steps whether or not anything is landing on them, and `SnapsToGrid` is the toolbar's toggle, which raises `SnapChanged` when a hand rather than the host flips it. The lines are in the space the canvas draws in, so a host arranging several drawings gets one grid across all of them |
-| `SidePanels` | Panels of your own beside the parameters: the right pane becomes a strip of tabs while there are any, yours first and so the first one it opens on, and holds the parameters alone again when there are none |
+| `SidePanels` | Panels of your own at the top of the right-hand strip: they get a tab strip to themselves while there are any and take no room at all when there are none. The variables and the picked element's attributes are not among them — they are the viewer's own and each has a region below, because a variable is dragged onto an attribute and behind a tab each would hide the other |
 | `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
 | `DeclarationTarget` | Where the parameter panel writes, when the drawing's declarations are not in the drawing |
 | `FileDialogService` | Custom storage or picker integration |
@@ -225,12 +228,50 @@ because the pane had to hold the text, and there is no pane.
 rather than whatever the file says later, and unchanged by edits. Drawings loaded from text or from a
 stream carry it too, so a viewer fed by a database or an archive answers like any other.
 
+## The right-hand strip
+
+Four regions down one column, each with a splitter: the host's own panes, the **Variables**, the
+**Element** panel, and the element tree. The column is the full height of the viewer and the drawing
+has the rest of it; `ShowDeclarationPanel = false` gives the whole width back.
+
+They are regions rather than tabs because a variable is **dragged from one onto the other**. Behind a
+tab each hides the other, and there would be no moment when both ends of that gesture are on screen —
+the argument the element tree was given from the start, applied to the two panes it was not applied
+to. Only the host's panes keep a strip of tabs, since a host may hand over several and they are read
+one at a time. A host that hands over none has no strip at all rather than an empty one.
+
+`SvgViewerSide` is the column itself, built in code rather than in markup because `Svg.Studio` builds
+the same one for a group's board, which is not a viewer. The two used to be written out separately
+and had already drifted — a 220 tall tree against a 200 tall one.
+
+## Dragging a variable onto an attribute
+
+A row in **Variables** is dragged by its **name** onto an attribute's box in **Element**, and the box
+becomes `{{ that name }}`. The grip beside it is not the handle: that reorders the list, and where a
+let sits decides what it can name, so the row has two grab points and each wears its own cursor.
+
+While the drag is over the panel, **every row that would take it is outlined** and the one under the
+pointer is outlined more heavily. Which rows those are is the check a typed value goes through, asked
+once when the drag arrives rather than once per pointer move — it reparses everything in scope, which
+is fine per keystroke and not fine per frame. So a number never lights up a `fill`, an attribute the
+parser lifts nothing out of never lights up at all, and `transform` never does either: an expression
+there has to be one whole function argument, which a dropped value is not.
+
+The drop writes the whole value, over whatever was there — binding and unbinding are the one gesture,
+so there is nothing to remember and nothing to merge — and goes through the same commit typing it
+would have gone through, refusal, history entry, readout and all. A row under **Not set** takes one
+too, which is how an attribute the file does not write yet is added already bound.
+
+`SvgViewerVariableDrag` is the format and the payload, for a host that wants to start the same drag
+from somewhere else: the name travels in it, since the panel that ends a drag cannot read a field on
+the panel that started it. Mark the drag **handled** where you take it — the viewer refuses anything
+carrying no file, which is every drag of a variable.
+
 ## The element tree
 
-Under the parameters, in the same column, split by a splitter of its own. That column is the full
-height of the viewer, and the drawing has the rest of it. It lists **every** element
-of the open drawing — `<defs>` and its contents, the `<e:code>` block, a `<title>` — because what is
-in a file is the question it answers, and half of that never reaches the canvas. On by default;
+At the foot of that column, it lists **every** element of the open drawing — `<defs>` and its
+contents, the `<e:code>` block, a `<title>` — because what is in a file is the question it answers,
+and half of that never reaches the canvas. On by default;
 `ShowElementTree = false` gives the height back and stops the work — a hidden tree holds nothing,
 because it is rebuilt every time typing pauses and that is 27ms at 4,000 elements.
 

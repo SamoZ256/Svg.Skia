@@ -114,31 +114,13 @@
       <!--
         The divider is on the strip rather than on each pane in it, or the splitter between them
         leaves a six pixel hole in a line that now runs the whole height of the window.
+
+        What goes inside is SvgViewerSide, built in code because Svg.Studio builds the same column
+        for a group's board and is not a viewer. Named for what hiding it means: the whole strip goes,
+        which is what ShowDeclarationPanel has always done.
       -->
-      <Border Grid.Column="2" BorderThickness="1,0,0,0" BorderBrush="#20808080">
-
-        <!--
-          Two rows in the one column rather than a third tab beside the parameters, because the two
-          are read together: the tree says which element a row of the drawing is, and the panel says
-          what it is painted with. Behind a tab, each hides the other.
-        -->
-        <Grid x:Name="Side" RowDefinitions="*,6,200">
-
-          <Border x:Name="DeclarationPanelHost" Grid.Row="0">
-            <viewer:SvgViewerDeclarationPanel x:Name="PART_Declarations" />
-          </Border>
-
-          <GridSplitter x:Name="TreeSplitter" Grid.Row="1"
-                        ResizeDirection="Rows" Background="Transparent" />
-
-          <Border x:Name="ElementTreeHost" Grid.Row="2"
-                  BorderThickness="0,1,0,0" BorderBrush="#20808080">
-            <viewer:SvgViewerElementTree x:Name="PART_Elements" />
-          </Border>
-
-        </Grid>
-
-      </Border>
+      <Border x:Name="DeclarationPanelHost" Grid.Column="2"
+              BorderThickness="1,0,0,0" BorderBrush="#20808080" />
 
     </Grid>
 

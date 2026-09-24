@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.Styling;
@@ -84,6 +85,19 @@ public sealed class SvgViewerElementPanel : UserControl
 
     private string? _address;
 
+    /// <summary>The variable the drag over this panel is carrying, or null while none is.</summary>
+    private string? _carried;
+
+    /// <summary>The rows that would take it, so the check is made once a drag and not once a move.</summary>
+    /// <remarks>
+    /// <see cref="Trouble"/> reparses everything in scope each time it is asked, which is fine per
+    /// keystroke and not fine per pointer move.
+    /// </remarks>
+    private readonly HashSet<string> _takes = new(StringComparer.Ordinal);
+
+    /// <summary>The row the pointer is over, which wears the heavier outline of the two.</summary>
+    private TextBox? _aimed;
+
     public SvgViewerElementPanel(
         Func<string> text,
         Func<string> declarations,
@@ -109,6 +123,13 @@ public sealed class SvgViewerElementPanel : UserControl
         panel.Children.Add(_host);
 
         Content = panel;
+
+        DragDrop.SetAllowDrop(this, true);
+
+        AddHandler(DragDrop.DragEnterEvent, OnDragOver);
+        AddHandler(DragDrop.DragOverEvent, OnDragOver);
+        AddHandler(DragDrop.DragLeaveEvent, (_, _) => Release());
+        AddHandler(DragDrop.DropEvent, OnDrop);
 
         Show(null);
     }
@@ -557,6 +578,134 @@ public sealed class SvgViewerElementPanel : UserControl
         _fault.IsVisible = refusal is { };
         _fault[!TextBlock.ForegroundProperty] =
             new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("SvgViewerSourceErrorBrush");
+    }
+
+    // ---- a variable dropped on a row -------------------------------------------------------------
+
+    /// <summary>The rows a variable being dragged over the panel would be written into.</summary>
+    /// <remarks>Empty while nothing is being carried. Named rather than drawn, for the reason
+    /// <see cref="Set"/> takes a name: everything but the pointer can be driven.</remarks>
+    public IReadOnlyList<string> Offered
+        => _shown.Where(row => _takes.Contains(row.Name)).Select(row => row.Name).ToList();
+
+    /// <summary>
+    /// Offers every row a dragged variable could be written into, and takes the drag while over one.
+    /// </summary>
+    /// <remarks>
+    /// Marked handled either way. The viewer this usually sits in turns away any drag carrying no
+    /// files, which is every drag of a variable — left unhandled, not one of them could be made at
+    /// all. Where the pointer is over no row that would take it the drag is still this panel's; it
+    /// says so by offering nothing rather than by letting something else answer.
+    /// </remarks>
+    private void OnDragOver(object? sender, DragEventArgs e)
+    {
+        if (SvgViewerVariableDrag.Carried(e) is not { } name)
+        {
+            Release();
+
+            return;
+        }
+
+        Offer(name);
+
+        var over = Under(e);
+
+        Aim(over);
+
+        e.DragEffects = over is { } ? DragDropEffects.Link : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    /// <inheritdoc cref="OnDragOver"/>
+    private void OnDrop(object? sender, DragEventArgs e)
+    {
+        var name = SvgViewerVariableDrag.Carried(e);
+
+        // Before the release, which is what forgets which rows would have taken it.
+        var over = Under(e);
+
+        Release();
+
+        if (name is null || over is not { Tag: string attribute })
+        {
+            return;
+        }
+
+        e.DragEffects = DragDropEffects.Link;
+        e.Handled = true;
+
+        // Through the box and its own commit, so the refusal, the history's label, the readout and
+        // the check against a style declaration are the ones typing it would have got.
+        over.Text = SvgViewerVariableDrag.Bound(name);
+
+        Commit(over, attribute);
+    }
+
+    /// <summary>Works out which rows <paramref name="name"/> could be written into, and says so.</summary>
+    private void Offer(string name)
+    {
+        if (string.Equals(_carried, name, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        Release();
+
+        _carried = name;
+
+        var written = SvgViewerVariableDrag.Bound(name);
+
+        foreach (var row in _shown)
+        {
+            if (Trouble(row.Name, written) is { })
+            {
+                continue;
+            }
+
+            _takes.Add(row.Name);
+
+            row.Box[!TemplatedControl.BorderBrushProperty] =
+                new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("TextControlBorderBrushFocused");
+        }
+    }
+
+    /// <summary>The box under the pointer, where it is one that would take what is being carried.</summary>
+    private TextBox? Under(DragEventArgs e)
+        => (e.Source as Visual)?.FindAncestorOfType<TextBox>(true) is { Tag: string name } box
+           && _takes.Contains(name)
+            ? box
+            : null;
+
+    private void Aim(TextBox? box)
+    {
+        if (ReferenceEquals(_aimed, box))
+        {
+            return;
+        }
+
+        _aimed?.ClearValue(TemplatedControl.BorderThicknessProperty);
+        _aimed = box;
+        _aimed?.SetValue(TemplatedControl.BorderThicknessProperty, new Thickness(2d));
+    }
+
+    /// <summary>Puts every row back the way it was drawn.</summary>
+    private void Release()
+    {
+        if (_carried is null)
+        {
+            return;
+        }
+
+        Aim(null);
+
+        foreach (var row in _shown)
+        {
+            row.Box.ClearValue(TemplatedControl.BorderBrushProperty);
+            row.Box.ClearValue(TemplatedControl.BorderThicknessProperty);
+        }
+
+        _takes.Clear();
+        _carried = null;
     }
 
     /// <summary>Whether the caret is in one of this panel's boxes.</summary>

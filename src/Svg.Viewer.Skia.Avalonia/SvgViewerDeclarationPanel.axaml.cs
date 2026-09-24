@@ -44,6 +44,9 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
     private readonly RowDrag<SvgViewerVariable> _drag;
 
+    /// <summary>How far a press travels before it is a drag, for both of the drags a row has.</summary>
+    private const double DragThreshold = 4d;
+
     /// <summary>The rows as they were handed over, so the same list twice can be recognised.</summary>
     private IReadOnlyList<SvgViewerParameter>? _source;
 
@@ -52,6 +55,11 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
     /// <summary>What was wrong with the declarations, for a panel with no row to put it on.</summary>
     private string? _trouble;
+
+    /// <summary>The row whose name is being dragged, and the press that would become the drag.</summary>
+    private SvgViewerVariable? _named;
+    private PointerPressedEventArgs? _namePressed;
+    private Point _namePressedAt;
 
     /// <summary>The last edit handed to the document, so the same one is not handed over twice.</summary>
     /// <remarks>
@@ -80,6 +88,10 @@ public partial class SvgViewerDeclarationPanel : UserControl
         _rows.ItemsSource = _variables;
 
         _drag = new RowDrag<SvgViewerVariable>(_rows, _variables, VariableWindow, Dropped);
+
+        // On the panel rather than on the rows: the press is on a row, and by the time it has
+        // travelled far enough to be a drag the pointer is often past the row it started on.
+        PointerMoved += OnNameMoved;
 
         ShowActions();
     }
@@ -646,6 +658,79 @@ public partial class SvgViewerDeclarationPanel : UserControl
         }
     }
 
+    // ---- dragging a name onto an attribute -------------------------------------------------------
+
+    /// <summary>Takes hold of a name, which is carried out of this panel rather than up the list.</summary>
+    /// <remarks>
+    /// The other of the row's two drags. The grip reorders, because where a let sits decides what it
+    /// can name; the name goes onto an attribute, because that is the thing you would point at while
+    /// saying "this one". Two grab points rather than one that means different things depending on
+    /// where it ends up: a gesture that has already left the list cannot be taken back.
+    /// </remarks>
+    private void OnNamePressed(object? sender, PointerPressedEventArgs e)
+    {
+        _named = null;
+        _namePressed = null;
+
+        if (sender is not Control { DataContext: SvgViewerVariable row }
+            || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
+            || NameOf(row) is not { Length: > 0 })
+        {
+            return;
+        }
+
+        // A let's name is a box it is typed in. A press inside one that already has the caret
+        // belongs to the caret — selecting a word must not carry the name off.
+        if (sender is TextBox { IsFocused: true })
+        {
+            return;
+        }
+
+        _named = row;
+        _namePressed = e;
+        _namePressedAt = e.GetPosition(this);
+    }
+
+    private async void OnNameMoved(object? sender, PointerEventArgs e)
+    {
+        if (_named is not { } row || _namePressed is not { } pressed)
+        {
+            return;
+        }
+
+        // A release this never saw — let go outside the panel, or over another application.
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            _named = null;
+            _namePressed = null;
+
+            return;
+        }
+
+        var travelled = e.GetPosition(this) - _namePressedAt;
+
+        if (Math.Abs(travelled.X) < DragThreshold && Math.Abs(travelled.Y) < DragThreshold)
+        {
+            return;
+        }
+
+        var data = new DataTransfer();
+
+        data.Add(DataTransferItem.Create(SvgViewerVariableDrag.Format, NameOf(row)));
+
+        _namePressed = null;
+
+        try
+        {
+            // Link, not Move or Copy: nothing leaves this list, and what lands is a binding.
+            await DragDrop.DoDragDropAsync(pressed, data, DragDropEffects.Link);
+        }
+        finally
+        {
+            _named = null;
+        }
+    }
+
     /// <summary>How far the row at <paramref name="index"/> can be dragged either way.</summary>
     /// <remarks>
     /// Never across the boundary between the kinds. The two are one list to read, not one list to
@@ -760,8 +845,6 @@ public partial class SvgViewerDeclarationPanel : UserControl
     private sealed class RowDrag<T>
         where T : class
     {
-        private const double Threshold = 4d;
-
         private readonly ItemsControl _items;
         private readonly ObservableCollection<T> _rows;
         private readonly Func<int, (int Low, int High)> _window;
@@ -828,7 +911,7 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
             if (!_dragging)
             {
-                if (Math.Abs(y - _pressedY) < Threshold)
+                if (Math.Abs(y - _pressedY) < DragThreshold)
                 {
                     return;
                 }

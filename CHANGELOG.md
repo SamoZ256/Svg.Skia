@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+* **A variable is dragged onto the attribute it should drive.** Binding one meant reading its name
+  off the Variables pane, clicking over to Element, finding the row and typing `{{ name }}` into it
+  — carrying the name in your head and spelling it right, with nothing anywhere saying which
+  attributes that variable could even go on. The two panes were tabs of one strip, so there was
+  never a moment when both ends of the obvious gesture were on screen. They are regions of it now,
+  each with a splitter, and only the host's own panes keep a tab strip; a viewer given none has no
+  strip at all, which is less chrome than it had. Take a row by its **name** — the grip still
+  reorders, and where a let sits decides what it can name — and every row that would take it is
+  outlined as you carry it, by the same check typing it would have gone through, so a number never
+  lights up a `fill` and nothing lights up on a `transform`, where an expression has to be one
+  function argument rather than the whole value. The drop writes the whole value through the same
+  commit as typing, refusal and history entry and readout included, and a row under **Not set**
+  takes one too. Svg.Studio built that column a second time by hand for a group's board, and the
+  two had already drifted — a 220 tall tree against a 200 tall one; there is one of them now, so
+  the board got all of this without being told about any of it.
+
 * **A name on a board is shrunk to fit what it names, and drawings are named again.** A group's name
   is written inside its frame and was written whole, so a group called after what it holds ran out
   over whatever was beside it — and the strip the frame is taken hold of went with it. It is now

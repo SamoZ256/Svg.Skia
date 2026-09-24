@@ -2,11 +2,16 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Input.Raw;
 using Avalonia.LogicalTree;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Svg.Expressions;
 using Svg.SourceEditing;
 using Xunit;
@@ -440,5 +445,196 @@ public class SvgViewerElementPanelTests
         Assert.True(held.Panel.Set("font-family", "{{ label }}"));
 
         Assert.Contains("font-family=\"{{ label }}\"", held.Text, StringComparison.Ordinal);
+    }
+    // ---- a variable dragged onto a row -----------------------------------------------------------
+
+    /// <summary>A drawing declaring one of each kind, so a drop can be offered the wrong one.</summary>
+    private const string Bound = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+          <defs><e:code>
+            <e:param name="tint" type="color" default="#ff0000" />
+            <e:param name="ring" type="number" default="2" />
+          </e:code></defs>
+          <g id="wrap">
+            <rect x="0" y="0" width="24" height="24" fill="#00ff00" transform="rotate(5)" />
+          </g>
+        </svg>
+        """;
+
+    /// <summary>The box a row is edited in, by the attribute it is for.</summary>
+    private static TextBox Box(Window window, string name)
+        => window.GetVisualDescendants().OfType<TextBox>().Single(box => Equals(box.Tag, name));
+
+    /// <summary>
+    /// Carries <paramref name="variable"/> over the middle of <paramref name="box"/> and lets go.
+    /// </summary>
+    /// <remarks>
+    /// The whole sequence, because only the move over a row works out where a drop would land. The
+    /// drag is injected rather than started: nothing in this repository drives a real
+    /// <c>DoDragDropAsync</c> source headlessly, and what is worth pinning is the end that decides.
+    /// </remarks>
+    private static void Carry(Window window, TextBox box, string variable, bool drop = true)
+    {
+        // Scrolled to first, as somebody dragging would have to: the rows outrun their region, and
+        // a point worked out for one that is still below it lands on whatever is drawn there.
+        box.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+
+        var carried = new DataTransfer();
+
+        carried.Add(DataTransferItem.Create(SvgViewerVariableDrag.Format, variable));
+
+        var at = box.TranslatePoint(new Point(box.Bounds.Width / 2d, box.Bounds.Height / 2d), window);
+
+        Assert.NotNull(at);
+
+        var stages = drop
+            ? new[] { RawDragEventType.DragEnter, RawDragEventType.DragOver, RawDragEventType.Drop }
+            : new[] { RawDragEventType.DragEnter, RawDragEventType.DragOver };
+
+        foreach (var stage in stages)
+        {
+            window.DragDrop(at!.Value, stage, carried, DragDropEffects.Link, RawInputModifiers.None);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
+    public void A_Variable_Dropped_On_A_Row_Is_Written_Into_It()
+    {
+        var held = new Held(Bound);
+        var window = held.Show("1/0");
+
+        Carry(window, Box(window, "fill"), "tint");
+
+        // The whole value, over the literal that was there: binding and unbinding are the one
+        // gesture, so a drop says what the attribute is now and not what it also is.
+        Assert.Contains("fill=\"{{ tint }}\"", held.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("#00ff00\" transform", held.Text, StringComparison.Ordinal);
+        Assert.Equal("{{ tint }}", held.Panel.Shown("fill"));
+
+        window.Close();
+    }
+
+    /// <summary>A row is offered a variable only where the expression would check.</summary>
+    /// <remarks>
+    /// The same check typing it would have gone through, made before the drop rather than after: a
+    /// drag that can be let go anywhere and then refused says nothing while it is being made.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Variable_Of_The_Wrong_Type_Is_Refused_Before_It_Lands()
+    {
+        var held = new Held(Bound);
+        var window = held.Show("1/0");
+
+        Carry(window, Box(window, "fill"), "ring");
+
+        // Never offered, so there was nothing to let go of over it.
+        Assert.Empty(held.Panel.Offered);
+
+        Assert.Contains("fill=\"#00ff00\"", held.Text, StringComparison.Ordinal);
+        Assert.Equal("#00ff00", held.Panel.Shown("fill"));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A transform is written one argument at a time, so nothing lands on the whole of one.
+    /// </summary>
+    /// <remarks>
+    /// No special case anywhere: the check a typed value goes through already says that braces in a
+    /// transform have to be one whole function argument, so the row simply never lights up.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Transform_Is_Not_A_Row_A_Variable_Lands_On()
+    {
+        var held = new Held(Bound);
+        var window = held.Show("1/0");
+
+        Carry(window, Box(window, "transform"), "ring");
+
+        Assert.Contains("transform=\"rotate(5)\"", held.Text, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    /// <summary>A row the file writes nothing for is where an attribute is added by dropping one.</summary>
+    [AvaloniaFact]
+    public void A_Row_With_Nothing_In_It_Takes_The_Attribute_On()
+    {
+        var held = new Held(Bound);
+        var window = held.Show("1/0");
+
+        Assert.Equal(string.Empty, held.Panel.Shown("stroke"));
+
+        Carry(window, Box(window, "stroke"), "tint");
+
+        Assert.Contains("stroke=\"{{ tint }}\"", held.Text, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    /// <summary>Every row that would take it says so while the drag is over the panel.</summary>
+    /// <remarks>
+    /// Worked out once when the drag arrives rather than on every move: the check reparses
+    /// everything in scope, which is fine per keystroke and not fine per pointer move.
+    /// </remarks>
+    [AvaloniaFact]
+    public void The_Rows_That_Would_Take_It_Are_Outlined_While_It_Is_Carried()
+    {
+        var held = new Held(Bound);
+        var window = held.Show("1/0");
+
+        Carry(window, Box(window, "fill"), "tint", drop: false);
+
+        Assert.Contains("fill", held.Panel.Offered);
+        Assert.Contains("stroke", held.Panel.Offered);
+
+        // Not a row it could not be written into, however close by it is.
+        Assert.DoesNotContain("transform", held.Panel.Offered);
+        Assert.DoesNotContain("stroke-width", held.Panel.Offered);
+
+        // And the one under the pointer is the one picked out of them.
+        Assert.Equal(new Thickness(2d), Box(window, "fill").BorderThickness);
+        Assert.NotEqual(new Thickness(2d), Box(window, "stroke").BorderThickness);
+
+        // Nothing is left marked once the drag has gone.
+        window.DragDrop(
+            new Point(1, 1), RawDragEventType.DragLeave, new DataTransfer(), DragDropEffects.None, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(held.Panel.Offered);
+        Assert.NotEqual(new Thickness(2d), Box(window, "fill").BorderThickness);
+
+        window.Close();
+    }
+    /// <summary>
+    /// The drag survives the viewer the panel sits in, which turns away everything carrying no files.
+    /// </summary>
+    /// <remarks>
+    /// The one thing the harness above cannot show. <c>SvgViewer</c> answers a drag over any of it by
+    /// refusing whatever carries no file — which is every drag of a variable — so a panel that did
+    /// not mark the event handled would kill the gesture before it could land. Studio's window has a
+    /// second file handler behind that one again.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Variable_Reaches_A_Row_Through_The_Viewer_Around_It()
+    {
+        var viewer = new SvgViewer();
+        var window = new Window { Width = 900, Height = 700, Background = Brushes.White, Content = viewer };
+
+        window.Show();
+        Assert.True(await viewer.LoadTextAsync(Bound));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Carry(window, Box(window, "fill"), "tint");
+
+        Assert.Contains("fill=\"{{ tint }}\"", viewer.Source, StringComparison.Ordinal);
+
+        window.Close();
     }
 }

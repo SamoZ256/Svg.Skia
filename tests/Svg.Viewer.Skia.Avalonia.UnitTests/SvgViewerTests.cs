@@ -266,56 +266,76 @@ public class SvgViewerTests
         }
     }
 
+    /// <summary>
+    /// The variables and the picked element's attributes are regions of the strip, never tabs of it.
+    /// </summary>
+    /// <remarks>
+    /// The whole of what makes a variable draggable onto an attribute: behind a tab, each would hide
+    /// the other, and there would be no moment when both ends of that gesture are on screen. The
+    /// host's own panes keep a strip, because a host may hand over several and they are read one at a
+    /// time.
+    /// </remarks>
     [AvaloniaFact]
-    public async Task A_Side_Panel_Shares_The_Right_Pane_With_The_Parameters()
+    public async Task The_Variables_And_The_Attributes_Are_Both_On_Screen_At_Once()
     {
         var (window, viewer) = await HostLoaded();
 
-        var host = window.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "DeclarationPanelHost");
+        var variables = window.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
+        var attributes = window.GetVisualDescendants().OfType<SvgViewerElementPanel>().Single();
 
-        // Nothing set by the host, and still a strip: the Element tab is the viewer's own, and a
-        // viewer nobody has given panes to still has elements to pick.
-        Assert.Equal(
-            new[] { "Variables", "Element" },
-            Assert.IsType<TabControl>(host.Child).Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        // Nothing from a host, so no strip at all rather than a strip of one thing.
+        Assert.Empty(window.GetVisualDescendants().OfType<TabControl>());
 
         var mine = new TextBlock { Text = "the host's own" };
 
         viewer.SidePanels = new[] { new SvgViewerPane("Project", mine) };
         Dispatcher.UIThread.RunJobs();
 
-        var tabs = Assert.IsType<TabControl>(host.Child);
+        var tabs = window.GetVisualDescendants().OfType<TabControl>().Single();
 
-        // First in the strip, and still not the one shown: what a drawing is for is what it
-        // declares, so the pane a host adds is one to click rather than one to be moved onto.
-        Assert.Equal(new[] { "Project", "Variables", "Element" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
-        Assert.Equal("Variables", (string)((TabItem)tabs.SelectedItem!).Header!);
+        Assert.Equal(new[] { "Project" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
         Assert.Same(mine, ((TabItem)tabs.Items[0]!).Content);
 
-        // Several of them, in the order they were given, and the parameters still last.
+        // And a strip arriving does not swallow them: both are still their own regions beside it.
+        Assert.DoesNotContain(variables, tabs.GetVisualDescendants());
+        Assert.DoesNotContain(attributes, tabs.GetVisualDescendants());
+
+        // Several of them, in the order they were given.
         var second = new TextBlock { Text = "and another" };
 
         viewer.SidePanels = new[] { new SvgViewerPane("Project", mine), new SvgViewerPane("Replacements", second) };
         Dispatcher.UIThread.RunJobs();
 
-        tabs = Assert.IsType<TabControl>(host.Child);
+        tabs = window.GetVisualDescendants().OfType<TabControl>().Single();
+        tabs.SelectedItem = tabs.Items[1];
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(
-            new[] { "Project", "Replacements", "Variables", "Element" },
+            new[] { "Project", "Replacements" },
             tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
         Assert.Same(second, ((TabItem)tabs.Items[1]!).Content);
 
-        // And a strip rebuilt around another pane is still showing the same one.
-        Assert.Equal("Variables", (string)((TabItem)tabs.SelectedItem!).Header!);
+        // A strip rebuilt around another pane is still showing the same one: a host that recomposes
+        // this whenever its settings are saved must not take the reader back to the first tab.
+        viewer.SidePanels = new[]
+        {
+            new SvgViewerPane("Project", mine),
+            new SvgViewerPane("Replacements", second),
+            new SvgViewerPane("Notes", new TextBlock())
+        };
+        Dispatcher.UIThread.RunJobs();
+
+        tabs = window.GetVisualDescendants().OfType<TabControl>().Single();
+
+        Assert.Equal("Replacements", (string)((TabItem)tabs.SelectedItem!).Header!);
 
         viewer.SidePanels = System.Array.Empty<SvgViewerPane>();
         Dispatcher.UIThread.RunJobs();
 
-        // And back to the viewer's own two, with the declarations panel itself rather than a new
-        // one — it is the viewer's, and everything wired to it is still wired.
-        tabs = Assert.IsType<TabControl>(host.Child);
-
-        Assert.Equal(new[] { "Variables", "Element" }, tabs.Items.OfType<TabItem>().Select(item => (string)item.Header!));
+        // And the strip goes again, with the declarations panel itself rather than a new one — it is
+        // the viewer's, and everything wired to it is still wired.
+        Assert.Empty(window.GetVisualDescendants().OfType<TabControl>());
+        Assert.Same(variables, window.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single());
         Assert.NotEmpty(viewer.Parameters!);
     }
 

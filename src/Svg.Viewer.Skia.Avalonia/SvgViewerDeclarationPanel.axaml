@@ -70,6 +70,13 @@
       <Setter Property="Cursor" Value="SizeNorthSouth" />
     </Style>
 
+    <!-- The name is a handle too, and drags somewhere else entirely: the grip reorders the list,
+         this carries the name onto an attribute. Two gestures on one row, so each says which it is
+         by the cursor it wears. -->
+    <Style Selector="Border.name">
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+
     <Style Selector="TextBox.field">
       <Setter Property="FontFamily" Value="monospace" />
       <Setter Property="FontSize" Value="12" />
@@ -95,7 +102,12 @@
                     ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
               <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
-            <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+            <Border Grid.Column="1" Classes="name" Background="Transparent"
+                    PointerPressed="OnNamePressed"
+                    ToolTip.Tip="Drag onto an attribute below to write this variable into it.">
+              <TextBlock Text="{Binding Name}" FontFamily="monospace"
+                         HorizontalAlignment="Left" VerticalAlignment="Center" />
+            </Border>
             <NumericUpDown Grid.Column="2"
                            Width="110"
                            Value="{Binding Value, Mode=TwoWay}"
@@ -128,7 +140,12 @@
                     ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
               <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
-            <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+            <Border Grid.Column="1" Classes="name" Background="Transparent"
+                    PointerPressed="OnNamePressed"
+                    ToolTip.Tip="Drag onto an attribute below to write this variable into it.">
+              <TextBlock Text="{Binding Name}" FontFamily="monospace"
+                         HorizontalAlignment="Left" VerticalAlignment="Center" />
+            </Border>
             <NumericUpDown Grid.Column="2"
                            Width="110"
                            Value="{Binding Value, Mode=TwoWay}"
@@ -162,7 +179,12 @@
                   ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
             <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
-          <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <Border Grid.Column="1" Classes="name" Background="Transparent"
+                  PointerPressed="OnNamePressed"
+                  ToolTip.Tip="Drag onto an attribute below to write this variable into it.">
+            <TextBlock Text="{Binding Name}" FontFamily="monospace"
+                       HorizontalAlignment="Left" VerticalAlignment="Center" />
+          </Border>
           <CheckBox Grid.Column="2" IsChecked="{Binding Value, Mode=TwoWay}" />
           <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
                   ToolTip.Tip="Edit this parameter" />
@@ -181,7 +203,12 @@
                   ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
             <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
-          <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <Border Grid.Column="1" Classes="name" Background="Transparent"
+                  PointerPressed="OnNamePressed"
+                  ToolTip.Tip="Drag onto an attribute below to write this variable into it.">
+            <TextBlock Text="{Binding Name}" FontFamily="monospace"
+                       HorizontalAlignment="Left" VerticalAlignment="Center" />
+          </Border>
           <!-- Plain text, not the expression box: the row holds the value, not an expression for it. -->
           <TextBox Grid.Column="2" Width="140" FontFamily="monospace"
                    Text="{Binding Value, Mode=TwoWay}" />
@@ -202,7 +229,12 @@
                   ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
             <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
-          <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="monospace" VerticalAlignment="Center" />
+          <Border Grid.Column="1" Classes="name" Background="Transparent"
+                  PointerPressed="OnNamePressed"
+                  ToolTip.Tip="Drag onto an attribute below to write this variable into it.">
+            <TextBlock Text="{Binding Name}" FontFamily="monospace"
+                       HorizontalAlignment="Left" VerticalAlignment="Center" />
+          </Border>
           <ColorPicker Grid.Column="2" Color="{Binding Color, Mode=TwoWay}" />
           <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
                   ToolTip.Tip="Edit this parameter" />
@@ -232,6 +264,7 @@
             <TextBox Grid.Column="1" Classes="field"
                      Text="{Binding Name, Mode=TwoWay}"
                      PlaceholderText="name"
+                     PointerPressed="OnNamePressed"
                      KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
             <TextBlock Grid.Column="2" Text="{Binding Readout}" Opacity="0.55" FontSize="11"
                        FontFamily="monospace" TextTrimming="CharacterEllipsis"
