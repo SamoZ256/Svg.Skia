@@ -1711,24 +1711,27 @@ public class SvgViewerTests
 
     // ---- how much room the panels take ----
 
-    /// <summary>The width of a side is the layout's, and moving it there moves what is on screen.</summary>
+    /// <summary>The width of a strip is the layout's, and moving it there moves what is on screen.</summary>
     /// <remarks>
     /// One place rather than two. A width on the panel as well as on its column left the splitter
     /// moving the column while the panel stayed the size it was born, which is what dragging it used
     /// to do — and there is nowhere to write a width the layout does not carry.
+    ///
+    /// <c>px</c> rather than a share: a column of controls wants the width it wants, where the runs
+    /// dividing that column up want to keep their proportion of it.
     /// </remarks>
     [AvaloniaFact]
-    public async Task The_Width_Of_A_Side_Is_The_Layouts()
+    public async Task The_Width_Of_A_Strip_Is_The_Layouts()
     {
         var (window, viewer) = await HostLoaded();
 
-        Assert.StartsWith("right 340 ", viewer.Layout, StringComparison.Ordinal);
+        Assert.Contains("/340px)", viewer.Layout, StringComparison.Ordinal);
 
         Lay(window);
 
         var drawing = Canvas(viewer).Bounds.Width;
 
-        viewer.Layout = viewer.Layout.Replace("right 340 ", "right 420 ", StringComparison.Ordinal);
+        viewer.Layout = viewer.Layout.Replace("/340px)", "/420px)", StringComparison.Ordinal);
         Lay(window);
 
         Assert.Equal(drawing - 80d, Canvas(viewer).Bounds.Width, 1d);

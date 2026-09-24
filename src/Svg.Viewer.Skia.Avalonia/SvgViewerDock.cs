@@ -16,56 +16,59 @@ using Avalonia.VisualTree;
 
 namespace Svg.Viewer.Skia.Avalonia;
 
-/// <summary>Which side of the drawing a run of panels is on.</summary>
-public enum SvgViewerDockSide
-{
-    Left,
-    Right,
-    Bottom
-}
-
 /// <summary>
-/// The drawing, and the panels arranged around it: what goes where, how big it is, and what is
-/// folded away.
+/// The middle of a window, and the panels arranged around it: what sits where, how big, what is
+/// behind what, and what is folded away.
 /// </summary>
 /// <remarks>
-/// One class for the whole body rather than one for the strip down the side, because a panel can be
-/// dragged from one side to another and neither side can arrange that alone. It replaces three
-/// hand-built grids — the viewer's own body, the strip inside it, and the copy <c>Svg.Studio</c>
-/// kept for a group's board, which never got the minimum width the other two had.
+/// A tree of splits rather than named sides. Every panel sits in a <c>leaf</c>; a leaf holding
+/// several ids shows them as tabs, read one at a time; and a <c>split</c> puts its children in a row
+/// or a column. Dropping a panel on the edge of a pane splits that pane, so a panel taken to the
+/// foot of the drawing sits under the drawing, and one taken to the foot of the window runs under
+/// everything. There is no setting for which — the difference is where you let go, which is how
+/// Visual Studio, Rider and Qt Creator all answer it.
 ///
-/// A <see cref="Slot"/> is a run of the strip, and it holds more than one region where they are read
-/// one at a time. Every region in a slot keeps its content in the tree and only the chosen one is
-/// visible, so what a panel says can be found whether or not it is the one on top — a strip that
-/// swapped the content out meant nothing could be asked about a panel until it was clicked.
+/// It replaced three fixed sides, where the foot was a row of the body and the sides were columns
+/// inside it: anything dropped along the bottom cut through the right-hand strip, and there was no
+/// way to ask for anything else.
 ///
-/// The arrangement is a string, because it has to be written into a settings file and read back a
-/// week later. <see cref="Layout"/> is that string in both directions, and everything else here is
-/// the picture of it.
+/// The middle is a leaf like any other, written <c>*</c>. Making it part of the tree is what lets a
+/// panel be dropped against it without the middle being a special case in the drop code. It cannot
+/// be folded, carried or closed, which is the whole of what the tree knows about it.
+///
+/// Every region in a leaf keeps its content in the tree and only the chosen one is visible, so what
+/// a panel says can be found whether or not it is on top. The content is held in a
+/// <see cref="Border"/>, not a <see cref="ContentControl"/>: a ContentControl builds its child from a
+/// template when it is measured, and one that is not on show is never measured, so the panel would be
+/// in the logical tree and not the visual one.
 /// </remarks>
 public sealed class SvgViewerDock
 {
+    /// <summary>What a written layout calls the middle.</summary>
+    public const string Centre = "*";
+
     /// <summary>The arrangement a viewer nobody has rearranged comes up in.</summary>
     /// <remarks>
-    /// Two open and two in a strip. The tree and the host's own pane are read one at a time and
-    /// neither is what the drawing is being worked on through, so they share the top of the column;
-    /// the variables and the picked element's attributes get a run each, because a variable is
-    /// dragged onto an attribute and behind a tab each would hide the other.
+    /// The drawing, and a strip of three beside it: the tree and the host's own pane read one at a
+    /// time at the top, then the variables, then the picked element's attributes. Those last two
+    /// cannot share, because a variable is dragged onto an attribute and behind a tab each would
+    /// hide the other.
     ///
-    /// The weights are measured rather than chosen. At the default window the three runs came out
-    /// 217/217/200 on a drawing's tab and 169/169/169 on a board, while the attributes alone want
-    /// about 1200px — the panel that wanted most was getting least. At 1/1.3/1.7 they come out
-    /// about 160/208/272 and 178/232/303.
+    /// The strip is <c>340px</c> and the runs dividing it are proportions. A strip that grew with the
+    /// window would be a regression — a column of controls wants the width it wants — where the runs
+    /// inside it want to keep their share of it. The 1 : 1.3 : 1.7 was measured rather than chosen:
+    /// the attributes want about 1200px and were getting 217 when the three were equal.
     /// </remarks>
     public const string Default =
-        "right 340 project+elements/1/elements/open variables/1.3/variables/open element/1.7/element/open";
+        "row(*/1,col(project+elements/1/elements/open,variables/1.3/variables/open,element/1.7/element/open)/340px)";
 
-    /// <summary>The narrowest a run down the side is worth being, and the shallowest along the foot.</summary>
-    private const double SideMinimum = 260d;
-    private const double FootMinimum = 120d;
+    /// <summary>The narrowest and the shallowest anything is worth being.</summary>
+    /// <remarks>Across, a column of controls; down, a header and a line of whatever is under it.</remarks>
+    private const double WideMinimum = 200d;
+    private const double DeepMinimum = 84d;
 
-    /// <summary>Header plus a line of whatever is under it, so a splitter cannot rub one out.</summary>
-    private const double SlotMinimum = 84d;
+    /// <summary>The middle keeps more than a panel does, having a drawing in it.</summary>
+    private const double MiddleMinimum = 160d;
 
     private const double SplitterSize = 6d;
 
@@ -74,15 +77,15 @@ public sealed class SvgViewerDock
     /// <summary>The body, and the line showing where a panel being carried would land.</summary>
     private readonly Panel _shell = new();
 
-    private readonly Grid _root = new();
+    private readonly Border _root = new();
 
     /// <summary>
     /// Where a dragged panel would land, drawn over everything.
     /// </summary>
     /// <remarks>
     /// The indicator both trees already use: a border over the top, not hit-testable, hidden until
-    /// there is somewhere to land. Over the body rather than inside a run, because a drag crosses
-    /// from one side of the drawing to the other.
+    /// there is somewhere to land. Over the body rather than inside a pane, because a drag crosses
+    /// from one side of the middle to the other.
     /// </remarks>
     private readonly Border _hint = new()
     {
@@ -93,33 +96,14 @@ public sealed class SvgViewerDock
         VerticalAlignment = VerticalAlignment.Top
     };
 
-    /// <summary>The drawing's row of the body, kept rather than remade: it holds the drawing.</summary>
-    /// <remarks>
-    /// A control cannot be added to a second parent, and the drawing is the one thing here that does
-    /// not go back through a host that could be emptied first.
-    /// </remarks>
-    private readonly Grid _middle = new();
-
-    private readonly Border _centre = new();
+    /// <summary>The middle itself, kept rather than remade: it is the one thing with no host.</summary>
+    private readonly Border _middle = new();
 
     /// <summary>Everything filled in on the last build, so the next one can empty them first.</summary>
-    /// <remarks>
-    /// A control cannot be added to a second parent, and every region is about to move.
-    ///
-    /// A <see cref="Border"/> rather than a <see cref="ContentControl"/>, which is what this was:
-    /// a ContentControl builds its child out of a template when it is measured, and one that is not
-    /// on show is never measured — so a panel behind another was in the logical tree and not the
-    /// visual one, and nothing could be asked about it until it had been clicked. A Border holds its
-    /// child outright.
-    /// </remarks>
+    /// <remarks>A control cannot be added to a second parent, and every region is about to move.</remarks>
     private readonly List<Border> _filled = new();
 
-    private readonly List<Site> _sides = new()
-    {
-        new Site(SvgViewerDockSide.Left, 260d),
-        new Site(SvgViewerDockSide.Right, 340d),
-        new Site(SvgViewerDockSide.Bottom, 200d)
-    };
+    private Node _tree;
 
     private IReadOnlyList<SvgViewerRegion> _regions = Array.Empty<SvgViewerRegion>();
 
@@ -135,20 +119,23 @@ public sealed class SvgViewerDock
     /// <summary>What was built last time, so a drag can ask what is under the pointer.</summary>
     private readonly List<Landing> _built = new();
 
+    /// <summary>Which grid a split was built into, so its splitters can hand the sizes back.</summary>
+    private readonly Dictionary<Split, Grid> _grids = new();
+
     /// <summary>The panel a press took hold of, and where the press was.</summary>
     private string? _carried;
     private Point _pressedAt;
     private bool _dragging;
 
     /// <summary>Where it would go if it were let go of now.</summary>
-    private (Site Side, Slot? Join, Slot? Beside, bool After)? _landing;
+    private Drop? _landing;
 
     /// <summary>True while the picture is being rebuilt, so nothing it does reads as a hand.</summary>
     private bool _building;
 
     public SvgViewerDock(Control centre)
     {
-        _centre.Child = centre ?? throw new ArgumentNullException(nameof(centre));
+        _middle.Child = centre ?? throw new ArgumentNullException(nameof(centre));
 
         _hint[!Border.BackgroundProperty] =
             new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("TabItemHeaderSelectedPipeFill");
@@ -160,15 +147,13 @@ public sealed class SvgViewerDock
         _shell.PointerReleased += (_, e) => Land(e);
         _shell.PointerCaptureLost += (_, _) => Let();
 
-        Read(Default);
+        _tree = Read(Default);
+
         Rebuild();
     }
 
     /// <summary>The body itself, to be put wherever the host keeps it.</summary>
     public Control Root => _shell;
-
-    /// <summary>One run as it was built, so a drag can say what the pointer is over.</summary>
-    private sealed record Landing(Site Side, Slot Slot, Control Header, Control Run);
 
     /// <summary>Raised when a hand rearranged something — never for a layout the host set.</summary>
     public event EventHandler? LayoutChanged;
@@ -181,8 +166,7 @@ public sealed class SvgViewerDock
         {
             var regions = value ?? Array.Empty<SvgViewerRegion>();
 
-            if (_regions.Count == regions.Count
-                && _regions.Zip(regions).All(pair => Same(pair.First, pair.Second)))
+            if (_regions.Count == regions.Count && _regions.Zip(regions).All(pair => Same(pair.First, pair.Second)))
             {
                 return;
             }
@@ -196,27 +180,36 @@ public sealed class SvgViewerDock
 
     /// <summary>The whole arrangement, as one line.</summary>
     /// <remarks>
-    /// Read back defensively: a line this cannot make sense of is replaced whole by
-    /// <see cref="Default"/> rather than half-applied, which is how every other stored setting
-    /// treats a value it does not recognise.
+    /// <code>
+    /// node := body "/" size [ "/" on top "/" open or folded ]
+    /// body := ids | "row(" node ("," node)* ")" | "col(" node ("," node)* ")"
+    /// ids  := id ("+" id)*        several means tabs, read one at a time
+    /// size := number              a share of whatever it sits among
+    ///       | number "px"         a width or a height it keeps
+    /// </code>
+    /// A line this cannot make sense of is replaced whole by <see cref="Default"/> rather than half
+    /// applied, which is how every other stored setting treats a value it does not recognise. That
+    /// covers the flat <c>right 340 …</c> lines the arrangement before this one wrote: they are not
+    /// trees, so they fall back, and falling back is the migration.
     /// </remarks>
     public string Layout
     {
-        get => Written();
+        get => Written(_tree, root: true);
         set
         {
-            if (string.Equals(Written(), value, StringComparison.Ordinal))
+            if (string.Equals(Layout, value, StringComparison.Ordinal))
             {
                 return;
             }
 
-            Read(value);
+            _tree = Read(value);
+
             Settle();
             Rebuild();
         }
     }
 
-    /// <summary>Whether the panels are shown at all, the drawing having the room when they are not.</summary>
+    /// <summary>Whether the panels are shown at all, the middle having the room when they are not.</summary>
     public bool ShowsRegions
     {
         get => _shows;
@@ -238,12 +231,12 @@ public sealed class SvgViewerDock
 
     /// <summary>Gives <paramref name="id"/> a place, or takes the one it has away.</summary>
     /// <remarks>
-    /// Taking it away rather than folding it: a fold is one run of the strip and a run can hold
-    /// several panels, so folding to hide one of them would hide its neighbour too.
+    /// Taking it away rather than folding it: a fold is one leaf and a leaf can hold several panels,
+    /// so folding to hide one of them would hide its neighbour too.
     /// </remarks>
     public void Show(string id, bool shown)
     {
-        if (Shows(id) == shown)
+        if (string.Equals(id, Centre, StringComparison.Ordinal) || Shows(id) == shown)
         {
             return;
         }
@@ -256,123 +249,197 @@ public sealed class SvgViewerDock
         else
         {
             _dropped.Add(id);
-            Drop(id);
+            Take(id);
         }
 
         Rebuild();
     }
 
-    /// <summary>Whether the run holding <paramref name="id"/> is folded to its header.</summary>
-    public bool Folded(string id) => Holding(id) is { } slot && slot.Folded;
+    /// <summary>Whether the leaf holding <paramref name="id"/> is folded to its header.</summary>
+    public bool Folded(string id) => Holding(id) is { Folded: true };
 
-    /// <summary>Folds the run holding <paramref name="id"/>, or opens it again.</summary>
+    /// <summary>Folds the leaf holding <paramref name="id"/>, or opens it again.</summary>
     public void Fold(string id, bool folded)
     {
-        if (Holding(id) is not { } slot || slot.Folded == folded)
+        if (Holding(id) is not { } leaf || leaf.Folded == folded || leaf.IsMiddle)
         {
             return;
         }
 
-        slot.Folded = folded;
+        leaf.Folded = folded;
 
         Rebuild();
     }
 
-    /// <summary>Which of a run's panels is the one being read.</summary>
+    /// <summary>Which of a leaf's panels is the one being read.</summary>
     public string? Selected(string id) => Holding(id)?.Selected;
 
-    /// <summary>Puts <paramref name="id"/> on top of whatever run it is in.</summary>
+    /// <summary>Puts <paramref name="id"/> on top of whatever leaf it is in.</summary>
     public void Select(string id)
     {
-        if (Holding(id) is not { } slot || string.Equals(slot.Selected, id, StringComparison.Ordinal))
+        if (Holding(id) is not { } leaf || string.Equals(leaf.Selected, id, StringComparison.Ordinal))
         {
             return;
         }
 
-        slot.Selected = id;
+        leaf.Selected = id;
 
         Rebuild();
     }
 
-    // ---- the model ---------------------------------------------------------------------------
+    // ---- the tree ------------------------------------------------------------------------------
 
-    private sealed class Slot
+    /// <summary>How big a node is among its neighbours: a share of them, or an extent it keeps.</summary>
+    private readonly record struct Reach(double Value, bool Kept)
+    {
+        public GridLength Length
+            => Kept ? new GridLength(Value, GridUnitType.Pixel) : new GridLength(Value, GridUnitType.Star);
+
+        public override string ToString()
+            => Value.ToString("0.##", CultureInfo.InvariantCulture) + (Kept ? "px" : string.Empty);
+    }
+
+    private abstract class Node
+    {
+        public Reach Reach = new(1d, false);
+    }
+
+    private sealed class Leaf : Node
     {
         public readonly List<string> Ids = new();
 
         public string? Selected;
-        public double Weight = 1d;
         public bool Folded;
+
+        public bool IsMiddle => Ids.Contains(SvgViewerDock.Centre, StringComparer.Ordinal);
     }
 
-    private sealed class Site
+    private sealed class Split : Node
     {
-        public Site(SvgViewerDockSide where, double extent)
-        {
-            Where = where;
-            Extent = extent;
-        }
+        /// <summary>True for a row — children beside one another; false for a column, stacked.</summary>
+        public bool Across;
 
-        public SvgViewerDockSide Where { get; }
-
-        public double Extent;
-
-        public readonly List<Slot> Slots = new();
+        public readonly List<Node> Children = new();
     }
 
     /// <summary>Whether anything supplies <paramref name="id"/>.</summary>
     private bool Known(string id)
         => _regions.Any(region => string.Equals(region.Id, id, StringComparison.Ordinal));
 
-    /// <summary>A side's runs that have something in them to show.</summary>
+    /// <summary>
+    /// Whether a node has anything in it to show.
+    /// </summary>
     /// <remarks>
-    /// A run can name a panel nothing supplies — a layout written when a host offered a pane it no
+    /// A leaf can name a panel nothing supplies — a layout written when a host offered a pane it no
     /// longer does, or the viewer's own tree after a host has turned it off. The name is kept, so
-    /// that pane comes back where somebody put it, but an empty run must not go on holding a third
-    /// of the column: hiding the tree used to give its height to nothing at all.
+    /// that pane comes back where somebody put it, but an empty leaf must not go on holding a third
+    /// of the column.
     /// </remarks>
-    private List<Slot> Live(Site side) => side.Slots.Where(slot => slot.Ids.Any(Known)).ToList();
+    private bool Alive(Node node)
+        => node switch
+        {
+            Leaf leaf => leaf.IsMiddle || leaf.Ids.Any(Known),
+            Split split => split.Children.Any(Alive),
+            _ => false
+        };
 
-    private Site Of(SvgViewerDockSide where) => _sides.First(side => side.Where == where);
-
-    private Slot? Holding(string id)
-        => _sides.SelectMany(side => side.Slots).FirstOrDefault(slot => slot.Ids.Contains(id, StringComparer.Ordinal));
-
-    private Site? Holder(Slot slot) => _sides.FirstOrDefault(side => side.Slots.Contains(slot));
-
-    private void Drop(string id)
+    private static IEnumerable<Node> Walk(Node node)
     {
-        if (Holding(id) is not { } slot)
+        yield return node;
+
+        if (node is Split split)
+        {
+            foreach (var under in split.Children.SelectMany(Walk))
+            {
+                yield return under;
+            }
+        }
+    }
+
+    private Leaf? Holding(string id)
+        => Walk(_tree).OfType<Leaf>().FirstOrDefault(leaf => leaf.Ids.Contains(id, StringComparer.Ordinal));
+
+    private Split? Parent(Node node)
+        => Walk(_tree).OfType<Split>().FirstOrDefault(split => split.Children.Contains(node));
+
+    /// <summary>Takes a panel out, and closes up whatever that leaves behind.</summary>
+    private void Take(string id)
+    {
+        if (Holding(id) is not { } leaf)
         {
             return;
         }
 
-        slot.Ids.Remove(id);
+        leaf.Ids.Remove(id);
 
-        if (string.Equals(slot.Selected, id, StringComparison.Ordinal))
+        if (string.Equals(leaf.Selected, id, StringComparison.Ordinal))
         {
-            slot.Selected = slot.Ids.FirstOrDefault();
+            leaf.Selected = leaf.Ids.FirstOrDefault();
         }
 
-        if (slot.Ids.Count == 0)
+        if (leaf.Ids.Count == 0)
         {
-            Holder(slot)?.Slots.Remove(slot);
+            Prune(leaf);
         }
+    }
+
+    /// <summary>
+    /// Removes a node and collapses what it leaves, all the way up.
+    /// </summary>
+    /// <remarks>
+    /// A split with one child is not a split. Left standing it would put a splitter between a pane
+    /// and nothing, and every drop afterwards would aim at a node with no shape of its own. The one
+    /// child takes the split's size, or the pane beside it would jump when the last of its
+    /// neighbours went.
+    /// </remarks>
+    private void Prune(Node node)
+    {
+        if (Parent(node) is not { } parent)
+        {
+            return;
+        }
+
+        parent.Children.Remove(node);
+
+        if (parent.Children.Count > 1)
+        {
+            return;
+        }
+
+        if (parent.Children.Count == 1)
+        {
+            var only = parent.Children[0];
+
+            only.Reach = parent.Reach;
+
+            if (Parent(parent) is { } above)
+            {
+                above.Children[above.Children.IndexOf(parent)] = only;
+            }
+            else
+            {
+                _tree = only;
+            }
+
+            return;
+        }
+
+        Prune(parent);
     }
 
     /// <summary>Puts a panel back beside whatever the default has it sitting with.</summary>
     /// <remarks>
-    /// Beside its neighbours rather than wherever it was last: a panel taken off the strip and put
-    /// back belongs where somebody would look for it, and the run it used to be in may be gone.
+    /// Beside its neighbours rather than wherever it was last: a panel taken off and put back belongs
+    /// where somebody would look for it, and the leaf it used to be in may be gone.
     /// </remarks>
     private void Restore(string id)
     {
-        var wanted = Parsed(Default)?.SelectMany(side => side.Slots)
-            .FirstOrDefault(slot => slot.Ids.Contains(id, StringComparer.Ordinal));
-
-        if (wanted is { }
-            && _sides.SelectMany(side => side.Slots)
-                   .FirstOrDefault(slot => wanted.Ids.Any(other => slot.Ids.Contains(other, StringComparer.Ordinal)))
+        if (Parsed(Default) is { } fresh
+            && Walk(fresh).OfType<Leaf>().FirstOrDefault(leaf => leaf.Ids.Contains(id, StringComparer.Ordinal))
+                is { } wanted
+            && Walk(_tree).OfType<Leaf>().FirstOrDefault(
+                   leaf => !leaf.IsMiddle
+                           && wanted.Ids.Any(other => leaf.Ids.Contains(other, StringComparer.Ordinal)))
                is { } beside)
         {
             beside.Ids.Add(id);
@@ -381,10 +448,51 @@ public sealed class SvgViewerDock
             return;
         }
 
-        var made = new Slot { Selected = id };
+        Beside(Holding(Centre)!, Made(id), across: true, before: false);
+    }
 
-        made.Ids.Add(id);
-        Of(SvgViewerDockSide.Right).Slots.Add(made);
+    private static Leaf Made(string id)
+    {
+        var leaf = new Leaf { Selected = id };
+
+        leaf.Ids.Add(id);
+
+        return leaf;
+    }
+
+    /// <summary>Puts <paramref name="made"/> next to <paramref name="target"/>, splitting if it must.</summary>
+    /// <remarks>
+    /// Into the parent where the parent already divides things the same way, so three panels dropped
+    /// down one side give one column of three rather than a column inside a column inside a column.
+    /// </remarks>
+    private void Beside(Node target, Leaf made, bool across, bool before)
+    {
+        made.Reach = across ? new Reach(340d, true) : new Reach(1d, false);
+
+        if (Parent(target) is { } parent && parent.Across == across)
+        {
+            parent.Children.Insert(parent.Children.IndexOf(target) + (before ? 0 : 1), made);
+
+            return;
+        }
+
+        var split = new Split { Across = across, Reach = target.Reach };
+
+        // What is being divided keeps a share rather than whatever extent it had: two panes dividing
+        // a strip that was 340px wide are not both 340px wide.
+        target.Reach = new Reach(1d, false);
+
+        split.Children.Add(before ? made : target);
+        split.Children.Add(before ? target : made);
+
+        if (Parent(target) is { } above)
+        {
+            above.Children[above.Children.IndexOf(target)] = split;
+        }
+        else
+        {
+            _tree = split;
+        }
     }
 
     /// <summary>Finds a place for any panel the line said nothing about.</summary>
@@ -392,9 +500,6 @@ public sealed class SvgViewerDock
     /// A line is written by whoever arranged one, and a host can hand over a panel that arrangement
     /// never saw — one added since, or one named differently. Left unplaced it would simply not
     /// appear, which reads as the panel being broken rather than as the layout being old.
-    ///
-    /// The other way round is left alone: a run may name a panel nothing supplies, and it keeps the
-    /// name, so a host that adds that pane back lands where somebody put it rather than at the end.
     /// </remarks>
     private void Settle()
     {
@@ -412,126 +517,191 @@ public sealed class SvgViewerDock
            && string.Equals(one.Header, other.Header, StringComparison.Ordinal)
            && ReferenceEquals(one.Content, other.Content);
 
-    // ---- reading and writing the line --------------------------------------------------------
+    // ---- reading and writing the line ----------------------------------------------------------
 
-    /// <summary>
-    /// <c>right 340 project+elements/1/elements/open variables/1.3/variables/open</c> — a side, how
-    /// far across it reaches, and then its runs.
-    /// </summary>
-    private string Written()
+    private static string Written(Node node, bool root = false)
     {
         var line = new StringBuilder();
 
-        foreach (var side in _sides.Where(side => side.Slots.Count > 0))
+        switch (node)
         {
-            if (line.Length > 0)
-            {
-                line.Append(';');
-            }
+            case Leaf leaf:
+                line.Append(string.Join("+", leaf.Ids));
+                break;
 
-            line.Append(side.Where.ToString().ToLowerInvariant())
-                .Append(' ')
-                .Append(side.Extent.ToString("0.##", CultureInfo.InvariantCulture));
+            case Split split:
+                line.Append(split.Across ? "row(" : "col(")
+                    .Append(string.Join(",", split.Children.Select(child => Written(child))))
+                    .Append(')');
+                break;
+        }
 
-            foreach (var slot in side.Slots)
-            {
-                line.Append(' ')
-                    .Append(string.Join("+", slot.Ids))
-                    .Append('/')
-                    .Append(slot.Weight.ToString("0.##", CultureInfo.InvariantCulture))
-                    .Append('/')
-                    .Append(slot.Selected ?? slot.Ids.FirstOrDefault() ?? string.Empty)
-                    .Append('/')
-                    .Append(slot.Folded ? "folded" : "open");
-            }
+        // The root's own size is a share of nothing.
+        if (!root)
+        {
+            line.Append('/').Append(node.Reach);
+        }
+
+        if (node is Leaf { IsMiddle: false } named)
+        {
+            line.Append('/')
+                .Append(named.Selected ?? named.Ids.FirstOrDefault() ?? string.Empty)
+                .Append('/')
+                .Append(named.Folded ? "folded" : "open");
         }
 
         return line.ToString();
     }
 
-    private void Read(string? line)
-    {
-        var sides = Parsed(line) ?? Parsed(Default)
-            ?? throw new InvalidOperationException("The default layout does not read back.");
+    private static Node Read(string? line)
+        => Parsed(line)
+           ?? Parsed(Default)
+           ?? throw new InvalidOperationException("The default layout does not read back.");
 
-        _sides.Clear();
-        _sides.AddRange(sides);
-    }
-
-    /// <summary>The sides a line describes, or null where it describes nothing usable.</summary>
-    private static List<Site>? Parsed(string? line)
+    /// <summary>The tree a line describes, or null where it describes nothing usable.</summary>
+    private static Node? Parsed(string? line)
     {
         if (string.IsNullOrWhiteSpace(line))
         {
             return null;
         }
 
-        var sides = new List<Site>
-        {
-            new(SvgViewerDockSide.Left, 260d),
-            new(SvgViewerDockSide.Right, 340d),
-            new(SvgViewerDockSide.Bottom, 200d)
-        };
-
+        var at = 0;
         var named = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var written in line!.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        var tree = Grown(line!, ref at, named);
+
+        // Every letter accounted for, and exactly one middle: a line that only half reads is not one
+        // to half apply, and one with nowhere to put the drawing is not an arrangement at all.
+        return tree is { } && at == line!.Length && named.Contains(Centre) ? tree : null;
+    }
+
+    private static Node? Grown(string line, ref int at, HashSet<string> named)
+    {
+        Node node;
+
+        if (Ahead(line, at, "row(") || Ahead(line, at, "col("))
         {
-            var words = written.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var split = new Split { Across = Ahead(line, at, "row(") };
 
-            if (words.Length < 2
-                || !Enum.TryParse<SvgViewerDockSide>(words[0], ignoreCase: true, out var where)
-                || !double.TryParse(words[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var extent))
+            at += 4;
+
+            while (true)
             {
-                return null;
-            }
-
-            var side = sides.First(candidate => candidate.Where == where);
-
-            side.Extent = Math.Max(extent, where == SvgViewerDockSide.Bottom ? FootMinimum : SideMinimum);
-
-            foreach (var word in words.Skip(2))
-            {
-                var fields = word.Split('/');
-                var slot = new Slot();
-
-                foreach (var id in fields[0].Split('+', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    // A panel can only be in one place, and a line naming it twice is not one.
-                    if (!named.Add(id))
-                    {
-                        return null;
-                    }
-
-                    slot.Ids.Add(id);
-                }
-
-                if (slot.Ids.Count == 0)
+                if (Grown(line, ref at, named) is not { } child)
                 {
                     return null;
                 }
 
-                if (fields.Length > 1
-                    && double.TryParse(fields[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var weight)
-                    && weight > 0d)
+                split.Children.Add(child);
+
+                if (at < line.Length && line[at] == ',')
                 {
-                    slot.Weight = weight;
+                    at++;
+
+                    continue;
                 }
 
-                slot.Selected = fields.Length > 2 && slot.Ids.Contains(fields[2], StringComparer.Ordinal)
-                    ? fields[2]
-                    : slot.Ids[0];
+                break;
+            }
 
-                slot.Folded = fields.Length > 3 && string.Equals(fields[3], "folded", StringComparison.Ordinal);
+            // A split of one is not a split, and neither is one nobody closed.
+            if (at >= line.Length || line[at] != ')' || split.Children.Count < 2)
+            {
+                return null;
+            }
 
-                side.Slots.Add(slot);
+            at++;
+            node = split;
+        }
+        else
+        {
+            var leaf = new Leaf();
+
+            foreach (var id in Word(line, ref at).Split('+', StringSplitOptions.RemoveEmptyEntries))
+            {
+                // A panel can only be in one place, and a line naming it twice is not one.
+                if (!named.Add(id))
+                {
+                    return null;
+                }
+
+                leaf.Ids.Add(id);
+            }
+
+            if (leaf.Ids.Count == 0 || (leaf.IsMiddle && leaf.Ids.Count > 1))
+            {
+                return null;
+            }
+
+            leaf.Selected = leaf.Ids[0];
+            node = leaf;
+        }
+
+        if (at < line.Length && line[at] == '/')
+        {
+            at++;
+
+            var said = Word(line, ref at);
+            var kept = said.EndsWith("px", StringComparison.Ordinal);
+
+            if (!double.TryParse(
+                    kept ? said[..^2] : said,
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out var reach)
+                || reach <= 0d)
+            {
+                return null;
+            }
+
+            node.Reach = new Reach(reach, kept);
+        }
+
+        if (node is not Leaf { IsMiddle: false } row)
+        {
+            return node;
+        }
+
+        if (at < line.Length && line[at] == '/')
+        {
+            at++;
+
+            var chosen = Word(line, ref at);
+
+            if (row.Ids.Contains(chosen, StringComparer.Ordinal))
+            {
+                row.Selected = chosen;
             }
         }
 
-        return sides.Any(side => side.Slots.Count > 0) ? sides : null;
+        if (at < line.Length && line[at] == '/')
+        {
+            at++;
+
+            row.Folded = string.Equals(Word(line, ref at), "folded", StringComparison.Ordinal);
+        }
+
+        return node;
     }
 
-    // ---- the picture -------------------------------------------------------------------------
+    private static bool Ahead(string line, int at, string word)
+        => at + word.Length <= line.Length && string.CompareOrdinal(line, at, word, 0, word.Length) == 0;
+
+    /// <summary>Everything up to the next thing that divides one part of the line from another.</summary>
+    private static string Word(string line, ref int at)
+    {
+        var from = at;
+
+        while (at < line.Length && line[at] is not ('/' or ',' or ')'))
+        {
+            at++;
+        }
+
+        return line[from..at];
+    }
+
+    // ---- the picture ---------------------------------------------------------------------------
 
     private void Rebuild()
     {
@@ -546,36 +716,15 @@ public sealed class SvgViewerDock
 
             _filled.Clear();
             _built.Clear();
+            _grids.Clear();
 
-            _middle.Children.Clear();
-            _middle.ColumnDefinitions.Clear();
+            // The grids that held it are thrown away rather than emptied, so the middle would still
+            // be reading itself a child of one of them. Everything else here is made fresh each
+            // build; the middle is the one thing carried over.
+            Unhand(_middle);
 
-            _root.Children.Clear();
-            _root.RowDefinitions.Clear();
-            _root.ColumnDefinitions.Clear();
-
-            var foot = Of(SvgViewerDockSide.Bottom);
-            var footed = _shows && Live(foot).Count > 0;
-
-            _root.RowDefinitions.Add(new RowDefinition(GridLength.Star));
-            _root.RowDefinitions.Add(new RowDefinition(new GridLength(footed ? SplitterSize : 0d, GridUnitType.Pixel)));
-            _root.RowDefinitions.Add(
-                new RowDefinition(new GridLength(footed ? foot.Extent : 0d, GridUnitType.Pixel))
-                {
-                    MinHeight = footed ? FootMinimum : 0d
-                });
-
-            Put(Middle(), 0);
-
-            if (footed)
-            {
-                var splitter = Splitter(GridResizeDirection.Rows);
-
-                Put(splitter, 1);
-                Watch(splitter, foot);
-
-                Put(Run(foot), 2);
-            }
+            _root.Child = null;
+            _root.Child = _shows ? Build(_tree) : _middle;
         }
         finally
         {
@@ -583,133 +732,113 @@ public sealed class SvgViewerDock
         }
     }
 
-    /// <summary>The drawing, with whatever is down either side of it.</summary>
-    private Control Middle()
+    /// <summary>Takes a control off whatever is holding it, so it can be held by something else.</summary>
+    private static void Unhand(Control control)
     {
-        var left = Of(SvgViewerDockSide.Left);
-        var right = Of(SvgViewerDockSide.Right);
-
-        var lefted = _shows && Live(left).Count > 0;
-        var righted = _shows && Live(right).Count > 0;
-
-        var middle = _middle;
-
-        middle.ColumnDefinitions.Add(
-            new ColumnDefinition(new GridLength(lefted ? left.Extent : 0d, GridUnitType.Pixel))
-            {
-                MinWidth = lefted ? SideMinimum : 0d
-            });
-
-        middle.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(lefted ? SplitterSize : 0d, GridUnitType.Pixel)));
-        middle.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star) { MinWidth = 160d });
-        middle.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(righted ? SplitterSize : 0d, GridUnitType.Pixel)));
-
-        middle.ColumnDefinitions.Add(
-            new ColumnDefinition(new GridLength(righted ? right.Extent : 0d, GridUnitType.Pixel))
-            {
-                MinWidth = righted ? SideMinimum : 0d
-            });
-
-        if (lefted)
+        switch (control.Parent)
         {
-            Column(middle, Run(left), 0);
+            case Panel panel:
+                panel.Children.Remove(control);
+                break;
 
-            var splitter = Splitter(GridResizeDirection.Columns);
+            case Decorator decorator:
+                decorator.Child = null;
+                break;
 
-            Column(middle, splitter, 1);
-            Watch(splitter, left);
+            case ContentControl content:
+                content.Content = null;
+                break;
         }
-
-        Column(middle, _centre, 2);
-
-        if (righted)
-        {
-            var splitter = Splitter(GridResizeDirection.Columns);
-
-            Column(middle, splitter, 3);
-            Watch(splitter, right);
-
-            Column(middle, Run(right), 4);
-        }
-
-        return middle;
     }
 
-    /// <summary>One side: its runs, one after another, with a splitter between each pair.</summary>
-    private Control Run(Site side)
+    private Control Build(Node node)
     {
-        var down = side.Where != SvgViewerDockSide.Bottom;
-        var grid = new Grid();
-        var slots = Live(side);
-
-        for (var index = 0; index < slots.Count; index++)
+        if (node is Leaf leaf)
         {
-            if (index > 0)
+            return leaf.IsMiddle ? _middle : Shown(leaf);
+        }
+
+        var split = (Split)node;
+        var children = split.Children.Where(Alive).ToList();
+
+        // Nothing fills the rest of it, so there is nothing to divide.
+        if (children.Count <= 1)
+        {
+            return children.Count == 1 ? Build(children[0]) : _middle;
+        }
+
+        var grid = new Grid();
+
+        _grids[split] = grid;
+
+        foreach (var child in children)
+        {
+            if (!ReferenceEquals(child, children[0]))
             {
-                Define(grid, down, new GridLength(SplitterSize, GridUnitType.Pixel), 0d);
+                Define(grid, split.Across, new GridLength(SplitterSize, GridUnitType.Pixel), 0d);
             }
 
-            var slot = slots[index];
+            // A folded leaf is its header and nothing else, so it asks for what that measures
+            // rather than for the share it had. Its size is kept, and comes back when it opens.
+            var folded = child is Leaf { Folded: true };
 
             Define(
                 grid,
-                down,
-                slot.Folded ? GridLength.Auto : new GridLength(slot.Weight, GridUnitType.Star),
-                slot.Folded ? 0d : SlotMinimum);
+                split.Across,
+                folded ? GridLength.Auto : child.Reach.Length,
+                folded ? 0d : Least(child, split.Across));
         }
 
         var at = 0;
 
-        for (var index = 0; index < slots.Count; index++)
+        for (var index = 0; index < children.Count; index++)
         {
             if (index > 0)
             {
-                var splitter = Splitter(down ? GridResizeDirection.Rows : GridResizeDirection.Columns);
+                var splitter = Splitter(split.Across ? GridResizeDirection.Columns : GridResizeDirection.Rows);
 
-                Place(grid, down, splitter, at++);
-                Watch(splitter, side);
+                Place(grid, split.Across, splitter, at++);
+                Watch(splitter, split);
             }
 
-            var run = Shown(slots[index], index > 0 && down, out var header);
+            var built = Build(children[index]);
 
-            _built.Add(new Landing(side, slots[index], header, run));
-
-            Place(grid, down, run, at++);
+            Place(grid, split.Across, index > 0 ? Lined(built, split.Across) : built, at++);
         }
 
-        return new Border
-        {
-            BorderThickness = side.Where switch
-            {
-                SvgViewerDockSide.Left => new Thickness(0, 0, 1, 0),
-                SvgViewerDockSide.Right => new Thickness(1, 0, 0, 0),
-                _ => new Thickness(0, 1, 0, 0)
-            },
-            BorderBrush = Divider,
-            Child = grid
-        };
+        return grid;
     }
 
-    /// <summary>One run: its header, and whatever of it is on top.</summary>
-    private Control Shown(Slot slot, bool lined, out Control bar)
-    {
-        var grid = new Grid
+    /// <summary>The least a node is worth being, along the way its neighbours are laid out.</summary>
+    private static double Least(Node node, bool across)
+        => node is Leaf { IsMiddle: true } ? MiddleMinimum
+            : across ? WideMinimum
+            : DeepMinimum;
+
+    /// <summary>The line between one pane and the next, on the leading edge of all but the first.</summary>
+    private static Control Lined(Control control, bool across)
+        => new Border
         {
-            RowDefinitions = new RowDefinitions("Auto,*")
+            BorderThickness = across ? new Thickness(1, 0, 0, 0) : new Thickness(0, 1, 0, 0),
+            BorderBrush = Divider,
+            Child = control
         };
 
-        var header = Header(slot);
+    /// <summary>One leaf: its header, and whatever of it is on top.</summary>
+    private Control Shown(Leaf leaf)
+    {
+        var grid = new Grid { RowDefinitions = new RowDefinitions("Auto,*") };
 
-        bar = header;
+        var header = Header(leaf);
 
         Grid.SetRow(header, 0);
         grid.Children.Add(header);
 
-        if (!slot.Folded)
+        if (!leaf.Folded)
         {
             var body = new Panel();
 
-            foreach (var id in slot.Ids)
+            foreach (var id in leaf.Ids)
             {
                 if (_regions.FirstOrDefault(region => string.Equals(region.Id, id, StringComparison.Ordinal))
                     is not { } region)
@@ -720,7 +849,7 @@ public sealed class SvgViewerDock
                 var host = new Border
                 {
                     Child = region.Content,
-                    IsVisible = string.Equals(slot.Selected, id, StringComparison.Ordinal)
+                    IsVisible = string.Equals(leaf.Selected, id, StringComparison.Ordinal)
                 };
 
                 _filled.Add(host);
@@ -731,12 +860,12 @@ public sealed class SvgViewerDock
             grid.Children.Add(body);
         }
 
-        return lined
-            ? new Border { BorderThickness = new Thickness(0, 1, 0, 0), BorderBrush = Divider, Child = grid }
-            : grid;
+        _built.Add(new Landing(leaf, header, grid));
+
+        return grid;
     }
 
-    private Control Header(Slot slot)
+    private Control Header(Leaf leaf)
     {
         var bar = new StackPanel { Orientation = Orientation.Horizontal };
 
@@ -747,7 +876,7 @@ public sealed class SvgViewerDock
             Width = 18d,
             Child = new TextBlock
             {
-                Text = slot.Folded ? "▸" : "▾",
+                Text = leaf.Folded ? "▸" : "▾",
                 FontSize = 10,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -758,7 +887,7 @@ public sealed class SvgViewerDock
         {
             e.Handled = true;
 
-            slot.Folded = !slot.Folded;
+            leaf.Folded = !leaf.Folded;
 
             Rebuild();
             Moved();
@@ -766,7 +895,7 @@ public sealed class SvgViewerDock
 
         bar.Children.Add(chevron);
 
-        foreach (var id in slot.Ids)
+        foreach (var id in leaf.Ids)
         {
             if (_regions.FirstOrDefault(region => string.Equals(region.Id, id, StringComparison.Ordinal))
                 is not { } region)
@@ -781,7 +910,7 @@ public sealed class SvgViewerDock
                 Child = new TextBlock { Text = region.Header, VerticalAlignment = VerticalAlignment.Center }
             };
 
-            if (string.Equals(slot.Selected, id, StringComparison.Ordinal))
+            if (string.Equals(leaf.Selected, id, StringComparison.Ordinal))
             {
                 tab.Classes.Add("selected");
             }
@@ -797,18 +926,18 @@ public sealed class SvgViewerDock
                     return;
                 }
 
-                // Taken hold of either way: a press that goes nowhere is the panel being chosen,
-                // and one that travels is it being carried somewhere else.
+                // Taken hold of either way: a press that goes nowhere is the panel being chosen, and
+                // one that travels is it being carried somewhere else.
                 _carried = chosen;
                 _pressedAt = e.GetPosition(_shell);
                 _dragging = false;
 
-                if (string.Equals(slot.Selected, chosen, StringComparison.Ordinal))
+                if (string.Equals(leaf.Selected, chosen, StringComparison.Ordinal))
                 {
                     return;
                 }
 
-                slot.Selected = chosen;
+                leaf.Selected = chosen;
 
                 Rebuild();
                 Moved();
@@ -820,13 +949,84 @@ public sealed class SvgViewerDock
         return new Border { Classes = { "slot" }, Background = Brushes.Transparent, Child = bar };
     }
 
-    // ---- carrying a panel somewhere else -------------------------------------------------------
+    /// <summary>Takes the sizes back off the grid once a hand has finished dragging a splitter.</summary>
+    private void Watch(GridSplitter splitter, Split split)
+        => splitter.DragCompleted += (_, _) =>
+        {
+            if (_building)
+            {
+                return;
+            }
+
+            Measure(split);
+            Moved();
+        };
+
+    /// <summary>Reads a split's children back out of the grid they were built into.</summary>
+    /// <remarks>
+    /// What was kept stays kept and what was a share stays a share, so dragging a strip wider leaves
+    /// it a strip, and dragging one run of it taller leaves that run a proportion of its neighbours.
+    /// </remarks>
+    private void Measure(Split split)
+    {
+        if (!_grids.TryGetValue(split, out var grid))
+        {
+            return;
+        }
+
+        var lengths = split.Across
+            ? grid.ColumnDefinitions.Select(column => column.ActualWidth).ToList()
+            : grid.RowDefinitions.Select(row => row.ActualHeight).ToList();
+
+        var children = split.Children.Where(Alive).ToList();
+
+        for (int index = 0, at = 0; index < children.Count; index++, at++)
+        {
+            if (index > 0)
+            {
+                at++;
+            }
+
+            if (at >= lengths.Count || lengths[at] <= 0d)
+            {
+                continue;
+            }
+
+            children[index].Reach = children[index].Reach.Kept
+                ? new Reach(Math.Round(lengths[at], 0), true)
+                : new Reach(Math.Round(lengths[at] / 100d, 2), false);
+        }
+    }
+
+    private void Moved()
+    {
+        if (!_building)
+        {
+            LayoutChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    // ---- carrying a panel somewhere else --------------------------------------------------------
+
+    /// <summary>One leaf as it was built, so a drag can say what the pointer is over.</summary>
+    private sealed record Landing(Leaf Leaf, Control Header, Control Body);
+
+    /// <summary>Where a carried panel would go: into a pane, or beside one.</summary>
+    private readonly record struct Drop(Node Target, bool Join, bool Across, bool Before);
 
     /// <summary>How far a press travels before it is a drag rather than a click.</summary>
     private const double DragThreshold = 4d;
 
-    /// <summary>How much of a run's depth counts as its edge rather than its middle.</summary>
-    private const double Edge = 0.35d;
+    /// <summary>How much of a pane counts as its edge rather than its middle.</summary>
+    private const double Edge = 0.3d;
+
+    /// <summary>How close to the body's own edge means "across the whole of it".</summary>
+    /// <remarks>
+    /// The difference between a panel under the drawing and a panel under everything, which is the
+    /// one thing three fixed sides could not say. In pixels rather than a share, because it is a
+    /// thing to aim at rather than a region of anything.
+    /// </remarks>
+    private const double Rim = 26d;
 
     private void OnMoved(object? sender, PointerEventArgs e)
     {
@@ -859,58 +1059,91 @@ public sealed class SvgViewerDock
         Hint();
     }
 
-    /// <summary>What letting go here would mean, or null for nowhere.</summary>
+    /// <summary>
+    /// What letting go here would mean, or null for nowhere.
+    /// </summary>
     /// <remarks>
-    /// A header takes the panel in beside what it already holds; the top or bottom of a run puts it
-    /// before or after that run; and the drawing's own edges are how a side nothing is on yet is
-    /// reached at all — there is no run there to aim at.
+    /// Narrowest first. A header takes the panel in beside what it already holds. The rim of the body
+    /// splits the whole of it, which is how a panel comes to run the full width under everything —
+    /// the thing that has to be asked for rather than assumed. Otherwise the pane under the pointer
+    /// is split, or tabbed into where the pointer is well inside it; the middle takes no tabs, so
+    /// there it is the nearest edge either way.
     /// </remarks>
-    private (Site Side, Slot? Join, Slot? Beside, bool After)? Where(Point at)
+    private Drop? Where(Point at)
     {
         foreach (var landing in _built)
         {
             if (Over(landing.Header, at) is { })
             {
-                // Beside what it is already beside is not a move.
-                return landing.Slot.Ids.Contains(_carried!, StringComparer.Ordinal) && landing.Slot.Ids.Count == 1
+                return landing.Leaf.Ids.Contains(_carried!, StringComparer.Ordinal) && landing.Leaf.Ids.Count == 1
                     ? null
-                    : (landing.Side, landing.Slot, null, false);
+                    : new Drop(landing.Leaf, Join: true, false, false);
             }
-
-            if (Over(landing.Run, at) is not { } inside)
-            {
-                continue;
-            }
-
-            var down = landing.Side.Where != SvgViewerDockSide.Bottom;
-            var along = down ? inside.Y / landing.Run.Bounds.Height : inside.X / landing.Run.Bounds.Width;
-
-            if (along > Edge && along < 1d - Edge)
-            {
-                return (landing.Side, landing.Slot, null, false);
-            }
-
-            return (landing.Side, null, landing.Slot, along >= 0.5d);
         }
 
-        if (Over(_centre, at) is not { } middle)
+        if (Over(_root, at) is not { } body)
         {
             return null;
         }
 
-        // Which edge of the drawing the pointer is nearest, so an empty side can be reached.
-        var west = middle.X;
-        var east = _centre.Bounds.Width - middle.X;
-        var south = _centre.Bounds.Height - middle.Y;
-
-        if (south < west && south < east)
+        if (Rimmed(body, _root.Bounds.Size) is { } rim)
         {
-            return (Of(SvgViewerDockSide.Bottom), null, null, true);
+            return new Drop(_tree, Join: false, rim.Across, rim.Before);
         }
 
-        return west < east
-            ? (Of(SvgViewerDockSide.Left), null, null, true)
-            : (Of(SvgViewerDockSide.Right), null, null, true);
+        foreach (var landing in _built)
+        {
+            if (Over(landing.Body, at) is { } inside)
+            {
+                return Against(landing.Leaf, inside, landing.Body.Bounds.Size, tabs: true);
+            }
+        }
+
+        return Over(_middle, at) is { } middle
+            ? Against(Holding(Centre)!, middle, _middle.Bounds.Size, tabs: false)
+            : null;
+    }
+
+    /// <summary>Which edge of the body the pointer is against, or null for none of them.</summary>
+    private static (bool Across, bool Before)? Rimmed(Point at, Size size)
+    {
+        if (at.X <= Rim)
+        {
+            return (true, true);
+        }
+
+        if (at.X >= size.Width - Rim)
+        {
+            return (true, false);
+        }
+
+        if (at.Y <= Rim)
+        {
+            return (false, true);
+        }
+
+        return at.Y >= size.Height - Rim ? (false, false) : null;
+    }
+
+    /// <summary>Splitting one pane, or landing in it where it takes tabs and the pointer is inside.</summary>
+    private static Drop Against(Node target, Point inside, Size size, bool tabs)
+    {
+        var west = inside.X / Math.Max(size.Width, 1d);
+        var north = inside.Y / Math.Max(size.Height, 1d);
+        var east = 1d - west;
+        var south = 1d - north;
+
+        var nearest = Math.Min(Math.Min(west, east), Math.Min(north, south));
+
+        if (tabs && nearest > Edge)
+        {
+            return new Drop(target, Join: true, false, false);
+        }
+
+        return nearest == west ? new Drop(target, false, true, true)
+            : nearest == east ? new Drop(target, false, true, false)
+            : nearest == north ? new Drop(target, false, false, true)
+            : new Drop(target, false, false, false);
     }
 
     private Point? Over(Visual visual, Point at)
@@ -920,9 +1153,7 @@ public sealed class SvgViewerDock
             return null;
         }
 
-        var corner = visual.TranslatePoint(default, _shell);
-
-        if (corner is not { } origin)
+        if (visual.TranslatePoint(default, _shell) is not { } origin)
         {
             return null;
         }
@@ -938,62 +1169,44 @@ public sealed class SvgViewerDock
     /// <summary>Draws the landing, or takes the line away where there is none.</summary>
     private void Hint()
     {
-        if (!_dragging || _landing is not { } landing)
+        if (!_dragging || _landing is not { } landing || Shape(landing.Target) is not { } over)
         {
             _hint.IsVisible = false;
 
             return;
         }
 
-        var thickness = 3d;
-
-        if (landing.Join is { } join && Built(join) is { } joined)
+        if (landing.Join)
         {
-            Show(joined.Header, joined.Header.Bounds.Width, joined.Header.Bounds.Height, 0d, 0d);
-        }
-        else if (landing.Beside is { } beside && Built(beside) is { } near)
-        {
-            var down = landing.Side.Where != SvgViewerDockSide.Bottom;
-
-            Show(
-                near.Run,
-                down ? near.Run.Bounds.Width : thickness,
-                down ? thickness : near.Run.Bounds.Height,
-                down || !landing.After ? 0d : near.Run.Bounds.Width - thickness,
-                !down || !landing.After ? 0d : near.Run.Bounds.Height - thickness);
+            Show(over, over.Bounds.Width, over.Bounds.Height, 0d, 0d);
         }
         else
         {
-            var band = landing.Side.Where == SvgViewerDockSide.Bottom ? FootMinimum : SideMinimum;
-            var down = landing.Side.Where != SvgViewerDockSide.Bottom;
+            var band = landing.Across
+                ? Math.Min(340d, over.Bounds.Width / 2d)
+                : Math.Min(200d, over.Bounds.Height / 2d);
 
             Show(
-                _centre,
-                down ? band : _centre.Bounds.Width,
-                down ? _centre.Bounds.Height : band,
-                landing.Side.Where == SvgViewerDockSide.Right ? _centre.Bounds.Width - band : 0d,
-                landing.Side.Where == SvgViewerDockSide.Bottom ? _centre.Bounds.Height - band : 0d);
+                over,
+                landing.Across ? band : over.Bounds.Width,
+                landing.Across ? over.Bounds.Height : band,
+                landing.Across && !landing.Before ? over.Bounds.Width - band : 0d,
+                !landing.Across && !landing.Before ? over.Bounds.Height - band : 0d);
         }
 
         _hint.Opacity = 0.35d;
         _hint.IsVisible = true;
     }
 
-    private void Show(Visual over, double wide, double tall, double right, double down)
-    {
-        if (over.TranslatePoint(default, _shell) is not { } corner)
+    /// <summary>What a node looks like on screen, for the landing to be drawn over.</summary>
+    private Control? Shape(Node node)
+        => node switch
         {
-            _hint.IsVisible = false;
-
-            return;
-        }
-
-        _hint.Width = Math.Max(wide, 0d);
-        _hint.Height = Math.Max(tall, 0d);
-        _hint.Margin = new Thickness(corner.X + right, corner.Y + down, 0d, 0d);
-    }
-
-    private Landing? Built(Slot slot) => _built.FirstOrDefault(landing => ReferenceEquals(landing.Slot, slot));
+            Leaf { IsMiddle: true } => _middle,
+            Leaf leaf => _built.FirstOrDefault(landing => ReferenceEquals(landing.Leaf, leaf))?.Body,
+            Split split => _grids.TryGetValue(split, out var grid) ? grid : _root,
+            _ => _root
+        };
 
     private void Land(PointerReleasedEventArgs e)
     {
@@ -1012,32 +1225,31 @@ public sealed class SvgViewerDock
 
         var was = Holding(carried);
 
-        if (where.Join is { } join && ReferenceEquals(join, was) && join.Ids.Count > 1)
+        // Dropping it on its own header, or against the pane it is the whole of, is not a move.
+        if (was is { } && ReferenceEquals(where.Target, was) && (where.Join || was.Ids.Count == 1))
         {
-            // Already in that run. Dropping it on its own header is not a move.
             return;
         }
 
-        var beside = where.Beside;
+        var target = where.Target;
 
-        Drop(carried);
+        Take(carried);
 
-        if (where.Join is { } into && Holder(into) is { })
+        // Taking it out can prune the very node it was landing against. Anything no longer in the
+        // tree lands against the middle instead, which is the one node that cannot go.
+        if (!Walk(_tree).Contains(target))
+        {
+            target = Holding(Centre)!;
+        }
+
+        if (where.Join && target is Leaf into)
         {
             into.Ids.Add(carried);
             into.Selected = carried;
         }
         else
         {
-            var made = new Slot { Selected = carried };
-
-            made.Ids.Add(carried);
-
-            var at = beside is { } && Holder(beside) is { } holding && ReferenceEquals(holding, where.Side)
-                ? where.Side.Slots.IndexOf(beside) + (where.After ? 1 : 0)
-                : where.Side.Slots.Count;
-
-            where.Side.Slots.Insert(Math.Clamp(at, 0, where.Side.Slots.Count), made);
+            Beside(target, Made(carried), where.Across, where.Before);
         }
 
         Rebuild();
@@ -1052,132 +1264,43 @@ public sealed class SvgViewerDock
         _hint.IsVisible = false;
     }
 
-    /// <summary>Takes the sizes back off the grid once a hand has finished dragging a splitter.</summary>
-    private void Watch(GridSplitter splitter, Site side)
-        => splitter.DragCompleted += (_, _) =>
-        {
-            if (_building)
-            {
-                return;
-            }
+    // ---- grid plumbing -------------------------------------------------------------------------
 
-            Measure(side);
-            Moved();
-        };
-
-    /// <summary>Reads a side's extent and its runs' weights back out of what is on screen.</summary>
-    private void Measure(Site side)
+    private void Show(Visual over, double wide, double tall, double right, double down)
     {
-        var down = side.Where != SvgViewerDockSide.Bottom;
-
-        if (_shows)
+        if (over.TranslatePoint(default, _shell) is not { } corner)
         {
-            var reach = side.Where switch
-            {
-                SvgViewerDockSide.Left => LengthOf(0, across: true),
-                SvgViewerDockSide.Right => LengthOf(4, across: true),
-                _ => LengthOf(2, across: false)
-            };
+            _hint.IsVisible = false;
 
-            if (reach > 0d)
-            {
-                side.Extent = reach;
-            }
-        }
-
-        // The weights are a proportion, so what they are read back as only has to keep the ratio.
-        var run = Body(side);
-
-        if (run is null)
-        {
             return;
         }
 
-        var lengths = down
-            ? run.RowDefinitions.Select(row => row.ActualHeight).ToList()
-            : run.ColumnDefinitions.Select(column => column.ActualWidth).ToList();
-
-        var slots = Live(side);
-
-        for (int index = 0, at = 0; index < slots.Count; index++, at++)
-        {
-            if (index > 0)
-            {
-                at++;
-            }
-
-            if (at < lengths.Count && lengths[at] > 0d && !slots[index].Folded)
-            {
-                slots[index].Weight = Math.Round(lengths[at] / 100d, 2);
-            }
-        }
+        _hint.Width = Math.Max(wide, 0d);
+        _hint.Height = Math.Max(tall, 0d);
+        _hint.Margin = new Thickness(corner.X + right, corner.Y + down, 0d, 0d);
     }
 
-    private double LengthOf(int index, bool across)
+    private static void Define(Grid grid, bool across, GridLength length, double least)
     {
-        if (_root.Children.FirstOrDefault() is not Grid middle)
-        {
-            return 0d;
-        }
-
-        return across
-            ? index < middle.ColumnDefinitions.Count ? middle.ColumnDefinitions[index].ActualWidth : 0d
-            : index < _root.RowDefinitions.Count ? _root.RowDefinitions[index].ActualHeight : 0d;
-    }
-
-    private Grid? Body(Site side)
-    {
-        var host = side.Where == SvgViewerDockSide.Bottom
-            ? _root.Children.ElementAtOrDefault(2)
-            : (_root.Children.FirstOrDefault() as Grid)?.Children
-                .FirstOrDefault(child => Grid.GetColumn(child) == (side.Where == SvgViewerDockSide.Left ? 0 : 4));
-
-        return (host as Border)?.Child as Grid;
-    }
-
-    private void Moved()
-    {
-        if (!_building)
-        {
-            LayoutChanged?.Invoke(this, EventArgs.Empty);
-        }
-    }
-
-    // ---- grid plumbing -----------------------------------------------------------------------
-
-    private void Put(Control control, int row)
-    {
-        Grid.SetRow(control, row);
-        _root.Children.Add(control);
-    }
-
-    private static void Column(Grid grid, Control control, int column)
-    {
-        Grid.SetColumn(control, column);
-        grid.Children.Add(control);
-    }
-
-    private static void Define(Grid grid, bool down, GridLength length, double least)
-    {
-        if (down)
-        {
-            grid.RowDefinitions.Add(new RowDefinition(length) { MinHeight = least });
-        }
-        else
+        if (across)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition(length) { MinWidth = least });
         }
+        else
+        {
+            grid.RowDefinitions.Add(new RowDefinition(length) { MinHeight = least });
+        }
     }
 
-    private static void Place(Grid grid, bool down, Control control, int at)
+    private static void Place(Grid grid, bool across, Control control, int at)
     {
-        if (down)
+        if (across)
         {
-            Grid.SetRow(control, at);
+            Grid.SetColumn(control, at);
         }
         else
         {
-            Grid.SetColumn(control, at);
+            Grid.SetRow(control, at);
         }
 
         grid.Children.Add(control);

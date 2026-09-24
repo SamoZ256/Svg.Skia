@@ -31,7 +31,8 @@ namespace Svg.Studio.UnitTests;
 public class LayoutSettingTests : IDisposable
 {
     /// <summary>An arrangement nothing would land in by itself, so finding it means it travelled.</summary>
-    private const string Arranged = "left 300 variables/1/variables/open;right 340 project+elements/1/elements/open element/1/element/open";
+    private const string Arranged =
+        "row(variables/300px/variables/open,*/1,col(project+elements/1/elements/open,element/1/element/open)/340px)";
 
     private const string Project = """
         <studio namespace="Demo.Icons">
@@ -105,10 +106,12 @@ public class LayoutSettingTests : IDisposable
     [AvaloniaFact]
     public void A_Line_That_Says_Nothing_Usable_Leaves_The_Default()
     {
-        File.WriteAllText(StudioSettings.Store, "layout=sideways 1 nothing/x\n");
+        // The flat grammar an earlier arrangement wrote, which is not a tree and so falls back —
+        // and falling back is the migration.
+        File.WriteAllText(StudioSettings.Store, "layout=right 340 variables/1/variables/open\n");
 
         // Handed on as it was found — the grammar is not this class's business — and refused there.
-        Assert.Equal("sideways 1 nothing/x", StudioSettings.Layout);
+        Assert.Equal("right 340 variables/1/variables/open", StudioSettings.Layout);
 
         var viewer = new SvgViewer { Layout = StudioSettings.Layout };
 

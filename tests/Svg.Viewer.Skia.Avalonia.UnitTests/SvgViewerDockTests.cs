@@ -1,6 +1,7 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
@@ -204,7 +205,9 @@ public class SvgViewerDockTests
 
         var was = dock.Layout;
 
-        dock.Layout = "left 300 variables/1/variables/open;bottom 180 project+element+elements/1/element/open";
+        const string Arranged = "row(variables/300px/variables/open,col(*/1,project+element+elements/180px/element/open)/1)";
+
+        dock.Layout = Arranged;
 
         Lay(window);
 
@@ -212,9 +215,7 @@ public class SvgViewerDockTests
         Assert.True(panels[2].IsEffectivelyVisible);
         Assert.False(panels[3].IsEffectivelyVisible);
 
-        Assert.Equal(
-            "left 300 variables/1/variables/open;bottom 180 project+element+elements/1/element/open",
-            dock.Layout);
+        Assert.Equal(Arranged, dock.Layout);
 
         dock.Layout = was;
         Lay(window);
@@ -350,42 +351,79 @@ public class SvgViewerDockTests
     }
 
     [AvaloniaFact]
-    public void A_Panel_Dropped_On_The_Edge_Of_A_Run_Goes_Above_Or_Below_It()
+    public void A_Panel_Dropped_On_The_Edge_Of_A_Pane_Goes_Above_Or_Below_It()
     {
         var (window, dock, panels) = Host();
 
-        // The top of the run the attributes are in, which is below the variables to begin with.
+        // The top of the pane the attributes are in, which is below the variables to begin with.
         var element = panels[2];
         var top = element.TranslatePoint(new Point(element.Bounds.Width / 2d, 2d), window)!.Value;
 
         Carry(window, "Elements", top);
 
-        var order = dock.Layout.Split(' ').Where(word => word.Contains('/')).Select(word => word.Split('/')[0]).ToList();
-
-        Assert.Equal(new[] { "project", "variables", "elements", "element" }, order);
+        Assert.Equal(
+            new[] { "project", "variables", "elements", "element" },
+            Order(dock.Layout));
 
         window.Close();
     }
 
-    /// <summary>The drawing's own edges are how a side nothing is on yet is reached.</summary>
-    /// <remarks>There is no run there to aim at, so the band along that edge is the target.</remarks>
+    /// <summary>The panels named in a layout, in the order the line puts them.</summary>
+    private static IReadOnlyList<string> Order(string layout)
+        => layout.Split('(', ')', ',', '/')
+            .Where(word => word.Length > 0 && char.IsLetter(word[0]) && word is not ("row" or "col" or "open" or "folded"))
+            .Distinct()
+            .ToList();
+
+    /// <summary>
+    /// Dropped against the foot of the drawing, a panel sits under the drawing and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// The whole of why this is a tree. Three named sides made the foot a row of the body, so a panel
+    /// taken there ran the full width and cut the strip beside the drawing in half — with no way to
+    /// ask for anything else.
+    /// </remarks>
     [AvaloniaFact]
-    public void A_Panel_Dropped_On_The_Foot_Of_The_Drawing_Goes_Along_The_Bottom()
+    public void A_Panel_Dropped_Under_The_Drawing_Leaves_The_Strip_Alone()
     {
-        var (window, dock, _) = Host();
+        var (window, dock, panels) = Host();
 
+        var strip = panels[1].Bounds.Width;
         var drawing = window.GetVisualDescendants().OfType<Border>().First(found => found.Name == "drawing");
-        var foot = drawing.TranslatePoint(new Point(drawing.Bounds.Width / 2d, drawing.Bounds.Height - 8d), window)!.Value;
 
-        Carry(window, "Element", foot);
+        // Well inside the foot of the drawing, rather than against the body's own rim, which is what
+        // means "under everything".
+        var under = drawing.TranslatePoint(new Point(drawing.Bounds.Width / 2d, drawing.Bounds.Height - 60d), window);
 
-        Assert.Contains("bottom ", dock.Layout, StringComparison.Ordinal);
-        Assert.Contains("element/", dock.Layout.Split(';').Single(part => part.StartsWith("bottom", StringComparison.Ordinal)),
-            StringComparison.Ordinal);
+        Carry(window, "Element", under!.Value);
 
-        // And what is left on the right closes up behind it.
-        Assert.DoesNotContain("element/", dock.Layout.Split(';').Single(part => part.StartsWith("right", StringComparison.Ordinal)),
-            StringComparison.Ordinal);
+        // The drawing is what was divided, so the attributes are in a column with it.
+        Assert.Contains("col(*/", dock.Layout, StringComparison.Ordinal);
+
+        // And the strip beside it is untouched, which it was not before.
+        Assert.Equal(strip, panels[1].Bounds.Width, 1d);
+
+        window.Close();
+    }
+
+    /// <summary>Dropped against the body's own rim, the same panel runs under everything.</summary>
+    /// <remarks>The other half of the same gesture, and the reason there is no setting for it.</remarks>
+    [AvaloniaFact]
+    public void A_Panel_Dropped_On_The_Rim_Runs_Under_The_Whole_Body()
+    {
+        var (window, dock, panels) = Host();
+
+        var strip = panels[1].Bounds.Width;
+        var tall = panels[1].Bounds.Height;
+
+        Carry(window, "Element", new Point(window.Width / 2d, window.Height - 6d));
+
+        // The root itself was divided, so everything that was there is in a row inside a column.
+        Assert.StartsWith("col(row(", dock.Layout, StringComparison.Ordinal);
+
+        // The strip keeps its width and gives up height, which is what "under everything" costs.
+        Assert.Equal(strip, panels[1].Bounds.Width, 1d);
+        Assert.True(panels[1].Bounds.Height < tall, $"{panels[1].Bounds.Height} is not less than {tall}");
 
         window.Close();
     }
