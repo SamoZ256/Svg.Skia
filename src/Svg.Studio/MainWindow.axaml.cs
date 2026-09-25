@@ -1881,7 +1881,7 @@ public partial class MainWindow : Window
         // about where it came from.
         // A fresh target each time is the same place to write: GroupTarget is the group it is over.
         viewer.DeclarationTargetOf = name => Declaring(drawing, name) is { } holder
-            ? new GroupTarget(workspace, holder)
+            ? new GroupTarget(workspace, holder) { Held = held => DrawingOf(held)?.Text }
             : null;
 
         viewer.DeclaredBy = name => ProjectWorkspace.Label(

@@ -1720,7 +1720,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     string ISvgViewerDeclarationTarget.Text => Source;
 
     /// <inheritdoc />
-    string? ISvgViewerDeclarationTarget.Commit(string label, Func<SvgSourceDocument, string?> edit)
+    string? ISvgViewerDeclarationTarget.Commit(
+        string label,
+        Func<SvgSourceDocument, string?> edit,
+        SvgDeclarationRename? rename = null)
     {
         if (_workspace is not { } workspace)
         {
@@ -1770,7 +1773,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// The refusal is reported here either way, so a host supplying a target has one thing to do
     /// with an edit and nothing to say about it.
     /// </remarks>
-    private bool Write(string name, string label, Func<SvgSourceDocument, string?> edit)
+    private bool Write(
+        string name,
+        string label,
+        Func<SvgSourceDocument, string?> edit,
+        SvgDeclarationRename? rename = null)
     {
         if (TargetFor(name) is not { } target)
         {
@@ -1779,7 +1786,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         var was = target.Text;
 
-        if (target.Commit(label, edit) is { } refusal)
+        if (target.Commit(label, edit, rename) is { } refusal)
         {
             ShowNote(refusal);
 

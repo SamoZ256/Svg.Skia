@@ -2,13 +2,23 @@
 
 ## Unreleased
 
-* **Renaming a variable carries every use of it, wherever the use is.** What an element *says* was
-  a place a rename went round, leaving a drawing that still parsed and no longer drew:
-  `<text>{{ label }}</text>` binds a variable exactly as an attribute does — it has its own row in
-  the element panel, and a variable can be dropped onto it — but the walk that carries a rename only
-  ever visited attributes and `<e:let>` bodies. The same walk answers "how often is this used", so a
-  variable only a text named could also be removed without a word. Both are fixed at the walk, so
-  renaming, counting and the removal refusal all learned about it together.
+* **Renaming a variable carries every use of it, wherever the use is.** Two places a rename went
+  round, each of which left a drawing that still parsed and no longer drew. What an element *says*
+  was one: `<text>{{ label }}</text>` binds a variable exactly as an attribute does — it has its own
+  row in the element panel, and a variable can be dropped onto it — but the walk that carries a
+  rename only ever visited attributes and `<e:let>` bodies. The same walk answers "how often is this
+  used", so a variable only a text named could also be removed without a word. Both are fixed at the
+  walk, so renaming, counting and the removal refusal all learned about it together.
+
+  The other was a group. A group declares for the drawings under it, and the rename stopped at the
+  group's own block — so every drawing beneath it went on naming something gone, and not even
+  visibly: what gets written into a drawing is narrowed to the names it reaches, so the renamed
+  parameter stopped being written in at all. A group's rename now reaches every drawing and every
+  nested block beneath it, as one thing to take back. It is worked out before any of it is written,
+  so a drawing that cannot be read, or that declares the new name itself, refuses the whole rename
+  and names itself while doing it — nothing is left half renamed. A drawing open in a tab with edits
+  nobody has saved refuses too, because saving that tab afterwards would write the old name back
+  over the rename for that one drawing.
 
 * **An expression variable is a variable like the others.** Its name was a box you typed over, which
   made it the one variable that could not be dragged onto the attribute it should drive — a press

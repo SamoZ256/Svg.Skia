@@ -12,6 +12,14 @@ using Svg.Expressions;
 
 namespace Svg.SourceEditing;
 
+/// <summary>A name being changed, and what it is being changed to.</summary>
+/// <remarks>
+/// Carried rather than inferred, because the document being written is not always the one that has
+/// to change: a Svg.Studio group declares for its drawings, and they are where the uses are. What
+/// holds the declaration knows it is renaming; the documents around it have to be told.
+/// </remarks>
+public readonly record struct SvgDeclarationRename(string From, string To);
+
 /// <summary>
 /// The <c>&lt;e:code&gt;</c> block, written into the tree rather than into the text it came from.
 /// </summary>
@@ -214,6 +222,27 @@ public static class SvgDeclarationEditor
         }
 
         return SvgDeclarationReferences.Walk(source.Document, name, null, out var count) is { } ? 1 : count;
+    }
+
+    /// <summary>Carries a rename through a document that uses a name but does not declare it.</summary>
+    /// <remarks>
+    /// The other half of <see cref="Uses"/>, which is the same walk asked to count rather than to
+    /// write. For a host whose documents declare on one another's behalf: renaming the declaration
+    /// is the easy half, and every drawing that names it has to be carried along or it goes on
+    /// parsing and stops drawing.
+    ///
+    /// Uses only. Nothing here touches a declaration, because a document that declares the name is
+    /// renamed through <see cref="Update"/> or <see cref="UpdateLet"/> instead.
+    /// </remarks>
+    /// <returns>The sentence refusing it, or null where every use was carried.</returns>
+    public static string? Rename(SvgSourceDocument source, string name, string newName)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        return SvgDeclarationReferences.Walk(source.Document, name, newName, out _);
     }
 
     /// <inheritdoc cref="UpdateLet(string, string, string, string)"/>

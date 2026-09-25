@@ -25,8 +25,14 @@ public interface ISvgViewerDeclarationTarget
     /// </summary>
     /// <param name="label">What the person did, for a menu to name what it would take back.</param>
     /// <param name="edit">The mutation, answering null or the sentence refusing it.</param>
+    /// <param name="rename">
+    /// The name this edit is changing, where it is changing one. A document that declares for
+    /// others carries it into them, in this same gesture: done beside the edit instead, the
+    /// declaration and the uses would be two things to take back rather than one. Null, and for
+    /// every host that declares only for itself, this is the edit on its own.
+    /// </param>
     /// <returns>The refusal, or null where the edit was made or would have changed nothing.</returns>
-    string? Commit(string label, Func<SvgSourceDocument, string?> edit);
+    string? Commit(string label, Func<SvgSourceDocument, string?> edit, SvgDeclarationRename? rename = null);
 
     /// <summary>How often a name this document declares is used outside it.</summary>
     /// <remarks>

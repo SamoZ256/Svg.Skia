@@ -187,7 +187,7 @@ public class SvgViewerTests
 
         public string Text { get; private set; }
 
-        public string? Commit(string label, Func<SvgSourceDocument, string?> edit)
+        public string? Commit(string label, Func<SvgSourceDocument, string?> edit, SvgDeclarationRename? rename = null)
         {
             if (SvgSourceDocument.Read(Text, out var unreadable) is not { } source)
             {

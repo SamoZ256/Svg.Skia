@@ -11,6 +11,23 @@ using Svg.SourceEditing;
 
 namespace Svg.Viewer.Skia.Avalonia;
 
+/// <summary>Puts one declaration edit wherever the declarations live.</summary>
+/// <remarks>
+/// A named delegate rather than a <c>Func</c> of four things, so that <paramref name="rename"/> can
+/// be left off: every command but the two that rename one passes three arguments, as they always
+/// did.
+/// </remarks>
+/// <param name="name">The declaration the edit is about, for a host that writes to several documents.</param>
+/// <param name="label">What the person did, for a menu to name what it would take back.</param>
+/// <param name="edit">The mutation, answering null or the sentence refusing it.</param>
+/// <param name="rename">The name being changed, where one is, so a host can carry it into the documents that use it.</param>
+/// <returns>Whether the document changed.</returns>
+public delegate bool SvgViewerDeclarationWrite(
+    string name,
+    string label,
+    Func<SvgSourceDocument, string?> edit,
+    SvgDeclarationRename? rename = null);
+
 /// <summary>
 /// What the declaration panel's buttons do, for whatever is hosting it.
 /// </summary>
@@ -29,7 +46,7 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// </remarks>
 public sealed class SvgViewerDeclarationCommands
 {
-    private readonly Func<string, string, Func<SvgSourceDocument, string?>, bool> _write;
+    private readonly SvgViewerDeclarationWrite _write;
     private readonly Func<IReadOnlyList<SvgViewerParameter>> _rows;
     private readonly Func<ISvgViewerParameterDialogService> _dialogs;
 
@@ -49,7 +66,7 @@ public sealed class SvgViewerDeclarationCommands
     /// test does exactly that.
     /// </param>
     public SvgViewerDeclarationCommands(
-        Func<string, string, Func<SvgSourceDocument, string?>, bool> write,
+        SvgViewerDeclarationWrite write,
         Func<IReadOnlyList<SvgViewerParameter>> rows,
         Func<ISvgViewerParameterDialogService> dialogs)
     {
@@ -120,8 +137,16 @@ public sealed class SvgViewerDeclarationCommands
             .EditAsync(owner, taken, parameter.Declaration)
             .ConfigureAwait(true);
 
-        return replacement is { } wanted
-            && _write(parameter.Name, $"change {parameter.Name}", source => SvgDeclarationEditor.Update(source, parameter.Name, wanted));
+        if (replacement is not { } wanted)
+        {
+            return false;
+        }
+
+        return _write(
+            parameter.Name,
+            $"change {parameter.Name}",
+            source => SvgDeclarationEditor.Update(source, parameter.Name, wanted),
+            Renaming(parameter.Name, wanted.Name));
     }
 
     /// <summary>Asks for an expression variable to declare, and answers what was asked for.</summary>
@@ -187,6 +212,10 @@ public sealed class SvgViewerDeclarationCommands
             .Where(name => name.Length > 0)
             .ToList();
 
+    /// <summary>The rename an edit is making, or null where the name is staying as it is.</summary>
+    private static SvgDeclarationRename? Renaming(string from, string to)
+        => string.Equals(from, to, StringComparison.Ordinal) ? null : new SvgDeclarationRename(from, to);
+
     /// <summary>Nothing in scope, for a host that does not say what is.</summary>
     private static IReadOnlyDictionary<string, ExprType> Nothing { get; } = new Dictionary<string, ExprType>();
 
@@ -238,7 +267,11 @@ public sealed class SvgViewerDeclarationCommands
         var expression = let.Expression.Trim();
 
         return let.Declaration is { } declared
-            ? _write(declared.Name, $"change {declared.Name}", source => SvgDeclarationEditor.UpdateLet(source, declared.Name, name, expression))
+            ? _write(
+                declared.Name,
+                $"change {declared.Name}",
+                source => SvgDeclarationEditor.UpdateLet(source, declared.Name, name, expression),
+                Renaming(declared.Name, name))
             : _write(name, $"add {name}", source => SvgDeclarationEditor.AddLet(source, name, expression));
     }
 

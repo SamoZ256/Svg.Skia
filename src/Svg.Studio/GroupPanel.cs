@@ -916,7 +916,7 @@ public sealed class GroupPanel : UserControl
 
         if (!_targets.TryGetValue(group, out var target))
         {
-            target = new GroupTarget(Workspace, group);
+            target = new GroupTarget(Workspace, group) { Held = held => TargetOf?.Invoke(held)?.Text };
             _targets[group] = target;
         }
 
@@ -1165,13 +1165,21 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>Puts a declaration edit into the group that holds it, or says why it would not go.</summary>
-    private bool Splice(string name, string label, Func<SvgSourceDocument, string?> edit)
+    /// <remarks>
+    /// The rename goes with it rather than being made here: the group holds the declaration and its
+    /// drawings hold the uses, and the target is the only thing that knows where both are.
+    /// </remarks>
+    private bool Splice(
+        string name,
+        string label,
+        Func<SvgSourceDocument, string?> edit,
+        SvgDeclarationRename? rename = null)
     {
         var target = TargetFor(Holder(name));
 
         var was = target.Text;
 
-        if (target.Commit(label, edit) is { } refusal)
+        if (target.Commit(label, edit, rename) is { } refusal)
         {
             Says(refusal);
 

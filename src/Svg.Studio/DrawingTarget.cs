@@ -36,7 +36,7 @@ public sealed class DrawingTarget : ISvgViewerDeclarationTarget
     /// consistent with, and a document kept across writes would be one more thing that could come to
     /// disagree with the project it was read from.
     /// </remarks>
-    public string? Commit(string label, Func<SvgSourceDocument, string?> edit)
+    public string? Commit(string label, Func<SvgSourceDocument, string?> edit, SvgDeclarationRename? rename = null)
     {
         if (edit is null)
         {
