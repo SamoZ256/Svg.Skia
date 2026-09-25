@@ -301,7 +301,9 @@ public sealed class GroupPanel : UserControl
                 () => ParameterDialogService)
             {
                 Holder = name => Holder(name),
-                UsedElsewhere = name => TargetFor(Holder(name)).UsesElsewhere(name)
+                UsedElsewhere = name => TargetFor(Holder(name)).UsesElsewhere(name),
+                Lets = () => _parameters.Lets,
+                Scope = let => _parameters.ScopeFor(let)
             };
 
             // What declares each row. Every row, including this group's own: the panel groups the
@@ -313,6 +315,7 @@ public sealed class GroupPanel : UserControl
 
         _parameters.ValueChanged += (_, _) => Bind();
         _parameters.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
+        _parameters.AddExpressionRequested += async (_, _) => await AddLetAsync().ConfigureAwait(true);
         _parameters.CommitRequested += (_, _) => CommitDefaults();
         _parameters.EditRequested += async (_, row) =>
         {
@@ -322,6 +325,13 @@ public sealed class GroupPanel : UserControl
             }
         };
         _parameters.RemoveRequested += (_, row) => _commands?.Remove(row);
+        _parameters.LetEditRequested += async (_, let) =>
+        {
+            if (_commands is { } commands)
+            {
+                await commands.EditLetAsync(TopLevel.GetTopLevel(this), let).ConfigureAwait(true);
+            }
+        };
         _parameters.LetCommitted += async (_, let) => await CommitLetAsync(let).ConfigureAwait(true);
         _parameters.LetRemoveRequested += (_, let) => _commands?.RemoveLet(let);
         _parameters.LetMoveRequested = (let, to) => _commands?.MoveLet(let, to) == true;
@@ -1035,6 +1045,37 @@ public sealed class GroupPanel : UserControl
         => candidate is ProjectDrawing
             ? $"{ProjectWorkspace.Label(candidate)} — this drawing alone"
             : $"{ProjectWorkspace.Label(candidate)} — every drawing in it";
+
+    /// <summary>
+    /// Asks for an expression variable, and either writes it or starts the row that will.
+    /// </summary>
+    /// <remarks>
+    /// Where it goes is not asked here even when the form gives a whole one: the question belongs
+    /// to the write, and <see cref="CommitLetAsync"/> is the one place that asks it.
+    /// </remarks>
+    /// <returns>Whether anything was written.</returns>
+    public async Task<bool> AddLetAsync()
+    {
+        if (_commands is not { } commands)
+        {
+            return false;
+        }
+
+        if (await commands.AskLetAsync(TopLevel.GetTopLevel(this)).ConfigureAwait(true) is not { } asked)
+        {
+            return false;
+        }
+
+        if (asked.Expression.Length == 0)
+        {
+            _parameters.AddExpression(asked.Name);
+
+            return false;
+        }
+
+        return await CommitLetAsync(new SvgViewerLet(null) { Name = asked.Name, Expression = asked.Expression })
+            .ConfigureAwait(true);
+    }
 
     /// <summary>
     /// Writes what a let row says, asking where a new one goes.

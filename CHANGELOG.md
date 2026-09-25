@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+* **An expression variable is a variable like the others.** Its name was a box you typed over, which
+  made it the one variable that could not be dragged onto the attribute it should drive — a press
+  inside a text box belongs to the caret, so the gesture every other variable has was unreachable on
+  exactly the kind most likely to be worth binding. The name is a label now, with the hand cursor and
+  the tooltip a value's has, and it carries onto a row the same way; and the row has the `⋯` a value
+  row has, opening a form with the name and the body in it. **Add variable… → Expression…** asks for
+  the name first, and leaves the row with the caret in its body, which is still where a body is
+  written — what it comes to and what is wrong with it are said there as it is typed, rather than in
+  one sentence after the fact. A row nobody has written yet has no `⋯`, as it has no grip: there is
+  nothing for a form to change that the row is not already holding.
+
 * **Panels split panes instead of taking sides, and the project tree is one of them.** A panel
   dropped along the bottom ran the full width of the window and cut the strip beside the drawing in
   half, with no way to ask for anything else — the foot was a row of the body and the sides were

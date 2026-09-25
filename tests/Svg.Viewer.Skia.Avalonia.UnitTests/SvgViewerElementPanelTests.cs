@@ -449,11 +449,17 @@ public class SvgViewerElementPanelTests
     // ---- a variable dragged onto a row -----------------------------------------------------------
 
     /// <summary>A drawing declaring one of each kind, so a drop can be offered the wrong one.</summary>
+    /// <remarks>
+    /// An expression among the values, because what a drag carries is a name and nothing else: a
+    /// let reaches a row through the same payload and the same check, and nothing between the two
+    /// panels knows which kind it came from.
+    /// </remarks>
     private const string Bound = """
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
           <defs><e:code>
             <e:param name="tint" type="color" default="#ff0000" />
             <e:param name="ring" type="number" default="2" />
+            <e:let name="soft">mix(tint, #ffffff, 0.5)</e:let>
           </e:code></defs>
           <g id="wrap">
             <rect x="0" y="0" width="24" height="24" fill="#00ff00" transform="rotate(5)" />
@@ -513,6 +519,20 @@ public class SvgViewerElementPanelTests
         Assert.Contains("fill=\"{{ tint }}\"", held.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("#00ff00\" transform", held.Text, StringComparison.Ordinal);
         Assert.Equal("{{ tint }}", held.Panel.Shown("fill"));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void An_Expression_Variable_Lands_The_Same_Way_A_Value_Does()
+    {
+        var held = new Held(Bound);
+        var window = held.Show("1/0");
+
+        Carry(window, Box(window, "fill"), "soft");
+
+        Assert.Contains("fill=\"{{ soft }}\"", held.Text, StringComparison.Ordinal);
+        Assert.Equal("{{ soft }}", held.Panel.Shown("fill"));
 
         window.Close();
     }

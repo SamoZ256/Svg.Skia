@@ -245,9 +245,9 @@
     </DataTemplate>
 
     <!--
-      Both fields in place, which is why adding a let is an empty row and not a form: there would be
-      nothing in the form the row does not already have. The value on the right is what the let
-      evaluates to right now, and is the whole reason to show a let here rather than in the source.
+      The same row as a value's: a name to point at and drag, and a ⋯ that opens the form. The body
+      stays in the row, where what it comes to and what is wrong with it are said as it is typed, and
+      the value on the right is the whole reason to show a let here rather than in the source.
     -->
     <DataTemplate DataType="viewer:SvgViewerLet">
       <StackPanel>
@@ -255,22 +255,28 @@
         <StackPanel Spacing="3" Margin="0,0,0,12" Classes="row">
 
           <!-- The name and what it is worth; the body gets its own line below. -->
-          <Grid ColumnDefinitions="Auto,130,*,Auto">
+          <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
             <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
                     PointerPressed="OnGripPressed"
                     ToolTip.Tip="Drag to reorder. A let can only name what is declared above it.">
               <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
-            <TextBox Grid.Column="1" Classes="field"
-                     Text="{Binding Name, Mode=TwoWay}"
-                     PlaceholderText="name"
-                     PointerPressed="OnNamePressed"
-                     KeyDown="OnLetKeyDown" LostFocus="OnLetLostFocus" />
+            <Border Grid.Column="1" Classes="name" Background="Transparent"
+                    PointerPressed="OnNamePressed"
+                    ToolTip.Tip="Drag onto an attribute below to write this variable into it.">
+              <TextBlock Text="{Binding Name}" FontFamily="monospace"
+                         HorizontalAlignment="Left" VerticalAlignment="Center" />
+            </Border>
             <TextBlock Grid.Column="2" Text="{Binding Readout}" Opacity="0.55" FontSize="11"
-                       FontFamily="monospace" TextTrimming="CharacterEllipsis"
+                       FontFamily="monospace" TextTrimming="CharacterEllipsis" MaxWidth="140"
                        HorizontalAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0"
                        IsVisible="{Binding !HasTrouble}" />
-            <Button Grid.Column="3" Classes="edit" Content="✕" Click="OnRemoveLetClick"
+            <!-- Not on a row nobody has written yet, as the grip is not: there is nothing for a
+                 form to change that the row is not already holding. -->
+            <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditLetClick"
+                    IsVisible="{Binding !IsDraft}"
+                    ToolTip.Tip="Edit this variable" />
+            <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveLetClick"
                     ToolTip.Tip="Remove this let. Refused while the drawing still uses it." />
           </Grid>
 

@@ -246,13 +246,17 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             () => ParameterDialogService)
         {
             Holder = name => DeclarationTargetOf?.Invoke(name) ?? DeclarationTarget,
-            UsedElsewhere = name => TargetFor(name)?.UsesElsewhere(name) ?? 0
+            UsedElsewhere = name => TargetFor(name)?.UsesElsewhere(name) ?? 0,
+            Lets = () => _panel.Lets,
+            Scope = let => _panel.ScopeFor(let)
         };
 
         _panel.AddRequested += async (_, _) => await AddParameterAsync().ConfigureAwait(true);
+        _panel.AddExpressionRequested += async (_, _) => await AddLetAsync().ConfigureAwait(true);
         _panel.CommitRequested += (_, _) => CommitParameterDefaults();
         _panel.EditRequested += async (_, row) => await EditParameterAsync(row).ConfigureAwait(true);
         _panel.RemoveRequested += (_, row) => RemoveParameter(row);
+        _panel.LetEditRequested += async (_, let) => await EditLetAsync(let).ConfigureAwait(true);
         _panel.LetCommitted += (_, let) => CommitLet(let);
         _panel.LetMoveRequested = MoveLet;
         _panel.ParameterMoveRequested = MoveParameter;
@@ -1888,6 +1892,70 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
 
         return _commands.SetDefaults();
+    }
+
+    /// <summary>
+    /// Asks for an expression variable, and either writes it or starts the row that will.
+    /// </summary>
+    /// <remarks>
+    /// The form is asked for the name, because a name is what the row can no longer be typed over
+    /// to change. A body given with it is written straight away; one left out leaves a row under
+    /// that name with the caret in it, which is where what a body comes to is said as it is typed.
+    /// </remarks>
+    /// <returns>Whether the drawing was changed.</returns>
+    public async Task<bool> AddLetAsync()
+    {
+        if (_document is null)
+        {
+            return false;
+        }
+
+        if (!Editable())
+        {
+            return false;
+        }
+
+        if (await _commands.AskLetAsync(TopLevel.GetTopLevel(this)).ConfigureAwait(true) is not { } asked)
+        {
+            return false;
+        }
+
+        if (asked.Expression.Length == 0)
+        {
+            _panel.AddExpression(asked.Name);
+
+            return false;
+        }
+
+        return CommitLet(new SvgViewerLet(null) { Name = asked.Name, Expression = asked.Expression });
+    }
+
+    /// <summary>
+    /// Asks what one expression variable should say, and writes the answer into the drawing.
+    /// </summary>
+    /// <remarks>
+    /// A rename is an edit everywhere the drawing names it, and the whole of it is one thing to
+    /// take back — the same as renaming a value.
+    /// </remarks>
+    /// <returns>Whether the drawing was changed.</returns>
+    public async Task<bool> EditLetAsync(SvgViewerLet let)
+    {
+        if (let is null)
+        {
+            throw new ArgumentNullException(nameof(let));
+        }
+
+        if (_document is null)
+        {
+            return false;
+        }
+
+        if (!Editable())
+        {
+            return false;
+        }
+
+        return await _commands.EditLetAsync(TopLevel.GetTopLevel(this), let).ConfigureAwait(true);
     }
 
     /// <summary>

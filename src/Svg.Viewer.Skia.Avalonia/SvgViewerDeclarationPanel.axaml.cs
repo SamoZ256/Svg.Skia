@@ -106,11 +106,22 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// </remarks>
     public event EventHandler? AddRequested;
 
+    /// <summary>Raised when somebody asks to declare an expression variable.</summary>
+    /// <remarks>
+    /// Separate from <see cref="AddRequested"/> because the two are asked for different things, and
+    /// answered differently: a value is written whole, while an expression's form gives the name and
+    /// the body is typed in the row it starts.
+    /// </remarks>
+    public event EventHandler? AddExpressionRequested;
+
     /// <summary>Raised when somebody asks for the current values to become the declared defaults.</summary>
     public event EventHandler? CommitRequested;
 
     /// <summary>Raised when somebody asks to change what one parameter declares.</summary>
     public event EventHandler<SvgViewerParameter>? EditRequested;
+
+    /// <summary>Raised when somebody asks to change what one expression variable declares.</summary>
+    public event EventHandler<SvgViewerLet>? LetEditRequested;
 
     /// <summary>Raised when somebody asks to take one parameter out of the drawing.</summary>
     public event EventHandler<SvgViewerParameter>? RemoveRequested;
@@ -385,16 +396,16 @@ public partial class SvgViewerDeclarationPanel : UserControl
     /// <summary>Asks which kind of variable to add, and starts it.</summary>
     /// <remarks>
     /// One button for both, because to somebody adding one they are both variables. The kinds are
-    /// offered here rather than inside the value form: an expression is written in its own row,
-    /// where what it comes to and what is wrong with it are said as it is typed, and asking for a
-    /// body in a modal would trade that for a sentence after the fact.
+    /// offered here rather than inside the value form: the two ask for different things, and an
+    /// expression's form does not insist on a body, because a body is written in its own row where
+    /// what it comes to and what is wrong with it are said as it is typed.
     /// </remarks>
     private void Offer()
     {
         var menu = new MenuFlyout { Placement = PlacementMode.Bottom };
 
         menu.Items.Add(Choice("Value…", () => AddRequested?.Invoke(this, EventArgs.Empty)));
-        menu.Items.Add(Choice("Expression", AddExpression));
+        menu.Items.Add(Choice("Expression…", () => AddExpressionRequested?.Invoke(this, EventArgs.Empty)));
 
         menu.ShowAt(_addButton);
     }
@@ -408,14 +419,15 @@ public partial class SvgViewerDeclarationPanel : UserControl
         return item;
     }
 
-    /// <summary>Starts an expression, as the button's menu does.</summary>
+    /// <summary>Starts an expression called <paramref name="name"/>, as the button's menu does.</summary>
     /// <remarks>Taking no pointer, so everything but the menu itself can be driven.</remarks>
-    public void AddExpression() => Draft();
+    public void AddExpression(string name = "") => Draft(name);
 
-    /// <summary>Puts an empty row at the end and asks for the keyboard.</summary>
-    private void Draft()
+    /// <summary>Puts a row with nothing but its name at the end and asks for the keyboard.</summary>
+    /// <remarks>The body is the only box the row has, so it is the descendant found below.</remarks>
+    private void Draft(string name)
     {
-        var draft = new SvgViewerLet(null);
+        var draft = new SvgViewerLet(null) { Name = name };
 
         Add(draft);
 
@@ -445,6 +457,14 @@ public partial class SvgViewerDeclarationPanel : UserControl
         if (sender is Control { DataContext: SvgViewerParameter parameter })
         {
             EditRequested?.Invoke(this, parameter);
+        }
+    }
+
+    private void OnEditLetClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: SvgViewerLet let })
+        {
+            LetEditRequested?.Invoke(this, let);
         }
     }
 
@@ -622,6 +642,36 @@ public partial class SvgViewerDeclarationPanel : UserControl
         }
     }
 
+    /// <summary>What is in scope where <paramref name="let"/> sits, or below all of them for null.</summary>
+    /// <remarks>
+    /// The walk <see cref="Validate"/> makes, stopped at one row. A form editing a body has to check
+    /// it against the types the row is checked against: told that everything is a number, it would
+    /// call <c>mix(tint, #000000, 0.5)</c> wrong.
+    /// </remarks>
+    public IReadOnlyDictionary<string, ExprType> ScopeFor(SvgViewerLet? let)
+    {
+        var symbols = Symbols();
+
+        foreach (var above in _lets)
+        {
+            if (ReferenceEquals(above, let))
+            {
+                break;
+            }
+
+            try
+            {
+                symbols[above.Name.Trim()] = new ExprChecker(symbols).Check(above.Expression).Type;
+            }
+            catch (ExprException)
+            {
+                // A row that does not resolve declares nothing, which is what the checker says of it.
+            }
+        }
+
+        return symbols;
+    }
+
     /// <summary>What is in scope before any let: the parameters, by name and type.</summary>
     private Dictionary<string, ExprType> Symbols()
     {
@@ -675,13 +725,6 @@ public partial class SvgViewerDeclarationPanel : UserControl
         if (sender is not Control { DataContext: SvgViewerVariable row }
             || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
             || NameOf(row) is not { Length: > 0 })
-        {
-            return;
-        }
-
-        // A let's name is a box it is typed in. A press inside one that already has the caret
-        // belongs to the caret — selecting a word must not carry the name off.
-        if (sender is TextBox { IsFocused: true })
         {
             return;
         }

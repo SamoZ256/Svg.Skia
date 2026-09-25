@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -19,9 +20,9 @@ namespace Svg.Viewer.Skia.Avalonia.UnitTests;
 /// </summary>
 /// <remarks>
 /// The splice itself is pinned in Svg.SourceEditing.UnitTests against far more awkward documents;
-/// here it only has to arrive. What is new is that a row is edited in place rather than through a
+/// here it only has to arrive. What is new is that the body is typed in the row rather than in the
 /// form, so what these ask is when a half-typed row reaches the drawing — which is never — and what
-/// the row says back while it is being typed.
+/// the row says back while it is being typed. The name is the form's, as a value's is.
 /// </remarks>
 public class SvgViewerLetEditingTests
 {
@@ -50,9 +51,16 @@ public class SvgViewerLetEditingTests
         </svg>
         """;
 
-    private static async Task<(Window Window, SvgViewer Viewer)> HostLoaded(string markup)
+    private static async Task<(Window Window, SvgViewer Viewer)> HostLoaded(
+        string markup,
+        ISvgViewerParameterDialogService? dialogs = null)
     {
         var viewer = new SvgViewer();
+
+        if (dialogs is { })
+        {
+            viewer.ParameterDialogService = dialogs;
+        }
 
         var window = new Window
         {
@@ -492,7 +500,7 @@ public class SvgViewerLetEditingTests
         Dispatcher.UIThread.RunJobs();
 
         var row = Row(viewer, "deep");
-        var box = Box(viewer, row, "name");
+        var box = Box(viewer, row, "expression");
 
         box.Focus();
         row.Name = "shadow";
@@ -559,4 +567,226 @@ public class SvgViewerLetEditingTests
         => viewer.GetVisualDescendants()
             .OfType<Button>()
             .Single(button => ReferenceEquals(button.DataContext, row) && button.Content as string == "✕");
+
+    // ---- the form behind the row's button ----
+
+    /// <summary>
+    /// The row's ⋯ opens the form on what the drawing declares.
+    /// </summary>
+    /// <remarks>
+    /// The same button a value row wears, asking the same question. A name is not typed over in the
+    /// row any more — the row's name is a handle to drag onto an attribute — so this is where one
+    /// is changed.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task The_Row_Button_Opens_The_Form_On_What_Is_Declared()
+    {
+        var dialogs = new StubLetDialogService(null);
+        var (window, viewer) = await HostLoaded(Grouped, dialogs);
+
+        Edit(viewer, Row(viewer, "deep")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Settle();
+
+        Assert.Equal("deep", dialogs.Asked?.Name);
+        Assert.Equal("mix(tint, #000000, 0.5)", dialogs.Asked?.Expression);
+
+        // Its own name is not one it clashes with; the value above it is.
+        Assert.Equal(new[] { "tint" }, dialogs.Taken!.ToArray());
+
+        // And that value arrives with its type, which is what lets mix() be handed it.
+        Assert.Equal(ExprType.Color, dialogs.Scope!["tint"]);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Rename_From_The_Form_Moves_Its_Uses()
+    {
+        var (window, viewer) = await HostLoaded(
+            Grouped,
+            new StubLetDialogService(new SvgExpressionLet("shadow", "mix(tint, #000000, 0.5)")));
+
+        Edit(viewer, Row(viewer, "deep")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Settle();
+
+        Assert.Equal(new[] { "shadow" }, viewer.Lets.Select(let => let.Name).ToArray());
+        Assert.Contains("{{ shadow }}", viewer.Source);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// Adding an expression asks for the name, and leaves the body to the row.
+    /// </summary>
+    /// <remarks>
+    /// The half of the old empty row that could not survive the name becoming a label. The body is
+    /// still typed in the row, where what it comes to and what is wrong with it are said as it is
+    /// typed rather than in one sentence after the fact.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Adding_An_Expression_Asks_For_A_Name_And_Leaves_A_Row_To_Type_In()
+    {
+        var (window, viewer) = await HostLoaded(
+            Grouped,
+            new StubLetDialogService(new SvgExpressionLet("deeper", string.Empty)));
+
+        Assert.False(await viewer.AddLetAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        var draft = Assert.Single(viewer.Lets, let => let.IsDraft);
+
+        Assert.Equal("deeper", draft.Name);
+        Assert.Equal(string.Empty, draft.Expression);
+
+        // Nothing is written: a name on its own is an intention, not a declaration.
+        Assert.False(viewer.IsSourceModified);
+
+        // And the caret is in the one box the row has, which is the body.
+        var focused = TopLevel.GetTopLevel(viewer)?.FocusManager?.GetFocusedElement() as TextBox;
+
+        Assert.Same(draft, focused?.DataContext);
+        Assert.Equal("expression", focused?.PlaceholderText);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task An_Expression_Given_A_Body_In_The_Form_Is_Written_Straight_Away()
+    {
+        var (window, viewer) = await HostLoaded(
+            Grouped,
+            new StubLetDialogService(new SvgExpressionLet("deeper", "mix(deep, #000000, 0.5)")));
+
+        Assert.True(await viewer.AddLetAsync());
+        await Settle();
+
+        Assert.Equal(new[] { "deep", "deeper" }, viewer.Lets.Select(let => let.Name).ToArray());
+        Assert.Contains("""<e:let name="deeper">mix(deep, #000000, 0.5)</e:let>""", viewer.Source);
+        Assert.DoesNotContain(viewer.Lets, let => let.IsDraft);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void The_Form_Refuses_A_Name_Another_Variable_Holds()
+    {
+        var form = Form();
+        var window = new Window { Width = 400, Height = 400, Content = form };
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Fill(form, "tint", "1");
+
+        Assert.Null(form.TryBuild(out var trouble));
+        Assert.Contains("'tint'", trouble);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A body is checked against the types in scope, not against the names alone.
+    /// </summary>
+    /// <remarks>
+    /// Told that everything is a number — which is all a list of names could say — the checker would
+    /// refuse <c>mix(tint, #000000, 0.5)</c>, which is the ordinary let this drawing declares.
+    /// </remarks>
+    [AvaloniaFact]
+    public void The_Form_Checks_A_Body_Against_The_Types_In_Scope()
+    {
+        var form = Form();
+        var window = new Window { Width = 400, Height = 400, Content = form };
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Fill(form, "shade", "mix(tint, #000000, 0.5)");
+
+        Assert.Equal("shade", form.TryBuild(out var trouble)?.Name);
+        Assert.Null(trouble);
+
+        Fill(form, "shade", "nowhere + 1");
+
+        Assert.Null(form.TryBuild(out trouble));
+        Assert.NotNull(trouble);
+
+        window.Close();
+    }
+
+    /// <summary>A name on its own is enough to add one, and not to change one.</summary>
+    /// <remarks>
+    /// Saving a declared let with no body would take it out of the drawing, and a form wearing a
+    /// Save button is not where a removal should be spelled.
+    /// </remarks>
+    [AvaloniaFact]
+    public void The_Form_Takes_A_Name_On_Its_Own_Only_While_Adding()
+    {
+        var form = Form();
+        var window = new Window { Width = 400, Height = 400, Content = form };
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Fill(form, "shade", string.Empty);
+
+        Assert.Equal(string.Empty, form.TryBuild(out var trouble)?.Expression);
+        Assert.Null(trouble);
+
+        form.Initialize(new SvgExpressionLet("shade", "tint"));
+        Fill(form, "shade", string.Empty);
+
+        Assert.Null(form.TryBuild(out trouble));
+        Assert.NotNull(trouble);
+
+        window.Close();
+    }
+
+    /// <summary>A form over a drawing declaring one colour, which is what Grouped declares.</summary>
+    private static SvgLetFormView Form()
+        => new()
+        {
+            Taken = new[] { "tint" },
+            Scope = new Dictionary<string, ExprType> { ["tint"] = ExprType.Color }
+        };
+
+    private static void Fill(SvgLetFormView form, string name, string expression)
+    {
+        form.GetVisualDescendants().OfType<TextBox>().First(box => box.Name == "NameBox").Text = name;
+        form.GetVisualDescendants().OfType<TextBox>().First(box => box.Name == "ExpressionBox").Text = expression;
+    }
+
+    private static Button Edit(SvgViewer viewer, SvgViewerLet row)
+        => viewer.GetVisualDescendants()
+            .OfType<Button>()
+            .Single(button => ReferenceEquals(button.DataContext, row) && button.Content as string == "⋯");
+
+    private sealed class StubLetDialogService : ISvgViewerParameterDialogService
+    {
+        private readonly SvgExpressionLet? _answer;
+
+        public StubLetDialogService(SvgExpressionLet? answer) => _answer = answer;
+
+        /// <summary>What the form was shown, so a test can assert on what it was offered.</summary>
+        public SvgExpressionLet? Asked { get; private set; }
+
+        public IReadOnlyCollection<string>? Taken { get; private set; }
+
+        public IReadOnlyDictionary<string, ExprType>? Scope { get; private set; }
+
+        public Task<SvgExpressionParameter?> AskAsync(TopLevel? owner, IReadOnlyCollection<string> taken)
+            => Task.FromResult<SvgExpressionParameter?>(null);
+
+        public Task<SvgExpressionLet?> AskLetAsync(
+            TopLevel? owner,
+            IReadOnlyCollection<string> taken,
+            IReadOnlyDictionary<string, ExprType> scope,
+            SvgExpressionLet? existing)
+        {
+            Asked = existing;
+            Taken = taken;
+            Scope = scope;
+
+            return Task.FromResult(_answer);
+        }
+    }
 }
