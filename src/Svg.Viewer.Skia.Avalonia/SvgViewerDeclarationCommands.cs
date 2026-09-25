@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Svg.Expressions;
 using Svg.SourceEditing;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -64,6 +65,22 @@ public sealed class SvgViewerDeclarationCommands
     /// </remarks>
     public Func<string, int>? UsedElsewhere { get; set; }
 
+    /// <summary>The expression rows on show, for a name that has to clear theirs as well.</summary>
+    /// <remarks>
+    /// Beside the parameters the constructor takes rather than among them: those are what a commit
+    /// reads and what <see cref="SetDefaults"/> groups by document, and only a name has to clear
+    /// both kinds at once — the language keeps one set across them. Null answers that there are
+    /// none, which is a host showing no expressions.
+    /// </remarks>
+    public Func<IReadOnlyList<SvgViewerLet>>? Lets { get; set; }
+
+    /// <summary>What a let's body may name where it sits, or at the end of the list for null.</summary>
+    /// <remarks>
+    /// Asked of the panel rather than worked out here: it is the walk the rows are already checked
+    /// by, and a second copy would be a second answer about what a body may name.
+    /// </remarks>
+    public Func<SvgViewerLet?, IReadOnlyDictionary<string, ExprType>>? Scope { get; set; }
+
     /// <summary>What holds a declaration, for a host whose rows come from several documents.</summary>
     /// <remarks>
     /// Only <see cref="SetDefaults"/> asks, because it is the one command about several rows at
@@ -106,6 +123,72 @@ public sealed class SvgViewerDeclarationCommands
         return replacement is { } wanted
             && _write(parameter.Name, $"change {parameter.Name}", source => SvgDeclarationEditor.Update(source, parameter.Name, wanted));
     }
+
+    /// <summary>Asks for an expression variable to declare, and answers what was asked for.</summary>
+    /// <remarks>
+    /// Asking only, unlike <see cref="AddAsync"/>. What follows differs by host: a body given with
+    /// the name is written, one left out starts the row that will write it — and a host that has to
+    /// ask where a declaration goes asks that of the row rather than of this.
+    /// </remarks>
+    /// <returns>What was asked for, or null where nobody wanted one.</returns>
+    public Task<SvgExpressionLet?> AskLetAsync(TopLevel? owner)
+        => _dialogs().AskLetAsync(owner, Taken(null), Scope?.Invoke(null) ?? Nothing, null);
+
+    /// <summary>Asks what one expression variable should say, and writes the answer.</summary>
+    /// <remarks>
+    /// A rename is an edit everywhere the drawing names it, which <see cref="CommitLet"/> already
+    /// carries out through <c>UpdateLet</c>. Refused, the row goes back to what the document says:
+    /// a row saying something the drawing does not is worse than an edit that did not land, which
+    /// is the answer a refused reorder already gets.
+    /// </remarks>
+    public async Task<bool> EditLetAsync(TopLevel? owner, SvgViewerLet let)
+    {
+        if (let is null)
+        {
+            throw new ArgumentNullException(nameof(let));
+        }
+
+        // A row nobody has written yet declares nothing to change, and holds everything it has in
+        // the open. The panel offers no button on one for the same reason.
+        if (let.Declaration is not { } declared)
+        {
+            return false;
+        }
+
+        var replacement = await _dialogs()
+            .AskLetAsync(owner, Taken(let), Scope?.Invoke(let) ?? Nothing, declared)
+            .ConfigureAwait(true);
+
+        if (replacement is not { } wanted)
+        {
+            return false;
+        }
+
+        let.Name = wanted.Name;
+        let.Expression = wanted.Expression;
+
+        if (CommitLet(let))
+        {
+            return true;
+        }
+
+        let.Revert();
+
+        return false;
+    }
+
+    /// <summary>The names already spoken for, <paramref name="except"/>'s own not among them.</summary>
+    private IReadOnlyCollection<string> Taken(SvgViewerLet? except)
+        => _rows()
+            .Select(row => row.Name)
+            .Concat((Lets?.Invoke() ?? Array.Empty<SvgViewerLet>())
+                .Where(row => !ReferenceEquals(row, except))
+                .Select(row => row.Name.Trim()))
+            .Where(name => name.Length > 0)
+            .ToList();
+
+    /// <summary>Nothing in scope, for a host that does not say what is.</summary>
+    private static IReadOnlyDictionary<string, ExprType> Nothing { get; } = new Dictionary<string, ExprType>();
 
     /// <summary>Takes one parameter out.</summary>
     public bool Remove(SvgViewerParameter parameter)

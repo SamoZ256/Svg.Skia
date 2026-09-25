@@ -1,0 +1,49 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Svg.Viewer.Skia.Avalonia.SvgLetFormView"
+             Width="360">
+
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Svg.Viewer.Skia.Avalonia/SvgExpressionBox.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
+  <StackPanel Margin="14" Spacing="8">
+
+    <Grid ColumnDefinitions="90,*">
+      <TextBlock Grid.Column="0" Text="Name" VerticalAlignment="Center" />
+      <TextBox Grid.Column="1" x:Name="NameBox" PlaceholderText="shade" FontFamily="monospace" />
+    </Grid>
+
+    <Grid ColumnDefinitions="90,*">
+      <TextBlock Grid.Column="0" Text="Expression" VerticalAlignment="Center" />
+      <TextBox Grid.Column="1" x:Name="ExpressionBox" Theme="{StaticResource SvgExpressionBox}"
+               PlaceholderText="mix(tint, #000000, 0.5)" FontFamily="monospace" />
+    </Grid>
+
+    <!-- Only while adding: a body left out here is one about to be typed in the row, which an
+         existing let does not have the option of. -->
+    <TextBlock x:Name="Hint"
+               Text="Left empty, the expression is typed in the row instead."
+               Opacity="0.55" FontSize="11" Margin="90,0,0,0" />
+
+    <!--
+      What the language said, where it said it about something. Kept in the flow rather than in a
+      pop-up so that a form which cannot be submitted says why without being dismissed first.
+    -->
+    <TextBlock x:Name="Trouble"
+               IsVisible="False"
+               TextWrapping="Wrap"
+               Foreground="{DynamicResource SvgViewerSourceErrorBrush}" />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6" Margin="0,4,0,0">
+      <Button x:Name="CancelButton" Content="Cancel" />
+      <Button x:Name="AcceptButton" Content="Add" IsDefault="True" />
+    </StackPanel>
+
+  </StackPanel>
+
+</UserControl>

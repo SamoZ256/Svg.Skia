@@ -35,4 +35,19 @@ public interface ISvgViewerParameterDialogService
         IReadOnlyCollection<string> taken,
         SvgExpressionParameter existing)
         => Task.FromResult<SvgExpressionParameter?>(null);
+
+    /// <summary>Asks what an expression variable should say, or null if nothing should.</summary>
+    /// <param name="scope">
+    /// What a body may name where this one sits, by name and type. Handed in rather than worked out
+    /// from <paramref name="taken"/>, which says only which names are spoken for: a checker told
+    /// that everything is a number calls <c>mix(tint, #000000, 0.5)</c> wrong.
+    /// </param>
+    /// <param name="existing">What the drawing declares, or null to ask for one it does not.</param>
+    /// <remarks>Defaulted for the reason <see cref="EditAsync"/> is.</remarks>
+    Task<SvgExpressionLet?> AskLetAsync(
+        TopLevel? owner,
+        IReadOnlyCollection<string> taken,
+        IReadOnlyDictionary<string, ExprType> scope,
+        SvgExpressionLet? existing)
+        => Task.FromResult<SvgExpressionLet?>(null);
 }

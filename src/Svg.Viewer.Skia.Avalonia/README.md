@@ -27,8 +27,8 @@ of these controls.
   `viewBox` its root element declares — the same arithmetic svgc resizes by, written back as a text
   edit, so the file says so and an undo takes it back.
 - **Declares a parameter**, from a form in the panel, by writing it into the drawing's own text.
-- **Declares and rewrites a let**, from a row edited in place, showing what each one evaluates to and
-  taking a drag to reorder them.
+- **Declares and rewrites a let**, from the same form and the same `⋯` a parameter has, with the
+  body typed in the row, showing what each one evaluates to and taking a drag to reorder them.
 - **Commits values as defaults**, so a session of moving sliders becomes what the document says.
 
 ## Input
@@ -86,13 +86,15 @@ Every box that holds an expression — a let's body, and a parameter's `default`
 table everything else here paints an expression with. It stays a real text box: only its presenter is replaced, so the
 caret, the selection, composition and undo are Avalonia's own.
 
-A let has no form and no `⋯`: it is a name and an expression, so the row is the editor. `Add let…`
-leaves an empty row to type into, `Enter` or leaving the row writes it, and `Escape` puts it back.
-What is typed is checked against the parameters and the lets above it as it is typed, and nothing is
-written until it checks — a half-typed body in the drawing would stop it rendering. Beside each row
-is what the let evaluates to right now, which follows the sliders, and a `✕` that removes it on the
-same terms as a parameter — a row nothing has been typed into yet is simply dropped, since there is
-nothing in the document to take out.
+A let wears the row a parameter wears: a name to point at and a `⋯` that opens its form. **Add
+variable… → Expression…** asks for the name and, if you fill it in, the body; leave the body out and
+the row is left with the caret in it. The body is typed in the row either way, because what is typed
+is checked against the parameters and the lets above it *as* it is typed, and nothing is written
+until it checks — a half-typed body in the drawing would stop it rendering. `Enter` or leaving the
+row writes it, and `Escape` puts it back. Beside each row is what the let evaluates to right now,
+which follows the sliders, and a `✕` that removes it on the same terms as a parameter — a row
+nothing has been typed into yet is simply dropped, since there is nothing in the document to take
+out, and such a row has no `⋯` for the same reason.
 
 Its grip drags it up and down, because **where a let sits is what it can name**: one resolves against
 what is declared above it and nothing below. A drag is held inside the positions that still check, so

@@ -234,8 +234,8 @@ nothing has to remember what a value used to be, and emptying the box takes the 
 Typing into one of the empty rows adds it.
 
 **Or drag the variable onto the row.** **Variables** and **Element** have a run each rather than
-sharing one, so both are on screen at once: take a variable by its name — not the grip
-beside it, which reorders the list — and let go of it over an attribute's box, and the box becomes
+sharing one, so both are on screen at once: take any variable by its name, of either kind — not the
+grip beside it, which reorders the list — and let go of it over an attribute's box, and the box becomes
 `{%{{{ that name }}}%}`. While you are carrying one, every row it could be written into is
 outlined, so what a variable is good for is something you can see rather than something to try. A
 number will not land on a `fill`, and nothing lands on `transform`, where an expression has to be one

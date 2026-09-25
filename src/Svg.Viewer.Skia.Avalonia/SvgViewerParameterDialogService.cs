@@ -35,4 +35,18 @@ public class SvgViewerParameterDialogService : ISvgViewerParameterDialogService
 
         return await new SvgParameterWindow(taken, existing).ShowDialog<SvgExpressionParameter?>(window);
     }
+
+    public async Task<SvgExpressionLet?> AskLetAsync(
+        TopLevel? owner,
+        IReadOnlyCollection<string> taken,
+        IReadOnlyDictionary<string, ExprType> scope,
+        SvgExpressionLet? existing)
+    {
+        if (owner is not Window window)
+        {
+            return null;
+        }
+
+        return await new SvgLetWindow(taken, scope, existing).ShowDialog<SvgExpressionLet?>(window);
+    }
 }

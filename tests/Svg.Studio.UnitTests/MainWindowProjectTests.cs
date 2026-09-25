@@ -3742,6 +3742,71 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("span + ring", inner.CodeText, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A whole expression from the form is still asked where it goes.
+    /// </summary>
+    /// <remarks>
+    /// The form gives the name and, where somebody filled it in, the body. Where a declaration goes
+    /// is a separate question and stays where it was — on the write, which is the one place that
+    /// knows whether there is anything to write.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Adding_An_Expression_From_The_Form_Asks_Where_It_Goes()
+    {
+        var window = await Host(Letting());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        Pick(window, panel, 0);
+
+        panel.ParameterDialogService = new StubParameterDialogService(
+            null,
+            new SvgExpressionLet("wide", "ring * 2"));
+
+        IReadOnlyList<ProjectNode>? offered = null;
+
+        panel.ChooseOwner = candidates =>
+        {
+            offered = candidates;
+
+            return Task.FromResult<ProjectNode?>(candidates.OfType<ProjectGroup>().Last());
+        };
+
+        Assert.True(await panel.AddLetAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            new[] { "Project", "Inner", "one" },
+            offered!.Select(ProjectWorkspace.Label).ToArray());
+
+        var inner = window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single();
+
+        Assert.Contains("ring * 2", inner.CodeText, StringComparison.Ordinal);
+    }
+
+    /// <summary>A name on its own leaves a row to type the body in, and writes nothing.</summary>
+    [AvaloniaFact]
+    public async Task An_Expression_Named_But_Not_Written_Leaves_A_Row()
+    {
+        var window = await Host(Letting());
+        var panel = await Opened(window, window.Workspace!.Document.Root);
+
+        Pick(window, panel, 0);
+
+        panel.ParameterDialogService = new StubParameterDialogService(
+            null,
+            new SvgExpressionLet("wide", string.Empty));
+
+        panel.ChooseOwner = _ => throw new InvalidOperationException("Nothing is written, so nothing is asked.");
+
+        Assert.False(await panel.AddLetAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        var draft = Assert.Single(Declarations(panel).Lets!, let => let.IsDraft);
+
+        Assert.Equal("wide", draft.Name);
+        Assert.DoesNotContain("wide", window.Workspace!.Document.Root.CodeText, StringComparison.Ordinal);
+    }
+
     /// <summary>A let already declared is edited where it is, with nothing asked.</summary>
     [AvaloniaFact]
     public async Task Editing_A_Let_Does_Not_Ask()
@@ -4099,8 +4164,13 @@ public class MainWindowProjectTests : IDisposable
     private sealed class StubParameterDialogService : ISvgViewerParameterDialogService
     {
         private readonly SvgExpressionParameter? _answer;
+        private readonly SvgExpressionLet? _let;
 
-        public StubParameterDialogService(SvgExpressionParameter? answer) => _answer = answer;
+        public StubParameterDialogService(SvgExpressionParameter? answer, SvgExpressionLet? let = null)
+        {
+            _answer = answer;
+            _let = let;
+        }
 
         public Task<SvgExpressionParameter?> AskAsync(TopLevel? owner, IReadOnlyCollection<string> taken)
             => Task.FromResult(_answer);
@@ -4110,6 +4180,13 @@ public class MainWindowProjectTests : IDisposable
             IReadOnlyCollection<string> taken,
             SvgExpressionParameter existing)
             => Task.FromResult(_answer);
+
+        public Task<SvgExpressionLet?> AskLetAsync(
+            TopLevel? owner,
+            IReadOnlyCollection<string> taken,
+            IReadOnlyDictionary<string, ExprType> scope,
+            SvgExpressionLet? existing)
+            => Task.FromResult(_let);
     }
 
     /// <inheritdoc cref="Declarations" path="/remarks"/>
