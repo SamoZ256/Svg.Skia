@@ -117,9 +117,11 @@ internal static class SvgDeclarationReferences
     /// <returns>The sentence refusing the walk, where an expression cannot be read.</returns>
     /// <remarks>
     /// One traversal, because there is one answer to where an expression lives in a drawing — the
-    /// <c>{{ … }}</c> spans of every attribute, and the whole of what is between a code element's
-    /// tags. A second walker beside this one would be a second answer, and the two would come to
-    /// disagree about a place only one of them had been taught to look.
+    /// <c>{{ … }}</c> spans of every attribute and of every run of text, and the whole of what is
+    /// between a code element's tags. A second walker beside this one would be a second answer, and
+    /// the two would come to disagree about a place only one of them had been taught to look — which
+    /// is what text was, so a rename carried every attribute and left
+    /// <c>&lt;text&gt;{{ label }}&lt;/text&gt;</c> naming something that had gone.
     /// </remarks>
     private static string? Visit(XDocument document, Func<string, IReadOnlyList<ExprToken>, string?> visit)
     {
@@ -145,6 +147,22 @@ internal static class SvgDeclarationReferences
 
             if (!IsCode(element.Name))
             {
+                // Each run on its own and in place: assigning XElement.Value would take every other
+                // child with it, which is what SvgAttributeEditor.SetContent avoids, and a
+                // placeholder can sit either side of a <tspan> rather than in one run.
+                foreach (var run in element.Nodes().OfType<XText>().ToList())
+                {
+                    if (Placeholders(run.Value, visit, out var said) is { } trouble)
+                    {
+                        return trouble;
+                    }
+
+                    if (said is { } && !string.Equals(said, run.Value, StringComparison.Ordinal))
+                    {
+                        run.Value = said;
+                    }
+                }
+
                 continue;
             }
 

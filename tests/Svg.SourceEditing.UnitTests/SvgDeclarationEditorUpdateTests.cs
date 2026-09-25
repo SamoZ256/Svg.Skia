@@ -169,6 +169,119 @@ public class SvgDeclarationEditorUpdateTests
         Assert.Contains("hsl(tone * tau, 91%, 60%)", edited);
     }
 
+    /// <summary>
+    /// A use between an element's tags is carried like one in an attribute.
+    /// </summary>
+    /// <remarks>
+    /// What a <c>&lt;text&gt;</c> says is a use of a name like any other — the loader lifts it as
+    /// <c>#text</c> and the element panel gives it a row of its own — and the walk did not visit it.
+    /// A rename moved every attribute, reported success, and left the text naming something gone.
+    /// </remarks>
+    [Fact]
+    public void A_Rename_Carries_A_Use_In_What_An_Element_Says()
+    {
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="EXPR-NS" width="10" height="10">
+              <defs>
+                <e:code>
+                  <e:param name="label" type="string" default="'hi'" />
+                </e:code>
+              </defs>
+              <text x="1" y="8" aria-label="{{ label }}">{{ label }}</text>
+              <text x="1" y="9">Before <tspan>{{ label }}</tspan> after {{ label }}</text>
+            </svg>
+            """.Replace("EXPR-NS", Ns);
+
+        var edited = Apply(
+            source,
+            Run(source, source => SvgDeclarationEditor.Update(source, "label", new SvgExpressionParameter("caption", ExprType.String, "'hi'"))));
+
+        Assert.DoesNotContain("label\"", edited);
+        Assert.DoesNotContain("{{ label }}", edited);
+
+        // In what the element says, in a child's, and in a run either side of that child -- which is
+        // why each run is walked rather than the element's Value taken as one.
+        Assert.Contains("""aria-label="{{ caption }}">{{ caption }}</text>""", edited);
+        Assert.Contains("Before <tspan>{{ caption }}</tspan> after {{ caption }}", edited);
+    }
+
+    /// <summary>What is around a rewritten run is left exactly as it was.</summary>
+    /// <remarks>
+    /// Writing a run back through <c>XElement.Value</c> would take every other child with it, which
+    /// is the trap <c>SvgAttributeEditor.SetContent</c> was already written around.
+    /// </remarks>
+    [Fact]
+    public void A_Rename_In_Text_Leaves_Everything_Around_It()
+    {
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="EXPR-NS" width="10" height="10">
+              <defs>
+                <e:code>
+                  <e:param name="label" type="string" default="'hi'" />
+                </e:code>
+              </defs>
+              <text x="1" y="8">{{ label }}<!-- said once --><tspan fill="#000000">and again</tspan></text>
+            </svg>
+            """.Replace("EXPR-NS", Ns);
+
+        var edited = Apply(
+            source,
+            Run(source, source => SvgDeclarationEditor.Update(source, "label", new SvgExpressionParameter("caption", ExprType.String, "'hi'"))));
+
+        Assert.Contains("{{ caption }}<!-- said once --><tspan fill=\"#000000\">and again</tspan>", edited);
+    }
+
+    /// <summary>A use only an element's text makes still counts, so it still refuses a removal.</summary>
+    /// <remarks>
+    /// The same walk answers both questions, so the text that a rename used to miss was text a
+    /// removal used to walk past: the parameter came out and the drawing stopped rendering.
+    /// </remarks>
+    [Fact]
+    public void A_Parameter_Only_A_Text_Uses_Cannot_Be_Removed()
+    {
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="EXPR-NS" width="10" height="10">
+              <defs>
+                <e:code>
+                  <e:param name="label" type="string" default="'hi'" />
+                </e:code>
+              </defs>
+              <text x="1" y="8">{{ label }}</text>
+            </svg>
+            """.Replace("EXPR-NS", Ns);
+
+        var result = Run(source, source => SvgDeclarationEditor.Remove(source, "label"));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("still used", result.Refusal);
+    }
+
+    /// <summary>A use inside a style declaration is carried, as it always was.</summary>
+    /// <remarks>
+    /// Covered by nothing before, and a style is an attribute like any other -- so it is the case
+    /// most likely to be broken by teaching the walk about what is between the tags instead.
+    /// </remarks>
+    [Fact]
+    public void A_Rename_Carries_A_Use_Inside_A_Style()
+    {
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="EXPR-NS" width="10" height="10">
+              <defs>
+                <e:code>
+                  <e:param name="hue" type="number" default="217" />
+                </e:code>
+              </defs>
+              <circle cx="5" cy="5" r="4" style="fill: {{ hsl(hue, 50%, 50%) }}; opacity: 1" />
+            </svg>
+            """.Replace("EXPR-NS", Ns);
+
+        var edited = Apply(
+            source,
+            Run(source, source => SvgDeclarationEditor.Update(source, "hue", new SvgExpressionParameter("tone", ExprType.Number, "217"))));
+
+        Assert.Contains("style=\"fill: {{ hsl(tone, 50%, 50%) }}; opacity: 1\"", edited);
+    }
+
     [Fact]
     public void A_Name_Inside_An_Entity_Is_Not_A_Use_Of_It()
     {

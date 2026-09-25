@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+* **Renaming a variable carries every use of it, wherever the use is.** What an element *says* was
+  a place a rename went round, leaving a drawing that still parsed and no longer drew:
+  `<text>{{ label }}</text>` binds a variable exactly as an attribute does — it has its own row in
+  the element panel, and a variable can be dropped onto it — but the walk that carries a rename only
+  ever visited attributes and `<e:let>` bodies. The same walk answers "how often is this used", so a
+  variable only a text named could also be removed without a word. Both are fixed at the walk, so
+  renaming, counting and the removal refusal all learned about it together.
+
 * **An expression variable is a variable like the others.** Its name was a box you typed over, which
   made it the one variable that could not be dragged onto the attribute it should drive — a press
   inside a text box belongs to the caret, so the gesture every other variable has was unreachable on
