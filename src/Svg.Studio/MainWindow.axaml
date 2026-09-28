@@ -129,6 +129,27 @@
       <Setter Property="Background" Value="#50808080" />
     </Style>
 
+    <!--
+      A row of the welcome screen's recent list: a file name to click rather than a control to look
+      at, since Fluent's own button chrome round ten of them reads as a form. The greys are the tab
+      strip's, above.
+    -->
+    <Style Selector="Button.recent">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Padding" Value="6,3" />
+      <!-- Out into the margin, so the name lines up with the writing above it rather than with its
+           own padding. -->
+      <Setter Property="Margin" Value="-6,0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+    </Style>
+
+    <Style Selector="Button.recent:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#14808080" />
+    </Style>
+
     <Style Selector="TabControl#Tabs">
       <Setter Property="ItemsPanel">
         <ItemsPanelTemplate>
@@ -285,6 +306,36 @@
       </Border>
 
       <TabControl x:Name="Tabs" Padding="0" />
+
+      <!--
+        What the window shows while it holds nothing: at launch, after the project closes, after the
+        last tab closes. Above the dock rather than in it, because what it stands in for is the whole
+        editor — the dock lays its own empty panel headers out whether or not anything is open, and an
+        opaque ground is what keeps them from showing through. ZIndex rather than child order: the
+        dock's root is added to this panel after the markup's own children are.
+      -->
+      <Border x:Name="Welcome" ZIndex="1" Background="{DynamicResource StudioWindowBrush}">
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="320">
+          <TextBlock Text="SVG Studio" FontSize="28" FontWeight="Light" />
+          <TextBlock Text="Draw it, parametrise it, export it as the code that draws it."
+                     TextWrapping="Wrap" FontSize="11" Opacity="0.65" Margin="0,6,0,22" />
+
+          <!-- The two ways in that a window with nothing open has: the picker File's own Open shows,
+               and the project menu's New. -->
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button x:Name="WelcomeOpen" Content="Open…" />
+            <Button x:Name="WelcomeNew" Content="New project" />
+          </StackPanel>
+
+          <TextBlock x:Name="WelcomeRecentHeading" Text="Recent"
+                     FontSize="11" FontWeight="SemiBold" Opacity="0.5" Margin="0,26,0,4" />
+          <StackPanel x:Name="WelcomeRecent" />
+
+          <!-- The window has taken a drop since before it could say so. -->
+          <TextBlock Text="Or drop a drawing or a project on this window."
+                     TextWrapping="Wrap" FontSize="11" Opacity="0.5" Margin="0,22,0,0" />
+        </StackPanel>
+      </Border>
     </Panel>
   </DockPanel>
 

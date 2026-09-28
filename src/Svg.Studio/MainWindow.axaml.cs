@@ -63,6 +63,11 @@ public partial class MainWindow : Window
     private readonly Border _dropLine;
     private readonly Grid _dropHost;
 
+    /// <summary>The screen shown in place of the editor while the window holds nothing.</summary>
+    private readonly Border _welcome;
+    private readonly StackPanel _welcomeRecent;
+    private readonly TextBlock _welcomeRecentHeading;
+
     /// <summary>The open project, or null. The window works on one at a time, as a workspace is.</summary>
     private ProjectWorkspace? _workspace;
 
@@ -128,6 +133,18 @@ public partial class MainWindow : Window
         _projectTree.KeyDown += OnProjectTreeKeyDown;
         _dropLine = this.FindControl<Border>("DropLine")!;
         _dropHost = (Grid)_dropLine.Parent!;
+
+        _welcome = this.FindControl<Border>("Welcome")!;
+        _welcomeRecent = this.FindControl<StackPanel>("WelcomeRecent")!;
+        _welcomeRecentHeading = this.FindControl<TextBlock>("WelcomeRecentHeading")!;
+
+        // The window's own commands rather than a second pair beside them: the picker Open shows
+        // with nothing open is the one this button wants, and New is what the Project menu picks.
+        this.FindControl<Button>("WelcomeOpen")!.Click += OnOpen;
+        this.FindControl<Button>("WelcomeNew")!.Click += OnNewProject;
+
+        // Every add and every close, without a call at each of the places that do one.
+        _tabs.Items.CollectionChanged += (_, _) => ShowWelcome();
 
         var shell = this.FindControl<Panel>("Shell")!;
 
@@ -200,6 +217,7 @@ public partial class MainWindow : Window
         ShowMenuGestures();
         UpdateMenu();
         ShowRecent();
+        ShowWelcome();
 
         // Once a session, and here rather than in a static constructor: this touches the disk, and
         // a static one runs on whichever thread happens to reach the type first.
@@ -210,6 +228,10 @@ public partial class MainWindow : Window
         // up beside a tab holding neither the project nor anything else.
         if (path is { } startup && File.Exists(startup))
         {
+            // Down before the first frame rather than when the drawing arrives a file read later:
+            // somebody who double-clicked a drawing is not somebody to greet, even briefly.
+            _welcome.IsVisible = false;
+
             _ = OpenAsync(new[] { startup });
         }
     }
@@ -877,11 +899,25 @@ public partial class MainWindow : Window
 
     }
 
+    /// <summary>
+    /// Shows or takes down the screen that stands in for the editor while nothing is open.
+    /// </summary>
+    /// <remarks>
+    /// Both halves of the question: a project keeps its pane and its tree on screen after its last
+    /// tab has been closed, and a window showing those is not one that wants greeting.
+    /// </remarks>
+    private void ShowWelcome()
+        => _welcome.IsVisible = _tabs.Items.Count == 0 && _workspace is null;
+
     private void ShowProjectPane(bool show)
     {
         // Off the arrangement rather than hidden in it: a panel with nothing in it would still hold
         // a strip of the window, and a session that only opens drawings should look as it always did.
         _dock.Show(ProjectTreePanel, show);
+
+        // Here rather than at the two ends of a project's life: this is where both of them already
+        // land, and by now the workspace has been set or cleared.
+        ShowWelcome();
 
         if (!show)
         {
@@ -2398,13 +2434,38 @@ public partial class MainWindow : Window
         ShowRecent();
     }
 
-    /// <summary>Fills File → Open Recent from the list on disk.</summary>
+    /// <summary>Fills File → Open Recent, and the welcome screen's own list, from the list on disk.</summary>
     /// <remarks>
     /// Rebuilt outright each time rather than edited: the list is short, and the item that moved to
-    /// the front is the one thing about it that changes.
+    /// the front is the one thing about it that changes. Both places in one pass, so the screen and
+    /// the menu cannot come to disagree about what was opened lately.
     /// </remarks>
     private void ShowRecent()
     {
+        var paths = RecentFiles.Paths;
+
+        _welcomeRecent.Children.Clear();
+
+        foreach (var path in paths)
+        {
+            var row = new Button
+            {
+                Classes = { "recent" },
+                Content = Path.GetFileName(path),
+                // Where it is, which the name cannot say: two drawings called icon.svg in different
+                // folders are the ordinary case rather than a strange one.
+                [ToolTip.TipProperty] = path
+            };
+
+            row.Click += async (_, _) => await OpenAsync(new[] { path }).ConfigureAwait(true);
+
+            _welcomeRecent.Children.Add(row);
+        }
+
+        // A heading over nothing is worse than neither, and the screen has its two buttons either way.
+        _welcomeRecentHeading.IsVisible = paths.Count > 0;
+        _welcomeRecent.IsVisible = paths.Count > 0;
+
         if (Item(NativeMenu.GetMenu(this), "Open Recent") is not { Menu: { } recent } item)
         {
             return;
@@ -2412,7 +2473,7 @@ public partial class MainWindow : Window
 
         recent.Items.Clear();
 
-        foreach (var path in RecentFiles.Paths)
+        foreach (var path in paths)
         {
             // The file's name, as every other Open Recent names one: a menu of full paths is wider
             // than the window and still trimmed on macOS.
