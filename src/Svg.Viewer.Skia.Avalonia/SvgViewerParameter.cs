@@ -78,9 +78,10 @@ public sealed class SvgViewerNumberParameter : SvgViewerParameter
     internal SvgViewerNumberParameter(
         SvgExpressionParameter declaration,
         double seed,
-        double minimum,
-        double maximum,
-        double step)
+        decimal minimum,
+        decimal maximum,
+        double step,
+        bool hasSlider)
         : base(declaration)
     {
         _seed = seed;
@@ -88,11 +89,21 @@ public sealed class SvgViewerNumberParameter : SvgViewerParameter
         Minimum = minimum;
         Maximum = maximum;
         Step = step;
+        HasSlider = hasSlider;
     }
 
-    public double Minimum { get; }
+    /// <summary>
+    /// What the row will take, which is anything at all on a side nobody declared an end for.
+    /// </summary>
+    /// <remarks>
+    /// Decimal rather than double, being what the field holds its bounds as: "no end" has to be
+    /// exactly what that control means by it, and double's own ends do not survive the conversion.
+    /// A float's do not either, so an end outside decimal is no end.
+    /// </remarks>
+    public decimal Minimum { get; }
 
-    public double Maximum { get; }
+    /// <inheritdoc cref="Minimum"/>
+    public decimal Maximum { get; }
 
     /// <summary>The declared increment, or zero when the range is continuous.</summary>
     public double Step { get; }
@@ -100,10 +111,22 @@ public sealed class SvgViewerNumberParameter : SvgViewerParameter
     public bool HasStep => Step > 0d;
 
     /// <summary>
-    /// What a slider should tick by. The declared step when there is one, and a hundredth of the
-    /// range otherwise, which is fine enough to feel continuous at any width.
+    /// Whether there is a slider: two ends, both of them somebody's answer rather than this code's.
     /// </summary>
-    public double TickFrequency => HasStep ? Step : (Maximum - Minimum) / 100d;
+    /// <remarks>
+    /// A row without one is the field alone. Inventing the end an author left out put a default of
+    /// 217 in the middle of a 0..500 range nobody chose, and a drag along it wrote numbers the
+    /// drawing was never said to accept.
+    /// </remarks>
+    public bool HasSlider { get; }
+
+    /// <summary>
+    /// What to tick by. The declared step where there is one, a hundredth of the range under a
+    /// slider, which is fine enough to feel continuous at any width, and one where there is neither.
+    /// </summary>
+    public double TickFrequency => HasStep
+        ? Step
+        : HasSlider ? (double)(Maximum - Minimum) / 100d : 1d;
 
     public double Value
     {
@@ -150,7 +173,8 @@ public sealed class SvgViewerIntegerParameter : SvgViewerParameter
         int seed,
         int minimum,
         int maximum,
-        int step)
+        int step,
+        bool hasSlider)
         : base(declaration)
     {
         _seed = seed;
@@ -158,11 +182,20 @@ public sealed class SvgViewerIntegerParameter : SvgViewerParameter
         Minimum = minimum;
         Maximum = maximum;
         Step = step;
+        HasSlider = hasSlider;
     }
 
+    /// <summary>
+    /// What the row will take, which on a side nobody declared an end for is as far as an integer
+    /// goes — the value is one, so the type's own ends are the honest answer to no end at all.
+    /// </summary>
     public int Minimum { get; }
 
+    /// <inheritdoc cref="Minimum"/>
     public int Maximum { get; }
+
+    /// <inheritdoc cref="SvgViewerNumberParameter.HasSlider"/>
+    public bool HasSlider { get; }
 
     /// <summary>The declared increment, which is one where the document declared none.</summary>
     /// <remarks>

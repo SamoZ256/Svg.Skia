@@ -54,8 +54,8 @@ public class SampleDocumentTests
 
         // The declared ranges reached the rows rather than the 0..1 fallback.
         var hue = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single(p => p.Name == "hue");
-        Assert.Equal(0d, hue.Minimum);
-        Assert.Equal(360d, hue.Maximum);
+        Assert.Equal(0m, hue.Minimum);
+        Assert.Equal(360m, hue.Maximum);
         Assert.Equal(1d, hue.Step);
 
         Assert.NotNull(viewer.Svg!.ExpressionValues);

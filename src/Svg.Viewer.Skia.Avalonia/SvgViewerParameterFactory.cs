@@ -62,33 +62,41 @@ public static class SvgViewerParameterFactory
         var value = seed?.Type == ExprType.Integer ? seed.Value.AsInteger : 0;
         var range = Range(declaration);
 
-        var minimum = (int)range.Minimum;
-        var maximum = (int)range.Maximum;
-
-        // The same inference the number row does, and for the same reason: a declared 4 against the
-        // 0..1 fallback would put the handle off the end of its own track.
-        if (!declaration.HasRange)
-        {
-            if (value > maximum)
-            {
-                maximum = (int)NiceCeiling(2d * value);
-            }
-            else if (value < minimum)
-            {
-                minimum = -(int)NiceCeiling(-2d * value);
-            }
-        }
-
-        minimum = Math.Min(minimum, value);
-        maximum = Math.Max(maximum, value);
-
         // At least one. A declared step is whole already, having resolved as an integer, and a step
         // of zero is refused -- but the fallback for no step at all is one rather than the number
         // row's fraction of the range.
         var step = range.Step > 0f ? Math.Max(1, (int)range.Step) : 1;
 
-        return new SvgViewerIntegerParameter(declaration, value, minimum, maximum, step);
+        // Widened to reach the value whichever side it is on: an end that excludes the default would
+        // have the field coerce it on the way onto the screen, which is a value nobody edited.
+        var minimum = Math.Min((int)range.Minimum, value);
+        var maximum = Math.Max((int)range.Maximum, value);
+
+        return HasEnds(declaration)
+            ? new SvgViewerIntegerParameter(declaration, value, minimum, maximum, step, hasSlider: true)
+            : new SvgViewerIntegerParameter(declaration, value, int.MinValue, int.MaxValue, step, hasSlider: false);
     }
+
+    /// <summary>Whether a slider has two ends to span: the declared ones, there being no others.</summary>
+    /// <remarks>
+    /// An end was once inferred from the default — 217 came up on a 0..500 slider whose ends were
+    /// this code's guess, and a drag along it wrote numbers nobody had said the drawing takes. The
+    /// 0..1 a range resolves to when nothing is declared is no better a guess for being written down
+    /// somewhere: a parameter that says only <c>default="0.5"</c> has not said it lives in 0..1. So
+    /// an undeclared range is no range, and the row is the field alone, free to take whatever the
+    /// drawing would.
+    ///
+    /// A fraction still gets its slider, because a fraction says so: a PaintCode import writes
+    /// <c>min="0" max="1"</c> from the kind, as it writes 0..360 for an angle, and both are then
+    /// declared like any other.
+    ///
+    /// Both or neither, with nothing in between to answer for: a document declaring one end is
+    /// refused as it is read, and a hand-built one cannot resolve either — the end nobody wrote falls
+    /// back to the 0 or the 1 of the default range, and a min above a max is refused in its turn.
+    /// The PaintCode writer writes the pair for the same reason.
+    /// </remarks>
+    private static bool HasEnds(SvgExpressionParameter declaration)
+        => declaration.MinExpression is { } && declaration.MaxExpression is { };
 
     /// <summary>The declared range, or the default one where the block was refused.</summary>
     /// <remarks>
@@ -112,30 +120,34 @@ public static class SvgViewerParameterFactory
         var value = seed?.Type == ExprType.Number ? Widen(seed.Value.AsNumber) : 0d;
         var range = Range(declaration);
 
-        double minimum = Widen(range.Minimum);
-        double maximum = Widen(range.Maximum);
+        // Whatever the range came from, the seed has to be reachable: an end that excludes its own
+        // default would otherwise put the value somewhere it cannot return to.
+        var minimum = Held(Math.Min(Widen(range.Minimum), value), decimal.MinValue);
+        var maximum = Held(Math.Max(Widen(range.Maximum), value), decimal.MaxValue);
 
-        // The 0..1 fallback is useless for a default of 217, so infer from the seed and round
-        // outwards to ends a person would have chosen.
-        if (!declaration.HasRange)
-        {
-            if (value > maximum)
-            {
-                maximum = NiceCeiling(2d * value);
-            }
-            else if (value < minimum)
-            {
-                minimum = -NiceCeiling(-2d * value);
-            }
-        }
-
-        // Whatever the range came from, the seed has to be reachable: a declared range that excludes
-        // its own default would otherwise put the slider somewhere the value cannot return to.
-        minimum = Math.Min(minimum, value);
-        maximum = Math.Max(maximum, value);
-
-        return new SvgViewerNumberParameter(declaration, value, minimum, maximum, Widen(range.Step));
+        return HasEnds(declaration)
+            ? new SvgViewerNumberParameter(declaration, value, minimum, maximum, Widen(range.Step), hasSlider: true)
+            : new SvgViewerNumberParameter(
+                declaration,
+                value,
+                decimal.MinValue,
+                decimal.MaxValue,
+                Widen(range.Step),
+                hasSlider: false);
     }
+
+    /// <summary>An end as the field holds one, or <paramref name="free"/> where it cannot hold it.</summary>
+    /// <remarks>
+    /// The bounds are decimal, and a bound is any float expression: the language has no exponent
+    /// literal but it multiplies, so a bound can resolve above what decimal holds, and its sqrt hands
+    /// back what MathF hands back, so <c>sqrt(0 - 1)</c> is a bound that is not a number at all.
+    /// Either is no end rather than an exception thrown while a document is opening.
+    /// </remarks>
+    private static decimal Held(double value, decimal free)
+        => double.IsNaN(value) ? free
+            : value <= (double)decimal.MinValue ? decimal.MinValue
+            : value >= (double)decimal.MaxValue ? decimal.MaxValue
+            : (decimal)value;
 
     /// <summary>A value as a document would write it.</summary>
     /// <remarks>
@@ -221,23 +233,4 @@ public static class SvgViewerParameterFactory
         => seed?.Type == ExprType.Color
             ? Color.FromArgb(seed.Value.Alpha, seed.Value.Red, seed.Value.Green, seed.Value.Blue)
             : PlaceholderColor;
-
-    // 1, 2 or 5 times a power of ten, so an inferred end is a round number.
-    private static double NiceCeiling(double value)
-    {
-        if (value <= 0d || double.IsNaN(value) || double.IsInfinity(value))
-        {
-            return 1d;
-        }
-
-        var magnitude = Math.Pow(10d, Math.Floor(Math.Log10(value)));
-        var normalised = value / magnitude;
-
-        var step = normalised <= 1d ? 1d
-            : normalised <= 2d ? 2d
-            : normalised <= 5d ? 5d
-            : 10d;
-
-        return step * magnitude;
-    }
 }

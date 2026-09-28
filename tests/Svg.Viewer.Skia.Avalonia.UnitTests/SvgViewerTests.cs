@@ -1574,6 +1574,50 @@ public class SvgViewerTests
         window.Close();
     }
 
+    /// <summary>One number parameter, with nothing said about the range it is offered over.</summary>
+    private static string Unranged(string @default) =>
+        $"""
+         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+           <defs><e:code><e:param name="hue" type="number" default="{@default}" /></e:code></defs>
+           <rect width="24" height="24" fill="#3fb5b5" />
+         </svg>
+         """;
+
+    /// <summary>
+    /// A row with no declared ends is the field alone: there is no slider to drag along a range the
+    /// author never gave, whatever the default is. A declared range still has one.
+    /// </summary>
+    /// <remarks>
+    /// Through the visuals rather than on the row, because what this is about is what somebody sees.
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData("217")]
+    [InlineData("0.5")]
+    public async Task A_Row_Without_Declared_Ends_Has_No_Slider(string @default)
+    {
+        var (window, viewer) = await HostLoaded(Unranged(@default));
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain(
+            viewer.GetVisualDescendants().OfType<Slider>(),
+            found => found.IsVisible);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Row_With_Declared_Ends_Has_One()
+    {
+        var (window, viewer) = await HostLoaded(Ranged("1"));
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains(viewer.GetVisualDescendants().OfType<Slider>(), found => found.IsVisible);
+
+        window.Close();
+    }
+
     /// <summary>One number parameter, so an edit to its range can be watched arriving.</summary>
     private static string Ranged(string step, string fallback = "180") =>
         $"""

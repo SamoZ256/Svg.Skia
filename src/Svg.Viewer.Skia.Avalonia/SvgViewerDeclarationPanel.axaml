@@ -120,7 +120,11 @@
             <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
                     ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
           </Grid>
+          <!-- Only where both ends are somebody's answer. A row whose range was never declared is
+               the field alone: a slider needs two ends, and one invented from the default offered a
+               range nobody chose. -->
           <Slider Margin="20,0,0,0"
+                  IsVisible="{Binding HasSlider}"
                   Minimum="{Binding Minimum}"
                   Maximum="{Binding Maximum}"
                   TickFrequency="{Binding TickFrequency}"
@@ -159,8 +163,10 @@
             <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
                     ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
           </Grid>
-          <!-- Always snapping to the tick: an integer has no value between two of them. -->
+          <!-- Always snapping to the tick: an integer has no value between two of them. Shown for
+               the reason the number row's is. -->
           <Slider Margin="20,0,0,0"
+                  IsVisible="{Binding HasSlider}"
                   Minimum="{Binding Minimum}"
                   Maximum="{Binding Maximum}"
                   TickFrequency="{Binding TickFrequency}"

@@ -23,6 +23,9 @@ public class SvgViewerParameterFactoryTests
     private static SvgViewerNumberParameter Number(string param)
         => Assert.IsType<SvgViewerNumberParameter>(SvgViewerParameterFactory.Create(Declare(param)));
 
+    private static SvgViewerIntegerParameter Integer(string param)
+        => Assert.IsType<SvgViewerIntegerParameter>(SvgViewerParameterFactory.Create(Declare(param)));
+
     // ---- a row takes a value back -----------------------------------------------------------
 
     [Theory]
@@ -79,10 +82,11 @@ public class SvgViewerParameterFactoryTests
     {
         var row = Number("""<e:param name="hue" type="number" default="217" min="0" max="360" step="1" />""");
 
-        Assert.Equal(0d, row.Minimum);
-        Assert.Equal(360d, row.Maximum);
+        Assert.Equal(0m, row.Minimum);
+        Assert.Equal(360m, row.Maximum);
         Assert.Equal(1d, row.Step);
         Assert.True(row.HasStep);
+        Assert.True(row.HasSlider);
         Assert.Equal(217d, row.Value);
         Assert.False(row.IsModified);
     }
@@ -94,7 +98,7 @@ public class SvgViewerParameterFactoryTests
         var row = Number("""<e:param name="t" type="number" default="tau / 4" min="0" max="tau" />""");
 
         Assert.Equal(MathF.PI / 2f, row.Value, 4);
-        Assert.Equal(MathF.PI * 2f, row.Maximum, 4);
+        Assert.Equal(MathF.PI * 2f, (double)row.Maximum, 4);
     }
 
     [Fact]
@@ -130,38 +134,133 @@ public class SvgViewerParameterFactoryTests
         Assert.Equal(0d, row.Value);
     }
 
-    [Fact]
-    public void An_Unranged_Default_Above_One_Widens_To_A_Round_Number()
+    /// <summary>
+    /// What replaced inferring the end nobody wrote: 217 used to come up on a 0..500 slider whose
+    /// ends were this code's guess and whose drag wrote numbers the drawing had not been said to
+    /// take. A default inside 0..1 is no different — the range a bare default resolves to is written
+    /// down in the format, but it is still not something this parameter said.
+    /// </summary>
+    [Theory]
+    [InlineData("217")]
+    [InlineData("-3")]
+    [InlineData("0")]
+    [InlineData("0.5")]
+    [InlineData("1")]
+    public void An_Unranged_Default_Gets_No_Range_At_All(string @default)
     {
-        // 0..1 would put a default of 217 hard against the end of the slider.
-        var row = Number("""<e:param name="hue" type="number" default="217" />""");
+        var row = Number($"""<e:param name="hue" type="number" default="{@default}" />""");
 
         Assert.False(row.Declaration.HasRange);
-        Assert.Equal(0d, row.Minimum);
-        Assert.Equal(500d, row.Maximum);
+        Assert.False(row.HasSlider);
+        Assert.Equal(decimal.MinValue, row.Minimum);
+        Assert.Equal(decimal.MaxValue, row.Maximum);
+        Assert.Equal(double.Parse(@default, CultureInfo.InvariantCulture), row.Value);
+
+        // No range to take a hundredth of, so the field steps by one.
+        Assert.Equal(1d, row.TickFrequency);
+    }
+
+    /// <summary>
+    /// One end is no range at all — not the end itself and not a slider.
+    /// </summary>
+    /// <remarks>
+    /// Built by hand rather than declared, because a document cannot say this: a min without a max is
+    /// refused as it is read, and the dialog holds one only while somebody is typing into it. Nor can
+    /// the end that was written be kept — resolving a range fills the end nobody wrote with the 0 or
+    /// the 1 of the default range, and then refuses the min above the max it has just made. So this
+    /// pins what a host that builds one gets: the field, free, and a row rather than an exception.
+    /// </remarks>
+    [Theory]
+    [InlineData("10", null)]
+    [InlineData(null, "500")]
+    public void One_Declared_End_Is_No_Range(string? min, string? max)
+    {
+        var row = Assert.IsType<SvgViewerNumberParameter>(SvgViewerParameterFactory.Create(
+            new SvgExpressionParameter("t", ExprType.Number, "217", min, max, null)));
+
+        Assert.False(row.HasSlider);
+        Assert.Equal(decimal.MinValue, row.Minimum);
+        Assert.Equal(decimal.MaxValue, row.Maximum);
         Assert.Equal(217d, row.Value);
     }
 
-    [Theory]
-    [InlineData("0", 0d, 1d)]
-    [InlineData("0.5", 0d, 1d)]
-    [InlineData("1", 0d, 1d)]
-    public void An_Unranged_Default_Within_Zero_To_One_Keeps_That_Range(string @default, double min, double max)
+    /// <summary>
+    /// A step is granularity and not an end, so it drives what the field increments by while leaving
+    /// it as free as a row with no range at all.
+    /// </summary>
+    [Fact]
+    public void A_Step_Alone_Is_Not_A_Range()
     {
-        var row = Number($"""<e:param name="t" type="number" default="{@default}" />""");
+        var row = Number("""<e:param name="t" type="number" default="217" step="5" />""");
 
-        Assert.Equal(min, row.Minimum);
-        Assert.Equal(max, row.Maximum);
+        Assert.False(row.HasSlider);
+        Assert.Equal(decimal.MinValue, row.Minimum);
+        Assert.Equal(decimal.MaxValue, row.Maximum);
+        Assert.Equal(5d, row.TickFrequency);
+    }
+
+    /// <summary>
+    /// An end the field cannot hold is no end. The bounds are decimal and a bound is any float
+    /// expression, so the two do not have the same reach -- and a document that renders must open.
+    /// </summary>
+    /// <remarks>
+    /// Both reachable: the language has no exponent literal but it multiplies, and its sqrt hands
+    /// back what MathF hands back, so <c>sqrt(0 - 1)</c> is a bound that is not a number. Neither
+    /// used to survive the way to the control, which holds its bounds as decimal.
+    /// </remarks>
+    [Theory]
+    [InlineData("100000 * 100000 * 100000 * 100000 * 100000 * 100000")]
+    [InlineData("sqrt(0 - 1)")]
+    public void An_End_Outside_What_The_Field_Holds_Is_No_End(string max)
+    {
+        var row = Number($"""<e:param name="t" type="number" default="2" min="0" max="{max}" />""");
+
+        Assert.Equal(decimal.MaxValue, row.Maximum);
+    }
+
+    /// <summary>
+    /// A fraction keeps its slider by saying so, which is how a PaintCode import writes one: the
+    /// kind's 0..1 is written into the parameter, and a declared 0..1 is a range like any other.
+    /// </summary>
+    [Fact]
+    public void A_Declared_Zero_To_One_Is_Still_A_Range()
+    {
+        var row = Number("""<e:param name="t" type="number" default="0.5" min="0" max="1" />""");
+
+        Assert.True(row.HasSlider);
+        Assert.Equal(0m, row.Minimum);
+        Assert.Equal(1m, row.Maximum);
+
+        // A hundredth of the range, which is what a fraction wants a drag to feel like.
+        Assert.Equal(0.01d, row.TickFrequency, 6);
+    }
+
+    /// <summary>The number row's rule, on the type whose ends are whole.</summary>
+    [Theory]
+    [InlineData("4")]
+    [InlineData("0")]
+    [InlineData("1")]
+    public void An_Unranged_Integer_Gets_No_Range(string @default)
+    {
+        var row = Integer($"""<e:param name="steps" type="integer" default="{@default}" />""");
+
+        Assert.False(row.HasSlider);
+        Assert.Equal(int.MinValue, row.Minimum);
+        Assert.Equal(int.MaxValue, row.Maximum);
+        Assert.Equal(int.Parse(@default, CultureInfo.InvariantCulture), row.Value);
+
+        // Still one, which is the smallest an integer can move by.
+        Assert.Equal(1, row.TickFrequency);
     }
 
     [Fact]
-    public void An_Unranged_Negative_Default_Widens_Downwards()
+    public void An_Integer_Keeps_A_Declared_Range()
     {
-        var row = Number("""<e:param name="t" type="number" default="-3" />""");
+        var row = Integer("""<e:param name="steps" type="integer" default="4" min="0" max="9" />""");
 
-        Assert.Equal(-10d, row.Minimum);
-        Assert.Equal(1d, row.Maximum);
-        Assert.Equal(-3d, row.Value);
+        Assert.True(row.HasSlider);
+        Assert.Equal(0, row.Minimum);
+        Assert.Equal(9, row.Maximum);
     }
 
     [Fact]
@@ -171,8 +270,8 @@ public class SvgViewerParameterFactoryTests
         // be able to get back to the value it started on.
         var row = Number("""<e:param name="t" type="number" default="5" min="0" max="1" />""");
 
-        Assert.Equal(0d, row.Minimum);
-        Assert.Equal(5d, row.Maximum);
+        Assert.Equal(0m, row.Minimum);
+        Assert.Equal(5m, row.Maximum);
         Assert.Equal(5d, row.Value);
     }
 
@@ -190,7 +289,7 @@ public class SvgViewerParameterFactoryTests
         var declared = double.Parse(step, CultureInfo.InvariantCulture);
 
         Assert.Equal(declared, row.Step);
-        Assert.Equal(declared * 2d, row.Minimum + (2d * row.TickFrequency));
+        Assert.Equal(declared * 2d, (double)row.Minimum + (2d * row.TickFrequency));
 
         // And it is the same float either way, so what the evaluator computes with is untouched.
         // This is a widening said properly, not a rounding of the parameter.
@@ -203,8 +302,10 @@ public class SvgViewerParameterFactoryTests
         // Reported on the declaration panel, in place of the row it would have had, rather than here.
         var row = Number("""<e:param name="t" type="number" min="1" max="0" />""");
 
-        Assert.Equal(0d, row.Minimum);
-        Assert.Equal(1d, row.Maximum);
+        // Both ends were written, so there is still a slider; what they resolve to is the fallback.
+        Assert.True(row.HasSlider);
+        Assert.Equal(0m, row.Minimum);
+        Assert.Equal(1m, row.Maximum);
     }
 
     [Fact]

@@ -392,7 +392,7 @@ public class SvgViewerParameterEditingTests
 
         var edited = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single();
 
-        Assert.Equal(4d, edited.Maximum, 6);
+        Assert.Equal(4m, edited.Maximum);
         Assert.Equal(0.5d, edited.Step, 6);
         Assert.Contains("max=\"4\"", viewer.Source);
 
