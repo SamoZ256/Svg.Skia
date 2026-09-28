@@ -3792,6 +3792,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        Title = Selected()?.DocumentPath is { } path ? $"{mark}{Path.GetFileName(path)} — SVG viewer" : "SVG viewer";
+        Title = Selected()?.DocumentPath is { } path ? $"{mark}{Path.GetFileName(path)} — SVG Studio" : "SVG Studio";
     }
 }
