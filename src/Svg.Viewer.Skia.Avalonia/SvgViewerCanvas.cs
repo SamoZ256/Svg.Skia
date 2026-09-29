@@ -1201,8 +1201,8 @@ public class SvgViewerCanvas : SKCanvasControl
         // it would swallow every handle sitting on top of one.
         if (properties.IsLeftButtonPressed && IsEditTarget is { } wanted && wanted(_pressOrigin))
         {
-            // Not a pick either: the row is already selected, which is why it has handles.
-            _pressed = false;
+            // _pressed is left standing, as the grip leaves it: a press inside the selection's box
+            // that never travels is a click, and may be on something drawn behind the selection.
             _editing = true;
             _editMoved = false;
             _editPointer = e.Pointer;
@@ -1375,11 +1375,20 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         if (_editing)
         {
-            // A press that never travelled is taken back rather than committed: it is the click that
-            // confirmed a selection, and the host has nothing to write.
+            // Read before EndEdit gives the pointer up, which is a capture lost and clears both.
+            var clicked = _pressed && !_editMoved;
+
+            // A press that never travelled is taken back rather than committed, and is a click: the
+            // host decides whether it keeps the selection or picks what is behind it.
             EndEdit(commit: true, at: e.GetPosition(this));
 
+            _pressed = false;
             e.Handled = true;
+
+            if (clicked)
+            {
+                Picked?.Invoke(this, e.GetPosition(this));
+            }
 
             return;
         }

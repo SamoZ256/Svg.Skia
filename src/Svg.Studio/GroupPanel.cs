@@ -1927,6 +1927,12 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void Pick(Point at)
     {
+        // A click on the selection's handles or in its box, with nothing else drawn there, keeps it.
+        if (Arranged(at) is { } arranged && _gizmo.Keeps(arranged, (float)_canvas.Scale))
+        {
+            return;
+        }
+
         // A frame's chrome before the drawings, because it is painted over them: what is clicked has
         // to be what is seen. Its name is no wider than the name, and its outline sits beyond the
         // drawings it holds, so what this takes from them is the little it covers.

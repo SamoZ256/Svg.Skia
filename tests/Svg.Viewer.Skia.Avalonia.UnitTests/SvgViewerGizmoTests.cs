@@ -147,6 +147,98 @@ public class SvgViewerGizmoTests
 
     private const RawInputModifiers Held = RawInputModifiers.LeftMouseButton;
 
+    /// <summary>
+    /// An outline with nothing inside it, a dot drawn in its middle, and a group of two squares
+    /// with a gap between them.
+    /// </summary>
+    private const string Hollow = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <rect id="ring" x="10" y="10" width="40" height="40" fill="none" stroke="#000" stroke-width="2" />
+          <circle id="dot" cx="42" cy="42" r="4" fill="#c33" />
+          <g id="pair">
+            <rect id="left" x="60" y="60" width="10" height="10" fill="#36c" />
+            <rect id="right" x="80" y="60" width="10" height="10" fill="#36c" />
+          </g>
+        </svg>
+        """;
+
+    /// <summary>
+    /// A press inside a selected outline carries it, where it used to start a marquee: the hit test
+    /// answers only on paint, and the middle of an unfilled shape has none.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Selected_Outline_Is_Carried_From_Inside_It()
+    {
+        var (window, viewer) = await Host(Hollow);
+
+        SelectById(viewer, "ring");
+        Drag(window, viewer, (25f, 25f), (35f, 30f));
+
+        // A rect is carried by its own x and y.
+        Assert.Equal("20", Attribute(viewer, "ring", "x"));
+        Assert.Equal("15", Attribute(viewer, "ring", "y"));
+        Assert.Equal("ring", viewer.SelectedElement?.ID);
+
+        window.Close();
+    }
+
+    /// <summary>The same for the gap between a selected group's children.</summary>
+    [AvaloniaFact]
+    public async Task A_Selected_Group_Is_Carried_From_Between_Its_Children()
+    {
+        var (window, viewer) = await Host(Hollow);
+
+        SelectById(viewer, "pair");
+        Drag(window, viewer, (75f, 65f), (75f, 75f));
+
+        Assert.Equal("translate(0, 10)", Written(viewer, "pair"));
+
+        window.Close();
+    }
+
+    /// <summary>A click inside the box that lands on nothing leaves the selection where it is.</summary>
+    [AvaloniaFact]
+    public async Task A_Click_Inside_The_Selection_On_Nothing_Keeps_It()
+    {
+        var (window, viewer) = await Host(Hollow);
+
+        SelectById(viewer, "ring");
+
+        var at = At(window, viewer, 25f, 25f);
+
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("ring", viewer.SelectedElement?.ID);
+        Assert.Null(Written(viewer, "ring"));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A click inside the box on something else picks it: the box is the selection's to carry, and
+    /// not a lid over what is drawn under it.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Click_Inside_The_Selection_On_Another_Shape_Picks_It()
+    {
+        var (window, viewer) = await Host(Hollow);
+
+        SelectById(viewer, "ring");
+        Select(window, viewer, 42f, 42f);
+
+        Assert.Equal("dot", viewer.SelectedElement?.ID);
+
+        // And a selected group is still reached into by clicking one of its children.
+        SelectById(viewer, "pair");
+        Select(window, viewer, 65f, 65f);
+
+        Assert.Equal("left", viewer.SelectedElement?.ID);
+
+        window.Close();
+    }
+
     private static async Task<(Window Window, SvgViewer Viewer)> Host(string drawing)
     {
         var viewer = new SvgViewer();
@@ -1166,15 +1258,15 @@ public class SvgViewerGizmoTests
 
                         break;
                     case ShimSkiaSharp.DrawTextCanvasCommand text:
-                    {
-                        var at = total.MapPoint(new ShimSkiaSharp.SKPoint(text.X, text.Y));
+                        {
+                            var at = total.MapPoint(new ShimSkiaSharp.SKPoint(text.X, text.Y));
 
-                        found.Add(string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"{text.Text} {at.X:0.##},{at.Y:0.##}"));
+                            found.Add(string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"{text.Text} {at.X:0.##},{at.Y:0.##}"));
 
-                        break;
-                    }
+                            break;
+                        }
 
                     // A drawing's glyphs are recorded a picture down, not beside the rest of it.
                     case ShimSkiaSharp.DrawPictureCanvasCommand { Picture: { } nested }:

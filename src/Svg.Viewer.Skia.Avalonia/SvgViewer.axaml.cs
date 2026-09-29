@@ -609,6 +609,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
+        // A click on the selection's handles or in its box, with nothing else drawn there, keeps it.
+        if (_gizmo.Keeps(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale))
+        {
+            return;
+        }
+
         if (open.Svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) is { } element)
         {
             SelectPage(false);
