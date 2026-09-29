@@ -19,7 +19,8 @@ $ARGUMENTS
    there, not what you remember doing.
 
    Stop if there is nothing to commit, or if `git rev-parse --abbrev-ref HEAD` is `HEAD` — a
-   detached head is never what I meant.
+   detached head is never what I meant. In a desk that is the desk resting on `origin/master`, so
+   say that the work needs a branch first rather than just that the head is detached.
 
 2. **Format what I changed, not the solution.** Use the `format` skill — it has the command, the
    measurements behind it, and what to revert if a run dirties something you did not touch.

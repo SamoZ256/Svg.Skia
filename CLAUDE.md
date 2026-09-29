@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 A map for working in this repository. Procedures live in `.claude/skills` — `format` before a commit,
-`chrome-references` for a render baseline; commit and pull request conventions are in
+`chrome-references` for a render baseline; commit, pull request and desk conventions are in
 `.claude/commands/`. Reference: [SVG 1.1](https://www.w3.org/TR/SVG11/) ·
 [Avalonia](https://github.com/AvaloniaUI/Avalonia) · [its docs](https://github.com/AvaloniaUI/avalonia-docs) ·
 [ILSpy](https://github.com/icsharpcode/ILSpy), for reading what a dependency actually compiled to.
@@ -13,8 +13,8 @@ Add only what someone could not find by reading the code.
 
 ## Rules
 
-- **Never `git push` or create a branch without asking** — a branch decides how work lands. Commit
-  unasked only to break a large change into several as you go; a change that is one commit asks first.
+- **Never push, branch, or make or enter a worktree unasked, nor touch another agent's desk.**
+  Commit unasked only to break a large change into several; a change that is one commit asks first.
 - **Prefer removing code to adding it.** Before adding a helper, a type or an option, widen the one
   already doing that job; before adding a branch, see whether the case can be stopped from arising.
   A net addition is worth a sentence saying what was reused and what could not be.
