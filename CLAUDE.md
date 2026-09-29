@@ -13,8 +13,8 @@ Add only what someone could not find by reading the code.
 
 ## Rules
 
-- **Never push, branch, or make or enter a worktree unasked, nor touch another agent's desk.**
-  Commit unasked only to break a large change into several; a change that is one commit asks first.
+- **Never push, branch, or make or enter a worktree unasked, nor touch another agent's desk.** A plan
+  asks whether to branch, unless I already said. Commit unasked only to split a change into several.
 - **Prefer removing code to adding it.** Before adding a helper, a type or an option, widen the one
   already doing that job; before adding a branch, see whether the case can be stopped from arising.
   A net addition is worth a sentence saying what was reused and what could not be.
