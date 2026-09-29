@@ -884,7 +884,9 @@ public sealed class SvgViewerElementPanel : UserControl
 
             foreach (var choice in Expanded(choices))
             {
-                var item = new MenuItem { Header = choice };
+                // A TextBlock and not the string, which a menu reads for an access key: the first
+                // underscore of paint0_linear_1 would vanish, and two ids could read the same.
+                var item = new MenuItem { Header = new TextBlock { Text = choice } };
 
                 item.Click += (_, _) => put(choice);
                 offered.Add(item);

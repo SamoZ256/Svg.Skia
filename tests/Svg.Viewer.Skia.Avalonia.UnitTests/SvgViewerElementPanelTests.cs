@@ -886,6 +886,9 @@ public class SvgViewerElementPanelTests
         return shown.Items.OfType<MenuItem>().ToList();
     }
 
+    /// <summary>What a menu entry reads as on screen.</summary>
+    private static string? Said(MenuItem item) => Assert.IsType<TextBlock>(item.Header).Text;
+
     /// <summary>Pressed with the pointer, since that is what opens a button's flyout.</summary>
     private static void Click(Button button)
     {
@@ -970,7 +973,7 @@ public class SvgViewerElementPanelTests
 
         var offered = Offered(pick);
 
-        Assert.Equal(new[] { "none", "currentColor", "url(#g)" }, offered.Select(item => item.Header));
+        Assert.Equal(new[] { "none", "currentColor", "url(#g)" }, offered.Select(Said));
 
         offered[2].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         Dispatcher.UIThread.RunJobs();
@@ -989,7 +992,7 @@ public class SvgViewerElementPanelTests
 
         Click(pick);
 
-        Offered(pick).Single(item => Equals(item.Header, "round"))
+        Offered(pick).Single(item => Said(item) == "round")
             .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
@@ -1393,6 +1396,27 @@ public class SvgViewerElementPanelTests
 
         Assert.Contains("fill=\"rgba(0, 0, 255, 0.502)\"", held.Text);
 
+        window.Close();
+    }
+
+    /// <summary>An id reads in the menu as the file writes it, underscores and all.</summary>
+    [AvaloniaFact]
+    public void A_Referenced_Id_Is_Offered_As_Written()
+    {
+        var held = new Held("""
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <linearGradient id="paint0_linear_1" />
+              <rect fill="red" />
+            </svg>
+            """);
+        var window = held.Show("1");
+        var pick = Control(window, "choices", "fill");
+
+        Click(pick);
+
+        Assert.Contains("url(#paint0_linear_1)", Offered(pick).Select(Said));
+
+        pick.Flyout!.Hide();
         window.Close();
     }
 }
