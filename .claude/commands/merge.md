@@ -1,7 +1,7 @@
 ---
 description: Land work by merging a pull request on the remote, never with a local git merge - push the current branch, open a PR against a target branch, merge that PR on GitHub, and land; or push and finish a PR that already exists. This is the only way work lands in this repository.
 argument-hint: [target-branch, or the number of a PR that already exists]
-allowed-tools: SlashCommand, Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git ls-files:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(git rev-list:*), Bash(git checkout:*), Bash(git switch:*), Bash(git restore:*), Bash(git pull:*), Bash(git fetch:*), Bash(gh auth:*), Bash(gh pr:*), Bash(gh run:*), Bash(gh repo:*), Bash(dotnet build:*), Bash(dotnet test:*), Bash(dotnet format:*)
+allowed-tools: SlashCommand, Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git ls-files:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(git rev-list:*), Bash(git checkout:*), Bash(git switch:*), Bash(git restore:*), Bash(git pull:*), Bash(git fetch:*), Bash(git merge:*), Bash(gh auth:*), Bash(gh pr:*), Bash(gh run:*), Bash(gh repo:*), Bash(dotnet build:*), Bash(dotnet test:*), Bash(dotnet format:*)
 ---
 
 Take a branch all the way in: push it, open a pull request, merge that, and clean up after it.
@@ -55,7 +55,36 @@ pending check is not a pass. Merge only once every check has finished and none h
    Either way, record three things: the number, the head branch — which is the one to delete at the
    end — and the target branch.
 
-2. **Wait for CI**, then read the result before doing anything else:
+2. **Make sure it can merge.** The target may have moved while the branch was open and now
+   conflict with it:
+
+   ```sh
+   gh pr view --repo SamoZ256/Svg.Skia <number> --json mergeable,mergeStateStatus
+   ```
+
+   `CONFLICTING` (state `DIRTY`) means GitHub cannot make the merge commit, and `gh pr merge` would
+   refuse with "the merge commit cannot be cleanly created". `UNKNOWN` means GitHub hasn't worked it
+   out yet, so ask again a moment later. On a conflict, resolve it on the head branch by merging the
+   target *into* it. Never rebase: a rebased branch can only be pushed by force.
+
+   ```sh
+   git fetch origin
+   git merge origin/<target>
+   ```
+
+   - **Resolve each conflicted file** so that both sides' intent survives: read the target's
+     commits that touch it, not just the markers. Where the two sides want different things and the
+     code can't tell you which should win, stop and ask me rather than choosing. `git merge --abort`
+     puts the branch back if it goes wrong.
+   - **Then run the gates again** on the result: format what the resolution touched, build, and run
+     the suite. A merge that resolved cleanly can still fail to compile or pass.
+   - **Commit and push:** `git add` the resolved files, `git commit --no-edit` (the default merge
+     message says what it is), and `git push`. That push starts CI again, and step 3 waits for it.
+
+   This is the only local merge this command makes. The branch still lands through the pull
+   request.
+
+3. **Wait for CI**, then read the result before doing anything else:
 
    ```sh
    gh pr checks --repo SamoZ256/Svg.Skia <number> --watch
@@ -66,13 +95,13 @@ pending check is not a pass. Merge only once every check has finished and none h
    checks on their own: never put the listing and the merge in one command, since then the result
    is read only after the merge. A merge went past two red jobs that way once.
 
-   - **Every check passed or was skipped:** go on to step 3.
+   - **Every check passed or was skipped:** go on to step 4.
    - **Any check failed:** stop and do not merge. Report each failing job, the failed test names
      and their error, from `gh run view --repo SamoZ256/Svg.Skia <run id> --log-failed`. Also say
      whether the target branch fails the same way, so a failure that was already there is not
      blamed on this branch.
 
-3. **Merge it** with that number:
+4. **Merge it** with that number:
 
    ```sh
    gh pr merge --repo SamoZ256/Svg.Skia <number> --merge
@@ -87,13 +116,13 @@ pending check is not a pass. Merge only once every check has finished and none h
    merged before going on — `gh pr view --repo SamoZ256/Svg.Skia <number> --json state,mergeCommit`.
 
    **Do not pass `--delete-branch`.** `gh` would delete the local branch and switch away, which is
-   step 5's job — it would then find nothing to do and report success for work it never did.
+   step 6's job — it would then find nothing to do and report success for work it never did.
 
-4. **Delete the remote branch**: `git push origin --delete <head branch>`. This is what gives the
+5. **Delete the remote branch**: `git push origin --delete <head branch>`. This is what gives the
    prune in the next step something to report, and keeps merged branches from accumulating on the
    remote.
 
-5. **Run `/land <target branch>`** — but only while I am on the pull request's head branch. That is
+6. **Run `/land <target branch>`** — but only while I am on the pull request's head branch. That is
    always so when this ran `/pr`, and may not be when a number was passed: `/land` deletes the
    branch I am on, and if that is not the one that merged it would be deleting the wrong thing.
    Where I am somewhere else, skip it, run `git fetch --prune` instead, and say which local branch
