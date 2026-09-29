@@ -121,7 +121,7 @@ public class MainWindowProjectTests : IDisposable
         </studio>
         """;
 
-    private static TreeView Tree(MainWindow window) => window.FindControl<TreeView>("ProjectTree")!;
+    internal static TreeView Tree(MainWindow window) => window.FindControl<TreeView>("ProjectTree")!;
 
     private static TabControl Tabs(MainWindow window) => window.FindControl<TabControl>("Tabs")!;
 
@@ -5372,7 +5372,7 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>The row for a label, found wherever it sits — the tree is rebuilt after every edit.</summary>
-    private static TreeViewItem Row(MainWindow window, string label)
+    internal static TreeViewItem Row(MainWindow window, string label)
         => Descend((TreeViewItem)Tree(window).Items[0]!)
             .First(item => (string)item.Header! == label);
 
@@ -5380,11 +5380,11 @@ public class MainWindowProjectTests : IDisposable
         => new[] { item }.Concat(item.Items.OfType<TreeViewItem>().SelectMany(Descend));
 
     /// <summary>What the row's own menu offers, as a right click on it would show.</summary>
-    private static string[] Offers(TreeViewItem row)
+    internal static string[] Offers(TreeViewItem row)
         => row.ContextMenu!.Items.OfType<MenuItem>().Select(item => (string)item.Header!).ToArray();
 
     /// <summary>Picks a command off a row's menu.</summary>
-    private static void Pick(MainWindow window, string label, string header)
+    internal static void Pick(MainWindow window, string label, string header)
     {
         var item = Row(window, label).ContextMenu!.Items
             .OfType<MenuItem>()

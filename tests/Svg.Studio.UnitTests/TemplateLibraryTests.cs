@@ -146,6 +146,9 @@ public class TemplateLibraryTests : IDisposable
         Assert.True(first.Sure);
         Assert.Contains("streamline-light|line|#000000=Mono glyph", File.ReadAllText(TemplateLibrary.ChoicesStore), StringComparison.Ordinal);
 
+        // And under no style, which is how an update asks: the drawing does not say what it was searched under.
+        Assert.Equal("Mono glyph", TemplateLibrary.Remembered(TemplateLibrary.Prepare(Glyph, family: "streamline-light")));
+
         // Keyed by its colours as well: an icon of the same family in another colour was never chosen for.
         Assert.Equal("Accent glyph", library.Suggest(TemplateLibrary.Prepare(Glyph.Replace("#000000", "#ff0000"), family: "streamline-light", style: "line"), group)[0].Template.Name);
     }
@@ -291,6 +294,140 @@ public class TemplateLibraryTests : IDisposable
     [Fact]
     public void A_Template_Without_A_Size_Keeps_The_Icon_As_Delivered()
         => Assert.Same(Glyph, TemplateLibrary.Sized(Glyph, Recipe(string.Empty)));
+
+    // A PaintCode import's two-tone line: the outline in both an attribute and a style, a fill and a
+    // gradient stop sharing one expression, and a highlight.
+    private const string Extractable = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs><linearGradient id="g"><stop offset="0" stop-color="{{ stateAccentColor30 }}" /></linearGradient></defs>
+          <path d="M1 1h20" style="stroke: {{ stateAccentColor }}; stroke-width: 1.5" fill="none" />
+          <path d="M2 2h20" stroke="{{ stateAccentColor }}" fill="none" />
+          <path d="M3 3h20" fill="{{ stateAccentColor30 }}" />
+          <path d="M4 4h20" fill="{{ stateWhiteColor30 }}" />
+        </svg>
+        """;
+
+    [Fact]
+    public void Extract_Picks_An_Expression_By_The_One_Attribute_It_Paints_Else_By_Coverage_And_The_Last_Takes_The_Rest()
+    {
+        Assert.Equal(
+            """
+            <e:recipe xmlns:e="https://svg.skia/expr/1.0" name="Two-tone">
+              <e:match colors="3" strokes="1" />
+              <e:slot name="colour" by="coverage" rank="1">stateAccentColor30</e:slot>
+              <e:slot name="stroke" paint="stroke" by="coverage" rank="1">stateAccentColor</e:slot>
+              <e:slot name="rest" rest="true">stateWhiteColor30</e:slot>
+            </e:recipe>
+            """.ReplaceLineEndings("\n"),
+            TemplateLibrary.Extract("Two-tone", Extractable).ReplaceLineEndings("\n"));
+    }
+
+    /// <summary>The same drawing with a literal in place of each expression binds back to the expressions it was extracted from.</summary>
+    [Fact]
+    public void An_Extracted_Template_Bound_To_The_Plain_Drawing_Writes_It_Again()
+    {
+        var plain = Extractable
+            .Replace("{{ stateAccentColor30 }}", "#d7e0ff", StringComparison.Ordinal)
+            .Replace("{{ stateAccentColor }}", "#4147d5", StringComparison.Ordinal)
+            .Replace("{{ stateWhiteColor30 }}", "#ffffff", StringComparison.Ordinal);
+
+        var template = SvgRecipe.Parse(TemplateLibrary.Extract("Two-tone", Extractable));
+        var survey = SvgRecipeRewriter.Survey(plain);
+
+        Assert.True(template.Matches(survey));
+
+        var written = SvgRecipeRewriter.Apply(plain, template.Bind(survey).Recipe!).Svg;
+
+        Assert.Equal(Painted(Extractable), Painted(written));
+
+        static string[] Painted(string svg)
+            => SvgRecipeRewriter.Survey(svg, written: true)
+                .Select(value => $"{value.Text}: {string.Join(",", value.Attributes.OrderBy(one => one.Key, StringComparer.Ordinal).Select(one => $"{one.Key}={one.Value}"))}")
+                .ToArray();
+    }
+
+    /// <summary>
+    /// A colour kept as it is and an expression painting as much: a binding ranks the tie by which
+    /// comes first, so the extract has to rank it the same way, not expressions ahead of colours.
+    /// </summary>
+    [Fact]
+    public void A_Tie_With_A_Colour_Kept_As_It_Is_Binds_Back_To_The_Colour_It_Came_From()
+    {
+        const string accent = """<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h24" fill="#ffffff" /><path d="M1 1h2" fill="{{ stateAccentColor }}" /></svg>""";
+
+        var plain = accent.Replace("{{ stateAccentColor }}", "#4147d5", StringComparison.Ordinal);
+        var template = SvgRecipe.Parse(TemplateLibrary.Extract("Accent", accent));
+        var survey = SvgRecipeRewriter.Survey(plain);
+
+        var written = SvgRecipeRewriter.Apply(plain, template.Bind(survey).Recipe!).Svg;
+
+        Assert.Contains("""<path d="M0 0h24" fill="#ffffff" />""", written, StringComparison.Ordinal);
+        Assert.Contains("""<path d="M1 1h2" fill="{{ stateAccentColor }}" />""", written, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_Accent_Drawing_Extracted_And_Bound_To_A_Plain_Glyph_Gives_It_The_Same_Expression()
+    {
+        const string accent = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0h24" fill="{{ stateAccentColor }}" /><path d="M1 1h2" style="fill: {{ stateAccentColor }}" /></svg>""";
+
+        var (_, group) = Library();
+        var template = SvgRecipe.Parse(TemplateLibrary.Extract("Accent", accent));
+        var icon = TemplateLibrary.Prepare(Glyph);
+
+        Assert.Empty(template.Declarations);
+        Assert.True(template.Matches(icon.Survey));
+
+        var bound = template.Bind(icon.Survey, declared: ProjectDeclarations.Names(group)).Recipe!;
+
+        Assert.Contains("fill=\"{{ stateAccentColor }}\"", SvgRecipeRewriter.Apply(icon.Text, bound).Svg, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Drawing_Painted_Through_No_Expression_Has_Nothing_To_Extract()
+        => Assert.Throws<SvgRecipeException>(() => TemplateLibrary.Extract("Plain", Glyph));
+
+    /// <summary>What a row does to a two-tone icon, kept: its template's slot names, each colour picked by paint and lightness.</summary>
+    [Fact]
+    public void Save_Writes_A_Rows_Mapping_As_Slots_Picked_By_Paint_And_Lightness()
+    {
+        var (library, group) = Library();
+        var icon = TemplateLibrary.Prepare(TwoTone, family: "core-line");
+        var mapping = library.Suggest(icon, group).Single(one => one.Template.Name == "Accent two-tone (line)").Recipe;
+
+        var saved = TemplateLibrary.Save("Mine", icon, mapping, "core-line");
+
+        Assert.Equal(
+            """
+            <e:recipe xmlns:e="https://svg.skia/expr/1.0" name="Mine">
+              <e:match colors="2" strokes="1" family="core-line" />
+              <e:slot name="underlay" paint="fill" by="lightness" rank="1">stateAccentColor30</e:slot>
+              <e:slot name="outline" rest="true">stateAccentColor</e:slot>
+            </e:recipe>
+            """.ReplaceLineEndings("\n"),
+            saved.ReplaceLineEndings("\n"));
+
+        var again = SvgRecipe.Parse(saved).Bind(icon.Survey).Recipe!;
+
+        Assert.Equal(
+            mapping.Rules.Select(rule => (rule.Key, rule.Expression)).OrderBy(rule => rule.Key, StringComparer.Ordinal),
+            again.Rules.Select(rule => (rule.Key, rule.Expression)).OrderBy(rule => rule.Key, StringComparer.Ordinal));
+        Assert.False(SvgRecipe.Parse(saved).Matches(icon.Survey, family: "core-solid"));
+    }
+
+    /// <summary>A colour kept as it is leaves no slot to take the rest, which would take it too.</summary>
+    [Fact]
+    public void Save_With_A_Colour_Kept_Picks_Every_Other_One_Explicitly()
+    {
+        var icon = TemplateLibrary.Prepare(TwoTone);
+        var mapping = SvgRecipe.Parse("""<recipe xmlns="https://svg.skia/expr/1.0" size="30"><replace color="#4147d5">stateAccentColor</replace></recipe>""");
+
+        var saved = TemplateLibrary.Save("Outline only", icon, mapping, null);
+
+        Assert.Contains("""<e:recipe xmlns:e="https://svg.skia/expr/1.0" name="Outline only" size="30">""", saved, StringComparison.Ordinal);
+        Assert.Contains("""<e:slot name="stroke" paint="stroke" by="lightness" rank="1">stateAccentColor</e:slot>""", saved, StringComparison.Ordinal);
+        Assert.DoesNotContain("rest=", saved, StringComparison.Ordinal);
+        Assert.Equal("#d7e0ff", Assert.Single(SvgRecipe.Parse(saved).Bind(icon.Survey).Leftover).Text);
+    }
 
     private static SvgRecipe Recipe(string attributes)
         => SvgRecipe.Parse($"<recipe xmlns=\"https://svg.skia/expr/1.0\" {attributes} />");

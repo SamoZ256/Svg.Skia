@@ -102,7 +102,16 @@ public sealed class TemplateLibrary
 
     public static string? Remembered(TemplateIcon icon) => StudioSettings.Read(icon.ChoiceKey, ChoicesStore);
 
-    public static void Remember(TemplateIcon icon, string template) => StudioSettings.Write(icon.ChoiceKey, template, ChoicesStore);
+    public static void Remember(TemplateIcon icon, string template)
+    {
+        StudioSettings.Write(icon.ChoiceKey, template, ChoicesStore);
+
+        // Under no style too, which is how an update asks: a drawing does not keep what it was searched under.
+        if (icon.Style is { })
+        {
+            StudioSettings.Write((icon with { Style = null }).ChoiceKey, template, ChoicesStore);
+        }
+    }
 
     /// <summary>
     /// The icon's text with the paint a template cannot see made literal: <c>currentColor</c> as
@@ -351,6 +360,258 @@ public sealed class TemplateLibrary
         }
 
         return refusal is null;
+    }
+
+    /// <summary>
+    /// Puts <paramref name="templateText"/> in place of the project's template at <paramref name="index"/>,
+    /// after the last where the index is their count, or takes that one out where the text is null,
+    /// as one undo step.
+    /// </summary>
+    /// <returns>Why it could not, or null.</returns>
+    /// <remarks>
+    /// A template that does not parse as a recipe is still kept, and listed with its error, as one
+    /// written into the file by hand would be; only what the block cannot hold is refused.
+    /// </remarks>
+    public static string? Put(ProjectWorkspace workspace, int index, string? templateText)
+    {
+        if (workspace is null)
+        {
+            throw new ArgumentNullException(nameof(workspace));
+        }
+
+        var root = workspace.Document.Root;
+        var block = SvgSourceDocument.Read(root.TemplatesText, out _)!;
+        var holder = block.Document.Root!;
+        var templates = holder.Elements().ToList();
+        var was = index < templates.Count ? Named(templates[index]) : null;
+        string label;
+
+        if (templateText is null)
+        {
+            if (templates[index].PreviousNode is XText indent && indent.Value.Trim().Length == 0)
+            {
+                indent.Remove();
+            }
+
+            templates[index].Remove();
+            label = $"remove template {was}";
+        }
+        else
+        {
+            var read = SvgSourceDocument.Read(templateText.Replace("\r\n", "\n"), out var unreadable);
+
+            if (read is null)
+            {
+                return unreadable;
+            }
+
+            var template = read.Document.Root!;
+            var name = Named(template);
+
+            if (template.Name != (XNamespace)SvgRecipe.Namespace + "recipe")
+            {
+                return $"A template has to be an <e:recipe xmlns:e=\"{SvgRecipe.Namespace}\">.";
+            }
+
+            if (name.Length == 0)
+            {
+                return "A template needs a name, which is what an import offers it as.";
+            }
+
+            if (name == KeepColoursName || templates.Where((_, at) => at != index).Any(other => Named(other) == name))
+            {
+                return $"The project already has a template called '{name}'.";
+            }
+
+            // Detached first, for the reason ProjectDrawing.Inline is.
+            template.Remove();
+
+            if (index < templates.Count)
+            {
+                templates[index].ReplaceWith(template);
+                label = was == name ? $"edit template {name}" : $"rename template {was} to {name}";
+            }
+            else
+            {
+                // Beside the last one, or one level in from the close where there is none; a block
+                // made from the empty one is moved to its depth when it goes in, as a new <e:code> is.
+                var closing = holder.LastNode as XText;
+                var indent = templates.LastOrDefault()?.PreviousNode is XText before && before.Value.Contains('\n')
+                    ? before.Value
+                    : (closing?.Value ?? "\n") + block.IndentUnit;
+
+                ProjectGroup.Reindent(template, string.Empty, indent.Substring(indent.LastIndexOf('\n') + 1));
+
+                if (closing is { })
+                {
+                    closing.AddBeforeSelf(new XText(indent), template);
+                }
+                else
+                {
+                    holder.Add(new XText(indent), template, new XText("\n"));
+                }
+
+                label = $"add template {name}";
+            }
+
+            // The block binds the prefix already, and a template read on its own carries it too.
+            foreach (var declared in template.Attributes().Where(one => one.IsNamespaceDeclaration).ToList())
+            {
+                if (holder.GetNamespaceOfPrefix(declared.Name.LocalName)?.NamespaceName == declared.Value)
+                {
+                    declared.Remove();
+                }
+            }
+        }
+
+        var text = block.ToText();
+
+        // Nothing changed is no step, rather than one that undoes to no effect.
+        if (text == root.TemplatesText)
+        {
+            return null;
+        }
+
+        string? refusal = null;
+
+        workspace.Do(label, () => ProjectSnapshot.Templates(root), () => refusal = root.SetTemplates(text));
+
+        return refusal;
+
+        static string Named(XElement template) => ((string?)template.Attribute("name"))?.Trim() ?? string.Empty;
+    }
+
+    /// <summary>
+    /// A template that writes <paramref name="drawingText"/>'s <c>{{ }}</c> paints into a drawing
+    /// laid out like it: one slot per expression, picked by where it paints and how much.
+    /// </summary>
+    /// <remarks>No <c>&lt;code&gt;</c>: the names the expressions use are the drawing's group's, and an import leans on them there.</remarks>
+    /// <exception cref="SvgRecipeException">The drawing is unreadable, or paints nothing through an expression.</exception>
+    public static string Extract(string name, string drawingText)
+    {
+        // In one survey, as a binding meets the colours they stand for: ties are ranked in that order.
+        var uses = SvgRecipeRewriter.Survey(drawingText, written: true)
+            .Where(value => value.Name == SvgRecipeValue.ColorName)
+            .Select(value => new Use(SvgExpressionAttributes.TryUnwrap(value.Text, out var expression) ? expression : null, value, null))
+            .ToList();
+
+        return Written(name, uses, "coverage", like: null, family: null);
+    }
+
+    /// <summary>
+    /// A template that does to icons like <paramref name="icon"/> what <paramref name="mapping"/>
+    /// does to it, picking each colour by where it paints and how light it is.
+    /// </summary>
+    /// <param name="mapping">The bound recipe an import row would apply, whose size, padding and declarations come along.</param>
+    /// <param name="family">A family the template is kept to, or null for any.</param>
+    /// <exception cref="SvgRecipeException"><paramref name="mapping"/> turns no colour into an expression.</exception>
+    public static string Save(string name, TemplateIcon icon, SvgRecipe? mapping, string? family)
+    {
+        var uses = icon.Survey
+            .Where(value => value.Name == SvgRecipeValue.ColorName)
+            .Select(value => mapping?.Rules.FirstOrDefault(rule => rule.Name == SvgRecipeValue.ColorName && rule.Key == value.Text) is { } rule
+                ? new Use(rule.Expression, value, rule.Slot?.Name)
+                : new Use(null, value, null))
+            .ToList();
+
+        return Written(name, uses, "lightness", mapping, family);
+    }
+
+    /// <summary>One colour of the drawing a template is written from, and what it becomes there, or null for staying as it is.</summary>
+    private sealed record Use(string? Expression, SvgRecipeSurveyValue Value, string? Slot);
+
+    /// <summary>
+    /// Slots that pick out each use in turn, as <see cref="SvgRecipeSlot"/> will bind them: what it
+    /// paints, where only one attribute, and its place among what is still unclaimed.
+    /// </summary>
+    /// <remarks>
+    /// A rank counts what is left when the slot binds, so it is worked out against that rather than
+    /// the whole drawing. The last expression takes the rest, unless a colour is to stay as it is,
+    /// which a rest slot would take as well.
+    /// </remarks>
+    private static string Written(string name, IReadOnlyList<Use> uses, string by, SvgRecipe? like, string? family)
+    {
+        if (!uses.Any(use => use.Expression is { }))
+        {
+            throw new SvgRecipeException("Nothing here is painted through an expression, so there is nothing for a template to write.");
+        }
+
+        var ns = (XNamespace)SvgRecipe.Namespace;
+        var recipe = Framed(like, new XAttribute(XNamespace.Xmlns + "e", SvgRecipe.Namespace), new XAttribute("name", name));
+
+        recipe.Add(new XElement(
+            ns + "match",
+            new XAttribute("colors", uses.Count),
+            new XAttribute("strokes", uses.Count(use => use.Value.Strokes > 0)),
+            family is { } ? new XAttribute("family", family) : null));
+
+        if (like?.Declarations is { Count: > 0 } declarations)
+        {
+            recipe.Add(new XElement(ns + "code", declarations.Select(declaration => new XElement(declaration))));
+        }
+
+        var left = uses.ToList();
+        var named = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var use in uses.Where(use => use.Expression is { }).OrderByDescending(use => use.Value.Count))
+        {
+            if (left.All(other => other.Expression == use.Expression))
+            {
+                recipe.Add(new XElement(ns + "slot", new XAttribute("name", Unique(use.Slot ?? "rest")), new XAttribute("rest", "true"), use.Expression));
+
+                break;
+            }
+
+            var paint = use.Value.Attributes.Count == 1 ? use.Value.Attributes.Keys.Single() : null;
+            var candidates = left.Where(other => paint is null || other.Value.Attributes.ContainsKey(paint));
+            var ranked = by == "lightness"
+                ? candidates.OrderBy(other => SvgRecipeColor.Luminance(SvgRecipeColor.Parse(other.Value.Text, other.Value.Text)))
+                : candidates.OrderByDescending(other => other.Value.Count);
+
+            recipe.Add(new XElement(
+                ns + "slot",
+                new XAttribute("name", Unique(use.Slot ?? paint ?? "colour")),
+                paint is { } ? new XAttribute("paint", paint) : null,
+                new XAttribute("by", by),
+                new XAttribute("rank", ranked.ToList().IndexOf(use) + 1),
+                use.Expression));
+
+            left.Remove(use);
+        }
+
+        return recipe.ToString();
+
+        string Unique(string slot)
+        {
+            var unique = slot;
+
+            for (var n = 2; !named.Add(unique); n++)
+            {
+                unique = $"{slot} {n}";
+            }
+
+            return unique;
+        }
+    }
+
+    /// <summary>A <c>&lt;recipe&gt;</c> holding <paramref name="content"/>, at <paramref name="like"/>'s size and padding.</summary>
+    internal static XElement Framed(SvgRecipe? like, params object[] content)
+    {
+        var recipe = new XElement((XNamespace)SvgRecipe.Namespace + "recipe", content);
+
+        if (like?.Size is { } size)
+        {
+            recipe.SetAttributeValue("size", size.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (like is { Padding: { IsEmpty: false } padding })
+        {
+            recipe.SetAttributeValue(
+                "padding",
+                string.Join(" ", new[] { padding.Top, padding.Right, padding.Bottom, padding.Left }.Select(side => side.ToString(CultureInfo.InvariantCulture))));
+        }
+
+        return recipe;
     }
 
     /// <summary>Which of <paramref name="sources"/> a drawing under <paramref name="group"/> already came from.</summary>

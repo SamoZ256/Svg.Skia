@@ -84,12 +84,26 @@ public static class ProjectDeclarations
 
     /// <summary>The names a drawing added to <paramref name="group"/> would inherit, the group's own among them.</summary>
     public static IReadOnlySet<string> Names(ProjectGroup group)
-        => Chain(group)
-            .Append(group)
-            .SelectMany(scope => scope.Code?.Elements() ?? Enumerable.Empty<XElement>())
+        => Into(group)
+            .SelectMany(scope => scope.Code!.Elements())
             .Select(declaration => ((string?)declaration.Attribute("name"))?.Trim())
             .OfType<string>()
             .ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>What a drawing added to <paramref name="group"/> would inherit, read as one set of declarations.</summary>
+    /// <remarks>Whatever of it reads: a name declared twice down the chain is a fault the group panel reports.</remarks>
+    public static SvgExpressionDeclarations Scope(ProjectGroup group)
+        => SvgExpressionDeclarations.Parse(
+            $"<svg xmlns=\"http://www.w3.org/2000/svg\">{string.Concat(Into(group).Select(scope => scope.CodeText))}</svg>",
+            out _);
+
+    /// <summary>What a drawing not yet added to <paramref name="group"/> would be drawn from there.</summary>
+    public static string Built(ProjectGroup group, string ownText)
+        => Built(Into(group), ownText ?? throw new ArgumentNullException(nameof(ownText)));
+
+    /// <summary>The blocks a drawing in <paramref name="group"/> inherits, the group's own among them.</summary>
+    private static IReadOnlyList<ProjectGroup> Into(ProjectGroup group)
+        => Chain(group).Concat(group.Code is { } ? new[] { group } : Array.Empty<ProjectGroup>()).ToList();
 
     /// <summary>What <paramref name="drawing"/> is drawn, generated and exported from.</summary>
     /// <param name="ownText">
@@ -112,8 +126,11 @@ public static class ProjectDeclarations
             throw new ArgumentNullException(nameof(ownText));
         }
 
-        var chain = Chain(drawing);
+        return Built(Chain(drawing), ownText);
+    }
 
+    private static string Built(IReadOnlyList<ProjectGroup> chain, string ownText)
+    {
         if (chain.Count == 0)
         {
             return ownText;

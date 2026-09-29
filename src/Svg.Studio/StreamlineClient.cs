@@ -97,6 +97,38 @@ public sealed class StreamlineClient
             null,
             cancellation);
 
+    /// <summary>The icon family <paramref name="slug"/> names, or null where no group lists it.</summary>
+    /// <remarks>An icon names its family by slug and the family's icons are listed by hash, and only the catalogue has both.</remarks>
+    public async Task<StreamlineFamily?> Family(string slug, CancellationToken cancellation = default)
+    {
+        foreach (var group in await FamilyGroups(cancellation))
+        {
+            if (group.ProductType is { } type && type != "icons")
+            {
+                continue;
+            }
+
+            for (var offset = 0; ;)
+            {
+                var page = await Families(group.Hash, offset, cancellation: cancellation);
+
+                if (page.Items.FirstOrDefault(family => family.Slug == slug) is { } found)
+                {
+                    return found;
+                }
+
+                if (!page.HasMore || page.Items.Count == 0)
+                {
+                    break;
+                }
+
+                offset = page.NextOffset;
+            }
+        }
+
+        return null;
+    }
+
     public Task<StreamlinePage<StreamlineIcon>> FamilyIcons(
         string familyHash,
         int offset = 0,
