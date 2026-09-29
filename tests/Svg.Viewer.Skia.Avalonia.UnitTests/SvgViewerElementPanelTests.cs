@@ -113,23 +113,32 @@ public class SvgViewerElementPanelTests
     }
 
     [AvaloniaFact]
-    public void The_Rows_Are_What_The_Element_Is_Written_With()
+    public void The_Rows_Are_Grouped_By_What_They_Do()
     {
         var held = new Held();
+        var window = held.Show("1/0");
 
-        held.Show("1/0");
-
-        // In the order the file writes them, and nothing the file does not say.
         Assert.Equal(
-            new[] { "x", "y", "width", "height", "fill" },
-            held.Panel.Attributes.TakeWhile(name => name != "stroke").ToArray());
+            new[] { "General", "Geometry", "Fill", "Stroke", "Transform", "Visibility", "Effects" },
+            window.GetVisualDescendants().OfType<Expander>().Select(section => section.Tag).ToArray());
+
+        // By section and not by where the file wrote them: fill is written last and listed third.
+        var order = held.Panel.Attributes.ToList();
+
+        Assert.True(order.IndexOf("x") < order.IndexOf("width"));
+        Assert.True(order.IndexOf("width") < order.IndexOf("fill"));
+        Assert.True(order.IndexOf("fill") < order.IndexOf("stroke"));
+        Assert.True(order.IndexOf("stroke") < order.IndexOf("transform"));
+        Assert.True(order.IndexOf("transform") < order.IndexOf("opacity"));
 
         Assert.Equal("#00ff00", held.Panel.Shown("fill"));
         Assert.Equal("24", held.Panel.Shown("width"));
+
+        window.Close();
     }
 
     [AvaloniaFact]
-    public void The_Ones_It_Could_Take_Follow_The_Ones_It_Has()
+    public void An_Element_Is_Offered_What_Its_Kind_Usually_Takes()
     {
         var held = new Held();
 
@@ -139,11 +148,148 @@ public class SvgViewerElementPanelTests
         Assert.Contains("opacity", held.Panel.Attributes);
         Assert.Equal(string.Empty, held.Panel.Shown("opacity"));
 
-        // Every attribute an expression can drive is offered.
-        foreach (var name in SvgExpressionAttributes.Supported)
+        // Whether or not an expression could drive it: rx and stroke-linejoin take none.
+        foreach (var name in new[] { "rx", "stroke", "stroke-width", "stroke-linejoin", "transform", "clip-path" })
         {
             Assert.Contains(name, held.Panel.Attributes);
         }
+
+        // Another kind's: a stop's colour, a text's font, a circle's centre, a polygon's points.
+        foreach (var name in new[] { "stop-color", "font-family", "textLength", "cx", "points" })
+        {
+            Assert.DoesNotContain(name, held.Panel.Attributes);
+        }
+
+        var stop = new Held("""
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <linearGradient id="g"><stop offset="0" /></linearGradient>
+            </svg>
+            """);
+
+        stop.Show("0/0");
+
+        Assert.Contains("stop-color", stop.Panel.Attributes);
+        Assert.Contains("stop-opacity", stop.Panel.Attributes);
+        Assert.DoesNotContain("stroke", stop.Panel.Attributes);
+        Assert.DoesNotContain("x", stop.Panel.Attributes);
+    }
+
+    [AvaloniaFact]
+    public void Showing_All_Offers_Everything_The_Parser_Reads_There()
+    {
+        var held = new Held();
+
+        held.Show("1/0");
+
+        try
+        {
+            held.Panel.ShowsAll = true;
+
+            foreach (var name in new[] { "stroke-miterlimit", "pointer-events", "font-family", "class", "style" })
+            {
+                Assert.Contains(name, held.Panel.Attributes);
+            }
+
+            // Read on some other element, or on none, or only from style.
+            foreach (var name in new[] { "textLength", "cx", "onclick", "marker", "mix-blend-mode" })
+            {
+                Assert.DoesNotContain(name, held.Panel.Attributes);
+            }
+        }
+        finally
+        {
+            held.Panel.ShowsAll = false;
+        }
+
+        Assert.DoesNotContain("stroke-miterlimit", held.Panel.Attributes);
+    }
+
+    /// <summary>Studio makes a new panel for every pick, so the choice has to outlive the panel.</summary>
+    [AvaloniaFact]
+    public void Showing_All_Is_Kept_By_A_Panel_Made_Afterwards()
+    {
+        try
+        {
+            new Held().Panel.ShowsAll = true;
+
+            var later = new Held();
+
+            later.Show("1/0");
+
+            Assert.True(later.Panel.ShowsAll);
+            Assert.Contains("stroke-miterlimit", later.Panel.Attributes);
+        }
+        finally
+        {
+            new Held().Panel.ShowsAll = false;
+        }
+    }
+
+    [AvaloniaFact]
+    public void A_Folded_Section_Stays_Folded_Through_A_Write()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+
+        Expander Stroke() => window.GetVisualDescendants().OfType<Expander>().Single(section => Equals(section.Tag, "Stroke"));
+
+        try
+        {
+            Stroke().IsExpanded = false;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(held.Panel.Set("fill", "#123456"));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(Stroke().IsExpanded);
+            Assert.True(window.GetVisualDescendants().OfType<Expander>().Single(section => Equals(section.Tag, "Fill")).IsExpanded);
+        }
+        finally
+        {
+            Stroke().IsExpanded = true;
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void A_Row_Reads_As_A_Label_And_Names_Its_Attribute_On_Hover()
+    {
+        var held = new Held("""<svg xmlns="http://www.w3.org/2000/svg"><rect data-note="kept" /></svg>""");
+        var window = held.Show("0");
+
+        string Label(string name)
+            => window.GetVisualDescendants().OfType<TextBlock>().Single(label => Equals(ToolTip.GetTip(label), name)).Text!;
+
+        Assert.Equal("Stroke width", Label("stroke-width"));
+        Assert.Equal("Fill", Label("fill"));
+
+        // Nobody wrote a label for it, so it is spelt from the name and filed last.
+        Assert.Equal("Data note", Label("data-note"));
+        Assert.Equal("data-note", held.Panel.Attributes[^1]);
+        Assert.Equal("Other", window.GetVisualDescendants().OfType<Expander>().Last().Tag);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Set_Row_Can_Be_Reset()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+
+        Button Reset(string name)
+            => window.GetVisualDescendants().OfType<Button>().SingleOrDefault(button => button.Classes.Contains("reset") && Equals(button.Tag, name))!;
+
+        // Only what the file sets has anything to take away.
+        Assert.Null(Reset("stroke"));
+
+        Reset("fill").RaiseEvent(new global::Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain("fill=", held.Text);
+        Assert.Equal(string.Empty, held.Panel.Shown("fill"));
+
+        window.Close();
     }
 
     [AvaloniaFact]
@@ -292,6 +438,9 @@ public class SvgViewerElementPanelTests
         var window = held.Show("0");
 
         Assert.Contains("xlink:href", held.Panel.Attributes);
+
+        // Nor offered the bare one beside it, which a <use> usually has.
+        Assert.DoesNotContain("href", held.Panel.Attributes);
 
         Assert.True(held.Panel.Set("xlink:href", "#b"));
 

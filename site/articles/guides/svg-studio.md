@@ -225,8 +225,14 @@ look one up under again and is not covered until you name it. Switch the copies 
 ## The Element tab
 
 It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
-own tab or on a group's — in the order the file writes them, then the ones an expression could drive
-that the element has no value for yet.
+own tab or on a group's — under names a person would use, filed in sections by what they do:
+**Geometry**, **Fill**, **Stroke**, **Text** and so on. Hover a label for the attribute's name as the
+file writes it. A section folds away and stays folded from one pick to the next.
+
+Every attribute the element writes is listed, and beside them the ones an element of its kind usually
+has — a rectangle's corner radii and stroke, a gradient stop's colour and offset, not a stop's stroke
+or a rectangle's font. **Show all** lists everything the parser would read on it instead, whether or
+not an expression could drive it. A row the file sets is in bold, with a **×** that takes it away.
 
 A row's box holds the value itself, whatever it is. Typing `{%{{{ tint }}}%}` into `fill` writes that into
 the drawing; typing `#00ff00` back writes that. Binding and unbinding are the same gesture, so
@@ -239,8 +245,8 @@ grip beside it, which reorders the list — and let go of it over an attribute's
 `{%{{{ that name }}}%}`. While you are carrying one, every row it could be written into is
 outlined, so what a variable is good for is something you can see rather than something to try. A
 number will not land on a `fill`, and nothing lands on `transform`, where an expression has to be one
-function argument rather than the whole value. A row under **Not set** takes one too, which adds the
-attribute already bound.
+function argument rather than the whole value. A row the file does not set yet takes one too, which
+adds the attribute already bound.
 
 Only an expression is judged: what it comes to is read out beside it, an expression of the wrong type
 is caught in the box, and one written on an attribute the parser lifts nothing out of is refused

@@ -12,6 +12,7 @@ using Avalonia.Layout;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Svg.Expressions;
 using Svg.SourceEditing;
@@ -31,9 +32,11 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// and it does not. Nothing has to remember what a value used to be, which is the thing a rule-shaped
 /// editor cannot do once it has replaced one.
 ///
-/// Rows come from the text and not from the parsed drawing. The text is what is being edited, so
-/// what is listed is what is there in the order somebody wrote it, and an attribute already holding
-/// an expression reads back as that rather than as the placeholder the parser puts in its place.
+/// Values come from the text and not from the parsed drawing. The text is what is being edited, so an
+/// attribute already holding an expression reads back as that rather than as the placeholder the
+/// parser puts in its place. Rows are filed by what they do rather than where they were written, and
+/// a row the file does not set is listed only where the element usually has one — or, with
+/// <see cref="ShowsAll"/>, wherever the parser would read it.
 ///
 /// Host-agnostic in the way <see cref="SvgViewerDeclarationCommands"/> is: what differs between a
 /// drawing's own tab and a group's is where the text is and what applying an edit means, so both are
@@ -83,6 +86,30 @@ public sealed class SvgViewerElementPanel : UserControl
     /// <summary>Made once and kept: a second one around the same rows is a second parent for them.</summary>
     private readonly ScrollViewer _scroll;
 
+    /// <summary>The heading and the rows under it, which is what <see cref="_host"/> shows once something is picked.</summary>
+    private readonly DockPanel _body = new();
+
+    private readonly TextBlock _title = new()
+    {
+        FontWeight = FontWeight.SemiBold,
+        VerticalAlignment = VerticalAlignment.Center,
+        TextTrimming = TextTrimming.CharacterEllipsis
+    };
+
+    private readonly CheckBox _all = new()
+    {
+        Content = "Show all",
+        FontSize = 12,
+        MinHeight = 0,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+
+    // Static because Studio makes a new panel for every pick and every write, and a toggle or a
+    // folded section that reset each time would never stay the way somebody left it.
+    private static bool s_all;
+
+    private static readonly HashSet<SvgViewerAttributeGroup> s_folded = new();
+
     private string? _address;
 
     /// <summary>The variable the drag over this panel is carrying, or null while none is.</summary>
@@ -116,6 +143,30 @@ public sealed class SvgViewerElementPanel : UserControl
             Source = new Uri("avares://Svg.Viewer.Skia.Avalonia/SvgExpressionBox.axaml")
         });
 
+        // Fluent draws a section as a bordered card, which around every few rows reads as a form
+        // inside a form.
+        Resources["ExpanderHeaderBackground"] = Brushes.Transparent;
+        Resources["ExpanderContentBackground"] = Brushes.Transparent;
+        Resources["ExpanderHeaderBorderThickness"] = new Thickness(0);
+        Resources["ExpanderContentDownBorderThickness"] = new Thickness(0);
+        Resources["ExpanderHeaderPadding"] = new Thickness(0);
+        Resources["ExpanderContentPadding"] = new Thickness(0, 4, 0, 8);
+        Resources["ExpanderMinHeight"] = 28d;
+
+        _all.IsChecked = s_all;
+        _all.IsCheckedChanged += (_, _) => ShowsAll = _all.IsChecked == true;
+        ToolTip.SetTip(_all, "List every attribute this element can take, not only the usual ones.");
+
+        var heading = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(10, 8, 10, 0) };
+
+        heading.Children.Add(_title);
+        Grid.SetColumn(_all, 1);
+        heading.Children.Add(_all);
+
+        _body.Children.Add(heading);
+        DockPanel.SetDock(heading, Dock.Top);
+        _body.Children.Add(_scroll);
+
         var panel = new DockPanel();
 
         panel.Children.Add(_fault);
@@ -139,6 +190,24 @@ public sealed class SvgViewerElementPanel : UserControl
 
     /// <summary>Why the last edit was refused, or null.</summary>
     public string? Fault { get; private set; }
+
+    /// <summary>Whether every attribute the element can take is listed, rather than the usual ones.</summary>
+    /// <remarks>One setting for every panel, for the reason <see cref="s_all"/> is static.</remarks>
+    public bool ShowsAll
+    {
+        get => s_all;
+        set
+        {
+            if (s_all == value)
+            {
+                return;
+            }
+
+            s_all = value;
+
+            Refresh();
+        }
+    }
 
     /// <summary>What the box for <paramref name="name"/> says, or null when there is no such row.</summary>
     public string? Shown(string name)
@@ -199,11 +268,8 @@ public sealed class SvgViewerElementPanel : UserControl
         }
 
         var open = Open();
-        var written = open is null
-            ? Array.Empty<SvgSourceAttribute>()
-            : SvgAttributeEditor.Attributes(open, address);
 
-        if (open is null || SvgAttributeEditor.ElementName(open, address) is null)
+        if (open is null || SvgAttributeEditor.ElementName(open, address) is not { } element)
         {
             // In the drawing but not in the file: the declarations block a recipe injected is the
             // one of these anybody meets.
@@ -213,89 +279,126 @@ public sealed class SvgViewerElementPanel : UserControl
             return;
         }
 
-        // First, because it is what the element says rather than how it is said: somebody who
-        // picked a <text> came for the words far more often than for its letter-spacing.
+        _title.Text = SvgViewerAttributes.Title(element);
+        ToolTip.SetTip(_title, $"<{element}>");
+        _all.IsChecked = s_all;
+
+        // First and outside the sections, because it is what the element says rather than how it is
+        // said: somebody who picked a <text> came for the words far more often than for its spacing.
         if (SvgAttributeEditor.Content(open, address, out var missing) is { } content)
         {
-            _rows.Children.Add(Row(SvgExpressionAttributes.ContentName, content));
+            _rows.Children.Add(Row(SvgExpressionAttributes.ContentName, content, content.Length > 0));
         }
         else if (missing is { })
         {
             _rows.Children.Add(Told(missing));
         }
 
-        foreach (var attribute in written)
-        {
-            _rows.Children.Add(Row(attribute.Name, attribute.Value));
-        }
-
-        var absent = SvgExpressionAttributes.Supported
-            .Where(name => !written.Any(had => string.Equals(had.Name, name, StringComparison.Ordinal)))
+        var rows = SvgAttributeEditor.Attributes(open, address)
+            .Select(attribute => (attribute.Name, attribute.Value, Set: true))
             .ToList();
 
-        if (absent.Count > 0)
-        {
-            _rows.Children.Add(new TextBlock
-            {
-                Text = "Not set",
-                FontWeight = FontWeight.SemiBold,
-                Opacity = 0.7,
-                FontSize = 11,
-                Margin = new Thickness(0, 8, 0, 0)
-            });
+        // By the name without its prefix, so an xlink:href the file writes is not offered an href
+        // beside it — writing both is how a drawing comes to point two ways at once.
+        var listed = new HashSet<string>(rows.Select(row => Unprefixed(row.Name)), StringComparer.Ordinal);
 
-            foreach (var name in absent)
+        foreach (var name in SvgViewerAttributes.Usual(element)
+                     .Concat(s_all ? SvgElementNames.AttributesOf(element) : Array.Empty<string>()))
+        {
+            if (listed.Add(Unprefixed(name)))
             {
-                _rows.Children.Add(Row(name, string.Empty));
+                rows.Add((name, string.Empty, false));
             }
         }
 
-        _host.Content = _scroll;
-    }
-
-    /// <summary>Says again what each row's expression comes to, without disturbing the rows.</summary>
-    public void Readouts()
-    {
-        foreach (var row in _shown)
+        foreach (var section in rows
+                     .GroupBy(row => SvgViewerAttributes.Find(row.Name).Group)
+                     .OrderBy(group => group.Key))
         {
-            Says(row);
+            var body = new StackPanel { Spacing = 10 };
+            var set = 0;
+
+            foreach (var row in section.OrderBy(row => SvgViewerAttributes.Find(row.Name).Rank))
+            {
+                body.Children.Add(Row(row.Name, row.Value, row.Set));
+                set += row.Set ? 1 : 0;
+            }
+
+            _rows.Children.Add(Section(section.Key, set, body));
         }
+
+        _host.Content = _body;
     }
 
-    private Control Row(string name, string value)
+    /// <summary>One collapsible section of rows, which stays the way somebody left it.</summary>
+    private static Expander Section(SvgViewerAttributeGroup group, int set, Control rows)
     {
-        var heading = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+
+        header.Children.Add(new TextBlock { Text = group.ToString(), FontWeight = FontWeight.SemiBold, FontSize = 12 });
+
+        if (set > 0)
+        {
+            var count = new TextBlock { Text = $"{set} set", Opacity = 0.5, FontSize = 11, Margin = new Thickness(8, 0, 0, 0) };
+
+            Grid.SetColumn(count, 1);
+            header.Children.Add(count);
+        }
+
+        var section = new Expander
+        {
+            Header = header,
+            Content = rows,
+            Tag = group.ToString(),
+            IsExpanded = !s_folded.Contains(group),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+
+        // After IsExpanded is set, so reading the setting back is not taken for somebody changing it.
+        section.Expanded += (_, _) => s_folded.Remove(group);
+        section.Collapsed += (_, _) => s_folded.Add(group);
+
+        return section;
+    }
+
+    private static string Unprefixed(string name) => name.Substring(name.IndexOf(':') + 1);
+
+    private Control Row(string name, string value, bool set)
+    {
+        var about = SvgViewerAttributes.Find(name);
+        var heading = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto") };
 
         var label = new TextBlock
         {
-            // A space, so it cannot be mistaken for an attribute — no attribute name holds one.
-            Text = IsText(name) ? "element text" : name,
-            FontFamily = new FontFamily("Menlo, Consolas, monospace"),
+            Text = IsText(name) ? "Text" : about.Label,
             FontSize = 12,
+            FontWeight = set ? FontWeight.SemiBold : FontWeight.Normal,
+            Opacity = set ? 1 : 0.7,
             VerticalAlignment = VerticalAlignment.Center
         };
 
+        ToolTip.SetTip(label, IsText(name) ? "The words between the element's tags" : name);
         heading.Children.Add(label);
 
-        // What an expression here would have to come to, or that one would do nothing. The second is
-        // worth saying up front: the braces are read as an ordinary value and nothing else says so.
-        var says = Typed(name) is { } type
-            ? ExprFunctions.Describe(type)
-              + (SvgExpressionAttributes.IsInArguments(name) ? " per argument" : string.Empty)
-              + (SvgExpressionAttributes.IsResolvedBeforeRecording(name) ? ", built in" : string.Empty)
-            : "no expression";
-
-        var kind = new TextBlock
+        // What an expression here would have to come to. A row that takes none says nothing, and
+        // braces typed into it are refused with the reason the moment they are typed.
+        if (Typed(name) is { } type)
         {
-            Text = says,
-            Opacity = 0.45,
-            FontSize = 11,
-            Margin = new Thickness(8, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center
-        };
+            var kind = new TextBlock
+            {
+                Text = ExprFunctions.Describe(type)
+                       + (SvgExpressionAttributes.IsInArguments(name) ? " per argument" : string.Empty)
+                       + (SvgExpressionAttributes.IsResolvedBeforeRecording(name) ? ", built in" : string.Empty),
+                Opacity = 0.45,
+                FontSize = 11,
+                Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
 
-        Grid.SetColumn(kind, 1);
-        heading.Children.Add(kind);
+            Grid.SetColumn(kind, 1);
+            heading.Children.Add(kind);
+        }
 
         var box = new TextBox
         {
@@ -347,6 +450,29 @@ public sealed class SvgViewerElementPanel : UserControl
 
         _shown.Add(row);
 
+        if (set)
+        {
+            // Not the edit class: every edit button in the viewer is visible, and this one is not
+            // always.
+            var reset = new Button
+            {
+                Content = "×",
+                Classes = { "reset" },
+                Tag = name,
+                Padding = new Thickness(6, 0),
+                MinHeight = 0,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            ToolTip.SetTip(reset, IsText(name) ? "Clear the text" : $"Remove {name}");
+            reset.Click += (_, _) => Commit(box, name, string.Empty);
+
+            Grid.SetColumn(reset, 2);
+            heading.Children.Add(reset);
+        }
+
         box.TextChanged += (_, _) => Says(row);
 
         box.LostFocus += (_, _) => Commit(box, name);
@@ -366,6 +492,18 @@ public sealed class SvgViewerElementPanel : UserControl
         Says(row);
 
         return new StackPanel { Spacing = 3, Children = { heading, line, trouble } };
+    }
+
+    /// <summary>Puts <paramref name="text"/> in a row's box and writes it, as though it had been typed.</summary>
+    /// <remarks>
+    /// Posted, because writing rebuilds every row, and the control whose handler asked for this is
+    /// still inside that handler. A second write of the same text is a no-op in the commit below.
+    /// </remarks>
+    private void Commit(TextBox box, string name, string text)
+    {
+        box.Text = text;
+
+        Dispatcher.UIThread.Post(() => Commit(box, name));
     }
 
     private void Commit(TextBox box, string name)

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* **The Element tab names attributes the way people do, and lists what the element could take.**
+  Every row was the raw SVG name in monospace, written attributes in file order and then one
+  "Not set" row for each of the 22 names an expression can drive — the same 22 on every element, so a
+  gradient stop was offered a font and a rectangle was never offered its corner radius, a line cap,
+  or anything else an expression cannot drive. Rows now read "Stroke width" rather than
+  `stroke-width` (the name is on hover), sit in sections by what they do, and are the element's own:
+  what the file writes, plus what an element of that kind usually has. **Show all** lists every
+  attribute the parser reads on it. A set row is in bold with a × to take it away, and both the
+  toggle and a folded section outlive the pick, since Studio builds the panel afresh for each one.
+
 * **Renaming a variable carries every use of it, wherever the use is.** Two places a rename went
   round, each of which left a drawing that still parsed and no longer drew. What an element *says*
   was one: `<text>{{ label }}</text>` binds a variable exactly as an attribute does — it has its own
