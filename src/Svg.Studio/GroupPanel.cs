@@ -1261,7 +1261,7 @@ public sealed class GroupPanel : UserControl
     /// nothing, and it is what a viewer binds on opening the same drawing: the group's canvas and
     /// the drawing's own tab then show the same picture, which is the whole point of the tab.
     /// </remarks>
-    private static Dictionary<string, ExprValue> Seeded(SvgViewerDocument document)
+    internal static Dictionary<string, ExprValue> Seeded(SvgViewerDocument document)
     {
         var values = new Dictionary<string, ExprValue>(StringComparer.Ordinal);
 

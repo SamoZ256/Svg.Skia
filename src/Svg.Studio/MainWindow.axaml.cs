@@ -5,10 +5,12 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -74,6 +76,9 @@ public partial class MainWindow : Window
     /// <summary>The copy kept of the open project while it has work that is not on disk.</summary>
     private ProjectRecovery? _recovery;
 
+    /// <summary>The open project's place in git, on the arrangement while a saved project is open and git is installed.</summary>
+    private readonly ChangesPanel _changes = new();
+
     /// <summary>The settings window while one is open, so a second asking brings that one forward.</summary>
     private SettingsWindow? _settings;
 
@@ -112,6 +117,27 @@ public partial class MainWindow : Window
         ConfirmRelax = AskRelax;
         Announce = (title, message) => Ask(title, message, null, "Close");
         ShowOnDisk = Reveal;
+
+        ResolveConflicts = merge => new ProjectMergeWindow(merge).ShowDialog<bool?>(this);
+
+        // Through the window's own properties at the time of asking, since tests replace them.
+        _changes.Announce = (title, message) => Announce(title, message);
+        _changes.Confirm = (title, message, accept) => Ask(title, message, accept, "Cancel");
+        _changes.AskName = AskName;
+        _changes.ResolveConflicts = merge => ResolveConflicts(merge);
+        _changes.Saving = SaveForCommitAsync;
+        _changes.Unsaved = () => Unwritten is { } || Unsaved().Count > 0;
+        _changes.Reopen = OpenProjectAsync;
+        _changes.Document = () => _workspace?.Document;
+        _changes.Open = ShowAsync;
+        _changes.Compared += (_, _) =>
+        {
+            Remark();
+            UpdateTitle();
+        };
+
+        // Coming back to the window is when a commit made in a terminal would be seen.
+        Activated += async (_, _) => await _changes.Refresh().ConfigureAwait(true);
 
         _tabs = this.FindControl<TabControl>("Tabs")!;
         _tabs.SelectionChanged += (_, _) =>
@@ -187,6 +213,9 @@ public partial class MainWindow : Window
         shell.Children.Add(_dock.Root);
 
         // The tree is off the arrangement until a project opens; the rest follow the front tab.
+        // Changes first, on the way off and on the way back: a panel put back is put exactly where
+        // it was only while the rest of the line is what it was when it went.
+        _dock.Show(ChangesPanelId, false);
         _dock.Show(ProjectTreePanel, false);
 
         Panels();
@@ -219,6 +248,7 @@ public partial class MainWindow : Window
 
         ShowMenuGestures();
         UpdateMenu();
+        UpdateTitle();
         ShowRecent();
         ShowWelcome();
 
@@ -576,6 +606,12 @@ public partial class MainWindow : Window
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or IOException or UnauthorizedAccessException)
         {
+            // A file git stopped a merge in holds conflict markers, which is what failed to parse.
+            if (!IsSvgc(path) && await _changes.Resolve(path).ConfigureAwait(true))
+            {
+                return;
+            }
+
             // Before anything is closed: a file that cannot be read is no reason to take away the
             // project somebody is working on.
             await Announce("The project couldn't be opened", failure.Message).ConfigureAwait(true);
@@ -631,6 +667,8 @@ public partial class MainWindow : Window
         // drawings already open both have to follow it.
         workspace.Edited += (_, _) =>
         {
+            // First, so the tree is built with the dots the edit gives it.
+            _changes.Recompare();
             BuildTree();
             Retitle();
             Rebuild();
@@ -688,10 +726,39 @@ public partial class MainWindow : Window
             Remember(opened);
         }
 
+        await TrackAsync(document.Path).ConfigureAwait(true);
+
         if (notes.Count > 0)
         {
             await Announce("Converted", string.Join(Environment.NewLine + Environment.NewLine, notes)).ConfigureAwait(true);
         }
+    }
+
+    /// <summary>Puts the changes panel on the arrangement for a saved project, whenever there is a git to ask.</summary>
+    private async Task TrackAsync(string? path)
+    {
+        var tracked = await _changes.Track(path).ConfigureAwait(true);
+        var joining = !_dock.Shows(ChangesPanelId);
+
+        // A project closed while git was being asked has no panel to show.
+        _dock.Show(ChangesPanelId, tracked && _workspace is { });
+
+        // A panel put beside another comes up in front of it, and a project opens on its tree.
+        if (joining && _dock.Selected(ProjectTreePanel) == ChangesPanelId)
+        {
+            _dock.Select(ProjectTreePanel);
+        }
+    }
+
+    /// <summary>Writes what the window holds of the project, so a commit is of what is on screen.</summary>
+    private async Task<bool> SaveForCommitAsync()
+    {
+        if (_workspace is not { } workspace || !await CommitAsync("The drawing couldn't be saved").ConfigureAwait(true))
+        {
+            return false;
+        }
+
+        return !workspace.IsEdited || await WriteAsync(workspace).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -840,6 +907,9 @@ public partial class MainWindow : Window
     /// <summary>What the arrangement calls the project tree.</summary>
     private const string ProjectTreePanel = "tree";
 
+    /// <summary>What the arrangement calls the changes panel.</summary>
+    private const string ChangesPanelId = "changes";
+
     /// <summary>
     /// The panels the window arranges, one host each, filled from whichever tab is in front.
     /// </summary>
@@ -873,7 +943,11 @@ public partial class MainWindow : Window
             _panels[id] = new Border();
         }
 
-        return new[] { new SvgViewerRegion(ProjectTreePanel, "Project", _projectPaneHost) }
+        return new[]
+            {
+                new SvgViewerRegion(ProjectTreePanel, "Project", _projectPaneHost),
+                new SvgViewerRegion(ChangesPanelId, "Changes", _changes)
+            }
             .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id])))
             .ToList();
     }
@@ -919,6 +993,13 @@ public partial class MainWindow : Window
     {
         // Off the arrangement rather than hidden in it: a panel with nothing in it would still hold
         // a strip of the window, and a session that only opens drawings should look as it always did.
+        if (!show)
+        {
+            // Before the tree, for the reason the constructor takes it down first.
+            _dock.Show(ChangesPanelId, false);
+            _ = _changes.Track(null);
+        }
+
         _dock.Show(ProjectTreePanel, show);
 
         // Here rather than at the two ends of a project's life: this is where both of them already
@@ -982,6 +1063,8 @@ public partial class MainWindow : Window
             IsSelected = ReferenceEquals(node, selected)
         };
 
+        Dot(item);
+
         // PropertyChanged rather than the Expanded and Collapsed events, which bubble: a nested row
         // opening raises them on every group above it too, and each would record itself as opened.
         item.PropertyChanged += (_, changed) =>
@@ -1040,6 +1123,48 @@ public partial class MainWindow : Window
 
         return item;
     }
+
+    /// <summary>What each node of the tree has had done to it since the last commit.</summary>
+    private readonly Dictionary<ProjectNode, ProjectChangeKind> _marked = new();
+
+    /// <summary>One header template per kind, so marking a row the way it is already marked changes nothing.</summary>
+    private static readonly Dictionary<ProjectChangeKind, IDataTemplate> Dots = Enum.GetValues<ProjectChangeKind>()
+        .ToDictionary(kind => kind, kind => (IDataTemplate)new FuncDataTemplate<object>((header, _) => new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 5d,
+            Children =
+            {
+                new Avalonia.Controls.Shapes.Ellipse { Width = 6d, Height = 6d, Fill = ChangesPanel.Brush(kind), VerticalAlignment = VerticalAlignment.Center },
+                new TextBlock { Text = header?.ToString() }
+            }
+        }));
+
+    /// <summary>Marks the tree's rows from the changes panel's comparison.</summary>
+    private void Remark()
+    {
+        _marked.Clear();
+
+        foreach (var change in _changes.Changes)
+        {
+            if (change is { After: { } node, Kind: not ProjectChangeKind.Removed })
+            {
+                _marked[node] = change.Kind;
+            }
+        }
+
+        foreach (var row in _projectTree.Items.OfType<TreeViewItem>().SelectMany(Rows))
+        {
+            Dot(row);
+        }
+    }
+
+    /// <remarks>
+    /// A template rather than a header of its own: the header stays the row's label, which is what
+    /// the search and everything reading a row goes by.
+    /// </remarks>
+    private void Dot(TreeViewItem item)
+        => item.HeaderTemplate = item.Tag is ProjectNode node && _marked.TryGetValue(node, out var kind) ? Dots[kind] : null;
 
     /// <summary>A group's rows, in the order the pane shows them.</summary>
     /// <remarks>
@@ -3009,6 +3134,16 @@ public partial class MainWindow : Window
     public Func<string, string, Task> Announce { get; set; }
 
     /// <summary>
+    /// How the window asks which side of each conflict a merge keeps: true to resolve, false to
+    /// abort the merge, null to leave it as it is.
+    /// </summary>
+    /// <remarks>Replaceable for the reason <see cref="Announce"/> is.</remarks>
+    public Func<ProjectMerge, Task<bool?>> ResolveConflicts { get; set; }
+
+    /// <summary>The open project's repository panel, which is the way in to its commands without a click.</summary>
+    public ChangesPanel Changes => _changes;
+
+    /// <summary>
     /// How the window asks whether a copy of unsaved work may be thrown away.
     /// </summary>
     /// <remarks>
@@ -3316,6 +3451,17 @@ public partial class MainWindow : Window
         }).ConfigureAwait(true);
 
         return file?.TryGetLocalPath() is { Length: > 0 } path ? path : null;
+    }
+
+    /// <summary>A name typed into a box under the question, or null when it was dismissed or left empty.</summary>
+    private async Task<string?> AskName(string title, string message)
+    {
+        var box = new TextBox { MinWidth = 280d };
+
+        return await Ask(title, message, "Create", "Cancel", box).ConfigureAwait(true)
+               && box.Text?.Trim() is { Length: > 0 } name
+            ? name
+            : null;
     }
 
     /// <summary>Asks whether edits that are not on disk may be thrown away.</summary>
@@ -3758,6 +3904,16 @@ public partial class MainWindow : Window
     /// <returns>Whether it was written.</returns>
     private async Task<bool> WriteAsync(ProjectWorkspace workspace)
     {
+        // A save would write over the conflict unnoticed, and the merge would then commit whatever
+        // the window happened to hold.
+        if (workspace.Document.Path is { } && await _changes.Conflicted().ConfigureAwait(true))
+        {
+            await Announce("Resolve the merge first", $"{workspace.Name} is part way through a merge. Resolve it, "
+                                                     + "or abort it, from the Changes panel before saving.").ConfigureAwait(true);
+
+            return false;
+        }
+
         string? target = null;
 
         if (workspace.Document.Path is null)
@@ -3789,7 +3945,30 @@ public partial class MainWindow : Window
             return false;
         }
 
+        // Awaited, not left running: on Windows a git still starting in the project's directory
+        // keeps that directory from being deleted.
+        if (target is { })
+        {
+            await TrackAsync(target).ConfigureAwait(true);
+        }
+        else
+        {
+            await _changes.Refresh().ConfigureAwait(true);
+        }
+
         return true;
+    }
+
+    /// <summary>The Svg.Skia branch and commit Studio was built from, or null in a release. Settable for a test.</summary>
+    public static string? Build { get; set; } = Built();
+
+    /// <remarks>Written by the <c>StudioBuildInfo</c> target in <c>Svg.Studio.csproj</c>, and left out of a release.</remarks>
+    private static string? Built()
+    {
+        var metadata = typeof(MainWindow).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToList();
+        string? Value(string key) => metadata.FirstOrDefault(attribute => attribute.Key == key)?.Value;
+
+        return Value("StudioBuildCommit") is { Length: > 0 } commit ? $"{Value("StudioBuildBranch")} @ {commit}" : null;
     }
 
     private void UpdateTitle()
@@ -3798,19 +3977,21 @@ public partial class MainWindow : Window
         // should be read the same way round. The window answers for the project as well as for the
         // tab, since work dragged into the project wears no tab's mark.
         var mark = Marked() ? "• " : string.Empty;
+        var studio = Build is { } build ? $"SVG Studio (dev: {build})" : "SVG Studio";
+        var git = _changes.Summary is { } summary ? $" [{summary}]" : string.Empty;
 
         if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel group)
         {
-            Title = $"{mark}{ProjectWorkspace.Label(group.Node)} — {group.Workspace.Name}";
+            Title = $"{mark}{ProjectWorkspace.Label(group.Node)} — {group.Workspace.Name}{git} — {studio}";
             return;
         }
 
         if (_tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing } && _workspace is { } workspace)
         {
-            Title = $"{mark}{drawing.Name} — {workspace.Name}";
+            Title = $"{mark}{drawing.Name} — {workspace.Name}{git} — {studio}";
             return;
         }
 
-        Title = Selected()?.DocumentPath is { } path ? $"{mark}{Path.GetFileName(path)} — SVG Studio" : "SVG Studio";
+        Title = Selected()?.DocumentPath is { } path ? $"{mark}{Path.GetFileName(path)} — {studio}" : studio;
     }
 }

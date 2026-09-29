@@ -7,6 +7,8 @@
     <IsPackable>False</IsPackable>
     <Nullable>enable</Nullable>
     <RootNamespace>Svg.Studio</RootNamespace>
+    <!-- The branch and commit shown in the title bar. A release is built with -p:StudioBuildInfo=false. -->
+    <StudioBuildInfo Condition="'$(StudioBuildInfo)' == ''">true</StudioBuildInfo>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,5 +35,40 @@
     <!-- Importing a .pcvd reads the drawings the project is then written with. -->
     <ProjectReference Include="..\Svg.PaintCode\Svg.PaintCode.csproj" />
   </ItemGroup>
+
+  <!-- Before GetAssemblyAttributes, so the SDK's hash of the attributes regenerates AssemblyInfo when
+       the commit moves and leaves it alone when it has not. Any failure - no git, no .git, not a
+       repository - reads as no info, never as a failed build. -->
+  <Target Name="StudioBuildInfo" BeforeTargets="GetAssemblyAttributes" Condition="'$(StudioBuildInfo)' == 'true'">
+    <Exec Command="git rev-parse --short HEAD" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true"
+          IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true" StandardOutputImportance="low"
+          StandardErrorImportance="low" EchoOff="true" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_StudioBuildCommit" />
+      <Output TaskParameter="ExitCode" PropertyName="_StudioBuildCommitExit" />
+    </Exec>
+    <Exec Command="git rev-parse --abbrev-ref HEAD" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true"
+          IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true" StandardOutputImportance="low"
+          StandardErrorImportance="low" EchoOff="true" ContinueOnError="true" Condition="'$(_StudioBuildCommitExit)' == '0'">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_StudioBuildBranch" />
+      <Output TaskParameter="ExitCode" PropertyName="_StudioBuildBranchExit" />
+    </Exec>
+    <PropertyGroup>
+      <_StudioBuildBranch Condition="'$(_StudioBuildBranchExit)' != '0'" />
+      <!-- A pull request is checked out detached; Actions still knows the branch. -->
+      <_StudioBuildBranch Condition="'$(_StudioBuildBranch)' == 'HEAD' And '$(GITHUB_HEAD_REF)' != ''">$(GITHUB_HEAD_REF)</_StudioBuildBranch>
+      <_StudioBuildBranch Condition="'$(_StudioBuildBranch)' == 'HEAD' And '$(GITHUB_REF_NAME)' != ''">$(GITHUB_REF_NAME)</_StudioBuildBranch>
+      <_StudioBuildBranch Condition="'$(_StudioBuildBranch)' == 'HEAD'">detached</_StudioBuildBranch>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(_StudioBuildCommitExit)' == '0' And '$(_StudioBuildCommit)' != ''">
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>StudioBuildBranch</_Parameter1>
+        <_Parameter2>$(_StudioBuildBranch)</_Parameter2>
+      </AssemblyAttribute>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>StudioBuildCommit</_Parameter1>
+        <_Parameter2>$(_StudioBuildCommit)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
 
 </Project>

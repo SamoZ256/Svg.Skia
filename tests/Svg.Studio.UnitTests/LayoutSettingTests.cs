@@ -35,6 +35,14 @@ public class LayoutSettingTests : IDisposable
         "row(tree/260px/tree/open,variables/300px/variables/open,*/1,"
         + "col(project+elements/1/elements/open,element/1/element/open)/340px)";
 
+    /// <summary>
+    /// <see cref="Arranged"/> once a saved project is open: the changes panel joins the tree it sits
+    /// behind by default, and the tree stays in front.
+    /// </summary>
+    private const string ArrangedWithChanges =
+        "row(tree+changes/260px/tree/open,variables/300px/variables/open,*/1,"
+        + "col(project+elements/1/elements/open,element/1/element/open)/340px)";
+
     private const string Project = """
         <studio namespace="Demo.Icons">
           <drawing name="home" class="Home">
@@ -88,7 +96,9 @@ public class LayoutSettingTests : IDisposable
     private static TabControl Tabs(MainWindow window)
         => window.GetVisualDescendants().OfType<TabControl>().First();
 
-    [Fact]
+    // On the UI thread, where no other test's application can repoint the store between the write
+    // and the read: Avalonia.Headless makes a new one for every Avalonia test, and it sets the store.
+    [AvaloniaFact]
     public void An_Arrangement_Is_Written_Down_As_It_Was_Made()
     {
         Assert.Equal(StudioSettings.DefaultLayout, StudioSettings.Layout);
@@ -129,7 +139,7 @@ public class LayoutSettingTests : IDisposable
 
         var board = (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
 
-        Assert.Equal(Arranged, window.Layout);
+        Assert.Equal(ArrangedWithChanges, window.Layout);
 
         // And it does not move when the tab does: the panels are the window's and show whatever is
         // in front, so changing tab changes what is inside them and nothing about where they are.
@@ -138,7 +148,7 @@ public class LayoutSettingTests : IDisposable
         await window.ShowAsync(drawing);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(Arranged, window.Layout);
+        Assert.Equal(ArrangedWithChanges, window.Layout);
 
         window.Close();
     }
@@ -216,7 +226,7 @@ public class LayoutSettingTests : IDisposable
         StudioSettings.Layout = Arranged;
 
         var window = await Host(Write("icons.svgstudio", Project));
-        Assert.Equal(Arranged, window.Layout);
+        Assert.Equal(ArrangedWithChanges, window.Layout);
 
         // Through the settings window's own button, and out to the tabs the way closing it does.
         window.ShowSettings = () =>
@@ -264,7 +274,7 @@ public class LayoutSettingTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Project));
 
         // Down the left, over the variables, where Studio's own default puts it.
-        Assert.StartsWith("row(col(tree/", window.Layout, StringComparison.Ordinal);
+        Assert.StartsWith("row(col(tree+changes/1.4/tree/open", window.Layout, StringComparison.Ordinal);
 
         // And it is carried by its header like the rest: dropped on the variables it sits behind
         // them, which is a place three fixed sides could not have put it.
