@@ -302,7 +302,7 @@ public sealed class SvgViewerDock
             }
             else
             {
-                Restore(id);
+                Restore(id, front: true);
             }
         }
         else
@@ -493,7 +493,11 @@ public sealed class SvgViewerDock
     /// Beside its neighbours rather than wherever it was last: a panel taken off and put back belongs
     /// where somebody would look for it, and the leaf it used to be in may be gone.
     /// </remarks>
-    private void Restore(string id)
+    /// <param name="front">
+    /// Whether it comes to the front of the leaf it joins: yes when somebody asked for it, no when it
+    /// is only a panel an old line never named, which would otherwise hide the tab they had chosen.
+    /// </param>
+    private void Restore(string id, bool front)
     {
         var wanted = Parsed(Fallback) is { } fresh
             ? Walk(fresh).OfType<Leaf>().FirstOrDefault(leaf => leaf.Ids.Contains(id, StringComparer.Ordinal))
@@ -507,7 +511,11 @@ public sealed class SvgViewerDock
                is { } beside)
         {
             beside.Ids.Add(id);
-            beside.Selected = id;
+
+            if (front)
+            {
+                beside.Selected = id;
+            }
 
             return;
         }
@@ -609,7 +617,7 @@ public sealed class SvgViewerDock
         {
             if (!_dropped.Contains(region.Id) && !Shows(region.Id))
             {
-                Restore(region.Id);
+                Restore(region.Id, front: false);
             }
         }
     }
