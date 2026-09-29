@@ -217,7 +217,7 @@ public class SvgViewerElementPanelTests
         Assert.DoesNotContain("stroke-miterlimit", held.Panel.Attributes);
     }
 
-    /// <summary>Studio makes a new panel for every pick, so the choice has to outlive the panel.</summary>
+    /// <summary>Every tab in Studio has a panel of its own, so the choice has to outlive the one it was made on.</summary>
     [AvaloniaFact]
     public void Showing_All_Is_Kept_By_A_Panel_Made_Afterwards()
     {

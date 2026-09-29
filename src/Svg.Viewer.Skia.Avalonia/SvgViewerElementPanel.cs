@@ -109,8 +109,8 @@ public sealed class SvgViewerElementPanel : UserControl
         VerticalAlignment = VerticalAlignment.Center
     };
 
-    // Static because Studio makes a new panel for every pick and every write, and a toggle or a
-    // folded section that reset each time would never stay the way somebody left it.
+    // Static because they are one setting however many panels there are — Studio has one on every
+    // drawing's tab and every group's — and a section folded on one tab should not open on the next.
     private static bool s_all;
 
     private static readonly HashSet<SvgViewerAttributeGroup> s_folded = new();
