@@ -22,6 +22,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Svg.Custom\Svg.Custom.csproj" />
+    <!-- For SvgPadding, so a template's padding reads exactly as svgc's does. -->
+    <ProjectReference Include="..\Svg.SceneGraph\Svg.SceneGraph.csproj" />
   </ItemGroup>
 
 </Project>

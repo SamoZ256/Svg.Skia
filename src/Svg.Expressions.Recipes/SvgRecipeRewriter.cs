@@ -22,6 +22,12 @@ public static class SvgRecipeRewriter
 
     public static SvgRecipeResult Apply(string svgText, SvgRecipe recipe)
     {
+        // Without this an unbound template applies only its written rules and says nothing.
+        if (recipe.Slots.Count > 0)
+        {
+            throw new SvgRecipeException("The recipe has slots, which pick their values from a drawing. Bind it to the drawing's survey first.");
+        }
+
         var (document, root) = Read(svgText);
 
         var counts = new int[recipe.Rules.Count];
@@ -63,7 +69,7 @@ public static class SvgRecipeRewriter
     {
         var (_, root) = Read(svgText);
 
-        var counts = new Dictionary<(string Name, string Key), int>();
+        var counts = new Dictionary<(string Name, string Key), Dictionary<string, int>>();
 
         // The order they are met in, which is the order they are read in the file. A dictionary's
         // own is arbitrary, and a list that reordered itself between two drawings of one set would
@@ -81,19 +87,25 @@ public static class SvgRecipeRewriter
 
             var name = SvgRecipeValue.NameFor(attribute);
 
-            if (!counts.TryGetValue((name, key), out var count))
+            if (!counts.TryGetValue((name, key), out var attributes))
             {
                 order.Add((name, key, type));
+                counts.Add((name, key), attributes = new Dictionary<string, int>(StringComparer.Ordinal));
             }
 
-            counts[(name, key)] = count + 1;
+            attributes.TryGetValue(attribute, out var count);
+            attributes[attribute] = count + 1;
 
             // Nothing taken back, so nothing is written: every edit in Visit is gated on a value.
             return null;
         });
 
         return order
-            .Select(entry => new SvgRecipeSurveyValue(entry.Name, entry.Key, entry.Type, counts[(entry.Name, entry.Key)]))
+            .Select(entry =>
+            {
+                var attributes = counts[(entry.Name, entry.Key)];
+                return new SvgRecipeSurveyValue(entry.Name, entry.Key, entry.Type, attributes.Values.Sum(), attributes);
+            })
             .ToList();
     }
 
