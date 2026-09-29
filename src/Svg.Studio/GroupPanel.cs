@@ -1406,6 +1406,8 @@ public sealed class GroupPanel : UserControl
         }
 
         _canvas.Publish();
+
+        _element.Readouts();
     }
 
     /// <summary>What to bind into <paramref name="drawn"/> when the panel is showing <paramref name="values"/>.</summary>

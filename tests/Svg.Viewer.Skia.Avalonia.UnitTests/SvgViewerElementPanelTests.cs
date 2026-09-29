@@ -1298,4 +1298,34 @@ public class SvgViewerElementPanelTests
 
         window.Close();
     }
+
+    /// <summary>A row bound to a variable says what it comes to now, after the variable moved.</summary>
+    [AvaloniaFact]
+    public async Task A_Bound_Row_Follows_Its_Variable()
+    {
+        var viewer = new SvgViewer();
+        var window = new Window { Width = 900, Height = 700, Background = Brushes.White, Content = viewer };
+
+        window.Show();
+        Assert.True(await viewer.LoadTextAsync(Bound));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = viewer.GetLogicalDescendants().OfType<SvgViewerElementPanel>().Single();
+
+        Assert.True(panel.Set("fill", "{{ tint }}"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.TrySetParameterValue("tint", ExprValue.Color(0x00, 0x00, 0xff, 0xff)));
+        Dispatcher.UIThread.RunJobs();
+
+        var swatch = panel.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains("swatch") && Equals(button.Tag, "fill"));
+
+        Assert.Equal(Color.FromRgb(0, 0, 255), Assert.IsAssignableFrom<ISolidColorBrush>(((Border)swatch.Content!).Background).Color);
+        Assert.Contains(panel.GetVisualDescendants().OfType<TextBlock>(), block => block.Text?.Contains("#0000ff", StringComparison.Ordinal) == true);
+
+        window.Close();
+    }
 }

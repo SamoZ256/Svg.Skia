@@ -259,6 +259,16 @@ public sealed class SvgViewerElementPanel : UserControl
         }
     }
 
+    /// <summary>Says again what each row's expression comes to, for a host whose values have moved.</summary>
+    /// <remarks>Without rebuilding anything, so it is safe while a row is being typed in or pressed.</remarks>
+    public void Readouts()
+    {
+        foreach (var row in _shown)
+        {
+            Says(row);
+        }
+    }
+
     /// <summary>What the box for <paramref name="name"/> says, or null when there is no such row.</summary>
     public string? Shown(string name)
         => _shown.FirstOrDefault(row => string.Equals(row.Name, name, StringComparison.Ordinal)) is { Box: { } box }

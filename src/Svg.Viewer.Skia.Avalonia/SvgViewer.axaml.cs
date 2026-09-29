@@ -1437,6 +1437,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // Swapped in place, so nothing about the control changed and the repaint must be asked for.
         _canvas.Publish();
 
+        _element.Readouts();
+
         foreach (var row in _rows)
         {
             ParameterValueChanged?.Invoke(this, row);
