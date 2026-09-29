@@ -1351,4 +1351,48 @@ public class SvgViewerElementPanelTests
 
         window.Close();
     }
+
+    /// <summary>A row with no colour opens its picker somewhere a click shows, black included.</summary>
+    [AvaloniaFact]
+    public void An_Unset_Colour_Can_Be_Picked_Black()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var swatch = Control(window, "swatch", "stroke");
+
+        Click(swatch);
+
+        var flyout = Assert.IsType<Flyout>(swatch.Flyout);
+        var picker = Assert.IsType<ColorView>(Assert.IsAssignableFrom<ContentControl>(flyout.Popup.Child).Content);
+
+        Assert.NotEqual(Colors.Black, picker.Color);
+
+        picker.Color = Colors.Black;
+        flyout.Hide();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("stroke=\"#000000\"", held.Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Colour_Picked_For_A_Translucent_Fill_Keeps_Its_Opacity()
+    {
+        var held = new Held("""<svg xmlns="http://www.w3.org/2000/svg"><rect fill="rgba(255, 0, 0, 0.5)" /></svg>""");
+        var window = held.Show("0");
+        var swatch = Control(window, "swatch", "fill");
+
+        Click(swatch);
+
+        var flyout = Assert.IsType<Flyout>(swatch.Flyout);
+
+        Assert.IsType<ColorView>(Assert.IsAssignableFrom<ContentControl>(flyout.Popup.Child).Content).Color = Color.FromRgb(0, 0, 255);
+        flyout.Hide();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("fill=\"rgba(0, 0, 255, 0.502)\"", held.Text);
+
+        window.Close();
+    }
 }

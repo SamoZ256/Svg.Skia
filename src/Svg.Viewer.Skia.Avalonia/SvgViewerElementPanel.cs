@@ -689,10 +689,17 @@ public sealed class SvgViewerElementPanel : UserControl
         // it is shown, since showing it hands the keyboard to what it holds.
         flyout.Opening += (_, _) =>
         {
-            var seed = shown.Background is ISolidColorBrush { Color: var known } ? known : Colors.Black;
+            var had = shown.Background is ISolidColorBrush { Color: var known } ? known : (Color?)null;
             var was = box.Text;
 
-            var picker = new ColorView { IsAlphaEnabled = false, IsAlphaVisible = false, Color = seed };
+            // Grey where the row has no colour. Opened on black, the spectrum stays black wherever it
+            // is clicked, and black itself could never be picked.
+            var picker = new ColorView
+            {
+                IsAlphaEnabled = false,
+                IsAlphaVisible = false,
+                Color = had is { } colour ? Color.FromRgb(colour.R, colour.G, colour.B) : Colors.Gray
+            };
 
             picker.Styles.Add(new StyleInclude(Home)
             {
@@ -702,10 +709,9 @@ public sealed class SvgViewerElementPanel : UserControl
             // Into the box as it moves, so the row reads what is picked. The colour it opened on
             // puts back what was written, so opening and closing it cannot turn red into #ff0000.
             picker.ColorChanged += (_, e) => box.Text =
-                e.NewColor.R == seed.R && e.NewColor.G == seed.G && e.NewColor.B == seed.B
+                had is { } same && e.NewColor.R == same.R && e.NewColor.G == same.G && e.NewColor.B == same.B
                     ? was
-                    : SvgViewerParameterFactory.Describe(
-                        ExprValue.Color(e.NewColor.R, e.NewColor.G, e.NewColor.B, byte.MaxValue));
+                    : Spelt(e.NewColor, had?.A ?? byte.MaxValue);
 
             flyout.Content = picker;
         };
@@ -728,6 +734,17 @@ public sealed class SvgViewerElementPanel : UserControl
                 : "Pick a colour");
         };
     }
+
+    /// <summary>A picked colour as the row writes it, at the opacity the row already had.</summary>
+    /// <remarks>
+    /// The picker has no alpha of its own, so a translucent fill keeps its own rather than being made
+    /// opaque by a change of hue. Spelt rgba() rather than #rrggbbaa, which a paint reads and a
+    /// stop-color does not.
+    /// </remarks>
+    private static string Spelt(Color colour, byte alpha)
+        => alpha == byte.MaxValue
+            ? SvgViewerParameterFactory.Describe(ExprValue.Color(colour.R, colour.G, colour.B, alpha))
+            : string.Format(CultureInfo.InvariantCulture, "rgba({0}, {1}, {2}, {3:0.###})", colour.R, colour.G, colour.B, alpha / 255d);
 
     /// <summary>A written colour, or null where it is none, a reference, or not a colour at all.</summary>
     private static Color? Parsed(string written)
