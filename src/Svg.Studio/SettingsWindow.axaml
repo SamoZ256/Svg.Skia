@@ -125,6 +125,22 @@
                Opacity="0.65"
                FontSize="11" />
 
+    <TextBlock Text="Streamline API key" Margin="0,14,0,0" />
+
+    <!--
+      Never shown back, only said to be there: the box is for putting a key in, and the keychain is
+      where it lives.
+    -->
+    <StackPanel Orientation="Horizontal" Spacing="6">
+      <TextBox x:Name="StreamlineKeyBox" Width="200" PasswordChar="•" />
+      <Button x:Name="ForgetStreamlineKeyButton" Content="Forget" />
+    </StackPanel>
+
+    <TextBlock x:Name="StreamlineKeyStatusText"
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11" />
+
     <TextBlock Text="Panels" Margin="0,14,0,0" />
 
     <Button x:Name="ResetLayoutButton" Content="Reset layout" HorizontalAlignment="Left" />

@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.ComponentModel;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
@@ -110,6 +111,99 @@ public partial class SettingsWindow : Window
                 StudioSettings.RelaxedText = s_answers[RelaxedText.SelectedIndex].Answer;
             }
         };
+
+        StreamlineKey = this.FindControl<TextBox>("StreamlineKeyBox")!;
+        ForgetStreamlineKey = this.FindControl<Button>("ForgetStreamlineKeyButton")!;
+        StreamlineKeyStatus = this.FindControl<TextBlock>("StreamlineKeyStatusText")!;
+
+        StreamlineKey.LostFocus += (_, _) => KeepStreamlineKey();
+        StreamlineKey.KeyDown += (_, e) =>
+        {
+            if (e.Key is Key.Enter or Key.Return)
+            {
+                e.Handled = true;
+
+                KeepStreamlineKey();
+            }
+        };
+
+        // Closing by the corner or Escape does not move focus out of the box first. A key the keychain
+        // refuses here holds the window open, once, so the reason is not closed along with it.
+        Closing += (_, e) =>
+        {
+            var shown = _refused is not null && _refused == StreamlineKey.Text?.Trim();
+
+            if (!KeepStreamlineKey() && !shown && e.CloseReason == WindowCloseReason.WindowClosing)
+            {
+                e.Cancel = true;
+            }
+        };
+
+        ForgetStreamlineKey.Click += (_, _) =>
+            Keyed(keychain => keychain.Remove(StreamlineClient.KeyService, StreamlineClient.KeyAccount));
+
+        Keyed(null);
+    }
+
+    /// <summary>The key last refused by the keychain, whose reason the window is already showing.</summary>
+    private string? _refused;
+
+    /// <summary>Writes a key typed into the box to the keychain, emptying the box once it is kept there.</summary>
+    /// <returns>False when the keychain refused it, which leaves it in the box.</returns>
+    private bool KeepStreamlineKey()
+    {
+        if (StreamlineKey.Text?.Trim() is not { Length: > 0 } key)
+        {
+            return true;
+        }
+
+        if (!Keyed(keychain => keychain.Set(StreamlineClient.KeyService, StreamlineClient.KeyAccount, key)))
+        {
+            _refused = key;
+
+            return false;
+        }
+
+        StreamlineKey.Text = "";
+
+        return true;
+    }
+
+    /// <summary>Makes a change to the keychain, then says whether a key is now kept there.</summary>
+    /// <returns>False when the keychain refused, with its reason in place of the status.</returns>
+    private bool Keyed(Action<Keychain>? change)
+    {
+        var keychain = Keychain.Current;
+        var stored = false;
+
+        try
+        {
+            if (keychain is not null)
+            {
+                change?.Invoke(keychain);
+
+                stored = keychain.Get(StreamlineClient.KeyService, StreamlineClient.KeyAccount) is not null;
+            }
+
+            StreamlineKeyStatus.Text = keychain is null
+                ? "Studio knows of no keychain on this machine to keep a key in."
+                : stored
+                    ? "A key is kept in this machine's keychain. Typing another replaces it."
+                    : "Paste a key from your Streamline profile, under API keys. It is kept in this machine's keychain rather than in Studio's settings.";
+        }
+        catch (Exception failure) when (failure is InvalidOperationException or ArgumentException or Win32Exception)
+        {
+            StreamlineKeyStatus.Text = failure.Message;
+
+            return false;
+        }
+        finally
+        {
+            StreamlineKey.IsEnabled = keychain is not null;
+            ForgetStreamlineKey.IsEnabled = stored;
+        }
+
+        return true;
     }
 
     /// <summary>Puts the panels back where they started.</summary>
@@ -209,6 +303,15 @@ public partial class SettingsWindow : Window
 
     /// <summary>The list of answers about text an export cannot write out, for a test to drive.</summary>
     public ComboBox RelaxedText { get; }
+
+    /// <summary>The box a Streamline API key is typed into, for a test to drive.</summary>
+    public TextBox StreamlineKey { get; }
+
+    /// <summary>Takes the Streamline API key out of the keychain.</summary>
+    public Button ForgetStreamlineKey { get; }
+
+    /// <summary>Whether a Streamline API key is kept, or why none can be.</summary>
+    public TextBlock StreamlineKeyStatus { get; }
 
     /// <inheritdoc />
     /// <remarks>
