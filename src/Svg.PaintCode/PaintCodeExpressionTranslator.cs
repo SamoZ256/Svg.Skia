@@ -3,9 +3,26 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 namespace Svg.PaintCode;
+
+/// <summary>
+/// The numeric type an expression comes out as, as far as the target language cares.
+/// </summary>
+/// <remarks>
+/// The language never converts between an integer and a number, and PaintCode has only the one
+/// type, so a translation has to say where the two meet. Whole is a literal, which the checker
+/// settles to whichever type stands beside it; Other is anything arithmetic does not mix with.
+/// </remarks>
+internal enum PaintCodeSort
+{
+    Other,
+    Number,
+    Whole,
+    Integer
+}
 
 /// <summary>
 /// Rewrites a PaintCode expression as one the Svg expression extension reads.
@@ -22,6 +39,20 @@ namespace Svg.PaintCode;
 /// </remarks>
 internal sealed class PaintCodeExpressionTranslator
 {
+    /// <summary>A translated expression and the sort it came out as.</summary>
+    private readonly struct Typed
+    {
+        internal Typed(string text, PaintCodeSort sort)
+        {
+            Text = text;
+            Sort = sort;
+        }
+
+        internal string Text { get; }
+
+        internal PaintCodeSort Sort { get; }
+    }
+
     private readonly string _source;
     private readonly PaintCodeDeclarations _declarations;
     private readonly IReadOnlyDictionary<string, string>? _overrides;
@@ -62,9 +93,18 @@ internal sealed class PaintCodeExpressionTranslator
         out string expression,
         out string refusal,
         IReadOnlyDictionary<string, string>? overrides = null)
+        => TryTranslate(source, declarations, out expression, out _, out refusal, overrides);
+
+    internal static bool TryTranslate(
+        string source,
+        PaintCodeDeclarations declarations,
+        out string expression,
+        out PaintCodeSort sort,
+        out string refusal,
+        IReadOnlyDictionary<string, string>? overrides = null)
     {
         var translator = new PaintCodeExpressionTranslator(source ?? string.Empty, declarations, overrides);
-        var text = translator.Conditional();
+        var typed = translator.Conditional();
 
         translator.SkipSpace();
 
@@ -73,13 +113,21 @@ internal sealed class PaintCodeExpressionTranslator
             translator.Refuse($"'{translator._source.Substring(translator._at)}' is left over");
         }
 
-        expression = text ?? string.Empty;
+        expression = typed?.Text ?? string.Empty;
+        sort = typed?.Sort ?? PaintCodeSort.Other;
         refusal = translator._refusal ?? string.Empty;
 
-        return translator._refusal is null && expression.Length > 0;
+        if (translator._refusal is { } || expression.Length == 0)
+        {
+            return false;
+        }
+
+        declarations.Remember(expression, sort);
+
+        return true;
     }
 
-    private string? Conditional()
+    private Typed? Conditional()
     {
         var condition = Binary(0);
 
@@ -97,8 +145,45 @@ internal sealed class PaintCodeExpressionTranslator
 
         var whenFalse = Conditional();
 
-        return whenTrue is null || whenFalse is null ? null : $"{condition} ? {whenTrue} : {whenFalse}";
+        if (whenTrue is null || whenFalse is null)
+        {
+            return null;
+        }
+
+        var (yes, no, sort) = Met(whenTrue.Value, whenFalse.Value);
+
+        return new Typed($"{condition.Value.Text} ? {yes} : {no}", sort);
     }
+
+    /// <summary>
+    /// Two operands as the language will take them side by side.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode has one numeric type and the target has two it never converts between, so an
+    /// integer that meets a number goes through num(). A whole literal needs nothing: the checker
+    /// settles it to whichever type is beside it.
+    /// </remarks>
+    private static (string Left, string Right, PaintCodeSort Sort) Met(Typed left, Typed right)
+    {
+        if (left.Sort is PaintCodeSort.Other || right.Sort is PaintCodeSort.Other)
+        {
+            return (left.Text, right.Text, PaintCodeSort.Other);
+        }
+
+        if (left.Sort is PaintCodeSort.Integer && right.Sort is PaintCodeSort.Number)
+        {
+            return (Num(left), right.Text, PaintCodeSort.Number);
+        }
+
+        if (left.Sort is PaintCodeSort.Number && right.Sort is PaintCodeSort.Integer)
+        {
+            return (left.Text, Num(right), PaintCodeSort.Number);
+        }
+
+        return (left.Text, right.Text, left.Sort is PaintCodeSort.Whole ? right.Sort : left.Sort);
+    }
+
+    private static string Num(Typed value) => value.Sort is PaintCodeSort.Integer ? $"num({value.Text})" : value.Text;
 
     // One table rather than one method per level: the two languages agree on every precedence, so
     // the only thing that varies is how each operator is spelled on the way out.
@@ -112,7 +197,7 @@ internal sealed class PaintCodeExpressionTranslator
         new[] { ("*", "*"), ("/", "/"), ("%", "mod") }
     };
 
-    private string? Binary(int level)
+    private Typed? Binary(int level)
     {
         if (level >= Levels.Length)
         {
@@ -143,7 +228,7 @@ internal sealed class PaintCodeExpressionTranslator
                     return null;
                 }
 
-                left = Combine(left, target, right);
+                left = Combine(left.Value, target, right.Value);
                 matched = true;
 
                 break;
@@ -166,16 +251,33 @@ internal sealed class PaintCodeExpressionTranslator
     /// that simply follows a variable. Keeping the addition would make 54 symbol instances look like
     /// they rebind something, and each would be copied instead of shared.
     /// </remarks>
-    private static string Combine(string left, string target, string right)
-        => target switch
+    private static Typed Combine(Typed left, string target, Typed right)
+    {
+        switch (target)
         {
-            "mod" => $"mod({left}, {right})",
-            "+" or "-" when right == "0" => left,
-            "*" or "/" when right == "1" => left,
-            _ => $"{left} {target} {right}"
-        };
+            case "+" or "-" when right.Text == "0":
+            case "*" or "/" when right.Text == "1":
+                return left;
+        }
 
-    private string? Unary()
+        // PaintCode divides reals, so two integers divide as numbers rather than to a whole.
+        if (target == "/" && left.Sort is PaintCodeSort.Integer or PaintCodeSort.Whole && right.Sort is PaintCodeSort.Integer or PaintCodeSort.Whole
+            && (left.Sort is PaintCodeSort.Integer || right.Sort is PaintCodeSort.Integer))
+        {
+            return new Typed($"{Num(left)} / {Num(right)}", PaintCodeSort.Number);
+        }
+
+        var (l, r, sort) = Met(left, right);
+
+        return target switch
+        {
+            "mod" => new Typed($"mod({l}, {r})", sort),
+            "and" or "or" or "==" or "!=" or "lt" or "le" or ">" or ">=" => new Typed($"{l} {target} {r}", PaintCodeSort.Other),
+            _ => new Typed($"{l} {target} {r}", sort)
+        };
+    }
+
+    private Typed? Unary()
     {
         SkipSpace();
 
@@ -183,14 +285,14 @@ internal sealed class PaintCodeExpressionTranslator
         {
             var operand = Unary();
 
-            return operand is null ? null : $"not {operand}";
+            return operand is null ? null : new Typed($"not {operand.Value.Text}", PaintCodeSort.Other);
         }
 
         if (Take('-'))
         {
             var operand = Unary();
 
-            return operand is null ? null : $"-{operand}";
+            return operand is null ? null : new Typed($"-{operand.Value.Text}", operand.Value.Sort);
         }
 
         if (Take('+'))
@@ -201,7 +303,7 @@ internal sealed class PaintCodeExpressionTranslator
         return Primary();
     }
 
-    private string? Primary()
+    private Typed? Primary()
     {
         SkipSpace();
 
@@ -223,7 +325,7 @@ internal sealed class PaintCodeExpressionTranslator
                 return Refuse("a bracket is not closed");
             }
 
-            return inner is null ? null : $"({inner})";
+            return inner is null ? null : new Typed($"({inner.Value.Text})", inner.Value.Sort);
         }
 
         if (character is '\'' or '"')
@@ -241,7 +343,7 @@ internal sealed class PaintCodeExpressionTranslator
             : Refuse($"'{character}' has no meaning here");
     }
 
-    private string? Text(char quote)
+    private Typed? Text(char quote)
     {
         var start = ++_at;
 
@@ -259,10 +361,10 @@ internal sealed class PaintCodeExpressionTranslator
         _at++;
 
         // Single quotes, so the expression can sit in a double-quoted attribute without escaping.
-        return "'" + text.Replace("\\", "\\\\").Replace("'", "\\'") + "'";
+        return new Typed("'" + text.Replace("\\", "\\\\").Replace("'", "\\'") + "'", PaintCodeSort.Other);
     }
 
-    private string? Number()
+    private Typed? Number()
     {
         var start = _at;
 
@@ -275,11 +377,29 @@ internal sealed class PaintCodeExpressionTranslator
 
         // The target grammar has no exponent form, so a number that only prints with one cannot go.
         return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
-            ? PaintCodeDeclarations.Number(value)
+            ? Literal(PaintCodeDeclarations.Number(value))
             : Refuse($"'{text}' is not a number this can write");
     }
 
-    private string? Name()
+    /// <summary>A literal as written, sorted by its spelling: whole digits settle either way, a point makes a number, the rest is not numeric.</summary>
+    private static Typed Literal(string text)
+    {
+        var digits = text.Length > 0;
+
+        foreach (var character in text)
+        {
+            if (character == '.')
+            {
+                return new Typed(text, PaintCodeSort.Number);
+            }
+
+            digits &= char.IsDigit(character) || character == '-';
+        }
+
+        return new Typed(text, digits ? PaintCodeSort.Whole : PaintCodeSort.Other);
+    }
+
+    private Typed? Name()
     {
         var start = _at;
 
@@ -305,16 +425,16 @@ internal sealed class PaintCodeExpressionTranslator
         return Reference(name);
     }
 
-    private string? Reference(string name)
+    private Typed? Reference(string name)
     {
         if (name is "true" or "false")
         {
-            return name;
+            return new Typed(name, PaintCodeSort.Other);
         }
 
         if (_overrides is { } overrides && overrides.TryGetValue(name, out var substituted))
         {
-            return Bracketed(substituted);
+            return new Typed(Bracketed(substituted), SortOf(substituted));
         }
 
         if (!_declarations.ByName.TryGetValue(name, out var declaration))
@@ -324,11 +444,37 @@ internal sealed class PaintCodeExpressionTranslator
 
         return declaration.Kind switch
         {
-            PaintCodeDeclarationKind.Constant when declaration.Body is { } literal => literal,
+            PaintCodeDeclarationKind.Constant when declaration.Body is { } literal => Literal(literal),
             PaintCodeDeclarationKind.Unusable => Refuse($"'{name}' cannot be declared: {declaration.Refusal}"),
             _ when Reserved.Contains(name) => Refuse($"'{name}' is a word the expression language reserves"),
-            _ => name
+            _ => new Typed(name, Sort(declaration))
         };
+    }
+
+    internal static PaintCodeSort Sort(PaintCodeDeclaration declaration)
+        => declaration.Type switch
+        {
+            "integer" => PaintCodeSort.Integer,
+            "number" => PaintCodeSort.Number,
+            _ => PaintCodeSort.Other
+        };
+
+    /// <summary>
+    /// What a substituted expression is.
+    /// </summary>
+    /// <remarks>
+    /// A scope holds text, and the text is one of three things: a name this document declares, a
+    /// literal an instance pinned, or a translation this document already produced -- whose sort is
+    /// what it came out as, which the declarations kept.
+    /// </remarks>
+    private PaintCodeSort SortOf(string substituted)
+    {
+        if (_declarations.ByName.TryGetValue(substituted, out var declaration))
+        {
+            return Sort(declaration);
+        }
+
+        return _declarations.SortOf(substituted) ?? Literal(substituted).Sort;
     }
 
     /// <summary>
@@ -353,7 +499,7 @@ internal sealed class PaintCodeExpressionTranslator
         return expression;
     }
 
-    private string? Member(string name)
+    private Typed? Member(string name)
     {
         var start = _at;
 
@@ -365,15 +511,15 @@ internal sealed class PaintCodeExpressionTranslator
         var path = name + _source.Substring(start, _at - start);
 
         return _declarations.TryMember(path, out var value)
-            ? PaintCodeDeclarations.Number(value)
+            ? Literal(PaintCodeDeclarations.Number(value))
             : Refuse($"'{path}' reads part of a value, which the expression language cannot do");
     }
 
-    private string? Call(string name)
+    private Typed? Call(string name)
     {
         _at++;
 
-        var arguments = new List<string>();
+        var arguments = new List<Typed>();
 
         SkipSpace();
 
@@ -388,7 +534,7 @@ internal sealed class PaintCodeExpressionTranslator
                     return null;
                 }
 
-                arguments.Add(argument);
+                arguments.Add(argument.Value);
 
                 if (Take(','))
                 {
@@ -407,29 +553,47 @@ internal sealed class PaintCodeExpressionTranslator
         return Apply(name, arguments);
     }
 
-    private string? Apply(string name, IReadOnlyList<string> arguments)
+    /// <summary>The functions that take integers as well as numbers, and answer in kind.</summary>
+    private static readonly HashSet<string> Whole = new(StringComparer.Ordinal) { "abs", "min", "max" };
+
+    private Typed? Apply(string name, IReadOnlyList<Typed> arguments)
     {
         // PaintCode's trigonometry is in degrees and the target's is in radians.
         if (name is "sin" or "cos" or "tan" && arguments.Count == 1)
         {
-            return $"{name}(({arguments[0]}) * pi / 180)";
+            return new Typed($"{name}(({Num(arguments[0])}) * pi / 180)", PaintCodeSort.Number);
         }
 
         // Its channels are fractions of one, and rgba's are bytes with an alpha that is not.
         if (name == "makeColor" && arguments.Count == 4)
         {
-            return $"rgba(({arguments[0]}) * 255, ({arguments[1]}) * 255, ({arguments[2]}) * 255, {arguments[3]})";
+            return new Typed(
+                $"rgba(({Num(arguments[0])}) * 255, ({Num(arguments[1])}) * 255, ({Num(arguments[2])}) * 255, {Num(arguments[3])})",
+                PaintCodeSort.Other);
         }
 
-        if (Functions.TryGetValue(name, out var target))
+        if (!Functions.TryGetValue(name, out var target))
         {
-            return $"{target}({string.Join(", ", arguments)})";
+            return Refuse($"'{name}' is a function the expression language does not have");
         }
 
-        return Refuse($"'{name}' is a function the expression language does not have");
+        if (target == "str")
+        {
+            return new Typed($"str({string.Join(", ", arguments.Select(argument => argument.Text))})", PaintCodeSort.Other);
+        }
+
+        // Kept whole where the function has an integer form and every argument is whole; otherwise
+        // each argument is a number, and an integer among them goes through num().
+        var integers = Whole.Contains(target)
+            && arguments.All(argument => argument.Sort is PaintCodeSort.Integer or PaintCodeSort.Whole)
+            && arguments.Any(argument => argument.Sort is PaintCodeSort.Integer);
+
+        var texts = arguments.Select(argument => integers ? argument.Text : Num(argument));
+
+        return new Typed($"{target}({string.Join(", ", texts)})", integers ? PaintCodeSort.Integer : PaintCodeSort.Number);
     }
 
-    private string? Refuse(string reason)
+    private Typed? Refuse(string reason)
     {
         _refusal ??= reason;
 

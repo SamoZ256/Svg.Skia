@@ -764,6 +764,24 @@ public class PaintCodeSvgWriterTests
         Assert.Equal("translate(0,{{ x + 6 }})", element.Attribute("transform")!.Value);
     }
 
+    /// <summary>
+    /// An expression that translates but does not type check is noted and the value written,
+    /// rather than written and refused with the whole drawing when it is opened.
+    /// </summary>
+    [Fact]
+    public void An_Expression_That_Does_Not_Evaluate_As_Translated_Is_Noted_Rather_Than_Written()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var element = Written(Driven("displayAnchorY", "s + x", 7, anchorY: -7), notes);
+
+        Assert.Equal("translate(0,7)", element.Attribute("transform")!.Value);
+
+        var note = Assert.Single(notes);
+
+        Assert.Equal(PaintCodeImportSeverity.Dropped, note.Severity);
+        Assert.Contains("'s + x' does not evaluate as translated", note.Message);
+    }
+
     [Fact]
     public void A_Driven_Turn_Turns_The_Other_Way_Like_A_Written_One()
     {
