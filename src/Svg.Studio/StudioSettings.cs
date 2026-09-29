@@ -64,6 +64,10 @@ public static class StudioSettings
 
     private const string LayoutKey = "layout";
 
+    private const string AssistantProviderKey = "assistantProvider";
+
+    private const string AssistantModelKey = "assistantModel";
+
     /// <summary>
     /// Where the settings are kept.
     /// </summary>
@@ -239,6 +243,20 @@ public static class StudioSettings
         set => Write(LayoutKey, value ?? DefaultLayout);
     }
 
+    /// <summary>Which provider the assistant talks to, by its id, or null for the first one usable.</summary>
+    public static string? AssistantProvider
+    {
+        get => Read(AssistantProviderKey);
+        set => Write(AssistantProviderKey, value ?? string.Empty);
+    }
+
+    /// <summary>Which of the provider's models the assistant talks to, by its id.</summary>
+    public static string? AssistantModel
+    {
+        get => Read(AssistantModelKey);
+        set => Write(AssistantModelKey, value ?? string.Empty);
+    }
+
     /// <summary>What a window nobody has arranged comes up in.</summary>
     /// <remarks>
     /// A strip either side of the drawing, both 300px so neither reads as the important one: the
@@ -254,7 +272,7 @@ public static class StudioSettings
     /// </remarks>
     public const string DefaultLayout =
         "row(col(tree+changes/1.4/tree/open,variables/1/variables/open)/300px,*/1,"
-        + "col(project+elements/1/project/open,element/1/element/open)/300px)";
+        + "col(project+elements+assistant/1/project/open,element/1/element/open)/300px)";
 
     /// <summary>The two steps as one, which is what a canvas and a gesture are handed.</summary>
     /// <remarks>

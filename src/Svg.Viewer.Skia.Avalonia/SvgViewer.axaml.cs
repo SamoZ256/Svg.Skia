@@ -1572,17 +1572,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// is in play — and an edit aimed at the wrong address writes somebody else's attribute.
     /// </remarks>
     private string? SourceAddress(string? addressKey)
-    {
-        if (addressKey is null)
-        {
-            return null;
-        }
+        => addressKey is { } && SourceAddresses().TryGetValue(addressKey, out var mine) ? mine : null;
 
+    /// <summary>Every element's address in the tree, paired with its address in the file.</summary>
+    public IReadOnlyDictionary<string, string> SourceAddresses()
+    {
         var source = PaneSource();
 
-        return SvgSourceElements.Addresses(source, _document?.Built(source)).TryGetValue(addressKey, out var mine)
-            ? mine
-            : null;
+        return SvgSourceElements.Addresses(source, _document?.Built(source));
     }
 
     /// <summary>What the drawing's expressions come to now, for a readout, or null.</summary>
@@ -2168,15 +2165,16 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// any other -- one entry on the same history, refused with the reader's own sentence where the
     /// text will not read back, and the drawing left where it was when it will not.
     /// </remarks>
+    /// <param name="label">What the Edit menu calls the step.</param>
     /// <returns>Whether the drawing changed.</returns>
-    public bool SetSource(string svgText)
+    public bool SetSource(string svgText, string label = "edit the source")
     {
         if (svgText is null)
         {
             throw new ArgumentNullException(nameof(svgText));
         }
 
-        return Commit("edit the source", (string _) => svgText);
+        return Commit(label, (string _) => svgText);
     }
 
     /// <summary>

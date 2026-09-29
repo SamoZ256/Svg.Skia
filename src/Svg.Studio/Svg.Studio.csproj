@@ -23,6 +23,18 @@
   <Import Project="..\..\build\SkiaSharp.Avalonia.props" />
 
   <ItemGroup>
+    <!-- The assistant's chat goes through IChatClient, so a provider is one more adapter; Claude's
+         is the one in the Anthropic SDK. -->
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Anthropic" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- What the assistant answers from: linked rather than copied, so it is always what the site says. -->
+    <EmbeddedResource Include="..\..\site\articles\guides\svg-studio.md" LogicalName="Docs/svg-studio.md" />
+    <EmbeddedResource Include="..\..\site\articles\packages\svg-expressions.md" LogicalName="Docs/svg-expressions.md" />
+    <EmbeddedResource Include="..\..\site\articles\packages\svg-paintcode.md" LogicalName="Docs/svg-paintcode.md" />
+    <EmbeddedResource Include="..\..\site\articles\guides\source-generator-and-svgc.md" LogicalName="Docs/source-generator-and-svgc.md" />
   </ItemGroup>
 
   <ItemGroup>

@@ -2899,7 +2899,7 @@ public sealed class GroupPanel : UserControl
         => _pending.TryGetValue(name, out var pending) ? pending : Value(node, name);
 
     /// <summary>Writes one setting onto <paramref name="node"/>, or throws if the value is not one.</summary>
-    private static void Write(ProjectNode node, string name, string? value)
+    internal static void Write(ProjectNode node, string name, string? value)
     {
         switch (name)
         {
@@ -3094,7 +3094,7 @@ public sealed class GroupPanel : UserControl
     /// The same parsers the setters use, called without them: a setting checked here is not written
     /// anywhere yet, and the setters write to the document an unsaved edit must not touch.
     /// </remarks>
-    private static void Validate(string name, string? value)
+    internal static void Validate(string name, string? value)
     {
         switch (name)
         {

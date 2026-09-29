@@ -79,6 +79,9 @@ public partial class MainWindow : Window
     /// <summary>The open project's place in git, on the arrangement while a saved project is open and git is installed.</summary>
     private readonly ChangesPanel _changes = new();
 
+    /// <summary>The chat that answers from the docs and works the window through <see cref="AssistantTools"/>.</summary>
+    private readonly AssistantPanel _assistant;
+
     /// <summary>The settings window while one is open, so a second asking brings that one forward.</summary>
     private SettingsWindow? _settings;
 
@@ -135,6 +138,8 @@ public partial class MainWindow : Window
             Remark();
             UpdateTitle();
         };
+
+        _assistant = new AssistantPanel(new AssistantTools(this));
 
         // Coming back to the window is when a commit made in a terminal would be seen.
         Activated += async (_, _) => await _changes.Refresh().ConfigureAwait(true);
@@ -910,6 +915,8 @@ public partial class MainWindow : Window
     /// <summary>What the arrangement calls the changes panel.</summary>
     private const string ChangesPanelId = "changes";
 
+    private const string AssistantPanelId = "assistant";
+
     /// <summary>
     /// The panels the window arranges, one host each, filled from whichever tab is in front.
     /// </summary>
@@ -946,7 +953,8 @@ public partial class MainWindow : Window
         return new[]
             {
                 new SvgViewerRegion(ProjectTreePanel, "Project", _projectPaneHost),
-                new SvgViewerRegion(ChangesPanelId, "Changes", _changes)
+                new SvgViewerRegion(ChangesPanelId, "Changes", _changes),
+                new SvgViewerRegion(AssistantPanelId, "Assistant", _assistant)
             }
             .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id])))
             .ToList();
@@ -1332,7 +1340,10 @@ public partial class MainWindow : Window
         {
             // Straight in, with no file written anywhere: the project holds the drawings, so a
             // pasted one needs nowhere to live but the row it lands on.
-            await AddTextAsync(parent, index, "drawing", drawing).ConfigureAwait(true);
+            if (await AddTextAsync(parent, index, "drawing", drawing).ConfigureAwait(true) is { } refusal)
+            {
+                await Announce("That drawing couldn't be added", refusal).ConfigureAwait(true);
+            }
 
             return;
         }
@@ -1519,11 +1530,12 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Adds one drawing the window has the text of rather than a file for.</summary>
-    private async Task AddTextAsync(ProjectGroup parent, int index, string name, string svgText)
+    /// <returns>Why it could not be added, for the caller to say where it was asked; null once it is.</returns>
+    internal async Task<string?> AddTextAsync(ProjectGroup parent, int index, string name, string svgText)
     {
         if (_workspace is not { } workspace)
         {
-            return;
+            return "No project is open.";
         }
 
         ProjectDrawing? added = null;
@@ -1546,14 +1558,14 @@ public partial class MainWindow : Window
 
         if (added is null)
         {
-            await Announce("That drawing couldn't be added", refusal ?? "It could not be read.").ConfigureAwait(true);
-
-            return;
+            return refusal ?? "It could not be read.";
         }
 
         BuildTree(added);
 
         await ShowAsync(added).ConfigureAwait(true);
+
+        return null;
     }
 
     /// <summary>
@@ -2086,7 +2098,7 @@ public partial class MainWindow : Window
     /// by the caller with the project itself, which takes the edit with nothing to take it back.
     /// By the row rather than by a file: a drawing is one row of the project, so one tab.
     /// </remarks>
-    private ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
+    internal ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
         => Tab(drawing)?.Content as SvgViewer;
 
     /// <summary>A tab for something that is not a drawing, which the viewer's own tab does not fit.</summary>
@@ -2119,6 +2131,8 @@ public partial class MainWindow : Window
         _tabs.SelectedItem = item;
 
     }
+
+    internal TabItem? TabOf(ProjectNode node) => Tab(node);
 
     private TabItem? Tab(ProjectNode node)
         => _tabs.Items.OfType<TabItem>().FirstOrDefault(item => ReferenceEquals(item.Tag, node));
@@ -2762,8 +2776,11 @@ public partial class MainWindow : Window
             return true;
         }
 
-        return Selected()?.Undo() == true || _workspace?.Undo() == true;
+        return UndoDocument();
     }
+
+    /// <summary>Undo without the box that has focus, which for the assistant is always its own input.</summary>
+    internal bool UndoDocument() => Selected()?.Undo() == true || _workspace?.Undo() == true;
 
     /// <inheritdoc cref="Undo"/>
     public bool Redo()
@@ -3322,6 +3339,12 @@ public partial class MainWindow : Window
 
     /// <summary>The viewer in the selected tab, or null while there is none.</summary>
     private SvgViewer? Selected() => (_tabs.SelectedItem as TabItem)?.Content as SvgViewer;
+
+    /// <summary>The drawing in front, for something outside the window that works on it.</summary>
+    internal SvgViewer? FrontViewer => Selected();
+
+    /// <summary>The project's node in front, or null for a drawing of its own or nothing.</summary>
+    internal ProjectNode? FrontNode => (_tabs.SelectedItem as TabItem)?.Tag as ProjectNode;
 
     /// <summary>The tabs holding changes that are not on disk.</summary>
     private IReadOnlyList<string> Unsaved()

@@ -37,11 +37,12 @@ public class LayoutSettingTests : IDisposable
 
     /// <summary>
     /// <see cref="Arranged"/> once a saved project is open: the changes panel joins the tree it sits
-    /// behind by default, and the tree stays in front.
+    /// behind by default, and the tree stays in front. The assistant, which the line predates, joins
+    /// the settings and elements behind the one that was in front.
     /// </summary>
     private const string ArrangedWithChanges =
         "row(tree+changes/260px/tree/open,variables/300px/variables/open,*/1,"
-        + "col(project+elements/1/elements/open,element/1/element/open)/340px)";
+        + "col(project+elements+assistant/1/elements/open,element/1/element/open)/340px)";
 
     private const string Project = """
         <studio namespace="Demo.Icons">
