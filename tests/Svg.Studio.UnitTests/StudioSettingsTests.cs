@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using Avalonia.Headless.XUnit;
 using Avalonia.Styling;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
@@ -10,6 +11,8 @@ namespace Svg.Studio.UnitTests;
 /// The settings the editor keeps between sessions, and the rules that decide them: the copy is on
 /// unless the file says otherwise, and a size nobody can use is the one nobody set.
 /// </summary>
+// On the UI thread for the reason LayoutSettingTests is: every Avalonia test builds an application
+// that repoints the store, and on a pool thread one could land between a write and its read.
 [Collection("settings")]
 public class StudioSettingsTests : IDisposable
 {
@@ -25,10 +28,10 @@ public class StudioSettingsTests : IDisposable
         Directory.Delete(_directory, recursive: true);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Autosave_Is_On_When_Nothing_Has_Been_Written() => Assert.True(StudioSettings.Autosave);
 
-    [Fact]
+    [AvaloniaFact]
     public void Autosave_Is_On_When_The_Store_Cannot_Be_Read()
     {
         // A directory where the file should be, which is the shape of every way reading can fail.
@@ -37,7 +40,7 @@ public class StudioSettingsTests : IDisposable
         Assert.True(StudioSettings.Autosave);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Switching_It_Off_And_On_Round_Trips()
     {
         StudioSettings.Autosave = false;
@@ -52,7 +55,7 @@ public class StudioSettingsTests : IDisposable
         Assert.True(StudioSettings.Autosave);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void A_Setting_Nobody_Can_Read_Is_The_Setting_Nobody_Wrote()
     {
         File.WriteAllText(StudioSettings.Store, "autosave=maybe\n");
@@ -60,13 +63,13 @@ public class StudioSettingsTests : IDisposable
         Assert.True(StudioSettings.Autosave);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void A_Caption_Size_Nobody_Has_Set_Is_The_Canvas_Default()
     {
         Assert.Equal(SvgViewerCanvas.DefaultCaptionSize, StudioSettings.CaptionSize);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void A_Caption_Size_Survives_Being_Written()
     {
         StudioSettings.CaptionSize = 17d;
@@ -74,7 +77,7 @@ public class StudioSettingsTests : IDisposable
         Assert.Equal(17d, StudioSettings.CaptionSize);
     }
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData("nonsense")]
     [InlineData("0")]
     [InlineData("999")]
@@ -87,7 +90,7 @@ public class StudioSettingsTests : IDisposable
         Assert.Equal(SvgViewerCanvas.DefaultCaptionSize, StudioSettings.CaptionSize);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void The_Theme_Nobody_Has_Set_Is_The_Machines()
     {
         // The one answer that goes on being right: somebody whose machine turns dark at sunset has
@@ -96,7 +99,7 @@ public class StudioSettingsTests : IDisposable
         Assert.Equal(ThemeVariant.Default, StudioSettings.Variant);
     }
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData(StudioTheme.System, "system")]
     [InlineData(StudioTheme.Light, "light")]
     [InlineData(StudioTheme.Dark, "dark")]
@@ -108,7 +111,7 @@ public class StudioSettingsTests : IDisposable
         Assert.Contains($"theme={written}", File.ReadAllText(StudioSettings.Store), StringComparison.Ordinal);
     }
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData(StudioTheme.System, "Default")]
     [InlineData(StudioTheme.Light, "Light")]
     [InlineData(StudioTheme.Dark, "Dark")]
@@ -121,7 +124,7 @@ public class StudioSettingsTests : IDisposable
         Assert.Equal(variant, StudioSettings.Variant.Key);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void A_Theme_Nobody_Can_Read_Is_The_Theme_Nobody_Wrote()
     {
         File.WriteAllText(StudioSettings.Store, "theme=chartreuse\n");
@@ -129,7 +132,7 @@ public class StudioSettingsTests : IDisposable
         Assert.Equal(StudioTheme.System, StudioSettings.Theme);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Snapping_Is_Off_Until_Somebody_Asks_For_It()
     {
         // The other way round from the recovery copy, and for the opposite reason: a drag that does
@@ -140,7 +143,7 @@ public class StudioSettingsTests : IDisposable
         Assert.Equal(SvgViewerGrid.DefaultTurn, StudioSettings.RotationStep);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Snapping_Survives_Being_Switched_On()
     {
         StudioSettings.SnapToGrid = true;
@@ -153,7 +156,7 @@ public class StudioSettingsTests : IDisposable
         Assert.False(StudioSettings.SnapToGrid);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void The_Two_Steps_Survive_Being_Written()
     {
         StudioSettings.GridSize = 12.5d;
@@ -171,7 +174,7 @@ public class StudioSettingsTests : IDisposable
         Assert.Equal(45f, StudioSettings.Grid.Turn);
     }
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData("nonsense")]
     [InlineData("0")]
     [InlineData("9999")]
@@ -183,7 +186,7 @@ public class StudioSettingsTests : IDisposable
         Assert.Equal(SvgViewerGrid.DefaultTurn, StudioSettings.RotationStep);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void A_Caption_Size_Is_Written_The_Same_Way_Wherever_It_Is_Read()
     {
         // Invariant, so a machine that writes a decimal comma does not save a setting the next one

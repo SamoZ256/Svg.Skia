@@ -96,7 +96,9 @@ public class LayoutSettingTests : IDisposable
     private static TabControl Tabs(MainWindow window)
         => window.GetVisualDescendants().OfType<TabControl>().First();
 
-    [Fact]
+    // On the UI thread, where no other test's application can repoint the store between the write
+    // and the read: Avalonia.Headless makes a new one for every Avalonia test, and it sets the store.
+    [AvaloniaFact]
     public void An_Arrangement_Is_Written_Down_As_It_Was_Made()
     {
         Assert.Equal(StudioSettings.DefaultLayout, StudioSettings.Layout);
