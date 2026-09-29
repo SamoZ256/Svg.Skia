@@ -167,24 +167,37 @@ public partial class SKSvg
         return false;
     }
 
+    /// <summary>A retained mutation, compiled with the bound values in the document as every other compile is.</summary>
+    /// <remarks>
+    /// The one compile that was not wrapped. An element whose text an expression writes was
+    /// recompiled with its placeholder — an empty run, of no size — so a text being dragged vanished
+    /// at the first pointer move and came back on the release, which reloads and is wrapped.
+    /// </remarks>
+    private SvgSceneMutationResult Mutated(SvgSceneDocument sceneDocument, Func<SvgSceneDocument, SvgSceneMutationResult> apply)
+    {
+        using var substituted = BeginExpressionSubstitution(SourceDocument);
+
+        return apply(sceneDocument);
+    }
+
     public SvgSceneMutationResult ApplyRetainedSceneMutation(SvgElement element, IReadOnlyCollection<string>? changedAttributes = null)
     {
         return TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null
-            ? sceneDocument.ApplyMutation(element, changedAttributes)
+            ? Mutated(sceneDocument, scene => scene.ApplyMutation(element, changedAttributes))
             : new SvgSceneMutationResult(false, 0, 0);
     }
 
     public SvgSceneMutationResult ApplyRetainedSceneMutation(string addressKey, IReadOnlyCollection<string>? changedAttributes = null)
     {
         return TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null
-            ? sceneDocument.ApplyMutation(addressKey, changedAttributes)
+            ? Mutated(sceneDocument, scene => scene.ApplyMutation(addressKey, changedAttributes))
             : new SvgSceneMutationResult(false, 0, 0);
     }
 
     public SvgSceneMutationResult ApplyRetainedSceneMutationById(string id, IReadOnlyCollection<string>? changedAttributes = null)
     {
         return TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null
-            ? sceneDocument.ApplyMutationById(id, changedAttributes)
+            ? Mutated(sceneDocument, scene => scene.ApplyMutationById(id, changedAttributes))
             : new SvgSceneMutationResult(false, 0, 0);
     }
 
@@ -199,7 +212,7 @@ public partial class SKSvg
             return false;
         }
 
-        result = sceneDocument.ApplyMutation(element, changedAttributes);
+        result = Mutated(sceneDocument, scene => scene.ApplyMutation(element, changedAttributes));
         if (!result.Succeeded)
         {
             return false;
@@ -220,7 +233,7 @@ public partial class SKSvg
             return false;
         }
 
-        result = sceneDocument.ApplyMutation(addressKey, changedAttributes);
+        result = Mutated(sceneDocument, scene => scene.ApplyMutation(addressKey, changedAttributes));
         if (!result.Succeeded)
         {
             return false;
@@ -241,7 +254,7 @@ public partial class SKSvg
             return false;
         }
 
-        result = sceneDocument.ApplyMutationById(id, changedAttributes);
+        result = Mutated(sceneDocument, scene => scene.ApplyMutationById(id, changedAttributes));
         if (!result.Succeeded)
         {
             return false;

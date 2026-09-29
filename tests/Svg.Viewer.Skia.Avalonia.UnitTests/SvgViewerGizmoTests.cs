@@ -98,6 +98,16 @@ public class SvgViewerGizmoTests
         </svg>
         """;
 
+    /// <summary>
+    /// A text whose words an expression writes, as every text a PaintCode import produces is.
+    /// </summary>
+    private const string Worded = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 30 30" width="30" height="30">
+          <defs><e:code><e:let name="digits">'-6'</e:let></e:code></defs>
+          <text id="t" x="12" y="9" font-size="12.3582" text-anchor="middle" dominant-baseline="central" fill="#ffffff" transform="translate(-4,0.9628)">{{ digits }}</text>
+        </svg>
+        """;
+
     /// <summary>A shape whose transform is written by a parameter rather than by a number.</summary>
     private const string Driven = """
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 100 100" width="100" height="100">
@@ -1072,6 +1082,49 @@ public class SvgViewerGizmoTests
 
         Assert.Contains("scale", Written(viewer, "small") ?? "nothing was written");
         Assert.Equal("600", Attribute(viewer, "small", "x"));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A text an expression writes keeps its words while it is being dragged.
+    /// </summary>
+    /// <remarks>
+    /// The recording. Mid-gesture the element is recompiled on its own rather than the document
+    /// reloaded, and that one compile was not wrapped in the substitution every other compile is —
+    /// so the run was compiled from its placeholder, which is no words at all: no size, no box, and
+    /// nothing on the screen from the first pointer move until the release. The box is asked for
+    /// mid-drag, before anything is written, because being seen on the way is the whole of it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Text_An_Expression_Writes_Keeps_Its_Words_While_Dragged()
+    {
+        var (window, viewer) = await Host(Worded);
+
+        SelectById(viewer, "t");
+
+        var box = viewer.Canvas.Gizmo!.Value;
+
+        Assert.Single(Glyphs(viewer), run => run.StartsWith("-6 ", StringComparison.Ordinal));
+
+        // The bottom-right corner, pulled out and up: wider and shorter, as in the recording.
+        window.MouseDown(At(window, viewer, box.BR.X, box.BR.Y), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseMove(At(window, viewer, box.BR.X + 7f, box.BR.Y - 8f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        var mid = viewer.Canvas.Gizmo!.Value;
+
+        // Still a run of that width, at that corner, with the words still in the model.
+        Assert.Equal(box.TL.X, mid.TL.X, 2);
+        Assert.Equal(box.TL.Y, mid.TL.Y, 2);
+        Assert.Equal(box.BR.X + 7f, mid.BR.X, 2);
+        Assert.Equal(box.BR.Y - 8f, mid.BR.Y, 2);
+        Assert.Single(Glyphs(viewer), run => run.StartsWith("-6 ", StringComparison.Ordinal));
+
+        window.MouseUp(At(window, viewer, box.BR.X + 7f, box.BR.Y - 8f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
 
         window.Close();
     }
