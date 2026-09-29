@@ -288,7 +288,13 @@ public sealed class GroupPanel : UserControl
         _canvas.EditEnded += (_, _) => EndEdit();
         _canvas.EditCancelled += (_, _) => CancelEdit();
 
-        _canvas.ViewChanged += (_, _) => ShowGizmo();
+        _canvas.ViewChanged += (_, _) =>
+        {
+            ShowGizmo();
+
+            // How near a line is near enough is a distance on screen, so it moves with the zoom.
+            Reread();
+        };
 
         // Built once, because what it writes into is decided per declaration rather than per panel:
         // the rows come from the group and every group above it, and Splice sends each edit to the
@@ -658,7 +664,10 @@ public sealed class GroupPanel : UserControl
             _dock.Layout = StudioSettings.Layout;
         }
 
-        var grid = StudioSettings.SnapToGrid ? StudioSettings.Grid : SvgViewerGrid.None;
+        // Magnetic at this zoom, the board's canvas being the one that knows it.
+        var grid = StudioSettings.SnapToGrid
+            ? StudioSettings.Grid.Pulling(_canvas.Scale)
+            : SvgViewerGrid.None;
 
         // All three, because all three write a place: the canvas carries a drawing about, the gizmo
         // moves what is inside one, and the page is the drawing's own edges.

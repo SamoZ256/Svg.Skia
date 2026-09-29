@@ -144,7 +144,7 @@ public sealed class SvgViewerPage
         // half a handle of the edge it took hold of, and a line the hand lands on is not the line
         // the edge lands on. Only under a grid, since without one the two come to the same page.
         var to = Grid.IsOn
-            ? new SK.SKPoint(Grid.SnapX(at.X - _slack.X), Grid.SnapY(at.Y - _slack.Y))
+            ? new SK.SKPoint(Grid.PullX(at.X - _slack.X), Grid.PullY(at.Y - _slack.Y))
             : at;
 
         // The order SelectionService hands them out: TL, top, TR, right, BR, bottom, BL, left.

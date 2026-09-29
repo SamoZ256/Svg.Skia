@@ -205,6 +205,15 @@ public static class StudioSettings
         set => Write(GridSizeKey, value.ToString(CultureInfo.InvariantCulture));
     }
 
+    /// <summary>
+    /// Whether a size was ever chosen, as against the one a drawing is given for having none.
+    /// </summary>
+    /// <remarks>
+    /// The number alone cannot say: a file with no line and a file saying ten read the same. What
+    /// hangs on it is whether a drawing gets a step of its own — see <see cref="SvgViewerGrid.For"/>.
+    /// </remarks>
+    public static bool HasGridSize => Read(GridSizeKey) is { };
+
     /// <summary>How far apart the angles a turn lands on are, in degrees.</summary>
     /// <remarks>Its own number because a grid has no angle. See <see cref="SvgViewerGrid"/>.</remarks>
     public static double RotationStep

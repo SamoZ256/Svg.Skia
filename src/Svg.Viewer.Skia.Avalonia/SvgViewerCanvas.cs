@@ -744,8 +744,8 @@ public class SvgViewerCanvas : SKCanvasControl
     private SKPoint Snapped(SKPoint by)
         => _grid.IsOn
             ? new SKPoint(
-                _grid.SnapX(_movingBounds.Left + by.X) - _movingBounds.Left,
-                _grid.SnapY(_movingBounds.Top + by.Y) - _movingBounds.Top)
+                _grid.PullX(_movingBounds.Left + by.X) - _movingBounds.Left,
+                _grid.PullY(_movingBounds.Top + by.Y) - _movingBounds.Top)
             : by;
 
     /// <summary>One placed drawing's own edges, in its own space, or null where it has none.</summary>

@@ -300,6 +300,9 @@ public partial class MainWindow : Window
             title.Text = name;
             item[ToolTip.TipProperty] = document.Path;
 
+            // The page decides the step where nobody has set one, and the page arrives with this.
+            Regrid(viewer);
+
             // A reload keeps whatever the pane still holds — reopening a drawing at a new size does
             // not save it, so the mark has no business being cleared by one.
             Mark(item);
@@ -2576,9 +2579,22 @@ public partial class MainWindow : Window
     /// The steps and the switch apart, the way the viewer holds them: the numbers are the numbers
     /// whether or not anything is landing on them.
     /// </remarks>
+    /// <remarks>
+    /// The drawing's own step where nobody has chosen one: ten units is a tenth of the page the
+    /// default was written for and the whole of a drawing imported from PaintCode, and a grid
+    /// coarser than the artwork lands every gesture on the same line. A size somebody has set is
+    /// theirs and is used as it stands, on every drawing.
+    /// </remarks>
     private static void Regrid(SvgViewer viewer)
     {
-        viewer.Grid = StudioSettings.Grid;
+        var grid = StudioSettings.Grid;
+
+        if (!StudioSettings.HasGridSize && viewer.Document?.Svg.Picture?.CullRect is { } page)
+        {
+            grid = grid with { Step = SvgViewerGrid.For(page.Width, page.Height) };
+        }
+
+        viewer.Grid = grid;
         viewer.SnapsToGrid = StudioSettings.SnapToGrid;
     }
 

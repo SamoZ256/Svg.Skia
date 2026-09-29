@@ -447,8 +447,8 @@ public sealed class SvgViewerGizmos
             // The union box's own corner lands on the line, which is the box somebody is looking at.
             return _inside.IsOn
                 ? Shim.SKMatrix.CreateTranslation(
-                    _inside.SnapX(_union.Left + (now.X - _pressed.X)) - _union.Left,
-                    _inside.SnapY(_union.Top + (now.Y - _pressed.Y)) - _union.Top)
+                    _inside.PullX(_union.Left + (now.X - _pressed.X)) - _union.Left,
+                    _inside.PullY(_union.Top + (now.Y - _pressed.Y)) - _union.Top)
                 : Shim.SKMatrix.CreateTranslation(now.X - _pressed.X, now.Y - _pressed.Y);
         }
 
@@ -488,8 +488,8 @@ public sealed class SvgViewerGizmos
         var moved = new Shim.SKPoint(handle.X + (now.X - _pressed.X), handle.Y + (now.Y - _pressed.Y));
 
         return new Shim.SKPoint(
-            wide ? _pressed.X + (_inside.SnapX(moved.X) - handle.X) : now.X,
-            tall ? _pressed.Y + (_inside.SnapY(moved.Y) - handle.Y) : now.Y);
+            wide ? _pressed.X + (_inside.PullX(moved.X) - handle.X) : now.X,
+            tall ? _pressed.Y + (_inside.PullY(moved.Y) - handle.Y) : now.Y);
     }
 
     /// <summary>Renders every drawing a member moved, once each.</summary>

@@ -212,6 +212,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             // The handles are a fixed size on screen, so where they sit in the drawing moves with
             // every zoom. Left alone they would drift off the corners they are for.
             ShowGizmo();
+
+            // And how near a line is near enough is a distance on screen too.
+            Regrid();
         };
 
         _canvas.Picked += (_, at) => PickElement(at);
@@ -414,7 +417,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Tells the canvas and the three gestures what the grid now is.</summary>
     private void Regrid()
     {
-        var grid = _snaps ? _grid : SvgViewerGrid.None;
+        // Magnetic at whatever the zoom now is: how near a line is near enough is a distance on
+        // screen, and the same drag at 958% covers a twentieth of the drawing it does at 50%.
+        var grid = _snaps ? _grid.Pulling(_canvas.Scale) : SvgViewerGrid.None;
 
         _canvas.Grid = grid;
         _gizmo.Grid = grid;

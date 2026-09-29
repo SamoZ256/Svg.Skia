@@ -1,6 +1,7 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -144,6 +145,25 @@ public class SvgViewerSnapTests
     /// The drag is five across and seven down, which would leave the corner at 25,27. What is
     /// written is 24,24 — the nearest lines — and the shape keeps the size it was.
     /// </remarks>
+    /// <summary>
+    /// The step a drawing is given where nobody has chosen one, which is a length and so cannot be
+    /// one number for every page.
+    /// </summary>
+    /// <remarks>
+    /// A hundred-unit page comes out at ten, which is where the flat default came from; a drawing
+    /// imported from PaintCode is a few tens of units across and used to get the same ten, leaving
+    /// three lines in the whole page for every gesture to land on.
+    /// </remarks>
+    [Theory]
+    [InlineData(100f, 100f, 10f)]
+    [InlineData(40f, 24f, 2f)]
+    [InlineData(32f, 18f, 1f)]
+    [InlineData(1000f, 800f, 50f)]
+    [InlineData(24f, 24f, 2f)]
+    [InlineData(0f, 0f, 10f)]
+    public void A_Page_Is_Given_A_Step_It_Has_Lines_For(float width, float height, float step)
+        => Assert.Equal(step, SvgViewerGrid.For(width, height));
+
     [AvaloniaFact]
     public async Task A_Move_Lands_The_Shape_On_The_Grid()
     {
@@ -322,4 +342,51 @@ public class SvgViewerSnapTests
 
         window.Close();
     }
+
+    /// <summary>
+    /// A drag follows the pointer where the lines are far apart on screen, and lands on one near it.
+    /// </summary>
+    /// <remarks>
+    /// The reported case. Rounding every drag to the nearest line is what made a drag look dead: at
+    /// 958% one step of two units is nineteen pixels, so the shape stood still while the pointer
+    /// crossed half of it and then leapt. Zoomed in here to the same effect — a step of eight against
+    /// a pull of eight pixels — and asked both ways round.
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Zoomed_In_A_Drag_Follows_The_Pointer_Until_A_Line_Is_Near(bool near)
+    {
+        var (window, viewer) = await Host(Plain);
+
+        Select(window, viewer, 30f, 30f);
+
+        // About the shape itself, so it is still under the pointer at this zoom.
+        Assert.True(viewer.Canvas.TryGetControlPoint(new SKPoint(30f, 30f), out var anchor));
+
+        viewer.Canvas.ZoomTo(14d, anchor);
+        Dispatcher.UIThread.RunJobs();
+
+        var pull = viewer.Canvas.Grid.Pull;
+        var step = viewer.Canvas.Grid.Step;
+
+        // A step is over a hundred pixels here, so the pull is a small part of it and a drop can be
+        // far from every line at all.
+        Assert.True(pull > 0f && pull < step / 2f);
+
+        // The shape spans 20..40, so its corner starts on the line at 20. Near is a whisker short of
+        // the next line at 24; far is halfway between that one and the one after it.
+        var to = near ? 24f - (pull / 2f) : 28f;
+
+        Drag(window, viewer, (30f, 30f), (30f + (to - 20f), 30f));
+
+        // Landed on the line, or left where the pointer stopped.
+        Assert.Equal(near ? "24 20 20 20" : Says(to), Box(viewer));
+
+        window.Close();
+    }
+
+    /// <summary>The four numbers the shape is written with, for a corner left where the pointer was.</summary>
+    private static string Says(float left)
+        => string.Create(CultureInfo.InvariantCulture, $"{left:0.##} 20 20 20");
 }

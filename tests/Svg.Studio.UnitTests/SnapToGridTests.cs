@@ -194,8 +194,103 @@ public class SnapToGridTests : IDisposable
             .Single(button => Equals(button.Content, "Snap"));
 
     /// <summary>A tile dropped anywhere lands on the nearest line, not under the pointer.</summary>
+    /// <summary>
+    /// A drawing nobody has set a grid size for is given one its own page has lines for.
+    /// </summary>
+    /// <remarks>
+    /// The reported case: an imported drawing is a few tens of units across, where the flat ten-unit
+    /// default is most of the artwork and every drag lands on the same line. A size somebody has set
+    /// is theirs, and is used on every drawing whatever its page.
+    /// </remarks>
     [AvaloniaFact]
-    public async Task A_Tile_Lands_On_The_Grid()
+    public async Task A_Drawing_Nobody_Sized_The_Grid_For_Gets_One_To_Fit()
+    {
+        // The setting the constructor wrote, taken back off: this is the unchosen case.
+        File.Delete(StudioSettings.Store);
+
+        Assert.False(StudioSettings.HasGridSize);
+
+        var window = await Host(Write("small.svg", Drawing));
+
+        var viewer = (SvgViewer)((TabItem)Tabs(window).Items[0]!).Content!;
+
+        // A 40 x 24 page: a tenth of the shorter side, taken down to a round number.
+        Assert.Equal(2f, viewer.Grid.Step);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Grid_Size_Somebody_Set_Is_Used_As_It_Stands()
+    {
+        // Written by the constructor, so this is the chosen case.
+        Assert.True(StudioSettings.HasGridSize);
+
+        var window = await Host(Write("small.svg", Drawing));
+
+        var viewer = (SvgViewer)((TabItem)Tabs(window).Items[0]!).Content!;
+
+        Assert.Equal(Step, viewer.Grid.Step);
+
+        window.Close();
+    }
+
+    /// <summary>A drawing the size an import comes in at, where ten units is most of the page.</summary>
+    private const string Drawing = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 24" width="40" height="24">
+          <rect x="4" y="3" width="32" height="18" fill="#00ff00" />
+        </svg>
+        """;
+
+    /// <summary>A tile dropped near a line lands on it.</summary>
+    /// <remarks>
+    /// Near, not anywhere: a grid that rounded every drop stopped the tile following the pointer,
+    /// which at a high zoom is a step of tens of pixels standing still. How near is a distance on
+    /// screen, so the drag is measured against the pull the board's own zoom gives it rather than
+    /// against a number written here.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Tile_Dropped_Near_A_Line_Lands_On_It()
+    {
+        StudioSettings.SnapToGrid = true;
+
+        var window = await Host(Write("icons.svgstudio", Project));
+        var panel = Board(window);
+        var canvas = Canvas(panel);
+
+        var pull = canvas.Grid.Pull;
+
+        Assert.True(pull > 0f, "the board's grid is not magnetic");
+
+        var home = Area(Drawn(panel)[0]);
+        var text = ((ProjectDrawing)window.Workspace!.Document.Root.Children[0]).Text;
+
+        // The line past a drag of about forty, and a drop half the pull short of it.
+        var line = Step * MathF.Ceiling((home.Left + 40f) / Step);
+        var by = line - home.Left - (pull / 2f);
+
+        Drag(window, canvas, Edge(canvas, home), Edge(canvas, home, by));
+
+        var left = Area(Drawn(panel)[0]).Left;
+
+        Assert.Equal(line, left, 2);
+
+        // And it really is somewhere else: the pointer stopped short of the line.
+        Assert.NotEqual(home.Left + by, left, 2);
+
+        // The tile moved and the drawing did not: a place is the project's, not the file's.
+        Assert.Equal(text, ((ProjectDrawing)window.Workspace!.Document.Root.Children[0]).Text);
+
+        window.Close();
+    }
+
+    /// <summary>A tile dropped between two lines is where the pointer left it.</summary>
+    /// <remarks>
+    /// The other half of the same rule, and the one the drag was reported for: a tile that jumped to
+    /// the nearest line whatever the pointer did stood still through most of a gesture.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Tile_Dropped_Between_Lines_Stays_There()
     {
         StudioSettings.SnapToGrid = true;
 
@@ -204,20 +299,15 @@ public class SnapToGridTests : IDisposable
         var canvas = Canvas(panel);
 
         var home = Area(Drawn(panel)[0]);
-        var text = ((ProjectDrawing)window.Workspace!.Document.Root.Children[0]).Text;
 
-        Drag(window, canvas, Edge(canvas, home), Edge(canvas, home, 43f));
+        // Halfway between two lines, which is as far from either as a drop can be.
+        var by = (Step * MathF.Ceiling((home.Left + 40f) / Step)) - home.Left - (Step / 2f);
 
-        var left = Area(Drawn(panel)[0]).Left;
+        Assert.True(Step / 2f > canvas.Grid.Pull, "the drop is within reach of a line after all");
 
-        Assert.Equal(Step * MathF.Round((home.Left + 43f) / Step), left, 2);
+        Drag(window, canvas, Edge(canvas, home), Edge(canvas, home, by));
 
-        // And it really is somewhere else: a drag of forty three onto a grid of sixteen cannot land
-        // where the pointer stopped.
-        Assert.NotEqual(home.Left + 43f, left, 2);
-
-        // The tile moved and the drawing did not: a place is the project's, not the file's.
-        Assert.Equal(text, ((ProjectDrawing)window.Workspace!.Document.Root.Children[0]).Text);
+        Assert.Equal(home.Left + by, Area(Drawn(panel)[0]).Left, 2);
 
         window.Close();
     }
@@ -241,8 +331,8 @@ public class SnapToGridTests : IDisposable
 
     /// <summary>A drag that lands where the tile already was is not an edit.</summary>
     /// <remarks>
-    /// The one the grid makes possible: two units across a step of sixteen rounds back to where it
-    /// started, and a history that grew an entry for it would be a history of pointer twitches.
+    /// The one the grid makes possible: a nudge from a line comes back to it, and a history that
+    /// grew an entry for it would be a history of pointer twitches.
     /// </remarks>
     [AvaloniaFact]
     public async Task A_Drag_That_Lands_Where_It_Started_Is_Not_An_Edit()
@@ -255,13 +345,17 @@ public class SnapToGridTests : IDisposable
 
         // Onto a line first, so there is a line to come back to.
         var home = Area(Drawn(panel)[0]);
+        var line = Step * MathF.Ceiling((home.Left + 40f) / Step);
 
-        Drag(window, canvas, Edge(canvas, home), Edge(canvas, home, 43f));
+        Drag(window, canvas, Edge(canvas, home), Edge(canvas, home, line - home.Left - (canvas.Grid.Pull / 2f)));
 
         var settled = Area(Drawn(panel)[0]);
         var xml = window.Workspace!.Document.ToXml();
 
-        Drag(window, canvas, Edge(canvas, settled), Edge(canvas, settled, 2f));
+        Assert.Equal(line, settled.Left, 2);
+
+        // And a nudge from there, small enough that the line takes it back.
+        Drag(window, canvas, Edge(canvas, settled), Edge(canvas, settled, canvas.Grid.Pull / 2f));
 
         Assert.Equal(xml, window.Workspace!.Document.ToXml());
 

@@ -408,11 +408,44 @@ public sealed class SvgViewerGizmo
             return by;
         }
 
+        // Only where the shape is at least a step across. A step wider than what is being dragged
+        // puts the corner on the one line it can reach and holds it there for the rest of the
+        // gesture — a drawing a few tens of units across against the default ten has three lines in
+        // it, and a drag that never follows the pointer reads as a drag that does nothing at all.
+        // Per axis, since a wide, shallow shape has the lines to line up along one and not the other.
+        var extent = Extent();
+        var wide = extent.X >= Grid.Step;
+        var tall = extent.Y >= Grid.Step;
+
+        if (!wide && !tall)
+        {
+            return by;
+        }
+
         var drawn = _fromGeometry.MapPoint(new Shim.SKPoint(_geometry.Left + by.X, _geometry.Top + by.Y));
 
-        var back = _toGeometry.MapPoint(new Shim.SKPoint(Grid.SnapX(drawn.X), Grid.SnapY(drawn.Y)));
+        var back = _toGeometry.MapPoint(new Shim.SKPoint(
+            wide ? Grid.PullX(drawn.X) : drawn.X,
+            tall ? Grid.PullY(drawn.Y) : drawn.Y));
 
         return new Shim.SKPoint(back.X - _geometry.Left, back.Y - _geometry.Top);
+    }
+
+    /// <summary>What the element spans along the drawing's own axes, which the grid lines run in.</summary>
+    /// <remarks>
+    /// The axis-aligned span of the drawn box rather than the element's own width and height: the
+    /// lines are the drawing's, and an element under a turn or a scale covers something else there.
+    /// </remarks>
+    private Shim.SKPoint Extent()
+    {
+        var tl = _fromGeometry.MapPoint(new Shim.SKPoint(_geometry.Left, _geometry.Top));
+        var tr = _fromGeometry.MapPoint(new Shim.SKPoint(_geometry.Right, _geometry.Top));
+        var br = _fromGeometry.MapPoint(new Shim.SKPoint(_geometry.Right, _geometry.Bottom));
+        var bl = _fromGeometry.MapPoint(new Shim.SKPoint(_geometry.Left, _geometry.Bottom));
+
+        return new Shim.SKPoint(
+            Math.Max(Math.Max(tl.X, tr.X), Math.Max(br.X, bl.X)) - Math.Min(Math.Min(tl.X, tr.X), Math.Min(br.X, bl.X)),
+            Math.Max(Math.Max(tl.Y, tr.Y), Math.Max(br.Y, bl.Y)) - Math.Min(Math.Min(tl.Y, tr.Y), Math.Min(br.Y, bl.Y)));
     }
 
     /// <summary>A scale, with the edge being dragged put on the grid.</summary>
@@ -438,18 +471,38 @@ public sealed class SvgViewerGizmo
             _handle switch { 0 or 6 or 7 => _geometry.Left, 2 or 3 or 4 => _geometry.Right, _ => MidX(_geometry) },
             _handle switch { 0 or 1 or 2 => _geometry.Top, 4 or 5 or 6 => _geometry.Bottom, _ => MidY(_geometry) });
 
-        var wide = _handle is 0 or 2 or 3 or 4 or 6 or 7;
-        var tall = _handle is 0 or 1 or 2 or 4 or 5 or 6;
+        // The axes this handle moves, and only where the shape has the lines to land on — a step
+        // wider than the shape can only take the edge to the far side of the shape itself.
+        var extent = Extent();
+        var wide = _handle is 0 or 2 or 3 or 4 or 6 or 7 && extent.X >= Grid.Step;
+        var tall = _handle is 0 or 1 or 2 or 4 or 5 or 6 && extent.Y >= Grid.Step;
 
         var drawn = _fromGeometry.MapPoint(
             new Shim.SKPoint(handle.X + (now.X - _pressed.X), handle.Y + (now.Y - _pressed.Y)));
 
         var back = _toGeometry.MapPoint(new Shim.SKPoint(
-            wide ? Grid.SnapX(drawn.X) : drawn.X,
-            tall ? Grid.SnapY(drawn.Y) : drawn.Y));
+            wide ? Grid.PullX(drawn.X) : drawn.X,
+            tall ? Grid.PullY(drawn.Y) : drawn.Y));
 
-        return new Shim.SKPoint(_pressed.X + (back.X - handle.X), _pressed.Y + (back.Y - handle.Y));
+        // A line closer to the pivot than a whole step is a shape the grid cannot express — a run
+        // thirteen units across against the default ten came out half a unit wide, which is the text
+        // gone — and a line past the pivot is the shape turned inside out to reach it. Neither is
+        // worth a line, so that axis keeps where the pointer is.
+        var free = _toGeometry.MapPoint(drawn);
+
+        var kept = new Shim.SKPoint(
+            Shrunk(back.X, handle.X, _pivot.X) ? free.X : back.X,
+            Shrunk(back.Y, handle.Y, _pivot.Y) ? free.Y : back.Y);
+
+        return new Shim.SKPoint(_pressed.X + (kept.X - handle.X), _pressed.Y + (kept.Y - handle.Y));
     }
+
+    /// <summary>
+    /// Whether snapping an edge there would leave the shape smaller than the grid can say, or on the
+    /// far side of its own pivot.
+    /// </summary>
+    private bool Shrunk(float snapped, float handle, float pivot)
+        => (snapped - pivot) * (handle - pivot) <= 0f || Math.Abs(snapped - pivot) < Grid.Step;
 
     /// <remarks>
     /// About the middle of the element's own bounds, and measured in the same space, so what is

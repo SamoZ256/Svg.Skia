@@ -85,6 +85,19 @@ public class SvgViewerGizmoTests
         </svg>
         """;
 
+    /// <summary>
+    /// A drawing the size a PaintCode import comes in at, where the default ten-unit step is most of
+    /// the artwork: the run is about thirteen units across.
+    /// </summary>
+    private const string Imported = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 24" width="40" height="24">
+          <g transform="translate(4, 3)">
+            <rect x="0" y="0" width="32" height="18" fill="#3366cc" />
+            <text id="t" x="12" y="9" font-size="12.3582" text-anchor="middle" dominant-baseline="central" fill="#ffffff">-6</text>
+          </g>
+        </svg>
+        """;
+
     /// <summary>A shape whose transform is written by a parameter rather than by a number.</summary>
     private const string Driven = """
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 100 100" width="100" height="100">
@@ -912,6 +925,119 @@ public class SvgViewerGizmoTests
         Assert.Null(Written(viewer, "small"));
         Assert.Equal("660", Attribute(viewer, "small", "x"));
         Assert.Equal("640", Attribute(viewer, "small", "y"));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A grid coarser than the shape does not take the drag: the shape follows the pointer instead.
+    /// </summary>
+    /// <remarks>
+    /// The reported case, and the whole of why a drag looked dead: a drawing a few tens of units
+    /// across against the default ten-unit step has three lines in it, so the corner reached the
+    /// nearest one on the first frame and stayed there for the rest of the gesture. The run here is
+    /// 13 x 12.8 units against a step of 10.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Grid_Coarser_Than_The_Shape_Does_Not_Take_The_Move()
+    {
+        var (window, viewer) = await Host(Runs);
+
+        viewer.SnapsToGrid = true;
+        viewer.Grid = new SvgViewerGrid(200f, 15f);
+
+        SelectById(viewer, "lines");
+
+        Dispatcher.UIThread.RunJobs();
+
+        var box = viewer.Canvas.Gizmo!.Value;
+        var was = Glyphs(viewer);
+
+        // The label is about 68 x 100 units, so two hundred is a grid it can never line up with.
+        Assert.True(box.BR.X - box.TL.X < 200f);
+        Assert.True(box.BR.Y - box.TL.Y < 200f);
+
+        Drag(window, viewer, (box.Center.X, box.Center.Y), (box.Center.X + 60f, box.Center.Y + 40f));
+
+        // Where the pointer went, not where the nearest line was.
+        Assert.Equal(Carried(was, 60f, 40f, "one", "two"), Glyphs(viewer));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A grid the shape is big enough for still takes it, which is what the setting is for.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Grid_The_Shape_Fits_Still_Takes_The_Move()
+    {
+        var (window, viewer) = await Host(Runs);
+
+        viewer.SnapsToGrid = true;
+        viewer.Grid = new SvgViewerGrid(10f, 15f);
+
+        SelectById(viewer, "lines");
+
+        Dispatcher.UIThread.RunJobs();
+
+        var box = viewer.Canvas.Gizmo!.Value;
+        var was = Glyphs(viewer);
+
+        // The label spans about 68 units across and 100 down, so ten has plenty to say about it.
+        Assert.True(box.BR.X - box.TL.X > 10f);
+        Assert.True(box.BR.Y - box.TL.Y > 10f);
+
+        Drag(window, viewer, (box.Center.X, box.Center.Y), (box.Center.X + 63f, box.Center.Y + 41f));
+
+        var now = Glyphs(viewer);
+
+        // It moved, and it moved to the line rather than to the pointer: which line is the grid's
+        // business, and the run's own left edge is not on a round number to begin with.
+        Assert.NotEqual(was, now);
+        Assert.NotEqual(Carried(was, 63f, 41f, "one", "two"), now);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A snap never squashes a shape away: no line is worth less shape than the grid can express.
+    /// </summary>
+    /// <remarks>
+    /// The reported case, measured. A thirteen-unit run against the default ten-unit step: the corner
+    /// snapped to the line half a unit from its own pivot, so the run came out a fortieth of its
+    /// width — <c>scale(0.038, 0.31)</c> written to the file and the text gone from the screen mid
+    /// drag. The line is refused instead and the corner keeps the pointer.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Snap_Never_Scales_A_Shape_Away()
+    {
+        var (window, viewer) = await Host(Imported);
+
+        viewer.SnapsToGrid = true;
+
+        SelectById(viewer, "t");
+
+        Dispatcher.UIThread.RunJobs();
+
+        var box = viewer.Canvas.Gizmo!.Value;
+
+        // One step is most of this run, which is what makes the nearest line a bad place to land.
+        Assert.True(box.BR.X - box.TL.X < 2f * viewer.Grid.Step);
+
+        var to = new SKPoint(
+            box.TL.X + (box.BR.X - box.TL.X) * 0.2f,
+            box.TL.Y + (box.BR.Y - box.TL.Y) * 0.2f);
+
+        Drag(window, viewer, (box.BR.X, box.BR.Y), (to.X, to.Y));
+
+        var scaled = viewer.Canvas.Gizmo!.Value;
+
+        // It scaled, the pivot held, and the corner is where the pointer left it.
+        Assert.True(scaled.BR.X - scaled.TL.X < (box.BR.X - box.TL.X) / 2f, "nothing was scaled");
+        Assert.Equal(box.TL.X, scaled.TL.X, 3);
+        Assert.Equal(box.TL.Y, scaled.TL.Y, 3);
+        Assert.Equal(to.X, scaled.BR.X, 2);
+        Assert.Equal(to.Y, scaled.BR.Y, 2);
 
         window.Close();
     }
