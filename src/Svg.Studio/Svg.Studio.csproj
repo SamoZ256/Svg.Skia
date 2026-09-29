@@ -32,6 +32,8 @@
     <ProjectReference Include="..\Svg.CodeGen.Skia.Projects\Svg.CodeGen.Skia.Projects.csproj" />
     <!-- Importing a .pcvd reads the drawings the project is then written with. -->
     <ProjectReference Include="..\Svg.PaintCode\Svg.PaintCode.csproj" />
+    <!-- Import templates are recipes, matched, bound and applied to an icon on its way in. -->
+    <ProjectReference Include="..\Svg.Expressions.Recipes\Svg.Expressions.Recipes.csproj" />
   </ItemGroup>
 
 </Project>

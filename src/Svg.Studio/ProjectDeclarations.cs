@@ -82,6 +82,15 @@ public static class ProjectDeclarations
         return chain.Count == 0 ? string.Empty : string.Concat(chain.Select(group => group.CodeText));
     }
 
+    /// <summary>The names a drawing added to <paramref name="group"/> would inherit, the group's own among them.</summary>
+    public static IReadOnlySet<string> Names(ProjectGroup group)
+        => Chain(group)
+            .Append(group)
+            .SelectMany(scope => scope.Code?.Elements() ?? Enumerable.Empty<XElement>())
+            .Select(declaration => ((string?)declaration.Attribute("name"))?.Trim())
+            .OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+
     /// <summary>What <paramref name="drawing"/> is drawn, generated and exported from.</summary>
     /// <param name="ownText">
     /// The drawing as it stands — its own text from the project, or the buffer of a tab holding it.

@@ -47,6 +47,7 @@ internal static class TestStores
         RecentFiles.Store = Path.Combine(Path.GetTempPath(), $"svg-studio-recent-{Guid.NewGuid():N}");
         StudioSettings.Store = Path.Combine(Path.GetTempPath(), $"svg-studio-settings-{Guid.NewGuid():N}");
         ProjectRecovery.Store = Path.Combine(Path.GetTempPath(), $"svg-studio-recovery-{Guid.NewGuid():N}");
+        TemplateLibrary.ChoicesStore = Path.Combine(Path.GetTempPath(), $"svg-studio-choices-{Guid.NewGuid():N}");
 
         // Every settings window asks whether a Streamline key is kept, and one test puts one there.
         Keychain.Current = new MemoryKeychain();

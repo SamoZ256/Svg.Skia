@@ -1207,7 +1207,7 @@ public partial class MainWindow : Window
         {
             // Straight in, with no file written anywhere: the project holds the drawings, so a
             // pasted one needs nowhere to live but the row it lands on.
-            await AddTextAsync(parent, index, "drawing", drawing).ConfigureAwait(true);
+            await ImportAsync(parent, index, new[] { new TemplateImport("drawing", drawing) }).ConfigureAwait(true);
 
             return;
         }
@@ -1352,83 +1352,39 @@ public partial class MainWindow : Window
             }
         }
 
-        if (reading.Count == 0)
-        {
-            return;
-        }
-
-        ProjectDrawing? added = null;
-        var refused = new List<string>();
-
-        workspace.Do(
-            reading.Count == 1 ? $"add {reading[0].Name}" : $"add {reading.Count} drawings",
-            () => ProjectSnapshot.Contents(parent),
-            () =>
-            {
-                foreach (var (name, text) in reading)
-                {
-                    try
-                    {
-                        added = parent.AddDrawing(name, text, index++);
-                    }
-                    catch (SvgcProjectException failure)
-                    {
-                        refused.Add($"{name}: {failure.Message}");
-                    }
-                }
-            });
-
-        foreach (var refusal in refused)
-        {
-            await Announce("That drawing couldn't be added", refusal).ConfigureAwait(true);
-        }
-
-        if (added is null)
-        {
-            return;
-        }
-
-        BuildTree(added);
-
-        await ShowAsync(added).ConfigureAwait(true);
+        await ImportAsync(parent, index, reading.Select(one => new TemplateImport(one.Name, one.Text)).ToList()).ConfigureAwait(true);
     }
 
-    /// <summary>Adds one drawing the window has the text of rather than a file for.</summary>
-    private async Task AddTextAsync(ProjectGroup parent, int index, string name, string svgText)
+    /// <summary>
+    /// Puts drawings the window has the text of into <paramref name="parent"/>, through their
+    /// templates, as one step, and opens the last of them.
+    /// </summary>
+    /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
+    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports)
     {
-        if (_workspace is not { } workspace)
+        if (_workspace is not { } workspace || imports.Count == 0)
         {
-            return;
+            return Array.Empty<ProjectDrawing>();
         }
 
-        ProjectDrawing? added = null;
-        string? refusal = null;
+        var notes = new List<string>();
+        var added = TemplateLibrary.Import(workspace, parent, index, imports, notes);
 
-        workspace.Do(
-            $"add {name}",
-            () => ProjectSnapshot.Contents(parent),
-            () =>
-            {
-                try
-                {
-                    added = parent.AddDrawing(name, svgText, index);
-                }
-                catch (SvgcProjectException failure)
-                {
-                    refusal = failure.Message;
-                }
-            });
-
-        if (added is null)
+        foreach (var note in notes)
         {
-            await Announce("That drawing couldn't be added", refusal ?? "It could not be read.").ConfigureAwait(true);
-
-            return;
+            await Announce(added.Count == imports.Count ? "Imported" : "That drawing couldn't be added", note).ConfigureAwait(true);
         }
 
-        BuildTree(added);
+        if (added.Count == 0)
+        {
+            return added;
+        }
 
-        await ShowAsync(added).ConfigureAwait(true);
+        BuildTree(added[^1]);
+
+        await ShowAsync(added[^1]).ConfigureAwait(true);
+
+        return added;
     }
 
     /// <summary>

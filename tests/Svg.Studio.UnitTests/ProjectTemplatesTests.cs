@@ -134,13 +134,13 @@ public class ProjectTemplatesTests
 
         Assert.Null(document.Root.SetTemplates(Tinted));
 
-        // Written as given, as SetCode writes a block: laying it out at its depth is the caller's.
+        // A new block arrives written from column zero and is moved to the depth it lands at.
         Assert.Equal("""
             <?xml version="1.0" encoding="utf-8"?>
             <studio>
               <e:templates xmlns:e="https://svg.skia/expr/1.0">
-              <e:recipe name="Tinted"><e:slot name="ink" rest="true">ink</e:slot></e:recipe>
-            </e:templates>
+                <e:recipe name="Tinted"><e:slot name="ink" rest="true">ink</e:slot></e:recipe>
+              </e:templates>
               <drawing name="Dot">
                 <svg xmlns="http://www.w3.org/2000/svg" />
               </drawing>

@@ -272,16 +272,19 @@ public static class StudioSettings
             ? value
             : fallback;
 
-    private static string? Read(string key)
+    /// <summary>A line of <paramref name="store"/>, or of <see cref="Store"/> where none is named.</summary>
+    internal static string? Read(string key, string? store = null)
     {
+        store ??= Store;
+
         try
         {
-            if (!File.Exists(Store))
+            if (!File.Exists(store))
             {
                 return null;
             }
 
-            return File.ReadAllLines(Store)
+            return File.ReadAllLines(store)
                 .Select(line => line.Split('=', 2))
                 .Where(pair => pair.Length == 2 && string.Equals(pair[0], key, StringComparison.Ordinal))
                 .Select(pair => pair[1])
@@ -293,16 +296,18 @@ public static class StudioSettings
         }
     }
 
-    private static void Write(string key, string value)
+    internal static void Write(string key, string value, string? store = null)
     {
+        store ??= Store;
+
         try
         {
-            var lines = (File.Exists(Store) ? File.ReadAllLines(Store) : Array.Empty<string>())
+            var lines = (File.Exists(store) ? File.ReadAllLines(store) : Array.Empty<string>())
                 .Where(line => !line.StartsWith(key + "=", StringComparison.Ordinal))
                 .Append($"{key}={value}");
 
-            Directory.CreateDirectory(Path.GetDirectoryName(Store)!);
-            File.WriteAllLines(Store, lines);
+            Directory.CreateDirectory(Path.GetDirectoryName(store)!);
+            File.WriteAllLines(store, lines);
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {

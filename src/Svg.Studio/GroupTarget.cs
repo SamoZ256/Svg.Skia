@@ -57,28 +57,12 @@ public sealed class GroupTarget : ISvgViewerDeclarationTarget, IEquatable<GroupT
     /// </remarks>
     public string? Commit(string label, Func<SvgSourceDocument, string?> edit, SvgDeclarationRename? rename = null)
     {
-        if (edit is null)
-        {
-            throw new ArgumentNullException(nameof(edit));
-        }
-
         var text = _group.CodeText;
 
-        if (SvgSourceDocument.Read(text, out var unreadable) is not { } source)
-        {
-            return unreadable;
-        }
-
-        // What the groups above declare, so a let written here can name it. Nothing of it is
-        // written back — the block is the only thing this edit itself touches.
-        source.Inherited = ProjectDeclarations.Declared(_group);
-
-        if (edit(source) is { } refusal)
+        if (Edited(edit, out var written) is { } refusal)
         {
             return refusal;
         }
-
-        var written = source.ToText();
 
         // Worked out before anything at all is written: a project where some drawings say the new
         // name and some the old is worse than one where the rename did not happen.
@@ -109,6 +93,67 @@ public sealed class GroupTarget : ISvgViewerDeclarationTarget, IEquatable<GroupT
             });
 
         return bad;
+    }
+
+    /// <summary>The block with <paramref name="edit"/> made, or the sentence refusing it, and nothing written yet.</summary>
+    /// <remarks>Apart from <see cref="Commit"/> so a gesture that writes more than the block can hear a refusal before it records anything.</remarks>
+    internal string? Edited(Func<SvgSourceDocument, string?> edit, out string written)
+    {
+        if (edit is null)
+        {
+            throw new ArgumentNullException(nameof(edit));
+        }
+
+        written = _group.CodeText;
+
+        if (SvgSourceDocument.Read(written, out var unreadable) is not { } source)
+        {
+            return unreadable;
+        }
+
+        // What the groups above declare, so a let written here can name it. Nothing of it is
+        // written back — the block is the only thing this edit itself touches.
+        source.Inherited = ProjectDeclarations.Declared(_group);
+
+        if ((edit(source) ?? Shadowing(source)) is { } refusal)
+        {
+            return refusal;
+        }
+
+        written = source.ToText();
+
+        return null;
+    }
+
+    /// <summary>A name the edit newly declares that something under this group declares already, as a refusal.</summary>
+    /// <remarks>The chain refuses a name declared twice, so writing it here would stop everything below that declares it from building.</remarks>
+    private string? Shadowing(SvgSourceDocument source)
+    {
+        var had = Names(_group.Code?.Elements() ?? Enumerable.Empty<XElement>()).ToHashSet(StringComparer.Ordinal);
+        var added = Names(source.Document.Root?.Elements() ?? Enumerable.Empty<XElement>()).Where(name => !had.Contains(name)).ToHashSet(StringComparer.Ordinal);
+
+        if (added.Count == 0)
+        {
+            return null;
+        }
+
+        var below = _group.Drawings.Select(drawing => ((ProjectNode)drawing, drawing.Svg))
+            .Concat(Groups(_group).Where(group => group.Code is { }).Select(group => ((ProjectNode)group, group.Code!)));
+
+        foreach (var (node, element) in below)
+        {
+            if (Names(element.Descendants().Where(one => one.Name.Namespace == (XNamespace)SvgExpressionDeclarations.Namespace))
+                    .FirstOrDefault(added.Contains) is { } name)
+            {
+                return $"'{ProjectWorkspace.Label(node)}' declares '{name}' of its own, so declaring it on "
+                       + $"'{ProjectWorkspace.Label(_group)}' as well would declare it twice.";
+            }
+        }
+
+        return null;
+
+        static IEnumerable<string> Names(IEnumerable<XElement> elements)
+            => elements.Select(element => ((string?)element.Attribute("name"))?.Trim()).OfType<string>();
     }
 
     /// <summary>

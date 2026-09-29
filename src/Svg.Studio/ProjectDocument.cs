@@ -360,6 +360,12 @@ public class ProjectGroup : ProjectNode
         else
         {
             PutFirst(block);
+
+            // A block the editor made from CodeText's empty one closes at column zero; its lines
+            // move to where it now opens. One already written at this depth has nothing to move.
+            var closing = block.LastNode is XText last ? last.Value : string.Empty;
+
+            Reindent(block, closing.Substring(closing.LastIndexOf('\n') + 1), ProjectDocument.Depth(block));
         }
     }
 

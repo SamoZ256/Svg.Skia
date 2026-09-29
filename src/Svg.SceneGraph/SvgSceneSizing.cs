@@ -264,7 +264,7 @@ public static class SvgSceneSizing
     /// nothing to do. With every side zero this is what <c>xMidYMid meet</c> already produces — the
     /// caller keeps the shorter path for that case rather than moving output nobody asked to pad.
     /// </remarks>
-    private static SvgViewBox Frame(SKRect content, SKSize target, SvgPadding padding)
+    public static SvgViewBox Frame(SKRect content, SKSize target, SvgPadding padding)
     {
         if (content.Width <= 0f || content.Height <= 0f)
         {
