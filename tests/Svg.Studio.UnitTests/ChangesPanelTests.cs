@@ -405,6 +405,113 @@ public class ChangesPanelTests : IDisposable
         merging.Close();
     }
 
+    [AvaloniaFact]
+    public async Task The_Title_Says_The_Project_Branch_Apart_From_Studio_Build()
+    {
+        var build = MainWindow.Build;
+        MainWindow.Build = "master @ c48512f55";
+
+        try
+        {
+            var window = Empty();
+            Assert.Equal("SVG Studio (dev: master @ c48512f55)", window.Title);
+
+            var drawing = Path.Combine(_directory, "star.svg");
+            System.IO.File.WriteAllText(drawing, """<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" />""");
+            await window.OpenAsync(new[] { drawing });
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal("star.svg — SVG Studio (dev: master @ c48512f55)", window.Title);
+            window.Close();
+
+            Directory.CreateDirectory(Work);
+            System.IO.File.WriteAllText(File, Project);
+
+            window = await Host();
+            Assert.Equal("Project — icons.svgstudio — SVG Studio (dev: master @ c48512f55)", window.Title);
+            window.Close();
+
+            Committed();
+            window = await Host();
+            Assert.Equal("Project — icons.svgstudio [main] — SVG Studio (dev: master @ c48512f55)", window.Title);
+
+            // A release is built without the info; a refresh is what redraws the title.
+            MainWindow.Build = null;
+            await window.Changes.Refresh();
+            Assert.Equal("Project — icons.svgstudio [main] — SVG Studio", window.Title);
+
+            var remote = Path.Combine(_directory, "remote.git");
+            Git(_directory, "init", "--bare", "-b", "main", remote);
+            Git(Work, "remote", "add", "origin", remote);
+            Git(Work, "push", "-u", "origin", "main");
+
+            var other = Path.Combine(_directory, "other");
+            Git(_directory, "clone", "--config", "core.autocrlf=false", remote, other);
+            Configure(other);
+            System.IO.File.WriteAllText(Path.Combine(other, "icons.svgstudio"), Added(Project, "star"));
+            Git(other, "commit", "-am", "Add a star");
+            Git(other, "push");
+
+            System.IO.File.WriteAllText(Path.Combine(Work, "notes.txt"), "ahead");
+            Git(Work, "add", "notes.txt");
+            Git(Work, "commit", "-m", "Add notes");
+            Git(Work, "fetch");
+            await window.Changes.Refresh();
+            Assert.Equal("Project — icons.svgstudio [main ↑1 ↓1] — SVG Studio", window.Title);
+
+            Git(Work, "reset", "--hard", "HEAD~1");
+            await window.Changes.Refresh();
+            Assert.Equal("Project — icons.svgstudio [main ↓1] — SVG Studio", window.Title);
+
+            Git(Work, "checkout", "--detach");
+            await window.Changes.Refresh();
+            Assert.Equal("Project — icons.svgstudio [detached] — SVG Studio", window.Title);
+
+            window.Close();
+        }
+        finally
+        {
+            MainWindow.Build = build;
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task The_Title_Says_A_Merge_Is_Under_Way()
+    {
+        Diverged(Added(Project, "moon"), Added(Project, "star"));
+
+        var window = await Host();
+        await window.Changes.Merge("other");
+
+        Assert.EndsWith(" — icons.svgstudio [main, merging] — " + Studio(), window.Title, StringComparison.Ordinal);
+
+        await window.Changes.Commit("Merge other");
+
+        Assert.EndsWith(" — icons.svgstudio [main] — " + Studio(), window.Title, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_Title_Says_Which_Branch_A_Rebase_Is_Moving()
+    {
+        Committed();
+        System.IO.File.WriteAllText(Path.Combine(Work, "notes.txt"), "rebased");
+        Git(Work, "add", "notes.txt");
+        Git(Work, "commit", "-m", "Add notes");
+
+        // Stopped without a conflict, which would leave a project that cannot be opened.
+        Assert.NotEqual(0, Exit(Work, "rebase", "--exec", "false", "HEAD~1"));
+
+        var window = await Host();
+
+        Assert.EndsWith(" — icons.svgstudio [main, rebasing] — " + Studio(), window.Title, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    /// <summary>What the title ends with for the Studio these tests were built as.</summary>
+    private static string Studio() => MainWindow.Build is { } build ? $"SVG Studio (dev: {build})" : "SVG Studio";
+
     private static IEnumerable<Avalonia.Controls.Skia.SKPictureControl> Pictures(Window window)
         => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<Avalonia.Controls.Skia.SKPictureControl>();
 

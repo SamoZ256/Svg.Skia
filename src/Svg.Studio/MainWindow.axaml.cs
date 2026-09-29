@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -129,7 +130,11 @@ public partial class MainWindow : Window
         _changes.Reopen = OpenProjectAsync;
         _changes.Document = () => _workspace?.Document;
         _changes.Open = ShowAsync;
-        _changes.Compared += (_, _) => Remark();
+        _changes.Compared += (_, _) =>
+        {
+            Remark();
+            UpdateTitle();
+        };
 
         // Coming back to the window is when a commit made in a terminal would be seen.
         Activated += async (_, _) => await _changes.Refresh().ConfigureAwait(true);
@@ -243,6 +248,7 @@ public partial class MainWindow : Window
 
         ShowMenuGestures();
         UpdateMenu();
+        UpdateTitle();
         ShowRecent();
         ShowWelcome();
 
@@ -3953,25 +3959,39 @@ public partial class MainWindow : Window
         return true;
     }
 
+    /// <summary>The Svg.Skia branch and commit Studio was built from, or null in a release. Settable for a test.</summary>
+    public static string? Build { get; set; } = Built();
+
+    /// <remarks>Written by the <c>StudioBuildInfo</c> target in <c>Svg.Studio.csproj</c>, and left out of a release.</remarks>
+    private static string? Built()
+    {
+        var metadata = typeof(MainWindow).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToList();
+        string? Value(string key) => metadata.FirstOrDefault(attribute => attribute.Key == key)?.Value;
+
+        return Value("StudioBuildCommit") is { Length: > 0 } commit ? $"{Value("StudioBuildBranch")} @ {commit}" : null;
+    }
+
     private void UpdateTitle()
     {
         // Before the name, as on the tab: the two say the same thing about the same file and
         // should be read the same way round. The window answers for the project as well as for the
         // tab, since work dragged into the project wears no tab's mark.
         var mark = Marked() ? "• " : string.Empty;
+        var studio = Build is { } build ? $"SVG Studio (dev: {build})" : "SVG Studio";
+        var git = _changes.Summary is { } summary ? $" [{summary}]" : string.Empty;
 
         if ((_tabs.SelectedItem as TabItem)?.Content is GroupPanel group)
         {
-            Title = $"{mark}{ProjectWorkspace.Label(group.Node)} — {group.Workspace.Name}";
+            Title = $"{mark}{ProjectWorkspace.Label(group.Node)} — {group.Workspace.Name}{git} — {studio}";
             return;
         }
 
         if (_tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing } && _workspace is { } workspace)
         {
-            Title = $"{mark}{drawing.Name} — {workspace.Name}";
+            Title = $"{mark}{drawing.Name} — {workspace.Name}{git} — {studio}";
             return;
         }
 
-        Title = Selected()?.DocumentPath is { } path ? $"{mark}{Path.GetFileName(path)} — SVG Studio" : "SVG Studio";
+        Title = Selected()?.DocumentPath is { } path ? $"{mark}{Path.GetFileName(path)} — {studio}" : studio;
     }
 }

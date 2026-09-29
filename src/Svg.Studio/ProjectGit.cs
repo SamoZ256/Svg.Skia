@@ -261,21 +261,26 @@ public sealed class ProjectGit
     private async Task<bool> Has(string revision)
         => (await Run(new[] { "rev-parse", "-q", "--verify", revision }).ConfigureAwait(false)).Code == 0;
 
-    /// <summary>Whether a rebase is stopped part way, which Studio leaves to git to finish.</summary>
-    public async Task<bool> InRebase()
+    /// <summary>The branch a rebase stopped part way is rebasing, or null when none is; Studio leaves it to git to finish.</summary>
+    /// <remarks>Status reads the HEAD a rebase moves as detached, so only here is the branch said.</remarks>
+    public async Task<string?> Rebasing()
     {
         foreach (var name in new[] { "rebase-merge", "rebase-apply" })
         {
-            var path = (await Checked(new[] { "rev-parse", "--git-path", name }).ConfigureAwait(false))
-                .Trim();
+            var path = Path.Combine(Directory, (await Checked(new[] { "rev-parse", "--git-path", name }).ConfigureAwait(false))
+                .Trim());
 
-            if (System.IO.Directory.Exists(Path.Combine(Directory, path)))
+            if (System.IO.Directory.Exists(path))
             {
-                return true;
+                // "detached HEAD" when what was rebased was not a branch.
+                var head = Path.Combine(path, "head-name");
+                var branch = File.Exists(head) ? File.ReadAllText(head).Trim() : string.Empty;
+
+                return branch.StartsWith("refs/heads/", StringComparison.Ordinal) ? branch["refs/heads/".Length..] : "detached";
             }
         }
 
-        return false;
+        return null;
     }
 
     public Task AbortMerge()

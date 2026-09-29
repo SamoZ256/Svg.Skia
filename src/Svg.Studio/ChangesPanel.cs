@@ -49,7 +49,7 @@ public sealed class ChangesPanel : UserControl
     private ProjectGit? _git;
     private ProjectGitStatus? _status;
     private bool _merging;
-    private bool _rebasing;
+    private string? _rebasing;
     private bool _busy;
 
     /// <summary>Whether this conflict has been offered for resolving already, so a refresh does not offer it again.</summary>
@@ -126,7 +126,15 @@ public sealed class ChangesPanel : UserControl
     /// <summary>How the open project differs from its last commit, unsaved edits included.</summary>
     public IReadOnlyList<ProjectChange> Changes => _changes;
 
-    /// <summary>Raised when <see cref="Changes"/> has been worked out again.</summary>
+    /// <summary>The branch as the window title reads it, such as <c>main ↑1 ↓2, merging</c>, or null outside a repository.</summary>
+    public string? Summary => _status is { } status
+        ? (_rebasing ?? status.Branch ?? "detached")
+          + (status.Ahead > 0 ? $" ↑{status.Ahead}" : string.Empty)
+          + (status.Behind > 0 ? $" ↓{status.Behind}" : string.Empty)
+          + (_rebasing is { } ? ", rebasing" : _merging || status.State == ProjectGitState.Conflicted ? ", merging" : string.Empty)
+        : null;
+
+    /// <summary>Raised when <see cref="Changes"/> has been worked out again, and after every refresh of what git says.</summary>
     public event EventHandler? Compared;
 
     /// <summary>Writes the project so what is committed is what the window shows; false is a refusal already said.</summary>
@@ -207,7 +215,7 @@ public sealed class ChangesPanel : UserControl
                 ? known
                 : (hash, hash is { } ? Parsed(await git.At("HEAD").ConfigureAwait(true), Path.Combine(git.Directory, git.Name)) : null);
             var merging = await git.InMerge().ConfigureAwait(true);
-            var rebasing = await git.InRebase().ConfigureAwait(true);
+            var rebasing = await git.Rebasing().ConfigureAwait(true);
             var branches = await git.Branches().ConfigureAwait(true);
             var history = await git.History(50).ConfigureAwait(true);
 
@@ -241,7 +249,7 @@ public sealed class ChangesPanel : UserControl
         {
             _offered = false;
         }
-        else if (!_offered && !_rebasing)
+        else if (!_offered && _rebasing is null)
         {
             // Once per conflict: closing the merge window hands focus back to the window, whose
             // return refreshes, which would offer it again for ever.
@@ -474,7 +482,7 @@ public sealed class ChangesPanel : UserControl
         {
             // Stage 2 is then the upstream and stage 3 the user's own commit, so mine and theirs
             // would be offered the wrong way round, and there is no merge to abort.
-            if (await git.InRebase().ConfigureAwait(true))
+            if (await git.Rebasing().ConfigureAwait(true) is { })
             {
                 await Announce("A rebase is in progress", $"{git.Name} is in conflict part way through a rebase. "
                                                           + "Finish it, or abort it, with git.").ConfigureAwait(true);
@@ -599,7 +607,7 @@ public sealed class ChangesPanel : UserControl
                 ? " Up to date with the upstream."
                 : $" {status.Ahead} ahead, {status.Behind} behind.";
 
-        _state.Text = _rebasing
+        _state.Text = _rebasing is { }
             ? "A rebase is in progress. Finish it, or abort it, with git."
             : status.State switch
             {
@@ -744,13 +752,13 @@ public sealed class ChangesPanel : UserControl
         var outside = _git is null && _path is { };
         var ready = _git is { } && _status is { } && !_busy;
         var conflicted = _status is { State: ProjectGitState.Conflicted };
-        var settled = ready && !conflicted && !_rebasing;
+        var settled = ready && !conflicted && _rebasing is null;
 
         _branches.IsVisible = _git is { };
         _remote.IsVisible = _committing.IsVisible = _lists.IsVisible = _git is { };
         _create.IsVisible = outside;
         _create.IsEnabled = outside && !_busy;
-        _resolve.IsVisible = conflicted && !_rebasing;
+        _resolve.IsVisible = conflicted && _rebasing is null;
 
         // Only a merge can be aborted with merge --abort; a cherry-pick or a popped stash cannot.
         _abort.IsVisible = _resolve.IsVisible && _merging;

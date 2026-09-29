@@ -235,7 +235,7 @@ public class ProjectGitTests : IDisposable
 
         Assert.Equal(ProjectGitState.Conflicted, (await git.Status()).State);
         Assert.True(await git.InMerge());
-        Assert.False(await git.InRebase());
+        Assert.Null(await git.Rebasing());
         Assert.Equal((Project, ours, Added(Project, "star")), await git.Stages());
 
         await git.AbortMerge();
