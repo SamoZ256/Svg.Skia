@@ -131,8 +131,25 @@ public sealed class GroupPanel : UserControl
 
     private readonly SvgViewerDeclarationCommands? _commands;
 
-    /// <summary>The Element tab's content: a panel for the picked element, or a line saying why not.</summary>
+    /// <summary>The Attributes tab's content: a panel for the picked element, or a line saying why not.</summary>
     private readonly ContentControl _elementHost = new();
+
+    /// <summary>The panel for the picked element, made once and shown again for every pick.</summary>
+    /// <remarks>
+    /// Kept rather than made per pick. A write rebuilds the board and picks the element again, and
+    /// a panel made in the middle of that took the rows from under the gesture that wrote: a swatch
+    /// pressed just after typing did not open, the caret went to a box no longer on screen, and the
+    /// pane scrolled back to the top after every write.
+    /// </remarks>
+    private readonly SvgViewerElementPanel _element;
+
+    /// <summary>What <see cref="_element"/> is showing: which drawing, where its text is written, and its build.</summary>
+    private (ProjectDrawing Drawing, ISvgViewerDeclarationTarget Target, SvgViewerDocument Document)? _elementOf;
+
+    /// <summary>The element last asked for, held while <see cref="ShowDrawings"/> passes through the selection.</summary>
+    private string? _elementWanted;
+
+    private bool _passing;
 
     /// <summary>How the panels beside the board are arranged. Null on a drawing's settings pane.</summary>
     private SvgViewerDock? _dock;
@@ -255,6 +272,29 @@ public sealed class GroupPanel : UserControl
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         Node = node ?? throw new ArgumentNullException(nameof(node));
+
+        _element = new SvgViewerElementPanel(
+            () => _elementOf?.Target.Text ?? string.Empty,
+            // The declarations are read from the drawing as built, which is where what its groups
+            // declare has been written in.
+            () => _elementOf is { } of ? of.Document.Built(of.Target.Text) : string.Empty,
+            (label, edit) =>
+            {
+                if (_elementOf is not { } of)
+                {
+                    return "Nothing is picked.";
+                }
+
+                var refusal = of.Target.Commit(label, edit);
+
+                if (refusal is null)
+                {
+                    Written();
+                }
+
+                return refusal;
+            },
+            () => _elementOf is { } of && _inspecting is { } ? Evaluator(of.Document) : null);
 
         Content = node is ProjectGroup ? Built() : Alone();
 
@@ -404,7 +444,7 @@ public sealed class GroupPanel : UserControl
         {
             new SvgViewerRegion("project", "Settings", new ScrollViewer { Content = _properties }),
             new SvgViewerRegion("variables", "Variables", parameters),
-            new SvgViewerRegion("element", "Element", _elementHost),
+            new SvgViewerRegion("element", "Attributes", _elementHost),
             new SvgViewerRegion("elements", "Elements", tree)
         };
 
@@ -1252,12 +1292,20 @@ public sealed class GroupPanel : UserControl
     /// </summary>
     /// <remarks>
     /// The address comes from a tree of the drawing that was <em>built</em>, and what is edited is
-    /// the text it was made from.
-    ///
-    /// Rebuilt with the selection rather than kept: it is one element of one drawing, and both
-    /// change together.
+    /// the text it was made from. Only noted while <see cref="ShowDrawings"/> lets go of the
+    /// selection and takes it back, and shown once at the end.
     /// </remarks>
     private void ShowElement(string? addressKey)
+    {
+        _elementWanted = addressKey;
+
+        if (!_passing)
+        {
+            ShowElement();
+        }
+    }
+
+    private void ShowElement()
     {
         if (_inspecting is not { } inspecting
             || inspecting.Built.Document is not { } document
@@ -1272,7 +1320,7 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        if (addressKey is null)
+        if (_elementWanted is not { } addressKey)
         {
             _elementNote.Text = "Pick an element to see what it is written with.";
             _elementHost.Content = _elementNote;
@@ -1281,33 +1329,23 @@ public sealed class GroupPanel : UserControl
         }
 
         var drawing = inspecting.Built.Drawing;
-
         var target = TargetOf?.Invoke(drawing) ?? new DrawingTarget(Workspace, drawing);
 
-        var panel = new SvgViewerElementPanel(
-            () => target.Text,
-            // The declarations are read from the drawing as built, which is where what its groups
-            // declare has been written in.
-            () => document.Built(target.Text),
-            (label, edit) =>
-            {
-                var refusal = target.Commit(label, edit);
+        // Another drawing's rows are wrong even where the address is spelt alike, which in a group
+        // of one file built several ways it usually is.
+        if (_elementOf is { } of && !ReferenceEquals(of.Drawing, drawing))
+        {
+            _element.Show(null);
+        }
 
-                if (refusal is null)
-                {
-                    Written();
-                }
+        _elementOf = (drawing, target, document);
 
-                return refusal;
-            },
-            () => Evaluator(document));
-
-        panel.Show(SvgSourceElements.Addresses(target.Text, document.Built(target.Text))
+        _element.Show(SvgSourceElements.Addresses(target.Text, document.Built(target.Text))
             .TryGetValue(addressKey, out var mine)
             ? mine
             : null);
 
-        _elementHost.Content = panel;
+        _elementHost.Content = _element;
     }
 
     /// <summary>Reads the drawings again after an element was written, and answers that it went.</summary>
@@ -1368,6 +1406,8 @@ public sealed class GroupPanel : UserControl
         }
 
         _canvas.Publish();
+
+        _element.Readouts();
     }
 
     /// <summary>What to bind into <paramref name="drawn"/> when the panel is showing <paramref name="values"/>.</summary>
@@ -1420,6 +1460,29 @@ public sealed class GroupPanel : UserControl
     /// is what a group's settings do, and the question a group tab exists to answer.
     /// </remarks>
     private void ShowDrawings()
+    {
+        // The Attributes pane is told once, when the selection has been taken again. Told on the way
+        // through, it swapped to a note and back under whatever gesture had caused the rebuild.
+        var outermost = !_passing;
+
+        _passing = true;
+
+        try
+        {
+            LayOut();
+        }
+        finally
+        {
+            _passing = !outermost;
+
+            if (outermost)
+            {
+                ShowElement();
+            }
+        }
+    }
+
+    private void LayOut()
     {
         _stale = false;
 
@@ -1500,7 +1563,7 @@ public sealed class GroupPanel : UserControl
         {
             Inspect(again, again.Placement, again.Built.Svg!);
 
-            // And the elements inside it, which ring their drawings and fill the Element tab through
+            // And the elements inside it, which ring their drawings and fill the Attributes tab through
             // the same handler a click on a row does. A key the drawing no longer has selects
             // nothing, which is the honest answer: the element it named has been edited away.
             // Through the tree, which is what fills _picked again — and which drops any address

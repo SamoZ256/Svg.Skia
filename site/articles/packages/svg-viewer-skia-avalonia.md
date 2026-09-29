@@ -94,7 +94,7 @@ warnings are counted apart and worded apart (*"1 error and 1 warning"*), because
 something the drawing opened in spite of; a note that is only warnings is painted in the warning
 colour rather than the error one. The count is all it gives, because the row that carries the mistake
 is where the detail belongs: an expression is explained under the attribute row holding it in the
-Element panel, and a refused declaration in place of the parameter row it would have had. It sits
+Attributes panel, and a refused declaration in place of the parameter row it would have had. It sits
 beside the status rather than under it, so it takes no room and the viewer does not shift as it comes
 and goes while you edit. It is a standing statement, not a reaction: it does not wait for a control to
 be touched, and it does not change when one is.
@@ -175,7 +175,7 @@ on every rebuild, and answered no question the element tree does not answer bett
 
 What it was really for was **where** a mistake is, and that moved to the rows the mistakes are about:
 
-- An expression is explained under the attribute row holding it, in the **Element** panel. The panel
+- An expression is explained under the attribute row holding it, in the **Attributes** panel. The panel
   already checked what a row said against the declarations in scope, so the sentence is the one the
   analyser files against the span.
 - A declaration the reader refuses is said on the **parameter** panel, in place of the row it would
@@ -291,9 +291,10 @@ document. What that state is, and whether it matters, is the host's to know; the
 
 ## Dragging a variable onto an attribute
 
-A row in **Variables** is dragged by its **name** onto an attribute's box in **Element**, and the box
-becomes `{{ that name }}`. The grip beside it is not the handle: that reorders the list, and where a
-let sits decides what it can name, so the row has two grab points and each wears its own cursor.
+A row in **Variables** is dragged by its **name** onto an attribute's box in **Attributes**, and the box
+becomes `{%{{{ that name }}}%}`. The grip beside it is not the handle: that reorders the list, and
+where a let sits decides what it can name, so the row has two grab points and each wears its own
+cursor.
 
 While the drag is over the panel, **every row that would take it is outlined** and the one under the
 pointer is outlined more heavily. Which rows those are is the check a typed value goes through, asked
@@ -320,7 +321,7 @@ and half of that never reaches the canvas. On by default;
 `ShowElementTree = false` takes its place away and stops the work — a hidden tree holds nothing,
 because it is rebuilt every time typing pauses and that is 27ms at 4,000 elements.
 
-Picking a row rings the element on the drawing and fills the **Element** panel with the attributes
+Picking a row rings the element on the drawing and fills the **Attributes** panel with the attributes
 the file writes it with. A `<text>`, a `<tspan>` or a `<textPath>` is headed by its own words, above
 the attributes, because that is what the element says rather than how it is said; an expression
 written there is checked as a string, so binding the words to a parameter and unbinding them again

@@ -204,7 +204,7 @@ public class LayoutSettingTests : IDisposable
 
         Assert.Equal(StudioSettings.DefaultLayout, window.Layout);
 
-        Carry(window, "Variables", "Element");
+        Carry(window, "Variables", "Attributes");
 
         Assert.Contains("element+variables", window.Layout, StringComparison.Ordinal);
 
