@@ -223,7 +223,6 @@ The branch adds and updates implementation docs and plans for the new architectu
 User-facing docs were also refreshed earlier in the branch, including:
 
 - `README.md`
-- `CHANGELOG.md`
 - `site/articles/guides/interaction-and-animation.md`
 - package docs for `Svg.Custom`, `Svg.Skia`, `Svg.Controls.Skia.Avalonia`, and `Svg.Controls.Skia.Uno`
 

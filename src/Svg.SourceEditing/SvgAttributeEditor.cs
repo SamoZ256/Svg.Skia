@@ -39,8 +39,15 @@ public readonly record struct SvgSourceAttribute(string Name, string Value);
 /// </remarks>
 public static class SvgAttributeEditor
 {
-    /// <inheritdoc cref="Contains(string, string)"/>
-    public static bool Contains(SvgSourceDocument source, string addressKey)
+    /// <summary>
+    /// The name of the element <paramref name="addressKey"/> names, or null where it names nothing.
+    /// </summary>
+    /// <remarks>
+    /// An SVG element is named bare however the file binds its namespace. Inkscape declares
+    /// <c>xmlns:svg</c> beside the default, and asking for the prefix then answers <c>svg</c> for every
+    /// element in the drawing. A foreign element keeps its prefix, which is what tells it apart.
+    /// </remarks>
+    public static string? ElementName(SvgSourceDocument source, string addressKey)
     {
         if (source is null)
         {
@@ -52,7 +59,19 @@ public static class SvgAttributeEditor
             throw new ArgumentNullException(nameof(addressKey));
         }
 
-        return Resolve(source.Document, addressKey) is { };
+        if (Resolve(source.Document, addressKey) is not { } element)
+        {
+            return null;
+        }
+
+        if (element.Name.Namespace == SvgNamespace || element.Name.Namespace == XNamespace.None)
+        {
+            return element.Name.LocalName;
+        }
+
+        var prefix = element.GetPrefixOfNamespace(element.Name.Namespace);
+
+        return string.IsNullOrEmpty(prefix) ? element.Name.LocalName : prefix + ":" + element.Name.LocalName;
     }
 
     /// <inheritdoc cref="Attributes(string, string)"/>
@@ -94,6 +113,24 @@ public static class SvgAttributeEditor
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// What the element's <c>style</c> attribute sets <paramref name="name"/> to, or null where it
+    /// does not.
+    /// </summary>
+    /// <remarks>
+    /// Such a declaration wins over the attribute, which is why <see cref="SetAttribute(SvgSourceDocument, string, string, string?)"/>
+    /// refuses to write one it would override.
+    /// </remarks>
+    public static string? Styled(SvgSourceDocument source, string addressKey, string name)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        return Resolve(source.Document, addressKey) is { } element ? Styled(element, name) : null;
     }
 
     /// <inheritdoc cref="SetAttribute(string, string, string, string?)"/>
@@ -142,7 +179,7 @@ public static class SvgAttributeEditor
         // A style declaration beats the presentation attribute under it, so writing the attribute
         // would leave a document where the change paints nothing. Editing inside the declaration is
         // another matter and not one this can reach.
-        if (Shadowed(element, name))
+        if (Styled(element, name) is { })
         {
             return $"'{name}' is set in this element's style attribute, which wins over the attribute. Change it there instead.";
         }
@@ -377,18 +414,18 @@ public static class SvgAttributeEditor
         return string.IsNullOrEmpty(prefix) ? attribute.Name.LocalName : prefix + ":" + attribute.Name.LocalName;
     }
 
-    /// <summary>Whether a <c>style</c> declaration on the element overrides the attribute.</summary>
+    /// <summary>What a <c>style</c> declaration on the element sets the attribute to, overriding it, or null.</summary>
     /// <remarks>
     /// Read rather than parsed: the scanner that splits a style attribute properly is internal to
     /// the SVG parser, and a name followed by a colon is enough to know the attribute is not the
     /// value being painted. Saying so wrongly costs a refusal; missing it costs an edit that does
     /// nothing and says it worked.
     /// </remarks>
-    private static bool Shadowed(XElement element, string attributeName)
+    private static string? Styled(XElement element, string attributeName)
     {
         if ((string?)element.Attribute("style") is not { } style)
         {
-            return false;
+            return null;
         }
 
         foreach (var declaration in style.Split(';'))
@@ -397,10 +434,10 @@ public static class SvgAttributeEditor
 
             if (colon > 0 && string.Equals(declaration.Substring(0, colon).Trim(), attributeName, StringComparison.OrdinalIgnoreCase))
             {
-                return true;
+                return declaration.Substring(colon + 1).Trim();
             }
         }
 
-        return false;
+        return null;
     }
 }
