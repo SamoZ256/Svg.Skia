@@ -259,8 +259,9 @@ adds the attribute already bound.
 
 Only an expression is judged: what it comes to is read out beside it, an expression of the wrong type
 is caught in the box, and one written on an attribute the parser lifts nothing out of is refused
-rather than written as braces nobody reads. A value a `style` declaration overrides is refused, since
-the attribute under one paints nothing.
+rather than written as braces nobody reads. A value the element's `style` attribute sets reads on its
+row as `red in style`, and the row takes nothing: the declaration wins over the attribute, so it is
+changed under **Inline style** instead.
 
 ## Related docs
 

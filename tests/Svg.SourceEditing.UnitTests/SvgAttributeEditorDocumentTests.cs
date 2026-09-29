@@ -87,6 +87,17 @@ public class SvgAttributeEditorDocumentTests
     }
 
     [Fact]
+    public void A_Style_Declaration_Says_What_It_Sets_An_Attribute_To()
+    {
+        var source = Read();
+
+        Assert.Equal("red", SvgAttributeEditor.Styled(source, "1/0", "fill"));
+        Assert.Null(SvgAttributeEditor.Styled(source, "1/0", "stroke"));
+        Assert.Null(SvgAttributeEditor.Styled(source, "0", "fill"));
+        Assert.Null(SvgAttributeEditor.Styled(source, "9", "fill"));
+    }
+
+    [Fact]
     public void The_Attributes_Come_Back_In_The_Order_They_Were_Written()
     {
         var attributes = SvgAttributeEditor.Attributes(Read(), "0");

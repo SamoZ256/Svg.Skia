@@ -385,7 +385,7 @@ public sealed class SvgViewerElementPanel : UserControl
         // said: somebody who picked a <text> came for the words far more often than for its spacing.
         if (SvgAttributeEditor.Content(open, address, out var missing) is { } content)
         {
-            _rows.Children.Add(Row(SvgExpressionAttributes.ContentName, content, content.Length > 0, element));
+            _rows.Children.Add(Row(SvgExpressionAttributes.ContentName, content, content.Length > 0, element, null));
         }
         else if (missing is { })
         {
@@ -418,7 +418,7 @@ public sealed class SvgViewerElementPanel : UserControl
 
             foreach (var row in section.OrderBy(row => SvgViewerAttributes.Find(row.Name).Rank))
             {
-                body.Children.Add(Row(row.Name, row.Value, row.Set, element));
+                body.Children.Add(Row(row.Name, row.Value, row.Set, element, SvgAttributeEditor.Styled(open, address, row.Name)));
                 set += row.Set ? 1 : 0;
             }
 
@@ -462,7 +462,8 @@ public sealed class SvgViewerElementPanel : UserControl
 
     private static string Unprefixed(string name) => name.Substring(name.IndexOf(':') + 1);
 
-    private Control Row(string name, string value, bool set, string element)
+    /// <param name="styled">What the element's style attribute sets this to instead, or null.</param>
+    private Control Row(string name, string value, bool set, string element, string? styled)
     {
         var about = SvgViewerAttributes.Find(name);
 
@@ -504,10 +505,19 @@ public sealed class SvgViewerElementPanel : UserControl
         var box = new TextBox
         {
             Text = value,
-            Watermark = IsText(name) ? "no text" : "not set",
+            Watermark = styled is { } ? $"{styled} in style" : IsText(name) ? "no text" : "not set",
             FontSize = 12,
             Tag = name
         };
+
+        // A style declaration wins over the attribute and writing one it overrides is refused, so
+        // the row says what the element is painted with and where that can be changed, and offers
+        // nothing that would be turned away.
+        if (styled is { })
+        {
+            box.IsReadOnly = true;
+            ToolTip.SetTip(box, "Set in this element's style attribute, which wins over the attribute. Change it under Inline style.");
+        }
 
         if (this.TryFindResource("SvgExpressionBox", ActualThemeVariant, out var theme) && theme is ControlTheme box_)
         {
@@ -553,7 +563,7 @@ public sealed class SvgViewerElementPanel : UserControl
 
         void Put(string text) => Commit(box, name, address, text);
 
-        if (!IsText(name) && Controlled(element))
+        if (!IsText(name) && Controlled(element) && styled is null)
         {
             follow = about.Control switch
             {
@@ -1251,7 +1261,7 @@ public sealed class SvgViewerElementPanel : UserControl
 
         foreach (var row in _shown)
         {
-            if (Trouble(row.Name, written) is { })
+            if (row.Box.IsReadOnly || Trouble(row.Name, written) is { })
             {
                 continue;
             }

@@ -115,6 +115,24 @@ public static class SvgAttributeEditor
         return null;
     }
 
+    /// <summary>
+    /// What the element's <c>style</c> attribute sets <paramref name="name"/> to, or null where it
+    /// does not.
+    /// </summary>
+    /// <remarks>
+    /// Such a declaration wins over the attribute, which is why <see cref="SetAttribute(SvgSourceDocument, string, string, string?)"/>
+    /// refuses to write one it would override.
+    /// </remarks>
+    public static string? Styled(SvgSourceDocument source, string addressKey, string name)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        return Resolve(source.Document, addressKey) is { } element ? Styled(element, name) : null;
+    }
+
     /// <inheritdoc cref="SetAttribute(string, string, string, string?)"/>
     /// <returns>The sentence refusing the edit, or null where it was made.</returns>
     /// <remarks>
@@ -161,7 +179,7 @@ public static class SvgAttributeEditor
         // A style declaration beats the presentation attribute under it, so writing the attribute
         // would leave a document where the change paints nothing. Editing inside the declaration is
         // another matter and not one this can reach.
-        if (Shadowed(element, name))
+        if (Styled(element, name) is { })
         {
             return $"'{name}' is set in this element's style attribute, which wins over the attribute. Change it there instead.";
         }
@@ -396,18 +414,18 @@ public static class SvgAttributeEditor
         return string.IsNullOrEmpty(prefix) ? attribute.Name.LocalName : prefix + ":" + attribute.Name.LocalName;
     }
 
-    /// <summary>Whether a <c>style</c> declaration on the element overrides the attribute.</summary>
+    /// <summary>What a <c>style</c> declaration on the element sets the attribute to, overriding it, or null.</summary>
     /// <remarks>
     /// Read rather than parsed: the scanner that splits a style attribute properly is internal to
     /// the SVG parser, and a name followed by a colon is enough to know the attribute is not the
     /// value being painted. Saying so wrongly costs a refusal; missing it costs an edit that does
     /// nothing and says it worked.
     /// </remarks>
-    private static bool Shadowed(XElement element, string attributeName)
+    private static string? Styled(XElement element, string attributeName)
     {
         if ((string?)element.Attribute("style") is not { } style)
         {
-            return false;
+            return null;
         }
 
         foreach (var declaration in style.Split(';'))
@@ -416,10 +434,10 @@ public static class SvgAttributeEditor
 
             if (colon > 0 && string.Equals(declaration.Substring(0, colon).Trim(), attributeName, StringComparison.OrdinalIgnoreCase))
             {
-                return true;
+                return declaration.Substring(colon + 1).Trim();
             }
         }
 
-        return false;
+        return null;
     }
 }

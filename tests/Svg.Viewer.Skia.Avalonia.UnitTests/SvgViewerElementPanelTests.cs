@@ -1328,4 +1328,27 @@ public class SvgViewerElementPanelTests
 
         window.Close();
     }
+
+    // ---- what a row shows -----------------------------------------------------------------------
+
+    /// <summary>A paint set in style says so on its row, rather than reading as not set.</summary>
+    [AvaloniaFact]
+    public void A_Paint_Set_In_Style_Says_So_And_Offers_Nothing_It_Would_Refuse()
+    {
+        var held = new Held("""<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill: red" /></svg>""");
+        var window = held.Show("0");
+        var fill = Box(window, "fill");
+
+        Assert.True(fill.IsReadOnly);
+        Assert.Equal("red in style", fill.Watermark);
+        Assert.DoesNotContain(
+            window.GetVisualDescendants().OfType<Button>(),
+            button => Equals(button.Tag, "fill") && (button.Classes.Contains("swatch") || button.Classes.Contains("choices")));
+
+        // Stroke is not in the style, and keeps its swatch.
+        Assert.False(Box(window, "stroke").IsReadOnly);
+        Assert.NotNull(Control(window, "swatch", "stroke"));
+
+        window.Close();
+    }
 }
