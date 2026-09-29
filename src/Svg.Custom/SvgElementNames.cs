@@ -115,7 +115,7 @@ public static class SvgElementNames
             // Read only from style, and the raw marker attribute is skipped outright.
             names.RemoveWhere(name => SvgStyleAttributeNames.IsCssOnlyProperty(name) || name == "marker");
 
-            return names.ToList();
+            return names.ToArray();
         });
     }
 }

@@ -70,6 +70,22 @@ public class SvgAttributeEditorDocumentTests
         Assert.Equal("other:thing", SvgAttributeEditor.ElementName(source, "0"));
     }
 
+    /// <summary>Inkscape's header, which binds a prefix to SVG beside the default namespace.</summary>
+    [Fact]
+    public void An_SVG_Element_Is_Named_Bare_Where_The_File_Also_Binds_A_Prefix_To_SVG()
+    {
+        var source = Read("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:svg="http://www.w3.org/2000/svg">
+              <path d="M0 0" />
+              <svg:rect />
+            </svg>
+            """);
+
+        Assert.Equal("svg", SvgAttributeEditor.ElementName(source, string.Empty));
+        Assert.Equal("path", SvgAttributeEditor.ElementName(source, "0"));
+        Assert.Equal("rect", SvgAttributeEditor.ElementName(source, "1"));
+    }
+
     [Fact]
     public void The_Attributes_Come_Back_In_The_Order_They_Were_Written()
     {

@@ -40,9 +40,13 @@ public readonly record struct SvgSourceAttribute(string Name, string Value);
 public static class SvgAttributeEditor
 {
     /// <summary>
-    /// The name of the element <paramref name="addressKey"/> names, as the file spells it, or null
-    /// where it names nothing.
+    /// The name of the element <paramref name="addressKey"/> names, or null where it names nothing.
     /// </summary>
+    /// <remarks>
+    /// An SVG element is named bare however the file binds its namespace. Inkscape declares
+    /// <c>xmlns:svg</c> beside the default, and asking for the prefix then answers <c>svg</c> for every
+    /// element in the drawing. A foreign element keeps its prefix, which is what tells it apart.
+    /// </remarks>
     public static string? ElementName(SvgSourceDocument source, string addressKey)
     {
         if (source is null)
@@ -58,6 +62,11 @@ public static class SvgAttributeEditor
         if (Resolve(source.Document, addressKey) is not { } element)
         {
             return null;
+        }
+
+        if (element.Name.Namespace == SvgNamespace || element.Name.Namespace == XNamespace.None)
+        {
+            return element.Name.LocalName;
         }
 
         var prefix = element.GetPrefixOfNamespace(element.Name.Namespace);
