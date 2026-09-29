@@ -229,7 +229,7 @@ public static class SvgViewerParameterFactory
         }
     }
 
-    private static Color ToColor(ExprValue? seed)
+    internal static Color ToColor(ExprValue? seed)
         => seed?.Type == ExprType.Color
             ? Color.FromArgb(seed.Value.Alpha, seed.Value.Red, seed.Value.Green, seed.Value.Blue)
             : PlaceholderColor;

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* **A colour, an opacity and a choice get a control of their own in the Element tab.** A colour's
+  row has a swatch that opens a picker, an opacity a slider, and an attribute with a few spelt values
+  — a line cap, an alignment, `none` or a gradient the drawing holds — a ▾ listing them; ↑ and ↓ step
+  a number. The box stays what is written, so an expression is still typed there: on a row one
+  drives, the swatch and slider show what it comes to and are locked. The picker and the slider
+  write once, when the picker closes or the slider is let go, because every write rebuilds the rows
+  and is a step to undo — written per tick, a drag would have taken the slider out from under the
+  pointer and left a hundred steps behind it.
+
 * **The Element tab names attributes the way people do, and lists what the element could take.**
   Every row was the raw SVG name in monospace, written attributes in file order and then one
   "Not set" row for each of the 22 names an expression can drive — the same 22 on every element, so a

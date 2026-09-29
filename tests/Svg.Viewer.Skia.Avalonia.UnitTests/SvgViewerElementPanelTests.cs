@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
@@ -59,6 +60,7 @@ public class SvgViewerElementPanelTests
                     }
 
                     Text = source.ToText();
+                    Writes++;
                     Panel!.Refresh();
 
                     return null;
@@ -67,6 +69,9 @@ public class SvgViewerElementPanelTests
         }
 
         public string Text { get; private set; }
+
+        /// <summary>How many edits reached the text, each of which is one step to undo.</summary>
+        public int Writes { get; private set; }
 
         public SvgViewerElementPanel Panel { get; }
 
@@ -283,7 +288,7 @@ public class SvgViewerElementPanelTests
         // Only what the file sets has anything to take away.
         Assert.Null(Reset("stroke"));
 
-        Reset("fill").RaiseEvent(new global::Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Reset("fill").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
         Assert.DoesNotContain("fill=", held.Text);
@@ -849,6 +854,283 @@ public class SvgViewerElementPanelTests
         Carry(window, Box(window, "fill"), "tint");
 
         Assert.Contains("fill=\"{{ tint }}\"", viewer.Source, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    // ---- the controls beside a box ----------------------------------------------------------------
+
+    private static Button Control(Window window, string kind, string name)
+        => window.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains(kind) && Equals(button.Tag, name));
+
+    /// <summary>Pressed with the pointer, since that is what opens a button's flyout.</summary>
+    private static void Click(Button button)
+    {
+        button.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+
+        var window = (Window)TopLevel.GetTopLevel(button)!;
+        var middle = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+
+        window.MouseDown(middle, MouseButton.Left);
+        window.MouseUp(middle, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>Each colour the picker passes through is shown, and only the one it closes on is written.</summary>
+    [AvaloniaFact]
+    public void A_Picked_Colour_Is_Written_Once_When_The_Picker_Closes()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var swatch = Control(window, "swatch", "fill");
+
+        Click(swatch);
+
+        var flyout = Assert.IsType<Flyout>(swatch.Flyout);
+        var picker = Assert.IsType<ColorView>(flyout.Content);
+
+        Assert.True(flyout.IsOpen);
+
+        // Themed, so there is a picker to see and not an empty flyout.
+        Assert.NotEmpty(picker.GetVisualChildren());
+
+        picker.Color = Colors.Red;
+        picker.Color = Color.FromRgb(0, 0, 255);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("#0000ff", held.Panel.Shown("fill"));
+        Assert.Equal(0, held.Writes);
+
+        flyout.Hide();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, held.Writes);
+        Assert.Contains("fill=\"#0000ff\"", held.Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Colour_Driven_By_An_Expression_Shows_What_It_Comes_To()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+
+        Assert.True(held.Panel.Set("fill", "{{ tint }}"));
+        Dispatcher.UIThread.RunJobs();
+
+        var swatch = Control(window, "swatch", "fill");
+
+        Assert.False(swatch.IsEnabled);
+        Assert.Equal(Color.FromRgb(255, 0, 0), Assert.IsAssignableFrom<ISolidColorBrush>(((Border)swatch.Content!).Background).Color);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Paint_Is_Chosen_From_Keywords_And_What_The_Drawing_Holds()
+    {
+        var held = new Held("""
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <linearGradient id="g" />
+              <rect fill="red" />
+            </svg>
+            """);
+        var window = held.Show("1");
+        var pick = Control(window, "choices", "fill");
+
+        Click(pick);
+
+        var offered = Assert.IsType<MenuFlyout>(pick.Flyout).Items.OfType<MenuItem>().ToList();
+
+        Assert.Equal(new[] { "none", "currentColor", "url(#g)" }, offered.Select(item => item.Header));
+
+        offered[2].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("""<rect fill="url(#g)" />""", held.Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Choice_Is_Written_As_SVG_Spells_It()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var pick = Control(window, "choices", "stroke-linejoin");
+
+        Click(pick);
+
+        Assert.IsType<MenuFlyout>(pick.Flyout).Items.OfType<MenuItem>().Single(item => Equals(item.Header, "round"))
+            .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("stroke-linejoin=\"round\"", held.Text);
+        Assert.Equal(1, held.Writes);
+
+        window.Close();
+    }
+
+    /// <summary>A drag is one step to undo, however many values it passes through.</summary>
+    [AvaloniaFact]
+    public void An_Opacity_Dragged_Is_Written_Once_On_Release()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var slider = window.GetVisualDescendants().OfType<Slider>().Single(slider => Equals(slider.Tag, "opacity"));
+
+        slider.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+
+        Point At(double fraction) => slider.TranslatePoint(new Point(slider.Bounds.Width * fraction, slider.Bounds.Height / 2), window)!.Value;
+
+        window.MouseDown(At(0.8), MouseButton.Left);
+        window.MouseMove(At(0.6));
+        window.MouseMove(At(0.5));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0, held.Writes);
+        Assert.NotEqual(string.Empty, held.Panel.Shown("opacity"));
+
+        window.MouseUp(At(0.5), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, held.Writes);
+        Assert.Contains($"opacity=\"{held.Panel.Shown("opacity")}\"", held.Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Up_And_Down_Step_A_Number_Without_Writing_It()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var box = Box(window, "width");
+
+        void Press(Key key, KeyModifiers modifiers = KeyModifiers.None)
+            => box.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = key, KeyModifiers = modifiers });
+
+        Press(Key.Up);
+        Assert.Equal("25", box.Text);
+
+        Press(Key.Down, KeyModifiers.Shift);
+        Assert.Equal("15", box.Text);
+
+        Assert.Equal(0, held.Writes);
+        Assert.Contains("width=\"24\"", held.Text);
+
+        // The unit stays where it was written.
+        box.Text = "1.5em";
+        Press(Key.Up, KeyModifiers.Alt);
+        Assert.Equal("1.6em", box.Text);
+
+        window.Close();
+    }
+
+    /// <summary>On an animation, fill says what happens when it ends, and is not a paint.</summary>
+    [AvaloniaFact]
+    public void A_Name_That_Means_Something_Else_There_Gets_No_Control()
+    {
+        var held = new Held("""
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <rect><animate attributeName="x" to="4" dur="1s" fill="freeze" /></rect>
+            </svg>
+            """);
+        var window = held.Show("0/0");
+
+        Assert.Contains("fill", held.Panel.Attributes);
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), button => button.Classes.Contains("swatch"));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Picker_Opened_And_Closed_Untouched_Writes_Nothing()
+    {
+        var held = new Held("""<svg xmlns="http://www.w3.org/2000/svg"><rect fill="red" /></svg>""");
+        var window = held.Show("0");
+        var swatch = Control(window, "swatch", "fill");
+
+        Click(swatch);
+        Assert.IsType<Flyout>(swatch.Flyout).Hide();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0, held.Writes);
+        Assert.Contains("""<rect fill="red" />""", held.Text);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// The first press on a control after typing reaches it, rather than the rows being rebuilt from
+    /// under it by the box it just left.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_Swatch_Pressed_Straight_After_Typing_Opens()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var box = Box(window, "fill");
+
+        Assert.True(box.Focus());
+        box.Text = "#0000ff";
+
+        var swatch = Control(window, "swatch", "stroke");
+
+        Click(swatch);
+
+        Assert.Contains("fill=\"#0000ff\"", held.Text);
+        Assert.True(Assert.IsType<Flyout>(swatch.Flyout).IsOpen);
+
+        swatch.Flyout!.Hide();
+        window.Close();
+    }
+
+    /// <summary>A write still on its way lands on the element its row was for, not the one picked since.</summary>
+    [AvaloniaFact]
+    public void A_Write_Posted_Before_Another_Pick_Lands_On_Its_Own_Element()
+    {
+        var held = new Held("""
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <rect fill="red" />
+              <rect fill="blue" />
+            </svg>
+            """);
+        var window = held.Show("0");
+
+        window.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains("reset") && Equals(button.Tag, "fill"))
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        held.Panel.Show("1");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("""<rect />""", held.Text);
+        Assert.Contains("""<rect fill="blue" />""", held.Text);
+
+        window.Close();
+    }
+
+    /// <summary>A row Enter set is drawn as set, though the write was made while its box held the keyboard.</summary>
+    [AvaloniaFact]
+    public void A_Row_Set_With_Enter_Is_Drawn_As_Set_Once_It_Is_Left()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+
+        SvgViewer.LeaveOnEnter(window);
+
+        var box = Box(window, "opacity");
+
+        Assert.True(box.Focus());
+        box.Text = "0.5";
+        box.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("opacity=\"0.5\"", held.Text);
+        Assert.Contains(window.GetVisualDescendants().OfType<Button>(), button => button.Classes.Contains("reset") && Equals(button.Tag, "opacity"));
 
         window.Close();
     }
