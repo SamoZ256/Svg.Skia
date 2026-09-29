@@ -32,7 +32,7 @@ public static class SvgRecipeRewriter
 
         var counts = new int[recipe.Rules.Count];
 
-        Walk(root, (name, value) => TryMatch(name, value, recipe, counts, out var expression) ? expression : null);
+        Walk(root, written: false, (name, value) => TryMatch(name, value, recipe, counts, out var expression) ? expression : null);
 
         // What the document does not already say. Replacing is idempotent on its own -- every write
         // in Visit is gated on the value still being a literal -- so this is the only half that
@@ -65,7 +65,12 @@ public static class SvgRecipeRewriter
     /// colour painting three attributes is one entry saying three places, and an opacity is its own
     /// entry per attribute because that is the rule for it.
     /// </remarks>
-    public static IReadOnlyList<SvgRecipeSurveyValue> Survey(string svgText)
+    /// <param name="written">
+    /// The values already written as <c>{{ }}</c> as well, keyed <c>{{ expression }}</c> with the
+    /// expression normalized: what a drawing made by a recipe was made with, among what it was not,
+    /// in one order, since a template read back out of it ranks ties by that order.
+    /// </param>
+    public static IReadOnlyList<SvgRecipeSurveyValue> Survey(string svgText, bool written = false)
     {
         var (_, root) = Read(svgText);
 
@@ -76,11 +81,16 @@ public static class SvgRecipeRewriter
         // make the panel look like it was showing something different.
         var order = new List<(string Name, string Key, ExprType Type)>();
 
-        Walk(root, (attribute, value) =>
+        Walk(root, written, (attribute, value) =>
         {
             var type = SvgExpressionAttributes.TypeFor(attribute)!.Value;
+            string key;
 
-            if (!SvgRecipeValue.TryKey(type, value, out var key))
+            if (written && SvgExpressionAttributes.TryUnwrap(value, out var expression))
+            {
+                key = "{{ " + SvgRecipe.NormalizeExpression(expression) + " }}";
+            }
+            else if (!SvgRecipeValue.TryKey(type, value, out key))
             {
                 return null;
             }
@@ -127,7 +137,7 @@ public static class SvgRecipeRewriter
 
     /// <summary>
     /// Hands every literal value an expression could drive to <paramref name="visit"/>, with the
-    /// attribute it was written in.
+    /// attribute it was written in; and, <paramref name="written"/>, every <c>{{ }}</c> already there.
     /// </summary>
     /// <remarks>
     /// One traversal for the rewrite and the survey both, because the rule that a <c>style</c>
@@ -138,17 +148,17 @@ public static class SvgRecipeRewriter
     /// Every write below is gated on an answer, so a visitor that only looks cannot change the
     /// document it is looking at.
     /// </remarks>
-    private static void Walk(XElement root, Func<string, string, string?> visit)
+    private static void Walk(XElement root, bool written, Func<string, string, string?> visit)
     {
         // These attributes only mean anything on SVG elements. Foreign content keeps whatever its
         // own vocabulary gives 'fill', and is left alone.
         foreach (var element in root.DescendantsAndSelf().Where(e => e.Name.Namespace == root.Name.Namespace))
         {
-            Visit(element, visit);
+            Visit(element, written, visit);
         }
     }
 
-    private static void Visit(XElement element, Func<string, string, string?> visit)
+    private static void Visit(XElement element, bool written, Func<string, string, string?> visit)
     {
         var styleAttribute = element.Attribute("style");
         var style = SvgRecipeStyle.Parse(styleAttribute?.Value);
@@ -169,7 +179,7 @@ public static class SvgRecipeRewriter
             // underneath would emit an expression that never paints.
             if (style.TryGetValue(name, out var styleValue))
             {
-                if (Literal(styleValue) && visit(name, styleValue) is { } styleExpression)
+                if ((written || Literal(styleValue)) && visit(name, styleValue) is { } styleExpression)
                 {
                     // Written where it was found. A style declaration used to be promoted to a
                     // presentation attribute because only an attribute was lifted; a declaration
@@ -186,7 +196,7 @@ public static class SvgRecipeRewriter
 
             var attribute = element.Attribute(name);
 
-            if (attribute is { } && Literal(attribute.Value) && visit(name, attribute.Value) is { } expression)
+            if (attribute is { } && (written || Literal(attribute.Value)) && visit(name, attribute.Value) is { } expression)
             {
                 attribute.Value = expression;
             }
