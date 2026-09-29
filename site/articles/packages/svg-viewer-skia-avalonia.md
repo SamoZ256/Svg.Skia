@@ -292,8 +292,9 @@ document. What that state is, and whether it matters, is the host's to know; the
 ## Dragging a variable onto an attribute
 
 A row in **Variables** is dragged by its **name** onto an attribute's box in **Attributes**, and the box
-becomes `{{ that name }}`. The grip beside it is not the handle: that reorders the list, and where a
-let sits decides what it can name, so the row has two grab points and each wears its own cursor.
+becomes `{%{{{ that name }}}%}`. The grip beside it is not the handle: that reorders the list, and
+where a let sits decides what it can name, so the row has two grab points and each wears its own
+cursor.
 
 While the drag is over the panel, **every row that would take it is outlined** and the one under the
 pointer is outlined more heavily. Which rows those are is the check a typed value goes through, asked
