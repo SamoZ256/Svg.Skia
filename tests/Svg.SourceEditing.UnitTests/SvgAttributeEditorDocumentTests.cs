@@ -50,12 +50,24 @@ public class SvgAttributeEditorDocumentTests
     {
         var source = Read();
 
-        Assert.True(SvgAttributeEditor.Contains(source, string.Empty));
-        Assert.True(SvgAttributeEditor.Contains(source, "0"));
-        Assert.True(SvgAttributeEditor.Contains(source, "1/0"));
-        Assert.False(SvgAttributeEditor.Contains(source, "9"));
-        Assert.False(SvgAttributeEditor.Contains(source, "nonsense"));
-        Assert.False(SvgAttributeEditor.Contains(source, "-1"));
+        Assert.Equal("svg", SvgAttributeEditor.ElementName(source, string.Empty));
+        Assert.Equal("rect", SvgAttributeEditor.ElementName(source, "0"));
+        Assert.Equal("circle", SvgAttributeEditor.ElementName(source, "1/0"));
+        Assert.Null(SvgAttributeEditor.ElementName(source, "9"));
+        Assert.Null(SvgAttributeEditor.ElementName(source, "nonsense"));
+        Assert.Null(SvgAttributeEditor.ElementName(source, "-1"));
+    }
+
+    [Fact]
+    public void A_Prefixed_Element_Is_Named_With_Its_Prefix()
+    {
+        var source = Read("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:other="https://example.invalid/other">
+              <other:thing/>
+            </svg>
+            """);
+
+        Assert.Equal("other:thing", SvgAttributeEditor.ElementName(source, "0"));
     }
 
     [Fact]

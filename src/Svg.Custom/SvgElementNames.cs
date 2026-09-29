@@ -2,6 +2,9 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Svg;
 
@@ -51,5 +54,68 @@ public static class SvgElementNames
         return SvgElements.ElementNames.TryGetValue(element.GetType(), out var declared)
             ? declared
             : element.GetType().Name;
+    }
+
+    private static readonly ConcurrentDictionary<string, IReadOnlyList<string>> s_attributes = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Every attribute the parser reads on an element called <paramref name="elementName"/>, sorted,
+    /// or none for a name it does not know.
+    /// </summary>
+    /// <remarks>
+    /// An xlink <c>href</c> is spelt bare, as SVG 2 writes it and the parser reads it; the other xlink
+    /// names are left out, since writing one needs a prefix the document may not declare.
+    /// </remarks>
+    public static IReadOnlyList<string> AttributesOf(string elementName)
+    {
+        if (elementName is null)
+        {
+            throw new ArgumentNullException(nameof(elementName));
+        }
+
+        return s_attributes.GetOrAdd(elementName, static name =>
+        {
+            if (SvgElementFactory.CreateProbe(name) is not { } probe)
+            {
+                return Array.Empty<string>();
+            }
+
+            var names = new SortedSet<string>(StringComparer.Ordinal) { "class", "style" };
+
+            foreach (var property in probe.GetProperties())
+            {
+                if (property.DescriptorType != DescriptorType.Property)
+                {
+                    continue;
+                }
+
+                switch (property.AttributeNamespace)
+                {
+                    case SvgNamespaces.SvgNamespace:
+                        names.Add(property.AttributeName);
+                        break;
+                    case SvgNamespaces.XmlNamespace:
+                        names.Add("xml:" + property.AttributeName);
+                        break;
+                    case SvgNamespaces.XLinkNamespace when property.AttributeName == "href":
+                        names.Add("href");
+                        break;
+                }
+            }
+
+            // Presentation attributes reach every element through the style path, geometry aside.
+            foreach (var style in SvgStyleAttributeNames.All)
+            {
+                if (!SvgElementFactory.IsSvg2GeometryAttribute(style))
+                {
+                    names.Add(style);
+                }
+            }
+
+            // Read only from style, and the raw marker attribute is skipped outright.
+            names.RemoveWhere(name => SvgStyleAttributeNames.IsCssOnlyProperty(name) || name == "marker");
+
+            return names.ToList();
+        });
     }
 }

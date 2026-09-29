@@ -203,7 +203,7 @@ public sealed class SvgViewerElementPanel : UserControl
             ? Array.Empty<SvgSourceAttribute>()
             : SvgAttributeEditor.Attributes(open, address);
 
-        if (open is null || !SvgAttributeEditor.Contains(open, address))
+        if (open is null || SvgAttributeEditor.ElementName(open, address) is null)
         {
             // In the drawing but not in the file: the declarations block a recipe injected is the
             // one of these anybody meets.

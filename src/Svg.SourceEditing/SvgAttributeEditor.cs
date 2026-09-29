@@ -39,8 +39,11 @@ public readonly record struct SvgSourceAttribute(string Name, string Value);
 /// </remarks>
 public static class SvgAttributeEditor
 {
-    /// <inheritdoc cref="Contains(string, string)"/>
-    public static bool Contains(SvgSourceDocument source, string addressKey)
+    /// <summary>
+    /// The name of the element <paramref name="addressKey"/> names, as the file spells it, or null
+    /// where it names nothing.
+    /// </summary>
+    public static string? ElementName(SvgSourceDocument source, string addressKey)
     {
         if (source is null)
         {
@@ -52,7 +55,14 @@ public static class SvgAttributeEditor
             throw new ArgumentNullException(nameof(addressKey));
         }
 
-        return Resolve(source.Document, addressKey) is { };
+        if (Resolve(source.Document, addressKey) is not { } element)
+        {
+            return null;
+        }
+
+        var prefix = element.GetPrefixOfNamespace(element.Name.Namespace);
+
+        return string.IsNullOrEmpty(prefix) ? element.Name.LocalName : prefix + ":" + element.Name.LocalName;
     }
 
     /// <inheritdoc cref="Attributes(string, string)"/>
