@@ -44,7 +44,7 @@ public class ChangesPanelTests : IDisposable
         StudioSettings.Store = _settings;
         ProjectRecovery.Store = _store;
 
-        Directory.Delete(_directory, recursive: true);
+        Scratch.Delete(_directory);
     }
 
     private string Work => Path.Combine(_directory, "work");
@@ -102,6 +102,21 @@ public class ChangesPanelTests : IDisposable
         Assert.Equal(".gitattributes\nicons.svgstudio", Git(Work, "ls-tree", "--name-only", "HEAD").Trim());
         Assert.Empty(window.Changes.Changes);
         Assert.Empty(_announced);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Project_Committed_Where_Checkout_Writes_Crlf_Is_Unchanged()
+    {
+        Committed();
+        Git(Work, "config", "core.autocrlf", "true");
+
+        var window = await Host();
+
+        Assert.Contains("\r\n", await window.Changes.Git!.At("HEAD"), StringComparison.Ordinal);
+        Assert.DoesNotContain("\r\n", System.IO.File.ReadAllText(File), StringComparison.Ordinal);
+        Assert.Empty(window.Changes.Changes);
 
         window.Close();
     }
@@ -342,7 +357,7 @@ public class ChangesPanelTests : IDisposable
         Git(Work, "push", "-u", "origin", "main");
 
         var other = Path.Combine(_directory, "other");
-        Git(_directory, "clone", remote, other);
+        Git(_directory, "clone", "--config", "core.autocrlf=false", remote, other);
         Configure(other);
         System.IO.File.WriteAllText(Path.Combine(other, "icons.svgstudio"), Added(Project, "star"));
         Git(other, "commit", "-am", "Add a star");

@@ -39,7 +39,7 @@ public class ProjectGitTests : IDisposable
         StudioSettings.Store = _settings;
         ProjectRecovery.Store = _store;
 
-        Directory.Delete(_directory, recursive: true);
+        Scratch.Delete(_directory);
     }
 
     private string Work => Path.Combine(_directory, "work");
@@ -103,7 +103,7 @@ public class ProjectGitTests : IDisposable
         Assert.Equal((0, 0), (pushed.Ahead, pushed.Behind));
 
         var other = Path.Combine(_directory, "other");
-        Git(_directory, "clone", remote, other);
+        Git(_directory, "clone", "--config", "core.autocrlf=false", remote, other);
         Configure(other);
         System.IO.File.AppendAllText(Path.Combine(other, "icons.svgstudio"), "\n");
         Git(other, "commit", "-am", "Change the icons");
@@ -156,7 +156,7 @@ public class ProjectGitTests : IDisposable
         await ProjectGit.Init(File);
         Assert.Equal("*.png binary\n*.svgstudio diff=svgstudio\n", System.IO.File.ReadAllText(attributes));
 
-        Directory.Delete(Path.Combine(Work, ".git"), recursive: true);
+        Scratch.Delete(Path.Combine(Work, ".git"));
         await ProjectGit.Init(File);
         Assert.Equal("*.png binary\n*.svgstudio diff=svgstudio\n", System.IO.File.ReadAllText(attributes));
     }
@@ -190,7 +190,7 @@ public class ProjectGitTests : IDisposable
         await git.Push(await git.Status());
 
         var other = Path.Combine(_directory, "other");
-        Git(_directory, "clone", remote, other);
+        Git(_directory, "clone", "--config", "core.autocrlf=false", remote, other);
         Git(other, "push", "origin", "main:shared");
         await git.Fetch();
 
@@ -285,7 +285,7 @@ public class ProjectGitTests : IDisposable
         await git.Push(await git.Status());
 
         var other = Path.Combine(_directory, "other");
-        Git(_directory, "clone", remote, other);
+        Git(_directory, "clone", "--config", "core.autocrlf=false", remote, other);
         Configure(other);
         System.IO.File.AppendAllText(Path.Combine(other, "notes.txt"), "more\n");
         Git(other, "commit", "-am", "Change the notes");
@@ -451,12 +451,13 @@ public class ProjectGitTests : IDisposable
         return Assert.IsType<ProjectGit>(await ProjectGit.For(File));
     }
 
-    /// <summary>An identity, and no signing, whatever the machine's own configuration says.</summary>
+    /// <summary>An identity, no signing and no line ending conversion, whatever the machine's own configuration says.</summary>
     internal static void Configure(string repository)
     {
         Git(repository, "config", "user.name", "Studio Tests");
         Git(repository, "config", "user.email", "studio@example.com");
         Git(repository, "config", "commit.gpgsign", "false");
+        Git(repository, "config", "core.autocrlf", "false");
     }
 
     internal static string Git(string directory, params string[] arguments)

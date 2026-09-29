@@ -75,7 +75,7 @@ public class MainWindowProjectTests : IDisposable
         return path;
     }
 
-    public void Dispose() => Directory.Delete(_directory, recursive: true);
+    public void Dispose() => Scratch.Delete(_directory);
 
     /// <summary>A window with <paramref name="path"/> opened through the route a drop also ends in.</summary>
     private static async Task<MainWindow> Host(string path)

@@ -365,7 +365,8 @@ public static class ProjectChanges
 
         return aspects;
 
-        static string Dedented(string text) => string.Join('\n', text.Split('\n').Select(line => line.TrimStart()));
+        // Line endings too: with core.autocrlf, HEAD reads back CRLF while Studio writes the file LF.
+        static string Dedented(string text) => string.Join('\n', text.Split('\n').Select(line => line.TrimStart().TrimEnd('\r')));
     }
 
     internal static string? Value(Dictionary<string, string?> aspects, string aspect)

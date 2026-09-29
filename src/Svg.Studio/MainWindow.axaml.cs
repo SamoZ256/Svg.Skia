@@ -691,12 +691,6 @@ public partial class MainWindow : Window
 
                 Remember(written);
                 Cover(workspace, written);
-
-                _ = TrackAsync(written);
-            }
-            else
-            {
-                _ = _changes.Refresh();
             }
         };
 
@@ -3943,6 +3937,17 @@ public partial class MainWindow : Window
             await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
 
             return false;
+        }
+
+        // Awaited, not left running: on Windows a git still starting in the project's directory
+        // keeps that directory from being deleted.
+        if (target is { })
+        {
+            await TrackAsync(target).ConfigureAwait(true);
+        }
+        else
+        {
+            await _changes.Refresh().ConfigureAwait(true);
         }
 
         return true;
