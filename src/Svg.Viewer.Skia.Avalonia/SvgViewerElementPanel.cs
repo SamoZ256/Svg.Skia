@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -775,7 +776,14 @@ public sealed class SvgViewerElementPanel : UserControl
             VerticalAlignment = VerticalAlignment.Stretch
         };
 
-        var menu = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
+        // A list the menu watches, not its Items: the popup reads Items once, when it is made, and
+        // that is before Opening — filled there, the menu opened as an empty sliver.
+        var offered = new ObservableCollection<MenuItem>();
+        var menu = new MenuFlyout
+        {
+            Placement = PlacementMode.BottomEdgeAlignedRight,
+            ItemsSource = offered
+        };
 
         pick.Flyout = menu;
         ToolTip.SetTip(pick, "Choose a value");
@@ -784,14 +792,14 @@ public sealed class SvgViewerElementPanel : UserControl
         // an expression drives is how that row is let go of, so this is never disabled.
         menu.Opening += (_, _) =>
         {
-            menu.Items.Clear();
+            offered.Clear();
 
             foreach (var choice in Expanded(choices))
             {
                 var item = new MenuItem { Header = choice };
 
                 item.Click += (_, _) => put(choice);
-                menu.Items.Add(item);
+                offered.Add(item);
             }
         };
 

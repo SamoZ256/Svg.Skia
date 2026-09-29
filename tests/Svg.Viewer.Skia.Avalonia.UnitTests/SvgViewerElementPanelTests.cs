@@ -863,6 +863,21 @@ public class SvgViewerElementPanelTests
     private static Button Control(Window window, string kind, string name)
         => window.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains(kind) && Equals(button.Tag, name));
 
+    /// <summary>The items an open menu's popup shows.</summary>
+    /// <remarks>
+    /// Read from the popup rather than the flyout. The two disagreed once: the flyout held every
+    /// choice while the popup, which reads its items when it is made, showed none of them.
+    /// </remarks>
+    private static List<MenuItem> Offered(Button pick)
+    {
+        var menu = Assert.IsType<MenuFlyout>(pick.Flyout);
+        var shown = Assert.IsAssignableFrom<ItemsControl>(menu.Popup.Child);
+
+        Assert.True(shown.IsVisible);
+
+        return shown.Items.OfType<MenuItem>().ToList();
+    }
+
     /// <summary>Pressed with the pointer, since that is what opens a button's flyout.</summary>
     private static void Click(Button button)
     {
@@ -888,7 +903,10 @@ public class SvgViewerElementPanelTests
         Click(swatch);
 
         var flyout = Assert.IsType<Flyout>(swatch.Flyout);
-        var picker = Assert.IsType<ColorView>(flyout.Content);
+
+        // What the popup holds, and not only what the flyout was given.
+        var holds = Assert.IsAssignableFrom<ContentControl>(flyout.Popup.Child);
+        var picker = Assert.IsType<ColorView>(holds.Content);
 
         Assert.True(flyout.IsOpen);
 
@@ -942,7 +960,7 @@ public class SvgViewerElementPanelTests
 
         Click(pick);
 
-        var offered = Assert.IsType<MenuFlyout>(pick.Flyout).Items.OfType<MenuItem>().ToList();
+        var offered = Offered(pick);
 
         Assert.Equal(new[] { "none", "currentColor", "url(#g)" }, offered.Select(item => item.Header));
 
@@ -963,7 +981,7 @@ public class SvgViewerElementPanelTests
 
         Click(pick);
 
-        Assert.IsType<MenuFlyout>(pick.Flyout).Items.OfType<MenuItem>().Single(item => Equals(item.Header, "round"))
+        Offered(pick).Single(item => Equals(item.Header, "round"))
             .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
