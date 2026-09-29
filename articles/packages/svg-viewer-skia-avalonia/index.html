@@ -177,6 +177,22 @@
 <td>One control per declared parameter, and one row per declared let</td>
 </tr>
 <tr>
+<td><code>SvgViewerElementPanel</code></td>
+<td>The attributes of the picked element, each editable as the file writes it</td>
+</tr>
+<tr>
+<td><code>SvgViewerDock</code></td>
+<td>The body: the middle, and the panels arranged round it as a tree of splits</td>
+</tr>
+<tr>
+<td><code>SvgViewerRegion</code></td>
+<td>One panel the dock arranges — an id a written layout names it by, a header, and the control</td>
+</tr>
+<tr>
+<td><code>SvgViewerVariableDrag</code></td>
+<td>What a variable dragged from one of those onto another carries</td>
+</tr>
+<tr>
 <td><code>SvgViewerElementTree</code></td>
 <td>Every element of the open drawing, as a tree, with a filter box</td>
 </tr>
@@ -238,11 +254,23 @@
 </tr>
 <tr>
 <td><code>ShowToolBar</code> / <code>ShowDeclarationPanel</code> / <code>ShowStatusBar</code></td>
-<td>Supplying your own chrome. <code>ShowDeclarationPanel</code> is the whole right-hand strip, element tree included</td>
+<td>Supplying your own chrome. <code>ShowDeclarationPanel</code> is every docked panel at once, element tree included</td>
+</tr>
+<tr>
+<td><code>Layout</code> / <code>LayoutChanged</code> / <code>Fallback</code></td>
+<td>How the panels are arranged, as one line to store and hand back. <code>LayoutChanged</code> is raised only where a hand rearranged something, never for a layout you set — so a host can write it down without hearing its own echo. <code>Fallback</code> is what an unreadable line comes back to</td>
+</tr>
+<tr>
+<td><code>Panels</code> / <code>ArrangesPanels</code></td>
+<td>Taking the panels to arrange yourself, which is what a window of tabs wants</td>
+</tr>
+<tr>
+<td><code>Rebuilding</code> / <code>Rebuilt</code></td>
+<td>Putting back what being taken out of the visual tree disturbs — a tab strip's selection, say</td>
 </tr>
 <tr>
 <td><code>ShowElementTree</code> / <code>Elements</code></td>
-<td>The tree under the parameters — on by default; <code>Elements.Filter</code> is the box above it</td>
+<td>Whether the tree has a place at all — on by default; <code>Elements.Filter</code> is the box above it. Taking it away rather than folding it, because a run can hold more than one panel and folding would take its neighbour with it</td>
 </tr>
 <tr>
 <td><code>SelectedElement</code> / <code>ElementSelected</code></td>
@@ -254,7 +282,7 @@
 </tr>
 <tr>
 <td><code>SidePanels</code></td>
-<td>Panels of your own beside the parameters: the right pane becomes a strip of tabs while there are any, yours first and so the first one it opens on, and holds the parameters alone again when there are none</td>
+<td>Panels of your own, arranged beside the viewer's like any other: foldable, carried to either side or the foot, dropped behind one of the viewer's own. The default sits the first of them beside the element tree. A pane the stored arrangement has never heard of is given a place rather than left out</td>
 </tr>
 <tr>
 <td><code>Rewrite</code> / <code>Notice</code></td>
@@ -298,7 +326,7 @@ warnings are counted apart and worded apart (<em>&quot;1 error and 1 warning&quo
 something the drawing opened in spite of; a note that is only warnings is painted in the warning
 colour rather than the error one. The count is all it gives, because the row that carries the mistake
 is where the detail belongs: an expression is explained under the attribute row holding it in the
-Element panel, and a refused declaration in place of the parameter row it would have had. It sits
+Attributes panel, and a refused declaration in place of the parameter row it would have had. It sits
 beside the status rather than under it, so it takes no room and the viewer does not shift as it comes
 and goes while you edit. It is a standing statement, not a reaction: it does not wait for a control to
 be touched, and it does not change when one is.</p>
@@ -395,7 +423,7 @@ would write — a second account of the drawing that took 220px from the canvas,
 on every rebuild, and answered no question the element tree does not answer better.</p>
 <p>What it was really for was <strong>where</strong> a mistake is, and that moved to the rows the mistakes are about:</p>
 <ul>
-<li>An expression is explained under the attribute row holding it, in the <strong>Element</strong> panel. The panel
+<li>An expression is explained under the attribute row holding it, in the <strong>Attributes</strong> panel. The panel
 already checked what a row said against the declarations in scope, so the sentence is the one the
 analyser files against the span.</li>
 <li>A declaration the reader refuses is said on the <strong>parameter</strong> panel, in place of the row it would
@@ -443,14 +471,77 @@ because the pane had to hold the text, and there is no pane.</p>
 <p><code>SvgViewerDocument.SourceText</code> is the text captured while loading — what the picture was built from,
 rather than whatever the file says later, and unchanged by edits. Drawings loaded from text or from a
 stream carry it too, so a viewer fed by a database or an archive answers like any other.</p>
+<h2 id="the-body">The body</h2>
+<p><code>SvgViewerDock</code> owns the whole of it: a <strong>middle</strong> — the drawing, or whatever a host puts there — and
+the panels arranged round it. There are no named sides. Every panel sits in a <strong>leaf</strong>; a leaf
+holding several ids shows them as tabs read one at a time, and a <strong>split</strong> puts its children in a row
+or a column. <code>ShowDeclarationPanel = false</code> takes every panel away and gives the middle the room.</p>
+<p>The middle is a leaf like any other, written <code>*</code>. That is what lets a panel be dropped against it
+without the middle being a special case in the drop code; that it cannot be folded, carried or closed
+is the whole of what the tree knows about it.</p>
+<p>The <strong>default</strong> is two open and two in a strip: the tree and the host's own pane share the leaf at the
+top of the strip, and the variables and the attributes get one each. Those two cannot share, because
+a variable is <strong>dragged from one onto the other</strong> and behind a tab each would hide the other. The
+three are weighted 1 : 1.3 : 1.7 rather than split evenly — measured, not chosen: the attributes want
+about 1200px and were getting 217 when they were equal.</p>
+<p><strong>Arranging it.</strong> A panel is taken by its header and dropped on another header to sit behind it, or
+on the edge of a pane to split that pane. Dropping against the foot of the drawing puts it under the
+drawing; dropping against the <strong>body's own rim</strong> runs it under everything. That is the difference
+three fixed sides could not say, and there is no setting for it — where you let go is the answer,
+which is how Visual Studio, Rider and Qt Creator all put it. Where it would land is drawn before you
+let go. The chevron on a header folds that leaf; the splitters size everything.</p>
+<p><strong>Storing it.</strong> <code>Layout</code> is the whole arrangement as one line, in both directions, and
+<code>LayoutChanged</code> says when a hand changed it:</p>
+<pre><code>row(*/1,col(project+elements/1/elements/open,variables/1.3/variables/open,element/1.7/element/open)/340px)
+
+node := body &quot;/&quot; size [ &quot;/&quot; on top &quot;/&quot; open or folded ]
+body := ids | &quot;row(&quot; node (&quot;,&quot; node)* &quot;)&quot; | &quot;col(&quot; node (&quot;,&quot; node)* &quot;)&quot;
+ids  := id (&quot;+&quot; id)*        several means tabs, read one at a time
+size := number              a share of whatever it sits among
+      | number &quot;px&quot;         a width or a height it keeps
+</code></pre>
+<p>A strip is <code>px</code> because a column of controls wants the width it wants; the runs dividing that strip
+are shares, because they want a proportion of it. Dragging either leaves it the kind it was.</p>
+<p>A line that cannot be read is replaced whole by <code>Fallback</code> — <code>Default</code> unless a host sets its own,
+which a host with panels of its own wants: nothing in the viewer's default knows where a project tree
+goes. A panel the line says nothing about is given a place rather than left out, and a leaf naming a
+panel nothing supplies keeps the name and takes no room — so a pane a host stops offering and later
+offers again comes back where somebody put it. <code>Show(id, false)</code> remembers the arrangement it took
+the panel out of, and putting it back puts it there.</p>
+<p><strong>Handing the panels over.</strong> <code>Panels</code> is what the viewer would arrange, offered so a host can arrange
+it instead; <code>ArrangesPanels = false</code> says it has. <code>Svg.Studio</code> takes them, because a window of tabs
+wants one arrangement round the lot rather than one inside each tab — which is how VS Code and Rider
+put a project tree beside whatever document is in front.</p>
+<p><strong>A host that keeps state in the middle</strong> should listen to <code>Rebuilding</code> and <code>Rebuilt</code>. Rearranging
+moves the middle, and a control taken out of the visual tree loses what its parent was keeping for
+it — a <code>TabControl</code> comes back showing its first tab, so folding a panel would put you on a different
+document. What that state is, and whether it matters, is the host's to know; the dock only says when.</p>
+<h2 id="dragging-a-variable-onto-an-attribute">Dragging a variable onto an attribute</h2>
+<p>A row in <strong>Variables</strong> is dragged by its <strong>name</strong> onto an attribute's box in <strong>Attributes</strong>, and the box
+becomes <code>{{ that name }}</code>. The grip beside it is not the handle: that reorders the list, and
+where a let sits decides what it can name, so the row has two grab points and each wears its own
+cursor.</p>
+<p>While the drag is over the panel, <strong>every row that would take it is outlined</strong> and the one under the
+pointer is outlined more heavily. Which rows those are is the check a typed value goes through, asked
+once when the drag arrives rather than once per pointer move — it reparses everything in scope, which
+is fine per keystroke and not fine per frame. So a number never lights up a <code>fill</code>, an attribute the
+parser lifts nothing out of never lights up at all, and <code>transform</code> never does either: an expression
+there has to be one whole function argument, which a dropped value is not.</p>
+<p>The drop writes the whole value, over whatever was there — binding and unbinding are the one gesture,
+so there is nothing to remember and nothing to merge — and goes through the same commit typing it
+would have gone through, refusal, history entry, readout and all. A row under <strong>Not set</strong> takes one
+too, which is how an attribute the file does not write yet is added already bound.</p>
+<p><code>SvgViewerVariableDrag</code> is the format and the payload, for a host that wants to start the same drag
+from somewhere else: the name travels in it, since the panel that ends a drag cannot read a field on
+the panel that started it. Mark the drag <strong>handled</strong> where you take it — the viewer refuses anything
+carrying no file, which is every drag of a variable.</p>
 <h2 id="the-element-tree">The element tree</h2>
-<p>Under the parameters, in the same column, split by a splitter of its own. That column is the full
-height of the viewer, and the drawing has the rest of it. It lists <strong>every</strong> element
-of the open drawing — <code>&lt;defs&gt;</code> and its contents, the <code>&lt;e:code&gt;</code> block, a <code>&lt;title&gt;</code> — because what is
-in a file is the question it answers, and half of that never reaches the canvas. On by default;
-<code>ShowElementTree = false</code> gives the height back and stops the work — a hidden tree holds nothing,
+<p>Wherever it has been put, it lists <strong>every</strong> element of the open drawing — <code>&lt;defs&gt;</code> and its
+contents, the <code>&lt;e:code&gt;</code> block, a <code>&lt;title&gt;</code> — because what is in a file is the question it answers,
+and half of that never reaches the canvas. On by default;
+<code>ShowElementTree = false</code> takes its place away and stops the work — a hidden tree holds nothing,
 because it is rebuilt every time typing pauses and that is 27ms at 4,000 elements.</p>
-<p>Picking a row rings the element on the drawing and fills the <strong>Element</strong> panel with the attributes
+<p>Picking a row rings the element on the drawing and fills the <strong>Attributes</strong> panel with the attributes
 the file writes it with. A <code>&lt;text&gt;</code>, a <code>&lt;tspan&gt;</code> or a <code>&lt;textPath&gt;</code> is headed by its own words, above
 the attributes, because that is what the element says rather than how it is said; an expression
 written there is checked as a string, so binding the words to a parameter and unbinding them again

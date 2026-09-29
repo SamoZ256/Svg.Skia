@@ -188,8 +188,9 @@ drawings' own bytes. Editing one attribute rewrites that attribute.</li>
 disagree about what the project says.</p>
 <h2 id="opening-one">Opening one</h2>
 <p><code>File → Open</code>, a drop anywhere on the window including an empty one, or a path on the command line.
-A project opens as a workspace rather than as a document: the tree goes in a pane beside the tabs
-and the project itself takes no tab, one project at a time, closed with <code>Project → Close</code>.</p>
+A project opens as a workspace rather than as a document: the tree goes in a panel beside the tabs —
+one you can fold, move or put behind another — and the project itself takes no tab, one project at a
+time, closed with <code>Project → Close</code>.</p>
 <p>Two other things open as a project, by being converted into one:</p>
 <ul>
 <li>An <strong>svgc project</strong> (<code>.svgcproj</code>) is read with its drawings and opened as a project. It is one
@@ -213,12 +214,27 @@ the selected row, and a row is dragged to move it — dropped on the top or bott
 it lands beside it, and in the middle it goes inside. Adding an <code>.svg</code> file reads it in; so does
 pasting one, or pasting the SVG a drawing program puts on the clipboard. Adding, removing and moving
 edit the project; nothing reaches the file until you save it.</p>
-<p>A drawing's tab has its settings in the right pane, in front of the parameters the drawing declares —
-the same pane a group keeps its settings in, and the tab a drawing opened from the tree lands on.</p>
+<p>Five panels sit round the tabs: the <strong>Project</strong> tree, the <strong>Settings</strong> for whatever is in front, the
+<strong>Variables</strong> it declares, the <strong>Attributes</strong> of the element picked in it, and the <strong>Elements</strong> those
+come from. They
+belong to the window rather than to a tab, and show whatever tab is in front — so the arrangement
+holds still while you move between drawings, and the tree that names them stays beside all of them.</p>
+<p>They come up as a strip either side of the drawing, both the same width so neither reads as the
+important one: the tree over the variables it declares on the left, and on the right the settings and
+the elements sharing a run over the picked element's attributes. The tree gets the deeper share of
+its column, being the list you scroll where the variables are a handful of rows. The variables and
+the element are apart on purpose — a variable is dragged onto an attribute, and behind a tab each
+would hide the other.</p>
+<p><strong>Arrange them as you like.</strong> The chevron on a header folds that panel away. Take a panel by its
+header and drop it on another header to sit behind it, or on the edge of a panel to split that panel.
+Drop it against the foot of the drawing and it sits under the drawing; drop it against the <strong>edge of
+the window</strong> and it runs under everything, taking nothing from the strip beside it. Where it would
+land is drawn while you carry it. The arrangement is remembered, so it is there again next time, and
+<strong>Settings</strong> has <strong>Reset layout</strong> for when it has gone somewhere you would rather it had not.</p>
 <h2 id="a-groups-tab-several-icons-at-once">A group's tab: several icons at once</h2>
 <p>A group's tab is a canvas of <strong>every drawing under it</strong>, built the way the project builds them.
 Clicking a shape on it — or a row in the <strong>element tree</strong> beside it — picks that drawing, and the
-<strong>Parameters</strong> and <strong>Element</strong> tabs then behave as they would on that drawing's own tab. Until
+<strong>Variables</strong> and <strong>Attributes</strong> panes then behave as they would on that drawing's own tab. Until
 something is picked they say so, because a group builds several drawings and cannot guess which is
 meant.</p>
 <h3 id="the-board">The board</h3>
@@ -257,8 +273,8 @@ it up with another survives the drop, the parameter you add, the attribute you t
 another tab and back. <strong>Fit</strong> is what asks for the whole of it again — which is also what to press
 when something lands out of sight, since a row with no place arrives beside the arrangement and a
 zoomed board may not reach that far.</p>
-<p>What is being looked at survives too: the ring, the row in the element tree and the Element tab are
-all still on the drawing that moved. What a drawing is built from decides whether it is read again,
+<p>What is being looked at survives too: the ring, the row in the element tree and the Attributes tab
+are all still on the drawing that moved. What a drawing is built from decides whether it is read again,
 so arranging a board rebuilds nothing at all, and editing one drawing rebuilds that one.</p>
 <p>Dragging a parameter there moves <strong>every drawing that declares that parameter</strong>, which is what makes
 a family of icons worth looking at side by side. Sharing is decided one parameter at a time, by what
@@ -312,18 +328,39 @@ file.</p>
 <p>The copy is keyed by the project's own file, so a project that has never been saved has nothing to
 look one up under again and is not covered until you name it. Switch the copies off in
 <strong>Settings</strong> — the application menu on macOS, <code>File → Settings…</code> elsewhere.</p>
-<h2 id="the-element-tab">The Element tab</h2>
+<h2 id="the-attributes-tab">The Attributes tab</h2>
 <p>It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
-own tab or on a group's — in the order the file writes them, then the ones an expression could drive
-that the element has no value for yet.</p>
+own tab or on a group's — under names a person would use, filed in sections by what they do:
+<strong>Geometry</strong>, <strong>Fill</strong>, <strong>Stroke</strong>, <strong>Text</strong> and so on. Hover a label for the attribute's name as the
+file writes it. A section folds away and stays folded from one pick to the next.</p>
+<p>Every attribute the element writes is listed, and beside them the ones an element of its kind usually
+has — a rectangle's corner radii and stroke, a gradient stop's colour and offset, not a stop's stroke
+or a rectangle's font. <strong>Show all</strong> lists everything the parser would read on it instead, whether or
+not an expression could drive it. A row the file sets is in bold, with a <strong>×</strong> that takes it away.</p>
 <p>A row's box holds the value itself, whatever it is. Typing <code>{{ tint }}</code> into <code>fill</code> writes that into
 the drawing; typing <code>#00ff00</code> back writes that. Binding and unbinding are the same gesture, so
 nothing has to remember what a value used to be, and emptying the box takes the attribute away.
 Typing into one of the empty rows adds it.</p>
+<p>Some rows have a control beside the box, which writes into it. A colour has a swatch that opens a
+picker; an opacity or a stop's offset has a slider; an attribute SVG spells a handful of values for —
+a line cap, a text's alignment, a fill's <code>none</code> or a gradient the drawing holds — has a <strong>▾</strong> listing
+them; and <strong>↑</strong>/<strong>↓</strong> step a number in its box, by ten with Shift and a tenth with Alt. The picker
+writes once when it closes and the slider once when it is let go, so either is one step to undo. On
+a row an expression drives, the swatch and the slider show what the expression comes to and are
+locked; picking from the <strong>▾</strong>, like typing a value, lets the expression go.</p>
+<p><strong>Or drag the variable onto the row.</strong> <strong>Variables</strong> and <strong>Attributes</strong> have a run each rather than
+sharing one, so both are on screen at once: take any variable by its name, of either kind — not the
+grip beside it, which reorders the list — and let go of it over an attribute's box, and the box becomes
+<code>{{ that name }}</code>. While you are carrying one, every row it could be written into is
+outlined, so what a variable is good for is something you can see rather than something to try. A
+number will not land on a <code>fill</code>, and nothing lands on <code>transform</code>, where an expression has to be one
+function argument rather than the whole value. A row the file does not set yet takes one too, which
+adds the attribute already bound.</p>
 <p>Only an expression is judged: what it comes to is read out beside it, an expression of the wrong type
 is caught in the box, and one written on an attribute the parser lifts nothing out of is refused
-rather than written as braces nobody reads. A value a <code>style</code> declaration overrides is refused, since
-the attribute under one paints nothing.</p>
+rather than written as braces nobody reads. A value the element's <code>style</code> attribute sets reads on its
+row as <code>red in style</code>, and the row takes nothing: the declaration wins over the attribute, so it is
+changed under <strong>Inline style</strong> instead.</p>
 <h2 id="related-docs">Related docs</h2>
 <ul>
 <li><a href="/Svg.Skia/articles/guides/source-generator-and-svgc">Source Generator and svgc</a> — the build a project describes</li>
