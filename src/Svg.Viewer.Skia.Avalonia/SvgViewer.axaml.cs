@@ -124,6 +124,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         AvaloniaXamlLoader.Load(this);
 
+        LeaveOnEnter(this);
+
         _canvas = this.FindControl<SvgViewerCanvas>("PART_Canvas")!;
         _toolBar = this.FindControl<Border>("ToolBarPanel")!;
         _statusPanel = this.FindControl<Border>("StatusPanel")!;
@@ -379,6 +381,28 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private SvgViewerGrid _grid = new((float)SvgViewerGrid.DefaultStep, (float)SvgViewerGrid.DefaultTurn);
 
     private bool _snaps;
+
+    /// <summary>
+    /// Makes Enter in a one-line box under <paramref name="host"/> finish with it: the box lets go of
+    /// the keyboard, and whatever it commits on leaving is committed.
+    /// </summary>
+    /// <remarks>
+    /// Public for a host that takes the panels out of the viewer to arrange them itself, which puts
+    /// their boxes outside this control's routing. A box that answers Enter itself — a search box
+    /// stepping to its next match — marks it handled and keeps the keyboard.
+    /// </remarks>
+    public static void LeaveOnEnter(InputElement host)
+        => host.AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key is not (Key.Enter or Key.Return) || e.Source is not TextBox { AcceptsReturn: false } box)
+            {
+                return;
+            }
+
+            e.Handled = true;
+
+            TopLevel.GetTopLevel(box)?.FocusManager?.Focus(null);
+        });
 
     /// <summary>Whether a drag lands on the grid rather than where the pointer stopped.</summary>
     /// <remarks>

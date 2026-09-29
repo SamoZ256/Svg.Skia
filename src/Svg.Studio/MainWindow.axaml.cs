@@ -191,6 +191,9 @@ public partial class MainWindow : Window
 
         Panels();
 
+        // The panels are the window's, not the viewer's, so Enter in one of their boxes routes here.
+        SvgViewer.LeaveOnEnter(this);
+
         // Tunnelling, because TreeViewItem takes a press itself to become selected.
         _projectTree.AddHandler(PointerPressedEvent, OnRowPressed, RoutingStrategies.Tunnel);
         _projectTree.PointerMoved += OnRowMoved;

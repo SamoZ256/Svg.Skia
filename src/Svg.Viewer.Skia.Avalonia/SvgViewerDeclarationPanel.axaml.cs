@@ -522,9 +522,10 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
         switch (e.Key)
         {
+            // Left unhandled so the viewer takes the keyboard off the row; the leaving settles it
+            // again, which Settle already answers once.
             case Key.Enter:
                 Settle(let);
-                e.Handled = true;
                 break;
 
             case Key.Escape:

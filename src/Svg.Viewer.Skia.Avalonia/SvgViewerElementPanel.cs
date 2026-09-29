@@ -358,7 +358,8 @@ public sealed class SvgViewerElementPanel : UserControl
                 return;
             }
 
-            e.Handled = true;
+            // Not handled: the viewer takes the keyboard off the box next, and leaving commits again,
+            // which is a no-op once the text matches the file.
             Commit(box, name);
         };
 

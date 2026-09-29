@@ -468,6 +468,52 @@ public class SvgViewerElementPanelTests
         """;
 
     /// <summary>The box a row is edited in, by the attribute it is for.</summary>
+    /// <summary>
+    /// Enter in a box writes what it says and lets go of the keyboard.
+    /// </summary>
+    /// <remarks>
+    /// Hosted the way Studio hosts the panel — outside the viewer, with the window answering for it —
+    /// because that is where the boxes Enter used to leave focused were.
+    /// </remarks>
+    [AvaloniaFact]
+    public void Enter_Writes_The_Box_And_Leaves_It()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+
+        SvgViewer.LeaveOnEnter(window);
+
+        var box = Box(window, "fill");
+
+        Assert.True(box.Focus());
+
+        box.Text = "#0000ff";
+        box.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("fill=\"#0000ff\"", held.Text);
+        Assert.False(box.IsFocused);
+    }
+
+    /// <summary>A box that answers Enter itself keeps the keyboard, as a search box stepping on does.</summary>
+    [AvaloniaFact]
+    public void A_Box_That_Answers_Enter_Itself_Keeps_It()
+    {
+        var box = new TextBox();
+        var window = new Window { Content = box };
+
+        SvgViewer.LeaveOnEnter(window);
+        box.KeyDown += (_, e) => e.Handled = e.Key == Key.Enter;
+
+        window.Show();
+        Assert.True(box.Focus());
+
+        box.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(box.IsFocused);
+    }
+
     private static TextBox Box(Window window, string name)
         => window.GetVisualDescendants().OfType<TextBox>().Single(box => Equals(box.Tag, name));
 
