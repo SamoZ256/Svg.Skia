@@ -864,7 +864,7 @@ public partial class MainWindow : Window
         {
             ("project", "Settings"),
             ("variables", "Variables"),
-            ("element", "Element"),
+            ("element", "Attributes"),
             ("elements", "Elements")
         };
 
@@ -2019,8 +2019,8 @@ public partial class MainWindow : Window
 
             var request = ProjectWorkspace.SizeOf(drawing);
 
-            // The drawing itself can have been written from somewhere else — a group's Element tab,
-            // which writes into the project as it goes.
+            // The drawing itself can have been written from somewhere else — a group's Attributes
+            // tab, which writes into the project as it goes.
             var changed = !string.Equals(viewer.Source, drawing.Text, StringComparison.Ordinal);
 
             if ((request.Equals(viewer.SizeRequest) && !changed) || viewer.IsSourceModified)

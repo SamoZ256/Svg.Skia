@@ -500,7 +500,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             .Concat(new[]
             {
                 new SvgViewerRegion("variables", "Variables", _panel),
-                new SvgViewerRegion("element", "Element", _element),
+                new SvgViewerRegion("element", "Attributes", _element),
                 new SvgViewerRegion("elements", "Elements", _elementTree)
             })
             .ToList();
@@ -2535,7 +2535,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </summary>
     /// <remarks>
     /// A standing statement, not a reaction: a drawing has its mistakes from the moment it opens.
-    /// A count only: each one is said where it lands, on the attribute row in the Element panel that
+    /// A count only: each one is said where it lands, on the attribute row in the Attributes panel that
     /// carries it, and repeating the sentence here would say it twice.
     /// </remarks>
     private string? Note()

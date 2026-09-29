@@ -131,7 +131,7 @@ public sealed class GroupPanel : UserControl
 
     private readonly SvgViewerDeclarationCommands? _commands;
 
-    /// <summary>The Element tab's content: a panel for the picked element, or a line saying why not.</summary>
+    /// <summary>The Attributes tab's content: a panel for the picked element, or a line saying why not.</summary>
     private readonly ContentControl _elementHost = new();
 
     /// <summary>How the panels beside the board are arranged. Null on a drawing's settings pane.</summary>
@@ -404,7 +404,7 @@ public sealed class GroupPanel : UserControl
         {
             new SvgViewerRegion("project", "Settings", new ScrollViewer { Content = _properties }),
             new SvgViewerRegion("variables", "Variables", parameters),
-            new SvgViewerRegion("element", "Element", _elementHost),
+            new SvgViewerRegion("element", "Attributes", _elementHost),
             new SvgViewerRegion("elements", "Elements", tree)
         };
 
@@ -1500,7 +1500,7 @@ public sealed class GroupPanel : UserControl
         {
             Inspect(again, again.Placement, again.Built.Svg!);
 
-            // And the elements inside it, which ring their drawings and fill the Element tab through
+            // And the elements inside it, which ring their drawings and fill the Attributes tab through
             // the same handler a click on a row does. A key the drawing no longer has selects
             // nothing, which is the honest answer: the element it named has been edited away.
             // Through the tree, which is what fills _picked again — and which drops any address

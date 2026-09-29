@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-* **A colour, an opacity and a choice get a control of their own in the Element tab.** A colour's
+* **The Element pane is called Attributes.** It sat beside **Elements** and read as its twin, when
+  what it holds is one element's attributes. Only the title changed: a saved layout keeps the pane
+  where it was put.
+
+* **A colour, an opacity and a choice get a control of their own in the Attributes tab.** A colour's
   row has a swatch that opens a picker, an opacity a slider, and an attribute with a few spelt values
   — a line cap, an alignment, `none` or a gradient the drawing holds — a ▾ listing them; ↑ and ↓ step
   a number. The box stays what is written, so an expression is still typed there: on a row one
@@ -11,7 +15,7 @@
   and is a step to undo — written per tick, a drag would have taken the slider out from under the
   pointer and left a hundred steps behind it.
 
-* **The Element tab names attributes the way people do, and lists what the element could take.**
+* **The Attributes tab names attributes the way people do, and lists what the element could take.**
   Every row was the raw SVG name in monospace, written attributes in file order and then one
   "Not set" row for each of the 22 names an expression can drive — the same 22 on every element, so a
   gradient stop was offered a font and a rectangle was never offered its corner radius, a line cap,

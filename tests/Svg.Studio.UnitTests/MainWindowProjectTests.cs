@@ -979,7 +979,7 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
-    /// A drop keeps the ring, the row it came from and the Element tab, on the drawing that moved.
+    /// A drop keeps the ring, the row it came from and the Attributes tab, on the drawing that moved.
     /// </summary>
     /// <remarks>
     /// A rebuild used to clear all three, so every drop emptied the panes beside the canvas and took
@@ -4127,7 +4127,7 @@ public class MainWindowProjectTests : IDisposable
         """;
 
     /// <summary>
-    /// The words of a text element are edited from the group's Element tab, into the project.
+    /// The words of a text element are edited from the group's Attributes tab, into the project.
     /// </summary>
     /// <remarks>
     /// The same path an attribute takes, which is the point: a drawing's text is not an attribute,

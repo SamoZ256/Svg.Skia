@@ -85,7 +85,8 @@ pasting one, or pasting the SVG a drawing program puts on the clipboard. Adding,
 edit the project; nothing reaches the file until you save it.
 
 Five panels sit round the tabs: the **Project** tree, the **Settings** for whatever is in front, the
-**Variables** it declares, the **Element** picked in it, and the **Elements** those come from. They
+**Variables** it declares, the **Attributes** of the element picked in it, and the **Elements** those
+come from. They
 belong to the window rather than to a tab, and show whatever tab is in front — so the arrangement
 holds still while you move between drawings, and the tree that names them stays beside all of them.
 
@@ -107,7 +108,7 @@ land is drawn while you carry it. The arrangement is remembered, so it is there 
 
 A group's tab is a canvas of **every drawing under it**, built the way the project builds them.
 Clicking a shape on it — or a row in the **element tree** beside it — picks that drawing, and the
-**Variables** and **Element** panes then behave as they would on that drawing's own tab. Until
+**Variables** and **Attributes** panes then behave as they would on that drawing's own tab. Until
 something is picked they say so, because a group builds several drawings and cannot guess which is
 meant.
 
@@ -155,8 +156,8 @@ another tab and back. **Fit** is what asks for the whole of it again — which i
 when something lands out of sight, since a row with no place arrives beside the arrangement and a
 zoomed board may not reach that far.
 
-What is being looked at survives too: the ring, the row in the element tree and the Element tab are
-all still on the drawing that moved. What a drawing is built from decides whether it is read again,
+What is being looked at survives too: the ring, the row in the element tree and the Attributes tab
+are all still on the drawing that moved. What a drawing is built from decides whether it is read again,
 so arranging a board rebuilds nothing at all, and editing one drawing rebuilds that one.
 
 Dragging a parameter there moves **every drawing that declares that parameter**, which is what makes
@@ -222,7 +223,7 @@ The copy is keyed by the project's own file, so a project that has never been sa
 look one up under again and is not covered until you name it. Switch the copies off in
 **Settings** — the application menu on macOS, `File → Settings…` elsewhere.
 
-## The Element tab
+## The Attributes tab
 
 It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
 own tab or on a group's — under names a person would use, filed in sections by what they do:
@@ -247,7 +248,7 @@ writes once when it closes and the slider once when it is let go, so either is o
 a row an expression drives, the swatch and the slider show what the expression comes to and are
 locked; picking from the **▾**, like typing a value, lets the expression go.
 
-**Or drag the variable onto the row.** **Variables** and **Element** have a run each rather than
+**Or drag the variable onto the row.** **Variables** and **Attributes** have a run each rather than
 sharing one, so both are on screen at once: take any variable by its name, of either kind — not the
 grip beside it, which reorders the list — and let go of it over an attribute's box, and the box becomes
 `{%{{{ that name }}}%}`. While you are carrying one, every row it could be written into is
