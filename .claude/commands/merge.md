@@ -1,7 +1,7 @@
 ---
 description: Land work by merging a pull request on the remote, never with a local git merge - push the current branch, open a PR against a target branch, merge that PR on GitHub, and land; or push and finish a PR that already exists. This is the only way work lands in this repository.
 argument-hint: [target-branch, or the number of a PR that already exists]
-allowed-tools: SlashCommand, Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git ls-files:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(git rev-list:*), Bash(git checkout:*), Bash(git switch:*), Bash(git restore:*), Bash(git pull:*), Bash(git fetch:*), Bash(gh auth:*), Bash(gh pr:*), Bash(gh repo:*), Bash(dotnet build:*), Bash(dotnet test:*), Bash(dotnet format:*)
+allowed-tools: SlashCommand, Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git ls-files:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(git rev-list:*), Bash(git checkout:*), Bash(git switch:*), Bash(git restore:*), Bash(git pull:*), Bash(git fetch:*), Bash(gh auth:*), Bash(gh pr:*), Bash(gh run:*), Bash(gh repo:*), Bash(dotnet build:*), Bash(dotnet test:*), Bash(dotnet format:*)
 ---
 
 Take a branch all the way in: push it, open a pull request, merge that, and clean up after it.
@@ -17,11 +17,10 @@ asking. Do not stop to confirm each step.
 
 Stop at the first thing that looks wrong. Never force, never `-D`, never merge past a red build.
 
-**Do not wait for CI.** The gates that decide this are the ones `/push` already ran here — the build
-and the suite, on the code in front of me. Merge on those, say in the report which checks were still
-pending, and carry on. "Never merge past a red build" is about a check that has *already* gone red;
-one that has not finished yet is not a red build, and sitting on it costs turns and tells nobody
-anything. Wait only when I say to wait.
+**Always wait for CI.** The gates `/push` runs here cover one operating system. CI also runs Windows
+and Linux, and those are where platform-specific bugs show up: a branch once passed every local test
+and failed 32 on Windows, because git writes read-only files and ships `core.autocrlf=true` there. A
+pending check is not a pass. Merge only once every check has finished and none has failed.
 
 1. **Get a pull request to merge, and the branch it is going into.**
 
@@ -56,7 +55,24 @@ anything. Wait only when I say to wait.
    Either way, record three things: the number, the head branch — which is the one to delete at the
    end — and the target branch.
 
-2. **Merge it** with that number:
+2. **Wait for CI**, then read the result before doing anything else:
+
+   ```sh
+   gh pr checks --repo SamoZ256/Svg.Skia <number> --watch
+   ```
+
+   Windows tests take about ten minutes, which is longer than a foreground command may run, so
+   run the watch in the background and act on the notification. Once it has finished, list the
+   checks on their own: never put the listing and the merge in one command, since then the result
+   is read only after the merge. A merge went past two red jobs that way once.
+
+   - **Every check passed or was skipped:** go on to step 3.
+   - **Any check failed:** stop and do not merge. Report each failing job, the failed test names
+     and their error, from `gh run view --repo SamoZ256/Svg.Skia <run id> --log-failed`. Also say
+     whether the target branch fails the same way, so a failure that was already there is not
+     blamed on this branch.
+
+3. **Merge it** with that number:
 
    ```sh
    gh pr merge --repo SamoZ256/Svg.Skia <number> --merge
@@ -71,13 +87,13 @@ anything. Wait only when I say to wait.
    merged before going on — `gh pr view --repo SamoZ256/Svg.Skia <number> --json state,mergeCommit`.
 
    **Do not pass `--delete-branch`.** `gh` would delete the local branch and switch away, which is
-   step 4's job — it would then find nothing to do and report success for work it never did.
+   step 5's job — it would then find nothing to do and report success for work it never did.
 
-3. **Delete the remote branch**: `git push origin --delete <head branch>`. This is what gives the
+4. **Delete the remote branch**: `git push origin --delete <head branch>`. This is what gives the
    prune in the next step something to report, and keeps merged branches from accumulating on the
    remote.
 
-4. **Run `/land <target branch>`** — but only while I am on the pull request's head branch. That is
+5. **Run `/land <target branch>`** — but only while I am on the pull request's head branch. That is
    always so when this ran `/pr`, and may not be when a number was passed: `/land` deletes the
    branch I am on, and if that is not the one that merged it would be deleting the wrong thing.
    Where I am somewhere else, skip it, run `git fetch --prune` instead, and say which local branch
