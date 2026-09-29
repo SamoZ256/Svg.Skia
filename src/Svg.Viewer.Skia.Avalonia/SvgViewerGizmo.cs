@@ -214,16 +214,31 @@ public sealed class SvgViewerGizmo
             return Sizeless;
         }
 
-        // On a shape with no thickness the handles for the collapsed axis sit on the shape itself,
-        // and one of them is what a press in the middle finds first. Left as a handle it would pin
-        // the shape where it is — Factor answers 1 for an axis with no extent — so the press is
-        // handed to the move instead, which is the only thing it could have meant.
-        if (_handle is 1 or 5 && _geometry.Height <= 0f || _handle is 3 or 7 && _geometry.Width <= 0f)
+        // A handle whose box is narrower than the band it answers to sits on the shape itself, and is
+        // what a press in the middle finds first — left as a handle it would pin the shape where it
+        // is, Factor answering 1 for an axis with no extent. The band is a constant on screen, so that
+        // is not only the collapsed axis this was written for: a font-size 10 run of text measures
+        // 13.6 x 11.3 against 9.4 of band, with no point in it that is not a handle, and a press meant
+        // to carry it wrote a scale that flipped the glyphs. Such a press is the move's — but only
+        // from on the shape, since half of a handle's square lies outside the box, and a press out
+        // there means that handle and nothing else. An axis with no extent has no inside to press, so
+        // it is handed over either way.
+        var band = SelectionService.HandleSize / scale;
+        var across = SK.SKPoint.Distance(box.TL, box.TR);
+        var down = SK.SKPoint.Distance(box.TL, box.BL);
+
+        // Asked once: it decides both whether a handle is demoted and, below, whether what is left is
+        // a drag at all — and a press that answers neither has to fall through to the pan.
+        var covers = Covers(at);
+
+        if (_handle is 1 or 5 && (down <= 0f || covers && down <= band)
+            || _handle is 3 or 7 && (across <= 0f || covers && across <= band)
+            || _handle is 0 or 2 or 4 or 6 && covers && across <= band && down <= band)
         {
             _handle = -1;
         }
 
-        if (_handle < 0 && !Covers(at))
+        if (_handle < 0 && !covers)
         {
             return null;
         }
@@ -698,7 +713,17 @@ public sealed class SvgViewerGizmo
             }
         }
 
-        return false;
+        // A text run is hit tested per character cell while the box drawn round it is the measured
+        // extent of the whole run, so the inside of that box is a sieve: a press in the gap between
+        // two lines or two letters answered nothing and fell past this to the marquee, which swept a
+        // rubber band and dropped the selection — a third of a plain run's box at a fitted zoom, more
+        // than half at 4x. Widened here rather than in the hit test, which every picker shares: a
+        // click in a gap should still reach whatever is drawn behind the text. Text alone, that being
+        // the one kind whose box has holes. The box is GeometryBounds under the element's own
+        // transform, so mapping the press back through it tests that box exactly, leaning and all.
+        return _node is { Kind: SvgSceneNodeKind.Text } node
+               && node.TotalTransform.TryInvert(out var toGeometry)
+               && node.GeometryBounds.Contains(toGeometry.MapPoint(at));
     }
 
     /// <summary>

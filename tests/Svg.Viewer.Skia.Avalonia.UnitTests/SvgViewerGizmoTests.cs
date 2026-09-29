@@ -1,6 +1,8 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -11,6 +13,7 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using SkiaSharp;
+using Svg.Editor.Skia;
 using Xunit;
 
 namespace Svg.Viewer.Skia.Avalonia.UnitTests;
@@ -64,6 +67,21 @@ public class SvgViewerGizmoTests
           <ellipse id="ellipse" cx="70" cy="30" rx="10" ry="10" fill="#cc3366" />
           <text id="text" x="20" y="70" font-size="10">ab</text>
           <polygon id="polygon" points="60,60 80,60 80,80" fill="#33cc66" />
+        </svg>
+        """;
+
+    /// <summary>
+    /// A multi-line label, and a run small enough that its own handles cover it.
+    /// </summary>
+    /// <remarks>
+    /// A page this big is what makes the small run small: a handle keeps its size on screen, so the
+    /// band it answers to is wider in the drawing's own units the further out the page is fitted.
+    /// The label's glyphs are placed by its tspans, which is how anybody writes two lines.
+    /// </remarks>
+    private const string Runs = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 800" width="1000" height="800">
+          <text id="lines" x="100" y="200" font-size="40" fill="#3366cc"><tspan x="100" y="200">one</tspan><tspan x="100" y="260">two</tspan></text>
+          <text id="small" x="600" y="600" font-size="10" fill="#cc3366">ab</text>
         </svg>
         """;
 
@@ -788,6 +806,240 @@ public class SvgViewerGizmoTests
 
         Assert.Equal("20 20 20 20", Box(viewer));
     }
+
+    /// <summary>
+    /// A run whose glyphs its tspans place follows the pointer, and is written as a transform.
+    /// </summary>
+    /// <remarks>
+    /// The whole of the reported symptom: the drag fired, the document was rewritten and an undo step
+    /// was spent, while nothing on screen moved at all. The run's own x and y place no glyph once a
+    /// tspan carries its own, so the writer now refuses them and the transform carries the move.
+    /// Asserted mid-drag, before the release, because being seen on the way is the point.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Run_Its_Tspans_Place_Is_Carried_By_A_Transform()
+    {
+        var (window, viewer) = await Host(Runs);
+
+        SelectById(viewer, "lines");
+
+        var box = viewer.Canvas.Gizmo!.Value;
+        var was = Glyphs(viewer);
+
+        // Three runs: the label's two lines, and the small run that has to stay where it is.
+        Assert.Equal(3, was.Count);
+
+        window.MouseDown(At(window, viewer, box.Center.X, box.Center.Y), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseMove(At(window, viewer, box.Center.X + 60f, box.Center.Y + 40f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        // Mid-drag: the glyphs themselves, in the model the canvas is painting from.
+        Assert.Equal(Carried(was, 60f, 40f, "one", "two"), Glyphs(viewer));
+
+        window.MouseUp(At(window, viewer, box.Center.X + 60f, box.Center.Y + 40f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("translate(60, 40)", Written(viewer, "lines"));
+
+        // And the tspans still say where they sit, which is what made the run's own numbers useless.
+        Assert.Equal("100", Attribute(viewer, "lines", "x"));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A press in the gap between two lines takes hold of the run rather than sweeping a marquee.
+    /// </summary>
+    /// <remarks>
+    /// A text node is hit tested per character cell while its box is the measured extent of the whole
+    /// run, so the inside of that box has holes in it -- the gap between two lines, between two
+    /// letters, above the ascenders. A press in one used to fall through to the marquee, which swept a
+    /// rubber band and dropped the selection on the way up.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Press_In_The_Gap_Between_Two_Lines_Takes_Hold()
+    {
+        var (window, viewer) = await Host(Runs);
+
+        SelectById(viewer, "lines");
+
+        var box = viewer.Canvas.Gizmo!.Value;
+        var marqueed = false;
+
+        viewer.Canvas.Marqueed += (_, _) => marqueed = true;
+
+        // The precondition, and the reason this press was ever a problem: nothing was drawn here.
+        Assert.Null(viewer.Canvas.Svg?.HitTestTopmostElement(
+            new ShimSkiaSharp.SKPoint(box.Center.X, box.Center.Y)));
+
+        var was = Glyphs(viewer);
+
+        Drag(window, viewer, (box.Center.X, box.Center.Y), (box.Center.X + 60f, box.Center.Y + 40f));
+
+        Assert.False(marqueed);
+        Assert.Equal("lines", viewer.SelectedElement?.ID);
+        Assert.Equal(Carried(was, 60f, 40f, "one", "two"), Glyphs(viewer));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A run too small for its own handles is carried by a press in the middle, not scaled by one.
+    /// </summary>
+    /// <remarks>
+    /// The band a handle answers to is a constant on screen, so at this zoom it is wider than the run:
+    /// every point inside the box was a handle, and a press meant to carry the text wrote a scale that
+    /// flipped it instead. A move writes a small run's own x and y, so a transform of any kind here
+    /// would be the scale coming back.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Run_Too_Small_For_Its_Handles_Is_Carried()
+    {
+        var (window, viewer) = await Host(Runs);
+
+        SelectById(viewer, "small");
+
+        var box = viewer.Canvas.Gizmo!.Value;
+
+        // The precondition: by the arithmetic the handles are hit tested with, the middle of this box
+        // is one of them.
+        Assert.True(new SelectionService().HitHandle(box, box.Center, (float)viewer.Canvas.Scale, out _) >= 0);
+
+        Drag(window, viewer, (box.Center.X, box.Center.Y), (box.Center.X + 60f, box.Center.Y + 40f));
+
+        Assert.Null(Written(viewer, "small"));
+        Assert.Equal("660", Attribute(viewer, "small", "x"));
+        Assert.Equal("640", Attribute(viewer, "small", "y"));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// The handles still answer from outside the box, on a run whose middle has been given to the move.
+    /// </summary>
+    /// <remarks>
+    /// Half of a handle's square lies outside the box it belongs to, so on a run this small most of the
+    /// pressable handle is out there. Handing that press to the move as well began nothing at all — the
+    /// canvas had already taken it as an edit, so it was not a pick or a marquee either, and the press
+    /// died in silence. A scale is written as a transform, a move into the run's own x.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Small_Run_Still_Scales_From_Outside_Its_Box()
+    {
+        var (window, viewer) = await Host(Runs);
+
+        SelectById(viewer, "small");
+
+        var box = viewer.Canvas.Gizmo!.Value;
+        var scale = (float)viewer.Canvas.Scale;
+
+        // Half a handle out from the corner: on the square that is drawn, off the box it sits on.
+        var on = new SKPoint(
+            box.TL.X - SelectionService.HandleSize / 4f / scale,
+            box.TL.Y - SelectionService.HandleSize / 4f / scale);
+
+        Assert.Equal(0, new SelectionService().HitHandle(box, on, scale, out _));
+
+        Drag(window, viewer, (on.X, on.Y), (on.X - 60f, on.Y - 40f));
+
+        Assert.Contains("scale", Written(viewer, "small") ?? "nothing was written");
+        Assert.Equal("600", Attribute(viewer, "small", "x"));
+
+        window.Close();
+    }
+
+    /// <summary>Where every glyph run of the drawing is being painted, in the drawing's own space.</summary>
+    /// <remarks>
+    /// Read from the recorded model rather than from the file, because what the file says and what is
+    /// on screen disagreeing is the whole of what went wrong here.
+    /// </remarks>
+    private static List<string> Glyphs(SvgViewer viewer)
+    {
+        var found = new List<string>();
+
+        if (viewer.Canvas.Svg?.Model is not { } picture)
+        {
+            return found;
+        }
+
+        void Walk(ShimSkiaSharp.SKPicture part, ShimSkiaSharp.SKMatrix inherited)
+        {
+            var total = inherited;
+            var saved = new Stack<ShimSkiaSharp.SKMatrix>();
+
+            foreach (var command in part.Commands ?? new List<ShimSkiaSharp.CanvasCommand>())
+            {
+                switch (command)
+                {
+                    case ShimSkiaSharp.SaveCanvasCommand:
+                    case ShimSkiaSharp.SaveLayerCanvasCommand:
+                        saved.Push(total);
+
+                        break;
+                    case ShimSkiaSharp.RestoreCanvasCommand:
+                        total = saved.Count > 0 ? saved.Pop() : total;
+
+                        break;
+                    case ShimSkiaSharp.SetMatrixCanvasCommand matrix:
+                        total = matrix.TotalMatrix;
+
+                        break;
+                    case ShimSkiaSharp.DrawTextCanvasCommand text:
+                    {
+                        var at = total.MapPoint(new ShimSkiaSharp.SKPoint(text.X, text.Y));
+
+                        found.Add(string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"{text.Text} {at.X:0.##},{at.Y:0.##}"));
+
+                        break;
+                    }
+
+                    // A drawing's glyphs are recorded a picture down, not beside the rest of it.
+                    case ShimSkiaSharp.DrawPictureCanvasCommand { Picture: { } nested }:
+                        Walk(nested, total);
+
+                        break;
+                }
+            }
+        }
+
+        Walk(picture, ShimSkiaSharp.SKMatrix.CreateIdentity());
+
+        return found;
+    }
+
+    /// <summary>
+    /// The same glyph runs with the named ones moved by the drag: what the model should say after it.
+    /// </summary>
+    /// <remarks>
+    /// The runs not named are left where they were, so one comparison says both that the dragged run
+    /// moved and that nothing else did.
+    /// </remarks>
+    private static List<string> Carried(IReadOnlyList<string> was, float x, float y, params string[] only)
+        => was.Select(run =>
+        {
+            var at = run.LastIndexOf(' ') + 1;
+
+            if (!only.Contains(run.Substring(0, at - 1)))
+            {
+                return run;
+            }
+
+            var numbers = run.Substring(at).Split(',');
+
+            var moved = new ShimSkiaSharp.SKPoint(
+                float.Parse(numbers[0], CultureInfo.InvariantCulture) + x,
+                float.Parse(numbers[1], CultureInfo.InvariantCulture) + y);
+
+            // Invariant, as Glyphs writes them: a decimal comma would both spell a coordinate
+            // differently and split one in two.
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"{run.Substring(0, at)}{moved.X:0.##},{moved.Y:0.##}");
+        }).ToList();
 
     /// <summary>
     /// Every kind of element answers to a scale handle, each in whatever it has to answer with.

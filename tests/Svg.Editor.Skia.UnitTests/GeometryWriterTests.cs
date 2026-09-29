@@ -211,6 +211,69 @@ public class GeometryWriterTests
         Assert.Equal("x=40 50 y=80", Says(writer!.Apply(Moved)));
     }
 
+    /// <summary>
+    /// A run whose glyphs are placed by its children is refused, so the move goes to a transform.
+    /// </summary>
+    /// <remarks>
+    /// The ordinary multi-line label. A tspan carrying its own x starts a chunk there and the run's
+    /// own numbers place no glyph, so writing them moved nothing at all while still spending an edit
+    /// — the drag was silent, and the file came back dirty for a drawing that had not changed.
+    /// </remarks>
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void A_Text_Run_Whose_Children_Place_Themselves_Is_Refused(bool x, bool y)
+    {
+        var span = new SvgTextSpan { Nodes = { new SvgContentNode { Content = "one" } } };
+
+        if (x)
+        {
+            span.X = new SvgUnitCollection { 20f };
+        }
+
+        if (y)
+        {
+            span.Y = new SvgUnitCollection { 70f };
+        }
+
+        var text = new SvgText { X = new SvgUnitCollection { 20f }, Y = new SvgUnitCollection { 70f } };
+
+        text.Children.Add(span);
+
+        Assert.Null(GeometryWriter.Capture(text, GeometryGesture.Move));
+    }
+
+    /// <summary>
+    /// A run whose glyphs a path places is refused too, its own numbers placing none of them.
+    /// </summary>
+    /// <remarks>
+    /// Refused for carrying a textPath at all rather than for what that textPath says: an x on one is
+    /// startOffset by another name, and the path it names is what puts every glyph where it goes.
+    /// </remarks>
+    [Fact]
+    public void A_Text_Run_On_A_Path_Is_Refused()
+    {
+        var text = new SvgText { X = new SvgUnitCollection { 20f }, Y = new SvgUnitCollection { 70f } };
+
+        text.Children.Add(new SvgTextPath { ReferencedPath = new Uri("#curve", UriKind.Relative) });
+
+        Assert.Null(GeometryWriter.Capture(text, GeometryGesture.Move));
+    }
+
+    /// <summary>A child that places nothing of its own leaves the run's numbers doing the placing.</summary>
+    [Fact]
+    public void A_Text_Run_With_A_Plain_Child_Still_Moves_Its_Own_Numbers()
+    {
+        var text = new SvgText { X = new SvgUnitCollection { 20f }, Y = new SvgUnitCollection { 70f } };
+
+        text.Children.Add(new SvgTextSpan { Nodes = { new SvgContentNode { Content = "one" } } });
+
+        var writer = GeometryWriter.Capture(text, GeometryGesture.Move);
+
+        Assert.Equal("x=40 y=80", Says(writer!.Apply(Moved)));
+    }
+
     /// <summary>There is no attribute for a run's size.</summary>
     [Fact]
     public void A_Text_Run_Cannot_Be_Scaled()

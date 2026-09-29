@@ -527,6 +527,18 @@ public sealed class GeometryWriter
             return null;
         }
 
+        // A descendant that places its own glyphs leaves the run's numbers placing none, so writing
+        // them moved nothing at all while still spending an edit — the one failure worse than
+        // refusing. A tspan carrying x or y starts a chunk of its own there, which is how anybody
+        // writes a second line; a textPath puts every glyph on the path it names whatever the run
+        // says. Refused rather than handled: moving each descendant's own numbers is what the remark
+        // above rules out, and the transform this falls back to carries the whole run as it is.
+        if (text.Descendants().OfType<SvgTextBase>()
+            .Any(span => span.X.Count > 0 || span.Y.Count > 0 || span is SvgTextPath))
+        {
+            return null;
+        }
+
         var xs = text.X.ToArray();
         var ys = text.Y.ToArray();
 
