@@ -21,8 +21,8 @@ Add only what someone could not find by reading the code.
 - **Comment only what the code cannot say** — a trap, a measurement, a rejected alternative — in a
   sentence or two. Never restate the line below it. Much of the existing prose is longer than this
   allows; match the rule, not the surroundings.
-- **Run the app when you change one.** For `src/Svg.Studio`, the editor, or any GUI project, build and
-  launch it and leave it running, rather than reporting it done from a green test run.
+- **Run a GUI app you change, once**, and leave it running rather than call it done from green tests.
+  Never relaunch it when it exits: exit 0 with no output is me closing it, not a defect to chase.
 - **Keep `samples/TestApp/TestApp.json` out of a commit.** Tracked, and `TestApp` rewrites it on exit
   (`App.axaml.cs:50-52`), so running the sample leaves it modified without anyone having edited it.
 - **Format only the files you changed.** The `format` skill has the command and the measurements;
