@@ -35,6 +35,30 @@ are mandatory, not optional — `src/Svg.Custom` compiles its sources straight o
 and the suites read fixtures from `externals/W3C_SVG_11_TestSuite` and `externals/resvg`. Fetch them
 with `git submodule update --init --recursive`.
 
+## Worktrees
+
+Work happens in a hub: a directory holding the bare repository in `.bare`, a `.git` file saying
+`gitdir: ./.bare` so git answers from the hub itself, `master/` — never removed, where you pull and
+run Studio from — and one directory per task, named after its branch. Each has its own `bin/` and
+`obj/`, so a suite can run in one while another builds; never run two in the same worktree.
+
+```sh
+git clone --bare https://github.com/SamoZ256/Svg.Skia.git .bare && echo "gitdir: ./.bare" > .git
+git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*" && git fetch origin
+git worktree add master master                                    # once; then per task:
+git fetch origin && git worktree add -b <branch> <branch> origin/master   # a branch: ask first
+for s in externals/SVG externals/W3C_SVG_11_TestSuite externals/resvg; do # from master, offline
+  git -C <branch> submodule update --init --reference "$PWD/master/$s" --dissociate -- $s; done
+git worktree remove <branch> && git branch -d <branch> && git worktree prune   # after it lands
+```
+
+A fresh worktree has empty `externals/` and will not build until its submodules are in; `master/`
+fetches its own with `git submodule update --init --recursive`. `--dissociate` copies master's
+objects rather than borrowing them, so no worktree breaks when another goes. One branch per
+worktree — git refuses a second checkout of one, which is why `/land`'s switch to `master` means
+removing the worktree and pulling in `master/`. Studio's settings, recent files and recovery copies
+live in `~/Library/Application Support/Svg.Studio` and are shared by every worktree.
+
 ## Commands
 
 ```sh
