@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
@@ -69,6 +70,13 @@ public class SvgViewerElementPanelTests
         }
 
         public string Text { get; private set; }
+
+        /// <summary>Changes the text from outside the panel, as an undo does, and tells the panel.</summary>
+        public void Undo(string from, string to)
+        {
+            Text = Text.Replace(from, to, StringComparison.Ordinal);
+            Panel.Refresh();
+        }
 
         /// <summary>How many edits reached the text, each of which is one step to undo.</summary>
         public int Writes { get; private set; }
@@ -1181,5 +1189,113 @@ public class SvgViewerElementPanelTests
             first.Close();
             second.Close();
         }
+    }
+
+    // ---- when the rows are rebuilt ------------------------------------------------------------------
+
+    /// <summary>
+    /// A refresh reaches the rows while the keyboard rests on a control, where it used to wait until
+    /// the keyboard left every row.
+    /// </summary>
+    [AvaloniaFact]
+    public void An_Undo_While_A_Swatch_Has_The_Keyboard_Is_Shown()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+
+        Assert.True(Control(window, "swatch", "stroke").Focus());
+
+        held.Undo("fill=\"#00ff00\"", "fill=\"#123456\"");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("#123456", held.Panel.Shown("fill"));
+
+        // And the keyboard is on the swatch the new rows have in its place.
+        Assert.Same(Control(window, "swatch", "stroke"), window.FocusManager!.GetFocusedElement());
+
+        window.Close();
+    }
+
+    /// <summary>A row a refresh passed over while a box was being typed in does not write itself back.</summary>
+    [AvaloniaFact]
+    public void A_Row_Left_Behind_By_A_Refresh_Does_Not_Write_Itself_Back()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+
+        // Put off: the caret is in a box.
+        Assert.True(Box(window, "width").Focus());
+        held.Undo("fill=\"#00ff00\"", "fill=\"#123456\"");
+        Dispatcher.UIThread.RunJobs();
+
+        var fill = Box(window, "fill");
+
+        Assert.Equal("#00ff00", fill.Text);
+
+        // Through the stale row and out again, having changed nothing.
+        Assert.True(fill.Focus());
+        Assert.True(Box(window, "height").Focus());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("fill=\"#123456\"", held.Text);
+        Assert.Equal(0, held.Writes);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Section_Clicked_Straight_After_Typing_Folds()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var box = Box(window, "fill");
+
+        Assert.True(box.Focus());
+        box.Text = "#0000ff";
+
+        var stroke = window.GetVisualDescendants().OfType<Expander>().Single(section => Equals(section.Tag, "Stroke"));
+        var header = stroke.GetVisualDescendants().OfType<ToggleButton>().First();
+
+        try
+        {
+            Click(header);
+
+            Assert.Contains("fill=\"#0000ff\"", held.Text);
+            Assert.False(window.GetVisualDescendants().OfType<Expander>().Single(section => Equals(section.Tag, "Stroke")).IsExpanded);
+        }
+        finally
+        {
+            foreach (var section in window.GetVisualDescendants().OfType<Expander>())
+            {
+                section.IsExpanded = true;
+            }
+
+            window.Close();
+        }
+    }
+
+    /// <summary>The keyboard lands in a box after the slider it left writes, and stays there.</summary>
+    [AvaloniaFact]
+    public void A_Box_Tabbed_To_From_A_Slider_Keeps_The_Caret()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var slider = window.GetVisualDescendants().OfType<Slider>().Single(slider => Equals(slider.Tag, "opacity"));
+
+        Assert.True(slider.Focus());
+        slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Left });
+
+        Assert.Equal("0.99", held.Panel.Shown("opacity"));
+
+        var visibility = Box(window, "visibility");
+
+        Assert.True(visibility.Focus());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("opacity=\"0.99\"", held.Text);
+        Assert.NotNull(TopLevel.GetTopLevel(visibility));
+        Assert.True(visibility.IsFocused);
+
+        window.Close();
     }
 }

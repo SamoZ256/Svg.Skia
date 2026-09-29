@@ -121,6 +121,20 @@ public sealed class SvgViewerElementPanel : UserControl
     /// <summary>Whether a refresh was put off while a row was held, and is owed once it is let go.</summary>
     private bool _stale;
 
+    /// <summary>Whether a pointer went down in the panel and has not come up yet.</summary>
+    private bool _pressing;
+
+    /// <summary>How many rows have a picker or a menu open.</summary>
+    private int _picking;
+
+    /// <summary>What each row's box was drawn with, or last wrote.</summary>
+    /// <remarks>
+    /// A box is written only where it says something else. Against the file alone, a row left
+    /// behind by a refresh put off — the file undone under it — would write itself back on leaving,
+    /// and the undo would be undone without anybody asking.
+    /// </remarks>
+    private readonly Dictionary<TextBox, string> _drawn = new();
+
     private string? _address;
 
     /// <summary>The variable the drag over this panel is carrying, or null while none is.</summary>
@@ -193,17 +207,18 @@ public sealed class SvgViewerElementPanel : UserControl
         AddHandler(DragDrop.DragLeaveEvent, (_, _) => Release());
         AddHandler(DragDrop.DropEvent, OnDrop);
 
-        // Posted, so focus has landed wherever it is going before it is asked where that is.
+        // Marked on the way down, before the focus it moves: pressing a swatch just after typing
+        // leaves the box, whose write arrives while the press is still going on.
+        AddHandler(PointerPressedEvent, (_, _) => _pressing = true, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(
-            LostFocusEvent,
-            (_, _) => Dispatcher.UIThread.Post(() =>
+            PointerReleasedEvent,
+            (_, _) =>
             {
-                if (_stale && !Held())
-                {
-                    Rebuild();
-                }
-            }),
+                _pressing = false;
+                Owed();
+            },
             handledEventsToo: true);
+        AddHandler(LostFocusEvent, (_, _) => Owed(), handledEventsToo: true);
 
         Rebuild();
     }
@@ -304,10 +319,31 @@ public sealed class SvgViewerElementPanel : UserControl
         Rebuild();
     }
 
+    /// <summary>Rebuilds a refresh that was put off, once nothing is holding the rows.</summary>
+    /// <remarks>Posted, so focus has landed wherever it is going before it is asked where that is.</remarks>
+    private void Owed()
+        => Dispatcher.UIThread.Post(() =>
+        {
+            if (_stale && !Held())
+            {
+                Rebuild();
+            }
+        });
+
     private void Rebuild()
     {
+        // The keyboard goes back to the same control in the new rows, so a rebuild between two
+        // presses of Tab is not the end of somebody's place.
+        if (Keyboard() is { } kept)
+        {
+            Dispatcher.UIThread.Post(
+                () => _rows.GetVisualDescendants().OfType<Control>().FirstOrDefault(again => Kind(again) == kept)?.Focus(),
+                DispatcherPriority.Loaded);
+        }
+
         _stale = false;
         _shown.Clear();
+        _drawn.Clear();
         _rows.Children.Clear();
         _listedAll = s_all;
 
@@ -532,6 +568,7 @@ public sealed class SvgViewerElementPanel : UserControl
         var row = (name, box, readout, trouble, follow);
 
         _shown.Add(row);
+        _drawn[box] = value;
 
         if (set)
         {
@@ -588,7 +625,7 @@ public sealed class SvgViewerElementPanel : UserControl
            && !element.StartsWith("feFunc", StringComparison.Ordinal);
 
     /// <summary>A swatch before the box that opens a colour picker, answering what the box says.</summary>
-    private static Action<string, ExprValue?> Swatch(Grid line, TextBox box, Action<string> put)
+    private Action<string, ExprValue?> Swatch(Grid line, TextBox box, Action<string> put)
     {
         var shown = new Border
         {
@@ -617,9 +654,16 @@ public sealed class SvgViewerElementPanel : UserControl
         swatch.Flyout = flyout;
         ToolTip.SetShowOnDisabled(swatch, true);
 
+        flyout.Opened += (_, _) => _picking++;
+
         // Written once, when the picker goes: every write rebuilds the rows and is one more step
         // to undo.
-        flyout.Closed += (_, _) => put(box.Text ?? string.Empty);
+        flyout.Closed += (_, _) =>
+        {
+            _picking--;
+            put(box.Text ?? string.Empty);
+            Owed();
+        };
 
         // Made as it opens rather than with the row, which Studio builds for every pick; and before
         // it is shown, since showing it hands the keyboard to what it holds.
@@ -788,6 +832,13 @@ public sealed class SvgViewerElementPanel : UserControl
         pick.Flyout = menu;
         ToolTip.SetTip(pick, "Choose a value");
 
+        menu.Opened += (_, _) => _picking++;
+        menu.Closed += (_, _) =>
+        {
+            _picking--;
+            Owed();
+        };
+
         // Filled as it opens, so a url(#…) names what the drawing holds now. Picking one on a row
         // an expression drives is how that row is let go of, so this is never disabled.
         menu.Opening += (_, _) =>
@@ -871,23 +922,19 @@ public sealed class SvgViewerElementPanel : UserControl
     {
         box.Text = text;
 
-        Dispatcher.UIThread.Post(() =>
-        {
-            Commit(box, name, address);
-
-            // The control that asked is still focused, so the refresh the write asked for was put
-            // off; the gesture is over by now, and its rows can go.
-            if (_stale)
-            {
-                Rebuild();
-            }
-        });
+        Dispatcher.UIThread.Post(() => Commit(box, name, address));
     }
 
     private void Commit(TextBox box, string name, string address)
     {
         var content = IsText(name);
         var written = content ? box.Text ?? string.Empty : box.Text?.Trim() ?? string.Empty;
+
+        if (_drawn.TryGetValue(box, out var drawn) && string.Equals(written, content ? drawn : drawn.Trim(), StringComparison.Ordinal))
+        {
+            return;
+        }
+
         var open = Open();
 
         var had = content
@@ -912,6 +959,10 @@ public sealed class SvgViewerElementPanel : UserControl
         if (!Set(address, name, written))
         {
             box.Text = had;
+        }
+        else if (_drawn.ContainsKey(box))
+        {
+            _drawn[box] = written;
         }
     }
 
@@ -1242,28 +1293,33 @@ public sealed class SvgViewerElementPanel : UserControl
     }
 
     /// <summary>
-    /// Whether the keyboard is on one of this panel's rows: its box, a control beside it, or the
-    /// picker or menu that control opened.
+    /// Whether rebuilding the rows now would take something from under somebody: the box being
+    /// typed in, a control still being pressed, or a picker or menu a row has open.
     /// </summary>
     /// <remarks>
-    /// Logically rather than visually, since a flyout is a window of its own whose logical parent is
-    /// the button it came from. The row's parts carry its name; a section — which carries its own —
-    /// and the toggle are not rows, and their buttons hold nothing a rebuild would take away.
+    /// Not wherever the keyboard happens to rest. A row kept because a button still had focus stayed
+    /// behind for as long as it did — through an undo, whose rows it then wrote back.
     /// </remarks>
     private bool Held()
-    {
-        var row = false;
+        => _pressing
+           || _picking > 0
+           || TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox { Tag: string } box
+           && box.FindAncestorOfType<SvgViewerElementPanel>() is { } panel
+           && ReferenceEquals(panel, this);
 
-        for (var at = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() as ILogical; at is { }; at = at.LogicalParent)
-        {
-            if (ReferenceEquals(at, this))
-            {
-                return row;
-            }
+    /// <summary>What has the keyboard in these rows, as something the rebuilt rows have again, or null.</summary>
+    private string? Keyboard()
+        => TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Control held
+           && held.FindAncestorOfType<SvgViewerElementPanel>() is { } panel
+           && ReferenceEquals(panel, this)
+            ? Kind(held)
+            : null;
 
-            row |= at is Control { Tag: string } and not Expander;
-        }
-
-        return false;
-    }
+    /// <summary>A control named by its row and its part, or by its section for a section's header.</summary>
+    private static string? Kind(Control control)
+        => control.TemplatedParent is Expander { Tag: string section }
+            ? "section " + section
+            : control.Tag is string row && control.TemplatedParent is null
+                ? $"{row} {control.GetType().Name} {string.Join(" ", control.Classes.Where(name => !name.StartsWith(':')))}"
+                : null;
 }
