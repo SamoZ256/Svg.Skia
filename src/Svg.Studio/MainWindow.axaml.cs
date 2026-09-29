@@ -3524,10 +3524,16 @@ public partial class MainWindow : Window
     /// </remarks>
     private async Task<(bool Integers, bool Organize)?> AskConvert(string source)
     {
+        // Converted as last asked, where somebody said not to ask again. Settings asks again.
+        if (!StudioSettings.ConvertAsks)
+        {
+            return (StudioSettings.ConvertIntegers, StudioSettings.ConvertOrganizes);
+        }
+
         var integers = new CheckBox
         {
             Content = "Write whole numbers as integers",
-            IsChecked = false
+            IsChecked = StudioSettings.ConvertIntegers
         };
 
         // On, so unticking it is the opt-out. A PaintCode document declares its variables once for
@@ -3536,8 +3542,16 @@ public partial class MainWindow : Window
         var organize = new CheckBox
         {
             Content = "Automatically organize variables",
-            IsChecked = true
+            IsChecked = StudioSettings.ConvertOrganizes
         };
+
+        var again = new CheckBox
+        {
+            Content = "Don't ask again",
+            IsChecked = false
+        };
+
+        ToolTip.SetTip(again, "Convert with these choices from now on. Settings can bring the question back.");
 
         var asked = await Ask(
             "Convert to a project",
@@ -3549,10 +3563,20 @@ public partial class MainWindow : Window
             new StackPanel
             {
                 Spacing = 8d,
-                Children = { integers, organize }
+                Children = { integers, organize, again }
             }).ConfigureAwait(true);
 
-        return asked ? (integers.IsChecked is true, organize.IsChecked is true) : null;
+        if (!asked)
+        {
+            return null;
+        }
+
+        // Remembered whether or not the question comes back, so it next opens on the same answers.
+        StudioSettings.ConvertIntegers = integers.IsChecked is true;
+        StudioSettings.ConvertOrganizes = organize.IsChecked is true;
+        StudioSettings.ConvertAsks = again.IsChecked is not true;
+
+        return (StudioSettings.ConvertIntegers, StudioSettings.ConvertOrganizes);
     }
 
     /// <summary>

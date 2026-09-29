@@ -64,6 +64,12 @@ public static class StudioSettings
 
     private const string LayoutKey = "layout";
 
+    private const string ConvertAsksKey = "convertAsks";
+
+    private const string ConvertIntegersKey = "convertIntegers";
+
+    private const string ConvertOrganizesKey = "convertOrganizes";
+
     /// <summary>
     /// Where the settings are kept.
     /// </summary>
@@ -180,6 +186,30 @@ public static class StudioSettings
     {
         get => !string.Equals(Read(DrawingCaptionsKey), "off", StringComparison.Ordinal);
         set => Write(DrawingCaptionsKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether opening a PaintCode document asks how to convert it, or converts it as last asked.</summary>
+    /// <remarks>On unless somebody ticked the box that says not to ask again.</remarks>
+    public static bool ConvertAsks
+    {
+        get => !string.Equals(Read(ConvertAsksKey), "off", StringComparison.Ordinal);
+        set => Write(ConvertAsksKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether a PaintCode conversion writes whole numbers as integers.</summary>
+    /// <remarks>Off, the conversion's own default, until a conversion is asked for with it on.</remarks>
+    public static bool ConvertIntegers
+    {
+        get => string.Equals(Read(ConvertIntegersKey), "on", StringComparison.Ordinal);
+        set => Write(ConvertIntegersKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether a PaintCode conversion organizes the variables it gives each drawing.</summary>
+    /// <remarks>On, the conversion's own default, until a conversion is asked for with it off.</remarks>
+    public static bool ConvertOrganizes
+    {
+        get => !string.Equals(Read(ConvertOrganizesKey), "off", StringComparison.Ordinal);
+        set => Write(ConvertOrganizesKey, value ? "on" : "off");
     }
 
     /// <summary>Whether a gesture lands on the grid rather than where the pointer stopped.</summary>
