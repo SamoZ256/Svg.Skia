@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Svg.Studio\Svg.Studio.csproj" />
+    <!-- A project's templates are handed out as text for the recipe parser, which is what reads them. -->
+    <ProjectReference Include="..\..\src\Svg.Expressions.Recipes\Svg.Expressions.Recipes.csproj" />
   </ItemGroup>
 
   <ItemGroup>
