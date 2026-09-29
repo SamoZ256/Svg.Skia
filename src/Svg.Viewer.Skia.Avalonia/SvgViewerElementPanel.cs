@@ -524,14 +524,14 @@ public sealed class SvgViewerElementPanel : UserControl
             box.Theme = box_;
         }
 
+        // Under the box rather than beside it, where a whole evaluated transform took the width a
+        // narrow pane had for the box.
         var readout = new TextBlock
         {
             Opacity = 0.55,
             FontSize = 11,
             FontFamily = new FontFamily("Menlo, Consolas, monospace"),
             TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 0, 0),
             IsVisible = false
         };
 
@@ -549,13 +549,10 @@ public sealed class SvgViewerElementPanel : UserControl
         trouble[!TextBlock.ForegroundProperty] =
             new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("SvgViewerSourceErrorBrush");
 
-        var line = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto") };
+        var line = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
 
         Grid.SetColumn(box, 1);
         line.Children.Add(box);
-
-        Grid.SetColumn(readout, 3);
-        line.Children.Add(readout);
 
         var lines = new StackPanel { Spacing = 3, Children = { heading, line } };
 
@@ -583,6 +580,7 @@ public sealed class SvgViewerElementPanel : UserControl
             }
         }
 
+        lines.Children.Add(readout);
         lines.Children.Add(trouble);
 
         var row = (name, box, readout, trouble, follow);

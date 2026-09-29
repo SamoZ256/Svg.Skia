@@ -83,9 +83,9 @@ public class SvgViewerElementPanelTests
 
         public SvgViewerElementPanel Panel { get; }
 
-        public Window Show(string? address)
+        public Window Show(string? address, double width = 400)
         {
-            var window = new Window { Width = 400, Height = 600, Background = Brushes.White, Content = Panel };
+            var window = new Window { Width = width, Height = 600, Background = Brushes.White, Content = Panel };
 
             window.Show();
             Panel.Show(address);
@@ -1417,6 +1417,23 @@ public class SvgViewerElementPanelTests
         Assert.Contains("url(#paint0_linear_1)", Offered(pick).Select(Said));
 
         pick.Flyout!.Hide();
+        window.Close();
+    }
+
+    /// <summary>A long readout goes under the box in a narrow pane, rather than taking its width.</summary>
+    [AvaloniaFact]
+    public void A_Long_Readout_Leaves_The_Box_Its_Width()
+    {
+        var held = new Held(Bound);
+        var window = held.Show("1/0", width: 260);
+
+        Assert.True(held.Panel.Set("transform", "rotate({{ ring * 10 }}) translate({{ ring }}, {{ ring }}) scale({{ ring }})"));
+        Dispatcher.UIThread.RunJobs();
+
+        var box = Box(window, "transform");
+
+        Assert.True(box.Bounds.Width > 150, $"The box is {box.Bounds.Width} wide.");
+
         window.Close();
     }
 }
