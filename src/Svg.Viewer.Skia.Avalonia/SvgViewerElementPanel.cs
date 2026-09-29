@@ -110,6 +110,9 @@ public sealed class SvgViewerElementPanel : UserControl
 
     private static readonly HashSet<SvgViewerAttributeGroup> s_folded = new();
 
+    /// <summary>The <see cref="s_all"/> this panel's rows were last listed under.</summary>
+    private bool _listedAll;
+
     private string? _address;
 
     /// <summary>The variable the drag over this panel is carrying, or null while none is.</summary>
@@ -198,13 +201,25 @@ public sealed class SvgViewerElementPanel : UserControl
         get => s_all;
         set
         {
-            if (s_all == value)
-            {
-                return;
-            }
-
             s_all = value;
 
+            // Against what this panel lists rather than the setting, which another panel may have
+            // changed since this one was drawn.
+            if (_listedAll != value)
+            {
+                Refresh();
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Catching up with a toggle another panel made while this one was out of sight.</remarks>
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+
+        if (_listedAll != s_all)
+        {
             Refresh();
         }
     }
@@ -258,6 +273,7 @@ public sealed class SvgViewerElementPanel : UserControl
 
         _shown.Clear();
         _rows.Children.Clear();
+        _listedAll = s_all;
 
         if (_address is not { } address)
         {

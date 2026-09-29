@@ -852,4 +852,34 @@ public class SvgViewerElementPanelTests
 
         window.Close();
     }
+
+    /// <summary>One panel's toggle reaches another, which answers its own first press too.</summary>
+    [AvaloniaFact]
+    public void Show_All_Toggled_Elsewhere_Is_Answered_By_The_First_Press_Here()
+    {
+        var one = new Held();
+        var two = new Held();
+        var first = one.Show("1/0");
+        var second = two.Show("1/0");
+
+        try
+        {
+            one.Panel.ShowsAll = true;
+            one.Panel.ShowsAll = false;
+            one.Panel.ShowsAll = true;
+
+            // The other panel was drawn before any of that and has not been asked to redraw.
+            Assert.DoesNotContain("stroke-miterlimit", two.Panel.Attributes);
+
+            two.Panel.ShowsAll = true;
+
+            Assert.Contains("stroke-miterlimit", two.Panel.Attributes);
+        }
+        finally
+        {
+            one.Panel.ShowsAll = false;
+            first.Close();
+            second.Close();
+        }
+    }
 }
