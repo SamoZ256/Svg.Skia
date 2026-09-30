@@ -213,6 +213,7 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>The board's own captions toggle, which follows the setting the same way.</summary>
     private ToggleButton? _captions;
+    private ToggleButton? _boxes;
 
     /// <summary>Whether the board in front of us was laid out with names on its drawings.</summary>
     private bool _named = StudioSettings.DrawingCaptions;
@@ -726,6 +727,13 @@ public sealed class GroupPanel : UserControl
         if (_snapping is { })
         {
             _snapping.IsChecked = StudioSettings.SnapToGrid;
+        }
+
+        _canvas.ShowsBoxes = StudioSettings.ShowBoxes;
+
+        if (_boxes is { })
+        {
+            _boxes.IsChecked = StudioSettings.ShowBoxes;
         }
 
         if (_captions is { })
@@ -1969,7 +1977,8 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        if (svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) is not { } element)
+        // A reserved box paints nothing, so it is found by its dashed edge once the ink has had its turn.
+        if ((svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) ?? _canvas.BoxAt(svg, point)) is not { } element)
         {
             // On the drawing but on none of its ink, which is the page — a thing in its own right,
             // the way a group's frame is. This used to be a click that did nothing, kept that way so
@@ -2027,6 +2036,10 @@ public sealed class GroupPanel : UserControl
         }
 
         _inspecting = (placement, shown.Built);
+
+        var drawing = shown.Built.Drawing;
+
+        _element.ClassName = () => drawing.EffectiveClass ?? SvgExport.Identifier(drawing.Name);
 
         // What the pane was holding is about to mean something else: a group builds one file
         // several ways, so the drawing arriving spells the same addresses for different shapes.
@@ -2273,7 +2286,7 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        _canvas.GizmoTurns = true;
+        _canvas.GizmoTurns = _gizmo.Turns;
         _canvas.Gizmo = _gizmo.Box((float)_canvas.Scale);
     }
 
@@ -2838,9 +2851,33 @@ public sealed class GroupPanel : UserControl
 
         _captions = captions;
 
+        var boxes = new ToggleButton
+        {
+            Content = "Boxes",
+            IsChecked = StudioSettings.ShowBoxes,
+            [ToolTip.TipProperty] = "Show the boxes each drawing reserves for the code that draws it"
+        };
+
+        boxes.IsCheckedChanged += (_, _) =>
+        {
+            if (StudioSettings.ShowBoxes == (boxes.IsChecked == true))
+            {
+                return;
+            }
+
+            StudioSettings.ShowBoxes = boxes.IsChecked == true;
+
+            Reread();
+
+            SettingChanged?.Invoke(this, EventArgs.Empty);
+        };
+
+        _boxes = boxes;
+
         bar.Children.Add(ratio);
         bar.Children.Add(snap);
         bar.Children.Add(captions);
+        bar.Children.Add(boxes);
 
         return bar;
     }

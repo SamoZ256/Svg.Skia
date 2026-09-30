@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Controls.Skia;
 using Avalonia.Input;
@@ -106,7 +107,7 @@ public class SvgViewerCanvas : SKCanvasControl
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
         Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, new(0x1A, 0x1A, 0x1E), null,
-        0d, null, null, true, DefaultCaptionSize, SvgViewerGrid.None, null);
+        0d, null, null, true, DefaultCaptionSize, SvgViewerGrid.None, null, null);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -122,7 +123,11 @@ public class SvgViewerCanvas : SKCanvasControl
         bool GizmoTurns,
         double CaptionSize,
         SvgViewerGrid Grid,
-        SKRect? Marquee);
+        SKRect? Marquee,
+        IReadOnlyList<IReadOnlyList<Boxed>>? Boxes);
+
+    /// <summary>A box as it is drawn: where it stands, what is written in it, and whether its name is refused.</summary>
+    private sealed record Boxed(SKRect Rect, string Label, bool Faulty);
 
     public SvgViewerCanvas()
     {
@@ -823,6 +828,126 @@ public class SvgViewerCanvas : SKCanvasControl
         }
     }
 
+    private bool _showsBoxes = true;
+
+    /// <summary>Whether the boxes a drawing reserves for its host (<c>e:bounds</c>) are drawn.</summary>
+    /// <remarks>
+    /// They paint nothing of their own, so without this a box is somewhere nobody can see or click.
+    /// </remarks>
+    public bool ShowsBoxes
+    {
+        get => _showsBoxes;
+        set
+        {
+            if (_showsBoxes == value)
+            {
+                return;
+            }
+
+            _showsBoxes = value;
+
+            Publish();
+        }
+    }
+
+    // UI thread. A commit builds a new SKSvg, so a drawing's marks are read once per SKSvg; only one
+    // with marks has its scene compiled, and it is measured again once per scene revision, which a
+    // drag moves on.
+    private readonly ConditionalWeakTable<SKSvg, StrongBox<bool>> _marked = new();
+    private readonly ConditionalWeakTable<SvgSceneDocument, Measured> _measured = new();
+
+    private sealed record Measured(long Revision, IReadOnlyList<SvgSceneBox> Boxes);
+
+    /// <summary>The boxes <paramref name="svg"/> reserves, as its scene has them now.</summary>
+    private IReadOnlyList<SvgSceneBox> BoxesOf(SKSvg svg)
+    {
+        var marked = _marked.GetValue(svg, drawing => new StrongBox<bool>(
+            drawing.SourceDocument is { } document && SvgSceneBoxes.Marked(document).Any())).Value;
+
+        if (!marked || svg.SourceDocument is not { } source || !svg.TryEnsureRetainedSceneGraph(out var scene) || scene is null)
+        {
+            return Array.Empty<SvgSceneBox>();
+        }
+
+        if (_measured.TryGetValue(scene, out var measured) && measured.Revision == scene.Revision)
+        {
+            return measured.Boxes;
+        }
+
+        var boxes = SvgSceneBoxes.Measure(source, scene);
+
+        _measured.Remove(scene);
+        _measured.Add(scene, new Measured(scene.Revision, boxes));
+
+        return boxes;
+    }
+
+    /// <summary>The box whose outline is at <paramref name="at"/>, in <paramref name="svg"/>'s own units.</summary>
+    /// <remarks>
+    /// By its edge, as a frame is taken hold of: what a box encloses is the drawing's, and a click there
+    /// is still one on the page.
+    /// </remarks>
+    public SvgElement? BoxAt(SKSvg svg, SKPoint at)
+    {
+        if (!_showsBoxes || svg is null)
+        {
+            return null;
+        }
+
+        foreach (var box in BoxesOf(svg))
+        {
+            if (box.Node is { TransformedBounds: var bounds } &&
+                Grabs(new SKRect(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom), at))
+            {
+                return box.Element;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>What each placement's boxes look like this frame, parallel to the placements.</summary>
+    private IReadOnlyList<IReadOnlyList<Boxed>>? Drawn()
+    {
+        if (!_showsBoxes)
+        {
+            return null;
+        }
+
+        var drawn = new List<IReadOnlyList<Boxed>>(_placed.Count);
+
+        foreach (var placed in _placed)
+        {
+            var boxes = BoxesOf(placed.Svg);
+            var shown = new List<Boxed>(boxes.Count);
+
+            for (var i = 0; i < boxes.Count; i++)
+            {
+                var box = boxes[i];
+
+                if (box.Node is not { TransformedBounds: var now })
+                {
+                    continue;
+                }
+
+                // The numbers the class will be given, in the order its SKRect takes them. A driven
+                // box follows what is bound, and the class has only the defaults, so it says so
+                // instead.
+                var label = box is { Driven: false, Rect: { } rect }
+                    ? FormattableString.Invariant($"{box.Name} {rect.Left:0.##}, {rect.Top:0.##}, {rect.Right:0.##}, {rect.Bottom:0.##}")
+                    : $"{box.Name} (driven)";
+
+                var faulty = SvgExpressionAttributes.WhyNotBox(box.Name, null, boxes.Take(i).Select(other => other.Name)) is { };
+
+                shown.Add(new Boxed(new SKRect(now.Left, now.Top, now.Right, now.Bottom), label, faulty));
+            }
+
+            drawn.Add(shown);
+        }
+
+        return drawn;
+    }
+
     /// <summary>
     /// Where <paramref name="framed"/>'s name is written, in the space the drawings are arranged in.
     /// </summary>
@@ -1023,7 +1148,8 @@ public class SvgViewerCanvas : SKCanvasControl
 
             // Only once it has travelled, as the carried rectangle is: a press inside the slack has
             // no rectangle yet, and a zero-sized one would flash a dot under every click.
-            _marquee && _marqueeMoved ? Spanned(_marqueeFrom, _marqueeTo) : null);
+            _marquee && _marqueeMoved ? Spanned(_marqueeFrom, _marqueeTo) : null,
+            Drawn());
 
         InvalidateVisual();
     }
@@ -1779,6 +1905,8 @@ public class SvgViewerCanvas : SKCanvasControl
             Around(canvas, bounds, state.Scale);
         }
 
+        var index = 0;
+
         foreach (var placed in state.Placed)
         {
             canvas.Save();
@@ -1822,6 +1950,18 @@ public class SvgViewerCanvas : SKCanvasControl
             {
                 Outline(canvas, frame, state.Scale);
             }
+
+            // Here rather than with the names below, because a box is in the drawing's own units and
+            // this is the one place they are the canvas's.
+            if (state.Boxes is { } boxes && boxes.Count > index)
+            {
+                foreach (var box in boxes[index])
+                {
+                    Reserved(canvas, box, state.Scale, font, state.CaptionSize);
+                }
+            }
+
+            index++;
 
             canvas.Restore();
         }
@@ -2135,6 +2275,44 @@ public class SvgViewerCanvas : SKCanvasControl
         };
 
         canvas.DrawRect(frame, paint);
+    }
+
+    /// <summary>A box the drawing reserves: a dashed line in its own colour, with the constant written inside.</summary>
+    /// <remarks>
+    /// Not the grey of a page's own dashes, since a box inside a page would read as a second one.
+    /// </remarks>
+    private static void Reserved(SKCanvas canvas, Boxed box, double scale, SKFont font, double captionSize)
+    {
+        var hairline = (float)(1d / scale);
+        var colour = box.Faulty ? new SKColor(0xE5, 0x48, 0x4D) : new SKColor(0x2E, 0xB8, 0xC8);
+
+        using var paint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            Color = colour,
+            StrokeWidth = hairline,
+            PathEffect = SKPathEffect.CreateDash(new[] { 3f * hairline, 3f * hairline }, 0f)
+        };
+
+        canvas.DrawRect(box.Rect, paint);
+
+        font.Size = (float)(captionSize / scale);
+
+        if (!Fits(font, box.Label, box.Rect.Size))
+        {
+            return;
+        }
+
+        using var writing = new SKPaint { IsAntialias = true, Color = colour };
+
+        canvas.DrawText(
+            box.Label,
+            box.Rect.Left + (font.Size * Inset),
+            box.Rect.Top + (font.Size * Line),
+            SKTextAlign.Left,
+            font,
+            writing);
     }
 
     private static void Outline(SKCanvas canvas, SKRect frame, double scale)

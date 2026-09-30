@@ -47,7 +47,10 @@ public sealed class SvgViewerElementNode : INotifyPropertyChanged
     /// <summary>What the element is called: <c>g</c>, <c>rect</c>, <c>e:code</c>'s own name.</summary>
     public string Label { get; }
 
-    /// <summary>The element's id with a hash in front, or null where it has none.</summary>
+    /// <summary>
+    /// The dim text beside the name: the id with a hash in front, then <c>▭</c> and the constant a box
+    /// is reported as; null where there is neither.
+    /// </summary>
     public string? Id { get; }
 
     public bool HasId => Id is { };

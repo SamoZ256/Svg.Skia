@@ -233,6 +233,37 @@ public class SvgAttributeEditorDocumentTests
         Assert.Equal(Source, source.ToText());
     }
 
+    /// <summary>
+    /// The extension's own prefix is declared by its first use, the way a first parameter declares
+    /// it: marking a box in a drawing with no expressions is such a use.
+    /// </summary>
+    [Fact]
+    public void The_Expression_Prefix_Is_Declared_By_Its_First_Use()
+    {
+        var source = Read();
+
+        Assert.Null(SvgAttributeEditor.SetAttribute(source, "0", "e:bounds", "LevelRect"));
+
+        var written = source.ToText();
+
+        Assert.Contains("xmlns:e=\"https://svg.skia/expr/1.0\"", written);
+        Assert.Contains("e:bounds=\"LevelRect\"", written);
+
+        // Once, however many follow.
+        Assert.Null(SvgAttributeEditor.SetAttribute(source, "0", "e:bounds", "ValueRect"));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(source.ToText(), "xmlns:e="));
+    }
+
+    /// <summary>Taking away something the drawing never had declares nothing.</summary>
+    [Fact]
+    public void Removing_An_Undeclared_Expression_Attribute_Declares_Nothing()
+    {
+        var source = Read();
+
+        Assert.NotNull(SvgAttributeEditor.SetAttribute(source, "0", "e:bounds", null));
+        Assert.Equal(Source, source.ToText());
+    }
+
     [Theory]
     [InlineData("xmlns")]
     [InlineData("xmlns:e")]

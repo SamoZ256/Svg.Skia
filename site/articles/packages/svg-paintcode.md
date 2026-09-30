@@ -62,6 +62,7 @@ holding every drawing, opened unsaved and unnamed — saving it asks where it go
 | A gradient chosen by an expression | One `<linearGradient>`, with the expression on every `stop-color` |
 | A gradient laid by dragging its two ends | The same two points, in `userSpaceOnUse` |
 | A library colour desaturated or shadowed | The shade PaintCode derives, worked out at import |
+| A shape named `Embed<X>` | `e:bounds="<X>Rect"` on its box, a [box for the host](svg-codegen-skia#boxes-for-the-host) |
 
 PaintCode is y-up and SVG is y-down, so everything is turned over on the way: a point at `(x, y)`
 is written at `(x, -y)`, and an angle with it.

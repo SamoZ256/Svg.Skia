@@ -298,6 +298,13 @@ public partial class MainWindow : Window
             Reread();
         };
 
+        viewer.BoxesChanged += (_, _) =>
+        {
+            StudioSettings.ShowBoxes = viewer.ShowsBoxes;
+
+            Reread();
+        };
+
         // A tab is added and selected before it has been given the project's pane, so what it has to
         // show is asked for again when it changes rather than only when the tab comes forward.
         viewer.PanelsChanged += (_, _) => Panels();
@@ -2253,6 +2260,8 @@ public partial class MainWindow : Window
 
         viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
 
+        viewer.ClassName = () => drawing.EffectiveClass ?? SvgExport.Identifier(drawing.Name);
+
         // What the groups above it declare, written into it on the way to being drawn. Source stays
         // the drawing's own, so the tab still shows, edits and saves the drawing.
         viewer.Rewrite = own => ProjectDeclarations.Built(drawing, own);
@@ -2940,6 +2949,7 @@ public partial class MainWindow : Window
 
         viewer.Grid = grid;
         viewer.SnapsToGrid = StudioSettings.SnapToGrid;
+        viewer.ShowsBoxes = StudioSettings.ShowBoxes;
     }
 
     private async void OnSave(object? sender, EventArgs e) => await SaveAsync();
