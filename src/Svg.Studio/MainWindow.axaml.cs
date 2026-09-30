@@ -40,8 +40,8 @@ namespace Svg.Studio;
 /// </remarks>
 public partial class MainWindow : Window
 {
-    /// <summary>How far the pointer travels before a press on a tab is a drag and not a click.</summary>
-    private const double DragThreshold = 4d;
+    /// <summary>How far the pointer travels before a press on a tab, a row or a tile is a drag and not a click.</summary>
+    internal const double DragThreshold = 4d;
 
     /// <summary>How far one wheel notch scrolls the strip.</summary>
     private const double WheelStep = 50d;
@@ -441,6 +441,12 @@ public partial class MainWindow : Window
         if (e.DataTransfer?.TryGetFiles() is { Length: > 0 })
         {
             e.DragEffects &= DragDropEffects.Copy | DragDropEffects.Link;
+        }
+        else if (!e.Handled && e.DataTransfer?.Contains(StreamlinePanel.DragFormat) == true)
+        {
+            // Tiles reaching the window unanswered are over neither the tree nor a board, where
+            // letting go does nothing.
+            e.DragEffects = DragDropEffects.None;
         }
     }
 
@@ -1052,7 +1058,7 @@ public partial class MainWindow : Window
     }
 
     /// <param name="select">The node to leave selected, or null to keep whatever was.</param>
-    private void BuildTree(ProjectNode? select = null)
+    internal void BuildTree(ProjectNode? select = null)
     {
         if (_workspace is not { } workspace)
         {
@@ -1546,10 +1552,10 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Puts drawings the window has the text of into <paramref name="parent"/>, through their
-    /// templates, as one step, and opens the last of them.
+    /// templates, as one step, and opens the last of them unless <paramref name="show"/> is false.
     /// </summary>
     /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
-    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports)
+    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports, bool show = true)
     {
         if (_workspace is not { } workspace || imports.Count == 0)
         {
@@ -1571,7 +1577,10 @@ public partial class MainWindow : Window
 
         BuildTree(added[^1]);
 
-        await ShowAsync(added[^1]).ConfigureAwait(true);
+        if (show)
+        {
+            await ShowAsync(added[^1]).ConfigureAwait(true);
+        }
 
         return added;
     }
@@ -1895,7 +1904,21 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Dropped(e) is not { Count: > 0 } paths || !paths.All(IsDrawing))
+        // Taken, and shown refused where the panel would refuse it, rather than left to the
+        // window, whose handler has nothing to say about a drag carrying no files.
+        if (e.DataTransfer.Contains(StreamlinePanel.DragFormat))
+        {
+            e.Handled = true;
+            e.DragEffects = _streamline.CanDrop ? DragDropEffects.Copy : DragDropEffects.None;
+
+            if (!_streamline.CanDrop)
+            {
+                HideDrop();
+
+                return;
+            }
+        }
+        else if (Dropped(e) is not { Count: > 0 } paths || !paths.All(IsDrawing))
         {
             HideDrop();
 
@@ -1906,7 +1929,7 @@ public partial class MainWindow : Window
         // itself, at the end of it. Anywhere in the tree adds to the project, which is what makes
         // the pane a place to drop rather than a place with places to drop.
         //
-        // The effects are left alone: the window's own handler narrows them for a file drag, and it
+        // The effects of a file drag are left alone: the window's own handler narrows them, and it
         // runs after this one.
         var target = over ?? _projectTree.Items.OfType<TreeViewItem>().FirstOrDefault();
 
@@ -1940,6 +1963,22 @@ public partial class MainWindow : Window
             if (target is { })
             {
                 Move(_rowChosen.Count > 0 ? _rowChosen : new[] { dragged }, target);
+            }
+
+            return;
+        }
+
+        if (e.DataTransfer.Contains(StreamlinePanel.DragFormat))
+        {
+            e.Handled = true;
+
+            if (target is { })
+            {
+                // Beside the row and not only into its group: the order a board and a build see,
+                // even though the tree sorts the row by its name.
+                var (parent, index) = Beside(target);
+
+                await _streamline.DropAsync(parent, index, null, show: true).ConfigureAwait(true);
             }
 
             return;
@@ -2186,7 +2225,7 @@ public partial class MainWindow : Window
 
         if (node is ProjectGroup group)
         {
-            var board = new GroupPanel(workspace, group) { TargetOf = DrawingOf, ArrangesPanels = false };
+            var board = new GroupPanel(workspace, group) { TargetOf = DrawingOf, ArrangesPanels = false, Streamline = _streamline };
 
             board.SettingChanged += (_, _) => Reread();
 

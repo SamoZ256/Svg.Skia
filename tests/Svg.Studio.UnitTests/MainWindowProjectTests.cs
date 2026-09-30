@@ -25,6 +25,7 @@ using Svg.PaintCode.UnitTests;
 using Svg.Skia;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
+using static Svg.Studio.UnitTests.Gestures;
 
 namespace Svg.Studio.UnitTests;
 
@@ -572,10 +573,6 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
-    /// <summary>The one canvas a group tab draws on.</summary>
-    private static SvgViewerCanvas Canvas(GroupPanel panel)
-        => panel.GetVisualDescendants().OfType<SvgViewerCanvas>().Single();
-
     /// <summary>What is on it, in the order it was placed.</summary>
     private static IReadOnlyList<SvgViewerPlacement> Drawn(GroupPanel panel) => Canvas(panel).Placements;
 
@@ -598,27 +595,6 @@ public class MainWindowProjectTests : IDisposable
           </group>
         </studio>
         """;
-
-    /// <summary>Where in the control a point of the arrangement is, checked by mapping it back.</summary>
-    /// <remarks>
-    /// The arrangement does not have to start at the origin — a board arranged into places begins
-    /// wherever the places say — so where it does start is asked for rather than assumed: the
-    /// control's own origin maps to it.
-    /// </remarks>
-    private static Point Over(SvgViewerCanvas canvas, float x, float y)
-    {
-        Assert.True(canvas.TryGetDrawingPoint(new Point(canvas.OffsetX, canvas.OffsetY), out var origin));
-
-        var at = new Point(
-            (x - origin.X) * canvas.Scale + canvas.OffsetX,
-            (y - origin.Y) * canvas.Scale + canvas.OffsetY);
-
-        Assert.True(canvas.TryGetDrawingPoint(at, out var back));
-        Assert.Equal(x, back.X, 3);
-        Assert.Equal(y, back.Y, 3);
-
-        return at;
-    }
 
     /// <summary>
     /// Clicks a point given in the canvas's own coordinates.
@@ -656,69 +632,6 @@ public class MainWindowProjectTests : IDisposable
             new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
             KeyModifiers.None,
             MouseButton.Left)
-        {
-            RoutedEvent = InputElement.PointerReleasedEvent
-        });
-
-        Dispatcher.UIThread.RunJobs();
-    }
-
-    /// <summary>Drags from one point of the canvas to another, as a hand would.</summary>
-    private static void Drag(
-        Window window,
-        SvgViewerCanvas canvas,
-        Point from,
-        Point to,
-        MouseButton button = MouseButton.Left)
-    {
-        var held = button == MouseButton.Middle
-            ? RawInputModifiers.MiddleMouseButton
-            : RawInputModifiers.LeftMouseButton;
-
-        var went = button == MouseButton.Middle
-            ? PointerUpdateKind.MiddleButtonPressed
-            : PointerUpdateKind.LeftButtonPressed;
-
-        var came = button == MouseButton.Middle
-            ? PointerUpdateKind.MiddleButtonReleased
-            : PointerUpdateKind.LeftButtonReleased;
-
-        var start = canvas.TranslatePoint(from, window)
-                    ?? throw new InvalidOperationException("The canvas is not in the window.");
-        var end = canvas.TranslatePoint(to, window)
-                  ?? throw new InvalidOperationException("The canvas is not in the window.");
-
-        canvas.RaiseEvent(new PointerPressedEventArgs(
-            canvas,
-            new Pointer(0, PointerType.Mouse, true),
-            window,
-            start,
-            0,
-            new PointerPointProperties(held, went),
-            KeyModifiers.None)
-        {
-            RoutedEvent = InputElement.PointerPressedEvent
-        });
-
-        canvas.RaiseEvent(new PointerEventArgs(
-            InputElement.PointerMovedEvent,
-            canvas,
-            new Pointer(0, PointerType.Mouse, true),
-            window,
-            end,
-            0,
-            new PointerPointProperties(held, PointerUpdateKind.Other),
-            KeyModifiers.None));
-
-        canvas.RaiseEvent(new PointerReleasedEventArgs(
-            canvas,
-            new Pointer(0, PointerType.Mouse, true),
-            window,
-            end,
-            0,
-            new PointerPointProperties(RawInputModifiers.None, came),
-            KeyModifiers.None,
-            button)
         {
             RoutedEvent = InputElement.PointerReleasedEvent
         });
@@ -5994,9 +5907,6 @@ public class MainWindowProjectTests : IDisposable
     /// Where down the row decides what the drop means — into a group, or before or after a row — so
     /// the point is measured against the row's own height rather than its bounds, which cover
     /// everything under it as well.
-    ///
-    /// The drag is walked through in full: only the move over the row works out where the drop
-    /// would land, and a drop that never moved lands nowhere.
     /// </remarks>
     private static async Task Drop(MainWindow window, TreeViewItem row, double down, params string[] paths)
     {
@@ -6015,12 +5925,7 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.NotNull(at);
 
-        foreach (var stage in new[] { RawDragEventType.DragEnter, RawDragEventType.DragOver, RawDragEventType.Drop })
-        {
-            window.DragDrop(at!.Value, stage, carried, DragDropEffects.Copy, RawInputModifiers.None);
-        }
-
-        Dispatcher.UIThread.RunJobs();
+        Gestures.Drop(window, at!.Value, carried);
     }
 
     [AvaloniaFact]

@@ -232,7 +232,7 @@ public abstract class ProjectNode
     /// board: everything under it is drawn in the grid beside the arrangement with its own numbers
     /// ignored, so there is no coordinate to carry across.
     /// </remarks>
-    private protected static (float X, float Y)? Shift(ProjectGroup from, ProjectGroup to)
+    internal static (float X, float Y)? Shift(ProjectGroup from, ProjectGroup to)
     {
         var shared = to.Ancestry(true).First(from.DescendsFrom);
 
@@ -569,6 +569,9 @@ public class ProjectGroup : ProjectNode
         Reindent(child.Element, was, ProjectDocument.Depth(child.Element));
     }
 
+    /// <summary>Whether rows sit here and none names a place, so the board is the spread.</summary>
+    internal bool IsSpread => _children.Count > 0 && !_children.Any(one => one.HasPosition);
+
     /// <summary>
     /// Writes a row's place in the coordinates of this board, or takes it away.
     /// </summary>
@@ -586,9 +589,7 @@ public class ProjectGroup : ProjectNode
     /// </remarks>
     private void Reboard(ProjectNode child, ProjectGroup from)
     {
-        var grid = _children.Count > 0 && !_children.Any(one => one.HasPosition);
-
-        if (!grid && child.X is { } x && child.Y is { } y && Shift(from, this) is { } by)
+        if (!IsSpread && child.X is { } x && child.Y is { } y && Shift(from, this) is { } by)
         {
             child.X = Rounded(x + by.X);
             child.Y = Rounded(y + by.Y);
