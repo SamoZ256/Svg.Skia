@@ -55,7 +55,8 @@ internal static class Gestures
     }
 
     /// <summary>Presses at a point of the control, which the window is told its root is at after translating it.</summary>
-    internal static void Press(Window window, Control control, Point at, MouseButton button = MouseButton.Left, KeyModifiers modifiers = KeyModifiers.None)
+    /// <param name="clicks">Which press of a run this is, as the pointer counts them: 2 for the second of a double click.</param>
+    internal static void Press(Window window, Control control, Point at, MouseButton button = MouseButton.Left, KeyModifiers modifiers = KeyModifiers.None, int clicks = 1)
     {
         control.RaiseEvent(new PointerPressedEventArgs(
             control,
@@ -64,7 +65,8 @@ internal static class Gestures
             Root(window, control, at),
             0,
             new PointerPointProperties(Held(button), button == MouseButton.Middle ? PointerUpdateKind.MiddleButtonPressed : PointerUpdateKind.LeftButtonPressed),
-            modifiers)
+            modifiers,
+            clicks)
         {
             RoutedEvent = InputElement.PointerPressedEvent
         });

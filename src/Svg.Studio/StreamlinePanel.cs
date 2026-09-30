@@ -23,11 +23,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Svg.CodeGen.Skia.Projects;
-using Svg.Expressions;
 using Svg.Expressions.Recipes;
 using Svg.Skia;
-using Svg.SourceEditing;
-using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
 
@@ -78,8 +75,6 @@ public sealed class StreamlinePanel : UserControl
 
     private readonly TextBlock _said = new() { TextWrapping = TextWrapping.Wrap, IsVisible = false };
 
-    private readonly TextBlock _where = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.8 };
-
     private readonly ItemsControl _tiles;
 
     private readonly ScrollViewer _tileScroll;
@@ -87,20 +82,13 @@ public sealed class StreamlinePanel : UserControl
     /// <summary>Whether the search showing has a page after the ones shown, and whether one is on its way.</summary>
     private bool _hasMore, _paging;
 
-    private readonly StackPanel _rows = new() { Spacing = 8 };
-
     private readonly Button _import = new()
     {
-        Content = "Import",
+        Content = "Import…",
         IsEnabled = false,
         Classes = { "accent" },
-        HorizontalAlignment = HorizontalAlignment.Right,
-        Padding = new Thickness(14, 6),
-        Margin = new Thickness(0, 6, 0, 0)
+        Margin = new Thickness(6, 0, 0, 0)
     };
-
-    /// <summary>The picks, where they go and the button that takes them there, shown while there are any.</summary>
-    private readonly DockPanel _side = new() { Width = 380, IsVisible = false };
 
     private readonly StackPanel _family = new() { Spacing = 4, IsVisible = false };
 
@@ -111,45 +99,6 @@ public sealed class StreamlinePanel : UserControl
     private readonly Button _cancel = new() { Content = "Cancel" };
 
     private readonly DispatcherTimer _typing = new() { Interval = TimeSpan.FromMilliseconds(400) };
-
-    private readonly Expander _templates = new() { Header = "Templates", HorizontalAlignment = HorizontalAlignment.Stretch, IsVisible = false };
-
-    private readonly ListBox _templateList = new() { MaxHeight = 120 };
-
-    private readonly TextBox _templateText = new()
-    {
-        AcceptsReturn = true,
-        TextWrapping = TextWrapping.NoWrap,
-        FontFamily = new FontFamily("Menlo, Consolas, monospace"),
-        FontSize = 11,
-        Height = 180
-    };
-
-    private readonly TextBlock _templateSaid = new() { TextWrapping = TextWrapping.Wrap, IsVisible = false };
-
-    private readonly SvgViewerCanvas _templatePreview = new()
-    {
-        Width = 72,
-        Height = 72,
-        IsZoomEnabled = false,
-        IsPanEnabled = false,
-        Margin = new Thickness(0, 0, 8, 0)
-    };
-
-    private readonly TextBlock _previewSaid = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.8, VerticalAlignment = VerticalAlignment.Center };
-
-    private SvgViewerDocument? _previewDocument;
-
-    /// <summary>The selected template as the project holds it, so an edit elsewhere does not overwrite one typed here.</summary>
-    private (string Name, string Text)? _templateLoaded;
-
-    /// <summary>Edits typed into a template and not applied, by its name, kept while another is looked at.</summary>
-    private readonly Dictionary<string, string> _drafts = new(StringComparer.Ordinal);
-
-    private bool _listing;
-
-    /// <summary>The drawing an import replaces, where the rows are an update of it rather than new icons.</summary>
-    private ProjectDrawing? _updating;
 
     private StreamlineClient? _client;
     private string? _key;
@@ -166,10 +115,9 @@ public sealed class StreamlinePanel : UserControl
     /// <summary>What is picked, kept across searches so a batch can be gathered from several.</summary>
     private readonly List<StreamlineIcon> _picked = new();
     private int? _anchor;
-    private int _picks;
 
-    /// <summary>Where the picks a drop staged go, while the target is still that group: the index and board point after what it imported, and whether the drop opens what it imports.</summary>
-    private (int Index, SkiaSharp.SKPoint? At, bool Show)? _destination;
+    /// <summary>Whether icons are on their way into the project through the import window, which the button, a drop and an update wait for.</summary>
+    private bool _opening;
 
     private PointerPressedEventArgs? _pressed;
     private Point _pressedAt;
@@ -181,12 +129,9 @@ public sealed class StreamlinePanel : UserControl
     private readonly Dictionary<string, Task<Bitmap?>> _thumbnails = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task<StreamlineDownload?>> _downloads = new(StringComparer.Ordinal);
     private readonly Dictionary<string, StreamlineFamily?> _families = new(StringComparer.Ordinal);
-    private readonly List<StreamlineRow> _shown = new();
     private int _columns = 1;
     private ProjectGroup? _selected;
-    private ProjectWorkspace? _suggestedIn;
     private CancellationTokenSource? _running;
-    private bool _spreading;
 
     public StreamlinePanel(MainWindow window)
     {
@@ -210,7 +155,7 @@ public sealed class StreamlinePanel : UserControl
             }
         };
         _style.SelectionChanged += async (_, _) => await SearchAsync().ConfigureAwait(true);
-        _import.Click += async (_, _) => await ImportAsync().ConfigureAwait(true);
+        _import.Click += async (_, _) => await OpenImportAsync().ConfigureAwait(true);
         _cancel.Click += (_, _) => _running?.Cancel();
 
         _tiles = new ItemsControl
@@ -253,27 +198,15 @@ public sealed class StreamlinePanel : UserControl
         _noKey = keyless;
 
         var search = new DockPanel();
+        DockPanel.SetDock(_import, Dock.Right);
         DockPanel.SetDock(_style, Dock.Right);
+        search.Children.Add(_import);
         search.Children.Add(_style);
         search.Children.Add(_query);
 
         _family.Children.Add(_familyProgress);
         _family.Children.Add(_familyBar);
         _family.Children.Add(_cancel);
-
-        // The picks beside the tiles rather than under them: the strip under the drawing is short
-        // and wide, so a column has the height a row wants and the tiles keep their width.
-        DockPanel.SetDock(_where, Dock.Top);
-        DockPanel.SetDock(_import, Dock.Bottom);
-        _side.Children.Add(_where);
-        _side.Children.Add(_import);
-        _side.Children.Add(new ScrollViewer { Content = _rows });
-
-        var main = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12 };
-
-        Grid.SetColumn(_side, 1);
-        main.Children.Add(_tileScroll);
-        main.Children.Add(_side);
 
         var body = new Grid
         {
@@ -285,67 +218,11 @@ public sealed class StreamlinePanel : UserControl
 
         Place(body, search, 0);
         Place(body, _said, 1);
-        Place(body, main, 2);
+        Place(body, _tileScroll, 2);
         Place(body, _family, 3);
         _body = body;
 
-        var apply = new Button { Content = "Apply" };
-        var rename = new Button { Content = "Rename…" };
-        var delete = new Button { Content = "Delete" };
-
-        apply.Click += (_, _) => ApplyTemplateEdit();
-        rename.Click += async (_, _) => await RenameTemplateAsync().ConfigureAwait(true);
-        delete.Click += (_, _) => DeleteTemplate();
-        _templateList.ItemTemplate = new FuncDataTemplate<TemplateEntry>((entry, _) => new TextBlock
-        {
-            Text = entry is null ? null : entry.Error is null ? entry.Name : $"{entry.Name} (does not parse)",
-            [ToolTip.TipProperty] = entry?.Error
-        });
-        _templateList.SelectionChanged += (_, _) =>
-        {
-            if (!_listing)
-            {
-                LoadTemplate();
-            }
-        };
-        _templateText.TextChanged += (_, _) => CheckTemplate();
-
-        var preview = new DockPanel();
-        DockPanel.SetDock(_templatePreview, Dock.Left);
-        preview.Children.Add(_templatePreview);
-        preview.Children.Add(_previewSaid);
-
-        _templates.Content = new ScrollViewer
-        {
-            Content = new StackPanel
-            {
-                Spacing = 6,
-                Children =
-                {
-                    _templateList,
-                    _templateText,
-                    _templateSaid,
-                    new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { apply, rename, delete } },
-                    preview
-                }
-            }
-        };
-
-        // Open, the section takes half and scrolls in it: sized to its content, it took the whole
-        // default strip and left the search, and its own buttons, out of sight.
-        var content = new Grid { RowDefinitions = new RowDefinitions("*,Auto") };
-        Grid.SetRow(_templates, 1);
-        _templates.Margin = new Thickness(8, 0, 8, 8);
-        _templates.PropertyChanged += (_, changed) =>
-        {
-            if (changed.Property == Expander.IsExpandedProperty || changed.Property == IsVisibleProperty)
-            {
-                content.RowDefinitions[1].Height = _templates is { IsExpanded: true, IsVisible: true } ? GridLength.Star : GridLength.Auto;
-            }
-        };
-        content.Children.Add(new Panel { Children = { _noKey, _body } });
-        content.Children.Add(_templates);
-        Content = content;
+        Content = new Panel { Children = { _noKey, _body } };
 
         _ = RefreshAsync();
 
@@ -373,19 +250,7 @@ public sealed class StreamlinePanel : UserControl
     public IReadOnlyList<StreamlineIcon> Dragged { get; set; } = Array.Empty<StreamlineIcon>();
 
     /// <summary>Whether <see cref="DropAsync"/> would take what is being dragged, for a drop target to say so.</summary>
-    internal bool CanDrop => Dragged.Count > 0 && _client is { } && _window.Workspace is { } && _running is null;
-
-    /// <summary>The project's templates, each named, with one that does not parse marked.</summary>
-    public ListBox TemplateList => _templateList;
-
-    /// <summary>The selected template's XML, which Apply writes back.</summary>
-    public TextBox TemplateText => _templateText;
-
-    /// <summary>Why the text does not parse or could not be written, or null.</summary>
-    public string? TemplateSaid => _templateSaid.IsVisible ? _templateSaid.Text : null;
-
-    /// <summary>The first picked icon as the template in the text box would import it, or null where it would not.</summary>
-    public string? TemplatePreviewText { get; private set; }
+    internal bool CanDrop => Dragged.Count > 0 && _client is { } && _window.Workspace is { } && _running is null && !_opening;
 
     /// <summary>The group picked in the tree; imports go there, or into the project where none is.</summary>
     public ProjectGroup? Target
@@ -393,48 +258,21 @@ public sealed class StreamlinePanel : UserControl
         get => _selected ?? _window.Workspace?.Document.Root;
         set
         {
-            // The rows are suggested against the target and the project's templates, so either changing asks again.
-            var changed = !ReferenceEquals(_selected, value) || !ReferenceEquals(_suggestedIn, _window.Workspace);
-
-            if (!ReferenceEquals(_selected, value))
-            {
-                _destination = null;
-            }
-
-            _selected = value;
-
-            // Closing the project, which is also the first step of opening another, ends a family
-            // import going into it, an update of one of its drawings, and what was typed into its templates.
+            // Closing the project, which is also the first step of opening another, ends a family import going into it.
             if (_window.Workspace is null)
             {
                 _running?.Cancel();
-
-                if (_updating is { })
-                {
-                    Clear();
-                }
             }
 
-            ShowWhere();
-            ShowTemplates();
+            _selected = _window.Workspace is { } ? value : null;
 
-            if (_window.Workspace is null)
-            {
-                _drafts.Clear();
-            }
-
-            if (changed && _picked.Count > 0)
-            {
-                _ = RowsAsync();
-            }
+            ShowImport();
         }
     }
 
     public IReadOnlyList<StreamlineIcon> Results => _results;
 
     public IReadOnlyList<StreamlineIcon> Picked => _picked;
-
-    public IReadOnlyList<StreamlineRow> Rows => _shown;
 
     /// <summary>Whether there is a key to search with; without one the panel is a line pointing at Settings.</summary>
     public bool HasKey => _client is { };
@@ -480,7 +318,7 @@ public sealed class StreamlinePanel : UserControl
         _noKey.IsVisible = _client is null;
         _body.IsVisible = _client is { };
 
-        ShowWhere();
+        ShowImport();
     }
 
     /// <summary>Searches for what is typed, or fetches the next page of the last search.</summary>
@@ -563,13 +401,12 @@ public sealed class StreamlinePanel : UserControl
         }
     }
 
-    /// <summary>Picks the result at <paramref name="index"/> as a click with <paramref name="modifiers"/> would, and downloads what is picked.</summary>
+    /// <summary>Picks the result at <paramref name="index"/> as a click with <paramref name="modifiers"/> would.</summary>
+    /// <remarks>Nothing is downloaded until the picks are imported, since a download counts against the limit.</remarks>
     public Task PickAsync(int index, KeyModifiers modifiers)
     {
         var icon = _results[index];
         var adding = (modifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0;
-
-        _updating = null;
 
         if ((modifiers & KeyModifiers.Shift) != 0 && _anchor is { } anchor && anchor < _results.Count)
         {
@@ -604,61 +441,122 @@ public sealed class StreamlinePanel : UserControl
 
         ShowTiles();
 
-        return RowsAsync();
+        return Task.CompletedTask;
     }
 
     // By hash: a search answers with new records, and their colour lists make them unequal to the same icon's last ones.
     private bool IsPicked(StreamlineIcon icon) => _picked.Exists(one => one.Hash == icon.Hash);
 
-    /// <summary>Imports what the rows hold, as one step, and clears them.</summary>
-    /// <remarks>With no project open each icon opens in a tab of its own, as delivered.</remarks>
-    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync()
+    /// <summary>Downloads what is picked and opens the import window on it, then imports what it settles on at the target's end.</summary>
+    /// <remarks>With no project open each icon opens in a tab of its own, as delivered, and no window is needed.</remarks>
+    public async Task OpenImportAsync()
     {
-        if (_shown.Count == 0)
+        if (_opening || _running is { } || _picked.Count == 0 || _client is null)
         {
-            return Array.Empty<ProjectDrawing>();
+            return;
         }
 
-        if (_updating is { } updating)
+        var workspace = _window.Workspace;
+        var target = workspace is { } ? Target : null;
+        var picked = _picked.ToList();
+
+        _opening = true;
+        ShowImport();
+
+        try
         {
-            var row = _shown[0];
-            var update = new TemplateImport(updating.Name, row.Downloads[0].Prepared.Text, row.Recipe(0), updating.Source);
+            var downloads = await DownloadAsync(picked).ConfigureAwait(true);
+            var failed = picked.Where((_, index) => downloads[index] is null).Select(icon => icon.Hash).ToHashSet(StringComparer.Ordinal);
+            var fetched = downloads.OfType<StreamlineDownload>().ToList();
 
-            Clear();
+            // Unpicked rather than left to be asked for again on every later click, each time counting against the limit.
+            _picked.RemoveAll(icon => failed.Contains(icon.Hash));
+            ShowTiles();
 
-            return await _window.UpdateAsync(updating, update).ConfigureAwait(true) ? new[] { updating } : Array.Empty<ProjectDrawing>();
-        }
-
-        var target = _window.Workspace is { } ? Target : null;
-        var downloads = _shown.SelectMany(row => row.Downloads).ToList();
-        var imports = _shown
-            .SelectMany(row => row.Downloads.Select((download, index) =>
-                new TemplateImport(download.Icon.Name, download.Prepared.Text, row.Recipe(index), SourceOf(download.Icon))))
-            .ToList();
-        var destination = _destination;
-
-        // Before the first await, so a second click while the import is showing its result finds nothing to import.
-        Clear();
-
-        if (target is null)
-        {
-            foreach (var download in downloads)
+            if (fetched.Count == 0)
             {
-                await _window.OpenTextAsync(download.Svg, download.Icon.Name).ConfigureAwait(true);
+                return;
             }
 
-            return Array.Empty<ProjectDrawing>();
+            if (workspace is null || target is null)
+            {
+                _picked.RemoveAll(icon => fetched.Exists(one => one.Icon.Hash == icon.Hash));
+                ShowTiles();
+
+                foreach (var download in fetched)
+                {
+                    await _window.OpenTextAsync(download.Svg, download.Icon.Name).ConfigureAwait(true);
+                }
+
+                return;
+            }
+
+            if (Gone(workspace, target) is { } gone)
+            {
+                Say(gone);
+
+                return;
+            }
+
+            await ImportAsync(new StreamlineImport(workspace, target, fetched), target.Children.Count, null, show: true).ConfigureAwait(true);
+        }
+        finally
+        {
+            _opening = false;
+            ShowImport();
+        }
+    }
+
+    /// <summary>
+    /// Shows <paramref name="import"/> in the import window and, where it is taken, brings its icons
+    /// in at <paramref name="index"/>, as one step, or replaces the drawing it updates.
+    /// </summary>
+    private async Task ImportAsync(StreamlineImport import, int index, SkiaSharp.SKPoint? at, bool show)
+    {
+        var workspace = import.Workspace;
+
+        if (!await _window.ShowImport(import).ConfigureAwait(true))
+        {
+            return;
         }
 
-        // Clamped, since an undo can have taken rows out of the group since the drop.
-        return destination is { } place
-            ? await _window.ImportAsync(target, Math.Min(place.Index, target.Children.Count), Placed(imports, place.At).Imports, place.Show).ConfigureAwait(true)
-            : await _window.ImportAsync(target, target.Children.Count, imports).ConfigureAwait(true);
+        // The window is modal, but a project closed or a group undone away under it would take the import into nothing.
+        if (Gone(workspace, import.Target) is { } gone)
+        {
+            Say(gone);
+
+            return;
+        }
+
+        foreach (var row in import.Rows)
+        {
+            row.Remember();
+        }
+
+        if (import.Updating is { } updating)
+        {
+            var row = import.Rows[0];
+
+            await _window.UpdateAsync(updating, new TemplateImport(updating.Name, row.Downloads[0].Prepared.Text, row.Recipe(0), updating.Source)).ConfigureAwait(true);
+
+            return;
+        }
+
+        var imported = import.Rows.SelectMany(row => row.Icons).Select(icon => icon.Hash).ToHashSet(StringComparer.Ordinal);
+
+        // Before the import shows its result, so the button cannot bring them in a second time meanwhile.
+        if (_picked.RemoveAll(icon => imported.Contains(icon.Hash)) > 0)
+        {
+            ShowTiles();
+        }
+
+        // Clamped, since an undo can have taken rows out of the group while the window was up.
+        await _window.ImportAsync(import.Target, Math.Min(index, import.Target.Children.Count), Placed(import.Imports(), at).Imports, show).ConfigureAwait(true);
     }
 
     /// <summary>
     /// Imports what is being dragged into <paramref name="group"/> at <paramref name="index"/>: each
-    /// batch whose template is sure straight away, the rest staged as the picks, pointed there.
+    /// batch whose template is sure straight away, and the rest through the import window, aimed there.
     /// </summary>
     /// <param name="at">Where on the group's board the first lands, the rest in a row after it, or null to join its spread.</param>
     /// <param name="show">Whether the last drawing imported opens, as it does from the tree; a board drop stays on the board.</param>
@@ -672,66 +570,62 @@ public sealed class StreamlinePanel : UserControl
             return;
         }
 
-        Say(dragged.Count == 1 ? $"Downloading {dragged[0].Name}…" : $"Downloading {dragged.Count} icons…");
+        _opening = true;
+        ShowImport();
 
-        var downloads = await DownloadAsync(dragged).ConfigureAwait(true);
-
-        if (Gone(workspace, group) is { } gone)
+        try
         {
-            Say(gone);
+            var downloads = await DownloadAsync(dragged).ConfigureAwait(true);
 
-            return;
-        }
-
-        if (downloads.All(download => download is { }))
-        {
-            Say(null);
-        }
-
-        var fetched = downloads.OfType<StreamlineDownload>().ToList();
-        var library = new TemplateLibrary(workspace.Document.Root);
-
-        // What the card's dot would show: the batch's first icon's leading suggestion.
-        var leading = TemplateLibrary.Batch(fetched.Select(download => download.Prepared))
-            .Where(batch => library.Suggest(batch.First(), group)[0].Sure)
-            .SelectMany(batch => batch)
-            .ToHashSet(ReferenceEqualityComparer.Instance);
-        var sure = fetched.Where(download => leading.Contains(download.Prepared)).ToList();
-        var amber = fetched.Where(download => !leading.Contains(download.Prepared)).ToList();
-        IReadOnlyList<ProjectDrawing> added = Array.Empty<ProjectDrawing>();
-
-        if (sure.Count > 0)
-        {
-            var (imports, next) = Placed(Imports(library, group, sure), at);
-
-            added = await _window.ImportAsync(group, index, imports, show).ConfigureAwait(true);
-            at = next;
-
-            // So the Import button cannot bring them in a second time.
-            if (amber.Count == 0 && _picked.RemoveAll(icon => sure.Exists(one => one.Icon.Hash == icon.Hash)) > 0)
+            if (Gone(workspace, group) is { } gone)
             {
-                ShowTiles();
-                await RowsAsync().ConfigureAwait(true);
+                Say(gone);
+
+                return;
             }
-        }
 
-        if (amber.Count == 0 || Gone(workspace, group) is { })
+            var fetched = downloads.OfType<StreamlineDownload>().ToList();
+            var library = new TemplateLibrary(workspace.Document.Root);
+
+            // What the suggested card's dot would show: the batch's first icon's leading suggestion.
+            var leading = TemplateLibrary.Batch(fetched.Select(download => download.Prepared))
+                .Where(batch => library.Suggest(batch.First(), group)[0].Sure)
+                .SelectMany(batch => batch)
+                .ToHashSet(ReferenceEqualityComparer.Instance);
+            var sure = fetched.Where(download => leading.Contains(download.Prepared)).ToList();
+            var amber = fetched.Where(download => !leading.Contains(download.Prepared)).ToList();
+            IReadOnlyList<ProjectDrawing> added = Array.Empty<ProjectDrawing>();
+
+            if (sure.Count > 0)
+            {
+                var (imports, next) = Placed(Imports(library, group, sure), at);
+
+                added = await _window.ImportAsync(group, index, imports, show).ConfigureAwait(true);
+                at = next;
+
+                // So the Import button cannot bring them in a second time.
+                if (_picked.RemoveAll(icon => sure.Exists(one => one.Icon.Hash == icon.Hash)) > 0)
+                {
+                    ShowTiles();
+                }
+            }
+
+            if (amber.Count == 0 || Gone(workspace, group) is { })
+            {
+                return;
+            }
+
+            var import = new StreamlineImport(workspace, group, amber);
+            var after = index + added.Count;
+
+            // Posted, so the window comes up once the drop that asked for it is over.
+            await Dispatcher.UIThread.InvokeAsync(() => ImportAsync(import, after, at, show)).ConfigureAwait(true);
+        }
+        finally
         {
-            return;
+            _opening = false;
+            ShowImport();
         }
-
-        _updating = null;
-        _anchor = null;
-        _picked.Clear();
-        _picked.AddRange(amber.Select(download => download.Icon));
-        ShowTiles();
-
-        // So the setter asks again, and only it, even where the drop is on the group already targeted.
-        _suggestedIn = null;
-        Target = group;
-        _destination = (index + added.Count, at, show);
-
-        _window.BuildTree(group);
     }
 
     /// <summary><paramref name="imports"/> laid in a row from <paramref name="at"/>, and the point after the last; as they are where there is no point.</summary>
@@ -759,10 +653,12 @@ public sealed class StreamlinePanel : UserControl
         return (placed, next);
     }
 
-    /// <summary>Downloads the icon <paramref name="drawing"/> came from again, as a row whose import replaces what the drawing draws.</summary>
+    /// <summary>Downloads the icon <paramref name="drawing"/> came from again, and opens the import window to replace what the drawing draws with it.</summary>
+    /// <remarks>The picks are left as they are: this is about the drawing, not what was being gathered.</remarks>
     public async Task UpdateAsync(ProjectDrawing drawing)
     {
-        if (drawing?.Source is not { } source || !source.StartsWith(SourcePrefix, StringComparison.Ordinal))
+        if (drawing?.Source is not { } source || !source.StartsWith(SourcePrefix, StringComparison.Ordinal)
+            || _window.Workspace is not { } workspace || drawing.Parent is not { } parent)
         {
             return;
         }
@@ -774,30 +670,53 @@ public sealed class StreamlinePanel : UserControl
             return;
         }
 
-        StreamlineIcon icon;
-
-        try
+        if (_opening)
         {
-            icon = await client.Icon(source.Substring(SourcePrefix.Length)).ConfigureAwait(true);
-        }
-        catch (Exception failure) when (Failure(failure) is { } said)
-        {
-            Say($"{ProjectWorkspace.Label(drawing)}: {said}");
+            Say("Other icons are on their way in; update this one once they are.");
 
             return;
         }
 
-        _picked.Clear();
-        _picked.Add(icon);
-        _anchor = null;
-        _updating = drawing;
+        _opening = true;
+        ShowImport();
 
-        // Again, as asked, rather than the copy an earlier pick left in the session.
-        _downloads.Remove(icon.Hash);
+        try
+        {
+            StreamlineIcon icon;
 
-        ShowTiles();
+            try
+            {
+                icon = await client.Icon(source.Substring(SourcePrefix.Length)).ConfigureAwait(true);
+            }
+            catch (Exception failure) when (Failure(failure) is { } said)
+            {
+                Say($"{ProjectWorkspace.Label(drawing)}: {said}");
 
-        await RowsAsync().ConfigureAwait(true);
+                return;
+            }
+
+            // Again, as asked, rather than the copy an earlier pick left in the session.
+            _downloads.Remove(icon.Hash);
+
+            if ((await DownloadAsync(new[] { icon }).ConfigureAwait(true))[0] is not { } download)
+            {
+                return;
+            }
+
+            if (Gone(workspace, parent) is { } gone)
+            {
+                Say(gone);
+
+                return;
+            }
+
+            await ImportAsync(new StreamlineImport(workspace, parent, new[] { download }, drawing), 0, null, show: true).ConfigureAwait(true);
+        }
+        finally
+        {
+            _opening = false;
+            ShowImport();
+        }
     }
 
     /// <summary>
@@ -824,6 +743,7 @@ public sealed class StreamlinePanel : UserControl
         using var running = new CancellationTokenSource();
 
         _running = running;
+        ShowImport();
 
         // Shown from the start: finding the family walks the catalogue, which can take a while and counts against the limit.
         _family.IsVisible = true;
@@ -867,6 +787,7 @@ public sealed class StreamlinePanel : UserControl
         {
             _running = null;
             _family.IsVisible = false;
+            ShowImport();
         }
     }
 
@@ -953,13 +874,13 @@ public sealed class StreamlinePanel : UserControl
         }
     }
 
-    /// <summary>Why a family import can no longer land in <paramref name="into"/>, or null while it can.</summary>
+    /// <summary>Why icons can no longer land in <paramref name="into"/>, or null while they can.</summary>
     /// <remarks>
     /// An undo of the first page takes the group it made out, and closing the project takes the lot.
     /// Asked of the XML: an undo restores its parent's children without clearing the group's Parent.
     /// </remarks>
     private string? Gone(ProjectWorkspace workspace, ProjectGroup into)
-        => !ReferenceEquals(_window.Workspace, workspace) ? "Stopped: the project the family was going into was closed."
+        => !ReferenceEquals(_window.Workspace, workspace) ? "Stopped: the project the icons were going into was closed."
             : !into.Element.AncestorsAndSelf().Contains(workspace.Document.Root.Element) ? $"Stopped: {into.Name} is no longer in the project."
             : null;
 
@@ -1030,38 +951,12 @@ public sealed class StreamlinePanel : UserControl
                                + $"{Math.Max(0, family.IconCount - done - skipped)} to go.";
     }
 
-    /// <summary>Downloads what is picked, then shows one row per decision.</summary>
-    private async Task RowsAsync()
-    {
-        var picks = ++_picks;
-        var picked = _picked.ToList();
-
-        _import.IsEnabled = false;
-
-        var downloads = await DownloadAsync(picked).ConfigureAwait(true);
-        var failed = picked.Where((_, index) => downloads[index] is null).Select(icon => icon.Hash).ToHashSet(StringComparer.Ordinal);
-
-        // Unpicked rather than left to be asked for again on every later click, each time counting against the limit.
-        _picked.RemoveAll(icon => failed.Contains(icon.Hash));
-
-        if (picks == _picks)
-        {
-            if (failed.Count == 0)
-            {
-                Say(null);
-            }
-            else
-            {
-                ShowTiles();
-            }
-
-            ShowRows(downloads.OfType<StreamlineDownload>().ToList());
-        }
-    }
-
     /// <summary>Each icon's download, or null for one that failed and is forgotten, so asking for it again by hand does ask again.</summary>
+    /// <remarks>Said while it runs, and each failure after it.</remarks>
     private async Task<StreamlineDownload?[]> DownloadAsync(IReadOnlyList<StreamlineIcon> icons)
     {
+        Say(icons.Count == 1 ? $"Downloading {icons[0].Name}…" : $"Downloading {icons.Count} icons…");
+
         var loading = icons.Select(Download).ToList();
         var downloads = await Task.WhenAll(loading).ConfigureAwait(true);
 
@@ -1071,6 +966,11 @@ public sealed class StreamlinePanel : UserControl
             {
                 _downloads.Remove(icons[index].Hash);
             }
+        }
+
+        if (downloads.All(download => download is { }))
+        {
+            Say(null);
         }
 
         return downloads;
@@ -1115,376 +1015,20 @@ public sealed class StreamlinePanel : UserControl
             ? (int)Math.Round(sized)
             : DefaultSize;
 
-    private void ShowRows(IReadOnlyList<StreamlineDownload> downloads)
+    /// <summary>What the Import button says and where it takes the picks, and whether it can now.</summary>
+    private void ShowImport()
     {
-        foreach (var row in _shown)
-        {
-            row.Dispose();
-        }
-
-        _shown.Clear();
-        _rows.Children.Clear();
-
-        var workspace = _suggestedIn = _window.Workspace;
-        var library = workspace is { } ? new TemplateLibrary(workspace.Document.Root) : null;
-        var target = workspace is { } ? _updating?.Parent ?? Target : null;
-
-        foreach (var batch in TemplateLibrary.Batch(downloads.Select(download => download.Prepared)))
-        {
-            var row = new StreamlineRow(batch.Select(icon => downloads.First(one => ReferenceEquals(one.Prepared, icon))).ToList(), library, target);
-
-            row.Chosen += (_, _) => Offer(row);
-            row.Spread.Click += (_, _) => Spread(row);
-            row.SaveAs.Click += async (_, _) => await SaveTemplateAsync(row).ConfigureAwait(true);
-
-            _shown.Add(row);
-            _rows.Children.Add(row.View);
-        }
-
-        var count = downloads.Count;
-
-        _import.IsEnabled = count > 0;
-        _import.Content = _updating is { } updating && count > 0 ? $"Update {ProjectWorkspace.Label(updating)}"
-            : count > 0 && Target is { } into ? $"Import {count} icon{(count == 1 ? "" : "s")} into {ProjectWorkspace.Label(into)}"
-            : count > 0 ? $"Import {count} icon{(count == 1 ? "" : "s")}"
-            : "Import";
-
-        ShowWhere();
-        CheckTemplate();
-    }
-
-    /// <summary>After a row's template is changed by hand, offers it to the rest of the family.</summary>
-    private void Offer(StreamlineRow row)
-    {
-        if (_spreading || row.Template.SelectedItem is not string chosen)
-        {
-            return;
-        }
-
-        var alike = Alike(row, chosen);
-
-        row.Spread.Content = $"Use for {alike.Count} other{(alike.Count == 1 ? "" : "s")}";
-        ToolTip.SetTip(row.Spread, $"Use {chosen} for the {alike.Count} other{(alike.Count == 1 ? "" : "s")} of this family");
-        row.Spread.IsVisible = alike.Count > 0;
-    }
-
-    private void Spread(StreamlineRow row)
-    {
-        if (row.Template.SelectedItem is not string chosen)
-        {
-            return;
-        }
-
-        _spreading = true;
-
-        try
-        {
-            foreach (var other in Alike(row, chosen))
-            {
-                other.Template.SelectedItem = chosen;
-            }
-        }
-        finally
-        {
-            _spreading = false;
-        }
-
-        row.Spread.IsVisible = false;
-    }
-
-    private List<StreamlineRow> Alike(StreamlineRow row, string chosen)
-        => _shown.Where(other => other != row && other.Family == row.Family && other.Offers(chosen) && !Equals(other.Template.SelectedItem, chosen)).ToList();
-
-    private void Clear()
-    {
-        _picked.Clear();
-        _anchor = null;
-        _destination = null;
-        _picks++;
-        _updating = null;
-
-        ShowRows(Array.Empty<StreamlineDownload>());
-        ShowTiles();
-    }
-
-    /// <summary>Where the picks go, over them; the column shows only while there are picks to take somewhere.</summary>
-    private void ShowWhere()
-    {
-        _where.Text = _window.Workspace is null
+        _import.Content = _picked.Count > 0 ? $"Import {_picked.Count}…" : "Import…";
+        _import.IsEnabled = _picked.Count > 0 && !_opening && _running is null;
+        ToolTip.SetTip(_import, _window.Workspace is null
             ? "No project is open, so each icon opens in a tab of its own."
-            : $"Icons go into {ProjectWorkspace.Label(Target!)}.";
-        _side.IsVisible = _shown.Count > 0;
+            : $"Icons go into {ProjectWorkspace.Label(Target!)}.");
     }
 
     private void Say(string? said)
     {
         _said.Text = said;
         _said.IsVisible = said is { };
-    }
-
-    /// <summary>Lists the project's templates again, keeping the one selected, or selecting <paramref name="select"/>.</summary>
-    public void ShowTemplates(string? select = null)
-    {
-        var root = _window.Workspace?.Document.Root;
-        var at = _templateList.SelectedIndex;
-        var wanted = select ?? (_templateList.SelectedItem as TemplateEntry)?.Name;
-
-        // Keep colours is the library's own and last, and not the project's to edit.
-        var entries = root is { } ? new TemplateLibrary(root).Templates.Take(root.Templates.Count).ToList() : new List<TemplateEntry>();
-        var found = entries.FindIndex(entry => entry.Name == wanted);
-
-        _templates.IsVisible = root is { };
-        _listing = true;
-
-        try
-        {
-            _templateList.ItemsSource = entries;
-            _templateList.SelectedIndex = found >= 0 ? found : Math.Min(Math.Max(at, 0), entries.Count - 1);
-        }
-        finally
-        {
-            _listing = false;
-        }
-
-        if (select is { })
-        {
-            _templates.IsExpanded = true;
-        }
-
-        LoadTemplate();
-    }
-
-    /// <summary>
-    /// Puts the selected template's text in the box, unless what is there is an edit of the text the
-    /// project still holds; an edit of another is kept until that one is selected again.
-    /// </summary>
-    private void LoadTemplate()
-    {
-        var root = _window.Workspace?.Document.Root;
-        var index = _templateList.SelectedIndex;
-        var stored = root is { } && index >= 0 && index < root.Templates.Count ? root.Templates[index] : ((string Name, string Text)?)null;
-
-        _templateText.IsEnabled = stored is { };
-
-        if (stored != _templateLoaded)
-        {
-            if (_templateLoaded is { } left && left.Name != stored?.Name && _templateText.Text is { } typed && typed != left.Text)
-            {
-                _drafts[left.Name] = typed;
-            }
-
-            _templateLoaded = stored;
-            _templateText.Text = stored is { } now && _drafts.Remove(now.Name, out var draft) ? draft : stored?.Text;
-        }
-
-        CheckTemplate();
-    }
-
-    /// <summary>Says why the text does not parse, and previews it on the first icon picked.</summary>
-    private void CheckTemplate()
-    {
-        SvgRecipe? recipe = null;
-        string? said = null;
-
-        if (_templateText.Text is { Length: > 0 } text)
-        {
-            try
-            {
-                recipe = SvgRecipe.Parse(text);
-            }
-            catch (SvgRecipeException failure)
-            {
-                said = failure.Message;
-            }
-        }
-
-        SayTemplate(said);
-        PreviewTemplate(recipe);
-    }
-
-    private void PreviewTemplate(SvgRecipe? recipe)
-    {
-        _templatePreview.Svg = null;
-        _previewDocument?.Dispose();
-        _previewDocument = null;
-        TemplatePreviewText = null;
-
-        var target = _window.Workspace is { } ? _updating?.Parent ?? Target : null;
-
-        if (recipe is null || _shown.FirstOrDefault()?.Downloads[0].Prepared is not { } icon)
-        {
-            _previewSaid.Text = recipe is null ? null : "Pick an icon above to see the template on it.";
-
-            return;
-        }
-
-        var binding = recipe.Bind(icon.Survey, icon.Palette, target is { } ? ProjectDeclarations.Names(target) : null);
-
-        if (binding.Recipe is not { } bound)
-        {
-            _previewSaid.Text = binding.Failure;
-
-            return;
-        }
-
-        try
-        {
-            TemplatePreviewText = SvgRecipeRewriter.Apply(TemplateLibrary.Sized(icon.Text, bound), bound).Svg;
-        }
-        catch (SvgRecipeException failure)
-        {
-            _previewSaid.Text = failure.Message;
-
-            return;
-        }
-
-        _previewSaid.Text = recipe.Matches(icon.Survey, icon.Family, icon.Style, icon.Name)
-            ? $"{icon.Name}, as this template imports it."
-            : $"{icon.Name}, which this template's <match> would not offer it for.";
-
-        if ((_previewDocument = StreamlineRow.Drawn(TemplatePreviewText, target)) is { } document)
-        {
-            try
-            {
-                document.Svg.SetExpressionValues(GroupPanel.Seeded(document));
-            }
-            catch (ExprException)
-            {
-                // Drawn with whatever the drawing says by default, as a row's preview is.
-            }
-
-            _templatePreview.Svg = document.Svg;
-        }
-    }
-
-    private void SayTemplate(string? said)
-    {
-        _templateSaid.Text = said;
-        _templateSaid.IsVisible = said is { };
-    }
-
-    /// <summary>Writes the text in the box back as the selected template, as one step.</summary>
-    public void ApplyTemplateEdit()
-    {
-        if (_window.Workspace is not { } workspace || _templateList.SelectedIndex is not (>= 0 and var index))
-        {
-            return;
-        }
-
-        var was = workspace.Document.Root.Templates[index].Name;
-
-        if (TemplateLibrary.Put(workspace, index, _templateText.Text ?? string.Empty) is { } refusal)
-        {
-            SayTemplate(refusal);
-
-            return;
-        }
-
-        // An edit that renames it was kept as a draft of the old name when the list moved on.
-        _drafts.Remove(was);
-        ShowTemplates();
-    }
-
-    /// <summary>Asks for a new name for the selected template, and gives it that name as one step.</summary>
-    public async Task RenameTemplateAsync()
-    {
-        if (_window.Workspace is not { } workspace || _templateList.SelectedIndex is not (>= 0 and var index))
-        {
-            return;
-        }
-
-        var (was, text) = workspace.Document.Root.Templates[index];
-
-        if (await _window.AskTemplateName(was, null).ConfigureAwait(true) is not { } answer || answer.Name == was)
-        {
-            return;
-        }
-
-        // What the project holds, not what is typed: a rename is not an Apply of a half-made edit.
-        if (TemplateLibrary.Put(workspace, index, Renamed(text, answer.Name)!) is { } refusal)
-        {
-            SayTemplate(refusal);
-
-            return;
-        }
-
-        ShowTemplates(answer.Name);
-
-        // The half-made edit goes with it, renamed too, rather than staying a draft of a name that is gone.
-        if (_drafts.Remove(was, out var draft))
-        {
-            _templateText.Text = Renamed(draft, answer.Name) ?? draft;
-        }
-
-        static string? Renamed(string text, string name)
-        {
-            if (SvgSourceDocument.Read(text, out _) is not { Document.Root: { } root } read)
-            {
-                return null;
-            }
-
-            root.SetAttributeValue("name", name);
-
-            return read.ToText();
-        }
-    }
-
-    /// <summary>Takes the selected template out of the project, as one step.</summary>
-    public void DeleteTemplate()
-    {
-        if (_window.Workspace is not { } workspace || _templateList.SelectedIndex is not (>= 0 and var index))
-        {
-            return;
-        }
-
-        var name = workspace.Document.Root.Templates[index].Name;
-
-        SayTemplate(TemplateLibrary.Put(workspace, index, null));
-        ShowTemplates();
-        _drafts.Remove(name);
-    }
-
-    /// <summary>Keeps what <paramref name="row"/> does to its first icon as a template of the project's, asking what to call it.</summary>
-    public async Task SaveTemplateAsync(StreamlineRow row)
-    {
-        if (_window.Workspace is not { } workspace)
-        {
-            return;
-        }
-
-        var download = row.Downloads[0];
-        var family = download.Icon.FamilyName ?? download.Prepared.Family;
-        var chosen = row.Template.SelectedItem as string ?? TemplateLibrary.KeepColoursName;
-
-        try
-        {
-            // Once before asking, so a row that turns nothing into an expression says so before anything is typed.
-            TemplateLibrary.Save(chosen, download.Prepared, row.Recipe(0), null);
-        }
-        catch (SvgRecipeException failure)
-        {
-            Say(failure.Message);
-
-            return;
-        }
-
-        if (await _window.AskTemplateName(family is { } ? $"{chosen} ({family})" : chosen, download.Prepared.Family is { } ? family : null)
-                .ConfigureAwait(true) is not { } answer)
-        {
-            return;
-        }
-
-        var text = TemplateLibrary.Save(answer.Name, download.Prepared, row.Recipe(0), answer.OnlyFamily ? download.Prepared.Family : null);
-
-        if (TemplateLibrary.Put(workspace, workspace.Document.Root.Templates.Count, text) is { } refusal)
-        {
-            Say(refusal);
-
-            return;
-        }
-
-        Say(null);
-        ShowTemplates(answer.Name);
     }
 
     /// <summary>What to tell somebody about a failure reaching Streamline, or null for one this does not expect.</summary>
@@ -1519,6 +1063,8 @@ public sealed class StreamlinePanel : UserControl
             .Chunk(_columns)
             .Select(chunk => new TileRow(chunk))
             .ToList();
+
+        ShowImport();
     }
 
     private Control Tiles(TileRow row)
@@ -1598,7 +1144,7 @@ public sealed class StreamlinePanel : UserControl
 
     /// <summary>
     /// Picks the tile pressed, unless it is picked already and the press is plain or adding: then
-    /// the pick waits for the release, so dragging it carries every pick.
+    /// the pick waits for the release, so dragging it carries every pick. A double click imports it alone.
     /// </summary>
     private async void OnTilePressed(object? sender, PointerPressedEventArgs e)
     {
@@ -1613,6 +1159,16 @@ public sealed class StreamlinePanel : UserControl
         }
 
         e.Handled = true;
+
+        // Counted by the pointer from time and place, so it survives the first press rebuilding the tile, which DoubleTapped does not.
+        if (e.ClickCount == 2)
+        {
+            await PickAsync(index, KeyModifiers.None).ConfigureAwait(true);
+            Dispatcher.UIThread.Post(async () => await OpenImportAsync().ConfigureAwait(true));
+
+            return;
+        }
+
         _pressed = e;
         _pressedAt = e.GetPosition(_tiles);
         _pressedIndex = index;
