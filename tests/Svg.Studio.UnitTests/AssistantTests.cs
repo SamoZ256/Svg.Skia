@@ -103,6 +103,23 @@ public class AssistantTests : IDisposable
         session.Use(new ScriptedProvider(chat), new AssistantModel("large", "Large", 1_000_000));
 
         Assert.False(session.Small);
+
+        // And is not told about saving at all, having no tool to do it: told it asks first, a 3B
+        // on-device model asked to save after every edit.
+        Assert.DoesNotContain("Saving", AssistantSession.SystemPrompt(small: true), StringComparison.Ordinal);
+        Assert.Contains("Saving, removing and committing ask the person first", AssistantSession.SystemPrompt(small: false), StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Small_Model_Is_Not_Told_There_Is_Anything_To_Save()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }), Say("Renamed.")), "rename");
+
+        Assert.True(window.Workspace!.IsEdited);
+        Assert.Contains("unsaved changes", new AssistantTools(window).Context(small: false), StringComparison.Ordinal);
+        Assert.DoesNotContain("unsaved", new AssistantTools(window).Context(small: true), StringComparison.Ordinal);
     }
 
     [AvaloniaFact]

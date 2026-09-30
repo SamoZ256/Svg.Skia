@@ -87,14 +87,18 @@ public sealed class AssistantTools
     }
 
     /// <summary>What is open, in a few lines, for the start of every message the person sends.</summary>
-    public string Context()
+    /// <param name="small">
+    /// Whether the model is one without the save tool, which is not told there is anything to save:
+    /// a 3B on-device model answered every mention of it by telling the person to.
+    /// </param>
+    public string Context(bool small = false)
     {
         var text = new StringBuilder();
         var front = _window.FrontNode;
 
         if (_window.Workspace is { } workspace)
         {
-            text.Append("Project: ").Append(workspace.Name).Append(workspace.IsEdited ? " (unsaved changes)" : string.Empty).Append('\n');
+            text.Append("Project: ").Append(workspace.Name).Append(workspace.IsEdited && !small ? " (unsaved changes)" : string.Empty).Append('\n');
         }
         else
         {

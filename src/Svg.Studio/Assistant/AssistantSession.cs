@@ -20,19 +20,29 @@ namespace Svg.Studio;
 /// </remarks>
 public sealed class AssistantSession : IDisposable
 {
+    /// <remarks>
+    /// Worded for the smallest model that reads it. A 3B on-device one, told an edit was "labelled
+    /// Assistant: ... in the Edit menu" and to "say what you changed", answered a request with
+    /// "Assistant: Changed the fill to red" and no tool call at all; the same model with the rule
+    /// below read the drawing and made the call every time.
+    /// </remarks>
     private const string Instructions =
         """
         You are the assistant inside Svg Studio, a desktop editor for SVG drawings that are built into C# (SkiaSharp) code.
-        You help the person use Studio, and when they ask, you act in it through your tools.
+        You help the person use Studio, and when they ask for a change you make it with your tools.
 
-        - Answer from the documentation you are given, and say so plainly when it does not cover something.
-        - Every edit you make is one step the person can undo with Cmd/Ctrl+Z, labelled "Assistant: ..." in the Edit menu. Say what you changed.
-        - Read before you write: get_drawing gives the address keys that set_attributes takes. Keys are positions, so read again after an edit that adds, moves or removes elements.
+        - Act only through tools. Never say something changed unless a tool reported it done; after your tools have run, say in a sentence what they did.
+        - A request is the permission: never ask whether to proceed, just do it.
+        - Answer questions from the documentation you are given, and say plainly when it does not cover something.
+        - get_drawing gives the address keys set_attributes takes. Keys are positions, so read again after an edit that adds, moves or removes elements.
         - Nodes of the project are named by path from get_project, such as 0/2. Names can repeat; paths cannot.
         - Expressions are written {{ name }} inside an attribute; parameters and lets are declared in the drawing's or a group's declarations.
-        - Saving, removing and committing ask the person first; don't ask again in words.
+        - Every edit is one step the person can undo with Cmd/Ctrl+Z.
         - Reply in short plain text: the panel does not render Markdown.
         """;
+
+    /// <summary>Only for a model that has the save, remove and git_commit tools; a small one nagged about saving from the mention alone.</summary>
+    private const string Confirming = "\n- Saving, removing and committing ask the person first; don't ask again in words.";
 
     private readonly AssistantTools _tools;
     private readonly List<ChatMessage> _messages = new();
@@ -68,12 +78,14 @@ public sealed class AssistantSession : IDisposable
 
         // The documentation leads, fixed for the whole conversation, so every turn after the first
         // reads it from the cache rather than paying for it again.
-        var system = Small
-            ? $"{Instructions}\nThe documentation, by section id (read one with read_doc):\n{AssistantDocs.Contents}"
-            : $"{Instructions}\nThe documentation:\n\n{AssistantDocs.Whole}";
-
-        _messages.Add(new ChatMessage(ChatRole.System, [new TextContent(system).WithCacheControl(Ttl.Ttl1h)]));
+        _messages.Add(new ChatMessage(ChatRole.System, [new TextContent(SystemPrompt(Small)).WithCacheControl(Ttl.Ttl1h)]));
     }
+
+    /// <summary>What a model is told before the conversation: the instructions, then the docs or their contents.</summary>
+    public static string SystemPrompt(bool small)
+        => small
+            ? $"{Instructions}\nThe documentation, by section id (read one with read_doc):\n{AssistantDocs.Contents}"
+            : $"{Instructions}{Confirming}\nThe documentation:\n\n{AssistantDocs.Whole}";
 
     /// <summary>Sends what the person typed, with what is open, and streams the reply's text.</summary>
     public async IAsyncEnumerable<string> SendAsync(string text, [EnumeratorCancellation] CancellationToken cancellation)
@@ -85,7 +97,7 @@ public sealed class AssistantSession : IDisposable
 
         var before = _messages.Count;
 
-        _messages.Add(new ChatMessage(ChatRole.User, $"{text}\n\n<studio>\n{_tools.Context()}\n</studio>"));
+        _messages.Add(new ChatMessage(ChatRole.User, $"{text}\n\n<studio>\n{_tools.Context(Small)}\n</studio>"));
 
         var options = new ChatOptions
         {
