@@ -16,7 +16,7 @@
       <stop offset="1" stop-color="{{ ((enabled and state) ? accent ? #2586ffff : isLight ? whiteColor_ : blackColor70 : isLight ? whiteColor30 : blackColor10) }}" />
     </linearGradient>
     <e:code>
-      <e:param name="step" type="number" default="2" />
+      <e:param name="step" type="number" default="3" />
       <e:param name="enabled" type="boolean" default="true" />
       <e:param name="state" type="boolean" default="true" />
       <e:param name="accent" type="boolean" default="true" />
