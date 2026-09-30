@@ -70,6 +70,7 @@ public class SvgViewerCanvas : SKCanvasControl
     private SKPath? _highlight;
     private BoundsInfo? _gizmo;
     private bool _gizmoTurns = true;
+    private bool _pageOutlined = true;
     private bool _editing;
     private bool _editMoved;
     private IPointer? _editPointer;
@@ -106,7 +107,7 @@ public class SvgViewerCanvas : SKCanvasControl
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
         Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, new(0x1A, 0x1A, 0x1E), null,
-        0d, null, null, true, DefaultCaptionSize, SvgViewerGrid.None, null);
+        0d, null, null, true, DefaultCaptionSize, SvgViewerGrid.None, null, true);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -122,7 +123,8 @@ public class SvgViewerCanvas : SKCanvasControl
         bool GizmoTurns,
         double CaptionSize,
         SvgViewerGrid Grid,
-        SKRect? Marquee);
+        SKRect? Marquee,
+        bool PageOutlined);
 
     public SvgViewerCanvas()
     {
@@ -330,6 +332,17 @@ public class SvgViewerCanvas : SKCanvasControl
     /// an export writes and what a project's sizing moves. On by default for that reason; a host
     /// wanting the drawing on its own turns it off.
     /// </remarks>
+    public bool IsPageOutlined
+    {
+        get => _pageOutlined;
+        set
+        {
+            _pageOutlined = value;
+
+            Publish();
+        }
+    }
+
     /// <summary>
     /// The silhouette to ring, in the space the drawings are arranged in.
     /// </summary>
@@ -1023,7 +1036,8 @@ public class SvgViewerCanvas : SKCanvasControl
 
             // Only once it has travelled, as the carried rectangle is: a press inside the slack has
             // no rectangle yet, and a zero-sized one would flash a dot under every click.
-            _marquee && _marqueeMoved ? Spanned(_marqueeFrom, _marqueeTo) : null);
+            _marquee && _marqueeMoved ? Spanned(_marqueeFrom, _marqueeTo) : null,
+            _pageOutlined);
 
         InvalidateVisual();
     }
@@ -1818,7 +1832,7 @@ public class SvgViewerCanvas : SKCanvasControl
                 canvas.Restore();
             }
 
-            if (page is { } frame)
+            if (page is { } frame && state.PageOutlined)
             {
                 Outline(canvas, frame, state.Scale);
             }
