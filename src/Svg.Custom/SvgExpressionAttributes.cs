@@ -182,6 +182,52 @@ public static class SvgExpressionAttributes
 
     public static string KeyFor(string localName) => Namespace + ":" + localName;
 
+    /// <summary>
+    /// The attribute naming a box the generated class reports as a constant:
+    /// <c>e:bounds="LevelRect"</c> on the element whose bounds it is.
+    /// </summary>
+    public const string Bounds = "bounds";
+
+    /// <summary>
+    /// Why <paramref name="name"/> cannot be a box of the class called <paramref name="className"/>,
+    /// or null when it can.
+    /// </summary>
+    /// <param name="others">The drawing's other boxes, which a name may not repeat.</param>
+    /// <remarks>
+    /// Asked by the generator, which refuses the build, and by an editor, which says so while the name
+    /// is typed. <c>Record</c>, <c>Draw</c> and <c>Picture</c> are the generated class's own members.
+    /// A keyword is fine, being emitted verbatim.
+    /// </remarks>
+    public static string? WhyNotBox(string name, string? className, IEnumerable<string> others)
+    {
+        var identifier = name.Length > 0 && !char.IsDigit(name[0]);
+
+        foreach (var character in name)
+        {
+            identifier &= character == '_' || char.IsLetterOrDigit(character);
+        }
+
+        if (!identifier)
+        {
+            return $"'{name}' is not a name a class can declare: use letters, digits and underscore, not starting with a digit.";
+        }
+
+        if (name is "Record" or "Draw" or "Picture" || string.Equals(name, className, StringComparison.Ordinal))
+        {
+            return $"'{name}' is a name the generated class already uses.";
+        }
+
+        foreach (var other in others)
+        {
+            if (string.Equals(other, name, StringComparison.Ordinal))
+            {
+                return $"Another box of this drawing is already called '{name}'.";
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Where a lifted expression came from, so a weaker declaration cannot overwrite it.</summary>
     /// <remarks>
     /// Beside the expression rather than encoded into it, and in the same collection, so it travels

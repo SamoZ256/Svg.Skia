@@ -381,91 +381,34 @@ public static class SvgcProjectBuild
             Bounds(svgDocument, sceneDocument, item.Input, log));
     }
 
-    /// <summary>
-    /// The attribute, in the expression namespace, that names a box the generated class reports as a
-    /// constant: <c>e:bounds="LevelRect"</c> on the element whose bounds it is.
-    /// </summary>
-    public const string BoundsAttribute = "bounds";
-
-    /// <summary>Every box the drawing marks, measured where the compile placed it.</summary>
-    /// <remarks>
-    /// Nothing under <c>&lt;defs&gt;</c> counts: a PaintCode symbol arrives there as a copy of another
-    /// canvas, marks included, and those boxes belong to that canvas's class.
-    /// </remarks>
+    /// <summary>Every box the drawing marks, as its class will report it.</summary>
     private static IReadOnlyList<(string Name, SKRect Rect)> Bounds(
         SvgDocument document,
         SvgSceneDocument scene,
         string input,
         Action<string>? log)
     {
-        var key = SvgExpressionAttributes.KeyFor(BoundsAttribute);
-        var marked = document.Descendants()
-            .Where(element => element.CustomAttributes.ContainsKey(key) && !element.Parents.OfType<SvgDefinitionList>().Any())
-            .ToList();
-
-        if (marked.Count == 0)
-        {
-            return Array.Empty<(string, SKRect)>();
-        }
-
-        // A driven transform sits at its stand-in until something binds it, and the defaults are the
-        // only values a build has. A parameter without one leaves the stand-ins.
-        var defaults = Defaults(document);
-
-        scene.ApplyExpressionTransforms(defaults);
-
         var bounds = new List<(string, SKRect)>();
 
-        foreach (var element in marked)
+        foreach (var box in SvgSceneBoxes.Measure(document, scene))
         {
-            var name = element.CustomAttributes[key];
-
-            if (Placed(scene, element) is not { } node)
+            if (box.Rect is not { } rect)
             {
-                log?.Invoke($"warning: {Path.GetFileName(input)}: the box '{name}' has no place of its own in the drawing, so the class has no constant for it.");
+                log?.Invoke($"warning: {Path.GetFileName(input)}: the box '{box.Name}' has no place of its own in the drawing, so the class has no constant for it.");
                 continue;
             }
 
-            if (Driven(node))
+            if (box.Driven)
             {
-                log?.Invoke(defaults is { }
-                    ? $"warning: {Path.GetFileName(input)}: the box '{name}' moves with a parameter, and its constant is where the defaults put it."
-                    : $"warning: {Path.GetFileName(input)}: the box '{name}' moves with a parameter that has no default, and its constant is where the drawing was compiled.");
+                log?.Invoke(SvgSceneBoxes.Defaults(document) is { }
+                    ? $"warning: {Path.GetFileName(input)}: the box '{box.Name}' moves with a parameter, and its constant is where the defaults put it."
+                    : $"warning: {Path.GetFileName(input)}: the box '{box.Name}' moves with a parameter that has no default, and its constant is where the drawing was compiled.");
             }
 
-            bounds.Add((name, node.TransformedBounds));
+            bounds.Add((box.Name, rect));
         }
 
         return bounds;
-    }
-
-    /// <summary>The node drawing <paramref name="element"/> where it stands, rather than a copy a <c>&lt;use&gt;</c> placed.</summary>
-    /// <remarks>
-    /// A <c>&lt;use&gt;</c> compiles its target again under the target's own address, so the element's
-    /// address alone can name a copy standing somewhere else. Content only ever drawn as copies, such
-    /// as a <c>&lt;symbol&gt;</c>'s, has no such node.
-    /// </remarks>
-    private static SvgSceneNode? Placed(SvgSceneDocument scene, SvgElement element)
-    {
-        if (!scene.TryGetNode(element, out var first) || first?.ElementAddressKey is not { } address ||
-            !scene.TryGetNodes(address, out var nodes))
-        {
-            return null;
-        }
-
-        return nodes.FirstOrDefault(node => !Ancestors(node).Any(ancestor => ancestor.Kind == SvgSceneNodeKind.Use));
-    }
-
-    /// <summary>Whether a parameter moves <paramref name="node"/>, or anything inside it and so its bounds.</summary>
-    private static bool Driven(SvgSceneNode node)
-        => node.SymbolicTotalTransform is { } || node.Children.Any(child => child.SymbolicTransform is { } || Driven(child));
-
-    private static IEnumerable<SvgSceneNode> Ancestors(SvgSceneNode node)
-    {
-        for (var ancestor = node.Parent; ancestor is { }; ancestor = ancestor.Parent)
-        {
-            yield return ancestor;
-        }
     }
 
     /// <summary>
@@ -562,7 +505,7 @@ public static class SvgcProjectBuild
     /// </remarks>
     private static IDisposable BeginSubstitution(SvgDocument document)
     {
-        if (!SvgExpressionSubstitution.IsNeeded(document) || Defaults(document) is not { } defaults)
+        if (!SvgExpressionSubstitution.IsNeeded(document) || SvgSceneBoxes.Defaults(document) is not { } defaults)
         {
             return SvgExpressionSubstitution.None;
         }
@@ -574,19 +517,6 @@ public static class SvgcProjectBuild
         catch (Exception failure) when (failure is ExprException or ArgumentException)
         {
             return SvgExpressionSubstitution.None;
-        }
-    }
-
-    /// <summary>The declared defaults, or null where a parameter has none or a declaration does not evaluate.</summary>
-    private static ExprEvaluator? Defaults(SvgDocument document)
-    {
-        try
-        {
-            return ExprEvaluator.Create(document.ExpressionDeclarations, null);
-        }
-        catch (Exception failure) when (failure is ExprException or ArgumentException)
-        {
-            return null;
         }
     }
 

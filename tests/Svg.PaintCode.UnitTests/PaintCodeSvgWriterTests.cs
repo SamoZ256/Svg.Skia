@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Xml.Linq;
-using Svg.CodeGen.Skia.Projects;
 using Xunit;
 
 namespace Svg.PaintCode.UnitTests;
@@ -528,7 +527,7 @@ public class PaintCodeSvgWriterTests
         Assert.Equal("75%", box.Parent!.Elements().Single(one => one.Name.LocalName == "text").Value);
     }
 
-    private static readonly XName Marked = PaintCodeCode.Namespace + SvgcProjectBuild.BoundsAttribute;
+    private static readonly XName Marked = PaintCodeCode.Namespace + SvgExpressionAttributes.Bounds;
 
     /// <summary>An oval whose sweep an expression drives, for the tests below to vary.</summary>
     private static PaintCodeShape Arc(

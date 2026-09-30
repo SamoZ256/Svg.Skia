@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Xml.Linq;
-using Svg.CodeGen.Skia.Projects;
 
 namespace Svg.PaintCode;
 
@@ -207,7 +206,7 @@ internal sealed class PaintCodeSvgWriter
         {
             if (_expanding.Count > 0 || _marks.Add(mark))
             {
-                element.SetAttributeValue(PaintCodeCode.Namespace + SvgcProjectBuild.BoundsAttribute, mark);
+                element.SetAttributeValue(PaintCodeCode.Namespace + SvgExpressionAttributes.Bounds, mark);
                 _marked = true;
             }
             else
@@ -342,7 +341,7 @@ internal sealed class PaintCodeSvgWriter
 
         // A marked box stays, being what the mark measures.
         if (element.Attribute("fill")?.Value == "none" && element.Attribute("stroke") is null &&
-            element.Attribute(PaintCodeCode.Namespace + SvgcProjectBuild.BoundsAttribute) is null)
+            element.Attribute(PaintCodeCode.Namespace + SvgExpressionAttributes.Bounds) is null)
         {
             return run;
         }

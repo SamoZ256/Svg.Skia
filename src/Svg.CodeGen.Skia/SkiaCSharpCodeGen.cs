@@ -316,19 +316,25 @@ public static class SkiaCSharpCodeGen
     private static bool IsIdentifier(char c) => c == '_' || char.IsLetterOrDigit(c);
 
     /// <summary>Refuses a box whose name the emitted class could not declare.</summary>
+    /// <remarks>
+    /// The cache's private fields on top of the shared rule, which an editor asks too and which has no
+    /// business knowing them.
+    /// </remarks>
     private static void RefuseBounds(string className, IReadOnlyList<(string Name, SKRect Rect)> bounds)
     {
-        var taken = new HashSet<string>(StringComparer.Ordinal) { className, "Record", "Draw", "Picture", CacheLockField, CachedPictureField };
-
-        foreach (var (name, _) in bounds)
+        for (var i = 0; i < bounds.Count; i++)
         {
-            var identifier = name.Length > 0 && !char.IsDigit(name[0]) && name.All(IsIdentifier);
+            var name = bounds[i].Name;
+            var why = SvgExpressionAttributes.WhyNotBox(name, className, bounds.Take(i).Select(box => box.Name));
 
-            if (!identifier || name.StartsWith(ArgumentField(string.Empty), StringComparison.Ordinal) || !taken.Add(name))
+            if (why is null && (name is CacheLockField or CachedPictureField || name.StartsWith(ArgumentField(string.Empty), StringComparison.Ordinal)))
             {
-                throw new ExprException(
-                    $"'{className}' cannot declare a box named '{name}': it has to be an identifier the class does not already use.",
-                    0);
+                why = $"'{name}' is a name the generated class already uses.";
+            }
+
+            if (why is { })
+            {
+                throw new ExprException($"'{className}' cannot declare that box: {why}", 0);
             }
         }
     }
