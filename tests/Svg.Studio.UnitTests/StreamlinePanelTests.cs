@@ -105,7 +105,23 @@ public class StreamlinePanelTests : IDisposable
     /// <summary>Answers by path, and says what it was asked.</summary>
     private sealed class Streamline : HttpMessageHandler
     {
-        public List<string> Asked { get; } = new();
+        private readonly List<string> _asked = new();
+
+        /// <summary>What was asked so far, copied under the lock a request is added under.</summary>
+        /// <remarks>
+        /// A copy rather than the list: the panel sends its next request on a pool thread while an
+        /// assertion is walking this, which threw "Collection was modified" on Windows and Linux CI.
+        /// </remarks>
+        public IReadOnlyList<string> Asked
+        {
+            get
+            {
+                lock (_asked)
+                {
+                    return _asked.ToArray();
+                }
+            }
+        }
 
         public Dictionary<string, Func<HttpRequestMessage, HttpResponseMessage>> Paths { get; } = new(StringComparer.Ordinal);
 
@@ -116,9 +132,9 @@ public class StreamlinePanelTests : IDisposable
         {
             var uri = request.RequestUri!;
 
-            lock (Asked)
+            lock (_asked)
             {
-                Asked.Add(uri.PathAndQuery);
+                _asked.Add(uri.PathAndQuery);
             }
 
             // Never at once: an answer already there when asked hides the order the panel does things in.
@@ -132,9 +148,9 @@ public class StreamlinePanelTests : IDisposable
 
         public int Count(string prefix)
         {
-            lock (Asked)
+            lock (_asked)
             {
-                return Asked.Count(asked => asked.StartsWith(prefix, StringComparison.Ordinal));
+                return _asked.Count(asked => asked.StartsWith(prefix, StringComparison.Ordinal));
             }
         }
 
