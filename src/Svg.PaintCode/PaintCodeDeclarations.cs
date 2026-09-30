@@ -424,7 +424,7 @@ internal sealed class PaintCodeDeclarations
 
             foreach (var gradient in reachable)
             {
-                scope[gradient.Key] = Stop(gradient.Value.Stops[index].Color);
+                scope[gradient.Key] = Stop(gradient.Value, index, overrides) ?? Literal(gradient.Value.Stops[index].Color);
             }
 
             // Deepest first, so a variable built from another has what it names already in the scope.
@@ -512,16 +512,52 @@ internal sealed class PaintCodeDeclarations
         return order;
     }
 
-    /// <summary>A stop's colour as the name a drawing can bind, or as the bytes it simply is.</summary>
-    internal string Stop(PaintCodeColor color)
+    /// <summary>
+    /// The declaration a colour is, where the library names it and a drawing can reach it — or what a
+    /// symbol's copy was given in its place.
+    /// </summary>
+    internal string? Named(PaintCodeColor color, IReadOnlyDictionary<string, string>? overrides)
     {
+        if (color.Name.Length == 0)
+        {
+            return null;
+        }
+
         var name = PaintCodeSlug.Identifier(color.Name);
 
-        return color.Name.Length > 0 &&
-               _byName.TryGetValue(name, out var declaration) &&
+        if (overrides is { } given && given.TryGetValue(name, out var value))
+        {
+            return value;
+        }
+
+        return _byName.TryGetValue(name, out var declaration) &&
                declaration.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local
             ? name
-            : Literal(color);
+            : null;
+    }
+
+    /// <summary>A stop's colour as something a drawing can bind, or null where it is the bytes saved for it.</summary>
+    /// <remarks>
+    /// A middle stop is not a colour of its own: PaintCode drops one that sits halfway and blends the
+    /// rest evenly from the stops either side. The colour saved for it is that blend at the colours
+    /// the document was saved with, so a controller knob given another accent blended through pink.
+    /// </remarks>
+    internal string? Stop(PaintCodeGradient gradient, int index, IReadOnlyDictionary<string, string>? overrides)
+    {
+        var stops = gradient.Stops;
+
+        if (stops[index].IsMiddle && index > 0 && index < stops.Count - 1)
+        {
+            var before = Named(stops[index - 1].Color, overrides);
+            var after = Named(stops[index + 1].Color, overrides);
+
+            if (before is { } || after is { })
+            {
+                return $"mix({before ?? Literal(stops[index - 1].Color)}, {after ?? Literal(stops[index + 1].Color)}, 0.5)";
+            }
+        }
+
+        return Named(stops[index].Color, overrides);
     }
 
     /// <summary>The names a translated expression reads, so what it needs can be declared with it.</summary>

@@ -51,10 +51,20 @@ internal static class SymbolDocument
             Symbol(archive, "Half", "slider", archive.Dictionary(("VIRTUAL__level", Expression(archive, "0.5", 2, archive.Value(0.5d))))),
             Moved(archive)));
 
-        // glyph draws in accentColorOn and wrapper hands it that colour by its own name, so what
-        // glyph draws inside a wrapper is whatever the wrapper was given: its own accent placed
-        // directly, colorPurple through Outer, and blue's bytes through Pinned.
-        var glyph = Canvas(archive, "glyph", archive.Array(Shape(archive, "Glyph", accent, archive.Dictionary())));
+        // glyph draws in accentColorOn, and in a gradient from it to white both as it is and as an
+        // expression chooses it, and wrapper hands it that colour by its own name, so what glyph draws inside a wrapper is whatever the wrapper was
+        // given: its own accent placed directly, colorPurple through Outer, and blue's bytes through
+        // Pinned.
+        var sheen = ScopeDocument.Gradient(
+            archive,
+            "sheen",
+            (accent, 0d, false),
+            (ScopeDocument.Color(archive, "PPGradientMidColor", "0.9921568627 0.6196078431 0.7215686275 1"), 0.5d, true),
+            (ScopeDocument.Color(archive, string.Empty, "1 1 1 1"), 1d, false));
+        var glyph = Canvas(archive, "glyph", archive.Array(
+            Shape(archive, "Glyph", accent, archive.Dictionary()),
+            Shape(archive, "Sheen", sheen, archive.Dictionary()),
+            Shape(archive, "Chosen", sheen, archive.Dictionary(("fill", Expression(archive, "isLight ? sheen : sheen", 6, sheen))))));
         var wrapper = Canvas(archive, "wrapper", archive.Array(
             Symbol(archive, "Inner", "glyph", archive.Dictionary(), archive.Dictionary(("VIRTUAL__accentColorOn", accent)))));
         var chain = Canvas(archive, "chain", archive.Array(
@@ -77,6 +87,7 @@ internal static class SymbolDocument
             ("library", archive.Object(
                 "PPLibrary",
                 ("colors", archive.Array(purple, accent, blue)),
+                ("gradients", archive.Array(sheen)),
                 ("variables", archive.Array(light, dark, level, step, animation, rotationSpeed, phase, phase3)))));
     }
 

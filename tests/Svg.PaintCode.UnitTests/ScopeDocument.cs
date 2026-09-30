@@ -1,6 +1,7 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
+using System.Linq;
 using System.Text;
 
 namespace Svg.PaintCode.UnitTests;
@@ -11,13 +12,23 @@ internal static class ScopeDocument
     internal static byte[] Bytes(string? derived = null, int derivedType = 2)
     {
         var archive = new KeyedArchiveBuilder();
+        var tint = Color(archive, "tint", "0 1 0 1", usage: 1);
 
         var library = archive.Object(
             "PPLibrary",
-            ("colors", archive.Array(Color(archive, "navy", "0 0 0.2352941176 1"))),
+            ("colors", archive.Array(Color(archive, "navy", "0 0 0.2352941176 1"), tint)),
             // "Cool" with a capital, because PaintCode's own code -- and so its expressions -- name a
             // library item with its first letter lowered, and the library keeps what was typed.
-            ("gradients", archive.Array(Gradient(archive, "warm"), Gradient(archive, "Cool"))),
+            // "blend" runs from a parameter through a middle stop, saved as the halfway colour.
+            ("gradients", archive.Array(
+                Gradient(archive, "warm"),
+                Gradient(archive, "Cool"),
+                Gradient(
+                    archive,
+                    "blend",
+                    (tint, 0d, false),
+                    (Color(archive, "PPGradientMidColor", "0 0.5 0.5 1"), 0.5d, true),
+                    (Color(archive, string.Empty, "0 0 1 1"), 1d, false)))),
             ("variables", archive.Array(
                 Input(archive, "a", 4, archive.Value(true)),
                 Input(archive, "b", 4, archive.Value(true)),
@@ -38,17 +49,28 @@ internal static class ScopeDocument
         return archive.ToBytes(("styleKitName", archive.Text("Scope")), ("library", library));
     }
 
-    private static int Gradient(KeyedArchiveBuilder archive, string name)
-        => archive.Object(
+    /// <summary>A library gradient through <paramref name="steps"/>, or from red to blue where none are given.</summary>
+    internal static int Gradient(KeyedArchiveBuilder archive, string name, params (int Color, double Location, bool Middle)[] steps)
+    {
+        if (steps.Length == 0)
+        {
+            steps = new[] { (Color(archive, string.Empty, "1 0 0 1"), 0d, false), (Color(archive, string.Empty, "0 0 1 1"), 1d, false) };
+        }
+
+        return archive.Object(
             "PPGradient",
             new[]
             {
                 ("name", archive.Text(name)),
-                ("colorSteps", archive.Array(
-                    archive.Object("PPGradientColor", new[] { ("color", Color(archive, string.Empty, "1 0 0 1")) }, ("location", 0d), ("interRatio", 0.5d)),
-                    archive.Object("PPGradientColor", new[] { ("color", Color(archive, string.Empty, "0 0 1 1")) }, ("location", 1d), ("interRatio", 0.5d))))
+                ("colorSteps", archive.Array(steps
+                    .Select(step => archive.Object(
+                        "PPGradientColor",
+                        new[] { ("color", step.Color) },
+                        ("location", step.Location), ("interRatio", 0.5d), ("isMiddleColor", step.Middle)))
+                    .ToArray()))
             },
             ("usage", 0));
+    }
 
     /// <summary>A library colour: a parameter where <paramref name="usage"/> marks it used, a constant where not.</summary>
     internal static int Color(KeyedArchiveBuilder archive, string name, string components, int usage = 0)

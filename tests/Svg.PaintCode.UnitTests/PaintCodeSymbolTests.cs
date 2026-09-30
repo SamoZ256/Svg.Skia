@@ -135,6 +135,46 @@ public class PaintCodeSymbolTests
         Assert.Equal(new[] { "{{ accentColorOn }}", "{{ colorPurple }}", "{{ #0000ffff }}" }, fills);
     }
 
+    /// <summary>
+    /// A gradient inside a symbol's copy follows what that copy was given: its stops, the middle one
+    /// blended from them, and the same again where an expression chooses the gradient.
+    /// </summary>
+    [Fact]
+    public void A_Gradient_In_A_Copy_Follows_The_Colour_The_Copy_Was_Given()
+    {
+        var document = Host(canvas: "chain");
+        var copies = document.Descendants()
+            .Where(element => element.Name.LocalName == "g" && element.Attribute("id")?.Value.StartsWith("sym-glyph", System.StringComparison.Ordinal) == true)
+            .ToList();
+
+        Assert.Equal(
+            new[]
+            {
+                "{{ accentColorOn }} | {{ mix(accentColorOn, #ffffffff, 0.5) }} | #ffffff",
+                "{{ colorPurple }} | {{ mix(colorPurple, #ffffffff, 0.5) }} | #ffffff",
+                "{{ #0000ffff }} | {{ mix(#0000ffff, #ffffffff, 0.5) }} | #ffffff"
+            },
+            copies.Select(copy => Stops(document, copy.Elements().ElementAt(1))));
+
+        Assert.Equal(
+            new[]
+            {
+                "{{ isLight ? accentColorOn : accentColorOn }} | {{ isLight ? (mix(accentColorOn, #ffffffff, 0.5)) : (mix(accentColorOn, #ffffffff, 0.5)) }} | {{ isLight ? #ffffffff : #ffffffff }}",
+                "{{ isLight ? colorPurple : colorPurple }} | {{ isLight ? (mix(colorPurple, #ffffffff, 0.5)) : (mix(colorPurple, #ffffffff, 0.5)) }} | {{ isLight ? #ffffffff : #ffffffff }}",
+                "{{ isLight ? #0000ffff : #0000ffff }} | {{ isLight ? (mix(#0000ffff, #ffffffff, 0.5)) : (mix(#0000ffff, #ffffffff, 0.5)) }} | {{ isLight ? #ffffffff : #ffffffff }}"
+            },
+            copies.Select(copy => Stops(document, copy.Elements().ElementAt(2))));
+    }
+
+    /// <summary>The stop colours of the gradient <paramref name="shape"/> is filled with, in order.</summary>
+    private static string Stops(XDocument document, XElement shape)
+    {
+        var id = shape.Attribute("fill")!.Value.Substring("url(#".Length).TrimEnd(')');
+        var gradient = document.Descendants().Single(element => element.Attribute("id")?.Value == id);
+
+        return string.Join(" | ", gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
+    }
+
     private static XDocument Host(ICollection<PaintCodeImportNote>? notes = null, string canvas = "host")
     {
         var document = PaintCodeDocument.Parse(SymbolDocument.Bytes());
