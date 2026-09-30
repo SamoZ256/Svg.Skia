@@ -80,6 +80,9 @@ public partial class MainWindow : Window
     /// <summary>The open project's place in git, on the arrangement while a saved project is open and git is installed.</summary>
     private readonly ChangesPanel _changes = new();
 
+    /// <summary>The chat that answers from the docs and works the window through <see cref="AssistantTools"/>.</summary>
+    private readonly AssistantPanel _assistant;
+
     /// <summary>The settings window while one is open, so a second asking brings that one forward.</summary>
     private SettingsWindow? _settings;
 
@@ -137,6 +140,8 @@ public partial class MainWindow : Window
             Remark();
             UpdateTitle();
         };
+
+        _assistant = new AssistantPanel(new AssistantTools(this));
 
         // Coming back to the window is when a commit made in a terminal would be seen.
         Activated += async (_, _) => await _changes.Refresh().ConfigureAwait(true);
@@ -928,6 +933,8 @@ public partial class MainWindow : Window
     /// <summary>What the arrangement calls the changes panel.</summary>
     private const string ChangesPanelId = "changes";
 
+    private const string AssistantPanelId = "assistant";
+
     /// <summary>
     /// The panels the window arranges, one host each, filled from whichever tab is in front.
     /// </summary>
@@ -964,7 +971,8 @@ public partial class MainWindow : Window
         return new[]
             {
                 new SvgViewerRegion(ProjectTreePanel, "Project", _projectPaneHost),
-                new SvgViewerRegion(ChangesPanelId, "Changes", _changes)
+                new SvgViewerRegion(ChangesPanelId, "Changes", _changes),
+                new SvgViewerRegion(AssistantPanelId, "Assistant", _assistant)
             }
             .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id])))
             .Append(new SvgViewerRegion(StreamlineRegion, "Streamline", _streamline))
@@ -2300,7 +2308,7 @@ public partial class MainWindow : Window
     /// by the caller with the project itself, which takes the edit with nothing to take it back.
     /// By the row rather than by a file: a drawing is one row of the project, so one tab.
     /// </remarks>
-    private ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
+    internal ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
         => Tab(drawing)?.Content as SvgViewer;
 
     /// <summary>A tab for something that is not a drawing, which the viewer's own tab does not fit.</summary>
@@ -2333,6 +2341,8 @@ public partial class MainWindow : Window
         _tabs.SelectedItem = item;
 
     }
+
+    internal TabItem? TabOf(ProjectNode node) => Tab(node);
 
     private TabItem? Tab(ProjectNode node)
         => _tabs.Items.OfType<TabItem>().FirstOrDefault(item => ReferenceEquals(item.Tag, node));
@@ -2890,6 +2900,7 @@ public partial class MainWindow : Window
         Reread();
 
         await _streamline.RefreshAsync().ConfigureAwait(true);
+        await _assistant.RefreshAsync().ConfigureAwait(true);
     }
 
     /// <summary>Tells every tab what the settings now say.</summary>
@@ -2978,8 +2989,11 @@ public partial class MainWindow : Window
             return true;
         }
 
-        return Selected()?.Undo() == true || _workspace?.Undo() == true;
+        return UndoDocument();
     }
+
+    /// <summary>Undo without the box that has focus, which for the assistant is always its own input.</summary>
+    internal bool UndoDocument() => Selected()?.Undo() == true || _workspace?.Undo() == true;
 
     /// <inheritdoc cref="Undo"/>
     public bool Redo()
@@ -3545,6 +3559,12 @@ public partial class MainWindow : Window
 
     /// <summary>The viewer in the selected tab, or null while there is none.</summary>
     private SvgViewer? Selected() => (_tabs.SelectedItem as TabItem)?.Content as SvgViewer;
+
+    /// <summary>The drawing in front, for something outside the window that works on it.</summary>
+    internal SvgViewer? FrontViewer => Selected();
+
+    /// <summary>The project's node in front, or null for a drawing of its own or nothing.</summary>
+    internal ProjectNode? FrontNode => (_tabs.SelectedItem as TabItem)?.Tag as ProjectNode;
 
     /// <summary>The tabs holding changes that are not on disk.</summary>
     private IReadOnlyList<string> Unsaved()
