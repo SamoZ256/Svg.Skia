@@ -58,11 +58,11 @@ public static class SvgDeclarationEditor
 
     /// <inheritdoc cref="AddLet(string, string, string)"/>
     /// <returns>The sentence refusing it, or null where it was written.</returns>
-    public static string? AddLet(SvgSourceDocument source, string name, string expression)
+    public static string? AddLet(SvgSourceDocument source, string name, string expression, ExprType? type = null)
         => Place(
             source,
-            (declarations, _) => Rejected(declarations, name, expression),
-            prefix => Rendered(prefix, name, expression),
+            (declarations, _) => Rejected(declarations, name, expression, type: type),
+            prefix => Rendered(prefix, name, expression, type),
             isLet: true,
             name);
 
@@ -591,8 +591,12 @@ public static class SvgDeclarationEditor
         return element;
     }
 
-    private static XElement Rendered(XNamespace ns, string name, string expression)
-        => new(ns + "let", new XAttribute("name", name), expression);
+    private static XElement Rendered(XNamespace ns, string name, string expression, ExprType? type = null)
+        => new(
+            ns + "let",
+            new XAttribute("name", name),
+            type is { } declared ? new XAttribute("type", ExprFunctions.NameOf(declared)) : null,
+            expression);
 
     private static readonly XNamespace Ns = SvgExpressionDeclarations.Namespace;
 
@@ -633,11 +637,12 @@ public static class SvgDeclarationEditor
         SvgExpressionDeclarations declarations,
         string name,
         string expression,
-        string? replacing = null)
+        string? replacing = null,
+        ExprType? type = null)
     {
         try
         {
-            Seed(declarations, replacing).AddLet(name, expression);
+            Seed(declarations, replacing).AddLet(name, expression, type is { } declared ? ExprFunctions.NameOf(declared) : null);
         }
         catch (ExprException bad)
         {

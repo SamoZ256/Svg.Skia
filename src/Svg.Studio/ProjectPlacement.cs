@@ -376,7 +376,7 @@ public static class ProjectPlacement
     }
 
     /// <summary>Whether two elements declare the same thing.</summary>
-    private static bool Same(XElement one, XElement other)
+    internal static bool Same(XElement one, XElement other)
         => one.Name == other.Name
            && string.Equals(one.Value.Trim(), other.Value.Trim(), StringComparison.Ordinal)
            && Attributes(one).SequenceEqual(Attributes(other));

@@ -136,6 +136,24 @@ public static class ProjectSnapshot
         return () => group.SetCode(was);
     }
 
+    /// <summary>The project's import templates, as the file holds them.</summary>
+    /// <remarks>
+    /// The block itself rather than <see cref="ProjectRoot.TemplatesText"/>: that text binds the
+    /// prefix wherever the file bound it, so writing it back into a file that binds it on
+    /// <c>&lt;studio&gt;</c> leaves a declaration the file never had.
+    /// </remarks>
+    public static Action Templates(ProjectRoot root)
+    {
+        if (root is null)
+        {
+            throw new ArgumentNullException(nameof(root));
+        }
+
+        var was = root.TemplatesBlock;
+
+        return () => root.PutBlock("templates", was);
+    }
+
     /// <summary>Several captures as one, in the order they were given.</summary>
     /// <remarks>For a gesture that touches more than one thing — a paste is a node and a place.</remarks>
     public static Action All(params Action[] captured)

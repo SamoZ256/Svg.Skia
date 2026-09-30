@@ -59,6 +59,7 @@ public partial class MainWindow : Window
     /// of panels rather than a set per document.
     /// </remarks>
     private readonly SvgViewerDock _dock;
+    private readonly StreamlinePanel _streamline;
     private readonly TextBlock _projectName;
     private readonly TextBox _projectSearch;
     private readonly TextBlock _projectSearchCount;
@@ -116,6 +117,7 @@ public partial class MainWindow : Window
         ShowSettings = ShowSettingsWindow;
         ConfirmRelax = AskRelax;
         Announce = (title, message) => Ask(title, message, null, "Close");
+        AskTemplateName = AskTemplate;
         ShowOnDisk = Reveal;
 
         ResolveConflicts = merge => new ProjectMergeWindow(merge).ShowDialog<bool?>(this);
@@ -178,6 +180,15 @@ public partial class MainWindow : Window
         // parent, so the panel holding them lets go first.
         shell.Children.Remove(_projectPaneHost);
         shell.Children.Remove(_tabs);
+
+        _streamline = new StreamlinePanel(this)
+        {
+            ConfirmFamily = message => Ask("Import a family", message, "Import", "Cancel")
+        };
+
+        // Posted, so a tree rebuilt under an edit is read once it holds its selection again rather
+        // than as the empty tree it passes through, which would start the import rows over.
+        _projectTree.SelectionChanged += (_, _) => Dispatcher.UIThread.Post(() => _streamline.Target = Targeted());
 
         // Fallback first: it is what an unreadable line comes back to, and where a panel taken off
         // the arrangement is put when it comes back.
@@ -673,6 +684,7 @@ public partial class MainWindow : Window
             Retitle();
             Rebuild();
             UpdateMenu();
+            _streamline.ShowTemplates();
         };
 
         // A write changes nothing the tree or the boards are showing — only whether there is
@@ -949,8 +961,23 @@ public partial class MainWindow : Window
                 new SvgViewerRegion(ChangesPanelId, "Changes", _changes)
             }
             .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id])))
+            .Append(new SvgViewerRegion(StreamlineRegion, "Streamline", _streamline))
             .ToList();
     }
+
+    /// <summary>What the arrangement calls the Streamline panel, which is the window's and not filled from a tab.</summary>
+    private const string StreamlineRegion = "streamline";
+
+    /// <summary>The Streamline panel, for a test to drive.</summary>
+    public StreamlinePanel Streamline => _streamline;
+
+    /// <summary>The group an import goes into: the one picked in the tree, or the one holding the picked drawing.</summary>
+    private ProjectGroup? Targeted() => (_projectTree.SelectedItem as TreeViewItem)?.Tag switch
+    {
+        ProjectGroup group => group,
+        ProjectNode node => node.Parent,
+        _ => null
+    };
 
     /// <summary>Fills the panels from whatever the tab in front has to show.</summary>
     private void Panels()
@@ -1005,6 +1032,8 @@ public partial class MainWindow : Window
         // Here rather than at the two ends of a project's life: this is where both of them already
         // land, and by now the workspace has been set or cleared.
         ShowWelcome();
+
+        _streamline.Target = null;
 
         if (!show)
         {
@@ -1212,6 +1241,22 @@ public partial class MainWindow : Window
         Add("Add group", async () => await AddGroupAsync(node));
         Add("Add SVG…", async () => await AddDrawingAsync(node));
 
+        if (node is ProjectDrawing drawing)
+        {
+            menu.Items.Add(new Separator());
+            Add("Extract template…", async () => await ExtractTemplateAsync(drawing));
+
+            if (drawing.Source?.StartsWith(StreamlinePanel.SourcePrefix, StringComparison.Ordinal) == true)
+            {
+                Add("Update from Streamline", async () =>
+                {
+                    ShowStreamline();
+
+                    await _streamline.UpdateAsync(drawing);
+                });
+            }
+        }
+
         // A group has no file of its own, so what it shows is the project it is written in.
         if (OnDisk(node) is { })
         {
@@ -1351,7 +1396,7 @@ public partial class MainWindow : Window
         {
             // Straight in, with no file written anywhere: the project holds the drawings, so a
             // pasted one needs nowhere to live but the row it lands on.
-            await AddTextAsync(parent, index, "drawing", drawing).ConfigureAwait(true);
+            await ImportAsync(parent, index, new[] { new TemplateImport("drawing", drawing) }).ConfigureAwait(true);
 
             return;
         }
@@ -1496,83 +1541,130 @@ public partial class MainWindow : Window
             }
         }
 
-        if (reading.Count == 0)
-        {
-            return;
-        }
-
-        ProjectDrawing? added = null;
-        var refused = new List<string>();
-
-        workspace.Do(
-            reading.Count == 1 ? $"add {reading[0].Name}" : $"add {reading.Count} drawings",
-            () => ProjectSnapshot.Contents(parent),
-            () =>
-            {
-                foreach (var (name, text) in reading)
-                {
-                    try
-                    {
-                        added = parent.AddDrawing(name, text, index++);
-                    }
-                    catch (SvgcProjectException failure)
-                    {
-                        refused.Add($"{name}: {failure.Message}");
-                    }
-                }
-            });
-
-        foreach (var refusal in refused)
-        {
-            await Announce("That drawing couldn't be added", refusal).ConfigureAwait(true);
-        }
-
-        if (added is null)
-        {
-            return;
-        }
-
-        BuildTree(added);
-
-        await ShowAsync(added).ConfigureAwait(true);
+        await ImportAsync(parent, index, reading.Select(one => new TemplateImport(one.Name, one.Text)).ToList()).ConfigureAwait(true);
     }
 
-    /// <summary>Adds one drawing the window has the text of rather than a file for.</summary>
-    private async Task AddTextAsync(ProjectGroup parent, int index, string name, string svgText)
+    /// <summary>
+    /// Puts drawings the window has the text of into <paramref name="parent"/>, through their
+    /// templates, as one step, and opens the last of them.
+    /// </summary>
+    /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
+    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports)
+    {
+        if (_workspace is not { } workspace || imports.Count == 0)
+        {
+            return Array.Empty<ProjectDrawing>();
+        }
+
+        var notes = new List<string>();
+        var added = TemplateLibrary.Import(workspace, parent, index, imports, notes);
+
+        foreach (var note in notes)
+        {
+            await Announce(added.Count == imports.Count ? "Imported" : "That drawing couldn't be added", note).ConfigureAwait(true);
+        }
+
+        if (added.Count == 0)
+        {
+            return added;
+        }
+
+        BuildTree(added[^1]);
+
+        await ShowAsync(added[^1]).ConfigureAwait(true);
+
+        return added;
+    }
+
+    /// <summary>Puts <paramref name="import"/> in place of what <paramref name="drawing"/> draws, as one step, and opens it.</summary>
+    /// <returns>Whether it was replaced; why not has been said.</returns>
+    public async Task<bool> UpdateAsync(ProjectDrawing drawing, TemplateImport import)
+    {
+        if (_workspace is not { } workspace)
+        {
+            return false;
+        }
+
+        // An undo can take the drawing out while its update was being chosen, and it keeps its Parent.
+        if (!drawing.Element.AncestorsAndSelf().Contains(workspace.Document.Root.Element))
+        {
+            await Announce("That drawing couldn't be updated", $"{ProjectWorkspace.Label(drawing)} is no longer in the project.").ConfigureAwait(true);
+
+            return false;
+        }
+
+        var notes = new List<string>();
+        var replaced = TemplateLibrary.Replace(workspace, drawing, import, notes);
+
+        foreach (var note in notes)
+        {
+            await Announce(replaced ? "Updated" : "That drawing couldn't be updated", note).ConfigureAwait(true);
+        }
+
+        if (replaced)
+        {
+            BuildTree(drawing);
+
+            await ShowAsync(drawing).ConfigureAwait(true);
+        }
+
+        return replaced;
+    }
+
+    /// <summary>
+    /// Makes a template of the project's from what <paramref name="drawing"/>'s <c>{{ }}</c> paints
+    /// say, asking what to call it, as one step.
+    /// </summary>
+    public async Task ExtractTemplateAsync(ProjectDrawing drawing)
     {
         if (_workspace is not { } workspace)
         {
             return;
         }
 
-        ProjectDrawing? added = null;
-        string? refusal = null;
+        var name = ProjectWorkspace.Label(drawing);
 
-        workspace.Do(
-            $"add {name}",
-            () => ProjectSnapshot.Contents(parent),
-            () =>
-            {
-                try
-                {
-                    added = parent.AddDrawing(name, svgText, index);
-                }
-                catch (SvgcProjectException failure)
-                {
-                    refusal = failure.Message;
-                }
-            });
-
-        if (added is null)
+        try
         {
-            await Announce("That drawing couldn't be added", refusal ?? "It could not be read.").ConfigureAwait(true);
+            // Once before asking, so a drawing with nothing to extract says so before anything is typed.
+            TemplateLibrary.Extract(name, drawing.Text);
+        }
+        catch (SvgRecipeException failure)
+        {
+            await Announce("Nothing to extract", $"{name}: {failure.Message}").ConfigureAwait(true);
 
             return;
         }
 
-        BuildTree(added);
+        if (await AskTemplateName(name, null).ConfigureAwait(true) is not { } answer)
+        {
+            return;
+        }
 
-        await ShowAsync(added).ConfigureAwait(true);
+        var root = workspace.Document.Root;
+
+        if (TemplateLibrary.Put(workspace, root.Templates.Count, TemplateLibrary.Extract(answer.Name, drawing.Text)) is { } refusal)
+        {
+            await Announce("That template couldn't be added", refusal).ConfigureAwait(true);
+
+            return;
+        }
+
+        ShowStreamline();
+        _streamline.ShowTemplates(answer.Name);
+    }
+
+    /// <summary>Brings the Streamline panel forward, putting it back where it was taken off.</summary>
+    private void ShowStreamline()
+    {
+        _dock.Show(StreamlineRegion, true);
+        _dock.Select(StreamlineRegion);
+    }
+
+    /// <summary>Opens a drawing the window has the text of in a tab of its own, belonging to no project.</summary>
+    public async Task OpenTextAsync(string svgText, string name)
+    {
+        await AddTab().LoadTextAsync(svgText, name).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -2757,6 +2849,8 @@ public partial class MainWindow : Window
         }
 
         Reread();
+
+        await _streamline.RefreshAsync().ConfigureAwait(true);
     }
 
     /// <summary>Tells every tab what the settings now say.</summary>
@@ -3288,6 +3382,13 @@ public partial class MainWindow : Window
     /// </remarks>
     public Action<string> ShowOnDisk { get; set; }
 
+    /// <summary>
+    /// How the window asks what a template is to be called, offering a name and, where a family is
+    /// given, whether to keep the template to it.
+    /// </summary>
+    /// <remarks>Replaceable for the reason <see cref="ConfirmDiscard"/> is. Null is a template nobody went through with.</remarks>
+    public Func<string, string?, Task<(string Name, bool OnlyFamily)?>> AskTemplateName { get; set; }
+
     /// <summary>What the command is called here, since each desktop names its own file manager.</summary>
     private static string Revealing => OperatingSystem.IsMacOS()
         ? "Reveal in Finder"
@@ -3530,6 +3631,21 @@ public partial class MainWindow : Window
         var file = await StorageProvider.SaveFilePickerAsync(SaveProjectOptions(suggested)).ConfigureAwait(true);
 
         return file?.TryGetLocalPath() is { Length: > 0 } path ? path : null;
+    }
+
+    private async Task<(string Name, bool OnlyFamily)?> AskTemplate(string suggested, string? family)
+    {
+        var name = new TextBox { Text = suggested, MinWidth = 320d };
+        var only = new CheckBox { Content = $"Only for icons from {family}", IsVisible = family is { } };
+
+        var asked = await Ask(
+            "Template",
+            "What should the template be called? Imports offer it by this name.",
+            "Save",
+            "Cancel",
+            new StackPanel { Spacing = 8d, Children = { name, only } }).ConfigureAwait(true);
+
+        return asked && name.Text?.Trim() is { Length: > 0 } named ? (named, only.IsChecked is true) : null;
     }
 
     /// <summary>What the panel asking where a project goes is given, for a test to read.</summary>

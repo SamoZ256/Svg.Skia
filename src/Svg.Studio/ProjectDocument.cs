@@ -281,8 +281,7 @@ public class ProjectGroup : ProjectNode
     /// Not one of <see cref="Children"/>: a block is what the group says, not a row somebody can
     /// open, move or drop something into.
     /// </remarks>
-    public XElement? Code
-        => Element.Elements().FirstOrDefault(child => child.Name == Declarations + "code");
+    public XElement? Code => Block("code");
 
     /// <summary>The block as text, and an empty one where there is none.</summary>
     /// <remarks>
@@ -301,31 +300,45 @@ public class ProjectGroup : ProjectNode
     /// parameter removed is a group that declares nothing, and the file should say so.
     /// </remarks>
     public string? SetCode(string codeText)
-    {
-        if (codeText is null)
-        {
-            throw new ArgumentNullException(nameof(codeText));
-        }
+        => SetBlock(codeText ?? throw new ArgumentNullException(nameof(codeText)), "code", "A group's declarations have to be an <e:code> block.");
 
-        var read = SvgSourceDocument.Read(codeText.Replace("\r\n", "\n"), out var refusal);
+    /// <summary>The one <c>e:</c> block named <paramref name="name"/> this group carries, or null.</summary>
+    private protected XElement? Block(string name)
+        => Element.Elements().FirstOrDefault(child => child.Name == Declarations + name);
+
+    /// <summary><see cref="SetCode"/>, for whichever block <paramref name="name"/> says.</summary>
+    private protected string? SetBlock(string text, string name, string misplaced)
+    {
+        var read = SvgSourceDocument.Read(text.Replace("\r\n", "\n"), out var refusal);
 
         if (read is null)
         {
             return refusal;
         }
 
-        if (read.Document.Root is not { } block || block.Name != Declarations + "code")
+        if (read.Document.Root is not { } block || block.Name != Declarations + name)
         {
-            return "A group's declarations have to be an <e:code> block.";
+            return misplaced;
         }
 
         // Detached first, for the reason ProjectDrawing.Inline is: adding a node that still has a
         // parent copies it, and the bytes each tag was read as are annotations a copy does not carry.
         block.Remove();
 
-        var existing = Code;
+        PutBlock(name, block);
 
-        if (!block.Elements().Any())
+        return null;
+    }
+
+    /// <summary>
+    /// Puts <paramref name="block"/> in the place of the block named <paramref name="name"/>, and
+    /// takes that block out where this one is null or declares nothing.
+    /// </summary>
+    internal void PutBlock(string name, XElement? block)
+    {
+        var existing = Block(name);
+
+        if (block is null || !block.Elements().Any())
         {
             if (existing is { })
             {
@@ -337,7 +350,7 @@ public class ProjectGroup : ProjectNode
                 existing.Remove();
             }
 
-            return null;
+            return;
         }
 
         if (existing is { })
@@ -347,9 +360,13 @@ public class ProjectGroup : ProjectNode
         else
         {
             PutFirst(block);
-        }
 
-        return null;
+            // A block the editor made from CodeText's empty one closes at column zero; its lines
+            // move to where it now opens. One already written at this depth has nothing to move.
+            var closing = block.LastNode is XText last ? last.Value : string.Empty;
+
+            Reindent(block, closing.Substring(closing.LastIndexOf('\n') + 1), ProjectDocument.Depth(block));
+        }
     }
 
     /// <summary>Puts an element in front of everything this group holds, on a line of its own.</summary>
@@ -754,6 +771,13 @@ public sealed class ProjectDrawing : ProjectNode
     /// </remarks>
     public string? SetText(string svgText) => Inline(svgText, indent: false);
 
+    /// <summary>Where the drawing was imported from, such as <c>streamline:&lt;hash&gt;</c>, or null.</summary>
+    public string? Source
+    {
+        get => ProjectDocument.Attribute(Element, "source");
+        set => Element.SetAttributeValue("source", Trimmed(value));
+    }
+
     internal string? Inline(string svgText, bool indent)
     {
         if (svgText is null)
@@ -825,6 +849,40 @@ public sealed class ProjectRoot : ProjectGroup
         set => Element.SetAttributeValue("skiaSharp", value is { } target ? (target == SkiaSharpTarget.V3 ? "3" : "4") : null);
     }
 
+    /// <summary>The project's import templates, or null where it keeps none.</summary>
+    /// <remarks>Not one of <see cref="ProjectGroup.Children"/>, for the reason <see cref="ProjectGroup.Code"/> is not.</remarks>
+    public XElement? TemplatesBlock => Block("templates");
+
+    /// <summary>The block as text, and an empty one where there is none; see <see cref="ProjectGroup.CodeText"/>.</summary>
+    public string TemplatesText
+        => TemplatesBlock is { } block
+            ? Owner.Standalone(block)
+            : $"<e:templates xmlns:e=\"{SvgExpressionDeclarations.Namespace}\" />";
+
+    /// <summary>Each template's name and its text, ready for <c>SvgRecipe.Parse</c>.</summary>
+    /// <remarks>
+    /// Unread, because a template that does not parse is reported by whatever lists it rather than
+    /// failing the project that holds it.
+    /// </remarks>
+    public IReadOnlyList<(string Name, string Text)> Templates
+        => TemplatesBlock?.Elements()
+               .Select(template => (ProjectDocument.Attribute(template, "name") ?? string.Empty, Owner.Standalone(template)))
+               .ToList()
+           ?? new List<(string Name, string Text)>();
+
+    /// <summary>Puts an edited block back, or answers why it could not be read; see <see cref="ProjectGroup.SetCode"/>.</summary>
+    /// <remarks>
+    /// The text handed out, handed back unedited, is left alone: it may bind a prefix the file
+    /// binds on <c>&lt;studio&gt;</c>, and writing it would add that declaration to the block.
+    /// </remarks>
+    public string? SetTemplates(string templatesText)
+        => templatesText == TemplatesText
+            ? null
+            : SetBlock(
+                templatesText ?? throw new ArgumentNullException(nameof(templatesText)),
+                "templates",
+                "A project's templates have to be an <e:templates> block.");
+
     private static string CacheText(SvgPictureCache cache) => cache switch
     {
         SvgPictureCache.LastValue => "lastValue",
@@ -889,6 +947,10 @@ public sealed class ProjectDocument
     {
         "name", "namespace", "class", "width", "height", "scale", "padding", "x", "y"
     };
+
+    // A drawing's alone: where it was imported from is a fact about one drawing's text, and a group
+    // has no text of its own to have come from anywhere.
+    private static readonly string[] s_drawingAttributes = s_nodeAttributes.Append("source").ToArray();
 
     private ProjectDocument(SvgSourceDocument source, string? path)
     {
@@ -1096,7 +1158,7 @@ public sealed class ProjectDocument
 
     internal ProjectDrawing ReadDrawing(XElement element, ProjectGroup parent)
     {
-        RequireKnownAttributes(element, s_nodeAttributes, "drawing");
+        RequireKnownAttributes(element, s_drawingAttributes, "drawing");
 
         var name = RequireName(element, "drawing");
         var children = element.Elements().ToList();
@@ -1118,6 +1180,7 @@ public sealed class ProjectDocument
     private void ReadChildren(XElement element, ProjectGroup group)
     {
         var blocks = 0;
+        var templates = 0;
 
         foreach (var child in element.Elements())
         {
@@ -1138,6 +1201,24 @@ public sealed class ProjectDocument
                 continue;
             }
 
+            // The same, for the same reason: what the templates say is read when they are listed.
+            // The project's alone, because they are what an import into any of its groups picks from.
+            if (child.Name == Declarations + "templates")
+            {
+                if (group is not ProjectRoot)
+                {
+                    throw new SvgcProjectException(
+                        $"<{element.Name.LocalName} name=\"{group.Name}\"> holds an <e:templates>. Templates belong to the project, on <studio>.");
+                }
+
+                if (++templates > 1)
+                {
+                    throw new SvgcProjectException("<studio> holds more than one <e:templates>. A project keeps its templates in one block.");
+                }
+
+                continue;
+            }
+
             // Rejected rather than ignored: a mistyped name that bound nothing and still saved
             // would be a project quietly building something else.
             group.Add(name switch
@@ -1145,7 +1226,8 @@ public sealed class ProjectDocument
                 "drawing" => ReadDrawing(child, group),
                 "group" => ReadGroup(child, group),
                 _ => throw new SvgcProjectException(
-                    $"<{name}> is not allowed in <{element.Name.LocalName}>. Expected <drawing>, <group> or <e:code>.")
+                    $"<{name}> is not allowed in <{element.Name.LocalName}>. Expected <drawing>, <group> or <e:code>"
+                    + (group is ProjectRoot ? ", or one <e:templates>." : "."))
             });
         }
     }
