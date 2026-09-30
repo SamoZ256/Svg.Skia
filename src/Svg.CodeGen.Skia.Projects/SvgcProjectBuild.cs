@@ -279,15 +279,15 @@ public static class SvgcProjectBuild
 
         if (Build(item, settings, assetLoader, log) is { } drawing)
         {
+            // One file of one drawing, so what reaches the class is the same whichever way a project
+            // is built.
             File.WriteAllText(
                 output,
-                SkiaCSharpCodeGen.Generate(
-                    drawing.Picture,
-                    drawing.NamespaceName,
-                    drawing.ClassName,
-                    drawing.Declarations,
-                    settings.Cache,
-                    settings.SkiaSharp));
+                SkiaCSharpCodeGen.GenerateFile(
+                    new[] { drawing },
+                    SvgHelperScope.PerClass,
+                    cache: settings.Cache,
+                    skiaSharp: settings.SkiaSharp));
         }
 
         return output;
