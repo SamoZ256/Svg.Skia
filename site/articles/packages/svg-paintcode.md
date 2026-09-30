@@ -53,7 +53,7 @@ holding every drawing, opened unsaved and unnamed — saving it asks where it go
 | Bezier, rectangle, rounded rectangle, oval, star, polygon | `<path>`, or `<rect>` and `<ellipse>` where those say it |
 | A symbol instance | `<use>` of a copy in the same file's `<defs>` |
 | A library colour marked as used | `<e:param type="color">` |
-| A colour derived from one | `<e:let>` over `withAlpha` |
+| A colour derived from one | `<e:let>` over `withAlpha`, `withSaturation` or `mix`, following it |
 | A variable marked as used | `<e:param>` of the type it was declared as — see below |
 | A variable derived from others | `<e:let>` |
 | `fill`, `strokeColor`, `fontColor` | `fill`, `stroke`, and the text's own `fill` |
@@ -61,7 +61,7 @@ holding every drawing, opened unsaved and unnamed — saving it asks where it go
 | The display position, rotation and scale | One argument each of `transform` |
 | A gradient chosen by an expression | One `<linearGradient>`, with the expression on every `stop-color` |
 | A gradient laid by dragging its two ends | The same two points, in `userSpaceOnUse` |
-| A library colour desaturated or shadowed | The shade PaintCode derives, worked out at import |
+| A translucent library colour shadowed | The shade PaintCode derives, worked out at import |
 | A shape named `Embed<X>` | `e:bounds="<X>Rect"` on its box, a [box for the host](svg-codegen-skia#boxes-for-the-host) |
 
 PaintCode is y-up and SVG is y-down, so everything is turned over on the way: a point at `(x, y)`
@@ -145,9 +145,9 @@ renders wrong, and what was lost is a list rather than a surprise.
   which is not its box's; the conversion lays it across the box. Only where the gradient was turned
   by a dial — one laid by dragging its two ends carries them, and those are written exactly.
 - **A library colour derived by an operation with no equivalent.** Alpha, saturation and shadow are
-  carried; anything else keeps the colour it came from and is reported. A derived colour is also
-  worked out at import rather than followed live, so a symbol handed a different colour to derive
-  from draws the shade the canvas was saved with.
+  carried; anything else keeps the colour it came from and is reported. A shadow over a translucent
+  colour is worked out at import, since `mix` towards opaque black would raise its alpha as well as
+  darken it, so it keeps the shade the canvas was saved with whatever it is derived from.
 - **A driven transform inside a group that draws into a layer.** The layer's bounds were measured
   from where its children were, so the number is written instead — the same rule the format states.
 - **A blend mode.** PaintCode's numbering is not SVG's, and one that is nearly right is worse than

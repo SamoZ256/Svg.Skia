@@ -50,7 +50,8 @@ internal static class ScopeDocument
             },
             ("usage", 0));
 
-    private static int Color(KeyedArchiveBuilder archive, string name, string components)
+    /// <summary>A library colour: a parameter where <paramref name="usage"/> marks it used, a constant where not.</summary>
+    internal static int Color(KeyedArchiveBuilder archive, string name, string components, int usage = 0)
         => archive.Object(
             "PPColor",
             new[]
@@ -61,7 +62,7 @@ internal static class ScopeDocument
                     new[] { ("NSComponents", archive.Data(Encoding.ASCII.GetBytes(components))) },
                     ("NSColorSpace", 1)))
             },
-            ("isDerived", false), ("operation", 0), ("usage", 0));
+            ("isDerived", false), ("operation", 0), ("usage", usage));
 
     /// <summary>A variable derived from the others, so a test can hand the declarations one that will not go.</summary>
     private static int Derived(KeyedArchiveBuilder archive, string name, string expression, int type)

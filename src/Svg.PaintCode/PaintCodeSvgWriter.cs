@@ -531,10 +531,10 @@ internal sealed class PaintCodeSvgWriter
             // ...and only where that variable is one the drawing can actually name. A library colour
             // nobody marked as used is a constant, which PaintCode bakes too -- drawSymboloverlayadd
             // takes no colorBlue, it draws the colour.
-            if (value.Value.Color is { } colour && colour.Name.Length > 0
-                && PaintCodeSlug.Identifier(colour.Name) is { } referenced
-                && _declarations.ByName.TryGetValue(referenced, out var target)
-                && target.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local)
+            // ...and read where this instance stands: inside another symbol's copy the name means what
+            // that copy was given. temperature-temperature hands its thermometer accentColorOn by name,
+            // which sr_window had set to colorPurple, and reading the bare name drew it in the accent.
+            if (value.Value.Color is { } colour && Named(colour) is { } referenced)
             {
                 if (referenced != name)
                 {

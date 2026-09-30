@@ -731,8 +731,8 @@ internal sealed class PaintCodeDeclarations
     /// handed another accent drew the shade the document was saved with.
     ///
     /// A shade is a blend towards black that leaves the alpha alone, and mix moves all four
-    /// channels -- so it is only the same thing where the colour is opaque, and a translucent one
-    /// keeps the shade the reader worked out rather than being written a shade that would fade it.
+    /// channels -- so it is only the same thing where the colour is opaque. A translucent one keeps
+    /// the shade the reader worked out, since mix would make it more opaque as well as darker.
     /// </remarks>
     private static string? Derivation(string parent, PaintCodeLibraryColor color) => color.Operation switch
     {

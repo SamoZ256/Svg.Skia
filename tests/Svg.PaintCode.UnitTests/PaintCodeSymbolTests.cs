@@ -115,12 +115,32 @@ public class PaintCodeSymbolTests
         Assert.Contains("contains itself", failure.Message);
     }
 
-    private static XDocument Host(ICollection<PaintCodeImportNote>? notes = null)
+    /// <summary>
+    /// A colour one symbol hands the next by its own name is whatever the first was given.
+    /// </summary>
+    /// <remarks>
+    /// Read as the bare name, the pass-along looked like passing nothing, so the inner copy drew in
+    /// the document's own colour: sr_window gives its thermometer colorPurple through
+    /// temperature-temperature, which hands it on as accentColorOn, and the thermometer drew in the
+    /// accent. Pinned is the same through a constant, whose bytes are what arrive.
+    /// </remarks>
+    [Fact]
+    public void A_Colour_Handed_Along_By_Name_Is_What_The_Caller_Gave()
+    {
+        var fills = Host(canvas: "chain").Descendants()
+            .Where(element => element.Name.LocalName == "g" && element.Attribute("id")?.Value.StartsWith("sym-glyph", System.StringComparison.Ordinal) == true)
+            .Select(copy => copy.Elements().First().Attribute("fill")!.Value)
+            .ToList();
+
+        Assert.Equal(new[] { "{{ accentColorOn }}", "{{ colorPurple }}", "{{ #0000ffff }}" }, fills);
+    }
+
+    private static XDocument Host(ICollection<PaintCodeImportNote>? notes = null, string canvas = "host")
     {
         var document = PaintCodeDocument.Parse(SymbolDocument.Bytes());
 
         return PaintCodeSvgWriter.Write(
-            document.Canvases.Single(canvas => canvas.Name == "host"),
+            document.Canvases.Single(one => one.Name == canvas),
             PaintCodeDeclarations.Of(document),
             PaintCodeSymbols.Of(document),
             notes ?? new List<PaintCodeImportNote>());
