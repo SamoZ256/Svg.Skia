@@ -57,20 +57,24 @@ public sealed class ClaudeProvider : IAssistantProvider
     /// <summary>What the listing said about each model, which the request has to match.</summary>
     private readonly Dictionary<string, (bool Adaptive, int Output)> _listed = new(StringComparer.Ordinal);
 
-    /// <summary>The API key.</summary>
-    /// <remarks>
-    /// Temporary: read from the environment only until Studio's keychain lands, when this becomes
-    /// <c>Keychain.Current?.Get("Svg.Studio", "anthropic")</c> with a field in Settings to write it.
-    /// Settable so a test decides whether there is one.
-    /// </remarks>
-    public static Func<string?> ApiKey { get; set; } = () => Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
+    /// <summary>Where the key is kept in the <see cref="Keychain"/>, as the Streamline key is.</summary>
+    public const string KeyService = "Svg.Studio";
+
+    public const string KeyAccount = "Anthropic API key";
+
+    /// <summary>The API key: the keychain's, or the environment's for a Studio started from a terminal.</summary>
+    /// <remarks>Settable so a test decides whether there is one.</remarks>
+    public static Func<string?> ApiKey { get; set; } = StoredKey;
+
+    public static string? StoredKey()
+        => Keychain.Current?.Get(KeyService, KeyAccount) ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
 
     public string Id => "claude";
 
     public string Name => "Claude";
 
     public string? Unavailable => string.IsNullOrWhiteSpace(ApiKey())
-        ? "Set ANTHROPIC_API_KEY in the environment Studio is started from."
+        ? "Paste an Anthropic API key in Settings, or start Studio with ANTHROPIC_API_KEY set."
         : null;
 
     public async Task<IReadOnlyList<AssistantModel>> ModelsAsync(CancellationToken cancellation)

@@ -40,6 +40,9 @@ public sealed class AssistantPanel : UserControl
     private readonly Button _send = new() { Content = "Send", FontSize = 12, VerticalAlignment = VerticalAlignment.Bottom };
 
     private IReadOnlyList<AssistantModel> _listed = Array.Empty<AssistantModel>();
+
+    /// <summary>What the provider answered when last asked whether it can be used.</summary>
+    private string? _unavailable;
     private CancellationTokenSource? _running;
     private SelectableTextBlock? _reply;
     private int _loading;
@@ -125,6 +128,11 @@ public sealed class AssistantPanel : UserControl
         };
     }
 
+    /// <summary>Asks the provider again after Settings closes, where a key may have been typed in.</summary>
+    /// <remarks>Only when the answer changed: choosing a provider again starts the conversation over.</remarks>
+    public Task RefreshAsync()
+        => Provider is { } provider && provider.Unavailable != _unavailable ? ChooseProvider() : Task.CompletedTask;
+
     /// <summary>Sends <paramref name="text"/> as if it had been typed, and waits for the whole reply.</summary>
     public async Task SendAsync(string text)
     {
@@ -162,7 +170,9 @@ public sealed class AssistantPanel : UserControl
         _models.ItemsSource = null;
         _listed = Array.Empty<AssistantModel>();
 
-        if (provider.Unavailable is { } why)
+        _unavailable = provider.Unavailable;
+
+        if (_unavailable is { } why)
         {
             Say(why);
             Enable();

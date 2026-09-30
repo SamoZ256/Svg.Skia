@@ -2861,6 +2861,7 @@ public partial class MainWindow : Window
         Reread();
 
         await _streamline.RefreshAsync().ConfigureAwait(true);
+        await _assistant.RefreshAsync().ConfigureAwait(true);
     }
 
     /// <summary>Tells every tab what the settings now say.</summary>

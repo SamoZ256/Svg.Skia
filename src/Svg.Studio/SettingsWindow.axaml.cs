@@ -127,95 +127,150 @@ public partial class SettingsWindow : Window
         StreamlineKey = this.FindControl<TextBox>("StreamlineKeyBox")!;
         ForgetStreamlineKey = this.FindControl<Button>("ForgetStreamlineKeyButton")!;
         StreamlineKeyStatus = this.FindControl<TextBlock>("StreamlineKeyStatusText")!;
+        AnthropicKey = this.FindControl<TextBox>("AnthropicKeyBox")!;
+        ForgetAnthropicKey = this.FindControl<Button>("ForgetAnthropicKeyButton")!;
+        AnthropicKeyStatus = this.FindControl<TextBlock>("AnthropicKeyStatusText")!;
 
-        StreamlineKey.LostFocus += (_, _) => KeepStreamlineKey();
-        StreamlineKey.KeyDown += (_, e) =>
+        var keys = new[]
         {
-            if (e.Key is Key.Enter or Key.Return)
-            {
-                e.Handled = true;
-
-                KeepStreamlineKey();
-            }
+            new KeyField(
+                StreamlineKey,
+                ForgetStreamlineKey,
+                StreamlineKeyStatus,
+                StreamlineClient.KeyService,
+                StreamlineClient.KeyAccount,
+                "Paste a key from your Streamline profile, under API keys."),
+            new KeyField(
+                AnthropicKey,
+                ForgetAnthropicKey,
+                AnthropicKeyStatus,
+                ClaudeProvider.KeyService,
+                ClaudeProvider.KeyAccount,
+                "Paste a key from console.anthropic.com, under API keys, for the assistant.")
         };
 
         // Closing by the corner or Escape does not move focus out of the box first. A key the keychain
-        // refuses here holds the window open, once, so the reason is not closed along with it.
+        // refuses here holds the window open, once, so the reason is not closed along with it. Every
+        // box is kept, not only the first that refuses.
         Closing += (_, e) =>
         {
-            var shown = _refused is not null && _refused == StreamlineKey.Text?.Trim();
+            var held = false;
 
-            if (!KeepStreamlineKey() && !shown && e.CloseReason == WindowCloseReason.WindowClosing)
+            foreach (var key in keys)
+            {
+                held |= key.HoldsOpen();
+            }
+
+            if (held && e.CloseReason == WindowCloseReason.WindowClosing)
             {
                 e.Cancel = true;
             }
         };
-
-        ForgetStreamlineKey.Click += (_, _) =>
-            Keyed(keychain => keychain.Remove(StreamlineClient.KeyService, StreamlineClient.KeyAccount));
-
-        Keyed(null);
     }
 
-    /// <summary>The key last refused by the keychain, whose reason the window is already showing.</summary>
-    private string? _refused;
-
-    /// <summary>Writes a key typed into the box to the keychain, emptying the box once it is kept there.</summary>
-    /// <returns>False when the keychain refused it, which leaves it in the box.</returns>
-    private bool KeepStreamlineKey()
+    /// <summary>A box a secret is typed into, kept in the keychain under one account and never shown back.</summary>
+    private sealed class KeyField
     {
-        if (StreamlineKey.Text?.Trim() is not { Length: > 0 } key)
+        private readonly TextBox _box;
+        private readonly Button _forget;
+        private readonly TextBlock _status;
+        private readonly string _service;
+        private readonly string _account;
+        private readonly string _hint;
+
+        /// <summary>The key last refused by the keychain, whose reason the window is already showing.</summary>
+        private string? _refused;
+
+        public KeyField(TextBox box, Button forget, TextBlock status, string service, string account, string hint)
         {
+            _box = box;
+            _forget = forget;
+            _status = status;
+            _service = service;
+            _account = account;
+            _hint = hint;
+
+            _box.LostFocus += (_, _) => Keep();
+            _box.KeyDown += (_, e) =>
+            {
+                if (e.Key is Key.Enter or Key.Return)
+                {
+                    e.Handled = true;
+
+                    Keep();
+                }
+            };
+
+            _forget.Click += (_, _) => Keyed(keychain => keychain.Remove(_service, _account));
+
+            Keyed(null);
+        }
+
+        /// <summary>Keeps what the box holds, and says whether a refusal not yet seen should hold the window open.</summary>
+        public bool HoldsOpen()
+        {
+            var shown = _refused is not null && _refused == _box.Text?.Trim();
+
+            return !Keep() && !shown;
+        }
+
+        /// <summary>Writes a key typed into the box to the keychain, emptying the box once it is kept there.</summary>
+        /// <returns>False when the keychain refused it, which leaves it in the box.</returns>
+        private bool Keep()
+        {
+            if (_box.Text?.Trim() is not { Length: > 0 } key)
+            {
+                return true;
+            }
+
+            if (!Keyed(keychain => keychain.Set(_service, _account, key)))
+            {
+                _refused = key;
+
+                return false;
+            }
+
+            _box.Text = "";
+
             return true;
         }
 
-        if (!Keyed(keychain => keychain.Set(StreamlineClient.KeyService, StreamlineClient.KeyAccount, key)))
+        /// <summary>Makes a change to the keychain, then says whether a key is now kept there.</summary>
+        /// <returns>False when the keychain refused, with its reason in place of the status.</returns>
+        private bool Keyed(Action<Keychain>? change)
         {
-            _refused = key;
+            var keychain = Keychain.Current;
+            var stored = false;
 
-            return false;
-        }
-
-        StreamlineKey.Text = "";
-
-        return true;
-    }
-
-    /// <summary>Makes a change to the keychain, then says whether a key is now kept there.</summary>
-    /// <returns>False when the keychain refused, with its reason in place of the status.</returns>
-    private bool Keyed(Action<Keychain>? change)
-    {
-        var keychain = Keychain.Current;
-        var stored = false;
-
-        try
-        {
-            if (keychain is not null)
+            try
             {
-                change?.Invoke(keychain);
+                if (keychain is not null)
+                {
+                    change?.Invoke(keychain);
 
-                stored = keychain.Get(StreamlineClient.KeyService, StreamlineClient.KeyAccount) is not null;
+                    stored = keychain.Get(_service, _account) is not null;
+                }
+
+                _status.Text = keychain is null
+                    ? "Studio knows of no keychain on this machine to keep a key in."
+                    : stored
+                        ? "A key is kept in this machine's keychain. Typing another replaces it."
+                        : _hint + " It is kept in this machine's keychain rather than in Studio's settings.";
+            }
+            catch (Exception failure) when (failure is InvalidOperationException or ArgumentException or Win32Exception)
+            {
+                _status.Text = failure.Message;
+
+                return false;
+            }
+            finally
+            {
+                _box.IsEnabled = keychain is not null;
+                _forget.IsEnabled = stored;
             }
 
-            StreamlineKeyStatus.Text = keychain is null
-                ? "Studio knows of no keychain on this machine to keep a key in."
-                : stored
-                    ? "A key is kept in this machine's keychain. Typing another replaces it."
-                    : "Paste a key from your Streamline profile, under API keys. It is kept in this machine's keychain rather than in Studio's settings.";
+            return true;
         }
-        catch (Exception failure) when (failure is InvalidOperationException or ArgumentException or Win32Exception)
-        {
-            StreamlineKeyStatus.Text = failure.Message;
-
-            return false;
-        }
-        finally
-        {
-            StreamlineKey.IsEnabled = keychain is not null;
-            ForgetStreamlineKey.IsEnabled = stored;
-        }
-
-        return true;
     }
 
     /// <summary>Puts the panels back where they started.</summary>
@@ -333,6 +388,15 @@ public partial class SettingsWindow : Window
 
     /// <summary>Whether a Streamline API key is kept, or why none can be.</summary>
     public TextBlock StreamlineKeyStatus { get; }
+
+    /// <summary>The box the assistant's Anthropic API key is typed into, for a test to drive.</summary>
+    public TextBox AnthropicKey { get; }
+
+    /// <summary>Takes the Anthropic API key out of the keychain.</summary>
+    public Button ForgetAnthropicKey { get; }
+
+    /// <summary>Whether an Anthropic API key is kept, or why none can be.</summary>
+    public TextBlock AnthropicKeyStatus { get; }
 
     /// <inheritdoc />
     /// <remarks>
