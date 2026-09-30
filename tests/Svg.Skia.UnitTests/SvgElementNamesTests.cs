@@ -60,4 +60,38 @@ public class SvgElementNamesTests
 
         Assert.Equal("thing", SvgElementNames.NameOf(foreign));
     }
+
+    [Fact]
+    public void A_Shape_Takes_Its_Own_Geometry_And_Every_Presentation_Attribute()
+    {
+        var rect = SvgElementNames.AttributesOf("rect");
+
+        foreach (var name in new[] { "x", "rx", "fill", "stroke-linecap", "pointer-events", "mask", "transform", "class", "style", "id" })
+        {
+            Assert.Contains(name, rect);
+        }
+
+        // Another shape's geometry, an event, and the three the parser reads nowhere or only from style.
+        foreach (var name in new[] { "cx", "points", "onclick", "marker", "mix-blend-mode", "isolation" })
+        {
+            Assert.DoesNotContain(name, rect);
+        }
+    }
+
+    [Fact]
+    public void A_Link_Is_Spelt_Bare_And_A_Space_Rule_With_Its_Prefix()
+    {
+        Assert.Contains("href", SvgElementNames.AttributesOf("use"));
+        Assert.DoesNotContain("xlink:href", SvgElementNames.AttributesOf("use"));
+
+        Assert.Contains("xml:space", SvgElementNames.AttributesOf("text"));
+        Assert.Contains("textLength", SvgElementNames.AttributesOf("text"));
+    }
+
+    [Fact]
+    public void An_Element_The_Parser_Does_Not_Know_Takes_Nothing()
+    {
+        Assert.Empty(SvgElementNames.AttributesOf("widget"));
+        Assert.Contains("viewBox", SvgElementNames.AttributesOf("svg"));
+    }
 }

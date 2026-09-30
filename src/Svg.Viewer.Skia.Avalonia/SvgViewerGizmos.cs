@@ -231,8 +231,9 @@ public sealed class SvgViewerGizmos
 
     /// <summary>Whether a press belongs to this rather than to a pan or a sweep.</summary>
     /// <remarks>
-    /// A handle, or a member's own ink. Not the inside of the box: the one round two shapes at
-    /// opposite corners of a drawing covers a great deal of canvas that belongs to nobody.
+    /// A handle, or a member's own ink or own box. Not the inside of the box round them all: the one
+    /// round two shapes at opposite corners of a drawing covers a great deal of canvas that belongs
+    /// to nobody.
     /// </remarks>
     /// <inheritdoc cref="SvgViewerGizmo.Hits" path="/param[@name='handlesOnly']"/>
     public bool Hits(Shim.SKPoint at, float scale, bool handlesOnly = false)
@@ -250,6 +251,29 @@ public sealed class SvgViewerGizmos
         var inside = Inside(at);
 
         return !handlesOnly && _held.Any(held => held.Covers(inside));
+    }
+
+    /// <summary>
+    /// Whether a click at <paramref name="at"/> leaves the selection as it is: on a handle, or in a
+    /// member's box where nothing, or only a member itself, is drawn.
+    /// </summary>
+    /// <inheritdoc cref="SvgViewerGizmo.Keeps" path="/remarks"/>
+    public bool Keeps(Shim.SKPoint at, float scale)
+    {
+        if (_held.Count <= 1)
+        {
+            return _one.Keeps(Inside(at), scale);
+        }
+
+        if (Box(scale) is { } box && _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _) >= 0)
+        {
+            return true;
+        }
+
+        var inside = Inside(at);
+        var hit = _svg?.HitTestTopmostElement(inside);
+
+        return _held.Any(held => held.Covers(inside)) && (hit is null || _held.Any(held => ReferenceEquals(held.Element, hit)));
     }
 
     /// <summary>Starts a drag, or says why it will not.</summary>
@@ -761,10 +785,13 @@ public sealed class SvgViewerGizmos
             return upright || flipped;
         }
 
-        /// <summary>Whether this member's own ink is under the pointer, which is in its drawing.</summary>
-        public bool Covers(Shim.SKPoint at)
+        /// <summary>Whether this member's own ink or its own box is under the pointer, which is in its drawing.</summary>
+        public bool Covers(Shim.SKPoint at) => Holds(_svg.HitTestTopmostElement(at)) || SvgViewerGizmo.Boxed(Node, at);
+
+        /// <summary>Whether <paramref name="hit"/> is this member or inside it.</summary>
+        public bool Holds(SvgElement? hit)
         {
-            for (var hit = _svg.HitTestTopmostElement(at); hit is { }; hit = hit.Parent)
+            for (; hit is { }; hit = hit.Parent)
             {
                 if (ReferenceEquals(hit, Element))
                 {

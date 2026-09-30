@@ -35,7 +35,8 @@ public sealed class PaintCodeImportOptions
     /// parameter compared with <c>==</c> against 0, 1, 2 and so on, which is an integer written as a
     /// float. Turning it on retypes those, and will also retype a Number slider whose ends and value
     /// are whole -- which is why the author asks for it rather than being given it. A Fraction and an
-    /// Angle are never retyped, being continuous by declaration.
+    /// Angle are never retyped, being continuous by declaration. Where a retyped variable meets a
+    /// fraction, the translation says num(), the language converting nothing on its own.
     /// </remarks>
     public bool Integers { get; set; }
 

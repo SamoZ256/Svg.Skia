@@ -301,7 +301,7 @@ namespace Svg
                    !IsSvg2GeometryAttribute(name);
         }
 
-        private static bool IsSvg2GeometryAttribute(string name)
+        internal static bool IsSvg2GeometryAttribute(string name)
         {
             return name is
                 "cx" or

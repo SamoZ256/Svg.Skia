@@ -12,19 +12,20 @@ Target branch: **$1**
 Do this in order, stopping at the first thing that looks wrong:
 
 1. **Record the current branch.** That is the one to delete at the end. If it is already `$1`,
-   there is nothing to delete — pull, report, and stop.
+   there is nothing to delete: in `main/`, pull, report and stop. In any other desk, detach as
+   step 3 says, then report and stop.
 
 2. **Refuse to proceed on a dirty tree.** If `git status --short` is not empty, stop and show me
    what is uncommitted. Do not stash, do not commit, do not switch. Switching branches with
    uncommitted work either fails or carries the changes across, and neither is what I want here.
 
 3. **Fetch, and move onto `$1`.** `git fetch origin --prune`, saying which remote branches went.
-   Then look at `git worktree list`:
-   - **`$1` is checked out in another desk** — in the hub it always is, `main/` holding `master` —
-     so this desk cannot switch to it. `git switch --detach origin/$1`: the desk rests on the
-     remote's target rather than a local branch, which is where a desk rests anyway. Leave the other
-     desk's checkout of `$1` alone; say that it is behind until its own agent pulls.
-   - **Otherwise** switch to `$1` and `git pull --ff-only`.
+   Then see which desk this is (`git rev-parse --show-toplevel`):
+   - **`main/`:** switch to `$1` and `git pull --ff-only`. It is the one desk that holds `master`.
+   - **Any other desk:** `git switch --detach origin/$1`, even when `$1` is not checked out anywhere.
+     A desk rests on the remote's target rather than on a local branch. Taking `master` would stop
+     `main/` from switching back to it (see `/desk`). If `main/` holds `$1`, leave it alone, and
+     say that it is behind until its own agent pulls.
 
    Report the commit it moved to, and whether that was a fast-forward.
 

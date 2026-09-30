@@ -8,7 +8,7 @@ namespace Svg.PaintCode.UnitTests;
 /// <summary>A library of names for the translator tests to resolve against, and nothing else.</summary>
 internal static class ScopeDocument
 {
-    internal static byte[] Bytes()
+    internal static byte[] Bytes(string? derived = null)
     {
         var archive = new KeyedArchiveBuilder();
 
@@ -26,6 +26,10 @@ internal static class ScopeDocument
                 Input(archive, "y", 2, archive.Value(1d)),
                 Input(archive, "state", 4, archive.Value(true)),
                 Input(archive, "enabled", 4, archive.Value(true)),
+                // A whole number and a fraction, for where the integer guess has to say num().
+                Input(archive, "n", 2, archive.Value(2d)),
+                Input(archive, "f", 2, archive.Value(0.5d), kind: 2),
+                Derived(archive, "bad", derived ?? "x"),
                 Rect(archive, "area", "{{0, 0}, {117, 132}}"))));
 
         return archive.ToBytes(("styleKitName", archive.Text("Scope")), ("library", library));
@@ -56,7 +60,21 @@ internal static class ScopeDocument
             },
             ("isDerived", false), ("operation", 0), ("usage", 0));
 
-    private static int Input(KeyedArchiveBuilder archive, string name, int type, int value)
+    /// <summary>A variable derived from the others, so a test can hand the declarations one that will not go.</summary>
+    private static int Derived(KeyedArchiveBuilder archive, string name, string expression)
+        => archive.Object(
+            "PPVariable",
+            new[]
+            {
+                ("name", archive.Text(name)),
+                ("valueProvider", archive.Object(
+                    "PPValueProviderExpression",
+                    new[] { ("expression", archive.Text(expression)), ("value", archive.Value(1d)) },
+                    ("type", 2)))
+            },
+            ("kind", 13), ("usage", 0));
+
+    private static int Input(KeyedArchiveBuilder archive, string name, int type, int value, int? kind = null)
         => archive.Object(
             "PPVariable",
             new[]
@@ -68,7 +86,7 @@ internal static class ScopeDocument
             // for all of them: 0 is Number, 4 is Text, 5 is Boolean. It used to be 2 throughout --
             // anything but 13 -- from when kind was read only to tell a derived variable from an
             // input, which left every one of these claiming to be a fraction.
-            ("kind", type switch { 3 => 4, 4 => 5, _ => 0 }), ("usage", 1));
+            ("kind", kind ?? type switch { 3 => 4, 4 => 5, _ => 0 }), ("usage", 1));
 
     private static int Rect(KeyedArchiveBuilder archive, string name, string rectangle)
         => archive.Object(

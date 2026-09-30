@@ -766,17 +766,46 @@ public sealed class SvgViewerGizmo
             }
         }
 
-        // A text run is hit tested per character cell while the box drawn round it is the measured
-        // extent of the whole run, so the inside of that box is a sieve: a press in the gap between
-        // two lines or two letters answered nothing and fell past this to the marquee, which swept a
-        // rubber band and dropped the selection — a third of a plain run's box at a fitted zoom, more
-        // than half at 4x. Widened here rather than in the hit test, which every picker shares: a
-        // click in a gap should still reach whatever is drawn behind the text. Text alone, that being
-        // the one kind whose box has holes. The box is GeometryBounds under the element's own
-        // transform, so mapping the press back through it tests that box exactly, leaning and all.
-        return _node is { Kind: SvgSceneNodeKind.Text } node
-               && node.TotalTransform.TryInvert(out var toGeometry)
-               && node.GeometryBounds.Contains(toGeometry.MapPoint(at));
+        return Boxed(_node, at);
+    }
+
+    /// <summary>Whether <paramref name="at"/> is inside the box drawn round <paramref name="node"/>.</summary>
+    /// <remarks>
+    /// The whole box and not only the ink, because the hit test answers only where an element is
+    /// painted: a press inside an outline with no fill, beside a thin line, between a group's
+    /// children or between a run's letters answered nothing and fell past this to the marquee,
+    /// which swept a rubber band instead of carrying what was selected. A click there still reaches
+    /// what is drawn behind — see <see cref="Keeps"/>. The box is GeometryBounds under the element's
+    /// own transform, so mapping the press back through it tests that box exactly, leaning and all.
+    /// </remarks>
+    internal static bool Boxed(SvgSceneNode? node, Shim.SKPoint at)
+        => node is { }
+           && node.TotalTransform.TryInvert(out var toGeometry)
+           && node.GeometryBounds.Contains(toGeometry.MapPoint(at));
+
+    /// <summary>
+    /// Whether a click at <paramref name="at"/> leaves the selection as it is: on a handle, or in
+    /// the box where nothing, or only the selection itself, is drawn.
+    /// </summary>
+    /// <remarks>
+    /// Anything else there is picked, a child of a selected group included, which is how a group is
+    /// reached into.
+    /// </remarks>
+    public bool Keeps(Shim.SKPoint at, float scale)
+    {
+        if (Box(scale) is not { } box)
+        {
+            return false;
+        }
+
+        if (_selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _) >= 0)
+        {
+            return true;
+        }
+
+        var hit = _svg?.HitTestTopmostElement(at);
+
+        return Covers(at) && (hit is null || ReferenceEquals(hit, _element));
     }
 
     /// <summary>

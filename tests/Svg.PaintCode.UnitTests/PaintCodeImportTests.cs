@@ -236,6 +236,64 @@ public class PaintCodeImportTests
     }
 
     /// <summary>
+    /// A whole number stays an integer where the document multiplies it by a fraction, and the
+    /// local that does so goes through num().
+    /// </summary>
+    /// <remarks>
+    /// Before this the local was written as the language refuses it, and -- because a driven
+    /// transform's offset is worked out against every declaration at once -- every tank in the
+    /// document drew at the level it was saved at.
+    /// </remarks>
+    [Fact]
+    public void A_Whole_Number_The_Document_Multiplies_By_A_Fraction_Is_Still_An_Integer()
+    {
+        var declarations = PaintCodeDeclarations.Of(PaintCodeDocument.Parse(SymbolDocument.Bytes()), integers: true);
+
+        Assert.Equal("integer", declarations.ByName["step"].Type);
+        Assert.Equal("num(step) * animation * -360", declarations.ByName["rotationSpeed"].Body);
+        Assert.Equal("number", declarations.ByName["rotationSpeed"].Type);
+        Assert.Equal("integer", declarations.ByName["phase"].Type);
+        Assert.True(declarations.TryValue("rotationSpeed", out var speed, out _));
+        Assert.Equal(-720d, speed);
+    }
+
+    [Fact]
+    public void A_Driven_Transform_Survives_The_Whole_Number_Guess()
+    {
+        var document = PaintCodeDocument.Parse(SymbolDocument.Bytes());
+        var notes = new List<PaintCodeImportNote>();
+
+        var slider = PaintCodeSvgWriter.Write(
+            document.Canvases.Single(canvas => canvas.Name == "slider"),
+            PaintCodeDeclarations.Of(document, integers: true),
+            PaintCodeSymbols.Of(document),
+            notes);
+
+        var bar = slider.Descendants().Single(element => element.Name.LocalName == "path");
+
+        Assert.Equal("translate(0,{{ level * 10 + 3 }})", bar.Attribute("transform")!.Value);
+        Assert.DoesNotContain(notes, note => note.Property == "displayAnchorY");
+    }
+
+    /// <summary>
+    /// Declarations that do not evaluate as translated are refused outright, naming the variable.
+    /// </summary>
+    /// <remarks>
+    /// Not a note, because what fails here fails everywhere at once: every driven transform's
+    /// offset is evaluated against the whole set, so this used to degrade every one of them to its
+    /// saved number and say so only per element.
+    /// </remarks>
+    [Fact]
+    public void Declarations_That_Do_Not_Evaluate_Refuse_The_Document_By_Name()
+    {
+        var failure = Assert.Throws<PaintCodeException>(
+            () => PaintCodeDeclarations.Of(PaintCodeDocument.Parse(ScopeDocument.Bytes(derived: "s + x"))));
+
+        Assert.Contains("'bad'", failure.Message);
+        Assert.Contains("'+'", failure.Message);
+    }
+
+    /// <summary>
     /// Where a canvas sat comes across as the document wrote it, with nothing normalised: what a
     /// desk's corner should be is a question for whoever arranges them, and a folder of files has
     /// no answer to it.

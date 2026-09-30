@@ -69,5 +69,53 @@ public class PaintCodeExpressionTranslatorTests
         Assert.Equal("x * 117", expression);
     }
 
-    private static PaintCodeDeclarations Scope() => PaintCodeDeclarations.Of(PaintCodeDocument.Parse(ScopeDocument.Bytes()));
+    /// <summary>
+    /// Where an integer meets a number, the translation says num(), since the language never
+    /// converts on its own and PaintCode has only the one numeric type.
+    /// </summary>
+    /// <remarks>
+    /// n is a whole number the integer guess retypes and f is a fraction it leaves alone. A whole
+    /// literal needs nothing, the checker settling it to whichever type is beside it; a division
+    /// of integers is real in PaintCode, so it is written as one.
+    /// </remarks>
+    [Theory]
+    [InlineData("n * f", "num(n) * f")]
+    [InlineData("f * n", "f * num(n)")]
+    [InlineData("n * 2", "n * 2")]
+    [InlineData("n * 2 * f", "num(n * 2) * f")]
+    [InlineData("n / 2", "num(n) / 2")]
+    [InlineData("n == 2", "n == 2")]
+    [InlineData("n < f", "num(n) lt f")]
+    [InlineData("n % 3", "mod(n, 3)")]
+    [InlineData("state ? n : f", "state ? num(n) : f")]
+    [InlineData("state ? n : 3", "state ? n : 3")]
+    [InlineData("abs(n)", "abs(n)")]
+    [InlineData("max(n, f)", "max(num(n), f)")]
+    [InlineData("floor(n)", "floor(num(n))")]
+    [InlineData("sin(n)", "sin((num(n)) * pi / 180)")]
+    [InlineData("stringFromNumber(n)", "str(n)")]
+    [InlineData("-n * f", "num(-n) * f")]
+    public void An_Integer_Meets_A_Number_Through_Num(string source, string expected)
+    {
+        Assert.True(PaintCodeExpressionTranslator.TryTranslate(source, Scope(integers: true), out var expression, out var refusal), refusal);
+        Assert.Equal(expected, expression);
+    }
+
+    [Fact]
+    public void A_Rebound_Name_Keeps_The_Sort_Of_What_Was_Put_In_Its_Place()
+    {
+        var scope = Scope(integers: true);
+
+        // What an instance pinned n to: a translation the same declarations produced, and so one
+        // they remember the sort of.
+        Assert.True(PaintCodeExpressionTranslator.TryTranslate("f * 4", scope, out var pinned, out _));
+
+        var overrides = new System.Collections.Generic.Dictionary<string, string> { ["n"] = pinned };
+
+        Assert.True(PaintCodeExpressionTranslator.TryTranslate("n * f", scope, out var expression, out var refusal, overrides), refusal);
+        Assert.Equal("(f * 4) * f", expression);
+    }
+
+    private static PaintCodeDeclarations Scope(bool integers = false)
+        => PaintCodeDeclarations.Of(PaintCodeDocument.Parse(ScopeDocument.Bytes()), integers);
 }

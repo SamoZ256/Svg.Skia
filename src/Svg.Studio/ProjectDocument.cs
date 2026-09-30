@@ -291,7 +291,7 @@ public class ProjectGroup : ProjectNode
     /// </remarks>
     public string CodeText
         => Code is { } code
-            ? Owner.Source.TextOf(code)
+            ? Owner.Standalone(code)
             : $"<e:code xmlns:e=\"{SvgExpressionDeclarations.Namespace}\" />";
 
     /// <summary>Puts an edited block back, or answers why it could not be read.</summary>
@@ -447,7 +447,7 @@ public class ProjectGroup : ProjectNode
         // what depth it was written at travels with the element.
         var was = ProjectDocument.Depth(source.Element);
 
-        var element = Owner.Rooted(source.Owner.Source.TextOf(source.Element));
+        var element = Owner.Rooted(source.Owner.Standalone(source.Element));
 
         var copy = element.Name.LocalName == "group"
             ? Owner.ReadGroup(element, this)
@@ -1092,6 +1092,44 @@ public sealed class ProjectDocument
         Path = System.IO.Path.GetFullPath(path);
     }
 
+    /// <summary>One element as the file writes it, readable on its own.</summary>
+    /// <remarks>
+    /// A prefix it uses may be bound further up — a project may bind the expression prefix once on its
+    /// root — and the text alone then does not read, so such a binding is written onto its opening tag.
+    /// </remarks>
+    internal string Standalone(XElement element)
+    {
+        var text = Source.TextOf(element);
+        var used = element.DescendantsAndSelf()
+            .SelectMany(one => one.Attributes().Where(a => !a.IsNamespaceDeclaration).Select(a => a.Name.Namespace).Append(one.Name.Namespace))
+            .ToHashSet();
+        var bound = element.Attributes().Where(a => a.IsNamespaceDeclaration).Select(a => a.Name.LocalName).ToHashSet();
+        var bindings = new System.Text.StringBuilder();
+
+        // Nearest first, so a prefix bound twice takes the binding in scope.
+        foreach (var binding in element.Ancestors().SelectMany(one => one.Attributes()))
+        {
+            if (binding.Name.Namespace == XNamespace.Xmlns && bound.Add(binding.Name.LocalName) && used.Contains(XNamespace.Get(binding.Value)))
+            {
+                bindings.Append($" xmlns:{binding.Name.LocalName}=\"{System.Security.SecurityElement.Escape(binding.Value)}\"");
+            }
+        }
+
+        if (bindings.Length == 0)
+        {
+            return text;
+        }
+
+        var end = 1;
+
+        while (end < text.Length && !char.IsWhiteSpace(text[end]) && text[end] is not ('/' or '>'))
+        {
+            end++;
+        }
+
+        return text.Insert(end, bindings.ToString());
+    }
+
     /// <summary>The root of <paramref name="xml"/>, detached and ready to be put somewhere.</summary>
     internal XElement Rooted(string xml)
     {
@@ -1103,34 +1141,6 @@ public sealed class ProjectDocument
         root.Remove();
 
         return root;
-    }
-
-    /// <summary>
-    /// <paramref name="element"/> as text that reads on its own, carrying the namespaces it leans on
-    /// from above.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="SvgSourceDocument.TextOf"/> writes the tag as the file wrote it, so an
-    /// <c>e:recipe</c> whose prefix is bound on the block around it comes out with the prefix unbound.
-    /// </remarks>
-    internal string Standalone(XElement element)
-    {
-        var text = Source.TextOf(element);
-        var bound = new HashSet<XName>(element.Attributes().Where(one => one.IsNamespaceDeclaration).Select(one => one.Name));
-        var inherited = element.Ancestors()
-            .SelectMany(ancestor => ancestor.Attributes())
-            .Where(one => one.IsNamespaceDeclaration && bound.Add(one.Name))
-            .Select(one => " " + one)
-            .ToList();
-
-        if (inherited.Count == 0)
-        {
-            return text;
-        }
-
-        var end = text.IndexOfAny(new[] { ' ', '\t', '\r', '\n', '/', '>' }, 1);
-
-        return text.Insert(end, string.Concat(inherited));
     }
 
     internal ProjectGroup ReadGroup(XElement element, ProjectGroup parent)

@@ -10,6 +10,10 @@ what lets every one of them sit at the latest master at once — git refuses a b
 worktrees, not a commit. `main/` is the exception: it holds `master` itself, for committing
 straight to it, and is never made or removed here.
 
+**Only `main/` is ever on `master`.** Any other desk that ends up there — by `/land`, or by hand —
+goes back to `git switch --detach origin/master` before it is left. While it holds `master`,
+`main/` cannot switch to it: git refuses with `'master' is already used by worktree at …`.
+
 **Invoking this is the permission to make or remove a worktree.** Nothing else makes one: never
 create, remove or move into a worktree unless this command was run or I said so in as many words.
 

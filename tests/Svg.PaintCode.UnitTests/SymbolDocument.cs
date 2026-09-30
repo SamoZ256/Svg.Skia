@@ -25,6 +25,16 @@ internal static class SymbolDocument
         // than its default: what a level indicator is, and what the offset has to survive.
         var level = Variable(archive, "level", 2, archive.Value(1d), 2, 1);
 
+        // Two whole numbers the integer guess would retype, and what tells them apart: the fan's
+        // step is multiplied by a fraction, which the language refuses of an integer, and the phase
+        // is only ever compared. Neither is drawn by any canvas here; what they test is whether
+        // retyping one of them costs the slider its driven transform.
+        var step = Variable(archive, "step", 2, archive.Value(2d), 0, 1);
+        var animation = Variable(archive, "animation", 2, archive.Value(1d), 2, 1);
+        var rotationSpeed = Variable(archive, "rotationSpeed", 2, archive.Value(-720d), 13, 0, "step * animation * -360");
+        var phase = Variable(archive, "phase", 2, archive.Value(3d), 0, 1);
+        var phase3 = Variable(archive, "phase3", 4, archive.Value(true), 13, 0, "phase == 3");
+
         var driven = Canvas(archive, "slider", archive.Array(
             Driven(archive, purple, archive.Dictionary(
                 ("displayAnchorY", Expression(archive, "level * 10", 2, archive.Value(10d)))))));
@@ -49,7 +59,7 @@ internal static class SymbolDocument
             ("library", archive.Object(
                 "PPLibrary",
                 ("colors", archive.Array(purple)),
-                ("variables", archive.Array(light, dark, level)))));
+                ("variables", archive.Array(light, dark, level, step, animation, rotationSpeed, phase, phase3)))));
     }
 
     private static int Canvas(KeyedArchiveBuilder archive, string name, int children)

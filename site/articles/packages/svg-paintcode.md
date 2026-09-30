@@ -114,6 +114,22 @@ Number slider that happens to sit on whole ends is retyped too, and only the aut
 was. A derived variable is never retyped — its body is PaintCode's arithmetic, and retyping the
 answer without the working would refuse the document rather than improve it.
 
+The expression language never converts between the two numeric types, and PaintCode has only the
+one, so the translation says where they meet: an integer multiplied by a fraction, compared with one,
+or handed to a function that takes numbers goes through `num()`, and `step * animation * -360`
+is written `num(step) * animation * -360`. A whole literal needs nothing — the language settles it to
+whichever type stands beside it — and a division of two integers is written as the real division
+PaintCode meant. A derived variable built only from integers is an integer in turn.
+
+That crossing used to be missing, and what it cost is worth knowing. The offset a driven transform
+carries is evaluated against every declaration at once, so one local the language refused wrote
+every driven transform in the document as the number it was saved at, with a note per element and
+no cause: every tank drew at its saved level. Two checks now stop that shape of failure. A set of
+declarations that does not evaluate as translated refuses the import outright, naming the variable
+and the fault, and an expression that translates but does not evaluate is noted with its cause and
+the drawing's own value written — rather than written, and refused with the whole drawing when it
+is opened.
+
 ## What does not, and what happens instead
 
 The rule is that the converter never writes a binding it cannot say. It writes the value the drawing

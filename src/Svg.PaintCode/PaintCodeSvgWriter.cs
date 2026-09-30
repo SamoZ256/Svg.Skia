@@ -285,15 +285,20 @@ internal sealed class PaintCodeSvgWriter
 
         if (shape.Bindings.TryGetValue("text", out var binding) && binding.Expression is { } source)
         {
-            if (PaintCodeExpressionTranslator.TryTranslate(source, _declarations, out var expression, out var refusal, _overrides))
-            {
-                run.Add(Braces(expression));
-                _code.Use(expression);
-            }
-            else
+            if (!PaintCodeExpressionTranslator.TryTranslate(source, _declarations, out var expression, out var refusal, _overrides))
             {
                 Note(PaintCodeImportSeverity.Dropped, shape.Name, "text", refusal + ", so the words the drawing had are written.");
                 run.Add(text.Value);
+            }
+            else if (!_declarations.Evaluates(expression, out var fault))
+            {
+                Note(PaintCodeImportSeverity.Dropped, shape.Name, "text", $"'{expression}' does not evaluate as translated ({fault.TrimEnd('.')}), so the words the drawing had are written.");
+                run.Add(text.Value);
+            }
+            else
+            {
+                run.Add(Braces(expression));
+                _code.Use(expression);
             }
         }
         else
@@ -1123,15 +1128,19 @@ internal sealed class PaintCodeSvgWriter
     /// </remarks>
     private double? Produced(PaintCodeItem item, string property, string name)
     {
+        var refusal = string.Empty;
+
         if (item.Bindings.TryGetValue(property, out var binding) &&
             binding.Expression is { } source &&
             PaintCodeExpressionTranslator.TryTranslate(source, _declarations, out var alone, out _) &&
-            _declarations.TryValue(alone, out var produced))
+            _declarations.TryValue(alone, out var produced, out refusal))
         {
             return produced;
         }
 
-        Note(PaintCodeImportSeverity.Dropped, name, property, "the expression's own value could not be worked out, so the drawing's own value is written.");
+        var why = refusal.Length > 0 ? $" ({refusal.TrimEnd('.')})" : string.Empty;
+
+        Note(PaintCodeImportSeverity.Dropped, name, property, $"the expression's own value could not be worked out{why}, so the drawing's own value is written.");
 
         return null;
     }
@@ -1157,6 +1166,16 @@ internal sealed class PaintCodeSvgWriter
         if (!PaintCodeExpressionTranslator.TryTranslate(source, _declarations, out var expression, out var refusal, _overrides))
         {
             Note(PaintCodeImportSeverity.Dropped, name, property, refusal + ", so the drawing's own value is written.");
+
+            return null;
+        }
+
+        // Evaluated before it is written: an expression that translates but does not type check
+        // would refuse the whole drawing when it is opened, which is late and says nothing about
+        // which element or why.
+        if (!_declarations.Evaluates(expression, out var fault))
+        {
+            Note(PaintCodeImportSeverity.Dropped, name, property, $"'{expression}' does not evaluate as translated ({fault.TrimEnd('.')}), so the drawing's own value is written.");
 
             return null;
         }

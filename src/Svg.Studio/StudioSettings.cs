@@ -64,6 +64,12 @@ public static class StudioSettings
 
     private const string LayoutKey = "layout";
 
+    private const string ConvertAsksKey = "convertAsks";
+
+    private const string ConvertIntegersKey = "convertIntegers";
+
+    private const string ConvertOrganizesKey = "convertOrganizes";
+
     /// <summary>
     /// Where the settings are kept.
     /// </summary>
@@ -182,6 +188,30 @@ public static class StudioSettings
         set => Write(DrawingCaptionsKey, value ? "on" : "off");
     }
 
+    /// <summary>Whether opening a PaintCode document asks how to convert it, or converts it as last asked.</summary>
+    /// <remarks>On unless somebody ticked the box that says not to ask again.</remarks>
+    public static bool ConvertAsks
+    {
+        get => !string.Equals(Read(ConvertAsksKey), "off", StringComparison.Ordinal);
+        set => Write(ConvertAsksKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether a PaintCode conversion writes whole numbers as integers.</summary>
+    /// <remarks>Off, the conversion's own default, until a conversion is asked for with it on.</remarks>
+    public static bool ConvertIntegers
+    {
+        get => string.Equals(Read(ConvertIntegersKey), "on", StringComparison.Ordinal);
+        set => Write(ConvertIntegersKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether a PaintCode conversion organizes the variables it gives each drawing.</summary>
+    /// <remarks>On, the conversion's own default, until a conversion is asked for with it off.</remarks>
+    public static bool ConvertOrganizes
+    {
+        get => !string.Equals(Read(ConvertOrganizesKey), "off", StringComparison.Ordinal);
+        set => Write(ConvertOrganizesKey, value ? "on" : "off");
+    }
+
     /// <summary>Whether a gesture lands on the grid rather than where the pointer stopped.</summary>
     /// <remarks>
     /// Off unless the file says otherwise, which is the other way round from the recovery copy: a
@@ -242,10 +272,11 @@ public static class StudioSettings
     /// <summary>What a window nobody has arranged comes up in.</summary>
     /// <remarks>
     /// A strip either side of the drawing, both 300px so neither reads as the important one: the
-    /// project tree over the variables it declares on the left, and on the right the settings and the
-    /// elements sharing a run over the picked element's attributes. The tree gets the deeper share of
-    /// its column — it is the list you scroll, where the variables are a handful of rows. Streamline
-    /// runs under the drawing, which is as wide as a row of tiles gets.
+    /// project tree, with the repository's changes behind it, over the variables it declares on the
+    /// left, and on the right the settings and the elements sharing a run over the picked element's
+    /// attributes. The tree gets the deeper share of its column — it is the list you scroll, where
+    /// the variables are a handful of rows. Streamline runs under the drawing, which is as wide as a
+    /// row of tiles gets.
     ///
     /// Studio's rather than the viewer's, because the tree is Studio's panel and nothing in
     /// <see cref="SvgViewerDock.Default"/> knows where one goes. A layout naming a panel nothing
@@ -253,7 +284,7 @@ public static class StudioSettings
     /// outside a project too.
     /// </remarks>
     public const string DefaultLayout =
-        "row(col(tree/1.4/tree/open,variables/1/variables/open)/300px,col(*/1.6,streamline/1/streamline/open)/1,"
+        "row(col(tree+changes/1.4/tree/open,variables/1/variables/open)/300px,col(*/1.6,streamline/1/streamline/open)/1,"
         + "col(project+elements/1/project/open,element/1/element/open)/300px)";
 
     /// <summary>The two steps as one, which is what a canvas and a gesture are handed.</summary>

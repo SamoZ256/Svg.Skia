@@ -21,6 +21,8 @@ internal sealed class PaintCodeDeclarations
     private readonly Dictionary<string, PaintCodeGradient> _gradients = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _gradientExpressions = new(StringComparer.Ordinal);
 
+    private readonly Dictionary<string, PaintCodeSort> _sorts = new(StringComparer.Ordinal);
+
     private SvgExpressionDeclarations? _resolved;
     private ExprEvaluator? _evaluator;
 
@@ -37,21 +39,125 @@ internal sealed class PaintCodeDeclarations
     /// between the two into its own generated code as a constant. Working that difference out means
     /// evaluating the expression the way the document would on opening.
     /// </remarks>
-    internal bool TryValue(string expression, out double value)
+    internal bool TryValue(string expression, out double value, out string refusal)
     {
         value = 0;
 
+        if (Evaluator(out refusal) is not { } evaluator)
+        {
+            return false;
+        }
+
         try
         {
-            _evaluator ??= ExprEvaluator.Create(Resolved());
-            value = _evaluator.Evaluate(expression).AsNumber;
+            value = evaluator.Evaluate(expression).AsNumber;
 
             return true;
         }
         catch (Exception failure) when (failure is ExprException or ArgumentException or InvalidOperationException)
         {
+            refusal = failure.Message;
+
             return false;
         }
+    }
+
+    /// <summary>Whether <paramref name="expression"/> evaluates with every parameter at its default, which is the check a drawing would otherwise fail at load.</summary>
+    internal bool Evaluates(string expression, out string refusal)
+    {
+        if (Evaluator(out refusal) is not { } evaluator)
+        {
+            return false;
+        }
+
+        try
+        {
+            evaluator.Evaluate(expression);
+
+            return true;
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException or InvalidOperationException)
+        {
+            refusal = failure.Message;
+
+            return false;
+        }
+    }
+
+    private ExprEvaluator? Evaluator(out string refusal)
+    {
+        refusal = string.Empty;
+
+        try
+        {
+            return _evaluator ??= ExprEvaluator.Create(Resolved());
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException or InvalidOperationException)
+        {
+            refusal = failure.Message;
+
+            return null;
+        }
+    }
+
+    /// <summary>The sort a translation this document produced came out as, for when its text is substituted into another.</summary>
+    internal PaintCodeSort? SortOf(string expression) => _sorts.TryGetValue(expression, out var sort) ? sort : null;
+
+    internal void Remember(string expression, PaintCodeSort sort) => _sorts[expression] = sort;
+
+    /// <summary>
+    /// Refuses the declarations outright where they do not evaluate as translated.
+    /// </summary>
+    /// <remarks>
+    /// Thrown rather than noted, because what fails here fails everywhere at once: every driven
+    /// transform's offset is evaluated against these, so one bad local wrote every transform in a
+    /// document as the number it was saved at and said so only in a note per element. Found by
+    /// building the locals up one at a time, since the evaluator names the fault and not the local.
+    /// </remarks>
+    private void Check()
+    {
+        if (Evaluator(out var refusal) is { })
+        {
+            return;
+        }
+
+        var built = new List<string>();
+
+        foreach (var name in Locals())
+        {
+            if (_byName[name].Body is not { } body)
+            {
+                continue;
+            }
+
+            built.Add(name);
+
+            var builder = new SvgExpressionDeclarations.Builder();
+
+            foreach (var declaration in _byName.Values)
+            {
+                if (declaration.Kind is PaintCodeDeclarationKind.Parameter)
+                {
+                    builder.AddParameter(declaration.Name, declaration.Type, declaration.Body);
+                }
+            }
+
+            foreach (var local in built)
+            {
+                builder.AddLet(local, _byName[local].Body);
+            }
+
+            try
+            {
+                ExprEvaluator.Create(builder.Build());
+            }
+            catch (Exception failure) when (failure is ExprException or ArgumentException or InvalidOperationException)
+            {
+                throw new PaintCodeException($"The variable '{name}' cannot be written as translated: {failure.Message} Its body was written as '{body}'.", failure);
+            }
+        }
+
+        throw new PaintCodeException($"The document's variables cannot be written as translated: {refusal}");
     }
 
     private SvgExpressionDeclarations Resolved()
@@ -128,6 +234,7 @@ internal sealed class PaintCodeDeclarations
         }
 
         declarations.Resolve();
+        declarations.Check();
 
         return declarations;
     }
@@ -155,10 +262,13 @@ internal sealed class PaintCodeDeclarations
                     continue;
                 }
 
-                if (PaintCodeExpressionTranslator.TryTranslate(declaration.Body ?? string.Empty, this, out var expression, out var refusal))
+                if (PaintCodeExpressionTranslator.TryTranslate(declaration.Body ?? string.Empty, this, out var expression, out var sort, out var refusal))
                 {
-                    _byName[name] = PaintCodeDeclaration.Local(name, expression, declaration.Type ?? "number")
-                        .From(declaration.Body);
+                    // Typed by what it came out as, so a local built from an integer is one too, and
+                    // whatever reads it knows where num() goes.
+                    var type = sort is PaintCodeSort.Integer ? "integer" : declaration.Type ?? "number";
+
+                    _byName[name] = PaintCodeDeclaration.Local(name, expression, type).From(declaration.Body);
                     changed = true;
 
                     continue;

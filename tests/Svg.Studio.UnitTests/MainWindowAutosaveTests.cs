@@ -66,7 +66,7 @@ public class MainWindowAutosaveTests : IDisposable
         ProjectRecovery.Now = _clock;
         StudioSettings.Store = _settings;
 
-        Directory.Delete(_directory, recursive: true);
+        Scratch.Delete(_directory);
     }
 
     [AvaloniaFact]

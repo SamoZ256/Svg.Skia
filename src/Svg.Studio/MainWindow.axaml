@@ -292,7 +292,7 @@
             </TextBox.InnerRightContent>
           </TextBox>
           <Grid DragDrop.AllowDrop="True">
-            <TreeView x:Name="ProjectTree" Background="Transparent" BorderThickness="0" />
+            <TreeView x:Name="ProjectTree" Background="Transparent" BorderThickness="0" SelectionMode="Multiple" />
             <!--
               Where a dragged row would land. Over the tree rather than in it, so it takes no room
               in the layout and cannot take the pointer: a line between two rows on the way past,

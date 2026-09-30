@@ -75,7 +75,7 @@ public class MainWindowProjectTests : IDisposable
         return path;
     }
 
-    public void Dispose() => Directory.Delete(_directory, recursive: true);
+    public void Dispose() => Scratch.Delete(_directory);
 
     /// <summary>A window with <paramref name="path"/> opened through the route a drop also ends in.</summary>
     private static async Task<MainWindow> Host(string path, string? layout = null)
@@ -985,7 +985,7 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
-    /// A drop keeps the ring, the row it came from and the Element tab, on the drawing that moved.
+    /// A drop keeps the ring, the row it came from and the Attributes tab, on the drawing that moved.
     /// </summary>
     /// <remarks>
     /// A rebuild used to clear all three, so every drop emptied the panes beside the canvas and took
@@ -1514,6 +1514,132 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.Same(drawing, back);
         Assert.Same(window.Workspace.Document.Root, back.Parent);
+    }
+
+    /// <summary>Three drawings beside a group, for a selection of several to act on.</summary>
+    private const string Several = """
+        <studio namespace="Demo.Icons">
+          <drawing name="one" class="One">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" /></svg>
+          </drawing>
+          <drawing name="two" class="Two">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" /></svg>
+          </drawing>
+          <drawing name="three" class="Three">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" /></svg>
+          </drawing>
+          <group name="Box" namespace="Demo.Icons.Box" />
+        </studio>
+        """;
+
+    /// <summary>The row of the tree showing <paramref name="name"/>, wherever it sorted to.</summary>
+    private static TreeViewItem Item(MainWindow window, string name)
+        => Tree(window).GetVisualDescendants().OfType<TreeViewItem>()
+            .Single(row => row.Tag is ProjectNode node && node.Name == name && node.Parent is { });
+
+    private static void Click(MainWindow window, TreeViewItem row, RawInputModifiers modifiers = RawInputModifiers.None)
+    {
+        var header = row.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>().First(presenter => Equals(presenter.Content, row.Header));
+        var at = header.TranslatePoint(new Point(header.Bounds.Width / 2d, header.Bounds.Height / 2d), window)!.Value;
+
+        window.MouseDown(at, MouseButton.Left, modifiers);
+        window.MouseUp(at, MouseButton.Left, modifiers);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The modifier the tree adds to a selection with, on whatever platform this runs on.</summary>
+    private static RawInputModifiers Command(MainWindow window)
+        => Application.Current?.PlatformSettings?.HotkeyConfiguration.CommandModifiers == KeyModifiers.Meta
+            ? RawInputModifiers.Meta
+            : RawInputModifiers.Control;
+
+    /// <summary>A click with the command key adds a row to the selection, and opens nothing.</summary>
+    [AvaloniaFact]
+    public async Task Rows_Are_Gathered_Into_A_Selection_Without_Opening_Them()
+    {
+        var window = await Host(Write("icons.svgstudio", Several));
+        var tabs = Tabs(window).Items.Count;
+
+        Click(window, Item(window, "one"));
+        Click(window, Item(window, "three"), Command(window));
+
+        var selected = Tree(window).SelectedItems.OfType<TreeViewItem>().Select(row => ((ProjectNode)row.Tag!).Name).ToArray();
+
+        Assert.Equal(new[] { "one", "three" }, selected.OrderBy(name => name).ToArray());
+
+        // The plain click opened one; the one added to the selection did not open another.
+        Assert.Equal(tabs + 1, Tabs(window).Items.Count);
+    }
+
+    [AvaloniaFact]
+    public async Task Several_Rows_Are_Removed_As_One_Step()
+    {
+        var window = await Host(Write("icons.svgstudio", Several));
+
+        Click(window, Item(window, "one"), Command(window));
+        Click(window, Item(window, "two"), Command(window));
+
+        Tree(window).RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Delete });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "three", "Box" }, window.Workspace!.Document.Root.Children.Select(node => node.Name).ToArray());
+
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "one", "two", "three", "Box" }, window.Workspace.Document.Root.Children.Select(node => node.Name).ToArray());
+    }
+
+    [AvaloniaFact]
+    public async Task Several_Rows_Are_Copied_And_Pasted_Together()
+    {
+        var window = await Host(Write("icons.svgstudio", Several));
+        // The tree's keys go by the machine, as its other key tests do; its clicks go by the platform.
+        var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+
+        void Press(Key key)
+        {
+            Tree(window).RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = key, KeyModifiers = command });
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        Click(window, Item(window, "one"));
+        Click(window, Item(window, "two"), Command(window));
+        Press(Key.C);
+
+        Click(window, Item(window, "Box"));
+        Press(Key.V);
+
+        var box = (ProjectGroup)window.Workspace!.Document.Root.Children.Single(node => node.Name == "Box");
+
+        Assert.Equal(2, box.Children.Count);
+        Assert.Equal(4, window.Workspace.Document.Root.Children.Count);
+
+        // One step for the pair.
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(box.Children);
+    }
+
+    [AvaloniaFact]
+    public async Task Several_Rows_Are_Moved_As_One_Step()
+    {
+        var window = await Host(Write("icons.svgstudio", Several));
+        var root = window.Workspace!.Document.Root;
+        var box = (ProjectGroup)root.Children.Single(node => node.Name == "Box");
+
+        Assert.True(window.Move(new[] { root.Children[0], root.Children[2] }, box));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "one", "three" }, box.Children.Select(node => node.Name).ToArray());
+        Assert.Equal(new[] { "two", "Box" }, root.Children.Select(node => node.Name).ToArray());
+
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(box.Children);
+        Assert.Equal(new[] { "one", "two", "three", "Box" }, root.Children.Select(node => node.Name).ToArray());
     }
 
     /// <summary>The menu says what it would take back, and stops offering what it cannot.</summary>
@@ -4127,6 +4253,81 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(path), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A swatch pressed just after typing on a board opens, and the panel it is on is still the one
+    /// on screen.
+    /// </summary>
+    /// <remarks>
+    /// Leaving the box writes, the write rebuilds the board, and the board used to answer with a new
+    /// panel while the press was still going on — so the press landed on nothing, and needed making
+    /// again. The viewer's own suite could not see it: its harness refreshes the panel it has.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Swatch_Pressed_Straight_After_Typing_Opens_On_A_Board()
+    {
+        var path = Own(Unbound, Declaring);
+        var window = await Host(path);
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
+        var box = window.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "fill"));
+
+        box.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(box.Focus());
+        box.Text = "#0000ff";
+
+        var swatch = window.GetVisualDescendants().OfType<Button>()
+            .Single(candidate => candidate.Classes.Contains("swatch") && Equals(candidate.Tag, "stroke"));
+
+        swatch.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+
+        var at = swatch.TranslatePoint(new Point(swatch.Bounds.Width / 2d, swatch.Bounds.Height / 2d), window)!.Value;
+
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("fill=\"#0000ff\"", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.Same(element, Element(panel));
+        Assert.True(swatch.Flyout!.IsOpen);
+
+        swatch.Flyout.Hide();
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>A write on a board leaves the pane where it was scrolled to.</summary>
+    [AvaloniaFact]
+    public async Task The_Attributes_Pane_Keeps_Its_Place_Through_A_Write_On_A_Board()
+    {
+        var path = Own(Unbound, Declaring);
+        var window = await Host(path);
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
+        var scroll = element.GetVisualDescendants().OfType<ScrollViewer>().First();
+
+        scroll.Offset = new Vector(0, 120);
+        Dispatcher.UIThread.RunJobs();
+
+        var before = scroll.Offset.Y;
+
+        Assert.True(before > 0);
+
+        Assert.True(element.Set("opacity", "0.5"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("opacity=\"0.5\"", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.Same(element, Element(panel));
+        Assert.Equal(before, scroll.Offset.Y);
+    }
+
     /// <summary>A drawing whose words are worth editing.</summary>
     private const string Saying = """
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
@@ -4136,7 +4337,7 @@ public class MainWindowProjectTests : IDisposable
         """;
 
     /// <summary>
-    /// The words of a text element are edited from the group's Element tab, into the project.
+    /// The words of a text element are edited from the group's Attributes tab, into the project.
     /// </summary>
     /// <remarks>
     /// The same path an attribute takes, which is the point: a drawing's text is not an attribute,
