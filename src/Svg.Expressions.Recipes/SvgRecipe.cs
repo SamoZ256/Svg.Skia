@@ -3,24 +3,27 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
+using Svg.Skia;
 
 namespace Svg.Expressions.Recipes;
 
 /// <summary>A value in the source document, and the expression that replaces every occurrence of it.</summary>
 public sealed class SvgReplaceRule
 {
-    public SvgReplaceRule(string name, string valueText, string key, ExprType type, string expression)
+    public SvgReplaceRule(string name, string valueText, string key, ExprType type, string expression, SvgRecipeSlot? slot = null)
     {
         Name = name;
         ValueText = valueText;
         Key = key;
         Type = type;
         Expression = expression;
+        Slot = slot;
     }
 
     /// <summary>What the rule names: an attribute, or <see cref="SvgRecipeValue.ColorName"/>.</summary>
@@ -37,6 +40,9 @@ public sealed class SvgReplaceRule
 
     /// <summary>Expression text, without the braces.</summary>
     public string Expression { get; }
+
+    /// <summary>The slot this rule was bound from, or null for a written <c>&lt;replace&gt;</c>.</summary>
+    public SvgRecipeSlot? Slot { get; }
 }
 
 /// <summary>
@@ -59,6 +65,10 @@ public sealed class SvgReplaceRule
 /// A rule names <c>color</c>, or one of the non-colour attributes an expression can drive. See
 /// <see cref="SvgRecipeValue.ColorName"/> for why colours have a name of their own and the others
 /// do not.
+///
+/// A recipe is also a template for drawings it has not seen: <c>name</c>, <c>size</c> and
+/// <c>padding</c> on the root, a <see cref="SvgRecipeMatch"/> saying which drawings it fits, and
+/// <see cref="SvgRecipeSlot"/>s that <see cref="Bind"/> turns into rules for one drawing.
 /// </summary>
 public sealed class SvgRecipe
 {
@@ -70,11 +80,38 @@ public sealed class SvgRecipe
 
     internal static readonly XNamespace Ns = Namespace;
 
-    private SvgRecipe(IReadOnlyList<XElement> declarations, IReadOnlyList<SvgReplaceRule> rules)
+    private SvgRecipe(
+        string? name,
+        float? size,
+        SvgPadding padding,
+        SvgRecipeMatch? match,
+        IReadOnlyList<XElement> declarations,
+        IReadOnlyList<SvgReplaceRule> rules,
+        IReadOnlyList<SvgRecipeSlot> slots)
     {
+        Name = name;
+        Size = size;
+        Padding = padding;
+        Match = match;
         Declarations = declarations;
         Rules = rules;
+        Slots = slots;
     }
+
+    /// <summary>The label a picker shows for the recipe.</summary>
+    public string? Name { get; }
+
+    /// <summary>The square a drawing is mapped onto when the recipe is applied at import, or null to keep it as delivered.</summary>
+    public float? Size { get; }
+
+    /// <summary>Space left around the drawing inside <see cref="Size"/>, read as svgc's <c>--padding</c> is.</summary>
+    public SvgPadding Padding { get; }
+
+    /// <summary>The conditions a drawing must meet, or null where the recipe fits any.</summary>
+    public SvgRecipeMatch? Match { get; }
+
+    /// <summary>The rules still to be picked from a drawing, in the order they bind.</summary>
+    public IReadOnlyList<SvgRecipeSlot> Slots { get; }
 
     /// <summary>The <c>param</c> and <c>let</c> elements, in document order, ready to be copied out.</summary>
     public IReadOnlyList<XElement> Declarations { get; }
@@ -110,6 +147,8 @@ public sealed class SvgRecipe
         var declarations = new List<XElement>();
         var rules = new List<SvgReplaceRule>();
         var claimed = new Dictionary<(string Name, string Key), SvgReplaceRule>();
+        var slots = new List<SvgRecipeSlot>();
+        SvgRecipeMatch? match = null;
 
         foreach (var element in root.Elements())
         {
@@ -125,13 +164,134 @@ public sealed class SvgRecipe
                     AddRule(element, rules, claimed);
                     break;
 
+                case "slot":
+                    slots.Add(SvgRecipeSlot.Read(element));
+                    break;
+
+                case "match" when match is null:
+                    match = SvgRecipeMatch.Read(element);
+                    break;
+
+                case "match":
+                    throw new SvgRecipeException("A recipe has one <match>; put every condition on it.");
+
                 default:
                     throw new SvgRecipeException(
-                        $"<{element.Name.LocalName}> is not a recipe element. Expected <code> or <replace>.");
+                        $"<{element.Name.LocalName}> is not a recipe element. Expected <code>, <replace>, <slot> or <match>.");
             }
         }
 
-        return new SvgRecipe(declarations, rules);
+        var name = ((string?)root.Attribute("name"))?.Trim();
+
+        return new SvgRecipe(
+            name is { Length: > 0 } ? name : null,
+            ReadSize((string?)root.Attribute("size")),
+            ReadPadding((string?)root.Attribute("padding")),
+            match,
+            declarations,
+            rules,
+            slots);
+    }
+
+    /// <summary>Whether a drawing passes this recipe's <c>&lt;match&gt;</c>; see <see cref="SvgRecipeMatch.IsMatch"/>.</summary>
+    public bool Matches(IReadOnlyList<SvgRecipeSurveyValue> survey, string? family = null, string? style = null, string? name = null)
+        => Match is null || Match.IsMatch(survey, family, style, name);
+
+    /// <summary>
+    /// Turns the slots into rules for the drawing <paramref name="survey"/> describes, and drops the
+    /// declarations <paramref name="declared"/> already makes.
+    /// </summary>
+    /// <param name="survey">What <see cref="SvgRecipeRewriter.Survey"/> found in the drawing.</param>
+    /// <param name="palette">The drawing's colours as its source lists them, for <c>palette="n"</c>.</param>
+    /// <param name="declared">Names the target already declares, so a template leaning on them injects nothing.</param>
+    /// <remarks>
+    /// Written rules claim their values first, then slots bind in file order, and a value one slot
+    /// takes is never offered to a later one: that is what keeps the bound recipe within the
+    /// one-rule-per-value rule <see cref="Parse"/> enforces.
+    /// </remarks>
+    public SvgRecipeBinding Bind(
+        IReadOnlyList<SvgRecipeSurveyValue> survey,
+        IReadOnlyList<string>? palette = null,
+        IEnumerable<string>? declared = null)
+    {
+        var claimed = new HashSet<(string Name, string Key)>(Rules.Select(rule => (rule.Name, rule.Key)));
+        var rules = new List<SvgReplaceRule>(Rules);
+
+        foreach (var slot in Slots)
+        {
+            var picked = slot.Pick(survey.Where(value => !claimed.Contains((value.Name, value.Text))), palette);
+
+            if (picked.Count == 0 && !slot.Optional)
+            {
+                return Failed($"{slot.Written} found nothing to fill in this drawing.");
+            }
+
+            foreach (var value in picked)
+            {
+                claimed.Add((value.Name, value.Text));
+                rules.Add(new SvgReplaceRule(
+                    slot.Attribute,
+                    value.Text,
+                    value.Text,
+                    slot.Type,
+                    slot.Expression.Replace("$value", Literal(value)),
+                    slot));
+            }
+        }
+
+        // Otherwise a template of optional slots and nothing else binds everything as itself and
+        // is offered as a fit; a recipe that means to keep the colours says so by having no slots.
+        if (Slots.Count > 0 && rules.Count == 0)
+        {
+            return Failed("None of the recipe's slots found anything in this drawing.");
+        }
+
+        var standing = new HashSet<string>(declared ?? Array.Empty<string>(), StringComparer.Ordinal);
+
+        var declarations = Declarations
+            .Where(declaration => !standing.Contains(((string?)declaration.Attribute("name"))?.Trim() ?? string.Empty))
+            .ToList();
+
+        return new SvgRecipeBinding(
+            new SvgRecipe(Name, Size, Padding, Match, declarations, rules, Array.Empty<SvgRecipeSlot>()),
+            null,
+            Leftover());
+
+        SvgRecipeBinding Failed(string why) => new(null, why, Leftover());
+
+        // A number's key is float's round-trip text, which turns to 1E-05 for small values, and
+        // ExprLexer.ReadNumber reads no exponent.
+        static string Literal(SvgRecipeSurveyValue value)
+            => value.Type == ExprType.Number
+                ? float.Parse(value.Text, NumberStyles.Float, CultureInfo.InvariantCulture).ToString("0.#########", CultureInfo.InvariantCulture)
+                : value.Text;
+
+        List<SvgRecipeSurveyValue> Leftover()
+            => survey.Where(value => value.Name == SvgRecipeValue.ColorName && !claimed.Contains((value.Name, value.Text))).ToList();
+    }
+
+    private static float? ReadSize(string? text)
+    {
+        if (text is null)
+        {
+            return null;
+        }
+
+        return float.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var size) && size > 0f && !float.IsInfinity(size)
+            ? size
+            : throw new SvgRecipeException($"The recipe's size is not a positive number: '{text}'.");
+    }
+
+    private static SvgPadding ReadPadding(string? text)
+    {
+        try
+        {
+            return SvgPadding.Parse(text);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new SvgRecipeException($"The recipe's padding: {ex.Message}", ex);
+        }
     }
 
     // Several <code> blocks merge in document order, matching how the extension itself treats
@@ -166,19 +326,7 @@ public sealed class SvgRecipe
 
         var key = SvgRecipeValue.Key(type, valueText, $"The value of {written}");
 
-        var expression = NormalizeExpression(element.Value);
-
-        if (expression.Length == 0)
-        {
-            throw new SvgRecipeException($"{written} has no expression.");
-        }
-
-        if (expression.IndexOf("}}", StringComparison.Ordinal) >= 0 ||
-            expression.IndexOf("{{", StringComparison.Ordinal) >= 0)
-        {
-            throw new SvgRecipeException(
-                $"The expression for {written} must not contain braces; they are added when it is written out.");
-        }
+        var expression = ReadExpression(element, written);
 
         var rule = new SvgReplaceRule(name, valueText, key, type, expression);
 
@@ -240,6 +388,26 @@ public sealed class SvgRecipe
         }
 
         return rule;
+    }
+
+    /// <summary>The expression a <c>&lt;replace&gt;</c> or <c>&lt;slot&gt;</c> holds, refusing one that could not be written out.</summary>
+    internal static string ReadExpression(XElement element, string written)
+    {
+        var expression = NormalizeExpression(element.Value);
+
+        if (expression.Length == 0)
+        {
+            throw new SvgRecipeException($"{written} has no expression.");
+        }
+
+        if (expression.IndexOf("}}", StringComparison.Ordinal) >= 0 ||
+            expression.IndexOf("{{", StringComparison.Ordinal) >= 0)
+        {
+            throw new SvgRecipeException(
+                $"The expression for {written} must not contain braces; they are added when it is written out.");
+        }
+
+        return expression;
     }
 
     private static string Expected() => string.Join(", ", SvgRecipeValue.Names);

@@ -85,6 +85,21 @@ public static class SvgRecipeColor
         return argb;
     }
 
+    /// <summary>WCAG relative luminance of the colour, 0 for black to 1 for white, ignoring alpha.</summary>
+    /// <remarks>Used only to order colours, which is what <c>by="lightness"</c> on a slot ranks by.</remarks>
+    public static double Luminance(int argb)
+    {
+        var color = Color.FromArgb(argb);
+
+        return 0.2126 * Linear(color.R) + 0.7152 * Linear(color.G) + 0.0722 * Linear(color.B);
+
+        static double Linear(byte channel)
+        {
+            var c = channel / 255.0;
+            return c <= 0.04045 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
+        }
+    }
+
     /// <summary>Renders an ARGB key back as <c>#rrggbb</c>, or <c>#rrggbbaa</c> when translucent.</summary>
     public static string ToText(int argb)
     {

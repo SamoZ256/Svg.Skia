@@ -77,6 +77,28 @@ public class SvgRecipeRewriterTests
         Assert.Equal("#3b82f6", Assert.Single(colours).Text);
     }
 
+    [Fact]
+    public void Survey_Written_ListsExpressionsAmongTheColoursInTheOrderTheyAreMet()
+    {
+        // A template read back out of a drawing ranks ties by this order, as a binding does, so
+        // expressions and literals are one list rather than two joined end to end.
+        var values = SvgRecipeRewriter.Survey(
+            """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <rect fill="#ffffff" />
+              <rect fill="{{ a  +  b }}" stroke="{{a + b}}" />
+              <rect fill="#ff0000" style="fill: {{ accent }}" />
+              <rect fill="{{ accent }}" />
+            </svg>
+            """,
+            written: true);
+
+        // One entry per expression however it is spaced, and the style beating the dead attribute under it.
+        Assert.Equal(new[] { "#ffffff", "{{ a + b }}", "{{ accent }}" }, values.Select(value => value.Text).ToArray());
+        Assert.Equal(new[] { 1, 2, 2 }, values.Select(value => value.Count).ToArray());
+        Assert.Equal(new[] { "fill", "stroke" }, values[1].Attributes.Keys.OrderBy(key => key, StringComparer.Ordinal).ToArray());
+    }
+
     /// <summary>
     /// The drawing the invariant below is held against: every attribute an expression can drive,
     /// spread over attributes and style declarations, with values a rule must not claim mixed in.

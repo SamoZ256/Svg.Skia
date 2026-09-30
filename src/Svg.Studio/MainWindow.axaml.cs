@@ -59,6 +59,7 @@ public partial class MainWindow : Window
     /// of panels rather than a set per document.
     /// </remarks>
     private readonly SvgViewerDock _dock;
+    private readonly StreamlinePanel _streamline;
     private readonly TextBlock _projectName;
     private readonly TextBox _projectSearch;
     private readonly TextBlock _projectSearchCount;
@@ -119,6 +120,7 @@ public partial class MainWindow : Window
         ShowSettings = ShowSettingsWindow;
         ConfirmRelax = AskRelax;
         Announce = (title, message) => Ask(title, message, null, "Close");
+        AskTemplateName = AskTemplate;
         ShowOnDisk = Reveal;
 
         ResolveConflicts = merge => new ProjectMergeWindow(merge).ShowDialog<bool?>(this);
@@ -183,6 +185,15 @@ public partial class MainWindow : Window
         // parent, so the panel holding them lets go first.
         shell.Children.Remove(_projectPaneHost);
         shell.Children.Remove(_tabs);
+
+        _streamline = new StreamlinePanel(this)
+        {
+            ConfirmFamily = message => Ask("Import a family", message, "Import", "Cancel")
+        };
+
+        // Posted, so a tree rebuilt under an edit is read once it holds its selection again rather
+        // than as the empty tree it passes through, which would start the import rows over.
+        _projectTree.SelectionChanged += (_, _) => Dispatcher.UIThread.Post(() => _streamline.Target = Targeted());
 
         // Fallback first: it is what an unreadable line comes back to, and where a panel taken off
         // the arrangement is put when it comes back.
@@ -678,6 +689,7 @@ public partial class MainWindow : Window
             Retitle();
             Rebuild();
             UpdateMenu();
+            _streamline.ShowTemplates();
         };
 
         // A write changes nothing the tree or the boards are showing — only whether there is
@@ -957,8 +969,23 @@ public partial class MainWindow : Window
                 new SvgViewerRegion(AssistantPanelId, "Assistant", _assistant)
             }
             .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id])))
+            .Append(new SvgViewerRegion(StreamlineRegion, "Streamline", _streamline))
             .ToList();
     }
+
+    /// <summary>What the arrangement calls the Streamline panel, which is the window's and not filled from a tab.</summary>
+    private const string StreamlineRegion = "streamline";
+
+    /// <summary>The Streamline panel, for a test to drive.</summary>
+    public StreamlinePanel Streamline => _streamline;
+
+    /// <summary>The group an import goes into: the one picked in the tree, or the one holding the picked drawing.</summary>
+    private ProjectGroup? Targeted() => (_projectTree.SelectedItem as TreeViewItem)?.Tag switch
+    {
+        ProjectGroup group => group,
+        ProjectNode node => node.Parent,
+        _ => null
+    };
 
     /// <summary>Fills the panels from whatever the tab in front has to show.</summary>
     private void Panels()
@@ -1013,6 +1040,8 @@ public partial class MainWindow : Window
         // Here rather than at the two ends of a project's life: this is where both of them already
         // land, and by now the workspace has been set or cleared.
         ShowWelcome();
+
+        _streamline.Target = null;
 
         if (!show)
         {
@@ -1116,6 +1145,13 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // A click that adds to the selection or extends it only selects: opening every row
+            // gathered into a selection would open a tab for each.
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Shift) || e.KeyModifiers.HasFlag(Command))
+            {
+                return;
+            }
+
             await ShowAsync(node);
         };
 
@@ -1199,8 +1235,8 @@ public partial class MainWindow : Window
         // The project is the file; it can be neither taken out of the tree nor put back into it.
         if (node.Parent is { })
         {
-            Add("Cut", () => Hold(node, cut: true), new KeyGesture(Key.X, command));
-            Add("Copy", () => Hold(node, cut: false), new KeyGesture(Key.C, command));
+            Add("Cut", () => Hold(Chosen(node), cut: true), new KeyGesture(Key.X, command));
+            Add("Copy", () => Hold(Chosen(node), cut: false), new KeyGesture(Key.C, command));
         }
 
         // Always, unlike Cut and Copy: what a paste would land is on the system clipboard as often
@@ -1213,6 +1249,22 @@ public partial class MainWindow : Window
         Add("Add group", async () => await AddGroupAsync(node));
         Add("Add SVG…", async () => await AddDrawingAsync(node));
 
+        if (node is ProjectDrawing drawing)
+        {
+            menu.Items.Add(new Separator());
+            Add("Extract template…", async () => await ExtractTemplateAsync(drawing));
+
+            if (drawing.Source?.StartsWith(StreamlinePanel.SourcePrefix, StringComparison.Ordinal) == true)
+            {
+                Add("Update from Streamline", async () =>
+                {
+                    ShowStreamline();
+
+                    await _streamline.UpdateAsync(drawing);
+                });
+            }
+        }
+
         // A group has no file of its own, so what it shows is the project it is written in.
         if (OnDisk(node) is { })
         {
@@ -1223,7 +1275,7 @@ public partial class MainWindow : Window
         if (node.Parent is { })
         {
             menu.Items.Add(new Separator());
-            Add("Remove", async () => await RemoveAsync(node));
+            Add("Remove", async () => await RemoveAsync(Chosen(node)));
         }
 
         return menu;
@@ -1247,14 +1299,19 @@ public partial class MainWindow : Window
     private string? OnDisk(ProjectNode node)
         => _workspace?.Document.Path is { } path && File.Exists(path) ? path : null;
 
-    /// <summary>Takes a row, to be pasted somewhere else.</summary>
-    private void Hold(ProjectNode node, bool cut)
+    /// <summary>Takes rows, to be pasted somewhere else.</summary>
+    private void Hold(IReadOnlyList<ProjectNode> nodes, bool cut)
     {
-        _held = node;
+        if (nodes.Count == 0)
+        {
+            return;
+        }
+
+        _held = nodes;
         _heldCut = cut;
 
         // The menus were built when the tree was, and none of them offered Paste.
-        BuildTree(node);
+        BuildTree(nodes[0]);
     }
 
     /// <summary>
@@ -1276,13 +1333,12 @@ public partial class MainWindow : Window
 
         if (_heldCut)
         {
-            if (held.Parent is { })
-            {
-                Move(held, target);
-            }
+            var still = held.Where(node => node.Parent is { }).ToList();
+
+            Move(still, target);
 
             _held = null;
-            BuildTree(held.Parent is { } ? held : null);
+            BuildTree(still.FirstOrDefault());
 
             return;
         }
@@ -1291,9 +1347,17 @@ public partial class MainWindow : Window
         ProjectNode? copy = null;
 
         workspace.Do(
-            $"paste {ProjectWorkspace.Label(held)}",
+            Labelled("paste", held),
             () => ProjectSnapshot.Contents(parent),
-            () => copy = parent.Copy(held, index));
+            () =>
+            {
+                foreach (var node in held)
+                {
+                    var made = parent.Copy(node, index++);
+
+                    copy ??= made;
+                }
+            });
 
         // Once, as a cut is: the hold is what a paste hears before the system clipboard, and a copy
         // that outlived its paste would go on answering for every paste made afterwards — including
@@ -1340,10 +1404,7 @@ public partial class MainWindow : Window
         {
             // Straight in, with no file written anywhere: the project holds the drawings, so a
             // pasted one needs nowhere to live but the row it lands on.
-            if (await AddTextAsync(parent, index, "drawing", drawing).ConfigureAwait(true) is { } refusal)
-            {
-                await Announce("That drawing couldn't be added", refusal).ConfigureAwait(true);
-            }
+            await ImportAsync(parent, index, new[] { new TemplateImport("drawing", drawing) }).ConfigureAwait(true);
 
             return;
         }
@@ -1488,84 +1549,130 @@ public partial class MainWindow : Window
             }
         }
 
-        if (reading.Count == 0)
-        {
-            return;
-        }
-
-        ProjectDrawing? added = null;
-        var refused = new List<string>();
-
-        workspace.Do(
-            reading.Count == 1 ? $"add {reading[0].Name}" : $"add {reading.Count} drawings",
-            () => ProjectSnapshot.Contents(parent),
-            () =>
-            {
-                foreach (var (name, text) in reading)
-                {
-                    try
-                    {
-                        added = parent.AddDrawing(name, text, index++);
-                    }
-                    catch (SvgcProjectException failure)
-                    {
-                        refused.Add($"{name}: {failure.Message}");
-                    }
-                }
-            });
-
-        foreach (var refusal in refused)
-        {
-            await Announce("That drawing couldn't be added", refusal).ConfigureAwait(true);
-        }
-
-        if (added is null)
-        {
-            return;
-        }
-
-        BuildTree(added);
-
-        await ShowAsync(added).ConfigureAwait(true);
+        await ImportAsync(parent, index, reading.Select(one => new TemplateImport(one.Name, one.Text)).ToList()).ConfigureAwait(true);
     }
 
-    /// <summary>Adds one drawing the window has the text of rather than a file for.</summary>
-    /// <returns>Why it could not be added, for the caller to say where it was asked; null once it is.</returns>
-    internal async Task<string?> AddTextAsync(ProjectGroup parent, int index, string name, string svgText)
+    /// <summary>
+    /// Puts drawings the window has the text of into <paramref name="parent"/>, through their
+    /// templates, as one step, and opens the last of them.
+    /// </summary>
+    /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
+    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports)
+    {
+        if (_workspace is not { } workspace || imports.Count == 0)
+        {
+            return Array.Empty<ProjectDrawing>();
+        }
+
+        var notes = new List<string>();
+        var added = TemplateLibrary.Import(workspace, parent, index, imports, notes);
+
+        foreach (var note in notes)
+        {
+            await Announce(added.Count == imports.Count ? "Imported" : "That drawing couldn't be added", note).ConfigureAwait(true);
+        }
+
+        if (added.Count == 0)
+        {
+            return added;
+        }
+
+        BuildTree(added[^1]);
+
+        await ShowAsync(added[^1]).ConfigureAwait(true);
+
+        return added;
+    }
+
+    /// <summary>Puts <paramref name="import"/> in place of what <paramref name="drawing"/> draws, as one step, and opens it.</summary>
+    /// <returns>Whether it was replaced; why not has been said.</returns>
+    public async Task<bool> UpdateAsync(ProjectDrawing drawing, TemplateImport import)
     {
         if (_workspace is not { } workspace)
         {
-            return "No project is open.";
+            return false;
         }
 
-        ProjectDrawing? added = null;
-        string? refusal = null;
-
-        workspace.Do(
-            $"add {name}",
-            () => ProjectSnapshot.Contents(parent),
-            () =>
-            {
-                try
-                {
-                    added = parent.AddDrawing(name, svgText, index);
-                }
-                catch (SvgcProjectException failure)
-                {
-                    refusal = failure.Message;
-                }
-            });
-
-        if (added is null)
+        // An undo can take the drawing out while its update was being chosen, and it keeps its Parent.
+        if (!drawing.Element.AncestorsAndSelf().Contains(workspace.Document.Root.Element))
         {
-            return refusal ?? "It could not be read.";
+            await Announce("That drawing couldn't be updated", $"{ProjectWorkspace.Label(drawing)} is no longer in the project.").ConfigureAwait(true);
+
+            return false;
         }
 
-        BuildTree(added);
+        var notes = new List<string>();
+        var replaced = TemplateLibrary.Replace(workspace, drawing, import, notes);
 
-        await ShowAsync(added).ConfigureAwait(true);
+        foreach (var note in notes)
+        {
+            await Announce(replaced ? "Updated" : "That drawing couldn't be updated", note).ConfigureAwait(true);
+        }
 
-        return null;
+        if (replaced)
+        {
+            BuildTree(drawing);
+
+            await ShowAsync(drawing).ConfigureAwait(true);
+        }
+
+        return replaced;
+    }
+
+    /// <summary>
+    /// Makes a template of the project's from what <paramref name="drawing"/>'s <c>{{ }}</c> paints
+    /// say, asking what to call it, as one step.
+    /// </summary>
+    public async Task ExtractTemplateAsync(ProjectDrawing drawing)
+    {
+        if (_workspace is not { } workspace)
+        {
+            return;
+        }
+
+        var name = ProjectWorkspace.Label(drawing);
+
+        try
+        {
+            // Once before asking, so a drawing with nothing to extract says so before anything is typed.
+            TemplateLibrary.Extract(name, drawing.Text);
+        }
+        catch (SvgRecipeException failure)
+        {
+            await Announce("Nothing to extract", $"{name}: {failure.Message}").ConfigureAwait(true);
+
+            return;
+        }
+
+        if (await AskTemplateName(name, null).ConfigureAwait(true) is not { } answer)
+        {
+            return;
+        }
+
+        var root = workspace.Document.Root;
+
+        if (TemplateLibrary.Put(workspace, root.Templates.Count, TemplateLibrary.Extract(answer.Name, drawing.Text)) is { } refusal)
+        {
+            await Announce("That template couldn't be added", refusal).ConfigureAwait(true);
+
+            return;
+        }
+
+        ShowStreamline();
+        _streamline.ShowTemplates(answer.Name);
+    }
+
+    /// <summary>Brings the Streamline panel forward, putting it back where it was taken off.</summary>
+    private void ShowStreamline()
+    {
+        _dock.Show(StreamlineRegion, true);
+        _dock.Select(StreamlineRegion);
+    }
+
+    /// <summary>Opens a drawing the window has the text of in a tab of its own, belonging to no project.</summary>
+    public async Task OpenTextAsync(string svgText, string name)
+    {
+        await AddTab().LoadTextAsync(svgText, name).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -1577,15 +1684,20 @@ public partial class MainWindow : Window
     /// removed node goes on writing settings into a detached element and reporting itself saved.
     /// </remarks>
     /// <returns>Whether it was removed, or false when the question was answered against it.</returns>
-    public async Task<bool> RemoveAsync(ProjectNode node)
+    public Task<bool> RemoveAsync(ProjectNode node) => RemoveAsync(new[] { node });
+
+    /// <summary>Takes several rows out of the project, as one step to undo.</summary>
+    public async Task<bool> RemoveAsync(IReadOnlyList<ProjectNode> nodes)
     {
-        if (_workspace is not { } workspace || node.Parent is not { } parent)
+        var removed = nodes.Where(node => node.Parent is { }).ToList();
+
+        if (_workspace is not { } workspace || removed.Count == 0)
         {
             return false;
         }
 
         foreach (var item in _tabs.Items.OfType<TabItem>()
-                     .Where(item => item.Tag is ProjectNode held && held.DescendsFrom(node))
+                     .Where(item => item.Tag is ProjectNode held && removed.Any(held.DescendsFrom))
                      .ToList())
         {
             if (!await CloseTabAsync(item).ConfigureAwait(true))
@@ -1594,14 +1706,53 @@ public partial class MainWindow : Window
             }
         }
 
+        var parents = removed.Select(node => node.Parent!).Distinct().ToList();
+
         workspace.Do(
-            $"remove {ProjectWorkspace.Label(node)}",
-            () => ProjectSnapshot.Contents(parent),
-            () => parent.Remove(node));
+            Labelled("remove", removed),
+            () => ProjectSnapshot.All(parents.Select(ProjectSnapshot.Contents).ToArray()),
+            () =>
+            {
+                foreach (var node in removed)
+                {
+                    node.Parent!.Remove(node);
+                }
+            });
 
         BuildTree();
 
         return true;
+    }
+
+    /// <summary>An undo step's label for a command on <paramref name="nodes"/>.</summary>
+    private static string Labelled(string verb, IReadOnlyList<ProjectNode> nodes)
+        => nodes.Count == 1 ? $"{verb} {ProjectWorkspace.Label(nodes[0])}" : $"{verb} {nodes.Count} rows";
+
+    /// <summary>The rows selected in the tree.</summary>
+    private IReadOnlyList<ProjectNode> Selection()
+        => _projectTree.SelectedItems.OfType<TreeViewItem>().Select(row => row.Tag).OfType<ProjectNode>().ToList();
+
+    /// <summary>
+    /// What a command on <paramref name="node"/> acts on: the whole selection where the row is part
+    /// of it, and the row alone where it is not.
+    /// </summary>
+    /// <remarks>
+    /// The row alone because a right click does not select, so a menu on a row outside the selection
+    /// is about that row. Left out: the project's own row, which can be neither moved nor removed,
+    /// and a row inside a selected group, which goes where its group goes anyway.
+    /// </remarks>
+    private IReadOnlyList<ProjectNode> Chosen(ProjectNode node)
+    {
+        var selected = Selection();
+
+        // The project row first, since every row descends from it: kept, it would leave nothing.
+        var chosen = (selected.Contains(node) ? selected : new[] { node })
+            .Where(one => one.Parent is { })
+            .ToList();
+
+        return chosen
+            .Where(one => !chosen.Any(other => !ReferenceEquals(other, one) && one.DescendsFrom(other)))
+            .ToList();
     }
 
     /// <summary>
@@ -1615,7 +1766,16 @@ public partial class MainWindow : Window
     /// </remarks>
     private static readonly DataFormat<string> RowFormat = DataFormat.CreateStringApplicationFormat("ProjectNode");
 
+    /// <summary>The modifier a click adds to a selection with, as the tree itself reads it.</summary>
+    private static KeyModifiers Command
+        => Application.Current?.PlatformSettings?.HotkeyConfiguration.CommandModifiers
+           ?? (OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control);
+
     private ProjectNode? _row;
+
+    /// <summary>What a drag of <see cref="_row"/> carries, read at the press: the tree reselects the row pressed.</summary>
+    private IReadOnlyList<ProjectNode> _rowChosen = Array.Empty<ProjectNode>();
+
     private PointerPressedEventArgs? _rowPressed;
     private Point _rowPressedAt;
 
@@ -1636,7 +1796,7 @@ public partial class MainWindow : Window
     /// The window's own, not the machine's: what is held is a row of this project, and pasting one
     /// into a text editor would mean nothing. Nothing in the app touches the system clipboard.
     /// </remarks>
-    private ProjectNode? _held;
+    private IReadOnlyList<ProjectNode>? _held;
     private bool _heldCut;
 
     private ProjectNode? _dropOn;
@@ -1659,6 +1819,7 @@ public partial class MainWindow : Window
         }
 
         _row = node;
+        _rowChosen = Chosen(node);
         _rowPressed = e;
         _rowPressedAt = e.GetPosition(_projectTree);
     }
@@ -1730,7 +1891,7 @@ public partial class MainWindow : Window
 
             e.DragEffects = DragDropEffects.Move;
 
-            if (Land(node) is not { } landing || landing.DescendsFrom(dragged))
+            if (Land(node) is not { } landing || landing.DescendsFrom(dragged) || _rowChosen.Any(landing.DescendsFrom))
             {
                 HideDrop();
 
@@ -1786,7 +1947,7 @@ public partial class MainWindow : Window
         {
             if (target is { })
             {
-                Move(dragged, target);
+                Move(_rowChosen.Count > 0 ? _rowChosen : new[] { dragged }, target);
             }
 
             return;
@@ -1821,56 +1982,66 @@ public partial class MainWindow : Window
     /// Whether it moved. A drop that lands nowhere, that would take a group into itself, or that
     /// puts a row back in the group it is already in, does not.
     /// </returns>
-    public bool Move(ProjectNode node, ProjectNode target)
+    public bool Move(ProjectNode node, ProjectNode target) => Move(new[] { node }, target);
+
+    /// <summary>Moves several rows into the group a drop on <paramref name="target"/> means, as one step.</summary>
+    /// <inheritdoc cref="Move(ProjectNode, ProjectNode)" path="/returns"/>
+    public bool Move(IReadOnlyList<ProjectNode> nodes, ProjectNode target)
     {
         if (_workspace is not { } workspace || Landing(target) is not { } landing)
         {
             return false;
         }
 
-        // Already there. Appending it to its own group would rewrite the document and mark the
-        // project unsaved for a drop that cannot change a single row of the pane.
-        if (ReferenceEquals(node.Parent, landing))
+        // Already there, or a group into its own branch. Appending a row to its own group would
+        // rewrite the document and mark the project unsaved for a drop that changes no row.
+        var moving = nodes
+            .Where(node => node.Parent is { } && !ReferenceEquals(node.Parent, landing) && !landing.DescendsFrom(node))
+            .ToList();
+
+        if (moving.Count == 0)
         {
             return false;
         }
 
-        var refused = false;
-
         // Read now and closed over, not asked inside the capture: the capture runs on both sides of
-        // the move, and by the second one the row's parent is the group it landed in — so the group
-        // it came from would never be captured at all, and the one it went to would be captured
-        // twice, which puts the row in both.
-        var from = node.Parent;
+        // the move, and by the second one each row's parent is the group it landed in — so the
+        // groups they came from would never be captured, and the one they went to twice.
+        var from = moving.Select(node => node.Parent!).Distinct().Where(group => !ReferenceEquals(group, landing)).ToList();
+        var moved = 0;
 
-        // Both groups and the row itself: a move rewrites the row's own place against wherever it
-        // lands, and takes it out of one list and puts it into another.
+        // The groups and the rows themselves: a move rewrites each row's own place against wherever
+        // it lands, and takes it out of one list and puts it into another. Indentation first, while
+        // where a row sits still says what depth it was written at.
         workspace.Do(
-            $"move {ProjectWorkspace.Label(node)}",
+            Labelled("move", moving),
             () => ProjectSnapshot.All(
-                // First, while where it sits still says what depth it was written at.
-                ProjectSnapshot.Indentation(node),
-                ProjectSnapshot.Contents(landing),
-                from is { } origin ? ProjectSnapshot.Contents(origin) : () => { },
-                ProjectSnapshot.Attributes(node)),
+                moving.Select(ProjectSnapshot.Indentation)
+                    .Append(ProjectSnapshot.Contents(landing))
+                    .Concat(from.Select(ProjectSnapshot.Contents))
+                    .Concat(moving.Select(ProjectSnapshot.Attributes))
+                    .ToArray()),
             () =>
             {
-                try
+                foreach (var node in moving)
                 {
-                    landing.Move(node, landing.Children.Count);
-                }
-                catch (SvgcProjectException)
-                {
-                    refused = true;
+                    try
+                    {
+                        landing.Move(node, landing.Children.Count);
+                        moved++;
+                    }
+                    catch (SvgcProjectException)
+                    {
+                    }
                 }
             });
 
-        if (refused)
+        if (moved == 0)
         {
             return false;
         }
 
-        BuildTree(node);
+        BuildTree(moving[0]);
 
         return true;
     }
@@ -1969,7 +2140,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                Hold(node, cut: e.Key == Key.X);
+                Hold(Chosen(node), cut: e.Key == Key.X);
             }
 
             return;
@@ -1980,7 +2151,7 @@ public partial class MainWindow : Window
         {
             e.Handled = true;
 
-            await RemoveAsync(node);
+            await RemoveAsync(Chosen(node));
 
             return;
         }
@@ -2688,6 +2859,8 @@ public partial class MainWindow : Window
         }
 
         Reread();
+
+        await _streamline.RefreshAsync().ConfigureAwait(true);
     }
 
     /// <summary>Tells every tab what the settings now say.</summary>
@@ -3222,6 +3395,13 @@ public partial class MainWindow : Window
     /// </remarks>
     public Action<string> ShowOnDisk { get; set; }
 
+    /// <summary>
+    /// How the window asks what a template is to be called, offering a name and, where a family is
+    /// given, whether to keep the template to it.
+    /// </summary>
+    /// <remarks>Replaceable for the reason <see cref="ConfirmDiscard"/> is. Null is a template nobody went through with.</remarks>
+    public Func<string, string?, Task<(string Name, bool OnlyFamily)?>> AskTemplateName { get; set; }
+
     /// <summary>What the command is called here, since each desktop names its own file manager.</summary>
     private static string Revealing => OperatingSystem.IsMacOS()
         ? "Reveal in Finder"
@@ -3456,7 +3636,9 @@ public partial class MainWindow : Window
     /// <summary>Asks where a project goes, the first time anybody saves it.</summary>
     /// <remarks>
     /// <see cref="FilePickerSaveOptions.DefaultExtension"/> is set, unlike the drawing panel's,
-    /// because there is one type here and nothing for it to override.
+    /// because there is one type here and nothing for it to override. The name is offered without
+    /// one, as the export panel's is: the macOS panel appends the type's own, and a converted
+    /// PaintCode document offered as Icons.svgstudio was saved as Icons.svgstudio.svgstudio.
     /// </remarks>
     private async Task<string?> AskSaveProject(string? suggested)
     {
@@ -3465,16 +3647,34 @@ public partial class MainWindow : Window
             return null;
         }
 
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "Save project",
-            SuggestedFileName = suggested ?? "Untitled.svgstudio",
-            DefaultExtension = "svgstudio",
-            FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
-        }).ConfigureAwait(true);
+        var file = await StorageProvider.SaveFilePickerAsync(SaveProjectOptions(suggested)).ConfigureAwait(true);
 
         return file?.TryGetLocalPath() is { Length: > 0 } path ? path : null;
     }
+
+    private async Task<(string Name, bool OnlyFamily)?> AskTemplate(string suggested, string? family)
+    {
+        var name = new TextBox { Text = suggested, MinWidth = 320d };
+        var only = new CheckBox { Content = $"Only for icons from {family}", IsVisible = family is { } };
+
+        var asked = await Ask(
+            "Template",
+            "What should the template be called? Imports offer it by this name.",
+            "Save",
+            "Cancel",
+            new StackPanel { Spacing = 8d, Children = { name, only } }).ConfigureAwait(true);
+
+        return asked && name.Text?.Trim() is { Length: > 0 } named ? (named, only.IsChecked is true) : null;
+    }
+
+    /// <summary>What the panel asking where a project goes is given, for a test to read.</summary>
+    public static FilePickerSaveOptions SaveProjectOptions(string? suggested) => new()
+    {
+        Title = "Save project",
+        SuggestedFileName = Path.GetFileNameWithoutExtension(suggested ?? "Untitled"),
+        DefaultExtension = "svgstudio",
+        FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
+    };
 
     /// <summary>A name typed into a box under the question, or null when it was dismissed or left empty.</summary>
     private async Task<string?> AskName(string title, string message)
@@ -3547,10 +3747,16 @@ public partial class MainWindow : Window
     /// </remarks>
     private async Task<(bool Integers, bool Organize)?> AskConvert(string source)
     {
+        // Converted as last asked, where somebody said not to ask again. Settings asks again.
+        if (!StudioSettings.ConvertAsks)
+        {
+            return (StudioSettings.ConvertIntegers, StudioSettings.ConvertOrganizes);
+        }
+
         var integers = new CheckBox
         {
             Content = "Write whole numbers as integers",
-            IsChecked = false
+            IsChecked = StudioSettings.ConvertIntegers
         };
 
         // On, so unticking it is the opt-out. A PaintCode document declares its variables once for
@@ -3559,8 +3765,16 @@ public partial class MainWindow : Window
         var organize = new CheckBox
         {
             Content = "Automatically organize variables",
-            IsChecked = true
+            IsChecked = StudioSettings.ConvertOrganizes
         };
+
+        var again = new CheckBox
+        {
+            Content = "Don't ask again",
+            IsChecked = false
+        };
+
+        ToolTip.SetTip(again, "Convert with these choices from now on. Settings can bring the question back.");
 
         var asked = await Ask(
             "Convert to a project",
@@ -3572,10 +3786,20 @@ public partial class MainWindow : Window
             new StackPanel
             {
                 Spacing = 8d,
-                Children = { integers, organize }
+                Children = { integers, organize, again }
             }).ConfigureAwait(true);
 
-        return asked ? (integers.IsChecked is true, organize.IsChecked is true) : null;
+        if (!asked)
+        {
+            return null;
+        }
+
+        // Remembered whether or not the question comes back, so it next opens on the same answers.
+        StudioSettings.ConvertIntegers = integers.IsChecked is true;
+        StudioSettings.ConvertOrganizes = organize.IsChecked is true;
+        StudioSettings.ConvertAsks = again.IsChecked is not true;
+
+        return (StudioSettings.ConvertIntegers, StudioSettings.ConvertOrganizes);
     }
 
     /// <summary>

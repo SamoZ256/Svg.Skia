@@ -33,7 +33,7 @@ public class LayoutSettingTests : IDisposable
     /// <summary>An arrangement nothing would land in by itself, so finding it means it travelled.</summary>
     private const string Arranged =
         "row(tree/260px/tree/open,variables/300px/variables/open,*/1,"
-        + "col(project+elements/1/elements/open,element/1/element/open)/340px)";
+        + "col(project+elements+streamline/1/elements/open,element/1/element/open)/340px)";
 
     /// <summary>
     /// <see cref="Arranged"/> once a saved project is open: the changes panel joins the tree it sits
@@ -42,7 +42,7 @@ public class LayoutSettingTests : IDisposable
     /// </summary>
     private const string ArrangedWithChanges =
         "row(tree+changes/260px/tree/open,variables/300px/variables/open,*/1,"
-        + "col(project+elements+assistant/1/elements/open,element/1/element/open)/340px)";
+        + "col(project+elements+streamline+assistant/1/elements/open,element/1/element/open)/340px)";
 
     private const string Project = """
         <studio namespace="Demo.Icons">

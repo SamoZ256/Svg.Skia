@@ -1,6 +1,8 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
+using System.Collections.Generic;
+
 namespace Svg.Expressions.Recipes;
 
 /// <summary>One literal value a drawing uses, and how many attributes carry it.</summary>
@@ -15,12 +17,18 @@ namespace Svg.Expressions.Recipes;
 /// </remarks>
 public sealed class SvgRecipeSurveyValue
 {
-    public SvgRecipeSurveyValue(string name, string text, ExprType type, int count)
+    public SvgRecipeSurveyValue(
+        string name,
+        string text,
+        ExprType type,
+        int count,
+        IReadOnlyDictionary<string, int>? attributes = null)
     {
         Name = name;
         Text = text;
         Type = type;
         Count = count;
+        Attributes = attributes ?? new Dictionary<string, int>();
     }
 
     /// <summary>The rule name that would claim this: an attribute, or <c>color</c>.</summary>
@@ -41,4 +49,11 @@ public sealed class SvgRecipeSurveyValue
 
     /// <summary>How many attributes carry this value, which is how much a rule for it would move.</summary>
     public int Count { get; }
+
+    /// <summary><see cref="Count"/> split by the attribute that carries the value.</summary>
+    public IReadOnlyDictionary<string, int> Attributes { get; }
+
+    public int Fills => Attributes.TryGetValue("fill", out var count) ? count : 0;
+
+    public int Strokes => Attributes.TryGetValue("stroke", out var count) ? count : 0;
 }

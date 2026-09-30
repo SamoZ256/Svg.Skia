@@ -399,9 +399,10 @@ public sealed class AssistantTools
                 return $"{parent} is not a group.";
             }
 
-            if (await _window.AddTextAsync(group, group.Children.Count, name, svg).ConfigureAwait(true) is { } refusal)
+            // Through the import every other drawing arrives by, whose notes the window announces.
+            if ((await _window.ImportAsync(group, group.Children.Count, new[] { new TemplateImport(name, svg) }).ConfigureAwait(true)).Count == 0)
             {
-                return refusal;
+                return "That drawing couldn't be added; the window has said why.";
             }
 
             return Report($"Added {name} as {(_window.FrontNode is { } added ? Path(added) : "(unknown)")}." + Undoes, $"add {name}");

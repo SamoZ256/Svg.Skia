@@ -46,6 +46,22 @@ public class MainWindowImportTests : IDisposable
     /// until somebody has looked at it and said where it goes, and the document it came from is the
     /// only file in the directory until they do.
     /// </summary>
+    /// <summary>
+    /// The panel is offered a converted document's name without the extension it appends itself.
+    /// </summary>
+    /// <remarks>
+    /// Offered as sample.svgstudio, the macOS panel saved it as sample.svgstudio.svgstudio.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Project_Is_Offered_To_The_Save_Panel_Without_Its_Extension()
+    {
+        var options = MainWindow.SaveProjectOptions("sample.svgstudio");
+
+        Assert.Equal("sample", options.SuggestedFileName);
+        Assert.Equal("svgstudio", options.DefaultExtension);
+        Assert.Equal("Untitled", MainWindow.SaveProjectOptions(null).SuggestedFileName);
+    }
+
     [AvaloniaFact]
     public async Task An_Import_Writes_Nothing_Until_It_Is_Saved()
     {
