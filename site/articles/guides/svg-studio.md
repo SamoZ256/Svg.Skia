@@ -263,6 +263,29 @@ rather than written as braces nobody reads. A value the element's `style` attrib
 row as `red in style`, and the row takes nothing: the declaration wins over the attribute, so it is
 changed under **Inline style** instead.
 
+## Boxes for the code that draws it
+
+A drawing can reserve a box for its host, such as the place an app lays a value label, and the
+generated class reports it as a constant: `public static readonly SKRect @LevelRect`. See
+[boxes for the host](../packages/svg-codegen-skia#boxes-for-the-host). A PaintCode import marks one
+for every shape named `Embed<X>`.
+
+A box paints nothing, so the canvas draws it for you: a dashed cyan line with the constant written
+inside, such as `LevelRect 2, 6, 28, 24`. The numbers are the ones the class will get, as left,
+top, right, bottom. A box that a variable moves reads `LevelRect (driven)` instead, because the
+class has only the defaults. **Boxes** on the toolbar, on a drawing's tab and on a group's board,
+shows or hides them.
+
+Click a box's dashed line to pick it. Ink inside a box is still picked by clicking it, and empty
+room inside the box is still the page. Once picked, a box moves and resizes like any shape, but it
+has no stalk: a turned box would be reported as the upright box round it.
+
+**Box constant**, under **General** in the Attributes tab, names the box. Typing a name there marks
+any shape, and the drawing gets the `e:` prefix declared if it had none; **×** unmarks it. A name the
+class could not declare is refused as it is typed: one that is not an identifier, one the class
+already uses, or one another box of the drawing has. In the element tree a box reads
+`▭ LevelRect` beside its id, and the filter finds it by that name.
+
 ## Related docs
 
 - [Source Generator and svgc](source-generator-and-svgc) — the build a project describes

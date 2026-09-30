@@ -85,6 +85,27 @@ public class SelectionServiceTests
         Assert.Equal(8, rotate);
     }
 
+    /// <summary>A box that may not turn has no stalk, so a press where it would be hits nothing.</summary>
+    [Fact]
+    public void HitHandle_WithoutTurns_MissesTheStalk()
+    {
+        var service = new SelectionService();
+        var bounds = new BoundsInfo(
+            new SK.SKPoint(0, 0),
+            new SK.SKPoint(100, 0),
+            new SK.SKPoint(100, 100),
+            new SK.SKPoint(0, 100),
+            new SK.SKPoint(50, 0),
+            new SK.SKPoint(100, 50),
+            new SK.SKPoint(50, 100),
+            new SK.SKPoint(0, 50),
+            new SK.SKPoint(50, 50),
+            new SK.SKPoint(50, -20));
+
+        Assert.Equal(-1, service.HitHandle(bounds, new SK.SKPoint(50, -20), 1f, out _, turns: false));
+        Assert.Equal(0, service.HitHandle(bounds, new SK.SKPoint(0, 0), 1f, out _, turns: false));
+    }
+
     [Fact]
     public void GetBoundsInfo_PrefersRetainedSceneNodeGeometry()
     {

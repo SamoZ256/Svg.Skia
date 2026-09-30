@@ -616,6 +616,12 @@ public partial class SvgViewerElementTree : UserControl
         var label = SvgElementNames.NameOf(element);
         var id = string.IsNullOrEmpty(element.ID) ? null : "#" + element.ID;
 
+        // The constant it is reported as, in the dim text beside it, where the filter already looks.
+        if (element.CustomAttributes.TryGetValue(SvgExpressionAttributes.KeyFor(SvgExpressionAttributes.Bounds), out var box))
+        {
+            id = id is { } ? id + " ▭ " + box : "▭ " + box;
+        }
+
         if (filtering && children.Count == 0 && !Matches(label, id))
         {
             return null;
