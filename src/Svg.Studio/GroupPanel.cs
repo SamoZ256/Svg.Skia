@@ -357,6 +357,10 @@ public sealed class GroupPanel : UserControl
             // to the one above it.
             _parameters.DeclaredBy = name =>
                 _owners.TryGetValue(name, out var holder) ? ProjectWorkspace.Label(holder) : null;
+
+            DragDrop.SetAllowDrop(_canvas, true);
+            _canvas.AddHandler(DragDrop.DragOverEvent, OnIconsOver);
+            _canvas.AddHandler(DragDrop.DropEvent, OnIconsDropped);
         }
 
         _parameters.ValueChanged += (_, _) => Bind();
@@ -496,6 +500,10 @@ public sealed class GroupPanel : UserControl
     /// document for.
     /// </remarks>
     public Func<ProjectDrawing, ISvgViewerDeclarationTarget?>? TargetOf { get; set; }
+
+    /// <summary>Where tiles dropped on the board go in through, or nothing to refuse them.</summary>
+    /// <remarks>The panel rather than a delegate to it, because the board has to ask whether it would take them before the drop.</remarks>
+    public StreamlinePanel? Streamline { get; set; }
 
     /// <summary>How the parameters tab asks what to declare. Replaceable, and faked in tests.</summary>
     public ISvgViewerParameterDialogService ParameterDialogService { get; set; } =
@@ -1726,13 +1734,13 @@ public sealed class GroupPanel : UserControl
     /// By the name written above it and by the line round it, rather than by anywhere inside it. A
     /// frame spans the room between the drawings it holds, so answering for that left nowhere on a
     /// full board to move the view from: a press in the gap between two icons carried the whole
-    /// group instead.
+    /// group instead. A drop, which moves nothing, asks for anywhere <paramref name="inside"/>.
     /// </remarks>
-    private (ProjectGroup Group, SKRect Bounds)? Framed(SKPoint at)
+    private (ProjectGroup Group, SKRect Bounds)? Framed(SKPoint at, bool inside = false)
     {
         foreach (var (frame, group) in _framed.OrderBy(framed => framed.Frame.Bounds.Width * framed.Frame.Bounds.Height))
         {
-            if (_canvas.Grabs(frame, at))
+            if (inside ? frame.Bounds.Contains(at.X, at.Y) : _canvas.Grabs(frame, at))
             {
                 return (group, frame.Bounds);
             }
@@ -2154,6 +2162,54 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private ShimSkiaSharp.SKPoint? Arranged(Point at)
         => _canvas.TryGetDrawingPoint(at, out var point) ? new ShimSkiaSharp.SKPoint(point.X, point.Y) : null;
+
+    private void OnIconsOver(object? sender, DragEventArgs e)
+    {
+        if (e.DataTransfer.Contains(StreamlinePanel.DragFormat))
+        {
+            e.Handled = true;
+            e.DragEffects = Streamline is { CanDrop: true } ? DragDropEffects.Copy : DragDropEffects.None;
+        }
+    }
+
+    /// <summary>
+    /// Imports tiles dropped on the board into the innermost frame under them, or this group, at
+    /// the point they were let go.
+    /// </summary>
+    /// <remarks>
+    /// No point on a board that is still the spread, or in a group some link to this one leaves
+    /// unplaced: a place given there would be the first on its board and re-lay every row beside
+    /// it, which the import's own undo does not capture.
+    /// </remarks>
+    private async void OnIconsDropped(object? sender, DragEventArgs e)
+    {
+        if (!e.DataTransfer.Contains(StreamlinePanel.DragFormat))
+        {
+            return;
+        }
+
+        e.Handled = true;
+
+        if (Streamline is not { CanDrop: true } streamline || Node is not ProjectGroup board)
+        {
+            return;
+        }
+
+        var group = board;
+        SKPoint? at = null;
+
+        if (_canvas.TryGetDrawingPoint(e.GetPosition(_canvas), out var point))
+        {
+            group = Framed(point, inside: true)?.Group ?? board;
+
+            if (!group.IsSpread && ProjectNode.Shift(group, board) is { } origin)
+            {
+                at = new SKPoint(_canvas.Grid.PullX(point.X) - origin.X, _canvas.Grid.PullY(point.Y) - origin.Y);
+            }
+        }
+
+        await streamline.DropAsync(group, group.Children.Count, at, show: false).ConfigureAwait(true);
+    }
 
     /// <summary>Whether a press would take hold of something rather than reaching into it.</summary>
     /// <remarks>

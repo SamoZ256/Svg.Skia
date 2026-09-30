@@ -17,6 +17,7 @@ using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Xunit;
+using static Svg.Studio.UnitTests.Gestures;
 
 namespace Svg.Studio.UnitTests;
 
@@ -1294,5 +1295,496 @@ public class StreamlinePanelTests : IDisposable
         Assert.Equal("Mono", root.Templates[1].Name);
         Assert.Contains(">stateAccentColor<", root.Templates[1].Text, StringComparison.Ordinal);
         Assert.Equal(root.Templates[1].Text, panel.TemplateText.Text);
+    }
+
+    // ---- dragging tiles into the project ---------------------------------------------------------
+
+    /// <summary>Three groups for the board drops: one arranged, with a placed frame in it; one still the spread; one empty.</summary>
+    private const string Boards = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <studio namespace="Demo.Icons">
+          <group name="Board">
+            <drawing name="home" x="0" y="0">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" fill="#00ff00" /></svg>
+            </drawing>
+            <group name="Frame" x="100" y="0">
+              <drawing name="inner" x="0" y="0">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" fill="#00ff00" /></svg>
+              </drawing>
+            </group>
+          </group>
+          <group name="Loose">
+            <drawing name="one">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" fill="#00ff00" /></svg>
+            </drawing>
+            <drawing name="two">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" fill="#00ff00" /></svg>
+            </drawing>
+          </group>
+          <group name="Empty" />
+        </studio>
+
+        """;
+
+    /// <summary>What a drag of <paramref name="icons"/> puts in front of a drop target, which is all a headless drop can be.</summary>
+    private static DataTransfer Carrying(StreamlinePanel panel, params StreamlineIcon[] icons)
+    {
+        var carried = new DataTransfer();
+
+        carried.Add(DataTransferItem.Create(StreamlinePanel.DragFormat, string.Empty));
+        panel.Dragged = icons;
+
+        return carried;
+    }
+
+    /// <summary>Near the top of the row, which is its own header whether or not its branch is open.</summary>
+    private static Point OnRow(MainWindow window, string label)
+        => MainWindowProjectTests.Row(window, label).TranslatePoint(new Point(12, 6), window)!.Value;
+
+    /// <summary>Makes <paramref name="family"/>'s glyphs sure: their template is the one remembered for icons like them.</summary>
+    private static void Sure(string family)
+        => TemplateLibrary.Remember(TemplateLibrary.Prepare(Glyph, family, null, "any", new[] { "#000000" }), "Accent glyph");
+
+    private static Streamline Downloading(params string[] hashes)
+    {
+        var streamline = new Streamline();
+
+        foreach (var hash in hashes)
+        {
+            streamline.Svg(hash, Glyph);
+        }
+
+        return streamline;
+    }
+
+    private static ProjectNode Selected(MainWindow window)
+        => (ProjectNode)((TreeViewItem)MainWindowProjectTests.Tree(window).SelectedItem!).Tag!;
+
+    [AvaloniaFact]
+    public async Task A_Sure_Icon_Dropped_On_A_Group_Row_Imports_At_Its_End_As_One_Step()
+    {
+        var streamline = Downloading("ico_a");
+
+        streamline.Json("/v1/search/global", Page("results", new[] { Icon("ico_a", "cog", "sure-glyphs") }, more: false, next: 1));
+        Sure("sure-glyphs");
+
+        var window = await Host(streamline);
+        var panel = window.Streamline;
+        var scheme = Group(window, "Scheme");
+        var before = scheme.Children.Count;
+
+        await panel.SearchAsync();
+        await panel.PickAsync(0, KeyModifiers.None);
+
+        Drop(window, OnRow(window, "Scheme"), Carrying(panel, panel.Picked.ToArray()));
+        await Until(() => scheme.Children.Count == before + 1 && panel.Rows.Count == 0);
+
+        var cog = Assert.IsType<ProjectDrawing>(scheme.Children[^1]);
+
+        Assert.Equal("cog", cog.Name);
+        Assert.Equal("streamline:ico_a", cog.Source);
+        Assert.Contains("fill=\"{{ stateAccentColor }}\"", cog.Text, StringComparison.Ordinal);
+        Assert.Equal("add cog", window.Workspace!.UndoLabel);
+        Assert.Empty(panel.Picked);
+
+        Assert.True(window.Workspace.Undo());
+        Assert.Equal(before, scheme.Children.Count);
+        Assert.False(window.Workspace.CanUndo);
+    }
+
+    /// <summary>After the drawing in the order a board and a build see, which is not where the tree sorts the row.</summary>
+    [AvaloniaFact]
+    public async Task A_Sure_Icon_Dropped_On_A_Drawing_Row_Lands_After_It()
+    {
+        Sure("sure-glyphs");
+
+        var window = await Host(Downloading("ico_a"));
+        var panel = window.Streamline;
+        var scheme = Group(window, "Scheme");
+
+        MainWindowProjectTests.Row(window, "Scheme").IsExpanded = true;
+        Settle(window);
+
+        Drop(window, OnRow(window, "Bell"), Carrying(panel, Parsed(Icon("ico_a", "cog", "sure-glyphs"))));
+        await Until(() => scheme.Children.Count == 3);
+
+        Assert.Equal(new[] { "Bell", "cog", "Core Duo" }, scheme.Children.Select(node => node.Name));
+    }
+
+    /// <summary>A template that wants checking is not imported unseen: the icon is staged, pointed at where it was dropped.</summary>
+    [AvaloniaFact]
+    public async Task An_Amber_Icon_Dropped_Is_Staged_And_Imports_Where_It_Was_Dropped()
+    {
+        var window = await Host(Downloading("ico_a"));
+        var panel = window.Streamline;
+        var scheme = Group(window, "Scheme");
+
+        MainWindowProjectTests.Row(window, "Scheme").IsExpanded = true;
+        Settle(window);
+
+        Drop(window, OnRow(window, "Bell"), Carrying(panel, Parsed(Icon("ico_a", "cog", "line-glyphs"))));
+        await Until(() => panel.Rows.Count == 1);
+        Settle(window);
+
+        Assert.Equal(new[] { "cog" }, panel.Picked.Select(icon => icon.Name));
+        Assert.Equal("Accent glyph", panel.Rows[0].Template.SelectedItem);
+        Assert.Same(scheme, panel.Target);
+        Assert.Same(scheme, Selected(window));
+        Assert.Equal(new[] { "Bell", "Core Duo" }, scheme.Children.Select(node => node.Name));
+        Assert.False(window.Workspace!.CanUndo);
+
+        var added = await panel.ImportAsync();
+
+        Assert.Equal("cog", Assert.Single(added).Name);
+        Assert.Equal(new[] { "Bell", "cog", "Core Duo" }, scheme.Children.Select(node => node.Name));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Mixed_Drop_Imports_The_Sure_Batch_And_Stages_The_Other_After_It()
+    {
+        Sure("sure-glyphs");
+
+        var window = await Host(Downloading("ico_a", "ico_b"));
+        var panel = window.Streamline;
+        var scheme = Group(window, "Scheme");
+
+        Drop(window, OnRow(window, "Scheme"), Carrying(panel, Parsed(Icon("ico_a", "cog", "sure-glyphs")), Parsed(Icon("ico_b", "gear", "line-glyphs"))));
+        await Until(() => scheme.Children.Count == 3 && panel.Rows.Count == 1);
+
+        Assert.Equal(new[] { "Bell", "Core Duo", "cog" }, scheme.Children.Select(node => node.Name));
+        Assert.Equal(new[] { "gear" }, panel.Picked.Select(icon => icon.Name));
+        Assert.Same(scheme, panel.Target);
+
+        await panel.ImportAsync();
+
+        Assert.Equal(new[] { "Bell", "Core Duo", "cog", "gear" }, scheme.Children.Select(node => node.Name));
+    }
+
+    /// <summary>
+    /// Where a drop pointed its staged icons holds while the tree reselects in that group, as it does
+    /// on every rebuild, and is let go once the target has been another group.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_Staged_Drop_Keeps_Its_Place_Until_The_Target_Is_Another_Group(bool away)
+    {
+        var window = await Host(Downloading("ico_a"));
+        var panel = window.Streamline;
+        var scheme = Group(window, "Scheme");
+        var tree = MainWindowProjectTests.Tree(window);
+
+        MainWindowProjectTests.Row(window, "Scheme").IsExpanded = true;
+        Settle(window);
+
+        Drop(window, OnRow(window, "Bell"), Carrying(panel, Parsed(Icon("ico_a", "cog", "line-glyphs"))));
+        await Until(() => panel.Rows.Count == 1);
+        Settle(window);
+
+        if (away)
+        {
+            tree.SelectedItem = MainWindowProjectTests.Row(window, "Core Duo");
+            await Until(() => panel.Target is { Name: "Core Duo" });
+        }
+
+        tree.SelectedItem = MainWindowProjectTests.Row(window, "Bell");
+        await Until(() => ReferenceEquals(panel.Target, scheme) && panel.Rows.Count == 1);
+
+        await panel.ImportAsync();
+
+        Assert.Equal(away ? new[] { "Bell", "Core Duo", "cog" } : new[] { "Bell", "cog", "Core Duo" }, scheme.Children.Select(node => node.Name));
+    }
+
+    /// <summary>A drop replaces an Update from Streamline that was showing, rather than being imported over the drawing.</summary>
+    [AvaloniaFact]
+    public async Task Staging_While_An_Update_Is_Showing_Imports_Rather_Than_Replaces()
+    {
+        var streamline = Downloading("ico_a", "ico_b");
+
+        streamline.Json("/v1/icons/ico_a", Icon("ico_a", "a"));
+
+        var window = await Host(streamline);
+        var panel = window.Streamline;
+        var scheme = Group(window, "Scheme");
+        var drawing = (ProjectDrawing)((ProjectGroup)scheme.Children.Single(node => node.Name == "Core Duo")).Children.Single();
+        var was = drawing.Text;
+
+        await panel.UpdateAsync(drawing);
+
+        Assert.StartsWith("Update", (string)panel.GetLogicalDescendants().OfType<Button>().Single(button => button.Classes.Contains("accent")).Content!, StringComparison.Ordinal);
+
+        Drop(window, OnRow(window, "Scheme"), Carrying(panel, Parsed(Icon("ico_b", "cog", "line-glyphs"))));
+        await Until(() => panel.Rows.Count == 1 && panel.Rows[0].Icons[0].Name == "cog");
+
+        var added = await panel.ImportAsync();
+
+        Assert.Equal("cog", Assert.Single(added).Name);
+        Assert.Same(scheme, added[0].Parent);
+        Assert.Equal(was, drawing.Text);
+    }
+
+    /// <summary>Hosts <see cref="Boards"/> with <paramref name="group"/>'s board in front, wide enough to aim at.</summary>
+    private async Task<(MainWindow Window, GroupPanel Board)> Board(Streamline streamline, string group, string text = Boards)
+    {
+        var window = await Host(streamline, text: text);
+
+        await window.ShowAsync(Group(window, group));
+        Settle(window, 1600, 1000);
+
+        return (window, (GroupPanel)((TabItem)window.FindControl<TabControl>("Tabs")!.SelectedItem!).Content!);
+    }
+
+    private static Point OnBoard(MainWindow window, GroupPanel board, float x, float y)
+    {
+        var canvas = Canvas(board);
+
+        return canvas.TranslatePoint(Over(canvas, x, y), window)!.Value;
+    }
+
+    [AvaloniaFact]
+    public async Task An_Icon_Dropped_In_A_Frame_Goes_Into_Its_Group_Where_It_Was_Let_Go()
+    {
+        var (window, board) = await Board(Downloading("ico_a"), "Board");
+        var frame = (ProjectGroup)Group(window, "Board").Children.Single(node => node.Name == "Frame");
+
+        Drop(window, OnBoard(window, board, 110f, 12f), Carrying(window.Streamline, Parsed(Icon("ico_a", "cog"))));
+        await Until(() => frame.Children.Count == 2);
+
+        var cog = frame.Children[^1];
+
+        Assert.Equal("cog", cog.Name);
+        Assert.Equal(10f, cog.X);
+        Assert.Equal(12f, cog.Y);
+        Assert.Same(board, ((TabItem)window.FindControl<TabControl>("Tabs")!.SelectedItem!).Content);
+
+        Assert.True(window.Workspace!.Undo());
+        Assert.Single(frame.Children);
+        Assert.False(window.Workspace.CanUndo);
+    }
+
+    [AvaloniaFact]
+    public async Task Two_Icons_Dropped_On_A_Board_Are_Placed_In_A_Row()
+    {
+        var (window, board) = await Board(Downloading("ico_a", "ico_b"), "Board");
+        var group = Group(window, "Board");
+
+        Drop(window, OnBoard(window, board, 40f, 50f), Carrying(window.Streamline, Parsed(Icon("ico_a", "cog")), Parsed(Icon("ico_b", "gear"))));
+        await Until(() => group.Children.Count == 4);
+
+        var (cog, gear) = (group.Children[2], group.Children[3]);
+
+        Assert.Equal(("cog", 40f, 50f), (cog.Name, cog.X!.Value, cog.Y!.Value));
+
+        // Beside it by the drawing's 48 and a tenth of it, as a spread spaces a board.
+        Assert.Equal(("gear", 92.8f, 50f), (gear.Name, gear.X!.Value, gear.Y!.Value));
+    }
+
+    /// <summary>The staged icon lands beside the one the drop imported, and neither import takes the board out of the tab.</summary>
+    [AvaloniaFact]
+    public async Task A_Mixed_Drop_On_A_Board_Stages_The_Other_Beside_It_And_Stays_On_The_Board()
+    {
+        Sure("sure-glyphs");
+
+        // With Project's templates, so an icon nobody remembered has two to choose from.
+        var templates = Project[Project.IndexOf("<e:templates", StringComparison.Ordinal)..(Project.IndexOf("</e:templates>", StringComparison.Ordinal) + "</e:templates>".Length)];
+        var (window, board) = await Board(Downloading("ico_a", "ico_b"), "Board", Boards.Replace("<group name=\"Board\">", templates + "<group name=\"Board\">", StringComparison.Ordinal));
+        var panel = window.Streamline;
+        var frame = (ProjectGroup)Group(window, "Board").Children.Single(node => node.Name == "Frame");
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+
+        Drop(window, OnBoard(window, board, 110f, 12f), Carrying(panel, Parsed(Icon("ico_a", "cog", "sure-glyphs")), Parsed(Icon("ico_b", "gear", "line-glyphs"))));
+        await Until(() => frame.Children.Count == 2 && panel.Rows.Count == 1);
+
+        Assert.Equal(("cog", 10f, 12f), (frame.Children[1].Name, frame.Children[1].X!.Value, frame.Children[1].Y!.Value));
+        Assert.Equal(new[] { "gear" }, panel.Picked.Select(icon => icon.Name));
+        Assert.Same(frame, panel.Target);
+
+        await panel.ImportAsync();
+
+        Assert.Equal(("gear", 62.8f, 12f), (frame.Children[2].Name, frame.Children[2].X!.Value, frame.Children[2].Y!.Value));
+        Assert.Same(board, ((TabItem)tabs.SelectedItem!).Content);
+    }
+
+    /// <summary>Near a line of the grid, the drop lands on it, as a tile carried there would.</summary>
+    [AvaloniaFact]
+    public async Task An_Icon_Dropped_On_A_Board_Near_A_Line_Lands_On_It()
+    {
+        StudioSettings.GridSize = 16f;
+        StudioSettings.SnapToGrid = true;
+
+        var (window, board) = await Board(Downloading("ico_a"), "Board");
+        var frame = (ProjectGroup)Group(window, "Board").Children.Single(node => node.Name == "Frame");
+        var pull = Canvas(board).Grid.Pull;
+
+        Assert.True(pull > 0f, "the board's grid is not magnetic");
+
+        Drop(window, OnBoard(window, board, 112f - (pull / 2f), 16f + (pull / 2f)), Carrying(window.Streamline, Parsed(Icon("ico_a", "cog"))));
+        await Until(() => frame.Children.Count == 2);
+
+        Assert.Equal((12f, 16f), (frame.Children[1].X!.Value, frame.Children[1].Y!.Value));
+    }
+
+    /// <summary>A place given there would be the first on its board and re-lay every row nobody touched.</summary>
+    [AvaloniaTheory]
+    [InlineData("Empty")]
+    [InlineData("Loose")]
+    public async Task An_Icon_Dropped_On_An_Empty_Board_Or_A_Spread_Gets_No_Place(string name)
+    {
+        var (window, board) = await Board(Downloading("ico_a"), name);
+        var group = Group(window, name);
+        var canvas = Canvas(board);
+        var before = group.Children.Count;
+
+        Drop(window, canvas.TranslatePoint(new Point(canvas.Bounds.Width / 2d, canvas.Bounds.Height / 2d), window)!.Value, Carrying(window.Streamline, Parsed(Icon("ico_a", "cog"))));
+        await Until(() => group.Children.Count == before + 1);
+
+        Assert.Equal("cog", group.Children[^1].Name);
+        Assert.All(group.Children, child => Assert.False(child.HasPosition));
+    }
+
+    /// <summary>Three tiles, with the first two picked.</summary>
+    private async Task<(MainWindow Window, StreamlinePanel Panel)> Tiled()
+    {
+        var streamline = Downloading("ico_a", "ico_b", "ico_c");
+
+        streamline.Json("/v1/search/global", Page("results", new[] { Icon("ico_a", "bell"), Icon("ico_b", "bin"), Icon("ico_c", "cog") }, more: false, next: 3));
+
+        var window = await Host(streamline);
+        var panel = window.Streamline;
+
+        await panel.SearchAsync();
+        await panel.PickAsync(0, KeyModifiers.None);
+        await panel.PickAsync(1, KeyModifiers.Shift);
+        Settle(window);
+
+        return (window, panel);
+    }
+
+    /// <summary>The tile showing <paramref name="name"/>, found again each time: a pick rebuilds them.</summary>
+    private static Border Tile(StreamlinePanel panel, string name)
+        => panel.GetVisualDescendants().OfType<Border>().Single(border => ToolTip.GetTip(border) as string == name);
+
+    [AvaloniaFact]
+    public async Task A_Press_And_Release_On_A_Picked_Tile_Picks_Only_It()
+    {
+        var (window, panel) = await Tiled();
+
+        Press(window, Tile(panel, "bin"), new Point(20, 20));
+
+        Assert.Equal(new[] { "bell", "bin" }, panel.Picked.Select(icon => icon.Name));
+
+        Release(window, Tile(panel, "bin"), new Point(20, 20));
+
+        Assert.Equal(new[] { "bin" }, panel.Picked.Select(icon => icon.Name));
+    }
+
+    [AvaloniaTheory]
+    [InlineData(KeyModifiers.None)]
+    [InlineData(KeyModifiers.Control)]
+    [InlineData(KeyModifiers.Meta)]
+    public async Task Dragging_A_Picked_Tile_Carries_Every_Pick(KeyModifiers modifiers)
+    {
+        var (window, panel) = await Tiled();
+        List<string>? carried = null;
+
+        panel.StartDrag = (_, data) =>
+        {
+            Assert.True(((IDataTransfer)data).Contains(StreamlinePanel.DragFormat));
+            carried = panel.Dragged.Select(icon => icon.Name).ToList();
+
+            return Task.CompletedTask;
+        };
+
+        Drag(window, Tile(panel, "bin"), new Point(20, 20), new Point(20, 60), modifiers: modifiers);
+
+        Assert.Equal(new[] { "bell", "bin" }, carried);
+        Assert.Equal(new[] { "bell", "bin" }, panel.Picked.Select(icon => icon.Name));
+        Assert.Empty(panel.Dragged);
+    }
+
+    [AvaloniaFact]
+    public async Task Dragging_An_Unpicked_Tile_Carries_Only_It()
+    {
+        var (window, panel) = await Tiled();
+        List<string>? carried = null;
+
+        panel.StartDrag = (_, _) =>
+        {
+            carried = panel.Dragged.Select(icon => icon.Name).ToList();
+
+            return Task.CompletedTask;
+        };
+
+        Press(window, Tile(panel, "cog"), new Point(20, 20));
+
+        // The press picked it, and the pick built the tiles again under the pointer.
+        Settle(window);
+        Move(window, Tile(panel, "cog"), new Point(20, 60));
+
+        Assert.Equal(new[] { "cog" }, carried);
+    }
+
+    /// <summary>Over the panel itself, a drawing's tab or anything else that takes no tiles, the drag shows it will do nothing.</summary>
+    [AvaloniaFact]
+    public async Task Tiles_Dragged_Where_Nothing_Takes_Them_Show_None()
+    {
+        var window = await Host(Searching("line-glyphs"));
+        var panel = window.Streamline;
+        var shown = new List<DragDropEffects>();
+
+        await panel.SearchAsync();
+        Settle(window);
+
+        window.AddHandler(DragDrop.DragOverEvent, (_, e) => shown.Add(e.DragEffects), RoutingStrategies.Bubble, handledEventsToo: true);
+
+        Drop(window, panel.TranslatePoint(new Point(panel.Bounds.Width / 2d, panel.Bounds.Height / 2d), window)!.Value, Carrying(panel, Parsed(Icon("ico_c", "cog"))));
+
+        Assert.Equal(new[] { DragDropEffects.None }, shown);
+        Assert.Equal(0, window.Workspace!.Edits);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Without_A_Key_Or_While_A_Family_Imports_The_Drop_Targets_Refuse(bool importing)
+    {
+        var streamline = Catalogue();
+        var held = new TaskCompletionSource();
+
+        streamline.Holding = request => request.RequestUri!.AbsolutePath == "/v1/family-groups" ? held.Task : Task.CompletedTask;
+
+        var window = await Host(streamline, key: importing ? "sk_test" : null);
+        var panel = window.Streamline;
+        var scheme = Group(window, "Scheme");
+        var shown = new List<DragDropEffects>();
+
+        panel.ConfirmFamily = _ => Task.FromResult(false);
+
+        var family = importing ? panel.ImportFamilyAsync(Parsed(Icon("ico_a", "a"))) : Task.CompletedTask;
+
+        try
+        {
+            window.AddHandler(DragDrop.DragOverEvent, (_, e) => shown.Add(e.DragEffects), RoutingStrategies.Bubble, handledEventsToo: true);
+
+            Drop(window, OnRow(window, "Scheme"), Carrying(panel, Parsed(Icon("ico_c", "cog"))));
+
+            await window.ShowAsync(scheme);
+            Settle(window, 1600, 1000);
+
+            var canvas = Canvas((GroupPanel)((TabItem)window.FindControl<TabControl>("Tabs")!.SelectedItem!).Content!);
+
+            Drop(window, canvas.TranslatePoint(new Point(canvas.Bounds.Width / 2d, canvas.Bounds.Height / 2d), window)!.Value, Carrying(panel, Parsed(Icon("ico_c", "cog"))));
+            await Task.Delay(50);
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(new[] { DragDropEffects.None, DragDropEffects.None }, shown);
+            Assert.Equal(2, scheme.Children.Count);
+            Assert.Equal(0, streamline.Count("/v1/icons/ico_c"));
+        }
+        finally
+        {
+            held.SetResult();
+            await family;
+        }
     }
 }

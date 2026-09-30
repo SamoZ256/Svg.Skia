@@ -16,10 +16,12 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
 using Svg.Expressions.Recipes;
@@ -41,6 +43,9 @@ public sealed class StreamlinePanel : UserControl
 
     /// <summary>What <see cref="ProjectDrawing.Source"/> starts with for a drawing imported from here.</summary>
     public const string SourcePrefix = "streamline:";
+
+    /// <summary>What a drag of tiles carries, which is how a drop target tells it from rows or files; the icons are <see cref="Dragged"/>.</summary>
+    public static readonly DataFormat<string> DragFormat = DataFormat.CreateStringApplicationFormat("StreamlineIcons");
 
     private const int PageSize = 50;
 
@@ -163,6 +168,16 @@ public sealed class StreamlinePanel : UserControl
     private int? _anchor;
     private int _picks;
 
+    /// <summary>Where the picks a drop staged go, while the target is still that group: the index and board point after what it imported, and whether the drop opens what it imports.</summary>
+    private (int Index, SkiaSharp.SKPoint? At, bool Show)? _destination;
+
+    private PointerPressedEventArgs? _pressed;
+    private Point _pressedAt;
+    private int _pressedIndex;
+
+    /// <summary>The pick a press on a picked tile makes at its release, which a drag cancels so it carries every pick.</summary>
+    private KeyModifiers? _deferred;
+
     private readonly Dictionary<string, Task<Bitmap?>> _thumbnails = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task<StreamlineDownload?>> _downloads = new(StringComparer.Ordinal);
     private readonly Dictionary<string, StreamlineFamily?> _families = new(StringComparer.Ordinal);
@@ -203,6 +218,11 @@ public sealed class StreamlinePanel : UserControl
             ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel()),
             ItemTemplate = new FuncDataTemplate<TileRow>((row, _) => row is null ? new Panel() : Tiles(row), supportsRecycling: false)
         };
+
+        // On the list rather than each tile, which a pick rebuilds under the pointer.
+        _tiles.AddHandler(PointerPressedEvent, OnTilePressed, RoutingStrategies.Tunnel);
+        _tiles.AddHandler(PointerMovedEvent, OnTileMoved, RoutingStrategies.Tunnel);
+        _tiles.AddHandler(PointerReleasedEvent, OnTileReleased, RoutingStrategies.Tunnel);
 
         _tileScroll = new ScrollViewer { Content = _tiles, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         _tileScroll.SizeChanged += (_, _) =>
@@ -345,6 +365,16 @@ public sealed class StreamlinePanel : UserControl
     /// <summary>How a whole-family import is confirmed. Replaceable for the reason the window's dialogs are.</summary>
     public Func<string, Task<bool>> ConfirmFamily { get; set; }
 
+    /// <summary>How a drag of tiles starts. Replaceable, since a headless test has no platform drag to start.</summary>
+    public Func<PointerPressedEventArgs, DataTransfer, Task> StartDrag { get; set; }
+        = (pressed, data) => DragDrop.DoDragDropAsync(pressed, data, DragDropEffects.Copy);
+
+    /// <summary>The icons a drag of tiles carries, and none while no drag is under way.</summary>
+    public IReadOnlyList<StreamlineIcon> Dragged { get; set; } = Array.Empty<StreamlineIcon>();
+
+    /// <summary>Whether <see cref="DropAsync"/> would take what is being dragged, for a drop target to say so.</summary>
+    internal bool CanDrop => Dragged.Count > 0 && _client is { } && _window.Workspace is { } && _running is null;
+
     /// <summary>The project's templates, each named, with one that does not parse marked.</summary>
     public ListBox TemplateList => _templateList;
 
@@ -365,6 +395,11 @@ public sealed class StreamlinePanel : UserControl
         {
             // The rows are suggested against the target and the project's templates, so either changing asks again.
             var changed = !ReferenceEquals(_selected, value) || !ReferenceEquals(_suggestedIn, _window.Workspace);
+
+            if (!ReferenceEquals(_selected, value))
+            {
+                _destination = null;
+            }
 
             _selected = value;
 
@@ -600,6 +635,7 @@ public sealed class StreamlinePanel : UserControl
             .SelectMany(row => row.Downloads.Select((download, index) =>
                 new TemplateImport(download.Icon.Name, download.Prepared.Text, row.Recipe(index), SourceOf(download.Icon))))
             .ToList();
+        var destination = _destination;
 
         // Before the first await, so a second click while the import is showing its result finds nothing to import.
         Clear();
@@ -614,7 +650,113 @@ public sealed class StreamlinePanel : UserControl
             return Array.Empty<ProjectDrawing>();
         }
 
-        return await _window.ImportAsync(target, target.Children.Count, imports).ConfigureAwait(true);
+        // Clamped, since an undo can have taken rows out of the group since the drop.
+        return destination is { } place
+            ? await _window.ImportAsync(target, Math.Min(place.Index, target.Children.Count), Placed(imports, place.At).Imports, place.Show).ConfigureAwait(true)
+            : await _window.ImportAsync(target, target.Children.Count, imports).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Imports what is being dragged into <paramref name="group"/> at <paramref name="index"/>: each
+    /// batch whose template is sure straight away, the rest staged as the picks, pointed there.
+    /// </summary>
+    /// <param name="at">Where on the group's board the first lands, the rest in a row after it, or null to join its spread.</param>
+    /// <param name="show">Whether the last drawing imported opens, as it does from the tree; a board drop stays on the board.</param>
+    public async Task DropAsync(ProjectGroup group, int index, SkiaSharp.SKPoint? at, bool show)
+    {
+        // Before the first await: the drag can end, and clear it, before the drop is done with it.
+        var dragged = Dragged.ToList();
+
+        if (!CanDrop || _window.Workspace is not { } workspace)
+        {
+            return;
+        }
+
+        Say(dragged.Count == 1 ? $"Downloading {dragged[0].Name}…" : $"Downloading {dragged.Count} icons…");
+
+        var downloads = await DownloadAsync(dragged).ConfigureAwait(true);
+
+        if (Gone(workspace, group) is { } gone)
+        {
+            Say(gone);
+
+            return;
+        }
+
+        if (downloads.All(download => download is { }))
+        {
+            Say(null);
+        }
+
+        var fetched = downloads.OfType<StreamlineDownload>().ToList();
+        var library = new TemplateLibrary(workspace.Document.Root);
+
+        // What the card's dot would show: the batch's first icon's leading suggestion.
+        var leading = TemplateLibrary.Batch(fetched.Select(download => download.Prepared))
+            .Where(batch => library.Suggest(batch.First(), group)[0].Sure)
+            .SelectMany(batch => batch)
+            .ToHashSet(ReferenceEqualityComparer.Instance);
+        var sure = fetched.Where(download => leading.Contains(download.Prepared)).ToList();
+        var amber = fetched.Where(download => !leading.Contains(download.Prepared)).ToList();
+        IReadOnlyList<ProjectDrawing> added = Array.Empty<ProjectDrawing>();
+
+        if (sure.Count > 0)
+        {
+            var (imports, next) = Placed(Imports(library, group, sure), at);
+
+            added = await _window.ImportAsync(group, index, imports, show).ConfigureAwait(true);
+            at = next;
+
+            // So the Import button cannot bring them in a second time.
+            if (amber.Count == 0 && _picked.RemoveAll(icon => sure.Exists(one => one.Icon.Hash == icon.Hash)) > 0)
+            {
+                ShowTiles();
+                await RowsAsync().ConfigureAwait(true);
+            }
+        }
+
+        if (amber.Count == 0 || Gone(workspace, group) is { })
+        {
+            return;
+        }
+
+        _updating = null;
+        _anchor = null;
+        _picked.Clear();
+        _picked.AddRange(amber.Select(download => download.Icon));
+        ShowTiles();
+
+        // So the setter asks again, and only it, even where the drop is on the group already targeted.
+        _suggestedIn = null;
+        Target = group;
+        _destination = (index + added.Count, at, show);
+
+        _window.BuildTree(group);
+    }
+
+    /// <summary><paramref name="imports"/> laid in a row from <paramref name="at"/>, and the point after the last; as they are where there is no point.</summary>
+    private static (List<TemplateImport> Imports, SkiaSharp.SKPoint? Next) Placed(IReadOnlyList<TemplateImport> imports, SkiaSharp.SKPoint? at)
+    {
+        if (at is not { } next)
+        {
+            return (imports.ToList(), null);
+        }
+
+        var placed = new List<TemplateImport>();
+
+        foreach (var import in imports)
+        {
+            using var drawn = new SKSvg();
+
+            var width = import.Recipe?.Size ?? drawn.FromSvg(import.Text)?.CullRect.Width ?? 0f;
+
+            placed.Add(import with { At = next });
+
+            // Spaced as a spread spaces a board: a tenth of the drawing.
+            next = new SkiaSharp.SKPoint(next.X + width + (Math.Max(width * 0.05f, 1f) * 2f), next.Y);
+        }
+
+        return (placed, next);
     }
 
     /// <summary>Downloads the icon <paramref name="drawing"/> came from again, as a row whose import replaces what the drawing draws.</summary>
@@ -835,24 +977,8 @@ public sealed class StreamlinePanel : UserControl
             return group;
         }
 
-        var library = new TemplateLibrary(workspace.Document.Root);
-        var imports = new List<TemplateImport>();
-
         // A group about to be made declares nothing, so what it would inherit is the target's.
-        var into = group ?? target;
-
-        foreach (var batch in TemplateLibrary.Batch(fetched.Select(download => download.Prepared)))
-        {
-            var suggested = batch.Select(icon => (Icon: icon, Suggestions: library.Suggest(icon, into))).ToList();
-            var chosen = suggested[0].Suggestions[0].Template.Name;
-
-            foreach (var (icon, suggestions) in suggested)
-            {
-                var download = fetched.First(one => ReferenceEquals(one.Prepared, icon));
-
-                imports.Add(new TemplateImport(download.Icon.Name, icon.Text, StreamlineRow.Recipe(suggestions, chosen), SourceOf(download.Icon)));
-            }
-        }
+        var imports = Imports(new TemplateLibrary(workspace.Document.Root), group ?? target, fetched);
 
         if (group is { })
         {
@@ -876,6 +1002,27 @@ public sealed class StreamlinePanel : UserControl
         return made;
     }
 
+    /// <summary>The downloads as imports into <paramref name="into"/>, each batch through what its first icon is suggested, as a row would take it.</summary>
+    private static List<TemplateImport> Imports(TemplateLibrary library, ProjectGroup into, IReadOnlyList<StreamlineDownload> downloads)
+    {
+        var imports = new List<TemplateImport>();
+
+        foreach (var batch in TemplateLibrary.Batch(downloads.Select(download => download.Prepared)))
+        {
+            var suggested = batch.Select(icon => (Icon: icon, Suggestions: library.Suggest(icon, into))).ToList();
+            var chosen = suggested[0].Suggestions[0].Template.Name;
+
+            foreach (var (icon, suggestions) in suggested)
+            {
+                var download = downloads.First(one => ReferenceEquals(one.Prepared, icon));
+
+                imports.Add(new TemplateImport(download.Icon.Name, icon.Text, StreamlineRow.Recipe(suggestions, chosen), SourceOf(download.Icon)));
+            }
+        }
+
+        return imports;
+    }
+
     private void Progress(StreamlineFamily family, int done, int skipped)
     {
         _familyBar.Value = done + skipped;
@@ -891,21 +1038,10 @@ public sealed class StreamlinePanel : UserControl
 
         _import.IsEnabled = false;
 
-        var loading = picked.Select(Download).ToList();
-        var downloads = await Task.WhenAll(loading).ConfigureAwait(true);
-        var failed = new HashSet<string>(StringComparer.Ordinal);
+        var downloads = await DownloadAsync(picked).ConfigureAwait(true);
+        var failed = picked.Where((_, index) => downloads[index] is null).Select(icon => icon.Hash).ToHashSet(StringComparer.Ordinal);
 
-        // Unpicked rather than left to be asked for again on every later click, each time counting
-        // against the limit; and uncached, so picking it again by hand does ask again.
-        for (var index = 0; index < picked.Count; index++)
-        {
-            if (downloads[index] is null && failed.Add(picked[index].Hash)
-                && _downloads.TryGetValue(picked[index].Hash, out var cached) && cached == loading[index])
-            {
-                _downloads.Remove(picked[index].Hash);
-            }
-        }
-
+        // Unpicked rather than left to be asked for again on every later click, each time counting against the limit.
         _picked.RemoveAll(icon => failed.Contains(icon.Hash));
 
         if (picks == _picks)
@@ -921,6 +1057,23 @@ public sealed class StreamlinePanel : UserControl
 
             ShowRows(downloads.OfType<StreamlineDownload>().ToList());
         }
+    }
+
+    /// <summary>Each icon's download, or null for one that failed and is forgotten, so asking for it again by hand does ask again.</summary>
+    private async Task<StreamlineDownload?[]> DownloadAsync(IReadOnlyList<StreamlineIcon> icons)
+    {
+        var loading = icons.Select(Download).ToList();
+        var downloads = await Task.WhenAll(loading).ConfigureAwait(true);
+
+        for (var index = 0; index < icons.Count; index++)
+        {
+            if (downloads[index] is null && _downloads.TryGetValue(icons[index].Hash, out var cached) && cached == loading[index])
+            {
+                _downloads.Remove(icons[index].Hash);
+            }
+        }
+
+        return downloads;
     }
 
     /// <summary>The icon's SVG and palette, downloaded once however often it is picked.</summary>
@@ -1046,6 +1199,7 @@ public sealed class StreamlinePanel : UserControl
     {
         _picked.Clear();
         _anchor = null;
+        _destination = null;
         _picks++;
         _updating = null;
 
@@ -1416,6 +1570,7 @@ public sealed class StreamlinePanel : UserControl
             BorderThickness = new Thickness(2),
             Background = Brushes.Transparent,
             Child = face,
+            Tag = index,
             [ToolTip.TipProperty] = icon.Name
         };
 
@@ -1423,18 +1578,6 @@ public sealed class StreamlinePanel : UserControl
         {
             tile.Bind(Border.BorderBrushProperty, tile.GetResourceObservable("TabItemHeaderSelectedPipeFill"));
         }
-
-        tile.PointerPressed += async (_, e) =>
-        {
-            if (!e.GetCurrentPoint(tile).Properties.IsLeftButtonPressed)
-            {
-                return;
-            }
-
-            e.Handled = true;
-
-            await PickAsync(index, e.KeyModifiers).ConfigureAwait(true);
-        };
 
         if (icon.FamilySlug is { })
         {
@@ -1451,6 +1594,95 @@ public sealed class StreamlinePanel : UserControl
         }
 
         return tile;
+    }
+
+    /// <summary>
+    /// Picks the tile pressed, unless it is picked already and the press is plain or adding: then
+    /// the pick waits for the release, so dragging it carries every pick.
+    /// </summary>
+    private async void OnTilePressed(object? sender, PointerPressedEventArgs e)
+    {
+        _pressed = null;
+        _deferred = null;
+
+        if ((e.Source as Visual)?.GetSelfAndVisualAncestors().OfType<Control>().FirstOrDefault(one => one.Tag is int)?.Tag is not int index
+            || index >= _results.Count
+            || !e.GetCurrentPoint(_tiles).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        _pressed = e;
+        _pressedAt = e.GetPosition(_tiles);
+        _pressedIndex = index;
+
+        if (IsPicked(_results[index]) && (e.KeyModifiers & KeyModifiers.Shift) == 0)
+        {
+            _deferred = e.KeyModifiers;
+
+            return;
+        }
+
+        await PickAsync(index, e.KeyModifiers).ConfigureAwait(true);
+    }
+
+    private async void OnTileMoved(object? sender, PointerEventArgs e)
+    {
+        if (_pressed is not { } pressed)
+        {
+            return;
+        }
+
+        if (!e.GetCurrentPoint(_tiles).Properties.IsLeftButtonPressed || _pressedIndex >= _results.Count)
+        {
+            _pressed = null;
+            _deferred = null;
+
+            return;
+        }
+
+        var travelled = e.GetPosition(_tiles) - _pressedAt;
+
+        if (Math.Abs(travelled.X) < MainWindow.DragThreshold && Math.Abs(travelled.Y) < MainWindow.DragThreshold)
+        {
+            return;
+        }
+
+        var icon = _results[_pressedIndex];
+        var data = new DataTransfer();
+
+        data.Add(DataTransferItem.Create(DragFormat, string.Empty));
+
+        _pressed = null;
+        _deferred = null;
+        Dragged = IsPicked(icon) ? _picked.ToList() : new[] { icon };
+
+        // The tile a pick rebuilt is out of the window, and the platform finds the window it drags from through the source.
+        pressed.Source = _tiles;
+
+        try
+        {
+            await StartDrag(pressed, data).ConfigureAwait(true);
+        }
+        finally
+        {
+            Dragged = Array.Empty<StreamlineIcon>();
+        }
+    }
+
+    private async void OnTileReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        _pressed = null;
+
+        if (_deferred is not { } modifiers || _pressedIndex >= _results.Count)
+        {
+            return;
+        }
+
+        _deferred = null;
+
+        await PickAsync(_pressedIndex, modifiers).ConfigureAwait(true);
     }
 
     /// <summary>Lets go of the previews of results a new search replaces, other than <paramref name="kept"/>'s.</summary>
