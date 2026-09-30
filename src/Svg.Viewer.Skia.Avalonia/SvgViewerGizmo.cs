@@ -120,6 +120,17 @@ public sealed class SvgViewerGizmo
     /// <summary>The element being edited, or null when nothing is.</summary>
     public SvgElement? Element => _element;
 
+    /// <summary>Whether the box offers the stalk: not round a box the drawing reserves for its host.</summary>
+    /// <remarks>
+    /// A turned box is reported as the upright box round it, which is a different box from the one
+    /// that was turned.
+    /// </remarks>
+    public bool Turns => !IsReserved(_element);
+
+    /// <summary>Whether <paramref name="element"/> is a box its drawing reserves (<c>e:bounds</c>).</summary>
+    internal static bool IsReserved(SvgElement? element)
+        => element is { } && element.CustomAttributes.ContainsKey(SvgExpressionAttributes.KeyFor(SvgExpressionAttributes.Bounds));
+
     /// <summary>Whether a scale handle keeps the proportions the element was pressed at.</summary>
     /// <remarks>
     /// Off unless a host asks for it, so a handle goes on doing what it did. It holds the ratio the
@@ -178,7 +189,7 @@ public sealed class SvgViewerGizmo
     /// </param>
     public bool Hits(Shim.SKPoint at, float scale, bool handlesOnly = false)
         => Box(scale) is { } box
-           && (_selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _) >= 0
+           && (_selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _, Turns) >= 0
                || (!handlesOnly && Covers(at)));
 
     /// <summary>
@@ -204,7 +215,7 @@ public sealed class SvgViewerGizmo
             return Flattened;
         }
 
-        _handle = _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _);
+        _handle = _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _, Turns);
         _geometry = node.GeometryBounds;
 
         // Both, not either: a horizontal line covers nothing in y and is still a shape somebody can
@@ -798,7 +809,7 @@ public sealed class SvgViewerGizmo
             return false;
         }
 
-        if (_selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _) >= 0)
+        if (_selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _, Turns) >= 0)
         {
             return true;
         }
