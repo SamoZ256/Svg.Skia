@@ -84,7 +84,8 @@ public class SelectionService
                outer.Top <= inner.Top && outer.Bottom >= inner.Bottom;
     }
 
-    public int HitHandle(BoundsInfo b, SK.SKPoint pt, float scale, out SK.SKPoint center)
+    /// <param name="turns">Whether the stalk is there to be hit; a box that may not turn has none.</param>
+    public int HitHandle(BoundsInfo b, SK.SKPoint pt, float scale, out SK.SKPoint center, bool turns = true)
     {
         center = b.Center;
         var hs = HandleSize / 2f / scale;
@@ -95,7 +96,7 @@ public class SelectionService
             if (r.Contains(pt))
                 return i;
         }
-        if (SK.SKPoint.Distance(b.RotHandle, pt) <= HandleSize / scale)
+        if (turns && SK.SKPoint.Distance(b.RotHandle, pt) <= HandleSize / scale)
             return 8;
         return -1;
     }
