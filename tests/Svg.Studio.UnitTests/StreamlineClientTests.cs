@@ -18,8 +18,13 @@ public class StreamlineClientTests
 {
     private const string Key = "sk_test_123";
 
-    private sealed class Stub(HttpStatusCode status, string body, string type = "application/json") : HttpMessageHandler
+    private sealed class Stub(Func<HttpRequestMessage, HttpResponseMessage> answer) : HttpMessageHandler
     {
+        public Stub(HttpStatusCode status, string body, string type = "application/json")
+            : this(_ => Answer(body, status, type))
+        {
+        }
+
         public List<HttpRequestMessage> Asked { get; } = new();
 
         public Action<HttpResponseMessage>? Headers { get; init; }
@@ -28,13 +33,16 @@ public class StreamlineClientTests
         {
             Asked.Add(request);
 
-            var response = new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, type) };
+            var response = answer(request);
 
             Headers?.Invoke(response);
 
             return Task.FromResult(response);
         }
     }
+
+    private static HttpResponseMessage Answer(string body, HttpStatusCode status = HttpStatusCode.OK, string type = "application/json")
+        => new(status) { Content = new StringContent(body, Encoding.UTF8, type) };
 
     private static (StreamlineClient Client, Stub Stub) Answering(string body, HttpStatusCode status = HttpStatusCode.OK, string type = "application/json")
     {
@@ -350,6 +358,39 @@ public class StreamlineClientTests
         Assert.Equal("https://assets.streamlinehq.com/image/private/w_128,h_128,ar_1/f_auto/home.png", request.RequestUri!.AbsoluteUri);
         Assert.False(request.Headers.Contains("x-api-key"));
         Assert.Equal("PNG"u8.ToArray(), bytes);
+    }
+
+    /// <summary>The CDN refuses the 128px preview some families are handed, and makes the 68px preset for them.</summary>
+    [Fact]
+    public async Task A_Preview_The_CDN_Refuses_Is_Asked_For_At_The_Preset_Size()
+    {
+        var stub = new Stub(request => request.RequestUri!.AbsoluteUri.Contains("w_128", StringComparison.Ordinal)
+            ? Answer("GIF", HttpStatusCode.Unauthorized, "image/gif")
+            : Answer("PNG", type: "image/png"));
+        var client = new StreamlineClient("sk_test", new HttpClient(stub));
+
+        var bytes = await client.Thumbnail("https://assets.streamlinehq.com/image/private/w_128,h_128,ar_1/f_auto/v1/icons/buildings/house-3.png/house-3.png?_a=DATA", cancellation: TestContext.Current.CancellationToken);
+
+        Assert.Equal("PNG"u8.ToArray(), bytes);
+        Assert.Equal(
+            new[]
+            {
+                "https://assets.streamlinehq.com/image/private/w_128,h_128,ar_1/f_auto/v1/icons/buildings/house-3.png/house-3.png?_a=DATA",
+                "https://assets.streamlinehq.com/image/private/w_68,h_68,ar_1/f_auto/v1/icons/buildings/house-3.png/house-3.png?_a=DATA"
+            },
+            stub.Asked.Select(request => request.RequestUri!.AbsoluteUri));
+    }
+
+    /// <summary>A preview already at the preset size is asked for once, and its refusal is the failure.</summary>
+    [Fact]
+    public async Task A_Preview_Refused_At_The_Preset_Size_Fails()
+    {
+        var (client, stub) = Answering("GIF", HttpStatusCode.Unauthorized, "image/gif");
+
+        var failure = await Assert.ThrowsAsync<StreamlineException>(() => client.Thumbnail("https://assets.streamlinehq.com/image/private/w_68,h_68,ar_1/f_auto/v1/icons/home.png", cancellation: TestContext.Current.CancellationToken));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, failure.Status);
+        Assert.Single(stub.Asked);
     }
 
     [Theory]

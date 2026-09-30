@@ -8,6 +8,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -140,14 +141,38 @@ public sealed class StreamlineClient
             cancellation);
 
     /// <summary>An icon's preview image, from <see cref="StreamlineIcon.ImagePreviewUrl"/>.</summary>
-    /// <remarks>Sent without the key: the preview lives on Streamline's CDN, a different host from the API.</remarks>
+    /// <remarks>
+    /// Sent without the key: the preview lives on Streamline's CDN, a different host from the API.
+    /// Some families are handed a URL asking the CDN for a 128px preview it refuses to make for them
+    /// ("Transformation w_128,h_128,ar_1/f_auto/png is not allowed", a 401 with a pixel of GIF for a
+    /// body); the 68px preset every other family's URL asks for is made for those too.
+    /// </remarks>
     public async Task<byte[]> Thumbnail(string url, CancellationToken cancellation = default)
     {
         using var response = await _http.GetAsync(url, cancellation);
 
+        if (!response.IsSuccessStatusCode && Preset(url) is { } preset)
+        {
+            using var again = await _http.GetAsync(preset, cancellation);
+
+            await Ensure(again, cancellation);
+
+            return await again.Content.ReadAsByteArrayAsync(cancellation);
+        }
+
         await Ensure(response, cancellation);
 
         return await response.Content.ReadAsByteArrayAsync(cancellation);
+    }
+
+    private const string PreviewPreset = "w_68,h_68,ar_1";
+
+    /// <summary>The same preview at the preset size, or null where that is what was asked for.</summary>
+    private static string? Preset(string url)
+    {
+        var replaced = Regex.Replace(url, "(/image/private/)w_\\d+,h_\\d+,ar_1(/)", $"$1{PreviewPreset}$2");
+
+        return replaced == url ? null : replaced;
     }
 
     /// <param name="list">The answer's key for the list, where the reference names one.</param>

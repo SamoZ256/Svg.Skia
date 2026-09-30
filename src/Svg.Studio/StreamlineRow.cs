@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
@@ -42,8 +43,10 @@ public sealed class StreamlineRow : IDisposable
     private readonly Dictionary<string, ComboBox> _roleBoxes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TextBlock> _labels = new(StringComparer.Ordinal);
     private readonly Ellipse _dot = new() { Width = 10, Height = 10, VerticalAlignment = VerticalAlignment.Center };
-    private readonly StackPanel _swatches = new() { Spacing = 4 };
-    private readonly StackPanel _toggles = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+    private readonly WrapPanel _swatches = new() { ItemSpacing = 10, LineSpacing = 4, VerticalAlignment = VerticalAlignment.Center };
+
+    // Beside the preview and no taller than it, so a drawing with several booleans runs into a second column rather than down.
+    private readonly WrapPanel _toggles = new() { Orientation = Orientation.Vertical, MaxHeight = 72, VerticalAlignment = VerticalAlignment.Center };
     private SvgViewerDocument? _document;
     private Dictionary<string, ExprValue> _values = new(StringComparer.Ordinal);
 
@@ -105,17 +108,25 @@ public sealed class StreamlineRow : IDisposable
         preview.Children.Add(Preview);
         preview.Children.Add(_toggles);
 
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(Spread);
+        buttons.Children.Add(SaveAs);
+
+        var foot = new DockPanel();
+        DockPanel.SetDock(buttons, Dock.Right);
+        foot.Children.Add(buttons);
+        foot.Children.Add(Declares);
+
+        // A card in a column beside the tiles, which has the height a card wants: one line each for
+        // the names and the template, the colours wrapped, the preview with its toggles, and what
+        // the import declares beside the buttons.
         View = new Border
         {
             Padding = new Thickness(8),
             CornerRadius = new CornerRadius(4),
             BorderThickness = new Thickness(1),
             BorderBrush = new SolidColorBrush(Color.Parse("#40808080")),
-            Child = new StackPanel
-            {
-                Spacing = 6,
-                Children = { heading, choosing, _swatches, preview, Declares, Spread, SaveAs }
-            }
+            Child = new StackPanel { Spacing = 6, Children = { heading, choosing, _swatches, preview, foot } }
         };
 
         Show();
@@ -148,13 +159,13 @@ public sealed class StreamlineRow : IDisposable
         Margin = new Thickness(0, 0, 8, 0)
     };
 
-    public TextBlock Declares { get; } = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.8 };
+    public TextBlock Declares { get; } = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.8, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
 
     /// <summary>Offers the template just chosen to the other rows of the family.</summary>
-    public Button Spread { get; } = new() { IsVisible = false };
+    public Button Spread { get; } = new() { IsVisible = false, Padding = new Thickness(8, 3) };
 
     /// <summary>Keeps what the row does now, template and colours changed by hand, as a template of the project's.</summary>
-    public Button SaveAs { get; } = new() { Content = "Save as template…" };
+    public Button SaveAs { get; } = new() { Content = "Save as template…", Padding = new Thickness(8, 3) };
 
     /// <summary>Whether <paramref name="template"/> fits these icons.</summary>
     public bool Offers(string template) => Template.Items.OfType<string>().Contains(template);
@@ -261,6 +272,7 @@ public sealed class StreamlineRow : IDisposable
 
         _dot.Fill = sure ? s_sure : s_check;
         ToolTip.SetTip(_dot, sure ? "Remembered, or well ahead of the next template" : "Check this: another template came close, or a colour was changed by hand");
+        AutomationProperties.SetName(_dot, sure ? "Template is a sure match" : "Check the template");
 
         // The slot is the template's, and an overridden recipe is slot-free, so it is read from the template.
         var recipe = Recipe(0);
@@ -300,12 +312,16 @@ public sealed class StreamlineRow : IDisposable
 
             roles.AddRange(_names);
 
+            // Shorter than the theme's 32: a cell is a swatch and a name with a caption under it, not a form row.
             var role = new ComboBox
             {
                 ItemsSource = roles,
                 SelectedItem = written ?? Keep,
                 IsEnabled = _target is { },
                 MinWidth = 110,
+                MinHeight = 24,
+                FontSize = 12,
+                Padding = new Thickness(8, 2, 0, 2),
                 [ToolTip.TipProperty] = "What this colour becomes"
             };
 
@@ -318,8 +334,9 @@ public sealed class StreamlineRow : IDisposable
 
             var label = new TextBlock
             {
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(6, 0),
+                FontSize = 11,
+                Opacity = 0.8,
+                MaxWidth = 150,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 [ToolTip.TipProperty] = colour
             };
@@ -338,14 +355,13 @@ public sealed class StreamlineRow : IDisposable
             var line = new DockPanel();
 
             DockPanel.SetDock(swatch, Dock.Left);
-            DockPanel.SetDock(role, Dock.Right);
+            swatch.Margin = new Thickness(0, 0, 6, 0);
             line.Children.Add(swatch);
             line.Children.Add(role);
-            line.Children.Add(label);
 
             _roleBoxes[colour] = role;
             _labels[colour] = label;
-            _swatches.Children.Add(line);
+            _swatches.Children.Add(new StackPanel { Spacing = 2, Children = { line, label } });
         }
     }
 

@@ -23,6 +23,7 @@ using Avalonia.Threading;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
 using Svg.Expressions.Recipes;
+using Svg.Skia;
 using Svg.SourceEditing;
 using Svg.Viewer.Skia.Avalonia;
 
@@ -78,11 +79,23 @@ public sealed class StreamlinePanel : UserControl
 
     private readonly ScrollViewer _tileScroll;
 
-    private readonly Button _more = new() { Content = "Load more", IsVisible = false, HorizontalAlignment = HorizontalAlignment.Stretch };
+    /// <summary>Whether the search showing has a page after the ones shown, and whether one is on its way.</summary>
+    private bool _hasMore, _paging;
 
     private readonly StackPanel _rows = new() { Spacing = 8 };
 
-    private readonly Button _import = new() { Content = "Import", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly Button _import = new()
+    {
+        Content = "Import",
+        IsEnabled = false,
+        Classes = { "accent" },
+        HorizontalAlignment = HorizontalAlignment.Right,
+        Padding = new Thickness(14, 6),
+        Margin = new Thickness(0, 6, 0, 0)
+    };
+
+    /// <summary>The picks, where they go and the button that takes them there, shown while there are any.</summary>
+    private readonly DockPanel _side = new() { Width = 380, IsVisible = false };
 
     private readonly StackPanel _family = new() { Spacing = 4, IsVisible = false };
 
@@ -182,7 +195,6 @@ public sealed class StreamlinePanel : UserControl
             }
         };
         _style.SelectionChanged += async (_, _) => await SearchAsync().ConfigureAwait(true);
-        _more.Click += async (_, _) => await SearchAsync(more: true).ConfigureAwait(true);
         _import.Click += async (_, _) => await ImportAsync().ConfigureAwait(true);
         _cancel.Click += (_, _) => _running?.Cancel();
 
@@ -198,6 +210,15 @@ public sealed class StreamlinePanel : UserControl
             if (Columns() != _columns)
             {
                 ShowTiles();
+            }
+        };
+
+        // On these three rather than ScrollChanged, which waits for the layout manager's own pass.
+        _tileScroll.PropertyChanged += (_, changed) =>
+        {
+            if (changed.Property == ScrollViewer.ExtentProperty || changed.Property == ScrollViewer.OffsetProperty || changed.Property == ScrollViewer.ViewportProperty)
+            {
+                PageIfShort();
             }
         };
 
@@ -220,9 +241,23 @@ public sealed class StreamlinePanel : UserControl
         _family.Children.Add(_familyBar);
         _family.Children.Add(_cancel);
 
+        // The picks beside the tiles rather than under them: the strip under the drawing is short
+        // and wide, so a column has the height a row wants and the tiles keep their width.
+        DockPanel.SetDock(_where, Dock.Top);
+        DockPanel.SetDock(_import, Dock.Bottom);
+        _side.Children.Add(_where);
+        _side.Children.Add(_import);
+        _side.Children.Add(new ScrollViewer { Content = _rows });
+
+        var main = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12 };
+
+        Grid.SetColumn(_side, 1);
+        main.Children.Add(_tileScroll);
+        main.Children.Add(_side);
+
         var body = new Grid
         {
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*,Auto,*,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,*,Auto"),
             Margin = new Thickness(8),
             RowSpacing = 6,
             IsVisible = false
@@ -230,12 +265,8 @@ public sealed class StreamlinePanel : UserControl
 
         Place(body, search, 0);
         Place(body, _said, 1);
-        Place(body, _where, 2);
-        Place(body, _tileScroll, 3);
-        Place(body, _more, 4);
-        Place(body, new ScrollViewer { Content = _rows }, 5);
-        Place(body, _import, 6);
-        Place(body, _family, 7);
+        Place(body, main, 2);
+        Place(body, _family, 3);
         _body = body;
 
         var apply = new Button { Content = "Apply" };
@@ -434,7 +465,7 @@ public sealed class StreamlinePanel : UserControl
             ? _searched
             : (_query.Text?.Trim() ?? string.Empty, _style.SelectedItem as string is { } chosen && chosen != AnyStyle ? chosen : null);
 
-        _more.IsEnabled = false;
+        _paging = true;
 
         try
         {
@@ -460,10 +491,14 @@ public sealed class StreamlinePanel : UserControl
 
             _results.AddRange(page.Items);
             _next = page.NextOffset;
-            _more.IsVisible = page.HasMore;
+            _hasMore = page.HasMore;
 
             Say(_results.Count == 0 ? $"Nothing on Streamline matches '{query}'." : null);
             ShowTiles();
+
+            // Once the page is laid out: a page shorter than the strip changes none of the three
+            // the scroll viewer reports, since content that does not fill it is given its size.
+            Dispatcher.UIThread.Post(PageIfShort, DispatcherPriority.Background);
         }
         catch (Exception failure) when (Failure(failure) is { } said)
         {
@@ -474,7 +509,22 @@ public sealed class StreamlinePanel : UserControl
         }
         finally
         {
-            _more.IsEnabled = true;
+            _paging = false;
+        }
+    }
+
+    /// <summary>The next page, as the last row comes into view and while a page leaves the strip unfilled.</summary>
+    /// <remarks>
+    /// A page is one request against the thousand an hour, and a search can run to two hundred of
+    /// them, so they come as they are looked at rather than all at once. Not while the strip has no
+    /// height: a panel folded away would otherwise page through the whole search unseen.
+    /// </remarks>
+    private void PageIfShort()
+    {
+        if (_hasMore && !_paging && _tileScroll.Viewport.Height > 0
+            && _tileScroll.Offset.Y + _tileScroll.Viewport.Height >= _tileScroll.Extent.Height - (TileSize + TileGap))
+        {
+            _ = SearchAsync(more: true);
         }
     }
 
@@ -942,9 +992,11 @@ public sealed class StreamlinePanel : UserControl
 
         _import.IsEnabled = count > 0;
         _import.Content = _updating is { } updating && count > 0 ? $"Update {ProjectWorkspace.Label(updating)}"
+            : count > 0 && Target is { } into ? $"Import {count} icon{(count == 1 ? "" : "s")} into {ProjectWorkspace.Label(into)}"
             : count > 0 ? $"Import {count} icon{(count == 1 ? "" : "s")}"
             : "Import";
 
+        ShowWhere();
         CheckTemplate();
     }
 
@@ -958,7 +1010,8 @@ public sealed class StreamlinePanel : UserControl
 
         var alike = Alike(row, chosen);
 
-        row.Spread.Content = $"Use {chosen} for the {alike.Count} other{(alike.Count == 1 ? "" : "s")} of this family";
+        row.Spread.Content = $"Use for {alike.Count} other{(alike.Count == 1 ? "" : "s")}";
+        ToolTip.SetTip(row.Spread, $"Use {chosen} for the {alike.Count} other{(alike.Count == 1 ? "" : "s")} of this family");
         row.Spread.IsVisible = alike.Count > 0;
     }
 
@@ -1000,10 +1053,14 @@ public sealed class StreamlinePanel : UserControl
         ShowTiles();
     }
 
+    /// <summary>Where the picks go, over them; the column shows only while there are picks to take somewhere.</summary>
     private void ShowWhere()
-        => _where.Text = _window.Workspace is null
+    {
+        _where.Text = _window.Workspace is null
             ? "No project is open, so each icon opens in a tab of its own."
             : $"Icons go into {ProjectWorkspace.Label(Target!)}.";
+        _side.IsVisible = _shown.Count > 0;
+    }
 
     private void Say(string? said)
     {
@@ -1388,9 +1445,9 @@ public sealed class StreamlinePanel : UserControl
             tile.ContextMenu = new ContextMenu { Items = { family } };
         }
 
-        if (icon.ImagePreviewUrl is { } url && _client is { } client)
+        if (_client is { } client)
         {
-            _ = Thumbnail(client, url, image, name);
+            _ = Thumbnail(client, icon, image, name);
         }
 
         return tile;
@@ -1410,22 +1467,41 @@ public sealed class StreamlinePanel : UserControl
         static async Task Dispose(Task<Bitmap?> loading) => (await loading.ConfigureAwait(true))?.Dispose();
     }
 
-    private async Task Thumbnail(StreamlineClient client, string url, Image image, TextBlock name)
+    /// <remarks>
+    /// The CDN serves only the previews it has already made, and makes new ones for the website
+    /// alone, so one icon in twenty has none to give. The icon's details carry its SVG on a plan
+    /// that may download it, and that is drawn instead: a request, where a download is metered.
+    /// </remarks>
+    private async Task Thumbnail(StreamlineClient client, StreamlineIcon icon, Image image, TextBlock name)
     {
-        if (!_thumbnails.TryGetValue(url, out var loading))
+        var key = icon.ImagePreviewUrl ?? icon.Hash;
+
+        if (!_thumbnails.TryGetValue(key, out var loading))
         {
-            _thumbnails[url] = loading = Task.Run(async () =>
+            _thumbnails[key] = loading = Task.Run(async () =>
             {
                 try
                 {
-                    using var stream = new MemoryStream(await client.Thumbnail(url).ConfigureAwait(false));
+                    if (icon.ImagePreviewUrl is { } url)
+                    {
+                        using var stream = new MemoryStream(await client.Thumbnail(url).ConfigureAwait(false));
 
-                    return new Bitmap(stream);
+                        return new Bitmap(stream);
+                    }
                 }
                 catch (Exception)
                 {
-                    // Anything, from the CDN or the decoder: a tile without its preview still says its name.
-                    return (Bitmap?)null;
+                    // Anything, from the CDN or the decoder: the icon's own drawing is asked for instead.
+                }
+
+                try
+                {
+                    return (await client.Icon(icon.Hash).ConfigureAwait(false)).Svg is { } svg ? Drawn(svg) : null;
+                }
+                catch (Exception)
+                {
+                    // A tile without its preview still says its name.
+                    return null;
                 }
             });
         }
@@ -1435,6 +1511,25 @@ public sealed class StreamlinePanel : UserControl
             image.Source = bitmap;
             name.IsVisible = false;
         }
+    }
+
+    /// <summary><paramref name="svg"/> drawn at the size of a tile, or null where it does not draw.</summary>
+    private static Bitmap? Drawn(string svg)
+    {
+        using var drawing = new SKSvg();
+
+        if (drawing.FromSvg(svg) is not { } picture || picture.CullRect.Width <= 0f || picture.CullRect.Height <= 0f)
+        {
+            return null;
+        }
+
+        var scale = (float)(TileSize * 2d) / Math.Max(picture.CullRect.Width, picture.CullRect.Height);
+
+        using var stream = new MemoryStream();
+
+        return drawing.Save(stream, SkiaSharp.SKColors.Transparent, scaleX: scale, scaleY: scale) && stream.Length > 0
+            ? new Bitmap(new MemoryStream(stream.ToArray()))
+            : null;
     }
 
     /// <summary>A line of tiles. A class rather than a record, so a line rebuilt to show a new pick is not equal to the old one and is drawn again.</summary>

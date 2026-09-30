@@ -68,6 +68,17 @@ public class StreamlinePanelTests : IDisposable
 
     private const string Glyph = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M2 2h40v40z" fill="#000000" /></svg>""";
 
+    private const string Duo = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M2 2h40v40z" fill="#000000" /><path d="M2 46h40v-40z" fill="#fb3e72" /></svg>""";
+
+    /// <summary>A template for <see cref="Duo"/>, added to <see cref="Project"/> before its first recipe.</summary>
+    private const string DuoRecipe = """
+            <e:recipe name="Two-tone">
+              <e:match colors="2" />
+              <e:slot name="ink" by="lightness" rank="1">stateBlackColor</e:slot>
+              <e:slot name="wash" rest="true">stateAccentColor</e:slot>
+            </e:recipe>
+        """;
+
     private readonly string _was = StudioSettings.Store;
     private readonly string _choices = TemplateLibrary.ChoicesStore;
     private readonly string _directory = Directory.CreateTempSubdirectory().FullName;
@@ -128,6 +139,15 @@ public class StreamlinePanelTests : IDisposable
         public void Json(string path, string body) => Paths[path] = _ => Answer(body, "application/json");
 
         public void Svg(string hash, string body) => Paths[$"/v1/icons/{hash}/download/svg"] = _ => Answer(body, "image/svg+xml");
+
+        /// <summary>A preview for the icon, so its tile does not fall back on the icon's details.</summary>
+        public void Preview(string hash) => Paths[$"/{hash}.png"] = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="))
+            {
+                Headers = { ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png") }
+            }
+        };
 
         public static HttpResponseMessage Answer(string body, string type)
             => new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, type) };
@@ -190,43 +210,51 @@ public class StreamlinePanelTests : IDisposable
         }
     }
 
-    private static void Settle(MainWindow window)
+    private static void Settle(MainWindow window, double width = 1000, double height = 800)
     {
         Dispatcher.UIThread.RunJobs();
-        window.Measure(new Size(1000, 800));
-        window.Arrange(new Rect(0, 0, 1000, 800));
+        window.Measure(new Size(width, height));
+        window.Arrange(new Rect(0, 0, width, height));
         Dispatcher.UIThread.RunJobs();
     }
 
     [AvaloniaFact]
-    public void The_Panel_Is_In_The_Default_Arrangement_Beside_The_Settings()
+    public async Task The_Panel_Is_In_The_Default_Arrangement_Under_The_Drawing()
     {
-        var window = new MainWindow();
+        var window = await Opened();
 
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("project+elements+streamline/", window.Layout, StringComparison.Ordinal);
+        Assert.Contains("col(*/1.6,streamline/1/streamline/open)/1,", window.Layout, StringComparison.Ordinal);
         Assert.Same(window, TopLevel.GetTopLevel(window.Streamline));
     }
 
-    /// <summary>A line saved before the panel existed does not name it, and the dock places it beside its default neighbours.</summary>
+    /// <summary>A line saved before the panel existed does not name it, and the dock places it where the default has it.</summary>
     [AvaloniaFact]
-    public void A_Layout_Saved_Before_The_Panel_Existed_Still_Has_It()
+    public async Task A_Layout_Saved_Before_The_Panel_Existed_Still_Has_It()
     {
         StudioSettings.Layout = Legacy;
 
-        var window = new MainWindow();
+        var window = await Opened();
 
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
-
-        // Behind the tab that was in front, which an upgrade has no business changing.
-        Assert.Contains("project+elements+streamline/1/project/open", window.Layout, StringComparison.Ordinal);
+        // Under the drawing, as the default has it, rather than a column the width of a side panel.
+        Assert.Contains("col(*/1.6,streamline/1/streamline/open)/1,", window.Layout, StringComparison.Ordinal);
         Assert.Same(window, TopLevel.GetTopLevel(window.Streamline));
 
         // Placed, not written back: the saved line is what somebody arranged, and is left as it was.
         Assert.Equal(Legacy, StudioSettings.Layout);
+    }
+
+    /// <summary>A window in whatever arrangement the settings hold, with a project open so the tree is on it.</summary>
+    private async Task<MainWindow> Opened()
+    {
+        var window = new MainWindow();
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        File.WriteAllText(path, Project);
+        window.Show();
+        await window.OpenAsync(new[] { path });
+        Dispatcher.UIThread.RunJobs();
+
+        return window;
     }
 
     [AvaloniaFact]
@@ -260,8 +288,9 @@ public class StreamlinePanelTests : IDisposable
         Assert.Empty(streamline.Asked);
     }
 
+    /// <summary>A page that leaves the strip unfilled brings the next one without being asked.</summary>
     [AvaloniaFact]
-    public async Task A_Search_Fills_The_Tiles_And_Load_More_Appends()
+    public async Task A_Search_Fills_The_Tiles_And_Pages_Until_The_Strip_Is_Full()
     {
         var streamline = new Streamline();
 
@@ -276,27 +305,75 @@ public class StreamlinePanelTests : IDisposable
 
         await panel.SearchAsync();
         Settle(window);
-
-        Assert.Equal(new[] { "bell", "bin" }, panel.Results.Select(icon => icon.Name));
-        Assert.Equal(new[] { "bell", "bin" }, Tiles(panel));
-
-        // Only the one this key cannot download carries the lock.
-        // The style box's chevron is a PathIcon as well, so the lock is told by its tip.
-        Assert.Single(panel.GetVisualDescendants().OfType<PathIcon>(), icon => ToolTip.GetTip(icon) is string tip && tip.Contains("plan", StringComparison.Ordinal));
-
-        var more = panel.GetLogicalDescendants().OfType<Button>().Single(button => Equals(button.Content, "Load more"));
-
-        Assert.True(more.IsVisible);
-
-        more.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Until(() => panel.Results.Count == 3);
         Settle(window);
 
         Assert.Equal(new[] { "bell", "bin", "cog" }, panel.Results.Select(icon => icon.Name));
         Assert.Equal(new[] { "bell", "bin", "cog" }, Tiles(panel));
-        Assert.False(more.IsVisible);
+
+        // Only the one this key cannot download carries the lock.
+        // The style box's chevron is a PathIcon as well, so the lock is told by its tip.
+        Assert.Single(panel.GetVisualDescendants().OfType<PathIcon>(), icon => ToolTip.GetTip(icon) is string tip && tip.Contains("plan", StringComparison.Ordinal));
+
         Assert.Contains(streamline.Asked, asked => asked.Contains("offset=2", StringComparison.Ordinal));
         Assert.Null(panel.Said);
+    }
+
+    /// <summary>An icon the CDN has no preview for is drawn from the SVG its details carry, one request rather than a metered download.</summary>
+    [AvaloniaFact]
+    public async Task A_Tile_Without_A_Preview_Draws_The_Icons_Own_Svg()
+    {
+        var streamline = new Streamline();
+
+        // The preview URL the helper writes is on a path the stub never answers, so the CDN's part is a 404.
+        streamline.Json("/v1/search/global", Page("results", new[] { Icon("ico_a", "bell") }, more: false, next: 1));
+        streamline.Json("/v1/icons/ico_a", Icon("ico_a", "bell").TrimEnd().TrimEnd('}') + $$""", "svg": "{{Glyph.Replace("\"", "\\\"", StringComparison.Ordinal)}}" }""");
+
+        var window = await Host(streamline, project: false);
+        var panel = window.Streamline;
+
+        await panel.SearchAsync();
+        Settle(window);
+
+        var tile = panel.GetVisualDescendants().OfType<Border>().Single(border => ToolTip.GetTip(border) is "bell");
+
+        await Until(() => tile.GetVisualDescendants().OfType<Image>().Single().Source is { });
+        Assert.False(tile.GetVisualDescendants().OfType<TextBlock>().Single().IsVisible);
+        Assert.Single(streamline.Asked, asked => asked == "/v1/icons/ico_a");
+    }
+
+    /// <summary>A page that fills the strip waits: the next comes as the last row is scrolled into view.</summary>
+    [AvaloniaFact]
+    public async Task The_Next_Page_Comes_As_The_Last_Row_Is_Scrolled_To()
+    {
+        var streamline = new Streamline();
+
+        streamline.Paths["/v1/search/global"] = request => Streamline.Answer(
+            request.RequestUri!.Query.Contains("offset=0", StringComparison.Ordinal)
+                ? Page("results", Enumerable.Range(0, 200).Select(n => Icon($"ico_{n}", $"bell {n}")), more: true, next: 200)
+                : Page("results", new[] { Icon("ico_cog", "cog") }, more: false, next: 201),
+            "application/json");
+
+        var window = await Host(streamline, project: false);
+        var panel = window.Streamline;
+
+        await panel.SearchAsync();
+        Settle(window);
+        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(200, panel.Results.Count);
+        Assert.Single(streamline.Asked, asked => asked.Contains("/v1/search/global", StringComparison.Ordinal));
+
+        var tiles = panel.GetVisualDescendants().OfType<ScrollViewer>().Single(scroll => scroll.Content is ItemsControl);
+
+        Assert.True(tiles.Extent.Height > tiles.Viewport.Height, "Two hundred tiles should overrun the strip.");
+
+        tiles.Offset = new Vector(0, tiles.Extent.Height);
+        Settle(window);
+        await Until(() => panel.Results.Count == 201);
+
+        Assert.Contains(streamline.Asked, asked => asked.Contains("offset=200", StringComparison.Ordinal));
     }
 
     private static IReadOnlyList<string> Tiles(StreamlinePanel panel)
@@ -408,6 +485,53 @@ public class StreamlinePanelTests : IDisposable
         return streamline;
     }
 
+    /// <summary>Two icons of two colours each, picked in the default arrangement with the strip a thousand wide.</summary>
+    private async Task<(MainWindow Window, StreamlinePanel Panel)> PickedDuo(double width, double height)
+    {
+        var streamline = new Streamline();
+
+        streamline.Json("/v1/search/global", Page("results", new[] { Icon("ico_a", "bell", "duo-glyphs"), Icon("ico_b", "bin", "duo-glyphs") }, more: false, next: 2));
+        streamline.Svg("ico_a", Duo);
+        streamline.Svg("ico_b", Duo.Replace("M2 2", "M4 4", StringComparison.Ordinal));
+
+        var window = await Host(streamline, text: Project.Replace("    <e:recipe name=\"Accent glyph\">", DuoRecipe + "    <e:recipe name=\"Accent glyph\">", StringComparison.Ordinal));
+        var panel = window.Streamline;
+
+        panel.Target = Group(window, "Scheme");
+        window.Layout = StudioSettings.DefaultLayout;
+        Settle(window, width, height);
+
+        await panel.SearchAsync();
+        await panel.PickAsync(0, KeyModifiers.None);
+        await panel.PickAsync(1, KeyModifiers.Shift);
+        Settle(window, width, height);
+
+        return (window, panel);
+    }
+
+    /// <summary>A row is one band across the strip, all of it in view, and the tiles keep the larger share of the height.</summary>
+    /// <summary>The picks sit in a column beside the tiles, whole, and the tiles keep the wider part.</summary>
+    [AvaloniaFact]
+    public async Task A_Row_Sits_In_A_Column_Beside_The_Tiles()
+    {
+        var (window, panel) = await PickedDuo(1600, 1200);
+        var row = Assert.Single(panel.Rows);
+
+        Assert.Equal("Two-tone", row.Template.SelectedItem);
+        Assert.Equal(2, row.Roles.Count);
+        Assert.InRange(row.View.Bounds.Width, 300, 380);
+
+        var rows = row.View.FindAncestorOfType<ScrollViewer>()!;
+        var tiles = panel.GetVisualDescendants().OfType<ScrollViewer>().Single(scroll => scroll.Content is ItemsControl);
+
+        Assert.True(rows.Viewport.Height >= row.View.Bounds.Height, $"The row ({row.View.Bounds.Height}) is clipped in {rows.Viewport.Height}.");
+        Assert.True(tiles.Bounds.Width > row.View.Bounds.Width, $"The tiles ({tiles.Bounds.Width}) are narrower than a row ({row.View.Bounds.Width}).");
+        Assert.True(
+            tiles.TranslatePoint(new Point(tiles.Bounds.Width, 0), panel)!.Value.X <= row.View.TranslatePoint(default, panel)!.Value.X,
+            "The row should be to the right of the tiles.");
+        Assert.Same(window, TopLevel.GetTopLevel(row.View));
+    }
+
     /// <summary>Resuming is running it again: what the group has is not downloaded, and a spent limit stops it saying when it lifts.</summary>
     [AvaloniaFact]
     public async Task A_Family_Import_Skips_What_Is_There_And_Stops_On_A_Spent_Limit()
@@ -499,9 +623,33 @@ public class StreamlinePanelTests : IDisposable
         return streamline;
     }
 
+    /// <summary>The column of picks, its Import button with it, is there only while something is picked.</summary>
+    [AvaloniaFact]
+    public async Task The_Picks_Column_Shows_Only_While_Something_Is_Picked()
+    {
+        var window = await Host(Searching("line-glyphs"));
+        var panel = window.Streamline;
+
+        panel.Target = Group(window, "Scheme");
+
+        await panel.SearchAsync();
+        Settle(window);
+
+        var import = panel.GetLogicalDescendants().OfType<Button>().Single(button => Equals(button.Content, "Import"));
+
+        Assert.False(import.IsEffectivelyVisible);
+
+        await panel.PickAsync(0, KeyModifiers.None);
+        Settle(window);
+
+        Assert.True(import.IsEffectivelyVisible);
+        Assert.Equal("Import 1 icon into Scheme", import.Content);
+        Assert.Contains(panel.GetLogicalDescendants().OfType<TextBlock>(), text => text.Text == "Icons go into Scheme." && text.IsEffectivelyVisible);
+    }
+
     /// <summary>The next page is of the search showing, not of what has been typed since and not yet searched.</summary>
     [AvaloniaFact]
-    public async Task Load_More_Pages_The_Search_Showing_Not_What_Is_Typed()
+    public async Task The_Next_Page_Is_Of_The_Search_Showing_Not_What_Is_Typed()
     {
         var streamline = new Streamline();
 
@@ -609,6 +757,7 @@ public class StreamlinePanelTests : IDisposable
         streamline.Json("/v1/search/global", Page("results", new[] { Icon("ico_d", "dot", colour: null) }, more: false, next: 1));
         streamline.Paths["/v1/icons/ico_d"] = _ => Streamline.Refused(HttpStatusCode.TooManyRequests, "Hourly limit reached");
         streamline.Svg("ico_d", Glyph);
+        streamline.Preview("ico_d");
 
         var window = await Host(streamline);
         var panel = window.Streamline;
@@ -714,7 +863,8 @@ public class StreamlinePanelTests : IDisposable
         first.Template.SelectedItem = "Mono glyph";
 
         Assert.True(first.Spread.IsVisible);
-        Assert.Equal("Use Mono glyph for the 1 other of this family", first.Spread.Content);
+        Assert.Equal("Use for 1 other", first.Spread.Content);
+        Assert.Equal("Use Mono glyph for the 1 other of this family", ToolTip.GetTip(first.Spread));
 
         first.Spread.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
