@@ -499,7 +499,8 @@ public sealed class SvgViewerDock
     /// </param>
     private void Restore(string id, bool front)
     {
-        var wanted = Parsed(Fallback) is { } fresh
+        var fresh = Parsed(Fallback);
+        var wanted = fresh is { }
             ? Walk(fresh).OfType<Leaf>().FirstOrDefault(leaf => leaf.Ids.Contains(id, StringComparer.Ordinal))
             : null;
 
@@ -522,11 +523,32 @@ public sealed class SvgViewerDock
 
         var made = Made(id);
 
+        // Over or under the middle where the default stacks it in the middle's own column — a strip
+        // under the drawing, which beside it would be a column the width of a side panel.
+        if (wanted is { }
+            && Walk(fresh!).OfType<Split>().FirstOrDefault(split => !split.Across && split.Children.Contains(wanted)) is { } column
+            && column.Children.OfType<Leaf>().FirstOrDefault(leaf => leaf.IsMiddle) is { } middle)
+        {
+            var centre = Holding(Centre)!;
+            var stacked = Parent(centre) is { Across: false };
+
+            Beside(centre, made, across: false, before: column.Children.IndexOf(wanted) < column.Children.IndexOf(middle));
+            made.Reach = wanted.Reach;
+
+            // A column made here divides as the default's does; one already there keeps its own shares.
+            if (!stacked)
+            {
+                centre.Reach = middle.Reach;
+            }
+
+            return;
+        }
+
         // Otherwise the side of the middle the default puts it on, at the size the default gives it.
         // A panel that sits on its own there — a project tree down the left — has no neighbour to be
         // found beside, and landing it all on the right would be putting it somewhere nobody asked.
-        var before = wanted is { } && Parsed(Fallback) is { } again
-                     && Walk(again).OfType<Leaf>().TakeWhile(leaf => !leaf.IsMiddle)
+        var before = wanted is { }
+                     && Walk(fresh!).OfType<Leaf>().TakeWhile(leaf => !leaf.IsMiddle)
                          .Any(leaf => leaf.Ids.Contains(id, StringComparer.Ordinal));
 
         Beside(Holding(Centre)!, made, across: true, before: before);

@@ -78,7 +78,7 @@ public class MainWindowProjectTests : IDisposable
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
     /// <summary>A window with <paramref name="path"/> opened through the route a drop also ends in.</summary>
-    private static async Task<MainWindow> Host(string path)
+    private static async Task<MainWindow> Host(string path, string? layout = null)
     {
         var window = new MainWindow();
 
@@ -87,6 +87,12 @@ public class MainWindowProjectTests : IDisposable
         window.Announce = (_, _) => Task.CompletedTask;
 
         window.Show();
+
+        if (layout is { })
+        {
+            window.Layout = layout;
+        }
+
         Dispatcher.UIThread.RunJobs();
 
         // Nothing is open until this: a window starts empty, with no tab standing in for a file.
@@ -1888,7 +1894,10 @@ public class MainWindowProjectTests : IDisposable
     public async Task A_Drag_Inside_A_Frame_Sweeps_Rather_Than_Moving_It()
     {
         var path = Write("icons.svgstudio", Board());
-        var window = await Host(path);
+        // Fitted into the arrangement this was measured at: fitted into less, the frame's margin is
+        // too thin a band on screen for a press one unit inside it to miss the frame's edge.
+        var window = await Host(path, "row(col(tree/1.4/tree/open,variables/1/variables/open)/300px,*/1,"
+                                      + "col(project+elements+streamline/1/project/open,element/1/element/open)/300px)");
         var panel = Panel(window, "Project");
 
         var canvas = Canvas(panel);
