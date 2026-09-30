@@ -1510,6 +1510,132 @@ public class MainWindowProjectTests : IDisposable
         Assert.Same(window.Workspace.Document.Root, back.Parent);
     }
 
+    /// <summary>Three drawings beside a group, for a selection of several to act on.</summary>
+    private const string Several = """
+        <studio namespace="Demo.Icons">
+          <drawing name="one" class="One">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" /></svg>
+          </drawing>
+          <drawing name="two" class="Two">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" /></svg>
+          </drawing>
+          <drawing name="three" class="Three">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" /></svg>
+          </drawing>
+          <group name="Box" namespace="Demo.Icons.Box" />
+        </studio>
+        """;
+
+    /// <summary>The row of the tree showing <paramref name="name"/>, wherever it sorted to.</summary>
+    private static TreeViewItem Item(MainWindow window, string name)
+        => Tree(window).GetVisualDescendants().OfType<TreeViewItem>()
+            .Single(row => row.Tag is ProjectNode node && node.Name == name && node.Parent is { });
+
+    private static void Click(MainWindow window, TreeViewItem row, RawInputModifiers modifiers = RawInputModifiers.None)
+    {
+        var header = row.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>().First(presenter => Equals(presenter.Content, row.Header));
+        var at = header.TranslatePoint(new Point(header.Bounds.Width / 2d, header.Bounds.Height / 2d), window)!.Value;
+
+        window.MouseDown(at, MouseButton.Left, modifiers);
+        window.MouseUp(at, MouseButton.Left, modifiers);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The modifier the tree adds to a selection with, on whatever platform this runs on.</summary>
+    private static RawInputModifiers Command(MainWindow window)
+        => Application.Current?.PlatformSettings?.HotkeyConfiguration.CommandModifiers == KeyModifiers.Meta
+            ? RawInputModifiers.Meta
+            : RawInputModifiers.Control;
+
+    /// <summary>A click with the command key adds a row to the selection, and opens nothing.</summary>
+    [AvaloniaFact]
+    public async Task Rows_Are_Gathered_Into_A_Selection_Without_Opening_Them()
+    {
+        var window = await Host(Write("icons.svgstudio", Several));
+        var tabs = Tabs(window).Items.Count;
+
+        Click(window, Item(window, "one"));
+        Click(window, Item(window, "three"), Command(window));
+
+        var selected = Tree(window).SelectedItems.OfType<TreeViewItem>().Select(row => ((ProjectNode)row.Tag!).Name).ToArray();
+
+        Assert.Equal(new[] { "one", "three" }, selected.OrderBy(name => name).ToArray());
+
+        // The plain click opened one; the one added to the selection did not open another.
+        Assert.Equal(tabs + 1, Tabs(window).Items.Count);
+    }
+
+    [AvaloniaFact]
+    public async Task Several_Rows_Are_Removed_As_One_Step()
+    {
+        var window = await Host(Write("icons.svgstudio", Several));
+
+        Click(window, Item(window, "one"), Command(window));
+        Click(window, Item(window, "two"), Command(window));
+
+        Tree(window).RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Delete });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "three", "Box" }, window.Workspace!.Document.Root.Children.Select(node => node.Name).ToArray());
+
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "one", "two", "three", "Box" }, window.Workspace.Document.Root.Children.Select(node => node.Name).ToArray());
+    }
+
+    [AvaloniaFact]
+    public async Task Several_Rows_Are_Copied_And_Pasted_Together()
+    {
+        var window = await Host(Write("icons.svgstudio", Several));
+        // The tree's keys go by the machine, as its other key tests do; its clicks go by the platform.
+        var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+
+        void Press(Key key)
+        {
+            Tree(window).RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = key, KeyModifiers = command });
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        Click(window, Item(window, "one"));
+        Click(window, Item(window, "two"), Command(window));
+        Press(Key.C);
+
+        Click(window, Item(window, "Box"));
+        Press(Key.V);
+
+        var box = (ProjectGroup)window.Workspace!.Document.Root.Children.Single(node => node.Name == "Box");
+
+        Assert.Equal(2, box.Children.Count);
+        Assert.Equal(4, window.Workspace.Document.Root.Children.Count);
+
+        // One step for the pair.
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(box.Children);
+    }
+
+    [AvaloniaFact]
+    public async Task Several_Rows_Are_Moved_As_One_Step()
+    {
+        var window = await Host(Write("icons.svgstudio", Several));
+        var root = window.Workspace!.Document.Root;
+        var box = (ProjectGroup)root.Children.Single(node => node.Name == "Box");
+
+        Assert.True(window.Move(new[] { root.Children[0], root.Children[2] }, box));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "one", "three" }, box.Children.Select(node => node.Name).ToArray());
+        Assert.Equal(new[] { "two", "Box" }, root.Children.Select(node => node.Name).ToArray());
+
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(box.Children);
+        Assert.Equal(new[] { "one", "two", "three", "Box" }, root.Children.Select(node => node.Name).ToArray());
+    }
+
     /// <summary>The menu says what it would take back, and stops offering what it cannot.</summary>
     [AvaloniaFact]
     public async Task The_Menu_Names_What_It_Would_Take_Back()

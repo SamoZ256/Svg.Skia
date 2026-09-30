@@ -100,6 +100,18 @@ public partial class SettingsWindow : Window
             Applied?.Invoke();
         };
 
+        ConvertAsks = this.FindControl<CheckBox>("ConvertAsksBox")!;
+        ConvertAsks.IsChecked = StudioSettings.ConvertAsks;
+        ConvertAsks.IsCheckedChanged += (_, _) => StudioSettings.ConvertAsks = ConvertAsks.IsChecked is true;
+
+        ConvertIntegers = this.FindControl<CheckBox>("ConvertIntegersBox")!;
+        ConvertIntegers.IsChecked = StudioSettings.ConvertIntegers;
+        ConvertIntegers.IsCheckedChanged += (_, _) => StudioSettings.ConvertIntegers = ConvertIntegers.IsChecked is true;
+
+        ConvertOrganizes = this.FindControl<CheckBox>("ConvertOrganizesBox")!;
+        ConvertOrganizes.IsChecked = StudioSettings.ConvertOrganizes;
+        ConvertOrganizes.IsCheckedChanged += (_, _) => StudioSettings.ConvertOrganizes = ConvertOrganizes.IsChecked is true;
+
         RelaxedText = this.FindControl<ComboBox>("RelaxedTextBox")!;
         RelaxedText.ItemsSource = s_answers.Select(answer => answer.Said).ToList();
         RelaxedText.SelectedIndex = Array.FindIndex(s_answers, answer => answer.Answer == StudioSettings.RelaxedText);
@@ -209,6 +221,15 @@ public partial class SettingsWindow : Window
 
     /// <summary>The list of answers about text an export cannot write out, for a test to drive.</summary>
     public ComboBox RelaxedText { get; }
+
+    /// <summary>The box for whether a PaintCode document is asked about, for a test to drive.</summary>
+    public CheckBox ConvertAsks { get; }
+
+    /// <summary>The box for whether a conversion writes integers, for a test to drive.</summary>
+    public CheckBox ConvertIntegers { get; }
+
+    /// <summary>The box for whether a conversion organizes variables, for a test to drive.</summary>
+    public CheckBox ConvertOrganizes { get; }
 
     /// <inheritdoc />
     /// <remarks>

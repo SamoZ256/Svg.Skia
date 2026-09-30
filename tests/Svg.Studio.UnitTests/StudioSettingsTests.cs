@@ -1,7 +1,9 @@
 ﻿using System;
 using System.IO;
+using System.Threading.Tasks;
 using Avalonia.Headless.XUnit;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
@@ -141,6 +143,61 @@ public class StudioSettingsTests : IDisposable
 
         Assert.Equal(SvgViewerGrid.DefaultStep, StudioSettings.GridSize);
         Assert.Equal(SvgViewerGrid.DefaultTurn, StudioSettings.RotationStep);
+    }
+
+    [AvaloniaFact]
+    public void A_PaintCode_Document_Is_Asked_About_Until_Somebody_Says_Not_To()
+    {
+        Assert.True(StudioSettings.ConvertAsks);
+        Assert.False(StudioSettings.ConvertIntegers);
+        Assert.True(StudioSettings.ConvertOrganizes);
+
+        StudioSettings.ConvertAsks = false;
+        StudioSettings.ConvertIntegers = true;
+        StudioSettings.ConvertOrganizes = false;
+
+        Assert.False(StudioSettings.ConvertAsks);
+        Assert.True(StudioSettings.ConvertIntegers);
+        Assert.False(StudioSettings.ConvertOrganizes);
+    }
+
+    /// <summary>With the question off, opening a PaintCode document converts it as last asked, with no dialog.</summary>
+    [AvaloniaFact]
+    public async Task A_Conversion_Nobody_Is_Asked_About_Uses_The_Remembered_Choices()
+    {
+        StudioSettings.ConvertAsks = false;
+        StudioSettings.ConvertIntegers = true;
+        StudioSettings.ConvertOrganizes = false;
+
+        var window = new MainWindow();
+
+        // Answered at once: a dialog would wait for a click a headless run never makes.
+        var asked = window.ConfirmConvert("sample.pcvd");
+
+        Assert.True(asked.IsCompleted);
+        Assert.Equal((true, false), await asked);
+    }
+
+    [AvaloniaFact]
+    public void The_Question_Comes_Back_From_Settings()
+    {
+        StudioSettings.ConvertAsks = false;
+
+        var settings = new SettingsWindow();
+
+        settings.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(settings.ConvertAsks.IsChecked);
+
+        settings.ConvertAsks.IsChecked = true;
+        settings.ConvertIntegers.IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(StudioSettings.ConvertAsks);
+        Assert.True(StudioSettings.ConvertIntegers);
+
+        settings.Close();
     }
 
     [AvaloniaFact]

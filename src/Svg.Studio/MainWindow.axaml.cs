@@ -1108,6 +1108,13 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // A click that adds to the selection or extends it only selects: opening every row
+            // gathered into a selection would open a tab for each.
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Shift) || e.KeyModifiers.HasFlag(Command))
+            {
+                return;
+            }
+
             await ShowAsync(node);
         };
 
@@ -1191,8 +1198,8 @@ public partial class MainWindow : Window
         // The project is the file; it can be neither taken out of the tree nor put back into it.
         if (node.Parent is { })
         {
-            Add("Cut", () => Hold(node, cut: true), new KeyGesture(Key.X, command));
-            Add("Copy", () => Hold(node, cut: false), new KeyGesture(Key.C, command));
+            Add("Cut", () => Hold(Chosen(node), cut: true), new KeyGesture(Key.X, command));
+            Add("Copy", () => Hold(Chosen(node), cut: false), new KeyGesture(Key.C, command));
         }
 
         // Always, unlike Cut and Copy: what a paste would land is on the system clipboard as often
@@ -1215,7 +1222,7 @@ public partial class MainWindow : Window
         if (node.Parent is { })
         {
             menu.Items.Add(new Separator());
-            Add("Remove", async () => await RemoveAsync(node));
+            Add("Remove", async () => await RemoveAsync(Chosen(node)));
         }
 
         return menu;
@@ -1239,14 +1246,19 @@ public partial class MainWindow : Window
     private string? OnDisk(ProjectNode node)
         => _workspace?.Document.Path is { } path && File.Exists(path) ? path : null;
 
-    /// <summary>Takes a row, to be pasted somewhere else.</summary>
-    private void Hold(ProjectNode node, bool cut)
+    /// <summary>Takes rows, to be pasted somewhere else.</summary>
+    private void Hold(IReadOnlyList<ProjectNode> nodes, bool cut)
     {
-        _held = node;
+        if (nodes.Count == 0)
+        {
+            return;
+        }
+
+        _held = nodes;
         _heldCut = cut;
 
         // The menus were built when the tree was, and none of them offered Paste.
-        BuildTree(node);
+        BuildTree(nodes[0]);
     }
 
     /// <summary>
@@ -1268,13 +1280,12 @@ public partial class MainWindow : Window
 
         if (_heldCut)
         {
-            if (held.Parent is { })
-            {
-                Move(held, target);
-            }
+            var still = held.Where(node => node.Parent is { }).ToList();
+
+            Move(still, target);
 
             _held = null;
-            BuildTree(held.Parent is { } ? held : null);
+            BuildTree(still.FirstOrDefault());
 
             return;
         }
@@ -1283,9 +1294,17 @@ public partial class MainWindow : Window
         ProjectNode? copy = null;
 
         workspace.Do(
-            $"paste {ProjectWorkspace.Label(held)}",
+            Labelled("paste", held),
             () => ProjectSnapshot.Contents(parent),
-            () => copy = parent.Copy(held, index));
+            () =>
+            {
+                foreach (var node in held)
+                {
+                    var made = parent.Copy(node, index++);
+
+                    copy ??= made;
+                }
+            });
 
         // Once, as a cut is: the hold is what a paste hears before the system clipboard, and a copy
         // that outlived its paste would go on answering for every paste made afterwards — including
@@ -1565,15 +1584,20 @@ public partial class MainWindow : Window
     /// removed node goes on writing settings into a detached element and reporting itself saved.
     /// </remarks>
     /// <returns>Whether it was removed, or false when the question was answered against it.</returns>
-    public async Task<bool> RemoveAsync(ProjectNode node)
+    public Task<bool> RemoveAsync(ProjectNode node) => RemoveAsync(new[] { node });
+
+    /// <summary>Takes several rows out of the project, as one step to undo.</summary>
+    public async Task<bool> RemoveAsync(IReadOnlyList<ProjectNode> nodes)
     {
-        if (_workspace is not { } workspace || node.Parent is not { } parent)
+        var removed = nodes.Where(node => node.Parent is { }).ToList();
+
+        if (_workspace is not { } workspace || removed.Count == 0)
         {
             return false;
         }
 
         foreach (var item in _tabs.Items.OfType<TabItem>()
-                     .Where(item => item.Tag is ProjectNode held && held.DescendsFrom(node))
+                     .Where(item => item.Tag is ProjectNode held && removed.Any(held.DescendsFrom))
                      .ToList())
         {
             if (!await CloseTabAsync(item).ConfigureAwait(true))
@@ -1582,14 +1606,53 @@ public partial class MainWindow : Window
             }
         }
 
+        var parents = removed.Select(node => node.Parent!).Distinct().ToList();
+
         workspace.Do(
-            $"remove {ProjectWorkspace.Label(node)}",
-            () => ProjectSnapshot.Contents(parent),
-            () => parent.Remove(node));
+            Labelled("remove", removed),
+            () => ProjectSnapshot.All(parents.Select(ProjectSnapshot.Contents).ToArray()),
+            () =>
+            {
+                foreach (var node in removed)
+                {
+                    node.Parent!.Remove(node);
+                }
+            });
 
         BuildTree();
 
         return true;
+    }
+
+    /// <summary>An undo step's label for a command on <paramref name="nodes"/>.</summary>
+    private static string Labelled(string verb, IReadOnlyList<ProjectNode> nodes)
+        => nodes.Count == 1 ? $"{verb} {ProjectWorkspace.Label(nodes[0])}" : $"{verb} {nodes.Count} rows";
+
+    /// <summary>The rows selected in the tree.</summary>
+    private IReadOnlyList<ProjectNode> Selection()
+        => _projectTree.SelectedItems.OfType<TreeViewItem>().Select(row => row.Tag).OfType<ProjectNode>().ToList();
+
+    /// <summary>
+    /// What a command on <paramref name="node"/> acts on: the whole selection where the row is part
+    /// of it, and the row alone where it is not.
+    /// </summary>
+    /// <remarks>
+    /// The row alone because a right click does not select, so a menu on a row outside the selection
+    /// is about that row. Left out: the project's own row, which can be neither moved nor removed,
+    /// and a row inside a selected group, which goes where its group goes anyway.
+    /// </remarks>
+    private IReadOnlyList<ProjectNode> Chosen(ProjectNode node)
+    {
+        var selected = Selection();
+
+        // The project row first, since every row descends from it: kept, it would leave nothing.
+        var chosen = (selected.Contains(node) ? selected : new[] { node })
+            .Where(one => one.Parent is { })
+            .ToList();
+
+        return chosen
+            .Where(one => !chosen.Any(other => !ReferenceEquals(other, one) && one.DescendsFrom(other)))
+            .ToList();
     }
 
     /// <summary>
@@ -1603,7 +1666,16 @@ public partial class MainWindow : Window
     /// </remarks>
     private static readonly DataFormat<string> RowFormat = DataFormat.CreateStringApplicationFormat("ProjectNode");
 
+    /// <summary>The modifier a click adds to a selection with, as the tree itself reads it.</summary>
+    private static KeyModifiers Command
+        => Application.Current?.PlatformSettings?.HotkeyConfiguration.CommandModifiers
+           ?? (OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control);
+
     private ProjectNode? _row;
+
+    /// <summary>What a drag of <see cref="_row"/> carries, read at the press: the tree reselects the row pressed.</summary>
+    private IReadOnlyList<ProjectNode> _rowChosen = Array.Empty<ProjectNode>();
+
     private PointerPressedEventArgs? _rowPressed;
     private Point _rowPressedAt;
 
@@ -1624,7 +1696,7 @@ public partial class MainWindow : Window
     /// The window's own, not the machine's: what is held is a row of this project, and pasting one
     /// into a text editor would mean nothing. Nothing in the app touches the system clipboard.
     /// </remarks>
-    private ProjectNode? _held;
+    private IReadOnlyList<ProjectNode>? _held;
     private bool _heldCut;
 
     private ProjectNode? _dropOn;
@@ -1647,6 +1719,7 @@ public partial class MainWindow : Window
         }
 
         _row = node;
+        _rowChosen = Chosen(node);
         _rowPressed = e;
         _rowPressedAt = e.GetPosition(_projectTree);
     }
@@ -1718,7 +1791,7 @@ public partial class MainWindow : Window
 
             e.DragEffects = DragDropEffects.Move;
 
-            if (Land(node) is not { } landing || landing.DescendsFrom(dragged))
+            if (Land(node) is not { } landing || landing.DescendsFrom(dragged) || _rowChosen.Any(landing.DescendsFrom))
             {
                 HideDrop();
 
@@ -1774,7 +1847,7 @@ public partial class MainWindow : Window
         {
             if (target is { })
             {
-                Move(dragged, target);
+                Move(_rowChosen.Count > 0 ? _rowChosen : new[] { dragged }, target);
             }
 
             return;
@@ -1809,56 +1882,66 @@ public partial class MainWindow : Window
     /// Whether it moved. A drop that lands nowhere, that would take a group into itself, or that
     /// puts a row back in the group it is already in, does not.
     /// </returns>
-    public bool Move(ProjectNode node, ProjectNode target)
+    public bool Move(ProjectNode node, ProjectNode target) => Move(new[] { node }, target);
+
+    /// <summary>Moves several rows into the group a drop on <paramref name="target"/> means, as one step.</summary>
+    /// <inheritdoc cref="Move(ProjectNode, ProjectNode)" path="/returns"/>
+    public bool Move(IReadOnlyList<ProjectNode> nodes, ProjectNode target)
     {
         if (_workspace is not { } workspace || Landing(target) is not { } landing)
         {
             return false;
         }
 
-        // Already there. Appending it to its own group would rewrite the document and mark the
-        // project unsaved for a drop that cannot change a single row of the pane.
-        if (ReferenceEquals(node.Parent, landing))
+        // Already there, or a group into its own branch. Appending a row to its own group would
+        // rewrite the document and mark the project unsaved for a drop that changes no row.
+        var moving = nodes
+            .Where(node => node.Parent is { } && !ReferenceEquals(node.Parent, landing) && !landing.DescendsFrom(node))
+            .ToList();
+
+        if (moving.Count == 0)
         {
             return false;
         }
 
-        var refused = false;
-
         // Read now and closed over, not asked inside the capture: the capture runs on both sides of
-        // the move, and by the second one the row's parent is the group it landed in — so the group
-        // it came from would never be captured at all, and the one it went to would be captured
-        // twice, which puts the row in both.
-        var from = node.Parent;
+        // the move, and by the second one each row's parent is the group it landed in — so the
+        // groups they came from would never be captured, and the one they went to twice.
+        var from = moving.Select(node => node.Parent!).Distinct().Where(group => !ReferenceEquals(group, landing)).ToList();
+        var moved = 0;
 
-        // Both groups and the row itself: a move rewrites the row's own place against wherever it
-        // lands, and takes it out of one list and puts it into another.
+        // The groups and the rows themselves: a move rewrites each row's own place against wherever
+        // it lands, and takes it out of one list and puts it into another. Indentation first, while
+        // where a row sits still says what depth it was written at.
         workspace.Do(
-            $"move {ProjectWorkspace.Label(node)}",
+            Labelled("move", moving),
             () => ProjectSnapshot.All(
-                // First, while where it sits still says what depth it was written at.
-                ProjectSnapshot.Indentation(node),
-                ProjectSnapshot.Contents(landing),
-                from is { } origin ? ProjectSnapshot.Contents(origin) : () => { },
-                ProjectSnapshot.Attributes(node)),
+                moving.Select(ProjectSnapshot.Indentation)
+                    .Append(ProjectSnapshot.Contents(landing))
+                    .Concat(from.Select(ProjectSnapshot.Contents))
+                    .Concat(moving.Select(ProjectSnapshot.Attributes))
+                    .ToArray()),
             () =>
             {
-                try
+                foreach (var node in moving)
                 {
-                    landing.Move(node, landing.Children.Count);
-                }
-                catch (SvgcProjectException)
-                {
-                    refused = true;
+                    try
+                    {
+                        landing.Move(node, landing.Children.Count);
+                        moved++;
+                    }
+                    catch (SvgcProjectException)
+                    {
+                    }
                 }
             });
 
-        if (refused)
+        if (moved == 0)
         {
             return false;
         }
 
-        BuildTree(node);
+        BuildTree(moving[0]);
 
         return true;
     }
@@ -1957,7 +2040,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                Hold(node, cut: e.Key == Key.X);
+                Hold(Chosen(node), cut: e.Key == Key.X);
             }
 
             return;
@@ -1968,7 +2051,7 @@ public partial class MainWindow : Window
         {
             e.Handled = true;
 
-            await RemoveAsync(node);
+            await RemoveAsync(Chosen(node));
 
             return;
         }
@@ -3433,7 +3516,9 @@ public partial class MainWindow : Window
     /// <summary>Asks where a project goes, the first time anybody saves it.</summary>
     /// <remarks>
     /// <see cref="FilePickerSaveOptions.DefaultExtension"/> is set, unlike the drawing panel's,
-    /// because there is one type here and nothing for it to override.
+    /// because there is one type here and nothing for it to override. The name is offered without
+    /// one, as the export panel's is: the macOS panel appends the type's own, and a converted
+    /// PaintCode document offered as Icons.svgstudio was saved as Icons.svgstudio.svgstudio.
     /// </remarks>
     private async Task<string?> AskSaveProject(string? suggested)
     {
@@ -3442,16 +3527,19 @@ public partial class MainWindow : Window
             return null;
         }
 
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "Save project",
-            SuggestedFileName = suggested ?? "Untitled.svgstudio",
-            DefaultExtension = "svgstudio",
-            FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
-        }).ConfigureAwait(true);
+        var file = await StorageProvider.SaveFilePickerAsync(SaveProjectOptions(suggested)).ConfigureAwait(true);
 
         return file?.TryGetLocalPath() is { Length: > 0 } path ? path : null;
     }
+
+    /// <summary>What the panel asking where a project goes is given, for a test to read.</summary>
+    public static FilePickerSaveOptions SaveProjectOptions(string? suggested) => new()
+    {
+        Title = "Save project",
+        SuggestedFileName = Path.GetFileNameWithoutExtension(suggested ?? "Untitled"),
+        DefaultExtension = "svgstudio",
+        FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
+    };
 
     /// <summary>A name typed into a box under the question, or null when it was dismissed or left empty.</summary>
     private async Task<string?> AskName(string title, string message)
@@ -3524,10 +3612,16 @@ public partial class MainWindow : Window
     /// </remarks>
     private async Task<(bool Integers, bool Organize)?> AskConvert(string source)
     {
+        // Converted as last asked, where somebody said not to ask again. Settings asks again.
+        if (!StudioSettings.ConvertAsks)
+        {
+            return (StudioSettings.ConvertIntegers, StudioSettings.ConvertOrganizes);
+        }
+
         var integers = new CheckBox
         {
             Content = "Write whole numbers as integers",
-            IsChecked = false
+            IsChecked = StudioSettings.ConvertIntegers
         };
 
         // On, so unticking it is the opt-out. A PaintCode document declares its variables once for
@@ -3536,8 +3630,16 @@ public partial class MainWindow : Window
         var organize = new CheckBox
         {
             Content = "Automatically organize variables",
-            IsChecked = true
+            IsChecked = StudioSettings.ConvertOrganizes
         };
+
+        var again = new CheckBox
+        {
+            Content = "Don't ask again",
+            IsChecked = false
+        };
+
+        ToolTip.SetTip(again, "Convert with these choices from now on. Settings can bring the question back.");
 
         var asked = await Ask(
             "Convert to a project",
@@ -3549,10 +3651,20 @@ public partial class MainWindow : Window
             new StackPanel
             {
                 Spacing = 8d,
-                Children = { integers, organize }
+                Children = { integers, organize, again }
             }).ConfigureAwait(true);
 
-        return asked ? (integers.IsChecked is true, organize.IsChecked is true) : null;
+        if (!asked)
+        {
+            return null;
+        }
+
+        // Remembered whether or not the question comes back, so it next opens on the same answers.
+        StudioSettings.ConvertIntegers = integers.IsChecked is true;
+        StudioSettings.ConvertOrganizes = organize.IsChecked is true;
+        StudioSettings.ConvertAsks = again.IsChecked is not true;
+
+        return (StudioSettings.ConvertIntegers, StudioSettings.ConvertOrganizes);
     }
 
     /// <summary>

@@ -125,6 +125,23 @@
                Opacity="0.65"
                FontSize="11" />
 
+    <CheckBox x:Name="ConvertAsksBox" Content="Ask how to convert a PaintCode document" Margin="0,14,0,0" />
+
+    <!--
+      The two choices sit under the question they answer, so turning it off here still leaves them
+      reachable: they are what every conversion uses while nothing asks.
+    -->
+    <StackPanel Margin="26,4,0,0" Spacing="4">
+      <CheckBox x:Name="ConvertIntegersBox" Content="Write whole numbers as integers" />
+      <CheckBox x:Name="ConvertOrganizesBox" Content="Automatically organize variables" />
+    </StackPanel>
+
+    <TextBlock Text="Opening a PaintCode document converts it into a project. Without the question it is converted straight away with the two choices above, which are also what the question starts from."
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11"
+               Margin="26,0,0,0" />
+
     <TextBlock Text="Panels" Margin="0,14,0,0" />
 
     <Button x:Name="ResetLayoutButton" Content="Reset layout" HorizontalAlignment="Left" />
