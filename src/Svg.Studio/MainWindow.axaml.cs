@@ -3433,7 +3433,9 @@ public partial class MainWindow : Window
     /// <summary>Asks where a project goes, the first time anybody saves it.</summary>
     /// <remarks>
     /// <see cref="FilePickerSaveOptions.DefaultExtension"/> is set, unlike the drawing panel's,
-    /// because there is one type here and nothing for it to override.
+    /// because there is one type here and nothing for it to override. The name is offered without
+    /// one, as the export panel's is: the macOS panel appends the type's own, and a converted
+    /// PaintCode document offered as Icons.svgstudio was saved as Icons.svgstudio.svgstudio.
     /// </remarks>
     private async Task<string?> AskSaveProject(string? suggested)
     {
@@ -3442,16 +3444,19 @@ public partial class MainWindow : Window
             return null;
         }
 
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "Save project",
-            SuggestedFileName = suggested ?? "Untitled.svgstudio",
-            DefaultExtension = "svgstudio",
-            FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
-        }).ConfigureAwait(true);
+        var file = await StorageProvider.SaveFilePickerAsync(SaveProjectOptions(suggested)).ConfigureAwait(true);
 
         return file?.TryGetLocalPath() is { Length: > 0 } path ? path : null;
     }
+
+    /// <summary>What the panel asking where a project goes is given, for a test to read.</summary>
+    public static FilePickerSaveOptions SaveProjectOptions(string? suggested) => new()
+    {
+        Title = "Save project",
+        SuggestedFileName = Path.GetFileNameWithoutExtension(suggested ?? "Untitled"),
+        DefaultExtension = "svgstudio",
+        FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
+    };
 
     /// <summary>A name typed into a box under the question, or null when it was dismissed or left empty.</summary>
     private async Task<string?> AskName(string title, string message)
