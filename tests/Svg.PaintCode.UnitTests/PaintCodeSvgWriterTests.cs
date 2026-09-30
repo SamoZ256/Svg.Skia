@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Xml.Linq;
+using Svg.CodeGen.Skia.Projects;
 using Xunit;
 
 namespace Svg.PaintCode.UnitTests;
@@ -475,6 +476,60 @@ public class PaintCodeSvgWriterTests
         Assert.Equal("3", run.Value);
     }
 
+    /// <summary>
+    /// PaintCode2Skia's convention: a shape named <c>Embed&lt;X&gt;</c> is a box the app lays its own
+    /// label into, reported as <c>&lt;X&gt;Rect</c> with the casing the id loses.
+    /// </summary>
+    [Theory]
+    [InlineData("EmbedSetPointHeader", "SetPointHeaderRect")]
+    [InlineData("EmbedPWM", "PWMRect")]
+    [InlineData("EmbedA", "ARect")]
+    [InlineData("Embed", null)]
+    [InlineData("embedLevel", null)]
+    [InlineData("EmbeddedLogo", null)]
+    [InlineData("Box", null)]
+    public void A_Shape_Named_Embed_Marks_Its_Box_For_The_Generated_Class(string name, string? expected)
+    {
+        var document = WriteTree(Only(Box(PaintCodeShapeKind.Rectangle, PaintCodeShapeMetrics.Default, name)), new List<PaintCodeImportNote>());
+        var box = document.Descendants().First(one => one.Name.LocalName == "rect");
+
+        Assert.Equal(expected, box.Attribute(Marked)?.Value);
+
+        // Declared though the drawing has no declarations of its own to put in a code block.
+        Assert.Equal(expected is { }, document.Root!.Attribute(XNamespace.Xmlns + "e") is { });
+    }
+
+    /// <summary>Two shapes a class could only report under one name: the first keeps it, and the second is said.</summary>
+    [Fact]
+    public void A_Second_Embed_Of_The_Same_Name_Is_Noted_Rather_Than_Marked()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var root = new PaintCodeGroup(
+            "Root",
+            Identity(),
+            new Dictionary<string, PaintCodeBinding>(),
+            new[] { (PaintCodeItem)Box(PaintCodeShapeKind.Rectangle, PaintCodeShapeMetrics.Default, "EmbedLevel"), Box(PaintCodeShapeKind.Rectangle, PaintCodeShapeMetrics.Default, "Embed Level") },
+            null);
+
+        var marks = WriteTree(root, notes).Descendants().Select(one => one.Attribute(Marked)?.Value).Where(mark => mark is { }).ToList();
+
+        Assert.Equal(new[] { "LevelRect" }, marks);
+        Assert.Contains(notes, note => note.Element == "Embed Level" && note.Message.Contains("LevelRect"));
+    }
+
+    [Fact]
+    public void A_Marked_Box_Carrying_Words_Keeps_The_Box_Beside_Its_Run()
+    {
+        var text = new PaintCodeText("75%", "Inter", "Regular", 13, null, 1, 0, 0, 0);
+        var box = WriteTree(Only(Box(PaintCodeShapeKind.Rectangle, PaintCodeShapeMetrics.Default, "EmbedA", text)), new List<PaintCodeImportNote>())
+            .Descendants().Single(one => one.Name.LocalName == "rect");
+
+        Assert.Equal("ARect", box.Attribute(Marked)!.Value);
+        Assert.Equal("75%", box.Parent!.Elements().Single(one => one.Name.LocalName == "text").Value);
+    }
+
+    private static readonly XName Marked = PaintCodeCode.Namespace + SvgcProjectBuild.BoundsAttribute;
+
     /// <summary>An oval whose sweep an expression drives, for the tests below to vary.</summary>
     private static PaintCodeShape Arc(
         string property,
@@ -873,9 +928,9 @@ public class PaintCodeSvgWriterTests
     private static XElement Rectangle(double radius, PaintCodeShapeKind kind)
         => Write(Box(kind, new PaintCodeShapeMetrics(radius, true, true, true, true, 0, 360, true, 0, 0)));
 
-    private static PaintCodeShape Box(PaintCodeShapeKind kind, PaintCodeShapeMetrics metrics)
+    private static PaintCodeShape Box(PaintCodeShapeKind kind, PaintCodeShapeMetrics metrics, string name = "Box", PaintCodeText? text = null)
         => new(
-            "Box",
+            name,
             kind,
             new PaintCodeFrame(0, -14, 9, 14, default, 0, 1, 1, 1, false, true),
             new Dictionary<string, PaintCodeBinding>(),
@@ -884,7 +939,7 @@ public class PaintCodeSvgWriterTests
             PaintCodePaint.None,
             PaintCodeStroke.None,
             false,
-            null,
+            text,
             metrics);
 
     private static PaintCodeShape Shape(params PaintCodePathPoint[] points)
