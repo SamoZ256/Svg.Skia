@@ -29,10 +29,10 @@ internal enum PaintCodeSort
 /// </summary>
 /// <remarks>
 /// The two grammars agree on shape and precedence, so this parses and prints rather than building a
-/// tree: what comes out keeps the author's own parentheses and reads like what went in. Three things
+/// tree: what comes out keeps the author's own parentheses and reads like what went in. Four things
 /// do not survive a substitution and are why a parser is needed at all — a remainder is a function
-/// rather than an operator, trigonometry is in radians rather than degrees, and a colour is made from
-/// bytes rather than from fractions.
+/// rather than an operator, trigonometry is in radians rather than degrees, a colour is made from
+/// bytes rather than from fractions, and a number is rounded before it is printed.
 ///
 /// Anything it cannot say refuses by name. Nothing is approximated here: the caller writes the value
 /// the drawing had instead, and says so.
@@ -81,10 +81,7 @@ internal sealed class PaintCodeExpressionTranslator
         ["sqrt"] = "sqrt",
         ["min"] = "min",
         ["max"] = "max",
-        ["pow"] = "pow",
-
-        // PaintCode's own name for the only crossing from a number to the words of a label.
-        ["stringFromNumber"] = "str"
+        ["pow"] = "pow"
     };
 
     internal static bool TryTranslate(
@@ -446,6 +443,11 @@ internal sealed class PaintCodeExpressionTranslator
         {
             PaintCodeDeclarationKind.Constant when declaration.Body is { } literal => Literal(literal),
             PaintCodeDeclarationKind.Unusable => Refuse($"'{name}' cannot be declared: {declaration.Refusal}"),
+
+            // Its type is only the one it was declared with until it is translated, and one built
+            // from integers turns out to be an integer: read early, stringFromNumber(count) rounded an
+            // integer and refused the whole document. Resolve comes back on its next pass.
+            PaintCodeDeclarationKind.Local when declaration.NeedsTranslation => Refuse($"'{name}' has not been translated yet"),
             _ when Reserved.Contains(name) => Refuse($"'{name}' is a word the expression language reserves"),
             _ => new Typed(name, Sort(declaration))
         };
@@ -572,14 +574,21 @@ internal sealed class PaintCodeExpressionTranslator
                 PaintCodeSort.Other);
         }
 
+        // PaintCode's own name for the only crossing from a number to the words of a label, and what
+        // it prints is whole: the C# export TapHome shipped writes (int)Math.Round(x), ties to even as
+        // round() does, where PaintCode's Java export rounds them up. str() alone printed 60.000004.
+        if (name == "stringFromNumber" && arguments.Count == 1)
+        {
+            var value = arguments[0];
+
+            return new Typed(
+                value.Sort is PaintCodeSort.Integer ? $"str({value.Text})" : $"str(int(round({value.Text})))",
+                PaintCodeSort.Other);
+        }
+
         if (!Functions.TryGetValue(name, out var target))
         {
             return Refuse($"'{name}' is a function the expression language does not have");
-        }
-
-        if (target == "str")
-        {
-            return new Typed($"str({string.Join(", ", arguments.Select(argument => argument.Text))})", PaintCodeSort.Other);
         }
 
         // Kept whole where the function has an integer form and every argument is whole; otherwise

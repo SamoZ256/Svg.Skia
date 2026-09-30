@@ -8,7 +8,7 @@ namespace Svg.PaintCode.UnitTests;
 /// <summary>A library of names for the translator tests to resolve against, and nothing else.</summary>
 internal static class ScopeDocument
 {
-    internal static byte[] Bytes(string? derived = null)
+    internal static byte[] Bytes(string? derived = null, int derivedType = 2)
     {
         var archive = new KeyedArchiveBuilder();
 
@@ -29,7 +29,10 @@ internal static class ScopeDocument
                 // A whole number and a fraction, for where the integer guess has to say num().
                 Input(archive, "n", 2, archive.Value(2d)),
                 Input(archive, "f", 2, archive.Value(0.5d), kind: 2),
-                Derived(archive, "bad", derived ?? "x"),
+                Derived(archive, "bad", derived ?? "x", derivedType),
+                // Declared after bad, so bad can read a local that has not been translated yet --
+                // and one that the integer guess turns into an integer when it is.
+                Derived(archive, "count", "n + 1", 2),
                 Rect(archive, "area", "{{0, 0}, {117, 132}}"))));
 
         return archive.ToBytes(("styleKitName", archive.Text("Scope")), ("library", library));
@@ -61,7 +64,7 @@ internal static class ScopeDocument
             ("isDerived", false), ("operation", 0), ("usage", 0));
 
     /// <summary>A variable derived from the others, so a test can hand the declarations one that will not go.</summary>
-    private static int Derived(KeyedArchiveBuilder archive, string name, string expression)
+    private static int Derived(KeyedArchiveBuilder archive, string name, string expression, int type)
         => archive.Object(
             "PPVariable",
             new[]
@@ -69,8 +72,8 @@ internal static class ScopeDocument
                 ("name", archive.Text(name)),
                 ("valueProvider", archive.Object(
                     "PPValueProviderExpression",
-                    new[] { ("expression", archive.Text(expression)), ("value", archive.Value(1d)) },
-                    ("type", 2)))
+                    new[] { ("expression", archive.Text(expression)), ("value", type == 3 ? archive.Text("1") : archive.Value(1d)) },
+                    ("type", type)))
             },
             ("kind", 13), ("usage", 0));
 

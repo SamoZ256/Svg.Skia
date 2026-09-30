@@ -120,7 +120,9 @@ one, so the translation says where they meet: an integer multiplied by a fractio
 or handed to a function that takes numbers goes through `num()`, and `step * animation * -360`
 is written `num(step) * animation * -360`. A whole literal needs nothing — the language settles it to
 whichever type stands beside it — and a division of two integers is written as the real division
-PaintCode meant. A derived variable built only from integers is an integer in turn.
+PaintCode meant. A derived variable built only from integers is an integer in turn. A number printed
+into a label is rounded first: `stringFromNumber(level * 100)` is `str(int(round(level * 100)))`,
+ties to even as the C# export does, where PaintCode's Java export rounds them up.
 
 That crossing used to be missing, and what it cost is worth knowing. The offset a driven transform
 carries is evaluated against every declaration at once, so one local the language refused wrote
@@ -139,8 +141,6 @@ renders wrong, and what was lost is a list rather than a surprise.
 
 - **A driven stroke width, and an oval's driven start and end angle.** `stroke-width` and path data
   are literal in the expression format.
-- **Text built from a number.** PaintCode's `stringFromNumber` has no equivalent, so the words the
-  drawing had are written.
 - **A gradient turned to an angle off the axes.** PaintCode places one from the shape's own middle,
   which is not its box's; the conversion lays it across the box. Only where the gradient was turned
   by a dial — one laid by dragging its two ends carries them, and those are written exactly.
