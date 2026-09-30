@@ -47,10 +47,14 @@ public class MainWindowExportTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        await Task.Delay(100).ConfigureAwait(true);
-        Dispatcher.UIThread.RunJobs();
+        // Opening is asynchronous, and a fixed 100 ms lost the race on a slow Windows runner.
+        for (var waited = 0; window.GetVisualDescendants().OfType<SvgViewer>().FirstOrDefault()?.Document is null; waited++)
+        {
+            Assert.True(waited < 500, "The drawing never opened.");
 
-        Assert.NotNull(Viewer(window).Document);
+            await Task.Delay(10).ConfigureAwait(true);
+            Dispatcher.UIThread.RunJobs();
+        }
 
         return window;
     }
