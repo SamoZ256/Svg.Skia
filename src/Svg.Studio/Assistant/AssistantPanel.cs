@@ -10,6 +10,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
 
 namespace Svg.Studio;
@@ -44,7 +45,13 @@ public sealed class AssistantPanel : UserControl
     /// <summary>What the provider answered when last asked whether it can be used.</summary>
     private string? _unavailable;
     private CancellationTokenSource? _running;
-    private SelectableTextBlock? _reply;
+
+    /// <summary>The reply being streamed: its bubble, and its text so far, drawn again with each piece.</summary>
+    private (Border Bubble, string Text)? _reply;
+
+    /// <summary>What the conversation shows, by who said it, for a test to read.</summary>
+    private readonly List<(string Role, string Text)> _rows = new();
+
     private int _loading;
 
     public AssistantPanel(AssistantTools tools)
@@ -53,12 +60,7 @@ public sealed class AssistantPanel : UserControl
         _session = new AssistantSession(tools);
 
         _tools.Confirm = Ask;
-        _tools.Called += (_, summary) =>
-        {
-            _transcript.Children.Add(new TextBlock { Text = "· " + summary, FontSize = 11, Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
-            _reply = null;
-            Follow();
-        };
+        _tools.Called += (_, summary) => Line("· " + summary, "tool");
 
         _providers.ItemsSource = AssistantProviders.All.Select(provider => provider.Name).ToList();
         _providers.SelectionChanged += async (_, _) => await ChooseProvider().ConfigureAwait(true);
@@ -141,13 +143,8 @@ public sealed class AssistantPanel : UserControl
         await SendOrStop().ConfigureAwait(true);
     }
 
-    /// <summary>What the conversation shows, one row per message, activity line or question.</summary>
-    public IEnumerable<string> Transcript => _transcript.Children.Select(row => row switch
-    {
-        TextBlock block => block.Text ?? string.Empty,
-        Border { Child: StackPanel { Children: [TextBlock asked, ..] } } => asked.Text ?? string.Empty,
-        _ => string.Empty
-    });
+    /// <summary>What the conversation shows, in order: who said it (you, assistant, tool, note, ask) and what.</summary>
+    public IReadOnlyList<(string Role, string Text)> Transcript => _rows;
 
     private IAssistantProvider? Provider => _providers.SelectedIndex is var at and >= 0 && at < AssistantProviders.All.Count
         ? AssistantProviders.All[at]
@@ -224,9 +221,7 @@ public sealed class AssistantPanel : UserControl
         StudioSettings.AssistantModel = _listed[at].Id;
 
         _session.Use(provider, _listed[at]);
-        _transcript.Children.Clear();
-        _reply = null;
-
+        Forget();
         Enable();
     }
 
@@ -234,7 +229,13 @@ public sealed class AssistantPanel : UserControl
     {
         _running?.Cancel();
         _session.Clear();
+        Forget();
+    }
+
+    private void Forget()
+    {
         _transcript.Children.Clear();
+        _rows.Clear();
         _reply = null;
     }
 
@@ -253,13 +254,8 @@ public sealed class AssistantPanel : UserControl
         }
 
         _input.Text = string.Empty;
-        _transcript.Children.Add(new SelectableTextBlock
-        {
-            Text = text,
-            FontSize = 12,
-            FontWeight = FontWeight.SemiBold,
-            TextWrapping = TextWrapping.Wrap
-        });
+        _transcript.Children.Add(Bubble(new SelectableTextBlock { Text = text, FontSize = 12, TextWrapping = TextWrapping.Wrap }, mine: true));
+        _rows.Add(("you", text));
 
         _reply = null;
         _running = new CancellationTokenSource();
@@ -270,23 +266,29 @@ public sealed class AssistantPanel : UserControl
         {
             await foreach (var delta in _session.SendAsync(text, _running.Token).ConfigureAwait(true))
             {
-                if (_reply is null)
+                if (_reply is not { } reply)
                 {
-                    _reply = new SelectableTextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap };
-                    _transcript.Children.Add(_reply);
+                    reply = (Bubble(new TextBlock(), mine: false), string.Empty);
+                    _transcript.Children.Add(reply.Bubble);
+                    _rows.Add(("assistant", string.Empty));
                 }
 
-                _reply.Text += delta;
+                // Drawn whole again with each piece: a list or a code block is not known to be one
+                // until its line ends, and a reply is short enough for that to cost nothing seen.
+                reply.Text += delta;
+                reply.Bubble.Child = AssistantMarkdown.Render(reply.Text);
+                _rows[^1] = ("assistant", reply.Text);
+                _reply = reply;
                 Follow();
             }
         }
         catch (OperationCanceledException)
         {
-            Line("Stopped. Edits already made stay, each one an undo step.");
+            Line("Stopped. Edits already made stay, each one an undo step.", "note");
         }
         catch (Exception failure)
         {
-            Line(failure.Message);
+            Line(failure.Message, "note");
         }
         finally
         {
@@ -310,13 +312,8 @@ public sealed class AssistantPanel : UserControl
         // A question left open when the reply is stopped is a no.
         _running?.Token.Register(() => answer.TrySetResult(false));
 
-        var card = new Border
-        {
-            BorderBrush = Brushes.Gray,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4),
-            Padding = new Thickness(8),
-            Child = new StackPanel
+        var card = Bubble(
+            new StackPanel
             {
                 Spacing = 6,
                 Children =
@@ -324,10 +321,14 @@ public sealed class AssistantPanel : UserControl
                     new TextBlock { Text = question, FontSize = 12, TextWrapping = TextWrapping.Wrap },
                     new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { allow, deny } }
                 }
-            }
-        };
+            },
+            mine: false);
+
+        card.BorderBrush = Brushes.Gray;
+        card.BorderThickness = new Thickness(1);
 
         _transcript.Children.Add(card);
+        _rows.Add(("ask", question));
         _reply = null;
         Follow();
 
@@ -338,10 +339,31 @@ public sealed class AssistantPanel : UserControl
         return allowed;
     }
 
-    private void Line(string text)
+    /// <summary>A dim line between the bubbles: what a tool did, or why a reply stopped.</summary>
+    private void Line(string text, string role)
     {
-        _transcript.Children.Add(new TextBlock { Text = text, FontSize = 11, Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
+        _transcript.Children.Add(new TextBlock { Text = text, FontSize = 11, Opacity = 0.65, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0) });
+        _rows.Add((role, text));
+        _reply = null;
         Follow();
+    }
+
+    /// <summary>What is said sits in a bubble: yours on the right in the accent, the assistant's on the left.</summary>
+    /// <remarks>The theme's own brushes, so both follow light and dark as every other pane does.</remarks>
+    private static Border Bubble(Control content, bool mine)
+    {
+        var bubble = new Border
+        {
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10, 7),
+            HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+            Margin = mine ? new Thickness(36, 0, 0, 0) : new Thickness(0, 0, 24, 0),
+            Child = content
+        };
+
+        bubble[!Border.BackgroundProperty] = new DynamicResourceExtension(mine ? "SystemControlHighlightListAccentLowBrush" : AssistantMarkdown.CodeBrush);
+
+        return bubble;
     }
 
     private void Say(string? note)

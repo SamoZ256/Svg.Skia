@@ -7,7 +7,9 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Headless.XUnit;
+using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Microsoft.Extensions.AI;
@@ -266,6 +268,47 @@ public class AssistantTests : IDisposable
         await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "scale", ["value"] = "big" }), Say("No.")), "scale");
 
         Assert.Null(window.Workspace!.Document.Root.Children[1].Scale);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Panel_Shows_Who_Said_What_In_Bubbles()
+    {
+        var window = await Host(Write("drawing.svg", Drawing));
+        var chat = new ScriptedChat(
+            Call("set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } }, ["summary"] = "make it red" }),
+            Say("It is **red** now."));
+        var providers = AssistantProviders.All;
+
+        try
+        {
+            AssistantProviders.All = new IAssistantProvider[] { new ScriptedProvider(chat) };
+
+            var panel = new AssistantPanel(new AssistantTools(window));
+            var host = new Window { Content = panel };
+
+            host.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            await panel.SendAsync("make the square red");
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(new[] { "you", "tool", "assistant" }, panel.Transcript.Select(row => row.Role));
+            Assert.Equal("make the square red", panel.Transcript[0].Text);
+            Assert.Equal("It is **red** now.", panel.Transcript[2].Text);
+
+            // Yours on the right, the assistant's on the left, the reply drawn rather than shown raw.
+            var bubbles = panel.GetVisualDescendants().OfType<Border>().Where(border => border.CornerRadius.TopLeft == 10).ToList();
+
+            Assert.Equal(HorizontalAlignment.Right, bubbles[0].HorizontalAlignment);
+            Assert.Equal(HorizontalAlignment.Left, bubbles[1].HorizontalAlignment);
+            Assert.Contains(bubbles[1].GetVisualDescendants().OfType<SelectableTextBlock>().Single().Inlines!, inline => inline is Bold);
+
+            host.Close();
+        }
+        finally
+        {
+            AssistantProviders.All = providers;
+        }
     }
 
     [Fact]

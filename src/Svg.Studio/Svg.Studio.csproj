@@ -27,6 +27,9 @@
          is the one in the Anthropic SDK. -->
     <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="Anthropic" />
+    <!-- Parses what the assistant replies; the drawing of it is AssistantMarkdown's, since
+         Markdown.Avalonia stops at Avalonia 11. -->
+    <PackageReference Include="Markdig" />
   </ItemGroup>
 
   <ItemGroup>

@@ -38,7 +38,7 @@ public sealed class AssistantSession : IDisposable
         - Nodes of the project are named by path from get_project, such as 0/2. Names can repeat; paths cannot.
         - Expressions are written {{ name }} inside an attribute; parameters and lets are declared in the drawing's or a group's declarations.
         - Every edit is one step the person can undo with Cmd/Ctrl+Z.
-        - Reply in short plain text: the panel does not render Markdown.
+        - Reply briefly. Markdown is rendered: short paragraphs, lists, and `code` for attribute names and values.
         """;
 
     /// <summary>Only for a model that has the save, remove and git_commit tools; a small one nagged about saving from the mention alone.</summary>
