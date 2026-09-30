@@ -361,6 +361,24 @@ is caught in the box, and one written on an attribute the parser lifts nothing o
 rather than written as braces nobody reads. A value the element's <code>style</code> attribute sets reads on its
 row as <code>red in style</code>, and the row takes nothing: the declaration wins over the attribute, so it is
 changed under <strong>Inline style</strong> instead.</p>
+<h2 id="boxes-for-the-code-that-draws-it">Boxes for the code that draws it</h2>
+<p>A drawing can reserve a box for its host, such as the place an app lays a value label, and the
+generated class reports it as a constant: <code>public static readonly SKRect @LevelRect</code>. See
+<a href="/Svg.Skia/articles/packages/svg-codegen-skia#boxes-for-the-host">boxes for the host</a>. A PaintCode import marks one
+for every shape named <code>Embed&lt;X&gt;</code>.</p>
+<p>A box paints nothing, so the canvas draws it for you: a dashed cyan line with the constant written
+inside, such as <code>LevelRect 2, 6, 28, 24</code>. The numbers are the ones the class will get, as left,
+top, right, bottom. A box that a variable moves reads <code>LevelRect (driven)</code> instead, because the
+class has only the defaults. <strong>Boxes</strong> on the toolbar, on a drawing's tab and on a group's board,
+shows or hides them.</p>
+<p>Click a box's dashed line to pick it. Ink inside a box is still picked by clicking it, and empty
+room inside the box is still the page. Once picked, a box moves and resizes like any shape, but it
+has no stalk: a turned box would be reported as the upright box round it.</p>
+<p><strong>Box constant</strong>, under <strong>General</strong> in the Attributes tab, names the box. Typing a name there marks
+any shape, and the drawing gets the <code>e:</code> prefix declared if it had none; <strong>×</strong> unmarks it. A name the
+class could not declare is refused as it is typed: one that is not an identifier, one the class
+already uses, or one another box of the drawing has. In the element tree a box reads
+<code>▭ LevelRect</code> beside its id, and the filter finds it by that name.</p>
 <h2 id="related-docs">Related docs</h2>
 <ul>
 <li><a href="/Svg.Skia/articles/guides/source-generator-and-svgc">Source Generator and svgc</a> — the build a project describes</li>
