@@ -54,9 +54,9 @@ public class SymNodeDifferentialTests
         };
 
     /// <summary>Emits <paramref name="node"/>, compiles it, and runs it over the same values.</summary>
-    private static object Compiled(SymNode node, ExprType expected, bool asColorF, SKColor tint, float fade)
+    private static object Compiled(SymNode node, ExprType expected, bool asColorF, SKColor tint, float fade, bool fold)
     {
-        var compiler = new ExprCompiler(new Dictionary<string, ExprType>(s_symbols, StringComparer.Ordinal));
+        var compiler = new ExprCompiler(new Dictionary<string, ExprType>(s_symbols, StringComparer.Ordinal), null, fold);
 
         string body;
         using (SymCSharpEmitter.UseCompiler(compiler))
@@ -169,9 +169,9 @@ public class SymNodeDifferentialTests
         return gradient.Colors![0];
     }
 
-    private static void AssertSameColor(SymNode node, SKColor tint, float fade = 1f)
+    private static void AssertSameColor(SymNode node, SKColor tint, float fade = 1f, bool fold = false)
     {
-        var compiled = (SkiaColor)Compiled(node, ExprType.Color, asColorF: false, tint, fade);
+        var compiled = (SkiaColor)Compiled(node, ExprType.Color, asColorF: false, tint, fade, fold);
         var evaluated = Evaluated(node, tint, fade);
 
         Assert.Equal(
@@ -179,9 +179,9 @@ public class SymNodeDifferentialTests
             (evaluated.Red, evaluated.Green, evaluated.Blue, evaluated.Alpha));
     }
 
-    private static void AssertSameColorF(SymNode node, SKColor tint, float fade = 1f)
+    private static void AssertSameColorF(SymNode node, SKColor tint, float fade = 1f, bool fold = false)
     {
-        var compiled = (SkiaColorF)Compiled(node, ExprType.Color, asColorF: true, tint, fade);
+        var compiled = (SkiaColorF)Compiled(node, ExprType.Color, asColorF: true, tint, fade, fold);
         var evaluated = EvaluatedAsColorF(node, tint, fade);
 
         // Compared as bits. A float comparison with any tolerance would have let the very bug this
@@ -258,4 +258,50 @@ public class SymNodeDifferentialTests
         => AssertSameColorF(
             SymNode.ScaleAlpha(SymNode.Source("tint"), SymNode.Literal(0.6)),
             new SKColor(0x3F, 0xB5, 0xB5, 0xFF));
+
+    private static string Hex(byte channel) => $"#{channel:x2}{channel:x2}{channel:x2}";
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(0.25f)]
+    [InlineData(0.5f)]
+    [InlineData(1f)]
+    // Outside [0, 1] the cast is left to the drawing's runtime, so these stay unfolded.
+    [InlineData(1.5f)]
+    [InlineData(-0.5f)]
+    public void Scaling_A_Constant_Colour_Folds_To_What_Both_Compute(float factor)
+        => AssertSameColor(
+            SymNode.ScaleAlpha(SymNode.Source("#3fb5b5c0"), SymNode.Literal(factor)),
+            default,
+            fold: true);
+
+    [Theory]
+    [MemberData(nameof(EveryChannelValue))]
+    public void Converting_A_Constant_Colour_To_Linear_Rgb_Folds_To_What_Both_Compute(byte channel)
+        => AssertSameColor(SymNode.ToLinearRgb(SymNode.Source(Hex(channel))), default, fold: true);
+
+    [Fact]
+    public void A_Folded_Colour_Reaching_A_Stop_Agrees()
+        => AssertSameColorF(
+            SymNode.ToLinearRgb(SymNode.ScaleAlpha(SymNode.Source("#3fb5b5"), SymNode.Literal(0.6))),
+            default,
+            fold: true);
+
+    [Fact]
+    public void Folding_A_Constant_Colour_Leaves_No_Helper_Behind()
+    {
+        var compiler = new ExprCompiler(new Dictionary<string, ExprType>(s_symbols, StringComparer.Ordinal), null, fold: true);
+
+        using (SymCSharpEmitter.UseCompiler(compiler))
+        {
+            Assert.Equal(
+                "new SKColor(63, 181, 181, 96)",
+                SymCSharpEmitter.Emit(SymNode.ScaleAlpha(SymNode.Source("#3fb5b5c0"), SymNode.Literal(0.5))));
+
+            // Anything bound keeps the helper.
+            Assert.StartsWith(
+                "SvgScaleAlpha(",
+                SymCSharpEmitter.Emit(SymNode.ScaleAlpha(SymNode.Source("tint"), SymNode.Literal(0.5))));
+        }
+    }
 }

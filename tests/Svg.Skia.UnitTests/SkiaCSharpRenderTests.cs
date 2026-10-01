@@ -1205,6 +1205,35 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void A_Conditional_That_Folds_Away_Draws_Like_The_Document_Without_It()
+        // The range is never emitted, Save, SetMatrix and Restore included; the blue circle after it
+        // has to land where it would with no group at all. The true one is emitted without its if,
+        // so its locals sit one scope further out than they used to.
+        => AssertExpressionsRenderTheSame(
+            "ExprFoldedConditionals",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:let name="shown">2 &gt; 1</e:let></e:code></defs>
+              <g transform="translate(0 -8)" visibility="{{ !shown }}">
+                <circle cx="12" cy="12" r="5" fill="#ff0000" />
+              </g>
+              <g transform="translate(4 0)" visibility="{{ shown }}">
+                <circle cx="4" cy="4" r="3" fill="#22c55e" />
+              </g>
+              <circle cx="12" cy="16" r="5" fill="#1e40af" />
+            </svg>
+            """,
+            arguments: null,
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(4 0)">
+                <circle cx="4" cy="4" r="3" fill="#22c55e" />
+              </g>
+              <circle cx="12" cy="16" r="5" fill="#1e40af" />
+            </svg>
+            """);
+
+    [Fact]
     public void SkiaSharp3_Renders_The_Same_As_SkiaSharp4()
         // The two differ only in how the path is assembled — SKPath directly, or a builder that
         // is detached. The drawing must not notice.

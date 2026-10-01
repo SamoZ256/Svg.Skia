@@ -1919,6 +1919,13 @@ public static class SkiaCSharpModelExtensions
         isDefault = isDefaultPathResult;
     }
 
+    private enum FoldedRange
+    {
+        Emitted,
+        Unwrapped,
+        Dead
+    }
+
     public static void ToSKPicture(this SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
     {
         var counterPicture = counter.Picture;
@@ -1943,8 +1950,18 @@ public static class SkiaCSharpModelExtensions
             return;
         }
 
+        // A range whose condition folds to false is still emitted, into text that is thrown away:
+        // emitting is what type checks its expressions, and a typo hidden behind `{{ false }}` has to
+        // fail the build as it did when the range was an `if (false)`.
+        var live = sb;
+        var discarded = new StringBuilder();
+        var ranges = new Stack<FoldedRange>();
+        var dead = 0;
+
         foreach (var canvasCommand in picture.Commands)
         {
+            sb = dead > 0 ? discarded : live;
+
             switch (canvasCommand)
             {
                 case ClipPathCanvasCommand clipPathCanvasCommand:
@@ -2002,6 +2019,16 @@ public static class SkiaCSharpModelExtensions
                     }
                 case BeginConditionalCanvasCommand beginConditionalCanvasCommand:
                     {
+                        // Dropping a false range whole is what `if (false)` did with it, Save, Restore
+                        // and SetMatrix included: generated code restates the absolute matrix.
+                        if (SymCSharpEmitter.TryConstant(beginConditionalCanvasCommand.Condition, ExprType.Boolean, out var known))
+                        {
+                            ranges.Push(known.AsBoolean ? FoldedRange.Unwrapped : FoldedRange.Dead);
+                            dead += known.AsBoolean ? 0 : 1;
+                            break;
+                        }
+
+                        ranges.Push(FoldedRange.Emitted);
                         sb.AppendLine($"{indent}if ({SymCSharpEmitter.Emit(beginConditionalCanvasCommand.Condition, ExprType.Boolean)})");
                         sb.AppendLine($"{indent}{{");
 
@@ -2012,6 +2039,14 @@ public static class SkiaCSharpModelExtensions
                     }
                 case EndConditionalCanvasCommand _:
                     {
+                        var range = ranges.Count > 0 ? ranges.Pop() : FoldedRange.Emitted;
+
+                        if (range != FoldedRange.Emitted)
+                        {
+                            dead -= range == FoldedRange.Dead ? 1 : 0;
+                            break;
+                        }
+
                         if (indent.Length >= 4)
                         {
                             indent = indent.Substring(4);
@@ -2459,6 +2494,7 @@ public static class SkiaCSharpModelExtensions
             }
         }
 
+        sb = live;
         sb.AppendLine($"{indent}var {counter.PictureVarName}{counterPicture} = {counter.PictureRecorderVarName}{counterPictureRecorder}.EndRecording();");
 
         sb.AppendLine($"{indent}{counter.PictureRecorderVarName}{counterPictureRecorder}?.Dispose();");
