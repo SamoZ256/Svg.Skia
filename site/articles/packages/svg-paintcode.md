@@ -162,7 +162,7 @@ renders wrong, and what was lost is a list rather than a surprise.
 PaintCode generates drawing code as well as documents, so the same `.pcvd` can be drawn twice — once
 through this conversion, once through PaintCode's own generated output — and the two compared as
 pixels. `tests/Svg.PaintCode.UnitTests/Oracle` does that for every canvas, at every combination of
-the booleans PaintCode varies it on.
+the booleans PaintCode varies it on, and again with every colour it takes swapped for another.
 
 That comparison needs the document and the generated code, neither of which belongs in this
 repository, so it runs only where they are:
@@ -202,8 +202,10 @@ canvases, so a folder holding several style kits sorts itself out; `SVG_PAINTCOD
 one outright where two genuinely overlap, and `PaintCodeOracleSources` overrides which files are
 compiled.
 
-Every canvas is drawn at each combination of the booleans PaintCode varies it on, and at the ends and
-middle of each number, and must come within **0.03** of PaintCode. The ones that cannot are listed in
+Every canvas is drawn at each combination of the booleans PaintCode varies it on, at the ends and
+middle of each number, and with every colour it takes swapped, and must come within **0.03** of
+PaintCode. The swap is what catches a colour read from the wrong place, which at the document's own
+colours is usually the same colour. The ones that cannot are listed in
 `TestAssets/Oracle/exceptions.csv` with the reason each cannot — an entry without a cause is refused,
 so a canvas cannot join the list by having a number written beside it, and one that starts meeting
 the bound has to be taken out rather than left sitting there. The counts per cause are asserted too,
