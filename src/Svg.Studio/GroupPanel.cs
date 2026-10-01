@@ -488,6 +488,15 @@ public sealed class GroupPanel : UserControl
     /// <summary>The node this is about.</summary>
     public ProjectNode Node { get; }
 
+    private ProjectNode? _described;
+
+    /// <summary>
+    /// Whose properties the pane shows: what the board has picked, as the other panes follow it, or
+    /// the tab's own node while nothing is.
+    /// </summary>
+    /// <remarks>A node taken out of the project since it was picked has nothing left to show, and gives way to the tab's.</remarks>
+    public ProjectNode Described => _described is { Parent: null } and not ProjectRoot ? Node : _described ?? Node;
+
     /// <summary>Whether anything typed here has not been written to the project.</summary>
     public bool IsModified => _pending.Count > 0;
 
@@ -545,7 +554,7 @@ public sealed class GroupPanel : UserControl
             // the same as the caret leaving would.
             if (!Edit(typed, box.Text))
             {
-                box.Text = Value(Node, typed);
+                box.Text = Value(Described, typed);
             }
         }
 
@@ -559,17 +568,18 @@ public sealed class GroupPanel : UserControl
 
         var was = IsModified;
         var writing = _pending.ToList();
+        var node = Described;
 
         // Every setting typed since the last commit as one thing to take back, which is what was
         // handed over: the boxes are filled in together and committed together.
         Workspace.Do(
-            $"change {ProjectWorkspace.Label(Node)}",
-            () => ProjectSnapshot.Attributes(Node),
+            $"change {ProjectWorkspace.Label(node)}",
+            () => ProjectSnapshot.Attributes(node),
             () =>
             {
                 foreach (var edit in writing)
                 {
-                    Write(Node, edit.Key, edit.Value);
+                    Write(node, edit.Key, edit.Value);
                 }
             });
 
@@ -652,7 +662,23 @@ public sealed class GroupPanel : UserControl
             }
         }
 
-        ShowProperties(Node);
+        ShowProperties(Described);
+    }
+
+    /// <summary>Shows <paramref name="node"/>'s properties, which is whatever the board has just picked.</summary>
+    private void Describe(ProjectNode node)
+    {
+        if (ReferenceEquals(node, Described))
+        {
+            return;
+        }
+
+        // Handed over first: what was typed is the node going away's, and its boxes are about to go.
+        Commit();
+
+        _described = node;
+
+        ShowProperties(node);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -1770,6 +1796,8 @@ public sealed class GroupPanel : UserControl
         _selected = group;
         _showing.Text = ProjectWorkspace.Label(group);
 
+        Describe(group);
+
         using var ring = new SKPathBuilder();
 
         ring.AddRect(bounds);
@@ -1966,6 +1994,7 @@ public sealed class GroupPanel : UserControl
             // was no way back to what the group declares once a drawing had been picked.
             Deselect();
             ShowDeclarations();
+            Describe(Node);
 
             return;
         }
@@ -2030,6 +2059,8 @@ public sealed class GroupPanel : UserControl
     {
         _showing.Text = ProjectWorkspace.Label(shown.Built.Drawing);
 
+        Describe(shown.Built.Drawing);
+
         if (_inspecting is { } inspecting && ReferenceEquals(inspecting.Placement, placement))
         {
             return;
@@ -2081,6 +2112,7 @@ public sealed class GroupPanel : UserControl
         {
             Deselect();
             ShowDeclarations();
+            Describe(Node);
 
             return;
         }
@@ -3097,7 +3129,7 @@ public sealed class GroupPanel : UserControl
     }
 
     /// <summary>What the box shows: what was typed here if anything, and what the file says if not.</summary>
-    public string? Shown(string name) => Shown(Node, name);
+    public string? Shown(string name) => Shown(Described, name);
 
     private string? Shown(ProjectNode node, string name)
         => _pending.TryGetValue(name, out var pending) ? pending : Value(node, name);
@@ -3283,7 +3315,7 @@ public sealed class GroupPanel : UserControl
         var text = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         var was = IsModified;
 
-        if (text == Value(Node, name))
+        if (text == Value(Described, name))
         {
             _pending.Remove(name);
         }

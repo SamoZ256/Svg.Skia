@@ -773,6 +773,33 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(workspace.IsEdited);
     }
 
+    /// <summary>
+    /// The Properties are of whatever the board has picked, as the other panes are, rather than of
+    /// the tab. What was typed for one node is handed over before the pane moves to the next.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task The_Properties_Are_Of_What_The_Board_Has_Picked()
+    {
+        var window = await Host(Owned(GroupTint, Using, UsingRound));
+        var panel = await Group(window, 0);
+        var drawing = panel.Board[1];
+
+        Assert.Same(panel.Node, panel.Described);
+
+        Pick(window, panel, 1);
+
+        Assert.Same(drawing, panel.Described);
+        Assert.Equal(drawing.Name, panel.Shown("name"));
+
+        Assert.True(panel.Edit("scale", "3"));
+
+        Deselect(window, panel);
+
+        Assert.Same(panel.Node, panel.Described);
+        Assert.Equal(3f, drawing.Scale);
+        Assert.NotEqual(3f, panel.Node.Scale);
+    }
+
     [AvaloniaFact]
     public async Task The_Drawing_Being_Looked_At_Survives_A_Rebuild()
     {
