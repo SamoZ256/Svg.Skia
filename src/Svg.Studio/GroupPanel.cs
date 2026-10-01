@@ -43,7 +43,7 @@ public sealed class GroupPanel : UserControl
 {
     // Named because the canvas beside it has buttons of its own, and a test asking what the settings
     // offer has to be able to say which half it means.
-    private readonly StackPanel _properties = new() { Name = "Settings", Spacing = 8, Margin = new Thickness(10) };
+    private readonly StackPanel _properties = new() { Name = "Properties", Spacing = 8, Margin = new Thickness(10) };
     private readonly SvgViewerCanvas _canvas = new();
     private readonly TextBlock _heading = new() { FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 10, 10, 0) };
 
@@ -447,7 +447,7 @@ public sealed class GroupPanel : UserControl
 
         _panels = new[]
         {
-            new SvgViewerRegion("project", "Settings", new ScrollViewer { Content = _properties }),
+            new SvgViewerRegion("project", "Properties", new ScrollViewer { Content = _properties }),
             new SvgViewerRegion("variables", "Variables", parameters),
             new SvgViewerRegion("element", "Attributes", _elementHost),
             new SvgViewerRegion("elements", "Elements", tree)
@@ -487,6 +487,15 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>The node this is about.</summary>
     public ProjectNode Node { get; }
+
+    private ProjectNode? _described;
+
+    /// <summary>
+    /// Whose properties the pane shows: what the board has picked, as the other panes follow it, or
+    /// the tab's own node while nothing is.
+    /// </summary>
+    /// <remarks>A node taken out of the project since it was picked has nothing left to show, and gives way to the tab's.</remarks>
+    public ProjectNode Described => _described is { Parent: null } and not ProjectRoot ? Node : _described ?? Node;
 
     /// <summary>Whether anything typed here has not been written to the project.</summary>
     public bool IsModified => _pending.Count > 0;
@@ -545,7 +554,7 @@ public sealed class GroupPanel : UserControl
             // the same as the caret leaving would.
             if (!Edit(typed, box.Text))
             {
-                box.Text = Value(Node, typed);
+                box.Text = Value(Described, typed);
             }
         }
 
@@ -559,17 +568,18 @@ public sealed class GroupPanel : UserControl
 
         var was = IsModified;
         var writing = _pending.ToList();
+        var node = Described;
 
         // Every setting typed since the last commit as one thing to take back, which is what was
         // handed over: the boxes are filled in together and committed together.
         Workspace.Do(
-            $"change {ProjectWorkspace.Label(Node)}",
-            () => ProjectSnapshot.Attributes(Node),
+            $"change {ProjectWorkspace.Label(node)}",
+            () => ProjectSnapshot.Attributes(node),
             () =>
             {
                 foreach (var edit in writing)
                 {
-                    Write(Node, edit.Key, edit.Value);
+                    Write(node, edit.Key, edit.Value);
                 }
             });
 
@@ -652,7 +662,23 @@ public sealed class GroupPanel : UserControl
             }
         }
 
-        ShowProperties(Node);
+        ShowProperties(Described);
+    }
+
+    /// <summary>Shows <paramref name="node"/>'s properties, which is whatever the board has just picked.</summary>
+    private void Describe(ProjectNode node)
+    {
+        if (ReferenceEquals(node, Described))
+        {
+            return;
+        }
+
+        // Handed over first: what was typed is the node going away's, and its boxes are about to go.
+        Commit();
+
+        _described = node;
+
+        ShowProperties(node);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -1770,6 +1796,8 @@ public sealed class GroupPanel : UserControl
         _selected = group;
         _showing.Text = ProjectWorkspace.Label(group);
 
+        Describe(group);
+
         using var ring = new SKPathBuilder();
 
         ring.AddRect(bounds);
@@ -1966,6 +1994,7 @@ public sealed class GroupPanel : UserControl
             // was no way back to what the group declares once a drawing had been picked.
             Deselect();
             ShowDeclarations();
+            Describe(Node);
 
             return;
         }
@@ -2030,6 +2059,8 @@ public sealed class GroupPanel : UserControl
     {
         _showing.Text = ProjectWorkspace.Label(shown.Built.Drawing);
 
+        Describe(shown.Built.Drawing);
+
         if (_inspecting is { } inspecting && ReferenceEquals(inspecting.Placement, placement))
         {
             return;
@@ -2081,6 +2112,7 @@ public sealed class GroupPanel : UserControl
         {
             Deselect();
             ShowDeclarations();
+            Describe(Node);
 
             return;
         }
@@ -2947,6 +2979,53 @@ public sealed class GroupPanel : UserControl
         return parts.Count == 0 ? "as written" : string.Join(" ", parts);
     }
 
+    /// <summary>What each setting is called here, and what its box says while it is empty and inherits nothing.</summary>
+    /// <remarks>The attribute the file writes is the label's tooltip, as the Attributes pane does it.</remarks>
+    private static readonly Dictionary<string, (string Label, string? Hint)> s_labels = new(StringComparer.Ordinal)
+    {
+        ["name"] = ("Name", null),
+        ["namespace"] = ("Namespace", null),
+        ["class"] = ("Class name", null),
+        ["cache"] = ("Picture cache", null),
+        ["helperScope"] = ("Helper methods", null),
+        ["skiaSharp"] = ("SkiaSharp version", null),
+        ["width"] = ("Width", "pixels"),
+        ["height"] = ("Height", "pixels"),
+        ["scale"] = ("Scale", "factor, e.g. 2"),
+        ["padding"] = ("Padding", "CSS-style, e.g. 10% or 0.1 0.2"),
+        // No hint: a place inherits from nobody, and anything shown behind the box would read as one.
+        ["x"] = ("X", null),
+        ["y"] = ("Y", null)
+    };
+
+    /// <summary>
+    /// The settings that take one of a few values: what each option says, what it writes, and why
+    /// somebody would pick it. A null value writes nothing, leaving the build's default.
+    /// </summary>
+    private static readonly Dictionary<string, (string Label, string? Value, string Tip)[]> s_choices = new(StringComparer.Ordinal)
+    {
+        ["cache"] = new (string, string?, string)[]
+        {
+            ("Default (none)", null, "Not written in the project, so a build records a picture on every draw."),
+            ("None: record on every draw", ProjectRoot.CacheText(SvgPictureCache.None), "Draw records a picture per call and disposes it, and stays stateless."),
+            ("Keep the last picture", ProjectRoot.CacheText(SvgPictureCache.LastValue), "Reuses the last picture while the arguments are unchanged. Not safe to draw from several threads."),
+            ("Keep the last picture, locked for threads", ProjectRoot.CacheText(SvgPictureCache.LastValueLocked), "As above, guarded by a lock held across the draw.")
+        },
+        ["helperScope"] = new (string, string?, string)[]
+        {
+            ("Default (one file-local class)", null, "Not written in the project, so a build puts the helpers in one file-local class."),
+            ("One file-local class (C# 11)", ProjectRoot.ScopeText(SvgHelperScope.FileLocal), "A file-scoped class beside the namespaces, invisible outside the file. Needs C# 11."),
+            ("One internal class", ProjectRoot.ScopeText(SvgHelperScope.Internal), "An internal class beside the namespaces, for compilers below C# 11."),
+            ("Inside each class", ProjectRoot.ScopeText(SvgHelperScope.PerClass), "Private members of every class, so each stands alone and repeats them.")
+        },
+        ["skiaSharp"] = new (string, string?, string)[]
+        {
+            ("Default (4.x)", null, "Not written in the project, so a build targets SkiaSharp 4."),
+            ("SkiaSharp 4.x", ProjectRoot.SkiaSharpText(SkiaSharpTarget.V4), "Builds paths through SKPathBuilder, since SKPath's mutating methods are obsolete in 4."),
+            ("SkiaSharp 3.x", ProjectRoot.SkiaSharpText(SkiaSharpTarget.V3), "Builds paths by calling SKPath directly; SKPathBuilder does not exist yet in 3.")
+        }
+    };
+
     private void ShowProperties(ProjectNode node)
     {
         _properties.Children.Clear();
@@ -2956,10 +3035,7 @@ public sealed class GroupPanel : UserControl
             Add("name");
         }
 
-        if (node is not ProjectRoot)
-        {
-            _properties.Children.Add(new Separator { Margin = new Thickness(0, 6) });
-        }
+        Heading("Generated code");
 
         Add("namespace");
         Add("class");
@@ -2971,7 +3047,7 @@ public sealed class GroupPanel : UserControl
             Add("skiaSharp");
         }
 
-        _properties.Children.Add(new Separator { Margin = new Thickness(0, 6) });
+        Heading("Size");
 
         Add("width");
         Add("height");
@@ -2982,17 +3058,78 @@ public sealed class GroupPanel : UserControl
         // which a node's own tab therefore shows without showing any change.
         if (node is not ProjectRoot)
         {
-            _properties.Children.Add(new Separator { Margin = new Thickness(0, 6) });
+            Heading("On the board");
 
             Add("x");
             Add("y");
         }
 
-        void Add(string name) => _properties.Children.Add(Row(node, name));
+        void Heading(string text) => _properties.Children.Add(new TextBlock
+        {
+            Text = text,
+            FontSize = 12,
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(0, 8, 0, 0)
+        });
+
+        void Add(string name) => _properties.Children.Add(
+            s_choices.TryGetValue(name, out var options) ? Choice(node, name, options) : Row(node, name));
+    }
+
+    /// <summary>A setting's label, with the attribute the file writes as its tooltip.</summary>
+    private static TextBlock Label(string name)
+    {
+        var label = new TextBlock
+        {
+            Text = s_labels.TryGetValue(name, out var about) ? about.Label : name,
+            Opacity = 0.65,
+            FontSize = 11
+        };
+
+        ToolTip.SetTip(label, name);
+
+        return label;
+    }
+
+    /// <summary>A setting that takes one of a few values, picked rather than typed.</summary>
+    private Control Choice(ProjectNode node, string name, (string Label, string? Value, string Tip)[] options)
+    {
+        var items = options
+            .Select(option =>
+            {
+                var item = new ComboBoxItem { Content = option.Label, Tag = option.Value };
+
+                ToolTip.SetTip(item, option.Tip);
+
+                return item;
+            })
+            .ToList();
+
+        var shown = Shown(node, name);
+
+        // Set before the handler is attached, so showing what the file says is not taken for an edit.
+        var picker = new ComboBox
+        {
+            ItemsSource = items,
+            SelectedIndex = Math.Max(0, Array.FindIndex(options, option => option.Value == shown)),
+            FontSize = 12,
+            Tag = name,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+
+        picker.SelectionChanged += (_, _) =>
+        {
+            if (picker.SelectedItem is ComboBoxItem chosen)
+            {
+                Edit(name, chosen.Tag as string);
+            }
+        };
+
+        return new StackPanel { Spacing = 2, Children = { Label(name), picker } };
     }
 
     /// <summary>What the box shows: what was typed here if anything, and what the file says if not.</summary>
-    public string? Shown(string name) => Shown(Node, name);
+    public string? Shown(string name) => Shown(Described, name);
 
     private string? Shown(ProjectNode node, string name)
         => _pending.TryGetValue(name, out var pending) ? pending : Value(node, name);
@@ -3036,14 +3173,16 @@ public sealed class GroupPanel : UserControl
             case "scale":
                 node.Scale = SvgcProject.ParseScale(value);
                 break;
+            // Nothing is the attribute taken away. The parsers read an empty value as the default, which
+            // wrote the default out instead.
             case "cache":
-                ((ProjectRoot)node).Cache = SvgcProject.ParseCache(value);
+                ((ProjectRoot)node).Cache = value is null ? null : SvgcProject.ParseCache(value);
                 break;
             case "helperScope":
-                ((ProjectRoot)node).HelperScope = SvgcProject.ParseHelperScope(value);
+                ((ProjectRoot)node).HelperScope = value is null ? null : SvgcProject.ParseHelperScope(value);
                 break;
             case "skiaSharp":
-                ((ProjectRoot)node).SkiaSharp = SvgcProject.ParseSkiaSharpTarget(value);
+                ((ProjectRoot)node).SkiaSharp = value is null ? null : SvgcProject.ParseSkiaSharpTarget(value);
                 break;
         }
     }
@@ -3094,7 +3233,7 @@ public sealed class GroupPanel : UserControl
         var box = new TextBox
         {
             Text = value,
-            PlaceholderText = Inherited(node, name),
+            PlaceholderText = Inherited(node, name) ?? (s_labels.TryGetValue(name, out var about) ? about.Hint : null),
             FontSize = 12,
             Tag = name
         };
@@ -3125,7 +3264,7 @@ public sealed class GroupPanel : UserControl
             Spacing = 2,
             Children =
             {
-                new TextBlock { Text = name, Opacity = 0.65, FontSize = 11 },
+                Label(name),
                 box
             }
         };
@@ -3176,7 +3315,7 @@ public sealed class GroupPanel : UserControl
         var text = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         var was = IsModified;
 
-        if (text == Value(Node, name))
+        if (text == Value(Described, name))
         {
             _pending.Remove(name);
         }
@@ -3223,6 +3362,17 @@ public sealed class GroupPanel : UserControl
             case "skiaSharp":
                 SvgcProject.ParseSkiaSharpTarget(value);
                 break;
+            case "padding" when value is { }:
+                try
+                {
+                    SvgPadding.Parse(value);
+                }
+                catch (ArgumentException refused)
+                {
+                    throw new SvgcProjectException(refused.Message);
+                }
+
+                break;
         }
     }
 
@@ -3250,14 +3400,12 @@ public sealed class GroupPanel : UserControl
         "width" => node.Width is { } width ? Number(width) : null,
         "height" => node.Height is { } height ? Number(height) : null,
         "scale" => node.Scale is { } scale ? Number(scale) : null,
-        // The project's own three. Left out, they showed empty however the file was written, and an
-        // edit to one could never be recognised as typed back to what the file says — so it stayed
-        // pending for ever.
-        "cache" => Text((node as ProjectRoot)?.Cache),
-        "helperScope" => Text((node as ProjectRoot)?.HelperScope),
-        "skiaSharp" => (node as ProjectRoot)?.SkiaSharp is { } target
-            ? (target == SkiaSharpTarget.V3 ? "3" : "4")
-            : null,
+        // The project's own three, spelled as the file and the pickers spell them. Left out, they
+        // showed empty however the file was written, and an edit to one could never be recognised
+        // as typed back to what the file says — so it stayed pending for ever.
+        "cache" => (node as ProjectRoot)?.Cache is { } cache ? ProjectRoot.CacheText(cache) : null,
+        "helperScope" => (node as ProjectRoot)?.HelperScope is { } scope ? ProjectRoot.ScopeText(scope) : null,
+        "skiaSharp" => (node as ProjectRoot)?.SkiaSharp is { } target ? ProjectRoot.SkiaSharpText(target) : null,
         _ => null
     };
 
@@ -3265,7 +3413,4 @@ public sealed class GroupPanel : UserControl
     public string? Fault { get; private set; }
 
     private static string Number(float value) => value.ToString(CultureInfo.InvariantCulture);
-
-    private static string? Text<T>(T? value) where T : struct
-        => value is { } set ? set.ToString()!.ToLowerInvariant() : null;
 }

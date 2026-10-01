@@ -84,7 +84,7 @@ it lands beside it, and in the middle it goes inside. Adding an `.svg` file read
 pasting one, or pasting the SVG a drawing program puts on the clipboard. Adding, removing and moving
 edit the project; nothing reaches the file until you save it.
 
-Five panels sit round the tabs: the **Project** tree, the **Settings** for whatever is in front, the
+Five panels sit round the tabs: the **Project** tree, the **Properties** of whatever is in front, the
 **Variables** it declares, the **Attributes** of the element picked in it, and the **Elements** those
 come from. They
 belong to the window rather than to a tab, and show whatever tab is in front — so the arrangement
