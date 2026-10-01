@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Headless.XUnit;
+using Avalonia.Platform;
 using Avalonia.Svg.Skia;
 using ShimSkiaSharp;
 using ShimSkiaSharp.Editing;
@@ -48,6 +49,84 @@ public class SvgSourceTests
           <text x="10" y="110" fill="black" font-family="DefaultFont" font-size="100">A</text>
         </svg>
         """;
+
+    /// <summary>
+    /// An asset is opened by one load at a time, however many are running.
+    /// </summary>
+    /// <remarks>
+    /// Avalonia's asset loader caches assemblies in an unlocked dictionary, and first opens racing
+    /// on a new one threw inside it and came back as the resource not existing: on Windows CI one
+    /// control of a XAML view was left without a picture for good. The race is too narrow to lose on
+    /// demand, so this holds each open open long enough that any two would overlap.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Assets_Are_Opened_One_At_A_Time_However_Many_Loads_Run()
+    {
+        var loader = new OverlapCountingAssetLoader(new StandardAssetLoader());
+        var locator = typeof(AvaloniaLocator).GetProperty("CurrentMutable", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        var binding = locator.GetType().GetMethod("Bind")!.MakeGenericMethod(typeof(IAssetLoader)).Invoke(locator, null)!;
+
+        // The locator's binding API is outside Avalonia's reference assemblies.
+        binding.GetType().GetMethods().Single(method => method.Name == "ToConstant")
+            .MakeGenericMethod(typeof(OverlapCountingAssetLoader)).Invoke(binding, new object[] { loader });
+
+        var baseUri = new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/");
+        var sources = await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(_ => Task.Run(() => SvgSource.LoadAsync("/Assets/Issue545CurrentColor.svg", baseUri))));
+
+        Assert.All(sources, source => Assert.NotNull(source.Picture));
+        Assert.Equal(1, loader.MostAtOnce);
+    }
+
+    private sealed class OverlapCountingAssetLoader(IAssetLoader inner) : IAssetLoader
+    {
+        private int _open;
+        private int _most;
+
+        public int MostAtOnce => _most;
+
+        public Stream Open(Uri uri, Uri? baseUri = null)
+        {
+            var now = Interlocked.Increment(ref _open);
+
+            try
+            {
+                InterlockedMax(ref _most, now);
+                Thread.Sleep(20);
+
+                return inner.Open(uri, baseUri);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _open);
+            }
+        }
+
+        private static void InterlockedMax(ref int target, int value)
+        {
+            for (var seen = target; value > seen; seen = target)
+            {
+                if (Interlocked.CompareExchange(ref target, value, seen) == seen)
+                {
+                    return;
+                }
+            }
+        }
+
+        public void SetDefaultAssembly(Assembly assembly) => inner.SetDefaultAssembly(assembly);
+
+        public bool Exists(Uri uri, Uri? baseUri = null) => inner.Exists(uri, baseUri);
+
+        public (Stream stream, Assembly assembly) OpenAndGetAssembly(Uri uri, Uri? baseUri = null) => inner.OpenAndGetAssembly(uri, baseUri);
+
+        public Assembly? GetAssembly(Uri uri, Uri? baseUri = null) => inner.GetAssembly(uri, baseUri);
+
+        public System.Collections.Generic.IEnumerable<Uri> GetAssets(Uri uri, Uri? baseUri) => inner.GetAssets(uri, baseUri);
+
+        public void InvalidateAssemblyCache(string name) => inner.InvalidateAssemblyCache(name);
+
+        public void InvalidateAssemblyCache() => inner.InvalidateAssemblyCache();
+    }
 
     [AvaloniaFact]
     public void LoadFromSvg_SetsSvg()
