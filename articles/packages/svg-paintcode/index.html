@@ -208,7 +208,7 @@ holding every drawing, opened unsaved and unnamed — saving it asks where it go
 </tr>
 <tr>
 <td>A colour derived from one</td>
-<td><code>&lt;e:let&gt;</code> over <code>withAlpha</code></td>
+<td><code>&lt;e:let&gt;</code> over <code>withAlpha</code>, <code>withSaturation</code> or <code>mix</code>, following it</td>
 </tr>
 <tr>
 <td>A variable marked as used</td>
@@ -239,7 +239,11 @@ holding every drawing, opened unsaved and unnamed — saving it asks where it go
 <td>The same two points, in <code>userSpaceOnUse</code></td>
 </tr>
 <tr>
-<td>A library colour desaturated or shadowed</td>
+<td>A gradient's middle stop</td>
+<td><code>mix()</code> of the stops either side, which is how PaintCode draws one</td>
+</tr>
+<tr>
+<td>A translucent library colour shadowed</td>
 <td>The shade PaintCode derives, worked out at import</td>
 </tr>
 <tr>
@@ -328,7 +332,9 @@ one, so the translation says where they meet: an integer multiplied by a fractio
 or handed to a function that takes numbers goes through <code>num()</code>, and <code>step * animation * -360</code>
 is written <code>num(step) * animation * -360</code>. A whole literal needs nothing — the language settles it to
 whichever type stands beside it — and a division of two integers is written as the real division
-PaintCode meant. A derived variable built only from integers is an integer in turn.</p>
+PaintCode meant. A derived variable built only from integers is an integer in turn. A number printed
+into a label is rounded first: <code>stringFromNumber(level * 100)</code> is <code>str(int(round(level * 100)))</code>,
+ties to even as the C# export does, where PaintCode's Java export rounds them up.</p>
 <p>That crossing used to be missing, and what it cost is worth knowing. The offset a driven transform
 carries is evaluated against every declaration at once, so one local the language refused wrote
 every driven transform in the document as the number it was saved at, with a note per element and
@@ -344,15 +350,13 @@ renders wrong, and what was lost is a list rather than a surprise.</p>
 <ul>
 <li><strong>A driven stroke width, and an oval's driven start and end angle.</strong> <code>stroke-width</code> and path data
 are literal in the expression format.</li>
-<li><strong>Text built from a number.</strong> PaintCode's <code>stringFromNumber</code> has no equivalent, so the words the
-drawing had are written.</li>
 <li><strong>A gradient turned to an angle off the axes.</strong> PaintCode places one from the shape's own middle,
 which is not its box's; the conversion lays it across the box. Only where the gradient was turned
 by a dial — one laid by dragging its two ends carries them, and those are written exactly.</li>
 <li><strong>A library colour derived by an operation with no equivalent.</strong> Alpha, saturation and shadow are
-carried; anything else keeps the colour it came from and is reported. A derived colour is also
-worked out at import rather than followed live, so a symbol handed a different colour to derive
-from draws the shade the canvas was saved with.</li>
+carried; anything else keeps the colour it came from and is reported. A shadow over a translucent
+colour is worked out at import, since <code>mix</code> towards opaque black would raise its alpha as well as
+darken it, so it keeps the shade the canvas was saved with whatever it is derived from.</li>
 <li><strong>A driven transform inside a group that draws into a layer.</strong> The layer's bounds were measured
 from where its children were, so the number is written instead — the same rule the format states.</li>
 <li><strong>A blend mode.</strong> PaintCode's numbering is not SVG's, and one that is nearly right is worse than
@@ -365,7 +369,7 @@ or deleted upstream without its references being repointed.</li>
 <p>PaintCode generates drawing code as well as documents, so the same <code>.pcvd</code> can be drawn twice — once
 through this conversion, once through PaintCode's own generated output — and the two compared as
 pixels. <code>tests/Svg.PaintCode.UnitTests/Oracle</code> does that for every canvas, at every combination of
-the booleans PaintCode varies it on.</p>
+the booleans PaintCode varies it on, and again with every colour it takes swapped for another.</p>
 <p>That comparison needs the document and the generated code, neither of which belongs in this
 repository, so it runs only where they are:</p>
 <pre><code class="language-bash">PaintCodeResourcesDir=/path/to/generated \
@@ -393,8 +397,10 @@ compare against. And the drawing class is found by asking which one accounts for
 canvases, so a folder holding several style kits sorts itself out; <code>SVG_PAINTCODE_ORACLE_TYPE</code> names
 one outright where two genuinely overlap, and <code>PaintCodeOracleSources</code> overrides which files are
 compiled.</p>
-<p>Every canvas is drawn at each combination of the booleans PaintCode varies it on, and at the ends and
-middle of each number, and must come within <strong>0.03</strong> of PaintCode. The ones that cannot are listed in
+<p>Every canvas is drawn at each combination of the booleans PaintCode varies it on, at the ends and
+middle of each number, and with every colour it takes swapped, and must come within <strong>0.03</strong> of
+PaintCode. The swap is what catches a colour read from the wrong place, which at the document's own
+colours is usually the same colour. The ones that cannot are listed in
 <code>TestAssets/Oracle/exceptions.csv</code> with the reason each cannot — an entry without a cause is refused,
 so a canvas cannot join the list by having a number written beside it, and one that starts meeting
 the bound has to be taken out rather than left sitting there. The counts per cause are asserted too,
