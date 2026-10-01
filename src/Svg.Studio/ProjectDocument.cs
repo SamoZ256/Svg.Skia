@@ -847,7 +847,7 @@ public sealed class ProjectRoot : ProjectGroup
     public SkiaSharpTarget? SkiaSharp
     {
         get => Setting("skiaSharp") is { } value ? SvgcProject.ParseSkiaSharpTarget(value) : null;
-        set => Element.SetAttributeValue("skiaSharp", value is { } target ? (target == SkiaSharpTarget.V3 ? "3" : "4") : null);
+        set => Element.SetAttributeValue("skiaSharp", value is { } target ? SkiaSharpText(target) : null);
     }
 
     /// <summary>The project's import templates, or null where it keeps none.</summary>
@@ -884,19 +884,24 @@ public sealed class ProjectRoot : ProjectGroup
                 "templates",
                 "A project's templates have to be an <e:templates> block.");
 
-    private static string CacheText(SvgPictureCache cache) => cache switch
+    /// <summary>A cache mode as the file spells it, which is also what the Properties pane writes.</summary>
+    internal static string CacheText(SvgPictureCache cache) => cache switch
     {
         SvgPictureCache.LastValue => "lastValue",
         SvgPictureCache.LastValueLocked => "lastValueLocked",
         _ => "none"
     };
 
-    private static string ScopeText(SvgHelperScope scope) => scope switch
+    /// <summary>A helper scope as the file spells it.</summary>
+    internal static string ScopeText(SvgHelperScope scope) => scope switch
     {
         SvgHelperScope.Internal => "internal",
         SvgHelperScope.PerClass => "perClass",
         _ => "file"
     };
+
+    /// <summary>A SkiaSharp version as the file spells it.</summary>
+    internal static string SkiaSharpText(SkiaSharpTarget target) => target == SkiaSharpTarget.V3 ? "3" : "4";
 }
 
 /// <summary>

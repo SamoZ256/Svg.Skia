@@ -2872,7 +2872,7 @@ public class MainWindowProjectTests : IDisposable
 
         // The board's settings share a run with the element tree, and the default reads them first.
         Assert.True(
-            window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Settings")
+            window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Properties")
                 .IsEffectivelyVisible);
 
         // The other header brings its own panel out, and takes the settings off show with it. Off
@@ -2881,7 +2881,7 @@ public class MainWindowProjectTests : IDisposable
         Open(window, window, "Elements");
 
         Assert.False(
-            window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Settings")
+            window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Properties")
                 .IsEffectivelyVisible);
     }
 
@@ -4706,6 +4706,109 @@ public class MainWindowProjectTests : IDisposable
         Assert.Empty(asked);
     }
 
+    private static ComboBox Picker(Window window, string setting)
+        => window.GetVisualDescendants().OfType<ComboBox>().Single(candidate => Equals(candidate.Tag, setting));
+
+    /// <summary>
+    /// The project's fixed-choice settings are picked from what they can be, not typed. Each picker
+    /// shows the file's own spelling as the option it is, so a file nobody touched marks nothing.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task The_Projects_Fixed_Choices_Are_Picked_From_Their_Options()
+    {
+        Write("home.svg", Drawing);
+
+        var path = Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons" helperScope="file">
+            {Holding("home", " class=\"Home\"")}
+            </studio>
+            """);
+
+        var window = await Host(path);
+
+        await window.ShowAsync(window.Workspace!.Document.Root);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = (GroupPanel)Tabs(window).Items.OfType<TabItem>().Single(tab => tab.Content is GroupPanel).Content!;
+
+        Open(window, window, "Properties");
+
+        // Shown as the option it is. Spelled the way ToString lowercases it, 'filelocal', it was no
+        // option at all.
+        Assert.Equal("One file-local class (C# 11)", ((ComboBoxItem)Picker(window, "helperScope").SelectedItem!).Content);
+        Assert.False(panel.IsModified);
+
+        var skiaSharp = Picker(window, "skiaSharp");
+
+        Assert.Equal(
+            new object?[] { "Default (4.x)", "SkiaSharp 4.x", "SkiaSharp 3.x" },
+            skiaSharp.Items.OfType<ComboBoxItem>().Select(item => item.Content).ToArray());
+        Assert.Equal(0, skiaSharp.SelectedIndex);
+
+        skiaSharp.SelectedIndex = 2;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(panel.IsModified);
+
+        await Save(window, panel);
+
+        Assert.Contains("skiaSharp=\"3\"", File.ReadAllText(path));
+
+        // Default is the attribute taken away, not 4 written in its place.
+        Picker(window, "skiaSharp").SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
+
+        await Save(window, panel);
+
+        Assert.DoesNotContain("skiaSharp=", File.ReadAllText(path));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Property_Is_Labelled_For_A_Person_And_Tipped_With_What_The_File_Says()
+    {
+        Write("home.svg", Drawing);
+
+        var window = await Host(Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons">
+            {Holding("home", " class=\"Home\"")}
+            </studio>
+            """));
+
+        await window.ShowAsync(window.Workspace!.Document.Root);
+        Dispatcher.UIThread.RunJobs();
+
+        Open(window, window, "Properties");
+
+        var label = window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Properties")
+            .GetVisualDescendants().OfType<TextBlock>().Single(found => found.Text == "Class name");
+
+        Assert.Equal("class", ToolTip.GetTip(label));
+    }
+
+    /// <summary>A padding the build would refuse is refused as it is typed, as the sizes are.</summary>
+    [AvaloniaFact]
+    public async Task A_Padding_The_Build_Would_Refuse_Is_Refused_As_It_Is_Typed()
+    {
+        Write("home.svg", Drawing);
+
+        var window = await Host(Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons">
+            {Holding("home", " class=\"Home\"")}
+            </studio>
+            """));
+
+        await window.ShowAsync(window.Workspace!.Document.Root);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = (GroupPanel)Tabs(window).Items.OfType<TabItem>().Single(tab => tab.Content is GroupPanel).Content!;
+
+        // A bare number is a fraction, so 10 would ask for ten times the drawing.
+        Assert.False(panel.Edit("padding", "10"));
+        Assert.NotNull(panel.Fault);
+
+        Assert.True(panel.Edit("padding", "10%"));
+    }
+
     [AvaloniaFact]
     public async Task A_Save_Takes_The_Box_Being_Typed_In_And_The_Mark_Agrees()
     {
@@ -4730,7 +4833,7 @@ public class MainWindowProjectTests : IDisposable
         // A second setting left in a box with the caret still in it. Saving takes that too, so
         // nothing is left pending behind a tab that has just reported itself saved — which is what
         // used to leave a tab with no mark and an unsaved warning waiting at the close button.
-        Open(window, window, "Settings");
+        Open(window, window, "Properties");
 
         var box = window.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "namespace"));
 
@@ -4767,7 +4870,7 @@ public class MainWindowProjectTests : IDisposable
         var panel = (GroupPanel)item.Content!;
         var marker = (TextBlock)((StackPanel)item.Header!).Children[0];
 
-        Open(window, window, "Settings");
+        Open(window, window, "Properties");
 
         var box = window.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
 
@@ -4808,7 +4911,7 @@ public class MainWindowProjectTests : IDisposable
 
         // Typed into, and the caret left where it is. An edit is recorded when the box loses focus,
         // so a save used to find nothing pending and write nothing at all.
-        Open(window, window, "Settings");
+        Open(window, window, "Properties");
 
         var box = window.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "scale"));
 
@@ -5322,7 +5425,7 @@ public class MainWindowProjectTests : IDisposable
         var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
         var settings = (GroupPanel)Assert.Single(viewer.SidePanels).Content;
 
-        Open(window, window, "Settings");
+        Open(window, window, "Properties");
 
         var box = window.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "x"));
 
@@ -5384,7 +5487,7 @@ public class MainWindowProjectTests : IDisposable
         // tree at the top of the strip.
         Assert.Contains("project+elements", viewer.Layout, StringComparison.Ordinal);
 
-        Open(window, window, "Settings");
+        Open(window, window, "Properties");
 
         var box = window.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "class"));
 

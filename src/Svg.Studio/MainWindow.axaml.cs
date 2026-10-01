@@ -965,7 +965,7 @@ public partial class MainWindow : Window
     {
         var named = new (string Id, string Header)[]
         {
-            ("project", "Settings"),
+            ("project", "Properties"),
             ("variables", "Variables"),
             ("element", "Attributes"),
             ("elements", "Elements")
