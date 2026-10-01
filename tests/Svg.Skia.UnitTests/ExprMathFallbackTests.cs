@@ -142,4 +142,23 @@ public class ExprMathFallbackTests
         Assert.Throws<ArgumentException>(() => Math.Clamp(0f, 1f, 0f));
         Assert.Throws<ArgumentException>(() => ExprMathFallback.Clamp(0f, 1f, 0f));
     }
+
+    [Fact]
+    public void Min_And_Max_Agree_Bit_For_Bit_On_Signed_Zeros_And_NaN()
+    {
+        // Math.Min on .NET Framework answers 0 for (-0, 0) where MathF answers -0, and a folded
+        // min() writes the generator host's answer into the generated code.
+        var values = new[] { -0f, 0f, 1f, -1f, float.NaN, float.PositiveInfinity, float.NegativeInfinity };
+
+        foreach (var x in values)
+        {
+            foreach (var y in values)
+            {
+                Assert.Equal(0, UlpsApart(MathF.Min(x, y), ExprMathFallback.Min(x, y)));
+                Assert.Equal(0, UlpsApart(MathF.Max(x, y), ExprMathFallback.Max(x, y)));
+                Assert.Equal(BitConverter.SingleToInt32Bits(MathF.Min(x, y)) < 0, BitConverter.SingleToInt32Bits(ExprMathFallback.Min(x, y)) < 0);
+                Assert.Equal(BitConverter.SingleToInt32Bits(MathF.Max(x, y)) < 0, BitConverter.SingleToInt32Bits(ExprMathFallback.Max(x, y)) < 0);
+            }
+        }
+    }
 }

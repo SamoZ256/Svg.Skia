@@ -107,9 +107,13 @@ internal static class ExprMathFallback
 
     public static float Pow(float x, float y) => (float)Math.Pow(x, y);
 
-    public static float Min(float x, float y) => Math.Min(x, y);
+    // MathF's answers, written out: .NET Framework's Math.Min(-0f, 0f) is 0 where MathF's is -0, and
+    // folding writes whichever runtime hosts the generator into the generated code.
+    public static float Min(float x, float y)
+        => x != y ? (float.IsNaN(x) || x < y ? x : y) : (1f / y < 0f ? y : x);
 
-    public static float Max(float x, float y) => Math.Max(x, y);
+    public static float Max(float x, float y)
+        => x != y ? (float.IsNaN(x) || x > y ? x : y) : (1f / y < 0f ? x : y);
 
     // Math.Clamp's own behaviour, including the throw: a reversed range is a mistake in the
     // document, and generated code would raise it at runtime rather than picking a bound.

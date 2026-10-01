@@ -281,7 +281,7 @@ public class SvgExpressionDeclarationsTests
               <defs><e:code>
                 <e:param name="t" type="number" default="0" />
                 <e:let name="wave">sin(t)</e:let>
-                <e:let name="c">hsl(200, 50%, 50%)</e:let>
+                <e:let name="c">hsl(200 + t, 50%, 50%)</e:let>
                 <e:let name="hot">wave &gt; 0.5</e:let>
               </e:code></defs>
             </svg>
