@@ -93,6 +93,30 @@ public class ExprEvaluatorHslTests
         Assert.True(mismatches == 0, $"{mismatches} of {samples} samples disagree. First: {first}");
     }
 
+    [Theory]
+    // SkiaSharp calls a colour grey up to a saturation of 0.001, not float.Epsilon, which a 5% grid
+    // never lands inside. Folding put the difference into generated code.
+    [InlineData(0.0009f)]
+    [InlineData(0.000694f)]
+    [InlineData(0.001f)]
+    [InlineData(0.0010001f)]
+    [InlineData(0.0011f)]
+    public void Hsl_Matches_SkiaSharp_Where_It_Turns_Grey(float s)
+    {
+        for (var hue = 0; hue < 360; hue += 7)
+        {
+            foreach (var l in new[] { 0.2f, 0.5256f, 0.8f })
+            {
+                var expected = Reference(hue, s, l);
+                var actual = Evaluate("hsl(h, s, l)", hue, s, l);
+
+                Assert.Equal(
+                    (expected.Red, expected.Green, expected.Blue),
+                    (actual.Red, actual.Green, actual.Blue));
+            }
+        }
+    }
+
     [Fact]
     public void Hue_Is_Wrapped_Before_Conversion_Rather_Than_By_FromHsl()
     {

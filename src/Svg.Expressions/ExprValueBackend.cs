@@ -439,7 +439,8 @@ internal static class ExprValueBackend
         var g = l;
         var b = l;
 
-        if (Math.Abs(s) > float.Epsilon)
+        // SKColorF's own EPSILON: a saturation up to a tenth of a percent is grey there.
+        if (Math.Abs(s) > 0.001f)
         {
             var v2 = l < 0.5f ? l * (1f + s) : (l + s) - (l * s);
             var v1 = 2f * l - v2;
