@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Xml.Linq;
+using Svg.Expressions;
 using Xunit;
 
 namespace Svg.PaintCode.UnitTests;
@@ -351,6 +352,70 @@ public class PaintCodeSvgWriterTests
             gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
 
         Assert.Empty(notes);
+    }
+
+    /// <summary>
+    /// A middle stop follows the stops either side of it rather than keeping the colour it was saved
+    /// as.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode drops a middle stop that sits halfway and blends the rest evenly from their
+    /// neighbours, so the colour saved for one is right only at the colours the document was saved
+    /// with. Written as saved, the controller knob's arc blended through pink whatever accent it was
+    /// handed.
+    /// </remarks>
+    [Fact]
+    public void A_Middle_Stop_Is_Blended_From_The_Stops_Either_Side()
+    {
+        var document = WriteTree(Only(Filled(Blend(), -90)), new List<PaintCodeImportNote>());
+        var gradient = document.Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal(
+            new[] { "{{ tint }}", "{{ mix(tint, #0000ffff, 0.5) }}", "#0000ff" },
+            gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
+
+        // And what was written reads in the drawing's own declarations -- which is what says tint was
+        // declared: bound to red, the middle is the even blend of red and blue.
+        var written = gradient.Elements().ElementAt(1).Attribute("stop-color")!.Value;
+        var values = new Dictionary<string, ExprValue> { ["tint"] = ExprValue.Color(255, 0, 0, 255) };
+        var middle = ExprEvaluator.Create(SvgExpressionDeclarations.Parse(document.ToString()), values)
+            .Evaluate(written.Substring("{{".Length, written.Length - "{{}}".Length).Trim());
+
+        Assert.Equal((128, 0, 128, 255), (middle.Red, middle.Green, middle.Blue, middle.Alpha));
+    }
+
+    [Fact]
+    public void A_Middle_Stop_Between_Two_Fixed_Colours_Keeps_The_One_Saved()
+    {
+        var gradient = new PaintCodeGradient(
+            "fixed",
+            new[]
+            {
+                new PaintCodeGradientStop(new PaintCodeColor(string.Empty, 255, 0, 0, 1), 0, 0.5, false),
+                new PaintCodeGradientStop(new PaintCodeColor("PPGradientMidColor", 128, 0, 128, 1), 0.5, 0.5, true),
+                new PaintCodeGradientStop(new PaintCodeColor(string.Empty, 0, 0, 255, 1), 1, 0.5, false)
+            });
+
+        var written = WriteTree(Only(Filled(gradient, -90)), new List<PaintCodeImportNote>())
+            .Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal(new[] { "#ff0000", "#800080", "#0000ff" }, written.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
+    }
+
+    [Fact]
+    public void A_Middle_Stop_Of_A_Gradient_An_Expression_Chooses_Is_Blended_Too()
+    {
+        var gradient = WriteTree(Only(Filled(Blend(), -90, "state ? blend : blend")), new List<PaintCodeImportNote>())
+            .Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal(
+            new[]
+            {
+                "{{ state ? tint : tint }}",
+                "{{ state ? (mix(tint, #0000ffff, 0.5)) : (mix(tint, #0000ffff, 0.5)) }}",
+                "{{ state ? #0000ffff : #0000ffff }}"
+            },
+            gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
     }
 
     /// <summary>
@@ -956,6 +1021,17 @@ public class PaintCodeSvgWriterTests
             PaintCodeShapeMetrics.Default);
 
     private static PaintCodeDocument Scope() => PaintCodeDocument.Parse(ScopeDocument.Bytes());
+
+    /// <summary>The scope document's "blend": tint, a middle stop saved as its halfway colour, then blue.</summary>
+    private static PaintCodeGradient Blend()
+        => new(
+            "blend",
+            new[]
+            {
+                new PaintCodeGradientStop(new PaintCodeColor("tint", 0, 255, 0, 1), 0, 0.5, false),
+                new PaintCodeGradientStop(new PaintCodeColor("PPGradientMidColor", 0, 128, 128, 1), 0.5, 0.5, true),
+                new PaintCodeGradientStop(new PaintCodeColor(string.Empty, 0, 0, 255, 1), 1, 0.5, false)
+            });
 
     private static PaintCodeGradient Gradient()
         => new(

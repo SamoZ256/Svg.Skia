@@ -13,7 +13,7 @@ overlay-number-step,TextMetrics,0.1039,the run is placed from the shape's box ra
 pendantlight-level,StaleOracle,0.5896,draws an Oval 3 the archive holds and neither PaintCode export has; its sweep is carried now and what is left is that one shape
 pendantlight-state,StaleOracle,0.5263,"the same Oval 3, and this one measures 0.526 at every setting, which is the disc alone"
 presence-state,StaleOracle,0.7037,a 29x29 disc between OffGroup and OnGroup that the export's cache has no path for; removing that one element leaves 0.0227
-scene-on,ReferenceRadial,0.0310,"we draw the two circles the document describes and the export's runtime cannot, collapsing them; imitating it would leave 0.0067 and a less faithful drawing"
+scene-on,ReferenceRadial,0.0394,"we draw the two circles the document describes and the export's runtime cannot, collapsing them; imitating it would leave 0.0067 and a less faithful drawing. 0.0310 at its own colours, 0.0394 with them swapped"
 septic2-tank-level,StaleOracle,0.4976,"the archive gates its Group on accent and anchors Group 3 four units lower; the export does neither, and the x of that same translate agrees exactly"
 symbol-addlocation,OracleRounding,0.0352,the same rounded group scale; rounding ours to 2dp leaves 0.0012
 symbol-allusers,OracleRounding,0.0396,the same rounded group scale; rounding ours to 2dp leaves 0.0020

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using SkiaSharp;
 using Svg.Expressions;
 using Svg.Skia;
@@ -158,12 +159,10 @@ public class PaintCodeOracleTests
 
         using var svg = PaintCodeOracle.Load(drawing.Path);
 
-        var switches = PaintCodeOracle.Switches(drawing.Method);
-        var dials = PaintCodeOracle.Dials(drawing.Method).Select(name => (name, PaintCodeOracle.Turns(svg, name))).ToArray();
         var worst = 0d;
         var where = "defaults";
 
-        foreach (var (values, description) in Combinations(suite.Defaults, switches, dials))
+        foreach (var (values, description) in Combinations(suite.Defaults, drawing.Method, svg))
         {
             using var ours = PaintCodeOracle.Ours(svg, values);
             using var theirs = PaintCodeOracle.Theirs(drawing.Method, values, ours.Width / PaintCodeOracle.Scale, ours.Height / PaintCodeOracle.Scale);
@@ -200,19 +199,27 @@ public class PaintCodeOracleTests
 
     /// <summary>
     /// Every combination of the booleans PaintCode's own method takes, with everything else at the
-    /// document's defaults.
+    /// document's defaults — and each of them again with every colour it takes swapped.
     /// </summary>
     /// <remarks>
     /// Driven from the method rather than from our declarations on purpose. A drawing's block is
     /// narrowed to what it references, so a binding we failed to carry across would drop the
     /// parameter and take itself out of the comparison — the one fault the comparison most needs to
     /// find, and the one that turned out to be there.
+    ///
+    /// The colours are swapped because at their defaults a colour read from the wrong place is
+    /// usually the same colour: sr_window's thermometer read accentColorOn where it was handed
+    /// colorPurple, two pinks a few units apart, and every gradient middle baked at import was exact.
     /// </remarks>
     internal static IEnumerable<(IReadOnlyDictionary<string, ExprValue> Values, string Description)> Combinations(
         IReadOnlyDictionary<string, ExprValue> defaults,
-        IReadOnlyList<string> switches,
-        IReadOnlyList<(string Name, IReadOnlyList<float> Turns)> dials)
+        MethodInfo method,
+        SKSvg svg)
     {
+        var switches = PaintCodeOracle.Taking(method, typeof(bool));
+        var dials = PaintCodeOracle.Taking(method, typeof(float)).Select(name => (name, PaintCodeOracle.Turns(svg, name))).ToArray();
+        var colours = PaintCodeOracle.Taking(method, typeof(SKColor)).OrderBy(name => name, StringComparer.Ordinal).ToArray();
+
         for (var combination = 0; combination < 1 << switches.Count; combination++)
         {
             var booleans = new Dictionary<string, ExprValue>(defaults, StringComparer.Ordinal);
@@ -225,6 +232,18 @@ public class PaintCodeOracleTests
             var description = PaintCodeOracle.Describe(switches, combination);
 
             yield return (booleans, description);
+
+            if (colours.Length > 0)
+            {
+                var probed = new Dictionary<string, ExprValue>(booleans, StringComparer.Ordinal);
+
+                for (var index = 0; index < colours.Length; index++)
+                {
+                    probed[colours[index]] = PaintCodeOracle.Probe(index);
+                }
+
+                yield return (probed, $"{description} colours probed");
+            }
 
             // One dial at a time rather than every dial against every other: a drawing reads each of
             // them in its own corner, and the product of three numbers and sixteen settings would be

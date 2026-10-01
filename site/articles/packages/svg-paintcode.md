@@ -53,7 +53,7 @@ holding every drawing, opened unsaved and unnamed — saving it asks where it go
 | Bezier, rectangle, rounded rectangle, oval, star, polygon | `<path>`, or `<rect>` and `<ellipse>` where those say it |
 | A symbol instance | `<use>` of a copy in the same file's `<defs>` |
 | A library colour marked as used | `<e:param type="color">` |
-| A colour derived from one | `<e:let>` over `withAlpha` |
+| A colour derived from one | `<e:let>` over `withAlpha`, `withSaturation` or `mix`, following it |
 | A variable marked as used | `<e:param>` of the type it was declared as — see below |
 | A variable derived from others | `<e:let>` |
 | `fill`, `strokeColor`, `fontColor` | `fill`, `stroke`, and the text's own `fill` |
@@ -61,7 +61,8 @@ holding every drawing, opened unsaved and unnamed — saving it asks where it go
 | The display position, rotation and scale | One argument each of `transform` |
 | A gradient chosen by an expression | One `<linearGradient>`, with the expression on every `stop-color` |
 | A gradient laid by dragging its two ends | The same two points, in `userSpaceOnUse` |
-| A library colour desaturated or shadowed | The shade PaintCode derives, worked out at import |
+| A gradient's middle stop | `mix()` of the stops either side, which is how PaintCode draws one |
+| A translucent library colour shadowed | The shade PaintCode derives, worked out at import |
 | A shape named `Embed<X>` | `e:bounds="<X>Rect"` on its box, a [box for the host](svg-codegen-skia#boxes-for-the-host) |
 
 PaintCode is y-up and SVG is y-down, so everything is turned over on the way: a point at `(x, y)`
@@ -120,7 +121,9 @@ one, so the translation says where they meet: an integer multiplied by a fractio
 or handed to a function that takes numbers goes through `num()`, and `step * animation * -360`
 is written `num(step) * animation * -360`. A whole literal needs nothing — the language settles it to
 whichever type stands beside it — and a division of two integers is written as the real division
-PaintCode meant. A derived variable built only from integers is an integer in turn.
+PaintCode meant. A derived variable built only from integers is an integer in turn. A number printed
+into a label is rounded first: `stringFromNumber(level * 100)` is `str(int(round(level * 100)))`,
+ties to even as the C# export does, where PaintCode's Java export rounds them up.
 
 That crossing used to be missing, and what it cost is worth knowing. The offset a driven transform
 carries is evaluated against every declaration at once, so one local the language refused wrote
@@ -139,15 +142,13 @@ renders wrong, and what was lost is a list rather than a surprise.
 
 - **A driven stroke width, and an oval's driven start and end angle.** `stroke-width` and path data
   are literal in the expression format.
-- **Text built from a number.** PaintCode's `stringFromNumber` has no equivalent, so the words the
-  drawing had are written.
 - **A gradient turned to an angle off the axes.** PaintCode places one from the shape's own middle,
   which is not its box's; the conversion lays it across the box. Only where the gradient was turned
   by a dial — one laid by dragging its two ends carries them, and those are written exactly.
 - **A library colour derived by an operation with no equivalent.** Alpha, saturation and shadow are
-  carried; anything else keeps the colour it came from and is reported. A derived colour is also
-  worked out at import rather than followed live, so a symbol handed a different colour to derive
-  from draws the shade the canvas was saved with.
+  carried; anything else keeps the colour it came from and is reported. A shadow over a translucent
+  colour is worked out at import, since `mix` towards opaque black would raise its alpha as well as
+  darken it, so it keeps the shade the canvas was saved with whatever it is derived from.
 - **A driven transform inside a group that draws into a layer.** The layer's bounds were measured
   from where its children were, so the number is written instead — the same rule the format states.
 - **A blend mode.** PaintCode's numbering is not SVG's, and one that is nearly right is worse than
@@ -161,7 +162,7 @@ renders wrong, and what was lost is a list rather than a surprise.
 PaintCode generates drawing code as well as documents, so the same `.pcvd` can be drawn twice — once
 through this conversion, once through PaintCode's own generated output — and the two compared as
 pixels. `tests/Svg.PaintCode.UnitTests/Oracle` does that for every canvas, at every combination of
-the booleans PaintCode varies it on.
+the booleans PaintCode varies it on, and again with every colour it takes swapped for another.
 
 That comparison needs the document and the generated code, neither of which belongs in this
 repository, so it runs only where they are:
@@ -201,8 +202,10 @@ canvases, so a folder holding several style kits sorts itself out; `SVG_PAINTCOD
 one outright where two genuinely overlap, and `PaintCodeOracleSources` overrides which files are
 compiled.
 
-Every canvas is drawn at each combination of the booleans PaintCode varies it on, and at the ends and
-middle of each number, and must come within **0.03** of PaintCode. The ones that cannot are listed in
+Every canvas is drawn at each combination of the booleans PaintCode varies it on, at the ends and
+middle of each number, and with every colour it takes swapped, and must come within **0.03** of
+PaintCode. The swap is what catches a colour read from the wrong place, which at the document's own
+colours is usually the same colour. The ones that cannot are listed in
 `TestAssets/Oracle/exceptions.csv` with the reason each cannot — an entry without a cause is refused,
 so a canvas cannot join the list by having a number written beside it, and one that starts meeting
 the bound has to be taken out rather than left sitting there. The counts per cause are asserted too,

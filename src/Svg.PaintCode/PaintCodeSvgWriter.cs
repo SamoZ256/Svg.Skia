@@ -531,10 +531,10 @@ internal sealed class PaintCodeSvgWriter
             // ...and only where that variable is one the drawing can actually name. A library colour
             // nobody marked as used is a constant, which PaintCode bakes too -- drawSymboloverlayadd
             // takes no colorBlue, it draws the colour.
-            if (value.Value.Color is { } colour && colour.Name.Length > 0
-                && PaintCodeSlug.Identifier(colour.Name) is { } referenced
-                && _declarations.ByName.TryGetValue(referenced, out var target)
-                && target.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local)
+            // ...and read where this instance stands: inside another symbol's copy the name means what
+            // that copy was given. temperature-temperature hands its thermometer accentColorOn by name,
+            // which sr_window had set to colorPurple, and reading the bare name drew it in the accent.
+            if (value.Value.Color is { } colour && Named(colour) is { } referenced)
             {
                 if (referenced != name)
                 {
@@ -941,46 +941,23 @@ internal sealed class PaintCodeSvgWriter
                 element.SetAttributeValue("stop-color", Braces(bound[index]));
                 _code.Use(bound[index]);
             }
+            else if (_declarations.Stop(gradient, index, _overrides) is { } colour)
+            {
+                element.SetAttributeValue("stop-color", Braces(colour));
+                _code.Use(colour);
+            }
             else
             {
-                var colour = _declarations.Stop(stop.Color);
-
-                if (colour.StartsWith("#", StringComparison.Ordinal))
-                {
-                    element.SetAttributeValue("stop-color", Hex(stop.Color));
-                    Opacity(element, "stop-opacity", stop.Color.Alpha);
-                }
-                else
-                {
-                    element.SetAttributeValue("stop-color", Braces(colour));
-                    _code.Use(colour);
-                }
+                element.SetAttributeValue("stop-color", Hex(stop.Color));
+                Opacity(element, "stop-opacity", stop.Color.Alpha);
             }
 
             yield return element;
         }
     }
 
-    /// <summary>The declaration this colour is, where the library names it and a drawing can reach it.</summary>
-    private string? Named(PaintCodeColor color)
-    {
-        if (color.Name.Length == 0)
-        {
-            return null;
-        }
-
-        var name = PaintCodeSlug.Identifier(color.Name);
-
-        if (_overrides is { } overrides && overrides.TryGetValue(name, out var given))
-        {
-            return given;
-        }
-
-        return _declarations.ByName.TryGetValue(name, out var declaration) &&
-               declaration.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local
-            ? name
-            : null;
-    }
+    /// <inheritdoc cref="PaintCodeDeclarations.Named"/>
+    private string? Named(PaintCodeColor color) => _declarations.Named(color, _overrides);
 
     private static string? Cap(int cap)
         => cap switch
