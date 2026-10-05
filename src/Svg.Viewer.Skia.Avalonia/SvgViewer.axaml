@@ -39,8 +39,8 @@
                       ToolTip.Tip="Keep the element's proportions while a handle is dragged" />
         <ToggleButton x:Name="SnapButton" Content="Snap"
                       ToolTip.Tip="Land what is dragged on the grid rather than where the pointer stopped" />
-        <ToggleButton x:Name="BoxesButton" Content="Boxes" IsChecked="True"
-                      ToolTip.Tip="Show the boxes the drawing reserves for the code that draws it" />
+        <ToggleButton x:Name="InvisibleButton" Content="Invisible" IsChecked="True"
+                      ToolTip.Tip="Outline what the drawing has but does not paint: boxes, mask and clip content, unpainted and hidden elements" />
       </StackPanel>
     </Border>
 

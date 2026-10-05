@@ -57,7 +57,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private readonly ToggleButton _elementsButton;
     private readonly ToggleButton _lockRatioButton;
     private readonly ToggleButton _snapButton;
-    private readonly ToggleButton _boxesButton;
+    private readonly ToggleButton _invisibleButton;
 
     /// <summary>Whether the drawing's page is what is selected, rather than one of its elements.</summary>
     private bool _page;
@@ -128,6 +128,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         LeaveOnEnter(this);
 
         _canvas = this.FindControl<SvgViewerCanvas>("PART_Canvas")!;
+        _gizmo.Picks = (svg, at) => _canvas.ElementAt(svg, new SkiaSharp.SKPoint(at.X, at.Y), out _);
         _toolBar = this.FindControl<Border>("ToolBarPanel")!;
         _statusPanel = this.FindControl<Border>("StatusPanel")!;
         _statusText = this.FindControl<TextBlock>("StatusText")!;
@@ -138,7 +139,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementsButton = this.FindControl<ToggleButton>("ElementsButton")!;
         _lockRatioButton = this.FindControl<ToggleButton>("LockRatioButton")!;
         _snapButton = this.FindControl<ToggleButton>("SnapButton")!;
-        _boxesButton = this.FindControl<ToggleButton>("BoxesButton")!;
+        _invisibleButton = this.FindControl<ToggleButton>("InvisibleButton")!;
 
         this.FindControl<Button>("FitButton")!.Click += (_, _) => _canvas.Fit();
         this.FindControl<Button>("ActualSizeButton")!.Click += (_, _) => _canvas.ActualSize();
@@ -203,17 +204,17 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             SnapChanged?.Invoke(this, EventArgs.Empty);
         };
 
-        _boxesButton.IsCheckedChanged += (_, _) =>
+        _invisibleButton.IsCheckedChanged += (_, _) =>
         {
-            if (ShowsBoxes == (_boxesButton.IsChecked == true))
+            if (ShowsInvisible == (_invisibleButton.IsChecked == true))
             {
                 return;
             }
 
-            ShowsBoxes = _boxesButton.IsChecked == true;
+            ShowsInvisible = _invisibleButton.IsChecked == true;
 
             // Only where a hand did it, as with the snap toggle.
-            BoxesChanged?.Invoke(this, EventArgs.Empty);
+            InvisibleChanged?.Invoke(this, EventArgs.Empty);
         };
 
         _rebuild.Tick += (_, _) =>
@@ -393,18 +394,18 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     public event EventHandler? SnapChanged;
 
-    /// <summary>Somebody pressed the toolbar's own boxes toggle.</summary>
+    /// <summary>Somebody pressed the toolbar's own invisible toggle.</summary>
     /// <remarks>Raised as <see cref="SnapChanged"/> is, and for the same host.</remarks>
-    public event EventHandler? BoxesChanged;
+    public event EventHandler? InvisibleChanged;
 
-    /// <inheritdoc cref="SvgViewerCanvas.ShowsBoxes"/>
-    public bool ShowsBoxes
+    /// <inheritdoc cref="SvgViewerCanvas.ShowsInvisible"/>
+    public bool ShowsInvisible
     {
-        get => _canvas.ShowsBoxes;
+        get => _canvas.ShowsInvisible;
         set
         {
-            _canvas.ShowsBoxes = value;
-            _boxesButton.IsChecked = value;
+            _canvas.ShowsInvisible = value;
+            _invisibleButton.IsChecked = value;
         }
     }
 
@@ -639,18 +640,29 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        // A click on the selection's handles or in its box, with nothing else drawn there, keeps it.
-        if (_gizmo.Keeps(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale))
+        var element = _canvas.ElementAt(open.Svg, point, out var use);
+        var key = element is { } ? SvgElementAddress.Create(element).Key : null;
+
+        // A click on the selection's handles or in its box, with nothing else drawn there, keeps it —
+        // unless it is the held mask or clip content, there where another element uses it. Anything else
+        // answering for the point means a handle was hit, which keeps it whatever runs under it.
+        var held = SelectedElement is { } selected ? SvgElementAddress.Create(selected).Key : null;
+
+        if (_gizmo.Keeps(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale) && (key is null || key != held || UseOf(key) == use))
         {
             return;
         }
 
-        // A box the drawing reserves paints nothing, so it is found by its dashed edge once the ink has
-        // had its turn.
-        if ((open.Svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) ?? _canvas.BoxAt(open.Svg, point)) is { } element)
+        if (key is { })
         {
+            _used = (key, use);
+
             SelectPage(false);
-            _elementTree.TrySelect(SvgElementAddress.Create(element).Key);
+            _elementTree.TrySelect(key);
+
+            // A row already selected raises nothing, and the handles still have to move to the use clicked.
+            TrackGizmo();
+            ShowGizmo();
 
             return;
         }
@@ -855,8 +867,17 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             ? Array.Empty<SvgViewerGizmoMember>()
             : Picks()
                 .Where(pick => pick.Element is { })
-                .Select(pick => new SvgViewerGizmoMember(pick.Element!, pick.AddressKey))
+                .Select(pick => new SvgViewerGizmoMember(pick.Element!, pick.AddressKey, UseOf(pick.AddressKey)))
                 .ToList();
+
+    /// <summary>Which element using a piece of mask or clip content a click last took hold of it through.</summary>
+    /// <remarks>
+    /// By address, which outlives the rebuild a commit makes, so the handles come back on the same use.
+    /// Anything never clicked that way is taken hold of through the first.
+    /// </remarks>
+    private (string? Key, int Use) _used;
+
+    private int UseOf(string key) => key == _used.Key ? _used.Use : 0;
 
     /// <summary>What the selection covers, as one path.</summary>
     private IReadOnlyList<SvgViewerPick> Picks()
@@ -1242,6 +1263,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private void SetDocument(SvgViewerDocument document)
     {
         var previous = _document;
+
+        // A use clicked in another document says nothing about this one.
+        _used = default;
 
         // The same drawing built again — a project resizing it, or a reopen — keeps the view it was
         // being looked at through. Assigning Svg starts over as if a file had been opened, which

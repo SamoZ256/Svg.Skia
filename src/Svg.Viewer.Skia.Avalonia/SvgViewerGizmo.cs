@@ -77,7 +77,13 @@ public sealed class SvgViewerGizmo
 
     private SKSvg? _svg;
     private SvgVisualElement? _element;
-    private SvgSceneNode? _node;
+
+    // Where the element stands, its own transform included, and its geometry before it. Not a scene
+    // node, which mask and clip content has none of to trust.
+    private (Shim.SKMatrix Total, Shim.SKRect Geometry)? _placed;
+
+    // For mask or clip content, which element using it the handles stand in.
+    private int _use;
 
     // Captured at press and held for the length of the drag. The scene node is re-resolved after
     // every mutation, so nothing here may be read back off it.
@@ -131,6 +137,14 @@ public sealed class SvgViewerGizmo
     internal static bool IsReserved(SvgElement? element)
         => element is { } && element.CustomAttributes.ContainsKey(SvgExpressionAttributes.KeyFor(SvgExpressionAttributes.Bounds));
 
+    /// <summary>What a click picks at a point of a drawing; the ink alone where no host says otherwise.</summary>
+    /// <remarks>
+    /// The host's own answer, so a click this lets go of is the one the host goes on to pick: asked only
+    /// the ink, a press on an outline of something that paints nothing inside the selection kept the
+    /// selection instead.
+    /// </remarks>
+    public Func<SKSvg, Shim.SKPoint, SvgElement?>? Picks { get; set; }
+
     /// <summary>Whether a scale handle keeps the proportions the element was pressed at.</summary>
     /// <remarks>
     /// Off unless a host asks for it, so a handle goes on doing what it did. It holds the ratio the
@@ -157,13 +171,15 @@ public sealed class SvgViewerGizmo
     /// A rebuild compiles a new <see cref="SKSvg"/>, and the scene nodes the old one handed out
     /// describe a document that is no longer on screen. Nothing here survives one.
     /// </remarks>
-    public void Track(SKSvg? svg, SvgElement? element)
+    /// <param name="use">For mask or clip content, which of the elements using it to take hold of it through.</param>
+    public void Track(SKSvg? svg, SvgElement? element, int use = 0)
     {
         Cancel();
 
         _svg = svg;
         _element = element as SvgVisualElement;
-        _node = null;
+        _use = use;
+        _placed = null;
         _writer = null;
         _writes = null;
 
@@ -172,13 +188,13 @@ public sealed class SvgViewerGizmo
             return;
         }
 
-        _node = Resolve();
+        _placed = Resolve();
     }
 
     /// <summary>The selection box and its handles, or null when there is nothing to draw.</summary>
     /// <param name="scale">The view's scale, which the handles are kept a constant size against.</param>
     public BoundsInfo? Box(float scale)
-        => _node is { } node && scale > 0f ? _selection.GetBoundsInfo(node, () => scale) : null;
+        => _placed is { } placed && scale > 0f ? _selection.GetBoundsInfo(placed.Geometry, placed.Total, () => scale) : null;
 
     /// <summary>Whether a press at <paramref name="at"/> is this gizmo's to answer rather than a pan.</summary>
     /// <param name="handlesOnly">
@@ -205,18 +221,18 @@ public sealed class SvgViewerGizmo
     {
         Cancel();
 
-        if (_element is null || _node is not { } node || Box(scale) is not { } box)
+        if (_element is null || _placed is not { } placed || Box(scale) is not { } box)
         {
             return null;
         }
 
-        if (!node.TotalTransform.TryInvert(out var toGeometry))
+        if (!placed.Total.TryInvert(out var toGeometry))
         {
             return Flattened;
         }
 
         _handle = _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _, Turns);
-        _geometry = node.GeometryBounds;
+        _geometry = placed.Geometry;
 
         // Both, not either: a horizontal line covers nothing in y and is still a shape somebody can
         // take hold of and stretch along its own axis.
@@ -255,7 +271,7 @@ public sealed class SvgViewerGizmo
         }
 
         _toGeometry = toGeometry;
-        _fromGeometry = node.TotalTransform;
+        _fromGeometry = placed.Total;
         _pressed = toGeometry.MapPoint(at);
         _restore = Clone(_element.Transforms);
         _written = written;
@@ -524,10 +540,47 @@ public sealed class SvgViewerGizmo
     private IReadOnlyList<SvgTransform> Rotated(Shim.SKPoint now)
     {
         var centre = new Shim.SKPoint(MidX(_geometry), MidY(_geometry));
+
+        // Content in a clip's or mask's bounding-box units lives under exactly such a map wherever the
+        // element using it is not square, so it is turned on screen and written as the matrix that does.
+        if (!Similar(_fromGeometry, out _))
+        {
+            var drawn = _fromGeometry.MapPoint(centre);
+            var angle = Grid.Turns(Degrees(drawn, _fromGeometry.MapPoint(now)) - Degrees(drawn, _fromGeometry.MapPoint(_pressed)));
+            var turn = _toGeometry.PreConcat(Shim.SKMatrix.CreateRotationDegrees(angle, drawn.X, drawn.Y)).PreConcat(_fromGeometry);
+
+            return new SvgTransform[] { Spelt(turn) };
+        }
+
         var turned = Degrees(centre, now) - Degrees(centre, _pressed);
 
         return new SvgTransform[] { new SvgRotate(Grid.Turns(_startAngle + turned), centre.X, centre.Y) };
     }
+
+    /// <summary>Whether a matrix only turns and scales evenly, and whether it turns the plane over.</summary>
+    internal static bool Similar(Shim.SKMatrix map, out bool mirrored)
+    {
+        mirrored = map.ScaleX * map.ScaleY + map.SkewX * map.SkewY < 0f;
+
+        var upright = Near(map.ScaleX, map.ScaleY) && Near(map.SkewX, -map.SkewY);
+        var flipped = Near(map.ScaleX, -map.ScaleY) && Near(map.SkewX, map.SkewY);
+
+        return upright || flipped;
+    }
+
+    /// <summary><paramref name="map"/> as a <c>matrix()</c>, swept of the specks a float sine leaves.</summary>
+    internal static SvgMatrix Spelt(Shim.SKMatrix map)
+    {
+        var swept = GeometryWriter.Settled(map);
+
+        return new SvgMatrix(new List<float>
+        {
+            Zero(swept.ScaleX), Zero(swept.SkewY), Zero(swept.SkewX),
+            Zero(swept.ScaleY), Zero(swept.TransX), Zero(swept.TransY)
+        });
+    }
+
+    private static float Zero(float value) => value == 0f ? 0f : value;
 
     /// <remarks>
     /// The handle opposite the one being dragged stays where it is, which is what a scale handle
@@ -608,6 +661,10 @@ public sealed class SvgViewerGizmo
                 SvgTranslate moved => Shim.SKMatrix.CreateTranslation(moved.X, moved.Y),
                 SvgScale scaled => Shim.SKMatrix.CreateScale(scaled.X, scaled.Y),
                 SvgRotate turned => Shim.SKMatrix.CreateRotationDegrees(turned.Angle, turned.CenterX, turned.CenterY),
+                SvgMatrix { Points: { Count: 6 } m } => new Shim.SKMatrix
+                {
+                    ScaleX = m[0], SkewY = m[1], SkewX = m[2], ScaleY = m[3], TransX = m[4], TransY = m[5], Persp2 = 1f
+                },
                 _ => Shim.SKMatrix.CreateIdentity()
             });
         }
@@ -672,7 +729,9 @@ public sealed class SvgViewerGizmo
 
         switch (_handle)
         {
-            case 8 when Last(written) is SvgRotate turned
+            // Only where the turn is written as one: under an uneven map it is a matrix after the head.
+            case 8 when Similar(_fromGeometry, out _)
+                        && Last(written) is SvgRotate turned
                         && Near(turned.CenterX, MidX(_geometry)) && Near(turned.CenterY, MidY(_geometry)):
                 _startAngle = turned.Angle;
                 written.RemoveAt(written.Count - 1);
@@ -777,10 +836,10 @@ public sealed class SvgViewerGizmo
             }
         }
 
-        return Boxed(_node, at);
+        return Boxed(_placed, at);
     }
 
-    /// <summary>Whether <paramref name="at"/> is inside the box drawn round <paramref name="node"/>.</summary>
+    /// <summary>Whether <paramref name="at"/> is inside the box drawn round <paramref name="placed"/>.</summary>
     /// <remarks>
     /// The whole box and not only the ink, because the hit test answers only where an element is
     /// painted: a press inside an outline with no fill, beside a thin line, between a group's
@@ -789,10 +848,10 @@ public sealed class SvgViewerGizmo
     /// what is drawn behind — see <see cref="Keeps"/>. The box is GeometryBounds under the element's
     /// own transform, so mapping the press back through it tests that box exactly, leaning and all.
     /// </remarks>
-    internal static bool Boxed(SvgSceneNode? node, Shim.SKPoint at)
-        => node is { }
-           && node.TotalTransform.TryInvert(out var toGeometry)
-           && node.GeometryBounds.Contains(toGeometry.MapPoint(at));
+    internal static bool Boxed((Shim.SKMatrix Total, Shim.SKRect Geometry)? placed, Shim.SKPoint at)
+        => placed is { } box
+           && box.Total.TryInvert(out var toGeometry)
+           && box.Geometry.Contains(toGeometry.MapPoint(at));
 
     /// <summary>
     /// Whether a click at <paramref name="at"/> leaves the selection as it is: on a handle, or in
@@ -814,7 +873,7 @@ public sealed class SvgViewerGizmo
             return true;
         }
 
-        var hit = _svg?.HitTestTopmostElement(at);
+        var hit = _svg is { } svg ? Picks?.Invoke(svg, at) ?? svg.HitTestTopmostElement(at) : null;
 
         return Covers(at) && (hit is null || ReferenceEquals(hit, _element));
     }
@@ -841,7 +900,7 @@ public sealed class SvgViewerGizmo
             svg.FromSvgDocument(svg.SourceDocument);
         }
 
-        _node = Resolve();
+        _placed = Resolve();
     }
 
     private static readonly string[] Transform = { "transform" };
@@ -849,12 +908,12 @@ public sealed class SvgViewerGizmo
     /// <remarks>
     /// After a mutation as well as after a load: a recompile replaces the nodes under the root it
     /// rebuilt, so the one held from a moment ago describes a shape that is no longer drawn.
+    ///
+    /// Mask and clip content stands wherever an element using it does, so it is taken hold of through
+    /// one of those, and a drag written to it moves it for every one.
     /// </remarks>
-    private SvgSceneNode? Resolve()
-        => _svg is { } svg && _element is { } element
-           && svg.TryGetRetainedSceneNodes(element, out var nodes) && nodes.Count > 0
-            ? nodes[0]
-            : null;
+    private (Shim.SKMatrix Total, Shim.SKRect Geometry)? Resolve()
+        => _svg is { } svg && _element is { } element ? SvgViewerOutline.Placement(svg, element, _use) : null;
 
     private const string Flattened =
         "That element is drawn flat, so there is no way back from the pointer to where it is written.";

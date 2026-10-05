@@ -991,4 +991,54 @@ public class SvgViewerElementTreeTests
 
         Assert.False(viewer.ShowElementTree);
     }
+
+    /// <summary>What clips or masks an element is said beside it, and the filter finds it by that.</summary>
+    [AvaloniaFact]
+    public async Task An_Element_Says_What_Clips_Or_Masks_It()
+    {
+        var (_, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="30" height="30">
+              <defs>
+                <clipPath id="window"><rect width="10" height="10" /></clipPath>
+                <mask id="sweep"><rect width="10" height="10" fill="#ffffff" /></mask>
+              </defs>
+              <rect width="20" height="20" clip-path="url(#window)" />
+              <rect id="r" width="20" height="20" style="mask:url(#sweep)" />
+              <rect width="20" height="20" clip-path="url(#missing)" />
+            </svg>
+            """);
+
+        var rows = Rows(viewer);
+
+        Assert.Contains("rect clip #window", rows);
+        Assert.Contains("rect #r mask #sweep", rows);
+        Assert.Contains("rect", rows);
+
+        viewer.Elements.Filter = "clip #window";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("rect clip #window", Rows(viewer));
+        Assert.DoesNotContain("rect #r mask #sweep", Rows(viewer));
+    }
+
+    /// <summary>A mask named by clip-path, or a clip path named by mask, applies nothing, and says nothing.</summary>
+    [AvaloniaFact]
+    public async Task A_Reference_To_The_Wrong_Kind_Is_Not_Said()
+    {
+        var (_, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="30" height="30">
+              <defs>
+                <clipPath id="window"><rect width="10" height="10" /></clipPath>
+                <mask id="sweep"><rect width="10" height="10" fill="#ffffff" /></mask>
+              </defs>
+              <rect id="a" width="20" height="20" mask="url(#window)" />
+              <rect id="b" width="20" height="20" clip-path="url(#sweep)" />
+            </svg>
+            """);
+
+        var rows = Rows(viewer);
+
+        Assert.Contains("rect #a", rows);
+        Assert.Contains("rect #b", rows);
+    }
 }

@@ -17,7 +17,8 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// <summary>One element a gesture is to move, as the host that owns the selection knows it.</summary>
 /// <param name="Element">The element itself, in the drawing's live document.</param>
 /// <param name="Key">What the host calls it; handed back unread with whatever was written.</param>
-public readonly record struct SvgViewerGizmoMember(SvgElement Element, string Key);
+/// <param name="Use">For mask or clip content, which of the elements using it to take hold of it through.</param>
+public readonly record struct SvgViewerGizmoMember(SvgElement Element, string Key, int Use = 0);
 
 /// <summary>What a finished gesture wants written, for however many elements it moved.</summary>
 public readonly record struct SvgViewerEdits(
@@ -116,6 +117,13 @@ public sealed class SvgViewerGizmos
         set => _one.LocksAspect = value;
     }
 
+    /// <inheritdoc cref="SvgViewerGizmo.Picks"/>
+    public Func<SKSvg, Shim.SKPoint, SvgElement?>? Picks
+    {
+        get => _one.Picks;
+        set => _one.Picks = value;
+    }
+
     /// <inheritdoc cref="SvgViewerGizmo.Grid"/>
     /// <remarks>
     /// Given in the space the host speaks, as everything here is, and shifted once into the
@@ -187,18 +195,28 @@ public sealed class SvgViewerGizmos
 
                 one.Resolve();
 
-                if (one.Node is { })
+                if (one.Placed is { })
                 {
                     held.Add(one);
                 }
             }
         }
 
+        // A member moved along with another one held — inside it, or mask or clip content of the element
+        // using it there — would be moved twice: once by its own write and again by the other's.
+        if (svg is { } drawing && held.Count > 1)
+        {
+            held = held
+                .Where(one => !held.Any(other => !ReferenceEquals(other, one) &&
+                                                 SvgViewerOutline.Under(drawing, one.Element, one.Member.Use).Contains(other.Element)))
+                .ToList();
+        }
+
         if (held.Count == 1)
         {
             _only = held[0].Member;
 
-            _one.Track(svg, held[0].Member.Element);
+            _one.Track(svg, held[0].Member.Element, held[0].Member.Use);
 
             return;
         }
@@ -275,7 +293,7 @@ public sealed class SvgViewerGizmos
         }
 
         var inside = Inside(at);
-        var hit = _svg?.HitTestTopmostElement(inside);
+        var hit = _svg is { } svg ? Picks?.Invoke(svg, inside) ?? svg.HitTestTopmostElement(inside) : null;
 
         return _held.Any(held => held.Covers(inside)) && (hit is null || _held.Any(held => ReferenceEquals(held.Element, hit)));
     }
@@ -438,12 +456,12 @@ public sealed class SvgViewerGizmos
 
         foreach (var held in _held)
         {
-            if (held.Node is not { } node)
+            if (held.Placed is not { } placed)
             {
                 continue;
             }
 
-            var box = SelectionService.GetBoundsRect(_selection.GetBoundsInfo(node, One));
+            var box = SelectionService.GetBoundsRect(_selection.GetBoundsInfo(placed.Geometry, placed.Total, One));
 
             union = union is { } spanned ? SK.SKRect.Union(spanned, box) : box;
         }
@@ -598,7 +616,8 @@ public sealed class SvgViewerGizmos
 
         public SvgVisualElement Element { get; }
 
-        public SvgSceneNode? Node { get; private set; }
+        /// <summary>Where the member stands, its own transform included, and its geometry before it.</summary>
+        public (Shim.SKMatrix Total, Shim.SKRect Geometry)? Placed { get; private set; }
 
         public IReadOnlyList<(string Name, string Value)>? Writes { get; private set; }
 
@@ -619,13 +638,12 @@ public sealed class SvgViewerGizmos
         private string? _written;
         private IReadOnlyList<(string Name, string Value)> _before = Array.Empty<(string, string)>();
 
-        public void Resolve()
-            => Node = _svg.TryGetRetainedSceneNodes(Element, out var nodes) && nodes.Count > 0 ? nodes[0] : null;
+        public void Resolve() => Placed = SvgViewerOutline.Placement(_svg, Element, Member.Use);
 
         /// <summary>Takes hold of this member, or says why the whole gesture will not run.</summary>
         public string? Begin(int handle, Func<string, string?>? driven)
         {
-            if (Node is not { } node)
+            if (Placed is not { } placed)
             {
                 return Flattened;
             }
@@ -633,7 +651,7 @@ public sealed class SvgViewerGizmos
             // Where the member's own geometry sits in its drawing: its own transform and every
             // ancestor's. Where the drawing sits on the canvas is the set's, and the gesture is
             // brought into the drawing before it ever reaches here.
-            _from = node.TotalTransform;
+            _from = placed.Total;
 
             if (!_from.TryInvert(out var toGeometry))
             {
@@ -734,7 +752,7 @@ public sealed class SvgViewerGizmos
                 return new SvgTransform[] { new SvgTranslate(Zero(moved.X), Zero(moved.Y)) };
             }
 
-            if (handle == 8 && Similar(_from, out var mirrored))
+            if (handle == 8 && SvgViewerGizmo.Similar(_from, out var mirrored))
             {
                 var turned = (float)(Math.Atan2(shared.SkewY, shared.ScaleX) * 180d / Math.PI);
                 var about = _toGeometry.MapPoint(centre);
@@ -758,16 +776,7 @@ public sealed class SvgViewerGizmos
                 };
             }
 
-            var swept = GeometryWriter.Settled(mine);
-
-            return new SvgTransform[]
-            {
-                new SvgMatrix(new List<float>
-                {
-                    Zero(swept.ScaleX), Zero(swept.SkewY), Zero(swept.SkewX),
-                    Zero(swept.ScaleY), Zero(swept.TransX), Zero(swept.TransY)
-                })
-            };
+            return new SvgTransform[] { SvgViewerGizmo.Spelt(mine) };
         }
 
         private Shim.SKPoint Vector(float x, float y)
@@ -778,19 +787,8 @@ public sealed class SvgViewerGizmos
             return new Shim.SKPoint(moved.X - origin.X, moved.Y - origin.Y);
         }
 
-        /// <summary>Whether a matrix only turns and scales evenly, and whether it turns the plane over.</summary>
-        private static bool Similar(Shim.SKMatrix map, out bool mirrored)
-        {
-            mirrored = map.ScaleX * map.ScaleY + map.SkewX * map.SkewY < 0f;
-
-            var upright = SvgViewerGizmo.Near(map.ScaleX, map.ScaleY) && SvgViewerGizmo.Near(map.SkewX, -map.SkewY);
-            var flipped = SvgViewerGizmo.Near(map.ScaleX, -map.ScaleY) && SvgViewerGizmo.Near(map.SkewX, map.SkewY);
-
-            return upright || flipped;
-        }
-
         /// <summary>Whether this member's own ink or its own box is under the pointer, which is in its drawing.</summary>
-        public bool Covers(Shim.SKPoint at) => Holds(_svg.HitTestTopmostElement(at)) || SvgViewerGizmo.Boxed(Node, at);
+        public bool Covers(Shim.SKPoint at) => Holds(_svg.HitTestTopmostElement(at)) || SvgViewerGizmo.Boxed(Placed, at);
 
         /// <summary>Whether <paramref name="hit"/> is this member or inside it.</summary>
         public bool Holds(SvgElement? hit)
