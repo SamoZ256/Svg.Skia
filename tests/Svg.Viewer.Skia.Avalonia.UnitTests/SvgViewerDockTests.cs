@@ -340,6 +340,33 @@ public class SvgViewerDockTests
         window.Close();
     }
 
+    /// <summary>
+    /// Choosing the other panel of a run swaps it in place. A rebuild moves the middle, and a tab
+    /// strip that is moved comes back on its first tab, so Studio flashed the project's tab.
+    /// </summary>
+    [AvaloniaFact]
+    public void Choosing_The_Other_Panel_Of_A_Run_Leaves_The_Middle_Where_It_Is()
+    {
+        var (window, dock, panels) = Host();
+        var rebuilt = 0;
+
+        dock.Rebuilding += (_, _) => rebuilt++;
+
+        var at = Middle(window, Tab(window, "Project"));
+
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Lay(window);
+
+        Assert.Equal(0, rebuilt);
+        Assert.True(panels[0].IsEffectivelyVisible);
+        Assert.False(panels[3].IsEffectivelyVisible);
+        Assert.Contains("selected", Tab(window, "Project").Classes);
+        Assert.DoesNotContain("selected", Tab(window, "Elements").Classes);
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public void A_Panel_Dropped_On_A_Header_Goes_In_Beside_What_It_Holds()
     {

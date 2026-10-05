@@ -17,7 +17,8 @@ public static class SvgCodeDeclarationsExtensions
 {
     /// <summary>
     /// Type checks the declarations and returns the symbol table every paint expression in the
-    /// document is compiled against, along with the C# for each let in declaration order.
+    /// document is compiled against, along with the C# for each let in declaration order that does not
+    /// fold to a value.
     /// </summary>
     public static (ExprCompiler Compiler, IReadOnlyList<(string Name, ExprType Type, string Code)> Lets) Resolve(
         this SvgExpressionDeclarations declarations)
@@ -39,12 +40,28 @@ public static class SvgCodeDeclarationsExtensions
             names[fallback.Parameter] = fallback.Local;
         }
 
-        var compiler = new ExprCompiler(symbols, names);
+        var compiler = new ExprCompiler(symbols, names, fold: true);
 
         // Held by reference, so adding here is what puts each let in scope for the ones after it.
         foreach (var let in declarations.Lets)
         {
-            var (type, code) = compiler.Compile(let.Expression);
+            // Every reference folds to the value, so a local for it would only be read by nobody
+            // and warn as CS0219.
+            // A declared type decides what a whole literal is, as it does for the evaluator.
+            var what = $"The let '{let.Name}'";
+
+            if (let.DeclaredType is { } declared
+                    ? compiler.TryConstant(let.Expression, declared, what, out var value)
+                    : compiler.TryConstant(let.Expression, out value))
+            {
+                compiler.DeclareConstant(let.Name, value);
+                symbols[let.Name] = value.Type;
+                continue;
+            }
+
+            var (type, code) = let.DeclaredType is { } declaredType
+                ? (declaredType, compiler.CompileTo(let.Expression, declaredType, what))
+                : compiler.Compile(let.Expression);
             compiled.Add((let.Name, type, code));
             symbols[let.Name] = type;
         }
@@ -182,7 +199,7 @@ public static class SvgCodeDeclarationsExtensions
 
         // Defaults may not reference other parameters: argument defaults are compile-time constants
         // in C#, and an ordering dependency between them would be invisible here.
-        var compiler = new ExprCompiler(new Dictionary<string, ExprType>(StringComparer.Ordinal));
+        var compiler = new ExprCompiler(new Dictionary<string, ExprType>(StringComparer.Ordinal), null, fold: true);
 
         return compiler.CompileTo(
             parameter.DefaultExpression,

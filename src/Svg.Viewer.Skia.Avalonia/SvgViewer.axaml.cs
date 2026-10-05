@@ -57,6 +57,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private readonly ToggleButton _elementsButton;
     private readonly ToggleButton _lockRatioButton;
     private readonly ToggleButton _snapButton;
+    private readonly ToggleButton _boxesButton;
 
     /// <summary>Whether the drawing's page is what is selected, rather than one of its elements.</summary>
     private bool _page;
@@ -137,6 +138,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementsButton = this.FindControl<ToggleButton>("ElementsButton")!;
         _lockRatioButton = this.FindControl<ToggleButton>("LockRatioButton")!;
         _snapButton = this.FindControl<ToggleButton>("SnapButton")!;
+        _boxesButton = this.FindControl<ToggleButton>("BoxesButton")!;
 
         this.FindControl<Button>("FitButton")!.Click += (_, _) => _canvas.Fit();
         this.FindControl<Button>("ActualSizeButton")!.Click += (_, _) => _canvas.ActualSize();
@@ -199,6 +201,19 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             // Only where a hand did it. A host setting the property is the one telling everybody
             // else, and told back it would go round again.
             SnapChanged?.Invoke(this, EventArgs.Empty);
+        };
+
+        _boxesButton.IsCheckedChanged += (_, _) =>
+        {
+            if (ShowsBoxes == (_boxesButton.IsChecked == true))
+            {
+                return;
+            }
+
+            ShowsBoxes = _boxesButton.IsChecked == true;
+
+            // Only where a hand did it, as with the snap toggle.
+            BoxesChanged?.Invoke(this, EventArgs.Empty);
         };
 
         _rebuild.Tick += (_, _) =>
@@ -377,6 +392,21 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// host already knowing.
     /// </remarks>
     public event EventHandler? SnapChanged;
+
+    /// <summary>Somebody pressed the toolbar's own boxes toggle.</summary>
+    /// <remarks>Raised as <see cref="SnapChanged"/> is, and for the same host.</remarks>
+    public event EventHandler? BoxesChanged;
+
+    /// <inheritdoc cref="SvgViewerCanvas.ShowsBoxes"/>
+    public bool ShowsBoxes
+    {
+        get => _canvas.ShowsBoxes;
+        set
+        {
+            _canvas.ShowsBoxes = value;
+            _boxesButton.IsChecked = value;
+        }
+    }
 
     private SvgViewerGrid _grid = new((float)SvgViewerGrid.DefaultStep, (float)SvgViewerGrid.DefaultTurn);
 
@@ -615,7 +645,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        if (open.Svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) is { } element)
+        // A box the drawing reserves paints nothing, so it is found by its dashed edge once the ink has
+        // had its turn.
+        if ((open.Svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) ?? _canvas.BoxAt(open.Svg, point)) is { } element)
         {
             SelectPage(false);
             _elementTree.TrySelect(SvgElementAddress.Create(element).Key);
@@ -852,7 +884,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        _canvas.GizmoTurns = true;
+        _canvas.GizmoTurns = _gizmo.Turns;
         _canvas.Gizmo = _gizmo.Box((float)_canvas.Scale);
     }
 
@@ -1685,6 +1717,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // DocumentOpened, so a tree that followed the event alone would be showing the document as
         // it was before the last keystroke.
         UpdateElementTree();
+    }
+
+    /// <inheritdoc cref="SvgViewerElementPanel.ClassName"/>
+    public Func<string?>? ClassName
+    {
+        get => _element.ClassName;
+        set => _element.ClassName = value;
     }
 
     /// <summary>Whether the drawing holds edits that are not on disk.</summary>

@@ -149,10 +149,19 @@ internal sealed class Bplist
         {
             stream.WriteByte((byte)(marker | count));
         }
-        else
+        else if (count < 256)
         {
             stream.WriteByte((byte)(marker | 0x0F));
             stream.WriteByte(0x10);
+            stream.WriteByte((byte)count);
+        }
+        else
+        {
+            // Past a byte, as $objects is once a fixture holds 256 slots: one byte cut the table
+            // short without a word, and the reader then met references to slots it no longer had.
+            stream.WriteByte((byte)(marker | 0x0F));
+            stream.WriteByte(0x11);
+            stream.WriteByte((byte)(count >> 8));
             stream.WriteByte((byte)count);
         }
 

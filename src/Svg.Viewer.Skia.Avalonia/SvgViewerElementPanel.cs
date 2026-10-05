@@ -7,6 +7,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -136,6 +137,12 @@ public sealed class SvgViewerElementPanel : UserControl
     private readonly Dictionary<TextBox, string> _drawn = new();
 
     private string? _address;
+
+    /// <summary>The row naming the constant a box is reported as.</summary>
+    private const string BoxRow = "e:bounds";
+
+    /// <summary>The class the drawing generates, which a box may not be named after; asked each time, since it can be renamed.</summary>
+    public Func<string?>? ClassName { get; set; }
 
     /// <summary>The variable the drag over this panel is carrying, or null while none is.</summary>
     private string? _carried;
@@ -1031,6 +1038,12 @@ public sealed class SvgViewerElementPanel : UserControl
     /// </remarks>
     private string? Trouble(string name, string written)
     {
+        // Checked as it is typed rather than when the project fails to export.
+        if (name == BoxRow && written.Trim() is { Length: > 0 } box)
+        {
+            return SvgExpressionAttributes.WhyNotBox(box, ClassName?.Invoke(), OtherBoxes());
+        }
+
         if (SvgExpressionAttributes.IsInArguments(name))
         {
             // Braces that are not one whole argument drive nothing, which the row has to say before
@@ -1140,6 +1153,29 @@ public sealed class SvgViewerElementPanel : UserControl
 
     /// <summary>The drawing as a tree, or null while its text will not read back.</summary>
     private SvgSourceDocument? Open() => SvgSourceDocument.Read(_text(), out _);
+
+    /// <summary>The drawing's boxes other than this element's, leaving out copies under <c>&lt;defs&gt;</c> as a build does.</summary>
+    private List<string> OtherBoxes()
+    {
+        if (Open() is not { } source || _address is not { } address)
+        {
+            return new List<string>();
+        }
+
+        var marked = XNamespace.Get(SvgExpressionAttributes.Namespace) + SvgExpressionAttributes.Bounds;
+        var names = source.Document.Descendants()
+            .Where(element => !element.Ancestors().Any(ancestor => ancestor.Name.LocalName == "defs"))
+            .Select(element => (string?)element.Attribute(marked))
+            .OfType<string>()
+            .ToList();
+
+        if (SvgAttributeEditor.Attribute(source, address, BoxRow) is { } own)
+        {
+            names.Remove(own);
+        }
+
+        return names;
+    }
 
     /// <summary>
     /// Writes one attribute of the element, through whatever is holding the drawing.

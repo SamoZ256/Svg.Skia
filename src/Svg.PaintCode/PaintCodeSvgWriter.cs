@@ -24,6 +24,8 @@ internal sealed class PaintCodeSvgWriter
     private readonly List<XElement> _definitions = new();
     private IReadOnlyDictionary<string, string>? _overrides;
     private int _layers;
+    private bool _marked;
+    private readonly HashSet<string> _marks = new(StringComparer.Ordinal);
 
     private PaintCodeSvgWriter(PaintCodeCanvas canvas, PaintCodeDeclarations declarations, PaintCodeSymbols symbols, ICollection<PaintCodeImportNote> notes)
     {
@@ -69,13 +71,17 @@ internal sealed class PaintCodeSvgWriter
         // tree because only walking it says which names the drawing actually reaches.
         var code = _code.Element();
 
+        if (code is { } || _marked)
+        {
+            root.SetAttributeValue(XNamespace.Xmlns + "e", PaintCodeCode.Namespace.NamespaceName);
+        }
+
         if (_definitions.Count > 0 || code is { })
         {
             var definitions = new XElement(Svg + "defs", _definitions);
 
             if (code is { })
             {
-                root.SetAttributeValue(XNamespace.Xmlns + "e", PaintCodeCode.Namespace.NamespaceName);
                 definitions.Add(code);
             }
 
@@ -194,6 +200,21 @@ internal sealed class PaintCodeSvgWriter
 
         element.SetAttributeValue("id", Identifier(shape.Name));
 
+        // A symbol's copy carries its own canvas's marks, which the build passes over, so only the
+        // canvas's own have to be told apart.
+        if (Embedded(shape.Name) is { } mark)
+        {
+            if (_expanding.Count > 0 || _marks.Add(mark))
+            {
+                element.SetAttributeValue(PaintCodeCode.Namespace + SvgExpressionAttributes.Bounds, mark);
+                _marked = true;
+            }
+            else
+            {
+                Note(PaintCodeImportSeverity.Dropped, shape.Name, "name", $"another shape in this canvas is already reported as {mark}, so this one is not.");
+            }
+        }
+
         if (sweeping is { } dashed)
         {
             Dashed(element, shape, dashed);
@@ -221,6 +242,16 @@ internal sealed class PaintCodeSvgWriter
 
         return written;
     }
+
+    /// <summary>The constant a shape named <c>Embed&lt;X&gt;</c> is reported as: <c>&lt;X&gt;Rect</c>.</summary>
+    /// <remarks>
+    /// TapHome's PaintCode2Skia made each such shape an <c>out SKRect</c> of its canvas's method: a box the
+    /// app lays its own label or control into, drawn by nothing in the document.
+    /// </remarks>
+    private static string? Embedded(string name)
+        => name.StartsWith("Embed", StringComparison.Ordinal) && name.Length > "Embed".Length && !char.IsLower(name["Embed".Length])
+            ? PaintCodeSlug.Pascal(name.Substring("Embed".Length)) + "Rect"
+            : null;
 
     /// <summary>
     /// The shape and the text it carries, or the text alone where the shape paints nothing.
@@ -308,7 +339,9 @@ internal sealed class PaintCodeSvgWriter
 
         Note(PaintCodeImportSeverity.Approximated, shape.Name, "text", "the run is placed from the shape's box rather than measured the way PaintCode measures it.");
 
-        if (element.Attribute("fill")?.Value == "none" && element.Attribute("stroke") is null)
+        // A marked box stays, being what the mark measures.
+        if (element.Attribute("fill")?.Value == "none" && element.Attribute("stroke") is null &&
+            element.Attribute(PaintCodeCode.Namespace + SvgExpressionAttributes.Bounds) is null)
         {
             return run;
         }
@@ -498,10 +531,10 @@ internal sealed class PaintCodeSvgWriter
             // ...and only where that variable is one the drawing can actually name. A library colour
             // nobody marked as used is a constant, which PaintCode bakes too -- drawSymboloverlayadd
             // takes no colorBlue, it draws the colour.
-            if (value.Value.Color is { } colour && colour.Name.Length > 0
-                && PaintCodeSlug.Identifier(colour.Name) is { } referenced
-                && _declarations.ByName.TryGetValue(referenced, out var target)
-                && target.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local)
+            // ...and read where this instance stands: inside another symbol's copy the name means what
+            // that copy was given. temperature-temperature hands its thermometer accentColorOn by name,
+            // which sr_window had set to colorPurple, and reading the bare name drew it in the accent.
+            if (value.Value.Color is { } colour && Named(colour) is { } referenced)
             {
                 if (referenced != name)
                 {
@@ -908,46 +941,23 @@ internal sealed class PaintCodeSvgWriter
                 element.SetAttributeValue("stop-color", Braces(bound[index]));
                 _code.Use(bound[index]);
             }
+            else if (_declarations.Stop(gradient, index, _overrides) is { } colour)
+            {
+                element.SetAttributeValue("stop-color", Braces(colour));
+                _code.Use(colour);
+            }
             else
             {
-                var colour = _declarations.Stop(stop.Color);
-
-                if (colour.StartsWith("#", StringComparison.Ordinal))
-                {
-                    element.SetAttributeValue("stop-color", Hex(stop.Color));
-                    Opacity(element, "stop-opacity", stop.Color.Alpha);
-                }
-                else
-                {
-                    element.SetAttributeValue("stop-color", Braces(colour));
-                    _code.Use(colour);
-                }
+                element.SetAttributeValue("stop-color", Hex(stop.Color));
+                Opacity(element, "stop-opacity", stop.Color.Alpha);
             }
 
             yield return element;
         }
     }
 
-    /// <summary>The declaration this colour is, where the library names it and a drawing can reach it.</summary>
-    private string? Named(PaintCodeColor color)
-    {
-        if (color.Name.Length == 0)
-        {
-            return null;
-        }
-
-        var name = PaintCodeSlug.Identifier(color.Name);
-
-        if (_overrides is { } overrides && overrides.TryGetValue(name, out var given))
-        {
-            return given;
-        }
-
-        return _declarations.ByName.TryGetValue(name, out var declaration) &&
-               declaration.Kind is PaintCodeDeclarationKind.Parameter or PaintCodeDeclarationKind.Local
-            ? name
-            : null;
-    }
+    /// <inheritdoc cref="PaintCodeDeclarations.Named"/>
+    private string? Named(PaintCodeColor color) => _declarations.Named(color, _overrides);
 
     private static string? Cap(int cap)
         => cap switch

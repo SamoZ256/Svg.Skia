@@ -40,8 +40,8 @@ namespace Svg.Studio;
 /// </remarks>
 public partial class MainWindow : Window
 {
-    /// <summary>How far the pointer travels before a press on a tab is a drag and not a click.</summary>
-    private const double DragThreshold = 4d;
+    /// <summary>How far the pointer travels before a press on a tab, a row or a tile is a drag and not a click.</summary>
+    internal const double DragThreshold = 4d;
 
     /// <summary>How far one wheel notch scrolls the strip.</summary>
     private const double WheelStep = 50d;
@@ -124,9 +124,18 @@ public partial class MainWindow : Window
         ConfirmRelax = AskRelax;
         Announce = (title, message) => Ask(title, message, null, "Close");
         AskTemplateName = AskTemplate;
+        AskTemplateText = AskTemplateXml;
+        ConfirmDeleteTemplate = (name, owner) => Ask(
+            "Delete template",
+            $"Delete {name} from the project? Undo brings it back once the import window is closed.",
+            "Delete",
+            "Cancel",
+            null,
+            owner);
         ShowOnDisk = Reveal;
 
         ResolveConflicts = merge => new ProjectMergeWindow(merge).ShowDialog<bool?>(this);
+        ShowImport = import => new StreamlineImportWindow(import, this).ShowDialog<bool>(this);
 
         // Through the window's own properties at the time of asking, since tests replace them.
         _changes.Announce = (title, message) => Announce(title, message);
@@ -310,6 +319,13 @@ public partial class MainWindow : Window
             Reread();
         };
 
+        viewer.BoxesChanged += (_, _) =>
+        {
+            StudioSettings.ShowBoxes = viewer.ShowsBoxes;
+
+            Reread();
+        };
+
         // A tab is added and selected before it has been given the project's pane, so what it has to
         // show is asked for again when it changes rather than only when the tab comes forward.
         viewer.PanelsChanged += (_, _) => Panels();
@@ -453,6 +469,12 @@ public partial class MainWindow : Window
         if (e.DataTransfer?.TryGetFiles() is { Length: > 0 })
         {
             e.DragEffects &= DragDropEffects.Copy | DragDropEffects.Link;
+        }
+        else if (!e.Handled && e.DataTransfer?.Contains(StreamlinePanel.DragFormat) == true)
+        {
+            // Tiles reaching the window unanswered are over neither the tree nor a board, where
+            // letting go does nothing.
+            e.DragEffects = DragDropEffects.None;
         }
     }
 
@@ -696,7 +718,6 @@ public partial class MainWindow : Window
             Retitle();
             Rebuild();
             UpdateMenu();
-            _streamline.ShowTemplates();
         };
 
         // A write changes nothing the tree or the boards are showing — only whether there is
@@ -958,7 +979,7 @@ public partial class MainWindow : Window
     {
         var named = new (string Id, string Header)[]
         {
-            ("project", "Settings"),
+            ("project", "Properties"),
             ("variables", "Variables"),
             ("element", "Attributes"),
             ("elements", "Elements")
@@ -1067,7 +1088,7 @@ public partial class MainWindow : Window
     }
 
     /// <param name="select">The node to leave selected, or null to keep whatever was.</param>
-    private void BuildTree(ProjectNode? select = null)
+    internal void BuildTree(ProjectNode? select = null)
     {
         if (_workspace is not { } workspace)
         {
@@ -1561,10 +1582,10 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Puts drawings the window has the text of into <paramref name="parent"/>, through their
-    /// templates, as one step, and opens the last of them.
+    /// templates, as one step, and opens the last of them unless <paramref name="show"/> is false.
     /// </summary>
     /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
-    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports)
+    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports, bool show = true)
     {
         if (_workspace is not { } workspace || imports.Count == 0)
         {
@@ -1586,7 +1607,10 @@ public partial class MainWindow : Window
 
         BuildTree(added[^1]);
 
-        await ShowAsync(added[^1]).ConfigureAwait(true);
+        if (show)
+        {
+            await ShowAsync(added[^1]).ConfigureAwait(true);
+        }
 
         return added;
     }
@@ -1651,7 +1675,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (await AskTemplateName(name, null).ConfigureAwait(true) is not { } answer)
+        if (await AskTemplateName(name, null, this).ConfigureAwait(true) is not { } answer)
         {
             return;
         }
@@ -1661,12 +1685,7 @@ public partial class MainWindow : Window
         if (TemplateLibrary.Put(workspace, root.Templates.Count, TemplateLibrary.Extract(answer.Name, drawing.Text)) is { } refusal)
         {
             await Announce("That template couldn't be added", refusal).ConfigureAwait(true);
-
-            return;
         }
-
-        ShowStreamline();
-        _streamline.ShowTemplates(answer.Name);
     }
 
     /// <summary>Brings the Streamline panel forward, putting it back where it was taken off.</summary>
@@ -1910,7 +1929,21 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Dropped(e) is not { Count: > 0 } paths || !paths.All(IsDrawing))
+        // Taken, and shown refused where the panel would refuse it, rather than left to the
+        // window, whose handler has nothing to say about a drag carrying no files.
+        if (e.DataTransfer.Contains(StreamlinePanel.DragFormat))
+        {
+            e.Handled = true;
+            e.DragEffects = _streamline.CanDrop ? DragDropEffects.Copy : DragDropEffects.None;
+
+            if (!_streamline.CanDrop)
+            {
+                HideDrop();
+
+                return;
+            }
+        }
+        else if (Dropped(e) is not { Count: > 0 } paths || !paths.All(IsDrawing))
         {
             HideDrop();
 
@@ -1921,7 +1954,7 @@ public partial class MainWindow : Window
         // itself, at the end of it. Anywhere in the tree adds to the project, which is what makes
         // the pane a place to drop rather than a place with places to drop.
         //
-        // The effects are left alone: the window's own handler narrows them for a file drag, and it
+        // The effects of a file drag are left alone: the window's own handler narrows them, and it
         // runs after this one.
         var target = over ?? _projectTree.Items.OfType<TreeViewItem>().FirstOrDefault();
 
@@ -1955,6 +1988,22 @@ public partial class MainWindow : Window
             if (target is { })
             {
                 Move(_rowChosen.Count > 0 ? _rowChosen : new[] { dragged }, target);
+            }
+
+            return;
+        }
+
+        if (e.DataTransfer.Contains(StreamlinePanel.DragFormat))
+        {
+            e.Handled = true;
+
+            if (target is { })
+            {
+                // Beside the row and not only into its group: the order a board and a build see,
+                // even though the tree sorts the row by its name.
+                var (parent, index) = Beside(target);
+
+                await _streamline.DropAsync(parent, index, null, show: true).ConfigureAwait(true);
             }
 
             return;
@@ -2201,7 +2250,7 @@ public partial class MainWindow : Window
 
         if (node is ProjectGroup group)
         {
-            var board = new GroupPanel(workspace, group) { TargetOf = DrawingOf, ArrangesPanels = false };
+            var board = new GroupPanel(workspace, group) { TargetOf = DrawingOf, ArrangesPanels = false, Streamline = _streamline };
 
             board.SettingChanged += (_, _) => Reread();
 
@@ -2228,6 +2277,8 @@ public partial class MainWindow : Window
         }
 
         viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
+
+        viewer.ClassName = () => drawing.EffectiveClass ?? SvgExport.Identifier(drawing.Name);
 
         // What the groups above it declare, written into it on the way to being drawn. Source stays
         // the drawing's own, so the tab still shows, edits and saves the drawing.
@@ -2920,6 +2971,7 @@ public partial class MainWindow : Window
 
         viewer.Grid = grid;
         viewer.SnapsToGrid = StudioSettings.SnapToGrid;
+        viewer.ShowsBoxes = StudioSettings.ShowBoxes;
     }
 
     private async void OnSave(object? sender, EventArgs e) => await SaveAsync();
@@ -3339,6 +3391,10 @@ public partial class MainWindow : Window
     /// <remarks>Replaceable for the reason <see cref="Announce"/> is.</remarks>
     public Func<ProjectMerge, Task<bool?>> ResolveConflicts { get; set; }
 
+    /// <summary>How the window shows Streamline's icons on their way in, answering true where they are to be imported as it left them.</summary>
+    /// <remarks>Replaceable for the reason <see cref="ResolveConflicts"/> is; a test edits the import and answers.</remarks>
+    public Func<StreamlineImport, Task<bool>> ShowImport { get; set; }
+
     /// <summary>The open project's repository panel, which is the way in to its commands without a click.</summary>
     public ChangesPanel Changes => _changes;
 
@@ -3406,10 +3462,18 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// How the window asks what a template is to be called, offering a name and, where a family is
-    /// given, whether to keep the template to it.
+    /// given, whether to keep the template to it, over the window given.
     /// </summary>
     /// <remarks>Replaceable for the reason <see cref="ConfirmDiscard"/> is. Null is a template nobody went through with.</remarks>
-    public Func<string, string?, Task<(string Name, bool OnlyFamily)?>> AskTemplateName { get; set; }
+    public Func<string, string?, Window, Task<(string Name, bool OnlyFamily)?>> AskTemplateName { get; set; }
+
+    /// <summary>How the window asks for a template's XML to be edited, over the window given; null leaves it as it was.</summary>
+    /// <remarks>Replaceable for the reason <see cref="ConfirmDiscard"/> is.</remarks>
+    public Func<string, Window, Task<string?>> AskTemplateText { get; set; }
+
+    /// <summary>How the window asks whether a template is to be deleted, over the window given.</summary>
+    /// <remarks>Replaceable for the reason <see cref="ConfirmDiscard"/> is.</remarks>
+    public Func<string, Window, Task<bool>> ConfirmDeleteTemplate { get; set; }
 
     /// <summary>What the command is called here, since each desktop names its own file manager.</summary>
     private static string Revealing => OperatingSystem.IsMacOS()
@@ -3666,7 +3730,7 @@ public partial class MainWindow : Window
         return file?.TryGetLocalPath() is { Length: > 0 } path ? path : null;
     }
 
-    private async Task<(string Name, bool OnlyFamily)?> AskTemplate(string suggested, string? family)
+    private async Task<(string Name, bool OnlyFamily)?> AskTemplate(string suggested, string? family, Window owner)
     {
         var name = new TextBox { Text = suggested, MinWidth = 320d };
         var only = new CheckBox { Content = $"Only for icons from {family}", IsVisible = family is { } };
@@ -3676,9 +3740,26 @@ public partial class MainWindow : Window
             "What should the template be called? Imports offer it by this name.",
             "Save",
             "Cancel",
-            new StackPanel { Spacing = 8d, Children = { name, only } }).ConfigureAwait(true);
+            new StackPanel { Spacing = 8d, Children = { name, only } },
+            owner).ConfigureAwait(true);
 
         return asked && name.Text?.Trim() is { Length: > 0 } named ? (named, only.IsChecked is true) : null;
+    }
+
+    private async Task<string?> AskTemplateXml(string text, Window owner)
+    {
+        var box = new TextBox
+        {
+            Text = text,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.NoWrap,
+            FontFamily = new FontFamily("Menlo, Consolas, monospace"),
+            FontSize = 12d,
+            Width = 560d,
+            Height = 320d
+        };
+
+        return await Ask("Template", "The template as the project keeps it.", "Apply", "Cancel", box, owner).ConfigureAwait(true) ? box.Text : null;
     }
 
     /// <summary>What the panel asking where a project goes is given, for a test to read.</summary>
@@ -3827,8 +3908,9 @@ public partial class MainWindow : Window
     /// A control put between the message and the buttons, for a question that is part of the answer
     /// rather than another dialog. The caller reads it once this returns.
     /// </param>
+    /// <param name="owner">The window it is over, where that is not this one.</param>
     /// <returns>Whether <paramref name="accept"/> was the answer.</returns>
-    private async Task<bool> Ask(string title, string message, string? accept, string dismiss, Control? extra = null)
+    private async Task<bool> Ask(string title, string message, string? accept, string dismiss, Control? extra = null, Window? owner = null)
     {
         var buttons = new StackPanel
         {
@@ -3874,7 +3956,7 @@ public partial class MainWindow : Window
         close.Click += (_, _) => dialog.Close(false);
         buttons.Children.Add(close);
 
-        return await dialog.ShowDialog<bool>(this);
+        return await dialog.ShowDialog<bool>(owner ?? this);
     }
 
     /// <summary>The picker, widened to the projects this window can also open.</summary>

@@ -86,7 +86,7 @@ public static class SvgRecipeColor
     }
 
     /// <summary>WCAG relative luminance of the colour, 0 for black to 1 for white, ignoring alpha.</summary>
-    /// <remarks>Used only to order colours, which is what <c>by="lightness"</c> on a slot ranks by.</remarks>
+    /// <remarks>What <c>by="lightness"</c> on a slot ranks by.</remarks>
     public static double Luminance(int argb)
     {
         var color = Color.FromArgb(argb);

@@ -16,6 +16,7 @@ using Avalonia.VisualTree;
 using SkiaSharp;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
+using static Svg.Studio.UnitTests.Gestures;
 
 namespace Svg.Studio.UnitTests;
 
@@ -104,9 +105,6 @@ public class SnapToGridTests : IDisposable
     private static GroupPanel Board(MainWindow window)
         => (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
 
-    private static SvgViewerCanvas Canvas(GroupPanel panel)
-        => panel.GetVisualDescendants().OfType<SvgViewerCanvas>().Single();
-
     private static IReadOnlyList<SvgViewerPlacement> Drawn(GroupPanel panel) => Canvas(panel).Placements;
 
     /// <summary>Where a placement sits in the arrangement, as a rectangle.</summary>
@@ -121,71 +119,9 @@ public class SnapToGridTests : IDisposable
             placement.At.Y + cull.Bottom);
     }
 
-    /// <summary>Where in the control a point of the arrangement is, checked by mapping it back.</summary>
-    private static Point Over(SvgViewerCanvas canvas, float x, float y)
-    {
-        Assert.True(canvas.TryGetDrawingPoint(new Point(canvas.OffsetX, canvas.OffsetY), out var origin));
-
-        var at = new Point(
-            (x - origin.X) * canvas.Scale + canvas.OffsetX,
-            (y - origin.Y) * canvas.Scale + canvas.OffsetY);
-
-        Assert.True(canvas.TryGetDrawingPoint(at, out var back));
-        Assert.Equal(x, back.X, 3);
-        Assert.Equal(y, back.Y, 3);
-
-        return at;
-    }
-
     /// <summary>Where a drawing is taken hold of: the line round it, a quarter down its left edge.</summary>
     private static Point Edge(SvgViewerCanvas canvas, SKRect area, float by = 0f)
         => Over(canvas, area.Left + by, area.Top + area.Height / 4f);
-
-    private static void Drag(Window window, SvgViewerCanvas canvas, Point from, Point to)
-    {
-        var start = canvas.TranslatePoint(from, window)
-                    ?? throw new InvalidOperationException("The canvas is not in the window.");
-
-        var end = canvas.TranslatePoint(to, window)
-                  ?? throw new InvalidOperationException("The canvas is not in the window.");
-
-        canvas.RaiseEvent(new PointerPressedEventArgs(
-            canvas,
-            new Pointer(0, PointerType.Mouse, true),
-            window,
-            start,
-            0,
-            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
-            KeyModifiers.None)
-        {
-            RoutedEvent = InputElement.PointerPressedEvent
-        });
-
-        canvas.RaiseEvent(new PointerEventArgs(
-            InputElement.PointerMovedEvent,
-            canvas,
-            new Pointer(0, PointerType.Mouse, true),
-            window,
-            end,
-            0,
-            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other),
-            KeyModifiers.None));
-
-        canvas.RaiseEvent(new PointerReleasedEventArgs(
-            canvas,
-            new Pointer(0, PointerType.Mouse, true),
-            window,
-            end,
-            0,
-            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
-            KeyModifiers.None,
-            MouseButton.Left)
-        {
-            RoutedEvent = InputElement.PointerReleasedEvent
-        });
-
-        Dispatcher.UIThread.RunJobs();
-    }
 
     /// <summary>The board's own snap toggle.</summary>
     private static ToggleButton Toggle(GroupPanel panel)

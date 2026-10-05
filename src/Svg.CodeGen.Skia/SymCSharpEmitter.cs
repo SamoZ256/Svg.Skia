@@ -2,7 +2,6 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
-using System.Globalization;
 using System.Text;
 using ShimSkiaSharp;
 using Svg.CodeGen.Skia.Expressions;
@@ -56,6 +55,12 @@ public static class SymCSharpEmitter
 
     private static void Emit(SymNode node, StringBuilder sb, ExprType expected)
     {
+        if (node is SymUnary or SymBinary && TryConstant(node, expected, out var constant))
+        {
+            sb.Append(ExprCSharpBackend.Emit(ExprFolder.Literal(constant, 0)));
+            return;
+        }
+
         switch (node)
         {
             case SymSource source:
@@ -70,7 +75,7 @@ public static class SymCSharpEmitter
                 }
 
             case SymLit lit:
-                sb.Append(EmitLiteral(lit.Value));
+                sb.Append(ExprCSharpBackend.Literal(lit.Value));
                 break;
 
             case SymUnary { Op: SymOp.Negate } unary:
@@ -107,6 +112,62 @@ public static class SymCSharpEmitter
         }
     }
 
+    /// <summary>
+    /// The value <paramref name="node"/> comes to without anything bound, when the compiler in scope
+    /// folds.
+    /// </summary>
+    /// <remarks>
+    /// The walk <c>SvgSceneSymEvaluator.Evaluate</c> makes at run time, which this assembly cannot
+    /// reference; <c>SymNodeDifferentialTests</c> holds the two together.
+    /// </remarks>
+    public static bool TryConstant(SymNode node, ExprType expected, out ExprValue value)
+    {
+        value = default;
+
+        switch (node)
+        {
+            case SymSource source:
+                return t_compiler is { } compiler
+                       && compiler.TryConstant(source.Text, expected, ExprFunctions.DescribeUse(expected), out value);
+
+            case SymLit lit:
+                value = ExprValue.Number((float)lit.Value);
+                return true;
+
+            case SymUnary { Op: SymOp.Negate } unary when TryConstant(unary.Operand, ExprType.Number, out var operand):
+                value = ExprValue.Number(-operand.AsNumber);
+                return true;
+
+            case SymUnary { Op: SymOp.ToLinearRgb } unary when TryConstant(unary.Operand, ExprType.Color, out var color):
+                value = ExprColor.ToLinearRgb(color);
+                return true;
+
+            // Unclamped, so a factor outside [0, 1] casts an out-of-range double to a byte, which
+            // .NET answers differently by version and platform. Only the drawing's own runtime may.
+            case SymBinary { Op: SymOp.ScaleAlpha } binary
+                when TryConstant(binary.Left, ExprType.Color, out var color)
+                     && TryConstant(binary.Right, ExprType.Number, out var factor)
+                     && factor.AsNumber is >= 0f and <= 1f:
+                value = ExprColor.ScaleAlpha(color, factor.AsNumber);
+                return true;
+
+            case SymBinary { Op: SymOp.Add or SymOp.Subtract or SymOp.Multiply or SymOp.Divide } binary
+                when TryConstant(binary.Left, ExprType.Number, out var left)
+                     && TryConstant(binary.Right, ExprType.Number, out var right):
+                value = ExprValue.Number(binary.Op switch
+                {
+                    SymOp.Add => left.AsNumber + right.AsNumber,
+                    SymOp.Subtract => left.AsNumber - right.AsNumber,
+                    SymOp.Multiply => left.AsNumber * right.AsNumber,
+                    _ => left.AsNumber / right.AsNumber
+                });
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
     private static string OperatorText(SymOp op)
         => op switch
         {
@@ -116,29 +177,4 @@ public static class SymCSharpEmitter
             SymOp.Divide => "/",
             _ => throw new NotSupportedException($"Unsupported binary {nameof(SymOp)}: {op}.")
         };
-
-    private static string EmitLiteral(double value)
-    {
-        // Opacity and friends arrive as float widened to double, so 0.3f shows up as
-        // 0.30000001192092896. Round-tripping through float keeps the generated source readable
-        // without changing the value the compiler ends up with.
-        var single = (float)value;
-
-        if (float.IsNaN(single))
-        {
-            return "float.NaN";
-        }
-
-        if (float.IsPositiveInfinity(single))
-        {
-            return "float.PositiveInfinity";
-        }
-
-        if (float.IsNegativeInfinity(single))
-        {
-            return "float.NegativeInfinity";
-        }
-
-        return single.ToString("R", CultureInfo.InvariantCulture) + "f";
-    }
 }

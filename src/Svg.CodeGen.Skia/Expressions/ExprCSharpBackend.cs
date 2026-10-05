@@ -189,16 +189,25 @@ internal static class ExprCSharpBackend
     }
 
     /// <remarks>
-    /// The checker range checks before this, so the narrowing is lossless. A literal is never
-    /// negative -- the parser reads a leading minus as negation -- so int.MinValue, which C# will
-    /// not accept written out, cannot arise here.
+    /// The checker range checks before this, so the narrowing is lossless. The parser reads a
+    /// leading minus as negation, but folding hands back negative values, so those are parenthesised:
+    /// written after the back end's own <c>(-</c> they would read as a decrement.
     /// </remarks>
     private static string Literal(long value)
-        => ((int)value).ToString(CultureInfo.InvariantCulture);
+        => Signed(((int)value).ToString(CultureInfo.InvariantCulture));
 
-    private static string Literal(double value)
+    private static string Signed(string literal)
+        => literal[0] == '-' ? $"({literal})" : literal;
+
+    internal static string Literal(double value)
     {
         var single = (float)value;
+
+        // .NET Framework formats a negative zero as "0", and a source generator may run there.
+        if (single == 0f && 1f / single < 0f)
+        {
+            return "(-0f)";
+        }
 
         if (float.IsNaN(single))
         {
@@ -215,6 +224,6 @@ internal static class ExprCSharpBackend
             return "float.NegativeInfinity";
         }
 
-        return single.ToString("R", CultureInfo.InvariantCulture) + "f";
+        return Signed(single.ToString("R", CultureInfo.InvariantCulture) + "f");
     }
 }

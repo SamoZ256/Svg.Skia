@@ -232,7 +232,7 @@ public abstract class ProjectNode
     /// board: everything under it is drawn in the grid beside the arrangement with its own numbers
     /// ignored, so there is no coordinate to carry across.
     /// </remarks>
-    private protected static (float X, float Y)? Shift(ProjectGroup from, ProjectGroup to)
+    internal static (float X, float Y)? Shift(ProjectGroup from, ProjectGroup to)
     {
         var shared = to.Ancestry(true).First(from.DescendsFrom);
 
@@ -569,6 +569,9 @@ public class ProjectGroup : ProjectNode
         Reindent(child.Element, was, ProjectDocument.Depth(child.Element));
     }
 
+    /// <summary>Whether rows sit here and none names a place, so the board is the spread.</summary>
+    internal bool IsSpread => _children.Count > 0 && !_children.Any(one => one.HasPosition);
+
     /// <summary>
     /// Writes a row's place in the coordinates of this board, or takes it away.
     /// </summary>
@@ -586,9 +589,7 @@ public class ProjectGroup : ProjectNode
     /// </remarks>
     private void Reboard(ProjectNode child, ProjectGroup from)
     {
-        var grid = _children.Count > 0 && !_children.Any(one => one.HasPosition);
-
-        if (!grid && child.X is { } x && child.Y is { } y && Shift(from, this) is { } by)
+        if (!IsSpread && child.X is { } x && child.Y is { } y && Shift(from, this) is { } by)
         {
             child.X = Rounded(x + by.X);
             child.Y = Rounded(y + by.Y);
@@ -846,7 +847,7 @@ public sealed class ProjectRoot : ProjectGroup
     public SkiaSharpTarget? SkiaSharp
     {
         get => Setting("skiaSharp") is { } value ? SvgcProject.ParseSkiaSharpTarget(value) : null;
-        set => Element.SetAttributeValue("skiaSharp", value is { } target ? (target == SkiaSharpTarget.V3 ? "3" : "4") : null);
+        set => Element.SetAttributeValue("skiaSharp", value is { } target ? SkiaSharpText(target) : null);
     }
 
     /// <summary>The project's import templates, or null where it keeps none.</summary>
@@ -883,19 +884,24 @@ public sealed class ProjectRoot : ProjectGroup
                 "templates",
                 "A project's templates have to be an <e:templates> block.");
 
-    private static string CacheText(SvgPictureCache cache) => cache switch
+    /// <summary>A cache mode as the file spells it, which is also what the Properties pane writes.</summary>
+    internal static string CacheText(SvgPictureCache cache) => cache switch
     {
         SvgPictureCache.LastValue => "lastValue",
         SvgPictureCache.LastValueLocked => "lastValueLocked",
         _ => "none"
     };
 
-    private static string ScopeText(SvgHelperScope scope) => scope switch
+    /// <summary>A helper scope as the file spells it.</summary>
+    internal static string ScopeText(SvgHelperScope scope) => scope switch
     {
         SvgHelperScope.Internal => "internal",
         SvgHelperScope.PerClass => "perClass",
         _ => "file"
     };
+
+    /// <summary>A SkiaSharp version as the file spells it.</summary>
+    internal static string SkiaSharpText(SkiaSharpTarget target) => target == SkiaSharpTarget.V3 ? "3" : "4";
 }
 
 /// <summary>
