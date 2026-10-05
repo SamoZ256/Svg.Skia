@@ -82,6 +82,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>The shape being drawn, where a tool is armed.</summary>
     private readonly SvgViewerDraw _draw = new();
 
+    /// <summary>The points of the selected shape, while the points tool is armed.</summary>
+    private readonly SvgViewerPoints _points = new();
+
     /// <summary>Where the shape in the making goes: the row it is written beside, and which side.</summary>
     private (string Target, SvgElementDrop Where) _into;
 
@@ -94,6 +97,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// onto the tool, and the element the gizmo was moving would be left where the drag had it.
     /// </remarks>
     private bool _drawing;
+
+    /// <inheritdoc cref="_drawing"/>
+    private bool _reshaping;
 
     /// <summary>What is wrong with the drawing, for whatever a pointer comes to rest on.</summary>
     private IReadOnlyList<SvgSourceDiagnostic> _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
@@ -258,7 +264,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _canvas.Picked += (_, at) =>
         {
-            if (!DrawClick(at))
+            if (!DrawClick(at) && !PointClick(at))
             {
                 PickElement(at);
             }
@@ -274,12 +280,18 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // screen, is the pair of them fighting over the pointer.
         _canvas.IsMarqueeEnabled = true;
 
-        // A tool owns the left button wherever it lands; otherwise the handles answer, and nothing else.
+        // A tool owns the left button wherever it lands; otherwise the handles answer, and nothing
+        // else. The points tool has only its points: a press on the shape between them would carry
+        // the whole element with no box drawn round it.
         _canvas.IsEditTarget = at =>
             _draw.Shape is { }
             || _canvas.TryGetDrawingPoint(at, out var point)
-            && (_gizmo.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale)
-                || _paging.Hits(new SkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale));
+            && (_draw.Reshaping
+                ? _points.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale)
+                : _gizmo.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale)
+                  || _paging.Hits(new SkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale));
+
+        _points.Driven = (key, name) => SourceAddress(key) is { } address && Driven(address, name) is { };
 
         _canvas.EditBegun += (_, at) => BeginEdit(at);
         _canvas.EditMoved += (_, at) => DragEdit(at);
@@ -307,9 +319,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
             // The keys that finish a shape or change the tool are the canvas's, and pressing a
             // button in the strip would otherwise leave the focus on the button.
-            if (_draw.Shape is { })
+            if (_draw.Shape is { } || _draw.Reshaping)
             {
                 _canvas.Focus();
+            }
+
+            if (!_draw.Reshaping)
+            {
+                _points.Deselect();
             }
 
             ShowGizmo();
@@ -538,6 +555,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _canvas.Grid = grid;
         _gizmo.Grid = grid;
         _paging.Grid = grid;
+        _points.Grid = grid;
     }
 
     /// <summary>
@@ -883,6 +901,50 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
                source => SvgElementEditor.Remove(source, mine),
                () => Array.Empty<string>());
 
+    /// <summary>Takes the chosen point out of the shape being reshaped, or draws a chosen handle back in.</summary>
+    /// <returns>Whether there was a chosen point, so a caller knows not to delete the element instead.</returns>
+    public bool DeletePoint()
+    {
+        if (!_draw.Reshaping || !_points.Remove(out var edit, out var refusal))
+        {
+            return false;
+        }
+
+        if (edit is { } removed)
+        {
+            WritePoints(removed);
+        }
+        else
+        {
+            ShowNote(refusal);
+        }
+
+        return true;
+    }
+
+    /// <summary>Writes a points edit, or puts the shape back and says why the file would not take it.</summary>
+    private void WritePoints(SvgViewerEdits edit)
+    {
+        if (Written(edit.Label, source => edit.Write(source, SourceAddress)) is { } refusal)
+        {
+            _points.Revert();
+
+            ShowNote(refusal);
+            RetraceOutline();
+            _canvas.Publish();
+        }
+        else
+        {
+            ShowNote(null);
+        }
+
+        ShowGizmo();
+    }
+
+    /// <summary>Whether the one row selected is a shape with points to take hold of.</summary>
+    private bool Reshapable()
+        => !_page && _elementTree.SelectedAddresses.Count == 1 && SvgViewerPoints.Reshapes(SelectedElement);
+
     /// <summary>Writes a copy of each row at <paramref name="addressKeys"/> after it, and selects the copies.</summary>
     public bool Duplicate(IReadOnlyList<string> addressKeys)
     {
@@ -952,6 +1014,30 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private void OnCanvasKeyDown(object? sender, KeyEventArgs e)
     {
+        // A chosen point has the keys before the tool does: Escape lets go of the point and only
+        // a second one puts the tool away, and Delete takes out the point and not the element.
+        if (!_canvas.IsEditing && _draw.Reshaping && _points.Chosen >= 0 && e.KeyModifiers == KeyModifiers.None)
+        {
+            if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+
+                _points.Deselect();
+                ShowGizmo();
+
+                return;
+            }
+
+            if (e.Key is Key.Delete or Key.Back)
+            {
+                e.Handled = true;
+
+                DeletePoint();
+
+                return;
+            }
+        }
+
         // Not while a gesture is held: the letter would arm a tool under a drag the gizmo owns.
         if (!_canvas.IsEditing && _draw.Pressed(e))
         {
@@ -971,6 +1057,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         if (_elementTree.SelectedAddresses.Count == 0)
         {
+            return;
+        }
+
+        if (e.Key is Key.Enter or Key.Return && e.KeyModifiers == KeyModifiers.None && _draw.Shape is null && !_draw.Reshaping && Reshapable())
+        {
+            e.Handled = true;
+
+            _draw.Reshaping = true;
+
             return;
         }
 
@@ -1041,7 +1136,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Puts the handles on whatever is selected, or takes them off.</summary>
     private void TrackGizmo()
     {
-        _gizmo.Track(_document?.Svg, default, Members());
+        var members = Members();
+
+        _gizmo.Track(_document?.Svg, default, members);
+        _points.Track(_document?.Svg, default, members.Count == 1 ? members[0] : null);
 
         ShowGizmo();
     }
@@ -1086,7 +1184,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private void ShowGizmo()
     {
-        if (_draw.Shape is { })
+        _canvas.Points = _draw.Reshaping ? _points.Marks() : null;
+
+        if (_draw.Shape is { } || _draw.Reshaping)
         {
             _canvas.Gizmo = null;
 
@@ -1116,6 +1216,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private void BeginEdit(Point at)
     {
         _drawing = _draw.Shape is { };
+        _reshaping = _draw.Reshaping;
 
         if (!_canvas.TryGetDrawingPoint(at, out var point) || !Writable())
         {
@@ -1125,6 +1226,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         if (_drawing)
         {
             BeginDraw(point);
+
+            return;
+        }
+
+        if (_reshaping)
+        {
+            ShowNote(_points.Begin(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale));
+            ShowGizmo();
 
             return;
         }
@@ -1140,7 +1249,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             _gizmo.Begin(
                 new ShimSkiaSharp.SKPoint(point.X, point.Y),
                 (float)_canvas.Scale,
-                key => SourceAddress(key) is { } address ? Driven(address) : null));
+                key => SourceAddress(key) is { } address ? Driven(address, "transform") : null));
 
         ShowGizmo();
     }
@@ -1156,6 +1265,17 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         {
             _draw.Drag(Pulled(point), _canvas.Modifiers);
             ShowDraw();
+
+            return;
+        }
+
+        if (_reshaping)
+        {
+            _points.Drag(new ShimSkiaSharp.SKPoint(point.X, point.Y), _canvas.Modifiers.HasFlag(KeyModifiers.Shift));
+
+            ShowGizmo();
+            RetraceOutline();
+            _canvas.Publish();
 
             return;
         }
@@ -1212,6 +1332,20 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             else
             {
                 EndDraw();
+            }
+
+            return;
+        }
+
+        if (_reshaping)
+        {
+            if (_points.End() is { } moved)
+            {
+                WritePoints(moved);
+            }
+            else
+            {
+                ShowGizmo();
             }
 
             return;
@@ -1313,6 +1447,17 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             // being a click, and a point tool's points are what the click is adding to.
             _draw.Drop();
             ShowDraw();
+
+            return;
+        }
+
+        if (_reshaping)
+        {
+            _points.Cancel();
+
+            ShowGizmo();
+            RetraceOutline();
+            _canvas.Publish();
 
             return;
         }
@@ -1426,6 +1571,53 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     }
 
     /// <summary>
+    /// A click on the shape being reshaped — choosing a point, or adding one with a double-click on
+    /// its outline — or a double-click on the selected shape, which starts reshaping it.
+    /// </summary>
+    /// <returns>Whether the click was the points' rather than a pick.</returns>
+    private bool PointClick(Point at)
+    {
+        if (!_canvas.TryGetDrawingPoint(at, out var point) || _draw.Shape is { })
+        {
+            return false;
+        }
+
+        var pressed = new ShimSkiaSharp.SKPoint(point.X, point.Y);
+        var scale = (float)_canvas.Scale;
+
+        if (!_draw.Reshaping)
+        {
+            // On the shape or in its box: the first click of the two selected it, and the second
+            // lands wherever the first did.
+            if (_canvas.Clicks != 2 || !Reshapable() || !_gizmo.Keeps(pressed, scale))
+            {
+                return false;
+            }
+
+            _draw.Reshaping = true;
+
+            return true;
+        }
+
+        if (!_points.Click(pressed, scale, _canvas.Clicks, out var edit, out var refusal))
+        {
+            return false;
+        }
+
+        if (edit is { } added)
+        {
+            WritePoints(added);
+        }
+        else
+        {
+            ShowNote(refusal);
+            ShowGizmo();
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// A click with a tool armed: text is placed, a point tool's point is put down or its shape
     /// finished, and a box tool says what it needs.
     /// </summary>
@@ -1476,8 +1668,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     }
 
     /// <summary>
-    /// The element's transform as the file spells it, where an expression writes it, and null
-    /// otherwise.
+    /// The element's attribute as the file spells it — its transform, its points — where an
+    /// expression writes it, and null otherwise.
     /// </summary>
     /// <remarks>
     /// Read off the source rather than the compiled scene, because a document whose values have
@@ -1486,9 +1678,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// drag so that a gesture it cannot put in the geometry is composed onto this text rather than
     /// onto the number the expression came to.
     /// </remarks>
-    private string? Driven(string address)
+    private string? Driven(string address, string name)
         => SvgSourceDocument.Read(PaneSource(), out _) is { } source
-           && SvgAttributeEditor.Attribute(source, address, "transform") is { } written
+           && SvgAttributeEditor.Attribute(source, address, name) is { } written
            && written.Contains("{{", StringComparison.Ordinal)
             ? written
             : null;

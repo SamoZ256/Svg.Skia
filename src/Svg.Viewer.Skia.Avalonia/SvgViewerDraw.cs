@@ -64,6 +64,7 @@ public sealed class SvgViewerDraw
     private const double NearPixels = 6d;
 
     private string? _shape;
+    private bool _reshaping;
     private Shim.SKMatrix _fromParent = Shim.SKMatrix.CreateIdentity();
     private Shim.SKMatrix _toParent = Shim.SKMatrix.CreateIdentity();
     private double _scale = 1d;
@@ -97,6 +98,31 @@ public sealed class SvgViewerDraw
             Cancel();
 
             _shape = value;
+            _reshaping &= value is null;
+
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>Whether the points tool is armed, which reshapes what is drawn rather than drawing more.</summary>
+    /// <remarks>
+    /// Beside <see cref="Shape"/> rather than one of its values: a host reads a shape as a tool that
+    /// owns every press, and this one owns only the presses on a point.
+    /// </remarks>
+    public bool Reshaping
+    {
+        get => _reshaping;
+        set
+        {
+            if (_reshaping == value)
+            {
+                return;
+            }
+
+            Cancel();
+
+            _reshaping = value;
+            _shape = value ? null : _shape;
 
             Changed?.Invoke(this, EventArgs.Empty);
         }
@@ -659,7 +685,7 @@ public sealed class SvgViewerDraw
         => _square ? Eighth(_pressed, _current) : (_current.X, _current.Y);
 
     /// <summary>The point as far from <paramref name="from"/> as it is, on the nearest of the eight directions.</summary>
-    private static (float X, float Y) Eighth(Shim.SKPoint from, Shim.SKPoint to)
+    internal static (float X, float Y) Eighth(Shim.SKPoint from, Shim.SKPoint to)
     {
         var dx = to.X - from.X;
         var dy = to.Y - from.Y;
@@ -808,6 +834,7 @@ public sealed class SvgViewerDraw
         var buttons = new List<(string? Shape, ToggleButton Button)>();
 
         Add(null, "↖", "Select (V): pick and move what is drawn");
+        Add(PointsTool, "⌖", "Points (A): drag a point or a handle; double-click the outline to add a point, Delete to remove one");
 
         foreach (var shape in Shapes)
         {
@@ -816,13 +843,7 @@ public sealed class SvgViewerDraw
             Add(shape, glyph, tip);
         }
 
-        draw.Changed += (_, _) =>
-        {
-            foreach (var (shape, button) in buttons)
-            {
-                button.IsChecked = string.Equals(shape, draw.Shape, StringComparison.Ordinal);
-            }
-        };
+        draw.Changed += (_, _) => Sync();
 
         return new Border
         {
@@ -844,28 +865,47 @@ public sealed class SvgViewerDraw
                 Padding = new global::Avalonia.Thickness(0),
                 HorizontalContentAlignment = HorizontalAlignment.Center,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                IsChecked = string.Equals(shape, draw.Shape, StringComparison.Ordinal),
+                IsChecked = Armed(shape),
                 [ToolTip.TipProperty] = tip
             };
 
             // Checking picks the tool; unchecking the one that is down is putting it away, which
-            // is Select. The toggle the hand did not touch is put right by Changed either way.
+            // is Select. Every toggle is then put right, the one the hand touched included: unchecking
+            // Select changes nothing, and it has to come back down.
             button.IsCheckedChanged += (_, _) =>
             {
                 if (button.IsChecked == true)
                 {
-                    draw.Shape = shape;
+                    draw.Reshaping = shape == PointsTool;
+                    draw.Shape = shape == PointsTool ? null : shape;
                 }
-                else if (string.Equals(shape, draw.Shape, StringComparison.Ordinal))
+                else if (Armed(shape))
                 {
+                    draw.Reshaping = false;
                     draw.Shape = null;
                 }
+
+                Sync();
             };
 
             buttons.Add((shape, button));
             column.Children.Add(button);
         }
+
+        bool Armed(string? shape)
+            => shape == PointsTool ? draw.Reshaping : !draw.Reshaping && string.Equals(shape, draw.Shape, StringComparison.Ordinal);
+
+        void Sync()
+        {
+            foreach (var (shape, button) in buttons)
+            {
+                button.IsChecked = Armed(shape);
+            }
+        }
     }
+
+    /// <summary>The points tool's button, which carries this in its tag as a shape's carries the shape.</summary>
+    private const string PointsTool = "points";
 
     /// <summary>
     /// Answers a key on the canvas: a tool's letter arms it, V or Escape puts the tool away, and
@@ -903,9 +943,17 @@ public sealed class SvgViewerDraw
             }
         }
 
-        if (e.Key is Key.V || e.Key is Key.Escape && _shape is { } && !_busy)
+        if (e.Key is Key.V || e.Key is Key.Escape && (_shape is { } || _reshaping) && !_busy)
         {
             Shape = null;
+            Reshaping = false;
+
+            return true;
+        }
+
+        if (e.Key is Key.A)
+        {
+            Reshaping = true;
 
             return true;
         }

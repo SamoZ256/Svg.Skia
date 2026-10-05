@@ -3057,8 +3057,9 @@ public partial class MainWindow : Window
             return false;
         }
 
+        // A chosen point before the element it is a point of.
         return Selected() is { } viewer
-            ? viewer.Delete(viewer.Elements.SelectedAddresses.ToList())
+            ? viewer.DeletePoint() || viewer.Delete(viewer.Elements.SelectedAddresses.ToList())
             : Board()?.Delete() == true;
     }
 
