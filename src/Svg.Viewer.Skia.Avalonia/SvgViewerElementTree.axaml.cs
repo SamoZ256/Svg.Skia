@@ -63,7 +63,6 @@ public partial class SvgViewerElementTree : UserControl
     private SvgDocument? _document;
     private string _query = string.Empty;
     private SvgViewerElementNode? _root;
-    private Func<string, SvgElementDrop, bool>? _newGroupRequested;
     private SvgViewerElementNode? _row;
     private PointerPressedEventArgs? _rowPressed;
     private Point _rowPressedAt;
@@ -95,6 +94,10 @@ public partial class SvgViewerElementTree : UserControl
         _tree.AddHandler(DragDrop.DropEvent, OnRowDrop);
 
         DragDrop.SetAllowDrop(_tree, true);
+
+        _tree.ContextMenu = Menu();
+        _tree.KeyDown += OnTreeKeyDown;
+
         _empty = this.FindControl<TextBlock>("EmptyLabel")!;
         _filter = this.FindControl<TextBox>("FilterBox")!;
 
@@ -132,34 +135,78 @@ public partial class SvgViewerElementTree : UserControl
     public Func<string, string, SvgElementDrop, bool>? MoveRequested { get; set; }
 
     /// <summary>Writes an empty group where a row was picked, for the same kind of host.</summary>
-    public Func<string, SvgElementDrop, bool>? NewGroupRequested
-    {
-        get => _newGroupRequested;
-        set
-        {
-            _newGroupRequested = value;
+    public Func<string, SvgElementDrop, bool>? NewGroupRequested { get; set; }
 
-            _tree.ContextMenu = value is null ? null : Menu();
+    /// <summary>Takes the rows named out of the drawing, for the same kind of host.</summary>
+    public Func<IReadOnlyList<string>, bool>? DeleteRequested { get; set; }
+
+    /// <summary>Writes a copy of each row named after it, for the same kind of host.</summary>
+    public Func<IReadOnlyList<string>, bool>? DuplicateRequested { get; set; }
+
+    /// <summary>The rows' menu, showing whatever a host has wired and nothing where it wired nothing.</summary>
+    private ContextMenu Menu()
+    {
+        var group = Item("New group", () => NewGroupRequested is { } write && SelectedNode is { } row && write(row.AddressKey, SvgElementDrop.After));
+        var duplicate = Item("Duplicate", () => DuplicateRequested is { } write && write(_selectedAddresses.ToList()));
+        var delete = Item("Delete", () => DeleteRequested is { } write && write(_selectedAddresses.ToList()));
+        var menu = new ContextMenu { ItemsSource = new[] { group, duplicate, delete } };
+
+        menu.Opening += (_, e) =>
+        {
+            var command = Command();
+
+            group.IsVisible = NewGroupRequested is { };
+            duplicate.IsVisible = DuplicateRequested is { };
+            delete.IsVisible = DeleteRequested is { };
+
+            group.IsEnabled = SelectedNode is { };
+            duplicate.IsEnabled = delete.IsEnabled = _selectedAddresses.Count > 0;
+
+            // Shown rather than bound, which is what a MenuItem's gesture is: the keys are answered
+            // by the tree and the canvas, so they work while this menu is closed.
+            duplicate.InputGesture = new KeyGesture(Key.D, command);
+            delete.InputGesture = new KeyGesture(Key.Delete);
+
+            e.Cancel = !(group.IsVisible || duplicate.IsVisible || delete.IsVisible);
+        };
+
+        return menu;
+
+        static MenuItem Item(string header, Func<bool> run)
+        {
+            var item = new MenuItem { Header = header };
+
+            item.Click += (_, _) => run();
+
+            return item;
         }
     }
 
-    private ContextMenu Menu()
+    /// <summary>The platform's command key, so the gesture is ⌘D where the menu says it is.</summary>
+    private KeyModifiers Command()
+        => this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control;
+
+    private void OnTreeKeyDown(object? sender, KeyEventArgs e)
     {
-        var group = new MenuItem { Header = "New group" };
-
-        group.Click += (_, _) =>
+        if (_selectedAddresses.Count == 0)
         {
-            if (_newGroupRequested is { } write && SelectedNode is { } row)
-            {
-                write(row.AddressKey, SvgElementDrop.After);
-            }
-        };
+            return;
+        }
 
-        var menu = new ContextMenu { ItemsSource = new[] { group } };
+        // Back as well as Delete: the two are one key on a Mac keyboard. A copy of the selection,
+        // because writing it changes it under the host's feet.
+        if (e.Key is Key.Delete or Key.Back && e.KeyModifiers == KeyModifiers.None && DeleteRequested is { } delete)
+        {
+            e.Handled = true;
 
-        menu.Opening += (_, _) => group.IsEnabled = SelectedNode is { };
+            delete(_selectedAddresses.ToList());
+        }
+        else if (e.Key == Key.D && e.KeyModifiers == Command() && DuplicateRequested is { } duplicate)
+        {
+            e.Handled = true;
 
-        return menu;
+            duplicate(_selectedAddresses.ToList());
+        }
     }
 
     // ---- dragging a row ---------------------------------------------------------------------

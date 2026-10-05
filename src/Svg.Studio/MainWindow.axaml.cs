@@ -3009,6 +3009,61 @@ public partial class MainWindow : Window
 
     private IInputElement? Focused() => FocusManager?.GetFocusedElement();
 
+    private void OnDuplicate(object? sender, EventArgs e) => Duplicate();
+
+    private async void OnDelete(object? sender, EventArgs e)
+    {
+        // The project tree answers Delete itself while it has the focus; the menu item is the same
+        // command found another way, so it goes where the key would have gone.
+        if (Focused() is Visual focused
+            && _projectTree.IsVisualAncestorOf(focused)
+            && (_projectTree.SelectedItem as TreeViewItem)?.Tag is ProjectNode node)
+        {
+            await RemoveAsync(Chosen(node));
+
+            return;
+        }
+
+        Delete();
+    }
+
+    /// <summary>
+    /// Writes a copy of what the selected tab has picked, after it.
+    /// </summary>
+    /// <remarks>
+    /// The tiers Undo walks, less the project: a box being typed in is left its own keystroke, and
+    /// so is the project tree, whose rows are copied by Copy and Paste. Then the drawing in front,
+    /// or the board, whichever the tab is.
+    /// </remarks>
+    /// <returns>Whether anything was written.</returns>
+    public bool Duplicate()
+    {
+        if (Focused() is TextBox || Focused() is Visual focused && _projectTree.IsVisualAncestorOf(focused))
+        {
+            return false;
+        }
+
+        return Selected() is { } viewer
+            ? viewer.Duplicate(viewer.Elements.SelectedAddresses.ToList())
+            : Board()?.Duplicate() == true;
+    }
+
+    /// <inheritdoc cref="Duplicate"/>
+    /// <summary>Takes what the selected tab has picked out of its drawing.</summary>
+    public bool Delete()
+    {
+        if (Focused() is TextBox || Focused() is Visual focused && _projectTree.IsVisualAncestorOf(focused))
+        {
+            return false;
+        }
+
+        return Selected() is { } viewer
+            ? viewer.Delete(viewer.Elements.SelectedAddresses.ToList())
+            : Board()?.Delete() == true;
+    }
+
+    private GroupPanel? Board() => (_tabs.SelectedItem as TabItem)?.Content as GroupPanel;
+
     /// <summary>
     /// Shows each command's gesture beside it, as the platform spells that gesture.
     /// </summary>
@@ -3072,6 +3127,16 @@ public partial class MainWindow : Window
             redo.IsEnabled = Selected()?.CanRedo == true || _workspace?.CanRedo == true;
             redo.Header = Taking("Redo", Selected()?.RedoLabel ?? _workspace?.RedoLabel);
         }
+
+        // Live over any tab with elements to pick, since what is picked changes under a menu that
+        // is drawn before the click; with nothing picked either does nothing, which is honest.
+        foreach (var header in new[] { "Duplicate", "Delete" })
+        {
+            if (Item(menu, header) is { } item)
+            {
+                item.IsEnabled = Selected() is { Document: { } } || Board() is { };
+            }
+        }
     }
 
     /// <summary>"Undo", or "Undo remove Large" where the history knows what it was.</summary>
@@ -3105,6 +3170,11 @@ public partial class MainWindow : Window
         if (Item(NativeMenu.GetMenu(this), "Save As…") is { } saveAs)
         {
             saveAs.Gesture = new KeyGesture(Key.S, command | KeyModifiers.Shift);
+        }
+
+        if (Item(NativeMenu.GetMenu(this), "Duplicate") is { } duplicate)
+        {
+            duplicate.Gesture = new KeyGesture(Key.D, command);
         }
 
         void Show(string header, IReadOnlyList<KeyGesture> gestures)

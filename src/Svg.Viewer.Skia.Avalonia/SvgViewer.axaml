@@ -68,7 +68,11 @@
 
       <Grid x:Name="Centre">
 
-        <viewer:SvgViewerCanvas x:Name="PART_Canvas" />
+        <DockPanel>
+          <!-- The drawing tools, a column beside the drawing as an editor has them; built in code, since a board has the same column and is not a viewer. -->
+          <ContentControl x:Name="ToolStrip" DockPanel.Dock="Left" />
+          <viewer:SvgViewerCanvas x:Name="PART_Canvas" />
+        </DockPanel>
 
         <!--
           Over the drawing rather than under it, because what it says is that the drawing is not to
