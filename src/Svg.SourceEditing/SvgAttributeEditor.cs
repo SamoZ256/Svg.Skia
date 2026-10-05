@@ -407,6 +407,21 @@ public static class SvgAttributeEditor
         return at;
     }
 
+    /// <summary>The address key that names <paramref name="element"/>: what <see cref="Resolve"/> reads.</summary>
+    internal static string Key(XElement element)
+    {
+        var indexes = new List<string>();
+
+        for (var at = element; at.Parent is { } parent; at = parent)
+        {
+            indexes.Add(at.ElementsBeforeSelf().Count().ToString(CultureInfo.InvariantCulture));
+        }
+
+        indexes.Reverse();
+
+        return string.Join("/", indexes);
+    }
+
     /// <summary>An attribute's name as the file spells it, prefix and all.</summary>
     /// <remarks>
     /// The prefix is part of the name and not decoration: <c>href</c> and <c>xlink:href</c> are two

@@ -9,6 +9,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using System.Xml.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -790,7 +791,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        return Rewritten("add a group", source => SvgElementEditor.NewGroup(source, target, where), targetKey);
+        // One break inside it, so it is written as a pair of tags rather than <g/>: a group somebody
+        // is about to drop things into wants somewhere to put them.
+        return Rewritten(
+            "add a group",
+            source => SvgElementEditor.Insert(source, target, where, new XElement("g", new XText("\n")), out _),
+            targetKey);
     }
 
     /// <summary>

@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Xml.Linq;
@@ -11,7 +12,7 @@ using Svg.Expressions;
 namespace Svg.SourceEditing;
 
 /// <summary>
-/// Puts elements of a drawing inside a <c>&lt;g&gt;</c>, and takes them out again.
+/// Moves, adds, copies and removes the elements of a drawing on the tree.
 /// </summary>
 /// <remarks>
 /// A span and not a rewritten document, for the reason everything here is: a document regenerated
@@ -75,7 +76,7 @@ public static class SvgElementEditor
 
         var into = where == SvgElementDrop.Inside ? target : target.Parent!;
 
-        if (Holds(into) is { } cannot)
+        if (Holds(into, moved) is { } cannot)
         {
             return cannot;
         }
@@ -98,14 +99,28 @@ public static class SvgElementEditor
         return null;
     }
 
-    /// <inheritdoc cref="NewGroup(string, string, SvgElementDrop)"/>
-    /// <returns>The sentence refusing it, or null where the group was written.</returns>
-    public static string? NewGroup(SvgSourceDocument source, string targetKey, SvgElementDrop where)
+    /// <summary>Writes a new element where a drop says, on a line of its own.</summary>
+    /// <remarks>
+    /// The element is built by the caller in no namespace and given the drawing's here, so a
+    /// <c>&lt;g&gt;</c> made beside a file whose tree holds it under the SVG namespace lands in that
+    /// namespace too — a bare name would disagree with every later lookup. Blank text inside it is
+    /// taken as written at depth zero and moved to the depth it lands at, so an element holding no
+    /// nodes at all is written as <c>&lt;g/&gt;</c>, and one given a single break as a pair of tags.
+    /// </remarks>
+    /// <returns>The sentence refusing it, or null where it was written.</returns>
+    public static string? Insert(
+        SvgSourceDocument source,
+        string targetKey,
+        SvgElementDrop where,
+        XElement element,
+        out string? addressKey)
     {
         if (source is null)
         {
             throw new ArgumentNullException(nameof(source));
         }
+
+        addressKey = null;
 
         if (SvgAttributeEditor.Resolve(source.Document, targetKey) is not { } target)
         {
@@ -119,23 +134,163 @@ public static class SvgElementEditor
 
         var into = where == SvgElementDrop.Inside ? target : target.Parent!;
 
-        if (Holds(into) is { } cannot)
+        if (Holds(into, element) is { } cannot)
         {
             return cannot;
         }
 
         var indent = where == SvgElementDrop.Inside ? Indent(target) + source.IndentUnit : Indent(target);
 
-        // The break inside it is not decoration: an element holding no nodes at all is written as
-        // <g/>, and a group somebody is about to drop things into wants a pair of tags.
-        var group = new XElement(
-            into.Name.Namespace + "g",
-            new XText("\n" + indent));
+        foreach (var named in element.DescendantsAndSelf())
+        {
+            if (named.Name.Namespace == XNamespace.None)
+            {
+                named.Name = into.Name.Namespace + named.Name.LocalName;
+            }
+        }
 
-        Put(target, where, group, indent);
+        Reindent(element, string.Empty, indent);
+        Put(target, where, element, indent);
+
+        addressKey = SvgAttributeEditor.Key(element);
 
         return null;
     }
+
+    /// <summary>Takes elements out of the drawing, each with the line that carried it.</summary>
+    /// <returns>The sentence refusing it, or null where they were removed.</returns>
+    public static string? Remove(SvgSourceDocument source, IReadOnlyList<string> addressKeys)
+    {
+        if (Chosen(source, addressKeys, "deleted", out var elements) is { } cannot)
+        {
+            return cannot;
+        }
+
+        foreach (var element in elements)
+        {
+            Cut(element);
+        }
+
+        return null;
+    }
+
+    /// <summary>Writes a copy of each element directly after it, at the same depth.</summary>
+    /// <remarks>
+    /// Every id in a copy is renamed to one the drawing does not have, because the parser renames a
+    /// duplicate silently on the way in and the file would then disagree with what was drawn. What
+    /// refers to an id is left pointing at the original, which paints the same.
+    /// </remarks>
+    /// <returns>The sentence refusing it, or null where the copies were written.</returns>
+    public static string? Duplicate(
+        SvgSourceDocument source,
+        IReadOnlyList<string> addressKeys,
+        out IReadOnlyList<string> copies)
+    {
+        copies = Array.Empty<string>();
+
+        if (Chosen(source, addressKeys, "duplicated", out var elements) is { } cannot)
+        {
+            return cannot;
+        }
+
+        foreach (var element in elements)
+        {
+            if (element.Parent is { } parent && IsText(parent))
+            {
+                return $"What a <{parent.Name.LocalName}> holds is one run of text, so a part of it cannot be duplicated.";
+            }
+        }
+
+        var ids = new HashSet<string>(
+            source.Document.Descendants().Select(element => (string?)element.Attribute("id")).OfType<string>(),
+            StringComparer.Ordinal);
+        var made = new List<XElement>(elements.Count);
+
+        foreach (var original in elements)
+        {
+            var copy = SvgSourceDocument.Copy(original);
+
+            foreach (var named in copy.DescendantsAndSelf())
+            {
+                if (named.Attribute("id") is { } id && !id.Value.Contains("{{", StringComparison.Ordinal))
+                {
+                    id.Value = Free(id.Value, ids);
+                }
+            }
+
+            Put(original, SvgElementDrop.After, copy, Indent(original));
+            made.Add(copy);
+        }
+
+        // Only once every copy is in: each one shifts the addresses after it.
+        copies = made.Select(SvgAttributeEditor.Key).ToList();
+
+        return null;
+    }
+
+    /// <summary>The first of <c>id-2</c>, <c>id-3</c>… the drawing does not have, taken.</summary>
+    private static string Free(string id, HashSet<string> ids)
+    {
+        for (var n = 2; ; n++)
+        {
+            var candidate = id + "-" + n.ToString(CultureInfo.InvariantCulture);
+
+            if (ids.Add(candidate))
+            {
+                return candidate;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The elements a selection names, outermost only, or the sentence refusing the selection.
+    /// </summary>
+    /// <remarks>
+    /// A child whose parent is also named goes with the parent, so it is not acted on twice. The
+    /// declarations are the Parameters panel's: a <c>&lt;defs&gt;</c> holding the block is refused
+    /// as a whole, since cutting or doubling it is what the block was put there to prevent.
+    /// </remarks>
+    private static string? Chosen(
+        SvgSourceDocument source,
+        IReadOnlyList<string> addressKeys,
+        string verb,
+        out List<XElement> elements)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        elements = new List<XElement>(addressKeys.Count);
+
+        foreach (var key in addressKeys)
+        {
+            if (SvgAttributeEditor.Resolve(source.Document, key) is not { } element)
+            {
+                return "That is not in this drawing any more.";
+            }
+
+            if (element.Parent is null)
+            {
+                return $"The drawing itself cannot be {verb}.";
+            }
+
+            if (element.DescendantsAndSelf().Any(held => held.Name.Namespace == Ns))
+            {
+                return $"The declarations cannot be {verb} here: the Parameters panel edits them.";
+            }
+
+            elements.Add(element);
+        }
+
+        var chosen = elements;
+
+        elements = chosen.Where(element => !element.Ancestors().Any(chosen.Contains)).ToList();
+
+        return null;
+    }
+
+    private static readonly XNamespace Ns = SvgExpressionDeclarations.Namespace;
 
     /// <summary>The whitespace an element is written after, or nothing where it shares its line.</summary>
     /// <remarks>
@@ -286,15 +441,15 @@ public static class SvgElementEditor
     /// </remarks>
     private static XElement? Shelter(XElement element) => element.Ancestors().FirstOrDefault(Kept);
 
-    /// <summary>Why <paramref name="parent"/> cannot hold a group, or null where it can.</summary>
+    /// <summary>Why <paramref name="parent"/> cannot hold <paramref name="placed"/>, or null where it can.</summary>
     /// <remarks>
-    /// A <c>&lt;g&gt;</c> is not content these take: a clip path stops clipping, a gradient stops
-    /// having stops, and a run of text stops being one run.
+    /// A shape is not content these take: a clip path stops clipping, a gradient stops having
+    /// stops, and a run of text stops being one run.
     /// </remarks>
-    private static string? Holds(XElement parent)
-        => parent.Name.LocalName is
-            "clipPath" or "linearGradient" or "radialGradient" or "filter" or "text" or "tspan" or "textPath"
-            ? $"A <{parent.Name.LocalName}> cannot hold a <g>, so what is written in one cannot be grouped."
+    private static string? Holds(XElement parent, XElement placed)
+        => parent.Name.LocalName is "clipPath" or "linearGradient" or "radialGradient" or "filter" || IsText(parent)
+            ? $"A <{parent.Name.LocalName}> cannot hold a <{placed.Name.LocalName}>."
             : null;
 
+    private static bool IsText(XElement element) => element.Name.LocalName is "text" or "tspan" or "textPath";
 }
