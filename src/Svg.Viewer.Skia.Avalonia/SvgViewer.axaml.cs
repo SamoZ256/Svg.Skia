@@ -172,6 +172,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _elementTree.MoveRequested = MoveElement;
         _elementTree.NewGroupRequested = NewGroup;
+        _elementTree.DeleteRequested = Delete;
+        _elementTree.DuplicateRequested = Duplicate;
+
+        _canvas.KeyDown += OnCanvasKeyDown;
 
         _elementTree.Selected += (_, node) =>
         {
@@ -779,7 +783,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        return Rewritten("move an element", source => SvgElementEditor.Move(source, moved, target, where), targetKey);
+        // Where the row landed is not where it was, and the addresses after it have all shifted, so
+        // the row it went beside is what can still be pointed at.
+        return Rewritten("move an element", source => SvgElementEditor.Move(source, moved, target, where), () => new[] { targetKey });
     }
 
     private bool NewGroup(string targetKey, SvgElementDrop where)
@@ -796,7 +802,110 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         return Rewritten(
             "add a group",
             source => SvgElementEditor.Insert(source, target, where, new XElement("g", new XText("\n")), out _),
-            targetKey);
+            () => new[] { targetKey });
+    }
+
+    /// <summary>Takes the rows at <paramref name="addressKeys"/> out of the drawing, as one edit.</summary>
+    /// <remarks>
+    /// One commit however many rows, so a selection of six is one thing to take back — and all or
+    /// nothing besides: a row the file does not spell refuses the lot before anything is cut.
+    /// </remarks>
+    public bool Delete(IReadOnlyList<string> addressKeys)
+        => Spelt(addressKeys) is { } mine
+           && Rewritten(
+               mine.Count == 1 ? "delete an element" : $"delete {mine.Count} elements",
+               source => SvgElementEditor.Remove(source, mine),
+               () => Array.Empty<string>());
+
+    /// <summary>Writes a copy of each row at <paramref name="addressKeys"/> after it, and selects the copies.</summary>
+    public bool Duplicate(IReadOnlyList<string> addressKeys)
+    {
+        if (Spelt(addressKeys) is not { } mine)
+        {
+            return false;
+        }
+
+        IReadOnlyList<string> copies = Array.Empty<string>();
+
+        return Rewritten(
+            mine.Count == 1 ? "duplicate an element" : $"duplicate {mine.Count} elements",
+            source => SvgElementEditor.Duplicate(source, mine, out copies),
+            () => Rows(copies));
+    }
+
+    /// <summary>
+    /// The rows as the file spells them, or null — having said so — where it does not spell one.
+    /// </summary>
+    /// <remarks>
+    /// The table once for the whole selection rather than <see cref="SourceAddress"/> per row: it is
+    /// the file read and walked, and a selection of twenty would be twenty parses of one text.
+    /// </remarks>
+    private IReadOnlyList<string>? Spelt(IReadOnlyList<string> addressKeys)
+    {
+        if (addressKeys.Count == 0 || !Writable())
+        {
+            return null;
+        }
+
+        var source = PaneSource();
+        var spelt = SvgSourceElements.Addresses(source, _document?.Built(source));
+        var mine = new List<string>(addressKeys.Count);
+
+        foreach (var addressKey in addressKeys)
+        {
+            if (!spelt.TryGetValue(addressKey, out var at))
+            {
+                ShowNote(Unwritten);
+
+                return null;
+            }
+
+            mine.Add(at);
+        }
+
+        return mine;
+    }
+
+    /// <summary>What the tree calls the elements the file spells at <paramref name="sourceKeys"/>.</summary>
+    /// <remarks>The other way round from <see cref="SourceAddress"/>, for an edit that has just written them.</remarks>
+    private IReadOnlyCollection<string> Rows(IEnumerable<string> sourceKeys)
+    {
+        var source = PaneSource();
+        var wanted = new HashSet<string>(sourceKeys, StringComparer.Ordinal);
+
+        return SvgSourceElements.Addresses(source, _document?.Built(source))
+            .Where(pair => wanted.Contains(pair.Value))
+            .Select(pair => pair.Key)
+            .ToList();
+    }
+
+    /// <remarks>
+    /// On the canvas, as the undo gestures are, so the keys mean this only while somebody is looking
+    /// at the drawing and a text box keeps its own Backspace. Nothing selected is nothing to answer,
+    /// and the key goes on to whoever is above.
+    /// </remarks>
+    private void OnCanvasKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (_elementTree.SelectedAddresses.Count == 0)
+        {
+            return;
+        }
+
+        var command = this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control;
+
+        // Back as well as Delete: the two are one key on a Mac keyboard.
+        if (e.Key is Key.Delete or Key.Back && e.KeyModifiers == KeyModifiers.None)
+        {
+            e.Handled = true;
+
+            Delete(_elementTree.SelectedAddresses.ToList());
+        }
+        else if (e.Key == Key.D && e.KeyModifiers == command)
+        {
+            e.Handled = true;
+
+            Duplicate(_elementTree.SelectedAddresses.ToList());
+        }
     }
 
     /// <summary>
@@ -808,18 +917,21 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// differently. An edit goes to the file, so a row is written by the address it has there and
     /// not by the one it has here.
     /// </remarks>
-    private const string Unwritten = "That row is not written in this file, so it cannot be moved here.";
+    private const string Unwritten = "That row is not written in this file, so it cannot be edited here.";
 
-    private bool Rewritten(string label, Func<SvgSourceDocument, string?> edit, string follow)
+    /// <summary>Commits an edit to the tree and selects what <paramref name="follow"/> then names.</summary>
+    /// <remarks>
+    /// Asked after the commit rather than before: what there is to point at — the rows an edit just
+    /// wrote, say — is only known once the drawing has been written and read again.
+    /// </remarks>
+    private bool Rewritten(string label, Func<SvgSourceDocument, string?> edit, Func<IReadOnlyCollection<string>> follow)
     {
         if (!Writable() || !Commit(label, edit))
         {
             return false;
         }
 
-        // Where the row landed is not where it was, and the addresses after it have all shifted, so
-        // the row it went beside is what can still be pointed at.
-        _elementTree.TrySelect(follow);
+        _elementTree.TrySelect(follow());
 
         return true;
     }
