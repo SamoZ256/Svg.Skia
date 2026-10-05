@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Svg.Expressions;
 
 namespace Svg.Highlighting;
@@ -75,14 +76,15 @@ public static class SvgSourceDiagnostics
         // shows three.
         var declarations = SvgExpressionDeclarations.Parse(source, out var declared);
 
-        if (declared.Count > 0)
+        foreach (var diagnostic in declared)
         {
-            foreach (var diagnostic in declared)
-            {
-                found.Add(Mark(diagnostic.Position, source!.Length, diagnostic.Message, tokens, source));
-            }
+            found.Add(Mark(diagnostic.Position, source!.Length, diagnostic.Message, tokens, source));
         }
-        else if (sites.Count > 0)
+
+        // A name declared twice is still in the table, under its first declaration, so the
+        // expressions can be checked past it. Any other fault leaves a name out of the table, and
+        // checking then would blame every expression that names it for the one declaration.
+        if (sites.Count > 0 && declared.All(diagnostic => diagnostic.Message.EndsWith("is declared more than once.", StringComparison.Ordinal)))
         {
             Check(found, declarations, sites, tokens, source!);
         }

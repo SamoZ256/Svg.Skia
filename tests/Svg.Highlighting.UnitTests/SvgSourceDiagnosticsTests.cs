@@ -45,6 +45,30 @@ public class SvgSourceDiagnosticsTests
     }
 
     [Fact]
+    public void A_Name_Declared_Twice_Does_Not_Hide_What_Else_Is_Wrong()
+    {
+        // The first hue is still in the table, so the expressions can be checked past the clash. A
+        // document with a clash and a typo used to report the clash alone, and the typo only once the
+        // clash was fixed.
+        var found = Of("<defs><e:code><e:let name=\"hue\">1</e:let></e:code></defs><rect opacity=\"{{ sweeep }}\" />");
+
+        Assert.Equal(2, found.Length);
+        Assert.Contains(found, one => one.Message == "'hue' is declared more than once.");
+        Assert.Contains(found, one => one.Message.StartsWith("Unknown name 'sweeep'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_Declaration_That_Does_Not_Read_Still_Stops_The_Checking()
+    {
+        // A parameter of an unknown type is not in the table, and every expression naming it would
+        // otherwise be blamed for the one declaration.
+        var found = Of("<defs><e:code><e:param name=\"size\" type=\"stuff\" /></e:code></defs><rect opacity=\"{{ size }}\" />");
+
+        Assert.Single(found);
+        Assert.DoesNotContain(found, one => one.Message.Contains("size", StringComparison.Ordinal) && one.Message.StartsWith("Unknown", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_Name_Nothing_Declares_Is_Reported_Where_It_Is_Written()
     {
         // The point of the whole exercise: a typo says so while the file is being read, rather than
