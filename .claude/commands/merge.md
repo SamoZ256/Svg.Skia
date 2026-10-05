@@ -1,15 +1,12 @@
 ---
-description: Land work by merging a pull request on the remote, never with a local git merge - push the current branch, open a PR against a target branch, merge that PR on GitHub, and land; or push and finish a PR that already exists. This is the only way work lands in this repository.
-argument-hint: [target-branch, or the number of a PR that already exists]
-allowed-tools: SlashCommand, Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git ls-files:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(git rev-list:*), Bash(git checkout:*), Bash(git switch:*), Bash(git restore:*), Bash(git pull:*), Bash(git fetch:*), Bash(git merge:*), Bash(gh auth:*), Bash(gh pr:*), Bash(gh run:*), Bash(gh repo:*), Bash(dotnet build:*), Bash(dotnet test:*), Bash(dotnet format:*)
+description: Land work by merging a pull request on the remote, never with a local git merge - push the current branch, open its PR against the branch it grew from (or take the one already open), merge that PR on GitHub, and land. This is the only way work lands in this repository.
+allowed-tools: SlashCommand, Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git ls-files:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(git rev-list:*), Bash(git checkout:*), Bash(git switch:*), Bash(git restore:*), Bash(git pull:*), Bash(git fetch:*), Bash(git for-each-ref:*), Bash(git merge:*), Bash(gh auth:*), Bash(gh pr:*), Bash(gh run:*), Bash(gh repo:*), Bash(dotnet build:*), Bash(dotnet test:*), Bash(dotnet format:*)
 ---
 
 Take a branch all the way in: push it, open a pull request, merge that, and clean up after it.
 
-**It always pushes first**, whichever form is used, so what merges is what I have in front of me.
-
-**$1** is either the branch to merge into, or the number of a pull request `/pr` has already
-opened — a value that is all digits is a number, anything else is a branch name.
+It takes no arguments: what merges is the branch I am on, through its pull request, into the branch
+that pull request targets. **It always pushes first**, so what merges is what I have in front of me.
 
 **Invoking this is the permission for all of it** — the commit, the push, the merge, and deleting
 the branch at both ends. CLAUDE.md says to ask before committing or branching; this command is the
@@ -24,36 +21,28 @@ pending check is not a pass. Merge only once every check has finished and none h
 
 1. **Get a pull request to merge, and the branch it is going into.**
 
-   **`$1` is a branch name:** run `/pr $1`. It checks where I am, checks `gh`, runs `/push` — the
-   diff, the formatting, the build, the tests, the message — and opens the pull request against
-   `$1`, pinned to my repository. Let it do all of that rather than repeating any of it here. If it
-   stops, this stops with it: nothing below should run against a failing build, a test you have not
-   seen, or a branch with nothing on it. The target is `$1`.
-
-   **`$1` is a number:** the pull request is already open, so do not run `/pr` — but this still
-   pushes, because whatever I have been doing since it was opened is what I mean to merge. Read the
-   pull request first: where I am standing decides whether pushing is safe, and the target is
-   something GitHub already knows.
+   First look for one already open for the branch I am on — `git rev-parse --abbrev-ref HEAD`
+   names it:
 
    ```sh
-   gh pr view --repo SamoZ256/Svg.Skia $1 --json number,state,headRefName,baseRefName,url
+   gh pr list --repo SamoZ256/Svg.Skia --head <branch> --state open --json number,baseRefName,url
    ```
 
-   The target is its `baseRefName`. Stop if its state is not `OPEN`.
+   Say whether one was found, and its number and base. Then **run `/pr`** either way. It checks
+   where I am and that the branch pushes to itself, checks `gh`, runs `/push` — the diff, the
+   formatting, the build, the tests, the message — and pushes. It takes the open pull request where
+   there is one, and otherwise opens one against the branch this one grew from. Let it do all of
+   that rather than repeating any of it here. If it stops, this stops with it: nothing below should
+   run against a failing build, a test you have not seen, or a branch with nothing on it.
 
-   Then **run `/push`, but only while I am on the pull request's head branch.** On any other branch
-   it would commit whatever is lying around there and push it somewhere this merge is not about;
-   leave it alone, say which branch was left and that nothing was pushed, and carry on to step 2
-   with what the pull request already has.
+   Then read what is to be merged, and stop if its state is not `OPEN`:
 
-   `/push` stops when there is nothing to commit. For a branch that has already been pushed that is
-   the ordinary case, not a failure — carry on. What it does not cover is a clean tree with commits
-   the remote has not got, since it stops before pushing: check `git log @{u}..HEAD` afterwards and
-   `git push` if anything is there. Merging a pull request that does not have my latest work in it
-   is the thing this step exists to prevent.
+   ```sh
+   gh pr view --repo SamoZ256/Svg.Skia <branch> --json number,state,headRefName,baseRefName,url
+   ```
 
-   Either way, record three things: the number, the head branch — which is the one to delete at the
-   end — and the target branch.
+   Record three things: the number, the head branch — the one I am on, and the one to delete at the
+   end — and the target, its `baseRefName`.
 
 2. **Make sure it can merge.** The target may have moved while the branch was open and now
    conflict with it:
@@ -122,14 +111,9 @@ pending check is not a pass. Merge only once every check has finished and none h
    prune in the next step something to report, and keeps merged branches from accumulating on the
    remote.
 
-6. **Run `/land <target branch>`** — but only while I am on the pull request's head branch. That is
-   always so when this ran `/pr`, and may not be when a number was passed: `/land` deletes the
-   branch I am on, and if that is not the one that merged it would be deleting the wrong thing.
-   Where I am somewhere else, skip it, run `git fetch --prune` instead, and say which local branch
-   was left alone.
-
-   Otherwise let `/land` do its own checking — do not pre-empt its steps or skip it because you
-   already know the answer.
+6. **Run `/land <target branch>`.** I am on the pull request's head branch, since step 1 found the
+   pull request from it, and that is the branch `/land` deletes. Let it do its own checking — do
+   not pre-empt its steps or skip it because you already know the answer.
 
 Report the pull request number, what the target branch moved to, and whatever `/land` says about the
 final state. If `/land` reports that more came down than this branch's own commits, repeat that

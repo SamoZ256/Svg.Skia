@@ -6,12 +6,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
-using Avalonia;
-using Avalonia.Automation;
-using Avalonia.Controls;
-using Avalonia.Controls.Shapes;
-using Avalonia.Layout;
-using Avalonia.Media;
 using Svg.Expressions;
 using Svg.Expressions.Recipes;
 using Svg.Viewer.Skia.Avalonia;
@@ -25,157 +19,107 @@ internal sealed record StreamlineDownload(StreamlineIcon Icon, string Svg, Templ
 /// One decision in an import: icons of one family with the same colours, the template they go in
 /// through, and what each colour becomes.
 /// </summary>
-public sealed class StreamlineRow : IDisposable
+public sealed class StreamlineRow
 {
     public const string Keep = "keep";
 
-    private static readonly IBrush s_sure = new SolidColorBrush(Color.Parse("#2EA043"));
-    private static readonly IBrush s_check = new SolidColorBrush(Color.Parse("#D29922"));
-
     private readonly IReadOnlyList<StreamlineDownload> _icons;
-    private readonly IReadOnlyList<IReadOnlyList<TemplateSuggestion>> _suggestions;
-    private readonly ProjectGroup? _target;
+    private readonly ProjectGroup _target;
     private readonly IReadOnlyList<string> _names;
 
     /// <summary>The colours somebody has given a role by hand, and null for one they kept.</summary>
     private readonly Dictionary<string, string?> _roles = new(StringComparer.Ordinal);
 
-    private readonly Dictionary<string, ComboBox> _roleBoxes = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, TextBlock> _labels = new(StringComparer.Ordinal);
-    private readonly Ellipse _dot = new() { Width = 10, Height = 10, VerticalAlignment = VerticalAlignment.Center };
-    private readonly WrapPanel _swatches = new() { ItemSpacing = 10, LineSpacing = 4, VerticalAlignment = VerticalAlignment.Center };
+    private IReadOnlyList<IReadOnlyList<TemplateSuggestion>> _suggestions = Array.Empty<IReadOnlyList<TemplateSuggestion>>();
+    private string _chosen = TemplateLibrary.KeepColoursName;
 
-    // Beside the preview and no taller than it, so a drawing with several booleans runs into a second column rather than down.
-    private readonly WrapPanel _toggles = new() { Orientation = Orientation.Vertical, MaxHeight = 72, VerticalAlignment = VerticalAlignment.Center };
-    private SvgViewerDocument? _document;
-    private Dictionary<string, ExprValue> _values = new(StringComparer.Ordinal);
-
-    internal StreamlineRow(IReadOnlyList<StreamlineDownload> icons, TemplateLibrary? library, ProjectGroup? target)
+    internal StreamlineRow(IReadOnlyList<StreamlineDownload> icons, TemplateLibrary library, ProjectGroup target)
     {
         _icons = icons;
         _target = target;
-        _suggestions = icons
-            .Select(icon => library is { } && target is { } ? library.Suggest(icon.Prepared, target) : Array.Empty<TemplateSuggestion>())
-            .ToList();
-        _names = target is { } ? ColourNames(target) : Array.Empty<string>();
-        SaveAs.IsEnabled = target is { };
+        _names = ColourNames(target);
 
-        var offered = _suggestions[0].Select(suggestion => suggestion.Template.Name).ToList();
-
-        Template = new ComboBox
-        {
-            ItemsSource = offered.Count > 0 ? offered : new[] { TemplateLibrary.KeepColoursName },
-            SelectedIndex = 0,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            [ToolTip.TipProperty] = "The template these icons go in through"
-        };
-
-        Template.SelectionChanged += (_, _) =>
-        {
-            _roles.Clear();
-
-            if (Template.SelectedItem is string chosen)
-            {
-                foreach (var icon in _icons.Select(one => one.Prepared).DistinctBy(one => one.ChoiceKey))
-                {
-                    TemplateLibrary.Remember(icon, chosen);
-                }
-            }
-
-            Show();
-
-            Chosen?.Invoke(this, EventArgs.Empty);
-        };
-
-        var names = string.Join(", ", icons.Take(3).Select(icon => icon.Icon.Name));
-
-        var heading = new TextBlock
-        {
-            Text = icons.Count > 3 ? $"{names} and {icons.Count - 3} more" : names,
-            FontWeight = FontWeight.SemiBold,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            [ToolTip.TipProperty] = $"{icons.Count} icon{(icons.Count == 1 ? "" : "s")} from {icons[0].Icon.FamilyName ?? icons[0].Icon.FamilySlug ?? "Streamline"}"
-        };
-
-        var choosing = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(_dot, Dock.Left);
-        _dot.Margin = new Thickness(0, 0, 6, 0);
-        choosing.Children.Add(_dot);
-        choosing.Children.Add(Template);
-
-        var preview = new DockPanel();
-        DockPanel.SetDock(Preview, Dock.Left);
-        preview.Children.Add(Preview);
-        preview.Children.Add(_toggles);
-
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
-        buttons.Children.Add(Spread);
-        buttons.Children.Add(SaveAs);
-
-        var foot = new DockPanel();
-        DockPanel.SetDock(buttons, Dock.Right);
-        foot.Children.Add(buttons);
-        foot.Children.Add(Declares);
-
-        // A card in a column beside the tiles, which has the height a card wants: one line each for
-        // the names and the template, the colours wrapped, the preview with its toggles, and what
-        // the import declares beside the buttons.
-        View = new Border
-        {
-            Padding = new Thickness(8),
-            CornerRadius = new CornerRadius(4),
-            BorderThickness = new Thickness(1),
-            BorderBrush = new SolidColorBrush(Color.Parse("#40808080")),
-            Child = new StackPanel { Spacing = 6, Children = { heading, choosing, _swatches, preview, foot } }
-        };
-
-        Show();
+        Suggest(library, null);
     }
-
-    /// <summary>Raised when the template is changed by hand, for the panel to offer it to rows like this one.</summary>
-    public event EventHandler? Chosen;
-
-    public Control View { get; }
 
     public IReadOnlyList<StreamlineIcon> Icons => _icons.Select(icon => icon.Icon).ToList();
 
-    public string? Family => _icons[0].Prepared.Family;
+    /// <summary>The eligible templates, suggested first, and Keep colours where the suggestion puts it.</summary>
+    public IReadOnlyList<string> Choices { get; private set; } = Array.Empty<string>();
 
-    /// <summary>The eligible templates, best first, and Keep colours.</summary>
-    public ComboBox Template { get; }
+    public string Suggested => Choices[0];
 
-    /// <summary>For each colour of the icons, what it is to become: <see cref="Keep"/> or a colour the target can name.</summary>
-    public IReadOnlyDictionary<string, ComboBox> Roles => _roleBoxes;
+    /// <summary>Nothing changed by hand from a first suggestion that was remembered or well ahead of the next.</summary>
+    public bool Sure => _roles.Count == 0 && _chosen == Choices[0] && _suggestions[0].FirstOrDefault()?.Sure == true;
 
-    /// <summary>One per boolean the bound drawing reaches, seeded as the group panel seeds them.</summary>
-    public IReadOnlyList<CheckBox> Toggles => _toggles.Children.OfType<CheckBox>().ToList();
-
-    public SvgViewerCanvas Preview { get; } = new()
+    /// <summary>The template the icons go in through; choosing one starts its colours over.</summary>
+    public string Chosen
     {
-        Width = 72,
-        Height = 72,
-        IsZoomEnabled = false,
-        IsPanEnabled = false,
-        Margin = new Thickness(0, 0, 8, 0)
-    };
+        get => _chosen;
+        set
+        {
+            if (!Choices.Contains(value))
+            {
+                throw new ArgumentException($"'{value}' is not offered for these icons.", nameof(value));
+            }
 
-    public TextBlock Declares { get; } = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.8, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            _chosen = value;
+            _roles.Clear();
+        }
+    }
 
-    /// <summary>Offers the template just chosen to the other rows of the family.</summary>
-    public Button Spread { get; } = new() { IsVisible = false, Padding = new Thickness(8, 3) };
+    /// <summary>The first icon's colours, each of which <see cref="Role"/> says what becomes of.</summary>
+    public IReadOnlyList<string> Colours
+        => _icons[0].Prepared.Survey.Where(one => one.Name == SvgRecipeValue.ColorName).Select(one => one.Text).ToList();
 
-    /// <summary>Keeps what the row does now, template and colours changed by hand, as a template of the project's.</summary>
-    public Button SaveAs { get; } = new() { Content = "Save as template…", Padding = new Thickness(8, 3) };
-
-    /// <summary>Whether <paramref name="template"/> fits these icons.</summary>
-    public bool Offers(string template) => Template.Items.OfType<string>().Contains(template);
+    /// <summary>The names the declarations each drawing brings, across the row.</summary>
+    public IReadOnlyList<string> Declares => Enumerable.Range(0, _icons.Count)
+        .Select(index => Recipe(index))
+        .OfType<SvgRecipe>()
+        .SelectMany(recipe => recipe.Declarations)
+        .Select(declaration => ((string?)declaration.Attribute("name"))?.Trim())
+        .OfType<string>()
+        .Distinct(StringComparer.Ordinal)
+        .ToList();
 
     internal IReadOnlyList<StreamlineDownload> Downloads => _icons;
+
+    /// <summary>What <paramref name="colour"/> can become: <see cref="Keep"/>, what the template writes, or a colour the target names.</summary>
+    public IReadOnlyList<string> RoleChoices(string colour)
+    {
+        var roles = new List<string> { Keep };
+
+        // An expression the template writes that is not a bare name is still what the colour becomes, so it is offered too.
+        if (Colour(Bound(), colour)?.Expression is { } written && !_names.Contains(written))
+        {
+            roles.Add(written);
+        }
+
+        roles.AddRange(_names);
+
+        return roles;
+    }
+
+    /// <summary>What <paramref name="colour"/> becomes: <see cref="Keep"/> or an expression.</summary>
+    public string Role(string colour) => Colour(Recipe(0), colour)?.Expression ?? Keep;
+
+    public void SetRole(string colour, string role) => _roles[colour] = role == Keep ? null : role;
+
+    /// <summary>Where <paramref name="colour"/>'s role comes from and what it is, as a caption under it.</summary>
+    public string RoleNote(string colour)
+    {
+        var rule = Colour(Recipe(0), colour);
+
+        // The slot is the template's, and an overridden recipe is slot-free, so it is read from the template.
+        var slot = _roles.ContainsKey(colour) ? "by hand" : Colour(Bound(), colour)?.Slot?.Name;
+
+        return rule is null ? "kept" : slot is { } ? $"{slot} → {rule.Expression}" : $"→ {rule.Expression}";
+    }
 
     /// <summary>What the icon at <paramref name="index"/> goes in through, or null to go in as it is.</summary>
     public SvgRecipe? Recipe(int index)
     {
-        var bound = Recipe(_suggestions[index], Template.SelectedItem as string);
+        var bound = Recipe(_suggestions[index], _chosen);
 
         return _roles.Count == 0 ? bound : Overridden(bound);
     }
@@ -186,22 +130,60 @@ public sealed class StreamlineRow : IDisposable
             ? null
             : suggestions.FirstOrDefault(suggestion => suggestion.Template.Name == chosen)?.Recipe;
 
-    /// <summary>The icon at <paramref name="index"/> with its template applied, as it will be imported.</summary>
-    public string Text(int index)
+    /// <summary>The icon at <paramref name="index"/> as it will be imported, or through <paramref name="template"/> as it stands.</summary>
+    /// <exception cref="SvgRecipeException">The template cannot be applied to the icon.</exception>
+    public string Text(int index, string? template = null)
     {
         var text = _icons[index].Prepared.Text;
 
-        return Recipe(index) is { } recipe
+        return (template is null ? Recipe(index) : Recipe(_suggestions[index], template)) is { } recipe
             ? SvgRecipeRewriter.Apply(TemplateLibrary.Sized(text, recipe), recipe).Svg
             : text;
     }
 
-    public void Dispose()
+    /// <summary>Keeps the choice for icons like these, which is what makes it sure the next time.</summary>
+    /// <remarks>Not where a colour was given a role by hand, which the template alone would not bring back.</remarks>
+    public void Remember()
     {
-        Preview.Svg = null;
-        _document?.Dispose();
-        _document = null;
+        if (_roles.Count > 0)
+        {
+            return;
+        }
+
+        foreach (var icon in _icons.Select(one => one.Prepared).DistinctBy(one => one.ChoiceKey))
+        {
+            TemplateLibrary.Remember(icon, _chosen);
+        }
     }
+
+    /// <summary>
+    /// Suggests again from <paramref name="library"/>, keeping <paramref name="chosen"/> where it is
+    /// still offered, and the roles set by hand where their colour can still take them.
+    /// </summary>
+    internal void Suggest(TemplateLibrary library, string? chosen)
+    {
+        _suggestions = _icons.Select(icon => library.Suggest(icon.Prepared, _target)).ToList();
+        Choices = _suggestions[0].Select(suggestion => suggestion.Template.Name).ToList();
+
+        if (chosen is null || !Choices.Contains(chosen))
+        {
+            Chosen = Choices[0];
+
+            return;
+        }
+
+        _chosen = chosen;
+
+        foreach (var (colour, role) in _roles.ToList())
+        {
+            if (role is { } && !RoleChoices(colour).Contains(role))
+            {
+                _roles.Remove(colour);
+            }
+        }
+    }
+
+    private SvgRecipe? Bound() => Recipe(_suggestions[0], _chosen);
 
     /// <summary>
     /// The bound template with the colours given a role by hand written as rules of their own: an
@@ -259,151 +241,8 @@ public sealed class StreamlineRow : IDisposable
         return declarations.Where(kept.Contains).ToList();
     }
 
-    private void Show()
-    {
-        Swatches();
-        Showing();
-    }
-
-    /// <summary>Everything a role changes: the dot, the labels, the preview and what is declared.</summary>
-    private void Showing()
-    {
-        var sure = _roles.Count == 0 && Template.SelectedIndex == 0 && _suggestions[0].FirstOrDefault()?.Sure == true;
-
-        _dot.Fill = sure ? s_sure : s_check;
-        ToolTip.SetTip(_dot, sure ? "Remembered, or well ahead of the next template" : "Check this: another template came close, or a colour was changed by hand");
-        AutomationProperties.SetName(_dot, sure ? "Template is a sure match" : "Check the template");
-
-        // The slot is the template's, and an overridden recipe is slot-free, so it is read from the template.
-        var recipe = Recipe(0);
-        var bound = Recipe(_suggestions[0], Template.SelectedItem as string);
-
-        foreach (var (colour, label) in _labels)
-        {
-            var rule = Colour(recipe, colour);
-            var slot = _roles.ContainsKey(colour) ? "by hand" : Colour(bound, colour)?.Slot?.Name;
-
-            label.Text = rule is null ? "kept" : slot is { } ? $"{slot} → {rule.Expression}" : $"→ {rule.Expression}";
-        }
-
-        Draw();
-        Declare();
-    }
-
-    private void Swatches()
-    {
-        _swatches.Children.Clear();
-        _roleBoxes.Clear();
-        _labels.Clear();
-
-        var recipe = Recipe(0);
-
-        foreach (var value in _icons[0].Prepared.Survey.Where(one => one.Name == SvgRecipeValue.ColorName))
-        {
-            var colour = value.Text;
-            var written = Colour(recipe, colour)?.Expression;
-            var roles = new List<string> { Keep };
-
-            // An expression the template writes that is not a bare name is still what the colour becomes, so it is offered too.
-            if (written is { } && !_names.Contains(written))
-            {
-                roles.Add(written);
-            }
-
-            roles.AddRange(_names);
-
-            // Shorter than the theme's 32: a cell is a swatch and a name with a caption under it, not a form row.
-            var role = new ComboBox
-            {
-                ItemsSource = roles,
-                SelectedItem = written ?? Keep,
-                IsEnabled = _target is { },
-                MinWidth = 110,
-                MinHeight = 24,
-                FontSize = 12,
-                Padding = new Thickness(8, 2, 0, 2),
-                [ToolTip.TipProperty] = "What this colour becomes"
-            };
-
-            role.SelectionChanged += (_, _) =>
-            {
-                _roles[colour] = role.SelectedItem as string is { } chosen && chosen != Keep ? chosen : null;
-
-                Showing();
-            };
-
-            var label = new TextBlock
-            {
-                FontSize = 11,
-                Opacity = 0.8,
-                MaxWidth = 150,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                [ToolTip.TipProperty] = colour
-            };
-
-            var swatch = new Border
-            {
-                Width = 16,
-                Height = 16,
-                CornerRadius = new CornerRadius(3),
-                BorderThickness = new Thickness(1),
-                BorderBrush = new SolidColorBrush(Color.Parse("#80808080")),
-                Background = SvgRecipeColor.TryParse(colour, out var argb) ? new SolidColorBrush(Color.FromUInt32((uint)argb)) : null,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-
-            var line = new DockPanel();
-
-            DockPanel.SetDock(swatch, Dock.Left);
-            swatch.Margin = new Thickness(0, 0, 6, 0);
-            line.Children.Add(swatch);
-            line.Children.Add(role);
-
-            _roleBoxes[colour] = role;
-            _labels[colour] = label;
-            _swatches.Children.Add(new StackPanel { Spacing = 2, Children = { line, label } });
-        }
-    }
-
     private static SvgReplaceRule? Colour(SvgRecipe? recipe, string colour)
         => recipe?.Rules.FirstOrDefault(rule => rule.Name == SvgRecipeValue.ColorName && rule.Key == colour);
-
-    /// <summary>The first icon as it will be imported, drawn through the target's declarations, with a toggle per boolean it reaches.</summary>
-    private void Draw()
-    {
-        Dispose();
-        _toggles.Children.Clear();
-
-        if ((_document = Drawn(Text(0), _target)) is null)
-        {
-            return;
-        }
-
-        _values = GroupPanel.Seeded(_document);
-
-        foreach (var parameter in _document.Declarations.Parameters.Where(one => one.Type == ExprType.Boolean))
-        {
-            var name = parameter.Name;
-            var toggle = new CheckBox
-            {
-                Content = name,
-                IsChecked = _values.TryGetValue(name, out var seeded) && seeded.AsBoolean
-            };
-
-            toggle.IsCheckedChanged += (_, _) =>
-            {
-                _values[name] = ExprValue.Boolean(toggle.IsChecked == true);
-
-                Bind();
-            };
-
-            _toggles.Children.Add(toggle);
-        }
-
-        Bind();
-
-        Preview.Svg = _document.Svg;
-    }
 
     /// <summary>A drawing on its way into <paramref name="target"/>, read through the declarations it will inherit there, or null where it cannot be.</summary>
     internal static SvgViewerDocument? Drawn(string text, ProjectGroup? target)
@@ -418,36 +257,6 @@ public sealed class StreamlineRow : IDisposable
             // that cannot be drawn is no reason to refuse the row.
             return null;
         }
-    }
-
-    private void Bind()
-    {
-        try
-        {
-            _document?.Svg.SetExpressionValues(_values);
-        }
-        catch (ExprException)
-        {
-            // A value the drawing will not take leaves its last rendering up, as on a board.
-        }
-
-        Preview.Publish();
-    }
-
-    private void Declare()
-    {
-        var adding = Enumerable.Range(0, _icons.Count)
-            .Select(Recipe)
-            .OfType<SvgRecipe>()
-            .SelectMany(recipe => recipe.Declarations)
-            .Select(declaration => ((string?)declaration.Attribute("name"))?.Trim())
-            .OfType<string>()
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
-        Declares.Text = _target is null || adding.Count == 0
-            ? "Nothing to declare"
-            : $"Adds {string.Join(", ", adding)} to {ProjectWorkspace.Label(_target)}";
     }
 
     /// <summary>The colour names a drawing added to <paramref name="target"/> can use, in the order they are declared.</summary>
@@ -471,4 +280,47 @@ public sealed class StreamlineRow : IDisposable
             })
             .ToList();
     }
+}
+
+/// <summary>What an import window decides: icons on their way into a group, one row per decision.</summary>
+public sealed class StreamlineImport
+{
+    internal StreamlineImport(ProjectWorkspace workspace, ProjectGroup target, IReadOnlyList<StreamlineDownload> downloads, ProjectDrawing? updating = null)
+    {
+        Workspace = workspace;
+        Target = target;
+        Updating = updating;
+
+        var library = new TemplateLibrary(workspace.Document.Root);
+
+        Rows = TemplateLibrary.Batch(downloads.Select(download => download.Prepared))
+            .Select(batch => new StreamlineRow(batch.Select(icon => downloads.First(one => ReferenceEquals(one.Prepared, icon))).ToList(), library, target))
+            .ToList();
+    }
+
+    public ProjectGroup Target { get; }
+
+    public IReadOnlyList<StreamlineRow> Rows { get; }
+
+    /// <summary>The drawing an update replaces, or null where the icons are new.</summary>
+    public ProjectDrawing? Updating { get; }
+
+    internal ProjectWorkspace Workspace { get; }
+
+    /// <summary>Suggests again from the project's templates as they are now, a row's choice following <paramref name="renamed"/>.</summary>
+    public void Refresh((string From, string To)? renamed = null)
+    {
+        var library = new TemplateLibrary(Workspace.Document.Root);
+
+        foreach (var row in Rows)
+        {
+            row.Suggest(library, renamed is { } rename && row.Chosen == rename.From ? rename.To : row.Chosen);
+        }
+    }
+
+    /// <summary>Every icon as the rows import it.</summary>
+    internal IReadOnlyList<TemplateImport> Imports()
+        => Rows.SelectMany(row => row.Downloads.Select((download, index) =>
+                new TemplateImport(download.Icon.Name, download.Prepared.Text, row.Recipe(index), StreamlinePanel.SourceOf(download.Icon))))
+            .ToList();
 }

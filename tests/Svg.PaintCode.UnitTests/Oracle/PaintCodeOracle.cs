@@ -131,19 +131,28 @@ internal static class PaintCodeOracle
             .ToDictionary(g => g.Key, g => g.OrderBy(m => m.GetParameters().Length).First());
     }
 
-    /// <summary>The boolean parameters a drawing method varies on, in PaintCode's own order.</summary>
-    internal static IReadOnlyList<string> Switches(MethodInfo method) => method
+    /// <summary>The parameters of one type a drawing method takes, in PaintCode's own order.</summary>
+    internal static IReadOnlyList<string> Taking(MethodInfo method, Type type) => method
         .GetParameters()
-        .Where(p => p.ParameterType == typeof(bool))
+        .Where(p => p.ParameterType == type)
         .Select(p => p.Name!)
         .ToArray();
 
-    /// <summary>The numbers a drawing method varies on, likewise.</summary>
-    internal static IReadOnlyList<string> Dials(MethodInfo method) => method
-        .GetParameters()
-        .Where(p => p.ParameterType == typeof(float))
-        .Select(p => p.Name!)
-        .ToArray();
+    /// <summary>
+    /// An opaque colour for the <paramref name="index"/>th colour a method takes, distinct from its
+    /// neighbours and from any document's own.
+    /// </summary>
+    /// <remarks>
+    /// Stepped by the golden angle so any two are far apart in hue however many there are, and held
+    /// short of white: the metric weighs premultiplied channels, so a bright probe would make its edges
+    /// read worse on its own.
+    /// </remarks>
+    internal static ExprValue Probe(int index)
+    {
+        var colour = SKColor.FromHsv((index * 137.508f) % 360f, 70f, 80f);
+
+        return ExprValue.Color(colour.Red, colour.Green, colour.Blue, 255);
+    }
 
     /// <summary>
     /// The values to try a number at: the ends of what it was declared to take, and the middle.

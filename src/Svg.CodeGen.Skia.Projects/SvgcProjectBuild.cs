@@ -279,15 +279,15 @@ public static class SvgcProjectBuild
 
         if (Build(item, settings, assetLoader, log) is { } drawing)
         {
+            // One file of one drawing, so what reaches the class is the same whichever way a project
+            // is built.
             File.WriteAllText(
                 output,
-                SkiaCSharpCodeGen.Generate(
-                    drawing.Picture,
-                    drawing.NamespaceName,
-                    drawing.ClassName,
-                    drawing.Declarations,
-                    settings.Cache,
-                    settings.SkiaSharp));
+                SkiaCSharpCodeGen.GenerateFile(
+                    new[] { drawing },
+                    SvgHelperScope.PerClass,
+                    cache: settings.Cache,
+                    skiaSharp: settings.SkiaSharp));
         }
 
         return output;
@@ -377,7 +377,38 @@ public static class SvgcProjectBuild
             item.Namespace ?? settings.Namespace,
             item.Class ?? settings.Class,
             declarations,
-            frozen.Select(carrier => SvgExpressionAttributes.Lifted(carrier.Element.CustomAttributes, carrier.Name) ?? string.Empty).ToList());
+            frozen.Select(carrier => SvgExpressionAttributes.Lifted(carrier.Element.CustomAttributes, carrier.Name) ?? string.Empty).ToList(),
+            Bounds(svgDocument, sceneDocument, item.Input, log));
+    }
+
+    /// <summary>Every box the drawing marks, as its class will report it.</summary>
+    private static IReadOnlyList<(string Name, SKRect Rect)> Bounds(
+        SvgDocument document,
+        SvgSceneDocument scene,
+        string input,
+        Action<string>? log)
+    {
+        var bounds = new List<(string, SKRect)>();
+
+        foreach (var box in SvgSceneBoxes.Measure(document, scene))
+        {
+            if (box.Rect is not { } rect)
+            {
+                log?.Invoke($"warning: {Path.GetFileName(input)}: the box '{box.Name}' has no place of its own in the drawing, so the class has no constant for it.");
+                continue;
+            }
+
+            if (box.Driven)
+            {
+                log?.Invoke(SvgSceneBoxes.Defaults(document) is { }
+                    ? $"warning: {Path.GetFileName(input)}: the box '{box.Name}' moves with a parameter, and its constant is where the defaults put it."
+                    : $"warning: {Path.GetFileName(input)}: the box '{box.Name}' moves with a parameter that has no default, and its constant is where the drawing was compiled.");
+            }
+
+            bounds.Add((box.Name, rect));
+        }
+
+        return bounds;
     }
 
     /// <summary>
@@ -474,14 +505,14 @@ public static class SvgcProjectBuild
     /// </remarks>
     private static IDisposable BeginSubstitution(SvgDocument document)
     {
-        if (!SvgExpressionSubstitution.IsNeeded(document))
+        if (!SvgExpressionSubstitution.IsNeeded(document) || SvgSceneBoxes.Defaults(document) is not { } defaults)
         {
             return SvgExpressionSubstitution.None;
         }
 
         try
         {
-            return SvgExpressionSubstitution.Begin(document, ExprEvaluator.Create(document.ExpressionDeclarations, null));
+            return SvgExpressionSubstitution.Begin(document, defaults);
         }
         catch (Exception failure) when (failure is ExprException or ArgumentException)
         {

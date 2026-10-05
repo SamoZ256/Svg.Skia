@@ -2,7 +2,7 @@
   <defs>
     <radialGradient id="gradientshine" gradientUnits="userSpaceOnUse" cx="2.9083" cy="3.028" r="2.9419" fx="1.6782" fy="1.6598" fr="0.4187">
       <stop offset="0.0073" stop-color="{{ ((enabled and state) ? accent ? #ffee3eff : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30) }}" />
-      <stop offset="0.5037" stop-color="{{ ((enabled and state) ? accent ? #ffe23dff : isLight ? #ffffffff : #1f2123d9 : isLight ? #ffffff4d : #1f212333) }}" />
+      <stop offset="0.5037" stop-color="{{ ((enabled and state) ? accent ? #ffe23dff : isLight ? (mix(whiteColor_, whiteColor_, 0.5)) : (mix(blackColor_, blackColor70, 0.5)) : isLight ? (mix(whiteColor30, whiteColor30, 0.5)) : (mix(blackColor30, blackColor10, 0.5))) }}" />
       <stop offset="1" stop-color="{{ ((enabled and state) ? accent ? #ffd73cff : isLight ? whiteColor_ : blackColor70 : isLight ? whiteColor30 : blackColor10) }}" />
     </radialGradient>
     <e:code>

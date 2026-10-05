@@ -63,14 +63,12 @@ public class PaintCodeOracleReport
 
             using var _ = svg;
 
-            var switches = PaintCodeOracle.Switches(drawing.Method);
-            var dials = PaintCodeOracle.Dials(drawing.Method).Select(name => (name, PaintCodeOracle.Turns(svg, name))).ToArray();
             var worst = 0d;
             var first = 0d;
             var where = "defaults";
             var combination = 0;
 
-            foreach (var (values, description) in PaintCodeOracleTests.Combinations(suite.Defaults, switches, dials))
+            foreach (var (values, description) in PaintCodeOracleTests.Combinations(suite.Defaults, drawing.Method, svg))
             {
                 double difference;
 

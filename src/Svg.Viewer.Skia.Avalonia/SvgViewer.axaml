@@ -39,6 +39,8 @@
                       ToolTip.Tip="Keep the element's proportions while a handle is dragged" />
         <ToggleButton x:Name="SnapButton" Content="Snap"
                       ToolTip.Tip="Land what is dragged on the grid rather than where the pointer stopped" />
+        <ToggleButton x:Name="BoxesButton" Content="Boxes" IsChecked="True"
+                      ToolTip.Tip="Show the boxes the drawing reserves for the code that draws it" />
       </StackPanel>
     </Border>
 

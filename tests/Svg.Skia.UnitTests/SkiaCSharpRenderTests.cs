@@ -81,15 +81,13 @@ public class SkiaCSharpRenderTests
         string className,
         SkiaSharpTarget skiaSharp,
         SvgExpressionDeclarations declarations,
-        object?[] arguments)
+        object?[] arguments,
+        IReadOnlyList<(string Name, ShimSkiaSharp.SKRect Rect)>? bounds = null)
     {
-        var code = SkiaCSharpCodeGen.Generate(
-            model,
-            Namespace,
-            className,
-            declarations,
-            SvgPictureCache.None,
-            skiaSharp);
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(model, Namespace, className, declarations, bounds: bounds) },
+            SvgHelperScope.PerClass,
+            skiaSharp: skiaSharp);
 
         var assemblyName = $"{Namespace}.{className}.{++s_generation}";
 
@@ -116,6 +114,11 @@ public class SkiaCSharpRenderTests
         var assembly = new AssemblyLoadContext(assemblyName, isCollectible: false).LoadFromStream(peStream);
         var type = assembly.GetType($"{Namespace}.{className}");
         Assert.NotNull(type);
+
+        foreach (var (name, rect) in bounds ?? Array.Empty<(string, ShimSkiaSharp.SKRect)>())
+        {
+            Assert.Equal(new SKRect(rect.Left, rect.Top, rect.Right, rect.Bottom), type!.GetField(name, BindingFlags.Public | BindingFlags.Static)!.GetValue(null));
+        }
 
         // A document with no declarations generates `private static SKPicture Record()`; one with
         // parameters generates a public one taking them.
@@ -320,6 +323,37 @@ public class SkiaCSharpRenderTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    /// <summary>A box the drawing reserves for its host is a constant beside the drawing, never in it.</summary>
+    [Fact]
+    public void A_Box_For_The_Host_Leaves_The_Drawing_As_It_Was()
+    {
+        var model = Model("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="30" height="30">
+              <circle cx="15" cy="15" r="13" fill="none" stroke="#3b82f6" stroke-width="1.5" />
+            </svg>
+            """);
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        Assert.NotNull(runtime);
+
+        using var generated = Generated(
+            model,
+            "Boxed",
+            SkiaSharpTarget.V4,
+            SvgExpressionDeclarations.Empty,
+            Array.Empty<object?>(),
+            new[]
+            {
+                ("LevelRect", new ShimSkiaSharp.SKRect(2f, 6f, 28f, 24f)),
+                ("ValueRect", new ShimSkiaSharp.SKRect(20f, 67.36f, 160f, 113.89f)),
+
+                // A keyword is a name the class can still declare.
+                ("default", new ShimSkiaSharp.SKRect(0f, 0f, 1f, 1f))
+            });
+
+        AssertSamePicture("Boxed", runtime!, generated);
     }
 
     [Fact]
@@ -1165,6 +1199,35 @@ public class SkiaCSharpRenderTests
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
               <g transform="translate(0 -8)">
                 <circle cx="12" cy="12" r="5" fill="#ff0000" />
+              </g>
+              <circle cx="12" cy="16" r="5" fill="#1e40af" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Conditional_That_Folds_Away_Draws_Like_The_Document_Without_It()
+        // The range is never emitted, Save, SetMatrix and Restore included; the blue circle after it
+        // has to land where it would with no group at all. The true one is emitted without its if,
+        // so its locals sit one scope further out than they used to.
+        => AssertExpressionsRenderTheSame(
+            "ExprFoldedConditionals",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:let name="shown">2 &gt; 1</e:let></e:code></defs>
+              <g transform="translate(0 -8)" visibility="{{ !shown }}">
+                <circle cx="12" cy="12" r="5" fill="#ff0000" />
+              </g>
+              <g transform="translate(4 0)" visibility="{{ shown }}">
+                <circle cx="4" cy="4" r="3" fill="#22c55e" />
+              </g>
+              <circle cx="12" cy="16" r="5" fill="#1e40af" />
+            </svg>
+            """,
+            arguments: null,
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(4 0)">
+                <circle cx="4" cy="4" r="3" fill="#22c55e" />
               </g>
               <circle cx="12" cy="16" r="5" fill="#1e40af" />
             </svg>

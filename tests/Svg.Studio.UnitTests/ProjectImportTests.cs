@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Svg.CodeGen.Skia.Projects;
+using Svg.Model;
 using Svg.PaintCode;
 using Svg.PaintCode.UnitTests;
+using Svg.Skia;
 using Xunit;
 
 namespace Svg.Studio.UnitTests;
@@ -227,6 +229,48 @@ public class ProjectImportTests : IDisposable
         // 80 tall, which puts Controls at 98.
         Assert.Equal((0f, 0f), (groups[0].X!.Value, groups[0].Y!.Value));
         Assert.Equal((0f, 98f), (groups[1].X!.Value, groups[1].Y!.Value));
+    }
+
+    /// <summary>
+    /// A PaintCode <c>Embed</c> box outlives saving and loading the project, and is what its build
+    /// reports: the box the canvas draws nothing into, where the canvas has it.
+    /// </summary>
+    [Fact]
+    public void An_Embed_Box_Survives_The_Project_And_Reaches_The_Build()
+    {
+        var archive = new KeyedArchiveBuilder();
+
+        // 26 by 18 with its top left at (2, 6); PaintCode's y points up, from the shape's anchor.
+        var box = archive.Object(
+            "PPRectangle",
+            new[] { ("name", archive.Text("EmbedLevel")) },
+            ("x", 0d), ("y", -18d), ("width", 26d), ("height", 18d), ("anchorX", 2d), ("anchorY", -6d), ("alpha", 1d), ("visibilityMode", 1));
+
+        var group = archive.Object(
+            "PPGroup",
+            new[] { ("name", archive.Text("Canvas Group")), ("shapesAndGroups", archive.Array(box)) },
+            ("alpha", 1d), ("visibilityMode", 1));
+
+        var canvas = archive.Object(
+            "PPCanvas",
+            new[] { ("name", archive.Text("analog-level")), ("bounds", archive.Text("{{0, 0}, {30, 30}}")), ("rootGroup", group) },
+            ("isExported", true), ("isAvailableAsSymbol", false));
+
+        var bytes = archive.ToBytes(
+            ("styleKitName", archive.Text("Icons")),
+            ("desks", archive.Array(archive.Object("PPDesk", ("name", archive.Text("Symbols")), ("canvases", archive.Array(canvas))))));
+
+        var path = Path.Combine(_directory, "embed.svgstudio");
+
+        ProjectImport.FromPaintCode(PaintCodeDocument.Parse(bytes), new PaintCodeImportOptions(_directory), new List<PaintCodeImportNote>()).Save(path);
+
+        var item = ProjectDocument.Load(path).Flatten().Items.Single();
+        var drawing = SvgcProjectBuild.Build(item, new SvgcBuildSettings(), new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())));
+
+        var (name, rect) = Assert.Single(drawing!.Bounds);
+
+        Assert.Equal("LevelRect", name);
+        Assert.Equal((2f, 6f, 28f, 24f), (rect.Left, rect.Top, rect.Right, rect.Bottom));
     }
 
     /// <summary>The two desks of <see cref="DeskDocument"/>, imported.</summary>

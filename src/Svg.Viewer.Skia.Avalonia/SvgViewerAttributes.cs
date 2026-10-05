@@ -87,6 +87,9 @@ internal static class SvgViewerAttributes
         (SvgViewerAttributeGroup.General, new[]
         {
             ("id", "ID", Plain, "", "*"),
+
+            // The constant the generated class reports this element's box as.
+            ("e:bounds", "Box constant", Plain, "", Moved),
             ("class", "Class", Plain, "", ""),
             ("style", "Inline style", Plain, "", ""),
             ("systemLanguage", "Languages", Plain, "", ""),

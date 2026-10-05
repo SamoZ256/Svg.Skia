@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Xml.Linq;
+using Svg.Expressions;
 using Xunit;
 
 namespace Svg.PaintCode.UnitTests;
@@ -354,6 +355,70 @@ public class PaintCodeSvgWriterTests
     }
 
     /// <summary>
+    /// A middle stop follows the stops either side of it rather than keeping the colour it was saved
+    /// as.
+    /// </summary>
+    /// <remarks>
+    /// PaintCode drops a middle stop that sits halfway and blends the rest evenly from their
+    /// neighbours, so the colour saved for one is right only at the colours the document was saved
+    /// with. Written as saved, the controller knob's arc blended through pink whatever accent it was
+    /// handed.
+    /// </remarks>
+    [Fact]
+    public void A_Middle_Stop_Is_Blended_From_The_Stops_Either_Side()
+    {
+        var document = WriteTree(Only(Filled(Blend(), -90)), new List<PaintCodeImportNote>());
+        var gradient = document.Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal(
+            new[] { "{{ tint }}", "{{ mix(tint, #0000ffff, 0.5) }}", "#0000ff" },
+            gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
+
+        // And what was written reads in the drawing's own declarations -- which is what says tint was
+        // declared: bound to red, the middle is the even blend of red and blue.
+        var written = gradient.Elements().ElementAt(1).Attribute("stop-color")!.Value;
+        var values = new Dictionary<string, ExprValue> { ["tint"] = ExprValue.Color(255, 0, 0, 255) };
+        var middle = ExprEvaluator.Create(SvgExpressionDeclarations.Parse(document.ToString()), values)
+            .Evaluate(written.Substring("{{".Length, written.Length - "{{}}".Length).Trim());
+
+        Assert.Equal((128, 0, 128, 255), (middle.Red, middle.Green, middle.Blue, middle.Alpha));
+    }
+
+    [Fact]
+    public void A_Middle_Stop_Between_Two_Fixed_Colours_Keeps_The_One_Saved()
+    {
+        var gradient = new PaintCodeGradient(
+            "fixed",
+            new[]
+            {
+                new PaintCodeGradientStop(new PaintCodeColor(string.Empty, 255, 0, 0, 1), 0, 0.5, false),
+                new PaintCodeGradientStop(new PaintCodeColor("PPGradientMidColor", 128, 0, 128, 1), 0.5, 0.5, true),
+                new PaintCodeGradientStop(new PaintCodeColor(string.Empty, 0, 0, 255, 1), 1, 0.5, false)
+            });
+
+        var written = WriteTree(Only(Filled(gradient, -90)), new List<PaintCodeImportNote>())
+            .Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal(new[] { "#ff0000", "#800080", "#0000ff" }, written.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
+    }
+
+    [Fact]
+    public void A_Middle_Stop_Of_A_Gradient_An_Expression_Chooses_Is_Blended_Too()
+    {
+        var gradient = WriteTree(Only(Filled(Blend(), -90, "state ? blend : blend")), new List<PaintCodeImportNote>())
+            .Descendants().First(one => one.Name.LocalName == "linearGradient");
+
+        Assert.Equal(
+            new[]
+            {
+                "{{ state ? tint : tint }}",
+                "{{ state ? (mix(tint, #0000ffff, 0.5)) : (mix(tint, #0000ffff, 0.5)) }}",
+                "{{ state ? #0000ffff : #0000ffff }}"
+            },
+            gradient.Elements().Select(stop => stop.Attribute("stop-color")!.Value));
+    }
+
+    /// <summary>
     /// A blended shape carries the mode PaintCode gave it, which SVG has its own name for.
     /// </summary>
     /// <remarks>
@@ -474,6 +539,60 @@ public class PaintCodeSvgWriterTests
         Assert.Equal("bold", run.Attribute("font-weight")!.Value);
         Assert.Equal("3", run.Value);
     }
+
+    /// <summary>
+    /// PaintCode2Skia's convention: a shape named <c>Embed&lt;X&gt;</c> is a box the app lays its own
+    /// label into, reported as <c>&lt;X&gt;Rect</c> with the casing the id loses.
+    /// </summary>
+    [Theory]
+    [InlineData("EmbedSetPointHeader", "SetPointHeaderRect")]
+    [InlineData("EmbedPWM", "PWMRect")]
+    [InlineData("EmbedA", "ARect")]
+    [InlineData("Embed", null)]
+    [InlineData("embedLevel", null)]
+    [InlineData("EmbeddedLogo", null)]
+    [InlineData("Box", null)]
+    public void A_Shape_Named_Embed_Marks_Its_Box_For_The_Generated_Class(string name, string? expected)
+    {
+        var document = WriteTree(Only(Box(PaintCodeShapeKind.Rectangle, PaintCodeShapeMetrics.Default, name)), new List<PaintCodeImportNote>());
+        var box = document.Descendants().First(one => one.Name.LocalName == "rect");
+
+        Assert.Equal(expected, box.Attribute(Marked)?.Value);
+
+        // Declared though the drawing has no declarations of its own to put in a code block.
+        Assert.Equal(expected is { }, document.Root!.Attribute(XNamespace.Xmlns + "e") is { });
+    }
+
+    /// <summary>Two shapes a class could only report under one name: the first keeps it, and the second is said.</summary>
+    [Fact]
+    public void A_Second_Embed_Of_The_Same_Name_Is_Noted_Rather_Than_Marked()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var root = new PaintCodeGroup(
+            "Root",
+            Identity(),
+            new Dictionary<string, PaintCodeBinding>(),
+            new[] { (PaintCodeItem)Box(PaintCodeShapeKind.Rectangle, PaintCodeShapeMetrics.Default, "EmbedLevel"), Box(PaintCodeShapeKind.Rectangle, PaintCodeShapeMetrics.Default, "Embed Level") },
+            null);
+
+        var marks = WriteTree(root, notes).Descendants().Select(one => one.Attribute(Marked)?.Value).Where(mark => mark is { }).ToList();
+
+        Assert.Equal(new[] { "LevelRect" }, marks);
+        Assert.Contains(notes, note => note.Element == "Embed Level" && note.Message.Contains("LevelRect"));
+    }
+
+    [Fact]
+    public void A_Marked_Box_Carrying_Words_Keeps_The_Box_Beside_Its_Run()
+    {
+        var text = new PaintCodeText("75%", "Inter", "Regular", 13, null, 1, 0, 0, 0);
+        var box = WriteTree(Only(Box(PaintCodeShapeKind.Rectangle, PaintCodeShapeMetrics.Default, "EmbedA", text)), new List<PaintCodeImportNote>())
+            .Descendants().Single(one => one.Name.LocalName == "rect");
+
+        Assert.Equal("ARect", box.Attribute(Marked)!.Value);
+        Assert.Equal("75%", box.Parent!.Elements().Single(one => one.Name.LocalName == "text").Value);
+    }
+
+    private static readonly XName Marked = PaintCodeCode.Namespace + SvgExpressionAttributes.Bounds;
 
     /// <summary>An oval whose sweep an expression drives, for the tests below to vary.</summary>
     private static PaintCodeShape Arc(
@@ -873,9 +992,9 @@ public class PaintCodeSvgWriterTests
     private static XElement Rectangle(double radius, PaintCodeShapeKind kind)
         => Write(Box(kind, new PaintCodeShapeMetrics(radius, true, true, true, true, 0, 360, true, 0, 0)));
 
-    private static PaintCodeShape Box(PaintCodeShapeKind kind, PaintCodeShapeMetrics metrics)
+    private static PaintCodeShape Box(PaintCodeShapeKind kind, PaintCodeShapeMetrics metrics, string name = "Box", PaintCodeText? text = null)
         => new(
-            "Box",
+            name,
             kind,
             new PaintCodeFrame(0, -14, 9, 14, default, 0, 1, 1, 1, false, true),
             new Dictionary<string, PaintCodeBinding>(),
@@ -884,7 +1003,7 @@ public class PaintCodeSvgWriterTests
             PaintCodePaint.None,
             PaintCodeStroke.None,
             false,
-            null,
+            text,
             metrics);
 
     private static PaintCodeShape Shape(params PaintCodePathPoint[] points)
@@ -902,6 +1021,17 @@ public class PaintCodeSvgWriterTests
             PaintCodeShapeMetrics.Default);
 
     private static PaintCodeDocument Scope() => PaintCodeDocument.Parse(ScopeDocument.Bytes());
+
+    /// <summary>The scope document's "blend": tint, a middle stop saved as its halfway colour, then blue.</summary>
+    private static PaintCodeGradient Blend()
+        => new(
+            "blend",
+            new[]
+            {
+                new PaintCodeGradientStop(new PaintCodeColor("tint", 0, 255, 0, 1), 0, 0.5, false),
+                new PaintCodeGradientStop(new PaintCodeColor("PPGradientMidColor", 0, 128, 128, 1), 0.5, 0.5, true),
+                new PaintCodeGradientStop(new PaintCodeColor(string.Empty, 0, 0, 255, 1), 1, 0.5, false)
+            });
 
     private static PaintCodeGradient Gradient()
         => new(

@@ -487,4 +487,72 @@ public class SkiaCSharpCodeGenExpressionTests
 
         return count;
     }
+
+    [Fact]
+    public void A_Range_That_Folds_To_False_Is_Not_Emitted()
+    {
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <rect x="0" y="0" width="10" height="10" fill="#123456" visibility="{{ !true }}" />
+              <rect x="20" y="0" width="10" height="10" fill="#808080" />
+            </svg>
+            """);
+
+        Assert.DoesNotContain("if (", code);
+        Assert.DoesNotContain("new SKColor(18, 52, 86, 255)", code);
+        Assert.Contains("new SKColor(128, 128, 128, 255)", code);
+    }
+
+    [Fact]
+    public void A_Range_That_Folds_To_True_Loses_Its_If_And_Its_Let()
+    {
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code><e:let name="shown">1 &lt; 2</e:let></e:code></defs>
+              <rect x="0" y="0" width="10" height="10" fill="#123456" visibility="{{ shown }}" />
+            </svg>
+            """);
+
+        Assert.DoesNotContain("if (", code);
+        Assert.DoesNotContain("bool shown", code);
+        Assert.Contains("new SKColor(18, 52, 86, 255)", code);
+    }
+
+    [Fact]
+    public void Only_The_Folded_Range_Of_A_Nested_Pair_Goes()
+    {
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code><e:param name="hot" type="boolean" default="true" /></e:code></defs>
+              <g visibility="{{ hot }}">
+                <rect x="0" y="0" width="10" height="10" fill="#123456" visibility="{{ 1 > 2 }}" />
+                <rect x="20" y="0" width="10" height="10" fill="#654321" visibility="{{ 2 > 1 }}" />
+              </g>
+              <g visibility="{{ false }}">
+                <rect x="40" y="0" width="10" height="10" fill="#abcdef" visibility="{{ hot }}" />
+              </g>
+            </svg>
+            """);
+
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(code, @"if \(hot\)"));
+        Assert.DoesNotContain("new SKColor(18, 52, 86, 255)", code);
+        Assert.Contains("new SKColor(101, 67, 33, 255)", code);
+        Assert.DoesNotContain("new SKColor(171, 205, 239, 255)", code);
+    }
+
+    [Theory]
+    // Dropped from the output, but still checked: an `if (false)` around these failed the build, and
+    // a typo behind a debug flag must not wait for the flag to flip.
+    [InlineData("""<rect width="10" height="10" fill="{{ nosuch }}" visibility="{{ false }}" />""", "Unknown name 'nosuch'")]
+    [InlineData("""<g display="{{ 1 > 2 }}"><rect width="10" height="10" visibility="{{ 3 }}" /></g>""", "must be a boolean")]
+    public void A_Range_That_Folds_To_False_Is_Still_Checked(string content, string error)
+    {
+        var exception = Assert.Throws<ExprException>(() => Generate($"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              {content}
+            </svg>
+            """));
+
+        Assert.Contains(error, exception.Message);
+    }
 }
