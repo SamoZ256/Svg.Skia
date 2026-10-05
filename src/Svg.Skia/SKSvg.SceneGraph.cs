@@ -177,7 +177,17 @@ public partial class SKSvg
     {
         using var substituted = BeginExpressionSubstitution(SourceDocument);
 
-        return apply(sceneDocument);
+        var result = apply(sceneDocument);
+
+        // A recompiled subtree comes back placed by the placeholders. The picture is evaluated again on
+        // render, but the nodes are not, and everything asking the scene where an element is would get
+        // the placeholder's answer until the next value was bound.
+        if (result.Succeeded)
+        {
+            sceneDocument.ApplyExpressionTransforms(BoundExpressions());
+        }
+
+        return result;
     }
 
     public SvgSceneMutationResult ApplyRetainedSceneMutation(SvgElement element, IReadOnlyCollection<string>? changedAttributes = null)
