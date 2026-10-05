@@ -385,6 +385,176 @@ public class SvgViewerDrawTests
         Assert.Equal("x=4 y=4 width=8 height=8", Written(viewer, "1", "x", "y", "width", "height"));
     }
 
+    // ---- point tools ---------------------------------------------------------------------------
+
+    /// <summary>Arms a tool that has no key, by its button.</summary>
+    private static void Press(SvgViewer viewer, string label)
+    {
+        viewer.GetVisualDescendants().OfType<RadioButton>().Single(button => Equals(button.Content, label)).IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.Canvas.Focus();
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Polygon_Is_Its_Clicks_And_Enter_Finishes_It()
+    {
+        var (window, viewer) = await Host();
+
+        Press(viewer, "Polygon");
+        Click(window, viewer, 2f, 2f);
+        Click(window, viewer, 10f, 2f);
+
+        // Not yet a shape: two corners, and the file untouched.
+        Assert.Equal(1, viewer.Source.Split("<").Length - 1 - 2);
+
+        Click(window, viewer, 6f, 8f);
+
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("polygon", Name(viewer, "1"));
+        Assert.Equal("points=2,2 10,2 6,8", Written(viewer, "1", "points"));
+        Assert.Equal("fill=-", Written(viewer, "1", "fill"));
+        Assert.Equal(new[] { "1" }, viewer.Elements.SelectedAddresses);
+        Assert.Equal("draw a polygon", viewer.UndoLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task Clicking_The_First_Corner_Again_Finishes_A_Polygon_And_Backspace_Takes_One_Back()
+    {
+        var (window, viewer) = await Host();
+
+        Press(viewer, "Polygon");
+        Click(window, viewer, 2f, 2f);
+        Click(window, viewer, 10f, 2f);
+        Click(window, viewer, 12f, 12f);
+
+        window.KeyPressQwerty(PhysicalKey.Backspace, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Click(window, viewer, 6f, 8f);
+        Click(window, viewer, 2f, 2f);
+
+        Assert.Equal("points=2,2 10,2 6,8", Written(viewer, "1", "points"));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Polyline_Is_Open_Gets_A_Stroke_And_No_Fill_And_Ends_On_Its_Last_Point()
+    {
+        var (window, viewer) = await Host();
+
+        Press(viewer, "Polyline");
+        Click(window, viewer, 2f, 2f);
+        Click(window, viewer, 10f, 2f);
+        Click(window, viewer, 10f, 10f);
+
+        // What a double click is: a second click on the last point.
+        Click(window, viewer, 10f, 10f);
+
+        Assert.Equal("polyline", Name(viewer, "1"));
+        Assert.Equal("points=2,2 10,2 10,10 stroke=currentColor fill=none", Written(viewer, "1", "points", "stroke", "fill"));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Point_Dragged_Lands_Where_It_Was_Let_Go()
+    {
+        var (window, viewer) = await Host();
+
+        Press(viewer, "Polyline");
+        Drag(window, viewer, (2f, 2f), (4f, 4f));
+        Click(window, viewer, 10f, 10f);
+        Click(window, viewer, 10f, 10f);
+
+        Assert.Equal("points=4,4 10,10", Written(viewer, "1", "points"));
+    }
+
+    [AvaloniaFact]
+    public async Task The_Pen_Writes_A_Corner_For_A_Click_And_A_Curve_For_A_Drag_And_Closes_On_Its_First_Point()
+    {
+        var (window, viewer) = await Host();
+
+        Arm(window, PhysicalKey.P);
+        Click(window, viewer, 2f, 2f);
+        Drag(window, viewer, (10f, 2f), (12f, 4f));
+        Click(window, viewer, 2f, 2f);
+
+        Assert.Equal("path", Name(viewer, "1"));
+
+        // The drag is the handle leaving its point, and its mirror is the one arriving; a point
+        // with no handle puts its control point on itself, so the curve is straight at that end.
+        Assert.Equal("d=M 2 2 C 2 2 8 0 10 2 C 12 4 2 2 2 2 Z", Written(viewer, "1", "d"));
+        Assert.Equal("fill=- stroke=-", Written(viewer, "1", "fill", "stroke"));
+        Assert.Equal("draw a path", viewer.UndoLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Open_Path_Ends_With_Enter_And_Is_Stroked()
+    {
+        var (window, viewer) = await Host();
+
+        Arm(window, PhysicalKey.P);
+        Click(window, viewer, 2f, 2f);
+        Click(window, viewer, 10f, 2f);
+        Click(window, viewer, 10f, 10f);
+
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("d=M 2 2 L 10 2 L 10 10 stroke=currentColor fill=none", Written(viewer, "1", "d", "stroke", "fill"));
+    }
+
+    [AvaloniaFact]
+    public async Task Escape_Drops_A_Shape_In_The_Making_And_Enter_Needs_Enough_Points()
+    {
+        var (window, viewer) = await Host();
+        var was = viewer.Source;
+
+        Press(viewer, "Polygon");
+        Click(window, viewer, 2f, 2f);
+        Click(window, viewer, 10f, 2f);
+
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was, viewer.Source);
+
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        // Dropped, and the tool still armed: three fresh clicks make a polygon of their own.
+        Click(window, viewer, 4f, 4f);
+        Click(window, viewer, 12f, 4f);
+        Click(window, viewer, 8f, 12f);
+
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("points=4,4 12,4 8,12", Written(viewer, "1", "points"));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Rebuild_Under_A_Shape_In_The_Making_Drops_It()
+    {
+        var (window, viewer) = await Host();
+
+        Press(viewer, "Polygon");
+        Click(window, viewer, 2f, 2f);
+        Click(window, viewer, 10f, 2f);
+
+        // An edit from elsewhere — a typed source, an undo — replaces the drawing under the points.
+        Assert.True(viewer.SetSource(viewer.Source.Replace("<!-- -->", string.Empty) + "<!-- typed -->"));
+        Dispatcher.UIThread.RunJobs();
+
+        Click(window, viewer, 6f, 8f);
+
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain("<polygon", viewer.Source);
+    }
+
     [AvaloniaFact]
     public async Task The_Palette_Follows_The_Key_And_The_Key_Follows_The_Palette()
     {

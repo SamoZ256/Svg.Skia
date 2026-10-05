@@ -282,8 +282,19 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _canvas.EditBegun += (_, at) => BeginEdit(at);
         _canvas.EditMoved += (_, at) => DragEdit(at);
-        _canvas.EditEnded += (_, _) => EndEdit();
+        _canvas.EditEnded += (_, at) => EndEdit(at);
         _canvas.EditCancelled += (_, _) => CancelEdit();
+
+        // The band from the last point to the pointer, between presses: the canvas leaves an idle
+        // move alone, so it reaches here.
+        _canvas.PointerMoved += (_, e) =>
+        {
+            if (_draw.IsBusy && _draw.Continues && !_canvas.IsEditing && _canvas.TryGetDrawingPoint(e.GetPosition(_canvas), out var point))
+            {
+                _draw.Hover(Pulled(point));
+                ShowDraw();
+            }
+        };
 
         this.FindControl<StackPanel>("DrawTools")!.Children.Add(SvgViewerDraw.Palette(_draw));
 
@@ -927,6 +938,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         {
             e.Handled = true;
 
+            if (_draw.IsComplete)
+            {
+                EndDraw();
+            }
+            else
+            {
+                ShowDraw();
+            }
+
             return;
         }
 
@@ -1107,9 +1127,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         if (_drawing)
         {
             _draw.Drag(Pulled(point), _canvas.Modifiers);
-
-            // The ring is the preview: nothing is drawn into the document until the release.
-            _canvas.Retrace(_draw.Preview());
+            ShowDraw();
 
             return;
         }
@@ -1149,11 +1167,24 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// drawing from its text, which throws away the element this was mutating in place — so what is
     /// on screen afterwards is what the file says, not what the drag left behind.
     /// </remarks>
-    private void EndEdit()
+    private void EndEdit(Point at)
     {
         if (_drawing)
         {
-            EndDraw();
+            if (_canvas.TryGetDrawingPoint(at, out var point))
+            {
+                _draw.Release(Pulled(point));
+            }
+
+            // A point tool goes on past the release; a box tool's release is the shape.
+            if (_draw.Continues)
+            {
+                ShowDraw();
+            }
+            else
+            {
+                EndDraw();
+            }
 
             return;
         }
@@ -1250,8 +1281,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         if (_drawing)
         {
-            _draw.Cancel();
-            RetraceOutline();
+            // The press in flight and not the shape: a click comes through here on its way to
+            // being a click, and a point tool's points are what the click is adding to.
+            _draw.Drop();
+            ShowDraw();
 
             return;
         }
@@ -1274,6 +1307,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private ShimSkiaSharp.SKPoint Pulled(SkiaSharp.SKPoint point)
         => new(_canvas.Grid.PullX(point.X), _canvas.Grid.PullY(point.Y));
 
+    /// <summary>The ring is the preview while a shape is in the making, and the selection's otherwise.</summary>
+    /// <remarks>Nothing is drawn into the document until the shape is written, so there is nothing to put back.</remarks>
+    private void ShowDraw() => _canvas.Retrace(_draw.Preview() ?? SvgViewerPicks.Outline(Picks()));
+
     /// <summary>
     /// Begins a shape under the pointer, inside the selected container or beside the selected shape.
     /// </summary>
@@ -1284,6 +1321,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private void BeginDraw(SkiaSharp.SKPoint point)
     {
+        // The next point of a shape already begun: its parent was settled by the first.
+        if (_draw.IsBusy)
+        {
+            _draw.Press(Pulled(point));
+
+            return;
+        }
+
         if (_document is not { Svg.SourceDocument: { } built } open)
         {
             return;
@@ -1346,7 +1391,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
     }
 
-    /// <summary>A click with a tool armed: text is placed, and a box tool says what it needs.</summary>
+    /// <summary>
+    /// A click with a tool armed: text is placed, a point tool's point is put down or its shape
+    /// finished, and a box tool says what it needs.
+    /// </summary>
     /// <returns>Whether the click was the tool's rather than a pick.</returns>
     private bool DrawClick(Point at)
     {
@@ -1355,7 +1403,28 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return false;
         }
 
-        if (shape == "text" && _canvas.TryGetDrawingPoint(at, out var point) && Writable())
+        if (!_canvas.TryGetDrawingPoint(at, out var point) || !Writable())
+        {
+            return true;
+        }
+
+        if (_draw.Continues)
+        {
+            if (!_draw.IsBusy)
+            {
+                BeginDraw(point);
+            }
+
+            if (_draw.Click(Pulled(point)))
+            {
+                EndDraw();
+            }
+            else
+            {
+                ShowDraw();
+            }
+        }
+        else if (shape == "text")
         {
             BeginDraw(point);
 

@@ -1151,6 +1151,31 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task A_Polygon_Clicked_Out_On_The_Board_Lands_In_The_Drawing_It_Began_In()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var badge = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var area = Area(Shown(panel, badge));
+
+        Arm(window, panel, PhysicalKey.P);
+
+        Click(window, canvas, Over(canvas, area.Left + 2f, area.Top + 2f));
+        Click(window, canvas, Over(canvas, area.Left + 10f, area.Top + 2f));
+
+        // Off the drawing's page: a point of a shape already begun goes to that drawing still.
+        Click(window, canvas, Over(canvas, area.Left + 30f, area.Top + 10f));
+
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("<path d=\"M 2 2 L 10 2 L 30 10\"", badge.Text, StringComparison.Ordinal);
+        Assert.Equal(new[] { "1" }, Elements(panel).SelectedAddresses);
+    }
+
+    [AvaloniaFact]
     public async Task A_Press_Beside_Every_Drawing_With_A_Tool_Armed_Writes_Nothing()
     {
         var window = await Host(Write("icons.svgstudio", Board()));

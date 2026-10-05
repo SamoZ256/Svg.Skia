@@ -356,9 +356,20 @@ public sealed class GroupPanel : UserControl
 
         _canvas.EditBegun += (_, at) => BeginEdit(at);
         _canvas.EditMoved += (_, at) => DragEdit(at);
-        _canvas.EditEnded += (_, _) => EndEdit();
+        _canvas.EditEnded += (_, at) => EndEdit(at);
         _canvas.EditCancelled += (_, _) => CancelEdit();
         _canvas.KeyDown += OnCanvasKeyDown;
+
+        // The band from the last point to the pointer, between presses: the canvas leaves an idle
+        // move alone, so it reaches here.
+        _canvas.PointerMoved += (_, e) =>
+        {
+            if (_draw.IsBusy && _draw.Continues && !_canvas.IsEditing && Pulled(e.GetPosition(_canvas)) is { } point)
+            {
+                _draw.Hover(point);
+                ShowDraw();
+            }
+        };
 
         // The rows are the picked elements, so what the tree is asked for is what the board holds.
         _tree.DeleteRequested = _ => Delete();
@@ -2462,9 +2473,7 @@ public sealed class GroupPanel : UserControl
             if (Pulled(at) is { } point)
             {
                 _draw.Drag(point, _canvas.Modifiers);
-
-                // The ring is the preview: nothing is drawn into the document until the release.
-                _canvas.Retrace(Placed(_draw.Preview()));
+                ShowDraw();
             }
 
             return;
@@ -2503,11 +2512,24 @@ public sealed class GroupPanel : UserControl
     /// drawing carrying a transform its own text does not have, for good: nothing rebuilds a drawing
     /// whose text did not change.
     /// </remarks>
-    private void EndEdit()
+    private void EndEdit(Point at)
     {
         if (_drawing)
         {
-            EndDraw();
+            if (Pulled(at) is { } point)
+            {
+                _draw.Release(point);
+            }
+
+            // A point tool goes on past the release; a box tool's release is the shape.
+            if (_draw.Continues)
+            {
+                ShowDraw();
+            }
+            else
+            {
+                EndDraw();
+            }
 
             return;
         }
@@ -2678,8 +2700,10 @@ public sealed class GroupPanel : UserControl
     {
         if (_drawing)
         {
-            _draw.Cancel();
-            Retrace();
+            // The press in flight and not the shape: a click comes through here on its way to
+            // being a click, and a point tool's points are what the click is adding to.
+            _draw.Drop();
+            ShowDraw();
 
             return;
         }
@@ -2711,15 +2735,20 @@ public sealed class GroupPanel : UserControl
                 _canvas.Grid.PullY(arranged.Y) - inspecting.Placement.At.Y)
             : null;
 
-    /// <summary>The preview, moved to where the inspected drawing sits on the board.</summary>
-    private SKPath? Placed(SKPath? preview)
+    /// <summary>
+    /// The ring is the preview while a shape is in the making, moved to where the inspected drawing
+    /// sits on the board, and the selection's otherwise.
+    /// </summary>
+    private void ShowDraw()
     {
+        var preview = _draw.Preview();
+
         if (preview is { } && _inspecting is { } inspecting)
         {
             preview.Transform(SKMatrix.CreateTranslation(inspecting.Placement.At.X, inspecting.Placement.At.Y));
         }
 
-        return preview;
+        _canvas.Retrace(preview ?? SvgViewerPicks.Outline(Picks()));
     }
 
     /// <summary>
@@ -2734,6 +2763,18 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void BeginDraw(Point at)
     {
+        // The next point of a shape already begun, in the drawing the first point settled —
+        // wherever on the board the pointer now is.
+        if (_draw.IsBusy)
+        {
+            if (Pulled(at) is { } next)
+            {
+                _draw.Press(next);
+            }
+
+            return;
+        }
+
         if (!_canvas.TryGetPlacementAt(at, out var placement, out _)
             || placement is null
             || Shown(placement) is not { Built.Svg: { SourceDocument: { } built } svg } shown)
@@ -2819,13 +2860,46 @@ public sealed class GroupPanel : UserControl
         Written();
     }
 
-    /// <summary>A click with a tool armed: text is placed, and a box tool says what it needs.</summary>
-    /// <returns>Whether the click was the tool's rather than a pick; a click beside every drawing is a pick as ever.</returns>
+    /// <summary>
+    /// A click with a tool armed: text is placed, a point tool's point is put down or its shape
+    /// finished, and a box tool says what it needs.
+    /// </summary>
+    /// <returns>
+    /// Whether the click was the tool's rather than a pick. A click beside every drawing is a pick
+    /// as ever, unless a shape is in the making — its points may fall off the drawing's page.
+    /// </returns>
     private bool DrawClick(Point at)
     {
-        if (_draw.Shape is not { } shape
-            || !_canvas.TryGetPlacementAt(at, out var placement, out _)
-            || placement is null)
+        if (_draw.Shape is not { } shape)
+        {
+            return false;
+        }
+
+        if (_draw.Continues)
+        {
+            if (!_draw.IsBusy)
+            {
+                if (!_canvas.TryGetPlacementAt(at, out var pressed, out _) || pressed is null)
+                {
+                    return false;
+                }
+
+                BeginDraw(at);
+            }
+
+            if (Pulled(at) is { } point && _draw.Click(point))
+            {
+                EndDraw();
+            }
+            else
+            {
+                ShowDraw();
+            }
+
+            return true;
+        }
+
+        if (!_canvas.TryGetPlacementAt(at, out var placement, out _) || placement is null)
         {
             return false;
         }
@@ -2946,6 +3020,15 @@ public sealed class GroupPanel : UserControl
         if (!_canvas.IsEditing && _draw.Pressed(e))
         {
             e.Handled = true;
+
+            if (_draw.IsComplete)
+            {
+                EndDraw();
+            }
+            else
+            {
+                ShowDraw();
+            }
 
             return;
         }
