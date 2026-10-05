@@ -307,9 +307,9 @@ public partial class MainWindow : Window
             Reread();
         };
 
-        viewer.BoxesChanged += (_, _) =>
+        viewer.InvisibleChanged += (_, _) =>
         {
-            StudioSettings.ShowBoxes = viewer.ShowsBoxes;
+            StudioSettings.ShowInvisible = viewer.ShowsInvisible;
 
             Reread();
         };
@@ -2952,7 +2952,7 @@ public partial class MainWindow : Window
 
         viewer.Grid = grid;
         viewer.SnapsToGrid = StudioSettings.SnapToGrid;
-        viewer.ShowsBoxes = StudioSettings.ShowBoxes;
+        viewer.ShowsInvisible = StudioSettings.ShowInvisible;
     }
 
     private async void OnSave(object? sender, EventArgs e) => await SaveAsync();

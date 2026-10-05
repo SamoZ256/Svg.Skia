@@ -637,6 +637,8 @@ public partial class SvgViewerElementTree : UserControl
         }
     }
 
+    private static readonly (string Property, string Word)[] s_applies = { ("clip-path", "clip"), ("mask", "mask") };
+
     /// <summary>
     /// One row and everything under it, or null where the filter keeps none of it.
     /// </summary>
@@ -667,6 +669,15 @@ public partial class SvgViewerElementTree : UserControl
         if (element.CustomAttributes.TryGetValue(SvgExpressionAttributes.KeyFor(SvgExpressionAttributes.Bounds), out var box))
         {
             id = id is { } ? id + " ▭ " + box : "▭ " + box;
+        }
+
+        // And what clips or masks it, which nothing on the canvas says of the element itself.
+        foreach (var (property, word) in s_applies)
+        {
+            if (SvgViewerOutline.Applied(element, property) is { } applied)
+            {
+                id = (id is { } ? id + " " : string.Empty) + word + " #" + applied.ID;
+            }
         }
 
         if (filtering && children.Count == 0 && !Matches(label, id))

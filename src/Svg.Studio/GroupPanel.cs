@@ -213,7 +213,7 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>The board's own captions toggle, which follows the setting the same way.</summary>
     private ToggleButton? _captions;
-    private ToggleButton? _boxes;
+    private ToggleButton? _invisible;
 
     /// <summary>Whether the board in front of us was laid out with names on its drawings.</summary>
     private bool _named = StudioSettings.DrawingCaptions;
@@ -285,6 +285,7 @@ public sealed class GroupPanel : UserControl
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         Node = node ?? throw new ArgumentNullException(nameof(node));
+        _gizmo.Picks = (svg, at) => _canvas.ElementAt(svg, new SkiaSharp.SKPoint(at.X, at.Y), out _);
 
         _element = new SvgViewerElementPanel(
             () => _elementOf?.Target.Text ?? string.Empty,
@@ -816,11 +817,11 @@ public sealed class GroupPanel : UserControl
             _snapping.IsChecked = StudioSettings.SnapToGrid;
         }
 
-        _canvas.ShowsBoxes = StudioSettings.ShowBoxes;
+        _canvas.ShowsInvisible = StudioSettings.ShowInvisible;
 
-        if (_boxes is { })
+        if (_invisible is { })
         {
-            _boxes.IsChecked = StudioSettings.ShowBoxes;
+            _invisible.IsChecked = StudioSettings.ShowInvisible;
         }
 
         if (_captions is { })
@@ -2035,8 +2036,9 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void Pick(Point at)
     {
-        // A click on the selection's handles or in its box, with nothing else drawn there, keeps it.
-        if (Arranged(at) is { } arranged && _gizmo.Keeps(arranged, (float)_canvas.Scale))
+        // A click on the selection's handles or in its box, with nothing else drawn there, keeps it —
+        // unless it is the same mask or clip content where another element uses it.
+        if (Arranged(at) is { } arranged && _gizmo.Keeps(arranged, (float)_canvas.Scale) && OnSameUse(at))
         {
             return;
         }
@@ -2070,8 +2072,7 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        // A reserved box paints nothing, so it is found by its dashed edge once the ink has had its turn.
-        if ((svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) ?? _canvas.BoxAt(svg, point)) is not { } element)
+        if (_canvas.ElementAt(svg, point, out var use) is not { } element)
         {
             // On the drawing but on none of its ink, which is the page — a thing in its own right,
             // the way a group's frame is. This used to be a click that did nothing, kept that way so
@@ -2096,6 +2097,7 @@ public sealed class GroupPanel : UserControl
         _page = false;
         _picked.Clear();
         _picked.Add(SvgElementAddress.Create(element).Key);
+        _used = (_shown[index].Built.Drawing, _picked[0], use);
 
         _tree.TrySelect(_picked[0]);
 
@@ -2356,8 +2358,36 @@ public sealed class GroupPanel : UserControl
     private IReadOnlyList<SvgViewerGizmoMember> Members()
         => Picks()
             .Where(pick => pick.Element is { })
-            .Select(pick => new SvgViewerGizmoMember(pick.Element!, pick.AddressKey))
+            .Select(pick => new SvgViewerGizmoMember(pick.Element!, pick.AddressKey, UseOf(pick.AddressKey)))
             .ToList();
+
+    /// <summary>Which element using a piece of mask or clip content a click last took hold of it through.</summary>
+    /// <remarks>
+    /// By address, which outlives the rebuild a commit makes, so the handles come back on the same use —
+    /// and in which drawing, since a group's drawings share addresses but not what uses a mask in each.
+    /// Anything never clicked that way is taken hold of through the first.
+    /// </remarks>
+    private (ProjectDrawing? Drawing, string? Key, int Use) _used;
+
+    private int UseOf(string key)
+        => key == _used.Key && ReferenceEquals(_used.Drawing, _inspecting?.Built.Drawing) ? _used.Use : 0;
+
+    /// <summary>Whether a click at <paramref name="at"/> would take hold of what it lands on through the use already held.</summary>
+    private bool OnSameUse(Point at)
+    {
+        if (!_canvas.TryGetPlacementAt(at, out var placement, out var point) || placement is null)
+        {
+            return true;
+        }
+
+        var index = _shown.FindIndex(shown => ReferenceEquals(shown.Placement, placement));
+
+        // Anything but the held content answering for the point means a handle was hit, which keeps it.
+        return index < 0 ||
+               _shown[index].Built.Svg is not { } svg ||
+               _canvas.ElementAt(svg, point, out var use) is not { } element ||
+               SvgElementAddress.Create(element).Key is var key && (_picked.Count == 0 || key != _picked[0] || UseOf(key) == use);
+    }
 
     /// <summary>
     /// Hands the canvas the box as it now stands.
@@ -3347,33 +3377,33 @@ public sealed class GroupPanel : UserControl
 
         _captions = captions;
 
-        var boxes = new ToggleButton
+        var invisible = new ToggleButton
         {
-            Content = "Boxes",
-            IsChecked = StudioSettings.ShowBoxes,
-            [ToolTip.TipProperty] = "Show the boxes each drawing reserves for the code that draws it"
+            Content = "Invisible",
+            IsChecked = StudioSettings.ShowInvisible,
+            [ToolTip.TipProperty] = "Outline what each drawing has but does not paint: boxes, mask and clip content, unpainted and hidden elements"
         };
 
-        boxes.IsCheckedChanged += (_, _) =>
+        invisible.IsCheckedChanged += (_, _) =>
         {
-            if (StudioSettings.ShowBoxes == (boxes.IsChecked == true))
+            if (StudioSettings.ShowInvisible == (invisible.IsChecked == true))
             {
                 return;
             }
 
-            StudioSettings.ShowBoxes = boxes.IsChecked == true;
+            StudioSettings.ShowInvisible = invisible.IsChecked == true;
 
             Reread();
 
             SettingChanged?.Invoke(this, EventArgs.Empty);
         };
 
-        _boxes = boxes;
+        _invisible = invisible;
 
         bar.Children.Add(ratio);
         bar.Children.Add(snap);
         bar.Children.Add(captions);
-        bar.Children.Add(boxes);
+        bar.Children.Add(invisible);
 
         return bar;
     }

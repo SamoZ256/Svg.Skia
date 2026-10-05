@@ -1547,4 +1547,213 @@ public class SvgViewerGizmoTests
 
         Assert.NotEqual(offset, viewer.Canvas.OffsetX);
     }
+
+    private const string SharedMask = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <defs>
+            <mask id="sweep" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+              <rect id="spot" x="0" y="0" width="20" height="20" fill="#ffffff" />
+            </mask>
+          </defs>
+          <rect width="30" height="30" fill="#3366cc" mask="url(#sweep)" />
+          <g transform="translate(50 50) scale(2)"><rect width="20" height="20" fill="#3366cc" mask="url(#sweep)" /></g>
+        </svg>
+        """;
+
+    /// <summary>
+    /// Mask content clicked where a second element uses it is taken hold of there, and a drag is
+    /// mapped through that element: ten units across its doubled space is five of the content's own.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Mask_Content_Is_Dragged_Through_The_Use_It_Was_Clicked_On()
+    {
+        var (window, viewer) = await Host(SharedMask);
+
+        Select(window, viewer, 50f, 70f);
+
+        Assert.Equal("spot", viewer.SelectedElement?.ID);
+        var box = viewer.Canvas.Gizmo!.Value;
+        Assert.Equal(50f, box.TL.X, 1);
+        Assert.Equal(50f, box.TL.Y, 1);
+
+        Drag(window, viewer, (70f, 70f), (80f, 70f));
+
+        Assert.Equal("5 0 20 20", Box(viewer, "spot"));
+
+        // And the handles come back on the same use after the commit rebuilt the drawing.
+        Assert.Equal(60f, viewer.Canvas.Gizmo!.Value.TL.X, 1);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Mask_Content_Picked_From_The_Tree_Is_Held_Through_The_First_Use()
+    {
+        var (window, viewer) = await Host(SharedMask);
+
+        SelectById(viewer, "spot");
+
+        var box = viewer.Canvas.Gizmo!.Value;
+        Assert.Equal(0f, box.TL.X, 1);
+        Assert.Equal(20f, box.BR.X, 1);
+
+        window.Close();
+    }
+
+    /// <summary>A click on the second use's line inside the first use's box moves the handles to it.</summary>
+    [AvaloniaFact]
+    public async Task A_Click_On_Another_Use_Moves_The_Handles_To_It()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <mask id="sweep" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+                  <rect id="spot" x="0" y="0" width="20" height="20" fill="#ffffff" />
+                </mask>
+              </defs>
+              <rect width="40" height="40" fill="#3366cc" mask="url(#sweep)" />
+              <g transform="translate(10 10)"><rect width="40" height="40" fill="#3366cc" mask="url(#sweep)" /></g>
+            </svg>
+            """);
+
+        Select(window, viewer, 0f, 10f);
+
+        Assert.Equal(0f, viewer.Canvas.Gizmo!.Value.TL.X, 1);
+
+        Select(window, viewer, 15f, 10f);
+
+        Assert.Equal("spot", viewer.SelectedElement?.ID);
+        Assert.Equal(10f, viewer.Canvas.Gizmo!.Value.TL.X, 1);
+        Assert.Equal(10f, viewer.Canvas.Gizmo!.Value.TL.Y, 1);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// Clip content in the bounding box's units is dragged in them: eight units across a 32-unit box
+    /// is a quarter.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Clip_Content_In_Bounding_Box_Units_Is_Dragged_In_Them()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <clipPath id="window" clipPathUnits="objectBoundingBox">
+                  <rect id="hole" x="0" y="0" width="0.5" height="0.5" />
+                </clipPath>
+              </defs>
+              <rect x="32" y="32" width="32" height="32" fill="#3366cc" clip-path="url(#window)" />
+            </svg>
+            """);
+
+        Select(window, viewer, 32f, 40f);
+
+        Assert.Equal("hole", viewer.SelectedElement?.ID);
+
+        Drag(window, viewer, (40f, 40f), (48f, 40f));
+
+        Assert.Equal("0.25 0 0.5 0.5", Box(viewer, "hole"));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Group_Inside_A_Mask_Is_Held_Where_The_Mask_Puts_It()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+                  <g id="layer" transform="translate(30 40)"><rect width="20" height="10" fill="#ffffff" /></g>
+                </mask>
+              </defs>
+              <rect width="100" height="100" fill="#3366cc" mask="url(#m)" />
+            </svg>
+            """);
+
+        SelectById(viewer, "layer");
+
+        var box = viewer.Canvas.Gizmo!.Value;
+        Assert.Equal(30f, box.TL.X, 1);
+        Assert.Equal(40f, box.TL.Y, 1);
+        Assert.Equal(50f, box.BR.X, 1);
+
+        Drag(window, viewer, (40f, 45f), (50f, 45f));
+
+        Assert.Equal("translate(40, 40)", Written(viewer, "layer"));
+
+        window.Close();
+    }
+
+    /// <summary>A &lt;use&gt; in a clip path folds its own place into the path, so it is ringed but not held.</summary>
+    [AvaloniaFact]
+    public async Task A_Use_Inside_A_Clip_Path_Is_Ringed_But_Has_No_Handles()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <rect id="r" width="20" height="20" />
+                <clipPath id="c"><use id="u" xlink:href="#r" x="10" y="10" /></clipPath>
+              </defs>
+              <rect width="100" height="100" fill="#3366cc" clip-path="url(#c)" />
+            </svg>
+            """);
+
+        SelectById(viewer, "u");
+
+        Assert.Null(viewer.Canvas.Gizmo);
+        Assert.NotNull(viewer.Canvas.Highlight);
+
+        window.Close();
+    }
+
+    /// <summary>A handle keeps the selection even where some mask content's outline runs under it.</summary>
+    [AvaloniaFact]
+    public async Task A_Handle_Over_Another_Use_Of_Mask_Content_Keeps_The_Selection()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <mask id="sweep" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+                  <rect id="spot" x="0" y="0" width="20" height="20" fill="#ffffff" />
+                </mask>
+              </defs>
+              <rect width="30" height="30" fill="#3366cc" mask="url(#sweep)" />
+              <g transform="translate(40 40)"><rect width="30" height="30" fill="#3366cc" mask="url(#sweep)" /></g>
+              <rect id="e" x="30" y="30" width="10" height="10" fill="#cc3355" />
+            </svg>
+            """);
+
+        Select(window, viewer, 35f, 35f);
+
+        Assert.Equal("e", viewer.SelectedElement?.ID);
+
+        // Its bottom-right handle, on the corner the mask content's second use starts at.
+        Select(window, viewer, 40f, 40f);
+
+        Assert.Equal("e", viewer.SelectedElement?.ID);
+
+        window.Close();
+    }
+
+    /// <summary>A use clicked in a drawing since replaced is not where the next one is held.</summary>
+    [AvaloniaFact]
+    public async Task A_New_Drawing_Holds_Mask_Content_Through_Its_First_Use_Again()
+    {
+        var (window, viewer) = await Host(SharedMask);
+
+        Select(window, viewer, 50f, 70f);
+
+        Assert.Equal(50f, viewer.Canvas.Gizmo!.Value.TL.X, 1);
+
+        Assert.True(await viewer.LoadTextAsync(SharedMask));
+        Dispatcher.UIThread.RunJobs();
+
+        SelectById(viewer, "spot");
+
+        Assert.Equal(0f, viewer.Canvas.Gizmo!.Value.TL.X, 1);
+
+        window.Close();
+    }
 }
