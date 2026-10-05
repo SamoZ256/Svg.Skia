@@ -115,6 +115,10 @@ public sealed class SvgSceneDocument
         if (moved)
         {
             SvgSceneCompiler.RefreshTotalTransforms(Root);
+
+            // Nothing is recompiled, so without this whatever was measured off the old placement
+            // would go on being read as current.
+            Revision++;
         }
 
         return moved;

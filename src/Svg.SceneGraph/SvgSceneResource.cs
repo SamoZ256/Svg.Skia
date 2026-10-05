@@ -105,6 +105,28 @@ public sealed class SvgSceneResource
         return payload;
     }
 
+    /// <summary>
+    /// Each child of this <c>&lt;clipPath&gt;</c> where it clips <paramref name="targetNode"/>, in the
+    /// target's own coordinates, or nothing when this is not a clip path.
+    /// </summary>
+    /// <remarks>
+    /// Clip content is compiled into the clip rather than into nodes, so nothing else says where one
+    /// child of it stands. Compiled afresh on every call and never cached: it is asked for only to show
+    /// the content, never to draw with it.
+    /// </remarks>
+    public IEnumerable<(SvgElement Element, ClipPath Clip)> ClipContent(SvgSceneDocument sceneDocument, SvgSceneNode targetNode)
+    {
+        if (Kind != SvgSceneResourceKind.ClipPath || SourceElement is not SvgClipPath svgClipPath)
+        {
+            yield break;
+        }
+
+        foreach (var (element, clip) in SvgSceneClipCompiler.CompileClipChildren(svgClipPath, targetNode.GeometryBounds, sceneDocument.AssetLoader))
+        {
+            yield return (element, clip);
+        }
+    }
+
     internal SvgSceneMaskPayload? ResolveMaskPayload(SvgSceneDocument sceneDocument, SvgSceneNode targetNode)
     {
         if (Kind != SvgSceneResourceKind.Mask || SourceElement is not SvgMask svgMask)
