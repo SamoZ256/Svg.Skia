@@ -170,6 +170,27 @@
                Opacity="0.65"
                FontSize="11" />
 
+    <TextBlock Text="Claude Code" Margin="0,14,0,0" />
+
+    <!--
+      Off by default: it opens a port. The copied command carries the token, which is kept in the
+      keychain and never shown here on its own.
+    -->
+    <CheckBox x:Name="McpEnabledBox" Content="Let Claude Code connect to this Studio" />
+
+    <StackPanel Orientation="Horizontal" Spacing="6" Margin="26,4,0,0">
+      <TextBlock Text="Port" VerticalAlignment="Center" />
+      <NumericUpDown x:Name="McpPortBox" Width="120" Increment="1" FormatString="0" />
+      <Button x:Name="CopyMcpCommandButton" Content="Copy command" />
+      <Button x:Name="NewMcpTokenButton" Content="New token" />
+    </StackPanel>
+
+    <TextBlock x:Name="McpStatusText"
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11"
+               Margin="26,0,0,0" />
+
     <TextBlock Text="Panels" Margin="0,14,0,0" />
 
     <Button x:Name="ResetLayoutButton" Content="Reset layout" HorizontalAlignment="Left" />

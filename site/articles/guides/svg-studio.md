@@ -263,6 +263,25 @@ rather than written as braces nobody reads. A value the element's `style` attrib
 row as `red in style`, and the row takes nothing: the declaration wins over the attribute, so it is
 changed under **Inline style** instead.
 
+## Connecting Claude Code
+
+Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
+project and its drawings, sets attributes, adds, moves and renames nodes, and saves or commits.
+
+1. In **Settings**, turn on **Let Claude Code connect to this Studio**. Studio then listens on
+   `127.0.0.1` only, on port 7337 unless you choose another.
+2. Press **Copy command** and paste it into a terminal. It runs `claude mcp add` with this Studio's
+   address and a token, which Studio keeps in the keychain; **New token** replaces it, and a command
+   copied before stops working.
+3. In Claude Code, `/mcp` lists `svg-studio` as connected while Studio is open.
+
+Each edit Claude Code makes is one step on the same history as yours, named in the Edit menu as
+*Undo Claude Code: …*, so ⌘Z takes it back. Saving, removing a node and committing are marked as
+destructive, so Claude Code asks you before it does them; Studio does not ask again.
+
+Only one Studio can hold a port. A second one open at the same time says in Settings that the port is
+taken; give it another and copy its command separately.
+
 ## Related docs
 
 - [Source Generator and svgc](source-generator-and-svgc) — the build a project describes

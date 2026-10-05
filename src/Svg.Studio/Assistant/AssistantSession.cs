@@ -34,11 +34,19 @@ public sealed class AssistantSession : IDisposable
         - Act only through tools. Never say something changed unless a tool reported it done; after your tools have run, say in a sentence what they did.
         - A request is the permission: never ask whether to proceed, just do it.
         - Answer questions from the documentation you are given, and say plainly when it does not cover something.
+
+        """ + Rules + """
+
+        - Reply briefly. Markdown is rendered: short paragraphs, lists, and `code` for attribute names and values.
+        """;
+
+    /// <summary>What any model driving Studio's tools has to know, the panel's or one connected over MCP.</summary>
+    internal const string Rules =
+        """
         - get_drawing gives the address keys set_attributes takes. Keys are positions, so read again after an edit that adds, moves or removes elements.
         - Nodes of the project are named by path from get_project, such as 0/2. Names can repeat; paths cannot.
         - Expressions are written {{ name }} inside an attribute; parameters and lets are declared in the drawing's or a group's declarations.
         - Every edit is one step the person can undo with Cmd/Ctrl+Z.
-        - Reply briefly. Markdown is rendered: short paragraphs, lists, and `code` for attribute names and values.
         """;
 
     /// <summary>Only for a model that has the save, remove and git_commit tools; a small one nagged about saving from the mention alone.</summary>

@@ -44,6 +44,21 @@ public sealed class AssistantTools
         _window = window ?? throw new ArgumentNullException(nameof(window));
     }
 
+    /// <summary>The tools that read and change nothing, for a client to call without asking.</summary>
+    public static readonly IReadOnlySet<string> Reading = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "read_doc", "get_project", "get_drawing", "get_element", "get_context"
+    };
+
+    /// <summary>The tools that write past the history - to disk, to git, or a node away - which a client should ask about.</summary>
+    public static readonly IReadOnlySet<string> Confirming = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "save", "remove", "git_commit"
+    };
+
+    /// <summary>Who the Edit menu says made an edit: "Undo Assistant: make it red".</summary>
+    public string Who { get; init; } = "Assistant";
+
     /// <summary>Asks the person before something that cannot be taken back with ⌘Z.</summary>
     public Func<string, Task<bool>> Confirm { get; set; } = _ => Task.FromResult(false);
 
@@ -142,8 +157,13 @@ public sealed class AssistantTools
     }
 
     [Description("Reads a section of the documentation.")]
-    private string ReadDoc([Description("The section id, as the contents lists it.")] string id)
-        => AssistantDocs.Read(id) ?? $"There is no section {id}. The contents lists the ids.";
+    /// <remarks>An id it does not know is answered with the contents, so asking with none is how a model finds the ids.</remarks>
+    private string ReadDoc([Description("The section id, as the contents lists it; empty to list the sections.")] string? id = null)
+        => (string.IsNullOrWhiteSpace(id) ? null : AssistantDocs.Read(id))
+           ?? $"{(string.IsNullOrWhiteSpace(id) ? "The" : $"There is no section {id}. The")} documentation's sections, by id:\n{AssistantDocs.Contents}";
+
+    /// <summary><see cref="Context"/> on the UI thread, for a client that has no message to put it in.</summary>
+    public Task<string> ContextAsync() => Ui(() => Context());
 
     private Task<string> GetProject() => Ui(() =>
     {
@@ -575,7 +595,7 @@ public sealed class AssistantTools
 
     private static string NoNode(string? path) => $"There is no node {path}. get_project lists the paths.";
 
-    private static string Label(string summary) => "Assistant: " + summary.Trim();
+    private string Label(string summary) => $"{Who}: {summary.Trim()}";
 
     private string Report(string result, string summary)
     {

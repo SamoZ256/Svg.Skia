@@ -83,6 +83,9 @@ public partial class MainWindow : Window
     /// <summary>The chat that answers from the docs and works the window through <see cref="AssistantTools"/>.</summary>
     private readonly AssistantPanel _assistant;
 
+    /// <summary>The same tools as <see cref="_assistant"/>, served for Claude Code while Settings says so.</summary>
+    private readonly StudioMcpServer _mcp;
+
     /// <summary>The settings window while one is open, so a second asking brings that one forward.</summary>
     private SettingsWindow? _settings;
 
@@ -142,6 +145,10 @@ public partial class MainWindow : Window
         };
 
         _assistant = new AssistantPanel(new AssistantTools(this));
+        _mcp = new StudioMcpServer(this);
+
+        // After the window is up rather than here: the tools it serves reach into the window.
+        Opened += async (_, _) => await _mcp.ApplyAsync().ConfigureAwait(true);
 
         // Coming back to the window is when a commit made in a terminal would be seen.
         Activated += async (_, _) => await _changes.Refresh().ConfigureAwait(true);
@@ -2862,6 +2869,7 @@ public partial class MainWindow : Window
 
         await _streamline.RefreshAsync().ConfigureAwait(true);
         await _assistant.RefreshAsync().ConfigureAwait(true);
+        await _mcp.ApplyAsync().ConfigureAwait(true);
     }
 
     /// <summary>Tells every tab what the settings now say.</summary>
@@ -3502,6 +3510,11 @@ public partial class MainWindow : Window
         _recovery?.Drop();
         _recovery?.Stop();
         _recovery = null;
+
+        // Waited for, so the port is free again once the window has gone, but on the pool and for a
+        // bounded time: stopped from here, Kestrel's awaits came back to this thread, which was the
+        // one waiting for them, and closing the window hung.
+        Task.Run(() => _mcp.DisposeAsync().AsTask()).Wait(TimeSpan.FromSeconds(3));
 
         base.OnClosed(e);
     }
