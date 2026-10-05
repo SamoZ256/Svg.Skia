@@ -1191,6 +1191,36 @@ public class MainWindowProjectTests : IDisposable
         Drag(window, canvas, off, new Point(off.X + 30, off.Y + 30));
 
         Assert.Equal(was, window.Workspace.Document.Source.ToText());
+
+        // Said, since the tool took the press and wrote nothing with it.
+        Assert.Equal("Press on a drawing to draw into it.", panel.Notice);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Tool_Pressed_On_A_Groups_Own_Tab_Draws_In_The_Groups_Units()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var group = (ProjectGroup)window.Workspace!.Document.Root.Children[2];
+
+        // Opened from the tree, which keeps the focus: the strip's button has to hand it over.
+        await window.ShowAsync(group);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = Panel(window, "Large");
+        var canvas = Canvas(panel);
+
+        panel.GetVisualDescendants().OfType<ToggleButton>().Single(button => Equals(button.Tag, "rect")).IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(canvas.IsFocused);
+
+        var large = (ProjectDrawing)group.Children[0];
+        var area = Area(Shown(panel, large));
+
+        // The group builds its drawing at twice the size, so the board's numbers are halved.
+        Drag(window, canvas, Over(canvas, area.Left + 8f, area.Top + 8f), Over(canvas, area.Left + 24f, area.Top + 20f));
+
+        Assert.Contains("<rect x=\"4\" y=\"4\" width=\"8\" height=\"6\" />", large.Text, StringComparison.Ordinal);
     }
 
     [AvaloniaFact]

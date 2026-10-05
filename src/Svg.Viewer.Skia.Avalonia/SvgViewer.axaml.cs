@@ -296,13 +296,20 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             }
         };
 
-        this.FindControl<StackPanel>("DrawTools")!.Children.Add(SvgViewerDraw.Palette(_draw));
+        this.FindControl<ContentControl>("ToolStrip")!.Content = SvgViewerDraw.Palette(_draw);
 
         // The handles go away while a tool is armed, since a press on them would draw rather than
         // drag, and come back on whatever is selected when it is put down.
         _draw.Changed += (_, _) =>
         {
             _canvas.Cursor = _draw.Cursor;
+
+            // The keys that finish a shape or change the tool are the canvas's, and pressing a
+            // button in the strip would otherwise leave the focus on the button.
+            if (_draw.Shape is { })
+            {
+                _canvas.Focus();
+            }
 
             ShowGizmo();
             RetraceOutline();
@@ -1358,6 +1365,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private void EndDraw()
     {
+        // A press that began nothing — a drawing that would not read — has said so already.
+        if (!_draw.IsBusy)
+        {
+            return;
+        }
+
         var label = _draw.Label;
         var note = _draw.Note;
         var (target, where) = _into;

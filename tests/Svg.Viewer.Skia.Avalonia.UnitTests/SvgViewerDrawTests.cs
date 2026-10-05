@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -124,6 +125,10 @@ public class SvgViewerDrawTests
 
     private static string Name(SvgViewer viewer, string addressKey)
         => viewer.Elements.Root!.Flatten().Single(node => node.AddressKey == addressKey).Label;
+
+    /// <summary>The strip's button for a tool, by the tool it carries.</summary>
+    private static ToggleButton Tool(SvgViewer viewer, string shape)
+        => viewer.GetVisualDescendants().OfType<ToggleButton>().Single(button => Equals(button.Tag, shape));
 
     [AvaloniaFact]
     public async Task A_Rectangle_Is_Written_In_The_Drawings_Units_Last_In_The_Root_And_Selected()
@@ -388,9 +393,9 @@ public class SvgViewerDrawTests
     // ---- point tools ---------------------------------------------------------------------------
 
     /// <summary>Arms a tool that has no key, by its button.</summary>
-    private static void Press(SvgViewer viewer, string label)
+    private static void Press(SvgViewer viewer, string shape)
     {
-        viewer.GetVisualDescendants().OfType<RadioButton>().Single(button => Equals(button.Content, label)).IsChecked = true;
+        Tool(viewer, shape).IsChecked = true;
         Dispatcher.UIThread.RunJobs();
 
         viewer.Canvas.Focus();
@@ -402,7 +407,7 @@ public class SvgViewerDrawTests
     {
         var (window, viewer) = await Host();
 
-        Press(viewer, "Polygon");
+        Press(viewer, "polygon");
         Click(window, viewer, 2f, 2f);
         Click(window, viewer, 10f, 2f);
 
@@ -426,7 +431,7 @@ public class SvgViewerDrawTests
     {
         var (window, viewer) = await Host();
 
-        Press(viewer, "Polygon");
+        Press(viewer, "polygon");
         Click(window, viewer, 2f, 2f);
         Click(window, viewer, 10f, 2f);
         Click(window, viewer, 12f, 12f);
@@ -445,7 +450,7 @@ public class SvgViewerDrawTests
     {
         var (window, viewer) = await Host();
 
-        Press(viewer, "Polyline");
+        Press(viewer, "polyline");
         Click(window, viewer, 2f, 2f);
         Click(window, viewer, 10f, 2f);
         Click(window, viewer, 10f, 10f);
@@ -462,7 +467,7 @@ public class SvgViewerDrawTests
     {
         var (window, viewer) = await Host();
 
-        Press(viewer, "Polyline");
+        Press(viewer, "polyline");
         Drag(window, viewer, (2f, 2f), (4f, 4f));
         Click(window, viewer, 10f, 10f);
         Click(window, viewer, 10f, 10f);
@@ -511,7 +516,7 @@ public class SvgViewerDrawTests
         var (window, viewer) = await Host();
         var was = viewer.Source;
 
-        Press(viewer, "Polygon");
+        Press(viewer, "polygon");
         Click(window, viewer, 2f, 2f);
         Click(window, viewer, 10f, 2f);
 
@@ -539,7 +544,7 @@ public class SvgViewerDrawTests
     {
         var (window, viewer) = await Host();
 
-        Press(viewer, "Polygon");
+        Press(viewer, "polygon");
         Click(window, viewer, 2f, 2f);
         Click(window, viewer, 10f, 2f);
 
@@ -556,27 +561,63 @@ public class SvgViewerDrawTests
     }
 
     [AvaloniaFact]
+    public async Task A_Tool_Keeps_Its_Cursor_Past_A_Click_And_A_Button_Hands_The_Canvas_The_Keys()
+    {
+        var (window, viewer) = await Host();
+
+        // Nothing has focused the canvas: the strip's button is what the hand pressed.
+        window.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        Tool(viewer, "rect").IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Canvas.IsFocused);
+        Assert.NotNull(viewer.Canvas.Cursor);
+
+        // Giving the pointer up is a capture lost, which used to put the arrow back.
+        Click(window, viewer, 10f, 10f);
+
+        Assert.NotNull(viewer.Canvas.Cursor);
+        Assert.True(Tool(viewer, "rect").IsChecked);
+
+        Drag(window, viewer, (8f, 8f), (12f, 12f));
+
+        Assert.Equal("rect", Name(viewer, "1"));
+        Assert.Null(viewer.Canvas.Cursor);
+    }
+
+    [AvaloniaFact]
     public async Task The_Palette_Follows_The_Key_And_The_Key_Follows_The_Palette()
     {
         var (window, viewer) = await Host();
 
-        var buttons = viewer.GetVisualDescendants().OfType<RadioButton>().ToList();
-        var rect = buttons.Single(button => Equals(button.Content, "Rect"));
-        var select = buttons.Single(button => Equals(button.Content, "Select"));
+        var rect = Tool(viewer, "rect");
+        var select = Tool(viewer, "select");
 
         Assert.True(select.IsChecked);
 
         Arm(window, PhysicalKey.R);
 
         Assert.True(rect.IsChecked);
+        Assert.False(select.IsChecked);
         Assert.Null(viewer.Canvas.Gizmo);
 
         select.IsChecked = true;
         Dispatcher.UIThread.RunJobs();
 
+        Assert.False(rect.IsChecked);
+
         Drag(window, viewer, (8f, 8f), (20f, 14f));
 
         // A sweep, since nothing is armed: the drawing is as it was.
         Assert.Equal(1, viewer.Source.Split("<rect").Length - 1);
+
+        // Pressing the tool that is down puts it away, which is Select again.
+        rect.IsChecked = true;
+        rect.IsChecked = false;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(select.IsChecked);
     }
 }

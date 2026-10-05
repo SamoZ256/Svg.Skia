@@ -341,6 +341,13 @@ public sealed class GroupPanel : UserControl
         {
             _canvas.Cursor = _draw.Cursor;
 
+            // The keys that finish a shape or change the tool are the canvas's, and pressing a
+            // button in the strip would otherwise leave the focus on the button.
+            if (_draw.Shape is { })
+            {
+                _canvas.Focus();
+            }
+
             ShowGizmo();
             Retrace();
         };
@@ -477,7 +484,15 @@ public sealed class GroupPanel : UserControl
         centre.Children.Add(_notice);
         DockPanel.SetDock(_notice, Dock.Top);
 
-        centre.Children.Add(_canvas);
+        // The drawing tools stand beside the canvas, as the viewer has them beside its drawing.
+        var drawing = new DockPanel();
+        var strip = SvgViewerDraw.Palette(_draw);
+
+        DockPanel.SetDock(strip, Dock.Left);
+        drawing.Children.Add(strip);
+        drawing.Children.Add(_canvas);
+
+        centre.Children.Add(drawing);
 
         var parameters = new DockPanel();
 
@@ -2779,6 +2794,9 @@ public sealed class GroupPanel : UserControl
             || placement is null
             || Shown(placement) is not { Built.Svg: { SourceDocument: { } built } svg } shown)
         {
+            // Said, since the tool took the press: silence there reads as a tool that does nothing.
+            Says("Press on a drawing to draw into it.");
+
             return;
         }
 
@@ -2816,6 +2834,12 @@ public sealed class GroupPanel : UserControl
     /// <remarks>The tool is put away before the commit, for the viewer's reason: the rebuild puts the handles on the new row.</remarks>
     private void EndDraw()
     {
+        // A press that began nothing — beside every drawing — has said so already.
+        if (!_draw.IsBusy)
+        {
+            return;
+        }
+
         var label = _draw.Label;
         var note = _draw.Note;
         var (target, where) = _into;
@@ -3350,12 +3374,6 @@ public sealed class GroupPanel : UserControl
         bar.Children.Add(snap);
         bar.Children.Add(captions);
         bar.Children.Add(boxes);
-
-        var tools = SvgViewerDraw.Palette(_draw);
-
-        tools.Margin = new Thickness(8, 0, 0, 0);
-
-        bar.Children.Add(tools);
 
         return bar;
     }

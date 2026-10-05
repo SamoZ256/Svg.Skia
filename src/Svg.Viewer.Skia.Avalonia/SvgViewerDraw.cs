@@ -47,16 +47,17 @@ public sealed class SvgViewerDraw
     /// <summary>The tools, as the element each writes; <c>circle</c> is the ellipse tool with Shift held.</summary>
     public static readonly IReadOnlyList<string> Shapes = new[] { "rect", "ellipse", "line", "text", "polygon", "polyline", "path" };
 
-    private static readonly IReadOnlyDictionary<string, (string Label, Key Key, string Tip)> Tools =
+    /// <summary>Each tool's button: a glyph, since the strip is a column beside the drawing and a word is too wide for one.</summary>
+    private static readonly IReadOnlyDictionary<string, (string Glyph, Key Key, string Tip)> Tools =
         new Dictionary<string, (string, Key, string)>(StringComparer.Ordinal)
         {
-            ["rect"] = ("Rect", Key.R, "Rectangle (R): drag a box; Shift for a square"),
-            ["ellipse"] = ("Ellipse", Key.O, "Ellipse (O): drag a box; Shift for a circle"),
-            ["line"] = ("Line", Key.L, "Line (L): drag from one end to the other; Shift for 45° steps"),
-            ["text"] = ("Text", Key.T, "Text (T): click where the baseline starts"),
-            ["polygon"] = ("Polygon", Key.None, "Polygon: click each corner; click the first again or press Enter to finish, Backspace to take one back"),
-            ["polyline"] = ("Polyline", Key.None, "Polyline: click each point; click the last again or press Enter to finish, Backspace to take one back"),
-            ["path"] = ("Pen", Key.P, "Pen (P): click for a corner, drag for a curve; click the first point to close, the last or Enter to finish"),
+            ["rect"] = ("▭", Key.R, "Rectangle (R): drag a box; Shift for a square"),
+            ["ellipse"] = ("◯", Key.O, "Ellipse (O): drag a box; Shift for a circle"),
+            ["line"] = ("╱", Key.L, "Line (L): drag from one end to the other; Shift for 45° steps"),
+            ["text"] = ("T", Key.T, "Text (T): click where the baseline starts"),
+            ["polygon"] = ("⬠", Key.None, "Polygon: click each corner; click the first again or press Enter to finish, Backspace to take one back"),
+            ["polyline"] = ("∧", Key.None, "Polyline: click each point; click the last again or press Enter to finish, Backspace to take one back"),
+            ["path"] = ("✒", Key.P, "Pen (P): click for a corner, drag for a curve; click the first point to close, the last or Enter to finish"),
         };
 
     /// <summary>How near a click has to come to a point to mean that point, on screen.</summary>
@@ -791,19 +792,28 @@ public sealed class SvgViewerDraw
 
     // ---- the palette ------------------------------------------------------------------------
 
-    /// <summary>The tool buttons, one strip for both hosts, following and setting <see cref="Shape"/>.</summary>
+    /// <summary>
+    /// The tool buttons as a column to stand beside the drawing, one for both hosts, following and
+    /// setting <see cref="Shape"/>.
+    /// </summary>
+    /// <remarks>
+    /// Toggles kept exclusive by hand rather than radio buttons: Avalonia groups radio buttons by
+    /// name across the whole window, so a drawing tab's strip and a board's would uncheck each
+    /// other. Each button carries its tool in <see cref="Control.Tag"/> — <c>select</c> for the
+    /// first — which is what a test finds it by.
+    /// </remarks>
     public static Control Palette(SvgViewerDraw draw)
     {
-        var strip = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
-        var buttons = new List<(string? Shape, RadioButton Button)>();
+        var column = new StackPanel { Orientation = Orientation.Vertical, Spacing = 2 };
+        var buttons = new List<(string? Shape, ToggleButton Button)>();
 
-        Add(null, "Select", "Select (V): pick and move what is drawn");
+        Add(null, "↖", "Select (V): pick and move what is drawn");
 
         foreach (var shape in Shapes)
         {
-            var (label, _, tip) = Tools[shape];
+            var (glyph, _, tip) = Tools[shape];
 
-            Add(shape, label, tip);
+            Add(shape, glyph, tip);
         }
 
         draw.Changed += (_, _) =>
@@ -814,28 +824,46 @@ public sealed class SvgViewerDraw
             }
         };
 
-        return strip;
-
-        void Add(string? shape, string label, string tip)
+        return new Border
         {
-            var button = new RadioButton
+            Padding = new global::Avalonia.Thickness(4, 6),
+            BorderThickness = new global::Avalonia.Thickness(0, 0, 1, 0),
+            BorderBrush = new global::Avalonia.Media.SolidColorBrush(global::Avalonia.Media.Color.Parse("#20808080")),
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Child = column
+        };
+
+        void Add(string? shape, string glyph, string tip)
+        {
+            var button = new ToggleButton
             {
-                Content = label,
-                GroupName = "tools",
+                Content = glyph,
+                Tag = shape ?? "select",
+                Width = 30,
+                Height = 30,
+                Padding = new global::Avalonia.Thickness(0),
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
                 IsChecked = string.Equals(shape, draw.Shape, StringComparison.Ordinal),
                 [ToolTip.TipProperty] = tip
             };
 
+            // Checking picks the tool; unchecking the one that is down is putting it away, which
+            // is Select. The toggle the hand did not touch is put right by Changed either way.
             button.IsCheckedChanged += (_, _) =>
             {
                 if (button.IsChecked == true)
                 {
                     draw.Shape = shape;
                 }
+                else if (string.Equals(shape, draw.Shape, StringComparison.Ordinal))
+                {
+                    draw.Shape = null;
+                }
             };
 
             buttons.Add((shape, button));
-            strip.Children.Add(button);
+            column.Children.Add(button);
         }
     }
 

@@ -1876,13 +1876,19 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         base.OnPointerCaptureLost(e);
 
-        _dragging = false;
+        // Only a pan has a cursor to put back; a carry puts back its own below. Restoring here
+        // regardless took a host's cursor away on every release, since giving the pointer up is a
+        // capture lost too — so a drawing tool's cross went back to an arrow after each click.
+        if (_dragging)
+        {
+            _dragging = false;
+            Cursor = _restoreCursor;
+        }
+
         _pressed = false;
 
         // A drag the window took away writes nothing.
         EndMove();
-
-        Cursor = _restoreCursor;
 
         // A gesture the window took away writes nothing either.
         EndEdit(commit: false);
