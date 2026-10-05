@@ -14,6 +14,7 @@ using Avalonia.VisualTree;
 using SkiaSharp;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
+using static Svg.Studio.UnitTests.Gestures;
 
 namespace Svg.Studio.UnitTests;
 
@@ -114,9 +115,6 @@ public class BoardCaptionTests : IDisposable
 
     private static GroupPanel Board(MainWindow window)
         => (GroupPanel)((TabItem)Tabs(window).SelectedItem!).Content!;
-
-    private static SvgViewerCanvas Canvas(GroupPanel panel)
-        => panel.GetVisualDescendants().OfType<SvgViewerCanvas>().Single();
 
     private static IReadOnlyList<SvgViewerPlacement> Drawn(GroupPanel panel) => Canvas(panel).Placements;
 

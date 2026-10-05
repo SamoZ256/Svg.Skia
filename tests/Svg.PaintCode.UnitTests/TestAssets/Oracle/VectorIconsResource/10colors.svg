@@ -2,21 +2,21 @@
   <defs>
     <linearGradient id="gradientpurple" gradientUnits="userSpaceOnUse" x1="7" y1="14" x2="7" y2="0">
       <stop offset="0" stop-color="{{ ((enabled and state) ? accent ? #fc772fff : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30) }}" />
-      <stop offset="0.5" stop-color="{{ ((enabled and state) ? accent ? #fc534bff : isLight ? #ffffffff : #1f2123d9 : isLight ? #ffffff4d : #1f212333) }}" />
+      <stop offset="0.5" stop-color="{{ ((enabled and state) ? accent ? (mix(#fc772fff, colorPurple, 0.5)) : isLight ? (mix(whiteColor_, whiteColor_, 0.5)) : (mix(blackColor_, blackColor70, 0.5)) : isLight ? (mix(whiteColor30, whiteColor30, 0.5)) : (mix(blackColor30, blackColor10, 0.5))) }}" />
       <stop offset="1" stop-color="{{ ((enabled and state) ? accent ? colorPurple : isLight ? whiteColor_ : blackColor70 : isLight ? whiteColor30 : blackColor10) }}" />
     </linearGradient>
     <linearGradient id="gradientshine" gradientUnits="userSpaceOnUse" x1="7" y1="14" x2="7" y2="0">
       <stop offset="0.0073" stop-color="{{ ((enabled and state) ? accent ? #ffee3eff : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30) }}" />
-      <stop offset="0.5037" stop-color="{{ ((enabled and state) ? accent ? #ffe23dff : isLight ? #ffffffff : #1f2123d9 : isLight ? #ffffff4d : #1f212333) }}" />
+      <stop offset="0.5037" stop-color="{{ ((enabled and state) ? accent ? #ffe23dff : isLight ? (mix(whiteColor_, whiteColor_, 0.5)) : (mix(blackColor_, blackColor70, 0.5)) : isLight ? (mix(whiteColor30, whiteColor30, 0.5)) : (mix(blackColor30, blackColor10, 0.5))) }}" />
       <stop offset="1" stop-color="{{ ((enabled and state) ? accent ? #ffd73cff : isLight ? whiteColor_ : blackColor70 : isLight ? whiteColor30 : blackColor10) }}" />
     </linearGradient>
     <linearGradient id="gradienttemperature" gradientUnits="userSpaceOnUse" x1="7" y1="14" x2="7" y2="0">
       <stop offset="0" stop-color="{{ ((enabled and state) ? accent ? #fb002bff : isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30) }}" />
-      <stop offset="0.6217" stop-color="{{ ((enabled and state) ? accent ? #904395ff : isLight ? #ffffffff : #1f2123d9 : isLight ? #ffffff4d : #1f212333) }}" />
+      <stop offset="0.6217" stop-color="{{ ((enabled and state) ? accent ? #904395ff : isLight ? (mix(whiteColor_, whiteColor_, 0.5)) : (mix(blackColor_, blackColor70, 0.5)) : isLight ? (mix(whiteColor30, whiteColor30, 0.5)) : (mix(blackColor30, blackColor10, 0.5))) }}" />
       <stop offset="1" stop-color="{{ ((enabled and state) ? accent ? #2586ffff : isLight ? whiteColor_ : blackColor70 : isLight ? whiteColor30 : blackColor10) }}" />
     </linearGradient>
     <e:code>
-      <e:param name="step" type="number" default="2" />
+      <e:param name="step" type="number" default="3" />
       <e:param name="enabled" type="boolean" default="true" />
       <e:param name="state" type="boolean" default="true" />
       <e:param name="accent" type="boolean" default="true" />

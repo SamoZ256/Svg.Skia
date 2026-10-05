@@ -1,12 +1,13 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
-using System.Text;
+using System.Collections.Generic;
 
 namespace Svg.PaintCode.UnitTests;
 
 /// <summary>
 /// A target canvas and three instances of it: one that passes everything along, one that rebinds a
-/// variable, and one that names a canvas the document does not hold.
+/// variable, and one that names a canvas the document does not hold. Beside them, a colour handed
+/// down two levels of symbol, the way sr_window reaches its thermometer.
 /// </summary>
 internal static class SymbolDocument
 {
@@ -14,7 +15,11 @@ internal static class SymbolDocument
     {
         var archive = new KeyedArchiveBuilder();
 
-        var purple = Color(archive, "colorPurple", "0.3725490196 0.0 0.7882352941 1");
+        var purple = ScopeDocument.Color(archive, "colorPurple", "0.3725490196 0.0 0.7882352941 1", usage: 1);
+        var accent = ScopeDocument.Color(archive, "accentColorOn", "0.9843137255 0.2431372549 0.447432841 1", usage: 1);
+
+        // Nobody marked it used, so it is a constant: what an instance hands along is its bytes.
+        var blue = ScopeDocument.Color(archive, "colorBlue", "0 0 1 1");
         var light = Variable(archive, "isLight", 4, archive.Value(false), 5, 1);
         var dark = Variable(archive, "isNotLight", 4, archive.Value(true), 13, 0, "!isLight");
 
@@ -46,19 +51,43 @@ internal static class SymbolDocument
             Symbol(archive, "Half", "slider", archive.Dictionary(("VIRTUAL__level", Expression(archive, "0.5", 2, archive.Value(0.5d))))),
             Moved(archive)));
 
+        // glyph draws in accentColorOn, and in a gradient from it to white both as it is and as an
+        // expression chooses it, and wrapper hands it that colour by its own name, so what glyph draws inside a wrapper is whatever the wrapper was
+        // given: its own accent placed directly, colorPurple through Outer, and blue's bytes through
+        // Pinned.
+        var sheen = ScopeDocument.Gradient(
+            archive,
+            "sheen",
+            (accent, 0d, false),
+            (ScopeDocument.Color(archive, "PPGradientMidColor", "0.9921568627 0.6196078431 0.7215686275 1"), 0.5d, true),
+            (ScopeDocument.Color(archive, string.Empty, "1 1 1 1"), 1d, false));
+        var glyph = Canvas(archive, "glyph", archive.Array(
+            Shape(archive, "Glyph", accent, archive.Dictionary()),
+            Shape(archive, "Sheen", sheen, archive.Dictionary()),
+            Shape(archive, "Chosen", sheen, archive.Dictionary(("fill", Expression(archive, "isLight ? sheen : sheen", 6, sheen))))));
+        var wrapper = Canvas(archive, "wrapper", archive.Array(
+            Symbol(archive, "Inner", "glyph", archive.Dictionary(), archive.Dictionary(("VIRTUAL__accentColorOn", accent)))));
+        var chain = Canvas(archive, "chain", archive.Array(
+            Symbol(archive, "Direct", "glyph", archive.Dictionary(), archive.Dictionary(("VIRTUAL__accentColorOn", accent))),
+            Symbol(archive, "Outer", "wrapper", archive.Dictionary(), archive.Dictionary(("VIRTUAL__accentColorOn", purple))),
+            Symbol(archive, "Pinned", "wrapper", archive.Dictionary(), archive.Dictionary(("VIRTUAL__accentColorOn", blue)))));
+
         // A canvas that holds a symbol of itself, for the test that says so rather than recursing.
         var looping = cycle
             ? Canvas(archive, "loop", archive.Array(Symbol(archive, "Self", "loop", archive.Dictionary())))
             : (int?)null;
 
-        var canvases = looping is { } self ? archive.Array(target, driven, host, self) : archive.Array(target, driven, host);
+        var canvases = looping is { } self
+            ? archive.Array(target, driven, host, glyph, wrapper, chain, self)
+            : archive.Array(target, driven, host, glyph, wrapper, chain);
 
         return archive.ToBytes(
             ("styleKitName", archive.Text("Symbols")),
             ("desks", archive.Array(archive.Object("PPDesk", ("name", archive.Text("Desk")), ("canvases", canvases)))),
             ("library", archive.Object(
                 "PPLibrary",
-                ("colors", archive.Array(purple)),
+                ("colors", archive.Array(purple, accent, blue)),
+                ("gradients", archive.Array(sheen)),
                 ("variables", archive.Array(light, dark, level, step, animation, rotationSpeed, phase, phase3)))));
     }
 
@@ -111,20 +140,30 @@ internal static class SymbolDocument
             },
             ("anchorX", 0d), ("anchorY", -13d), ("alpha", 1d), ("visibilityMode", 1));
 
-    private static int Symbol(KeyedArchiveBuilder archive, string name, string target, int bindings)
-        => archive.Object(
+    /// <summary>An instance, with the plain values it hands its target in <paramref name="values"/>.</summary>
+    private static int Symbol(KeyedArchiveBuilder archive, string name, string target, int bindings, int? values = null)
+    {
+        var members = new List<(string, int)>
+        {
+            ("name", archive.Text(name)),
+            ("propertyValueProviders", bindings),
+            ("symbolProviderID", archive.Object(
+                "PPSymbolProviderID",
+                ("name", archive.Text(target)),
+                ("identifier", archive.Text(target))))
+        };
+
+        if (values is { } given)
+        {
+            members.Add(("virtualProperties", given));
+        }
+
+        return archive.Object(
             "PPSymbol",
-            new[]
-            {
-                ("name", archive.Text(name)),
-                ("propertyValueProviders", bindings),
-                ("symbolProviderID", archive.Object(
-                    "PPSymbolProviderID",
-                    ("name", archive.Text(target)),
-                    ("identifier", archive.Text(target))))
-            },
+            members.ToArray(),
             ("anchorX", 0d), ("anchorY", -15d), ("x", 0d), ("y", -15d), ("width", 15d), ("height", 15d),
             ("alpha", 1d), ("visibilityMode", 1), ("isKeepingAnchorAtDefaultPosition", true));
+    }
 
     /// <summary>
     /// An instance whose anchor was dragged off the corner of its box, so x and y carry the rest.
@@ -147,19 +186,6 @@ internal static class SymbolDocument
             },
             ("anchorX", 20d), ("anchorY", -25d), ("x", -5d), ("y", -10d), ("width", 15d), ("height", 15d),
             ("alpha", 1d), ("visibilityMode", 1), ("isKeepingAnchorAtDefaultPosition", false));
-
-    private static int Color(KeyedArchiveBuilder archive, string name, string components)
-        => archive.Object(
-            "PPColor",
-            new[]
-            {
-                ("name", archive.Text(name)),
-                ("basicNSColor", archive.Object(
-                    "NSColor",
-                    new[] { ("NSComponents", archive.Data(Encoding.ASCII.GetBytes(components))) },
-                    ("NSColorSpace", 1)))
-            },
-            ("isDerived", false), ("operation", 0), ("usage", 1));
 
     private static int Expression(KeyedArchiveBuilder archive, string expression, int type, int value)
         => archive.Object(

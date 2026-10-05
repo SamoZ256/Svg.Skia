@@ -987,7 +987,8 @@ public sealed class SvgViewerDock
                 var host = new Border
                 {
                     Child = region.Content,
-                    IsVisible = string.Equals(leaf.Selected, id, StringComparison.Ordinal)
+                    IsVisible = string.Equals(leaf.Selected, id, StringComparison.Ordinal),
+                    Tag = id
                 };
 
                 _filled.Add(host);
@@ -1046,7 +1047,8 @@ public sealed class SvgViewerDock
             {
                 Classes = { "pane" },
                 Background = Brushes.Transparent,
-                Child = new TextBlock { Text = region.Header, VerticalAlignment = VerticalAlignment.Center }
+                Child = new TextBlock { Text = region.Header, VerticalAlignment = VerticalAlignment.Center },
+                Tag = id
             };
 
             if (string.Equals(leaf.Selected, id, StringComparison.Ordinal))
@@ -1078,7 +1080,19 @@ public sealed class SvgViewerDock
 
                 leaf.Selected = chosen;
 
-                Rebuild();
+                // In place rather than rebuilt: a rebuild moves the middle, and a tab strip that is
+                // moved comes back on its first tab, so switching panes flashed the project's tab
+                // before the one in front came back.
+                foreach (var other in bar.Children.OfType<Border>().Where(other => other.Classes.Contains("pane")))
+                {
+                    other.Classes.Set("selected", Equals(other.Tag, chosen));
+                }
+
+                foreach (var host in _filled.Where(host => host.Tag is string held && leaf.Ids.Contains(held)))
+                {
+                    host.IsVisible = Equals(host.Tag, chosen);
+                }
+
                 Moved();
             };
 

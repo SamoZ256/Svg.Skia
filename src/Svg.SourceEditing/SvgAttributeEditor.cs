@@ -191,7 +191,17 @@ public static class SvgAttributeEditor
 
         if (colon > 0 && element.GetNamespaceOfPrefix(name.Substring(0, colon)) is null)
         {
-            return $"This drawing does not say what '{name.Substring(0, colon)}' stands for, so '{name}' cannot be written.";
+            // Except the extension's own prefix, which is declared the way a first parameter declares
+            // it: marking a box in a drawing that has no expressions is the same kind of first use.
+            var prefix = name.Substring(0, colon);
+
+            if (value is null || element.Document?.Root is not { } root ||
+                SvgExpressionDeclarations.NamespacePrefixFor(root, out var declared) != prefix || declared)
+            {
+                return $"This drawing does not say what '{prefix}' stands for, so '{name}' cannot be written.";
+            }
+
+            root.SetAttributeValue(XNamespace.Xmlns + prefix, SvgExpressionDeclarations.Namespace);
         }
 
         try

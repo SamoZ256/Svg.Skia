@@ -331,6 +331,21 @@ public sealed class SvgSource : IDisposable
         return stream;
     }
 
+    private static readonly object s_assetGate = new();
+
+    /// <remarks>
+    /// One at a time: Avalonia's asset loader caches assemblies in an unlocked dictionary, and two
+    /// first opens racing on a cold cache throw inside it, which it swallows and reports as the
+    /// resource not existing. Loads run on the thread pool, so an icon would stay empty for good.
+    /// </remarks>
+    private static Stream OpenAsset(Uri uri, Uri? baseUri)
+    {
+        lock (s_assetGate)
+        {
+            return AssetLoader.Open(uri, baseUri);
+        }
+    }
+
     private static SvgSource? ThrowOnMissingResource(string path)
     {
         return EnableThrowOnMissingResource
@@ -373,7 +388,7 @@ public sealed class SvgSource : IDisposable
         }
         else
         {
-            var stream = AssetLoader.Open(uri, baseUri);
+            var stream = OpenAsset(uri, baseUri);
             if (stream is null)
             {
                 ThrowOnMissingResource(path);
@@ -445,7 +460,7 @@ public sealed class SvgSource : IDisposable
                 ? new Uri(path, UriKind.Relative)
                 : new Uri(path, UriKind.RelativeOrAbsolute);
         var assetBaseUri = normalizedUri.IsAbsoluteUri ? null : baseUri;
-        await using var stream = AssetLoader.Open(assetUri, assetBaseUri);
+        await using var stream = OpenAsset(assetUri, assetBaseUri);
         if (stream is null)
         {
             ThrowOnMissingResource(path);

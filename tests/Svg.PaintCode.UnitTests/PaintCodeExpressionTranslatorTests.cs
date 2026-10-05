@@ -1,5 +1,7 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System.Collections.Generic;
+using Svg.Expressions;
 using Xunit;
 
 namespace Svg.PaintCode.UnitTests;
@@ -32,8 +34,12 @@ public class PaintCodeExpressionTranslatorTests
     [InlineData("-x * 360", "-x * 360")]
     [InlineData("x ? true : false", "x ? true : false")]
     [InlineData("',' + s", "',' + s")]
-    // PaintCode's own name for the only crossing from a number to the words of a label.
-    [InlineData("stringFromNumber(x * 100)", "str(x * 100)")]
+    // PaintCode's own name for the only crossing from a number to the words of a label, which
+    // prints a whole number.
+    [InlineData("stringFromNumber(x * 100)", "str(int(round(x * 100)))")]
+    [InlineData("stringFromNumber(x >= 0 ? floor(x) : ceil(x))", "str(int(round(x >= 0 ? floor(x) : ceil(x))))")]
+    [InlineData("',' + stringFromNumber((abs(x) * 10) % 10)", "',' + str(int(round(mod((abs(x) * 10), 10))))")]
+    [InlineData("stringFromNumber(7 / 2)", "str(int(round(7 / 2)))")]
     // The joins that do nothing, which is how its editor spells a property that follows a variable.
     [InlineData("x + 0", "x")]
     [InlineData("x * 1", "x")]
@@ -94,6 +100,7 @@ public class PaintCodeExpressionTranslatorTests
     [InlineData("floor(n)", "floor(num(n))")]
     [InlineData("sin(n)", "sin((num(n)) * pi / 180)")]
     [InlineData("stringFromNumber(n)", "str(n)")]
+    [InlineData("stringFromNumber(n / 2)", "str(int(round(num(n) / 2)))")]
     [InlineData("-n * f", "num(-n) * f")]
     public void An_Integer_Meets_A_Number_Through_Num(string source, string expected)
     {
@@ -114,6 +121,60 @@ public class PaintCodeExpressionTranslatorTests
 
         Assert.True(PaintCodeExpressionTranslator.TryTranslate("n * f", scope, out var expression, out var refusal, overrides), refusal);
         Assert.Equal("(f * 4) * f", expression);
+    }
+
+    /// <summary>
+    /// What a label bound to a number reads, as words: rounded to a whole number the way the C#
+    /// export TapHome shipped rounds it, ties to even.
+    /// </summary>
+    /// <remarks>
+    /// Evaluated rather than only spelled, since the fault was in the value: 0.6 * 100 is 60.000004
+    /// in single precision, and a gauge printed all of it.
+    /// </remarks>
+    [Theory]
+    [InlineData("stringFromNumber(x * 100)", 0.6f, "60")]
+    [InlineData("stringFromNumber(x)", -0.4f, "0")]
+    [InlineData("stringFromNumber(x)", 2.5f, "2")]
+    [InlineData("',' + stringFromNumber((abs(x) * 10) % 10)", 21.25f, ",2")]
+    public void A_Number_Is_Printed_Whole(string source, float x, string expected)
+    {
+        Assert.True(PaintCodeExpressionTranslator.TryTranslate(source, Scope(), out var expression, out var refusal), refusal);
+
+        var declarations = SvgExpressionDeclarations.Parse(
+            $"<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:e=\"{SvgExpressionDeclarations.Namespace}\"><defs><e:code><e:param name=\"x\" type=\"number\" default=\"0\" /></e:code></defs></svg>");
+        var values = new Dictionary<string, ExprValue> { ["x"] = ExprValue.Number(x) };
+
+        Assert.Equal(expected, ExprEvaluator.Create(declarations, values).Evaluate(expression).AsString);
+    }
+
+    /// <summary>
+    /// A text variable derived from a number is declared as the string it is, and its rounding
+    /// type checks -- a let that does not refuses the whole import rather than one label.
+    /// </summary>
+    [Fact]
+    public void A_Text_Variable_Built_From_A_Number_Is_Declared_As_Text()
+    {
+        var declarations = PaintCodeDeclarations.Of(PaintCodeDocument.Parse(ScopeDocument.Bytes(derived: "stringFromNumber(x * 100)", derivedType: 3)));
+
+        Assert.Equal("string", declarations.ByName["bad"].Type);
+        Assert.Equal("str(int(round(x * 100)))", declarations.ByName["bad"].Body);
+    }
+
+    /// <summary>
+    /// A label reading a local declared after it reads it as the type it turns out to be.
+    /// </summary>
+    /// <remarks>
+    /// count is n + 1, so with whole numbers retyped it is an integer -- once it is translated, and
+    /// bad comes first. Read before then it was still a number, bad rounded it, and round() of an
+    /// integer refused the whole document.
+    /// </remarks>
+    [Fact]
+    public void A_Label_Reads_A_Local_Declared_After_It_As_What_It_Turns_Out_To_Be()
+    {
+        var declarations = PaintCodeDeclarations.Of(PaintCodeDocument.Parse(ScopeDocument.Bytes(derived: "stringFromNumber(count)", derivedType: 3)), integers: true);
+
+        Assert.Equal("integer", declarations.ByName["count"].Type);
+        Assert.Equal("str(count)", declarations.ByName["bad"].Body);
     }
 
     private static PaintCodeDeclarations Scope(bool integers = false)

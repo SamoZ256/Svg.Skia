@@ -23,7 +23,7 @@
       <e:param name="blackColor_" type="color" default="#1f2123ff" />
       <e:param name="accent" type="boolean" default="true" />
       <e:param name="accentColorOn" type="color" default="#fb3e72ff" />
-      <e:param name="level" type="number" default="0" min="0" max="1" />
+      <e:param name="level" type="number" default="1" min="0" max="1" />
       <e:let name="whiteColor30">withAlpha(whiteColor_, 0.3)</e:let>
       <e:let name="blackColor30">withAlpha(blackColor_, 0.3)</e:let>
       <e:let name="stateBlackColor">(enabled and state) ? isLight ? whiteColor_ : blackColor_ : isLight ? whiteColor30 : blackColor30</e:let>

@@ -49,7 +49,8 @@ public sealed record TemplateSuggestion(TemplateEntry Template, SvgRecipe Recipe
 /// <param name="Text">The drawing as <see cref="TemplateLibrary.Prepare"/> left it.</param>
 /// <param name="Recipe">A bound template, whose size and declarations come with it, or null to keep the drawing as it is.</param>
 /// <param name="Source">What <see cref="ProjectDrawing.Source"/> says, such as <c>streamline:&lt;hash&gt;</c>.</param>
-public sealed record TemplateImport(string Name, string Text, SvgRecipe? Recipe = null, string? Source = null);
+/// <param name="At">Where on the group's board it goes, or null to join the spread; an update keeps the drawing's own place.</param>
+public sealed record TemplateImport(string Name, string Text, SvgRecipe? Recipe = null, string? Source = null, SkiaSharp.SKPoint? At = null);
 
 /// <summary>The project's import templates, and which of them suits an incoming icon.</summary>
 public sealed class TemplateLibrary
@@ -304,6 +305,13 @@ public sealed class TemplateLibrary
                         var drawing = target.AddDrawing(import.Name, text, index++);
 
                         drawing.Source = import.Source;
+
+                        if (import.At is { } at)
+                        {
+                            drawing.X = ProjectNode.Rounded(at.X);
+                            drawing.Y = ProjectNode.Rounded(at.Y);
+                        }
+
                         added.Add(drawing);
                     }
                     catch (SvgcProjectException failure)

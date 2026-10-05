@@ -128,14 +128,21 @@ public class ExprEvaluatorDifferentialTests
     }
 
     /// <summary>
-    /// The whole point: evaluate, emit and run, and require the two to agree exactly.
+    /// The whole point: evaluate, emit and run, and require the two to agree exactly — once as
+    /// written, and once folded, which is the only thing showing folding never changes an answer.
     /// </summary>
     private static void AssertSameValue(string expression, params Argument[] arguments)
+    {
+        AssertSameValue(expression, fold: false, arguments);
+        AssertSameValue(expression, fold: true, arguments);
+    }
+
+    private static void AssertSameValue(string expression, bool fold, Argument[] arguments)
     {
         var symbols = arguments.ToDictionary(a => a.Name, a => a.Type, StringComparer.Ordinal);
         var values = arguments.ToDictionary(a => a.Name, a => a.Value, StringComparer.Ordinal);
 
-        var (type, code) = new ExprCompiler(symbols).Compile(expression);
+        var (type, code) = new ExprCompiler(symbols, null, fold).Compile(expression);
         var evaluated = new ExprEvaluator(symbols, values).Evaluate(expression);
 
         Assert.Equal(type, evaluated.Type);
@@ -196,6 +203,9 @@ public class ExprEvaluatorDifferentialTests
     [InlineData("1 + 2 * 3")]
     [InlineData("(1 + 2) * 3")]
     [InlineData("-4.5")]
+    // Folded, a negative zero comes back as a literal and has to stay one.
+    [InlineData("-0")]
+    [InlineData("1 / -0")]
     [InlineData("1 / 3")]
     [InlineData("10 / 4")]
     [InlineData("0.1 + 0.2")]
@@ -381,6 +391,12 @@ public class ExprEvaluatorDifferentialTests
         AssertSameValue("int(t)", Number("t", float.NegativeInfinity));
 
         AssertSameValue("int(num(steps))", Integer("steps", -7));
+
+        // With nothing bound, so folded these come back as integer literals, int.MinValue among them.
+        AssertSameValue("int(7.9) / int(0.2)");
+        AssertSameValue("-int(-3000000000)");
+        AssertSameValue("abs(int(-3000000000))");
+        AssertSameValue("mod(int(-7), int(3))");
     }
 
     [Fact]

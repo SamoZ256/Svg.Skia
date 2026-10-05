@@ -148,6 +148,10 @@ public sealed class SvgViewerGizmos
             ? _held.Select(held => (SvgElement)held.Element).ToList()
             : _one.Element is { } only ? new[] { only } : Array.Empty<SvgElement>();
 
+    /// <inheritdoc cref="SvgViewerGizmo.Turns"/>
+    /// <remarks>Unless every member is such a box: one shape among them still turns them all.</remarks>
+    public bool Turns => !Elements.All(SvgViewerGizmo.IsReserved);
+
     /// <summary>Follows the selection, and has to be called again after every rebuild.</summary>
     /// <remarks>
     /// What survives is settled before the branch, not after. A member may be asked for and not be
@@ -243,7 +247,7 @@ public sealed class SvgViewerGizmos
             return _one.Hits(Inside(at), scale, handlesOnly);
         }
 
-        if (Box(scale) is { } box && _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _) >= 0)
+        if (Box(scale) is { } box && _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _, Turns) >= 0)
         {
             return true;
         }
@@ -265,7 +269,7 @@ public sealed class SvgViewerGizmos
             return _one.Keeps(Inside(at), scale);
         }
 
-        if (Box(scale) is { } box && _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _) >= 0)
+        if (Box(scale) is { } box && _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _, Turns) >= 0)
         {
             return true;
         }
@@ -296,7 +300,7 @@ public sealed class SvgViewerGizmos
 
         var inside = Inside(at);
 
-        _handle = _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _);
+        _handle = _selection.HitHandle(box, new SK.SKPoint(at.X, at.Y), scale, out _, Turns);
 
         if (_handle < 0 && !_held.Any(held => held.Covers(inside)))
         {
