@@ -242,6 +242,18 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private readonly List<string> _picked = new();
 
+    /// <summary>The shape being drawn into the inspected drawing, where a tool is armed.</summary>
+    private readonly SvgViewerDraw _draw = new();
+
+    /// <summary>Where the shape in the making goes: the row it is written beside, and which side.</summary>
+    private (string Target, SvgElementDrop Where) _into;
+
+    /// <summary>
+    /// Whether the edit gesture in flight is the tool's rather than the gizmo's — settled when it
+    /// begins, as the viewer settles it, so a letter typed mid-drag cannot switch the release.
+    /// </summary>
+    private bool _drawing;
+
     /// <summary>Whether this is the tab being looked at.</summary>
     /// <remarks>
     /// A tab's content leaves the visual tree when another tab is picked, so a board is laid out
@@ -300,20 +312,38 @@ public sealed class GroupPanel : UserControl
         Content = node is ProjectGroup ? Built() : Alone();
 
         // Harmless on a drawing's settings pane, which has no canvas and so no placements to fall on.
-        _canvas.Picked += (_, at) => Pick(at);
+        _canvas.Picked += (_, at) =>
+        {
+            if (!DrawClick(at))
+            {
+                Pick(at);
+            }
+        };
         _canvas.Moved += (_, move) => Placed(move);
 
         _canvas.Grip = Held;
 
-        // Handles, then the line a drawing is carried by, then the gesture's own body — narrowest
-        // first, the order the canvas resolves its own claims in. A shape that fills its page puts
-        // all three over the same pixels, and without the middle rung the board could not be
-        // rearranged at all while anything was selected.
+        // A tool owns the left button wherever it lands. Otherwise handles, then the line a drawing
+        // is carried by, then the gesture's own body — narrowest first, the order the canvas
+        // resolves its own claims in. A shape that fills its page puts all three over the same
+        // pixels, and without the middle rung the board could not be rearranged at all while
+        // anything was selected.
         _canvas.IsEditTarget = at =>
-            Arranged(at) is { } arranged
+            _draw.Shape is { }
+            || Arranged(at) is { } arranged
             && (_gizmo.Hits(arranged, (float)_canvas.Scale, handlesOnly: true)
                 || _paging.Hits(new SKPoint(arranged.X, arranged.Y), (float)_canvas.Scale)
                 || (!Grabbed(at) && _gizmo.Hits(arranged, (float)_canvas.Scale)));
+
+        // The handles go away while a tool is armed, since a press on them would draw rather than
+        // drag, and come back on whatever is picked when it is put down.
+        _draw.Changed += (_, _) =>
+        {
+            _canvas.Cursor = _draw.Cursor;
+
+            ShowGizmo();
+            Retrace();
+        };
 
         _canvas.Marqueed += (_, swept) => SelectEnclosed(swept);
 
@@ -1533,6 +1563,9 @@ public sealed class GroupPanel : UserControl
     {
         _stale = false;
 
+        // A shape half drawn is in the coordinates of a drawing about to be replaced.
+        _draw.Cancel();
+
         // What was being looked at, since Forget is about to let go of it. Every rebuild of this tab
         // used to empty the Parameters and Element tabs — a settings edit did it, and a drawing
         // moved on the board would do it on every drop.
@@ -2315,6 +2348,13 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void ShowGizmo()
     {
+        if (_draw.Shape is { })
+        {
+            _canvas.Gizmo = null;
+
+            return;
+        }
+
         if (_page)
         {
             _canvas.GizmoTurns = false;
@@ -2335,12 +2375,12 @@ public sealed class GroupPanel : UserControl
     /// drawing as the project built it, and the file it came from spells the row differently. Null
     /// where the row is the recipe's own invention and the file has nowhere to put it.
     /// </remarks>
-    private (ISvgViewerDeclarationTarget Target, IReadOnlyDictionary<string, string> Addresses)? Writing()
+    private (ISvgViewerDeclarationTarget Target, IReadOnlyDictionary<string, string> Addresses)? Writing(IReadOnlyCollection<string> addressKeys)
     {
         if (_inspecting is not { } inspecting
             || inspecting.Built.Document is not { } document
             || document.SourceText is null
-            || _picked.Count == 0)
+            || addressKeys.Count == 0)
         {
             return null;
         }
@@ -2353,7 +2393,7 @@ public sealed class GroupPanel : UserControl
         var spelt = SvgSourceElements.Addresses(target.Text, document.Built(target.Text));
         var addresses = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        foreach (var address in _picked)
+        foreach (var address in addressKeys)
         {
             if (spelt.TryGetValue(address, out var mine))
             {
@@ -2380,6 +2420,15 @@ public sealed class GroupPanel : UserControl
 
     private void BeginEdit(Point at)
     {
+        _drawing = _draw.Shape is { };
+
+        if (_drawing)
+        {
+            BeginDraw(at);
+
+            return;
+        }
+
         if (Arranged(at) is not { } arranged)
         {
             return;
@@ -2392,7 +2441,7 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        if (Writing() is not { } writing)
+        if (Writing(_picked) is not { } writing)
         {
             Says(Unwritten);
 
@@ -2408,6 +2457,19 @@ public sealed class GroupPanel : UserControl
 
     private void DragEdit(Point at)
     {
+        if (_drawing)
+        {
+            if (Pulled(at) is { } point)
+            {
+                _draw.Drag(point, _canvas.Modifiers);
+
+                // The ring is the preview: nothing is drawn into the document until the release.
+                _canvas.Retrace(Placed(_draw.Preview()));
+            }
+
+            return;
+        }
+
         if (Arranged(at) is not { } arranged)
         {
             return;
@@ -2443,6 +2505,13 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void EndEdit()
     {
+        if (_drawing)
+        {
+            EndDraw();
+
+            return;
+        }
+
         if (_paging.IsDragging)
         {
             EndPage();
@@ -2457,7 +2526,7 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        if (Writing() is not { } writing)
+        if (Writing(_picked) is not { } writing)
         {
             Undo(Unwritten);
 
@@ -2607,6 +2676,14 @@ public sealed class GroupPanel : UserControl
 
     private void CancelEdit()
     {
+        if (_drawing)
+        {
+            _draw.Cancel();
+            Retrace();
+
+            return;
+        }
+
         // The page goes back to the size the file says, which is where it was: nothing is written
         // while the handles follow the pointer.
         _paging.Cancel();
@@ -2616,6 +2693,158 @@ public sealed class GroupPanel : UserControl
         ShowGizmo();
         Retrace();
         _canvas.Publish();
+    }
+
+    // ---- drawing a shape ---------------------------------------------------------------------
+
+    /// <summary>
+    /// A point of the inspected drawing, on the board's grid where one is on.
+    /// </summary>
+    /// <remarks>
+    /// Pulled in the board's space and then moved into the drawing's: the lines somebody can see
+    /// are the board's, and a drawing placed at 100 has its own zero a hundred to the right of them.
+    /// </remarks>
+    private ShimSkiaSharp.SKPoint? Pulled(Point at)
+        => _inspecting is { } inspecting && Arranged(at) is { } arranged
+            ? new ShimSkiaSharp.SKPoint(
+                _canvas.Grid.PullX(arranged.X) - inspecting.Placement.At.X,
+                _canvas.Grid.PullY(arranged.Y) - inspecting.Placement.At.Y)
+            : null;
+
+    /// <summary>The preview, moved to where the inspected drawing sits on the board.</summary>
+    private SKPath? Placed(SKPath? preview)
+    {
+        if (preview is { } && _inspecting is { } inspecting)
+        {
+            preview.Transform(SKMatrix.CreateTranslation(inspecting.Placement.At.X, inspecting.Placement.At.Y));
+        }
+
+        return preview;
+    }
+
+    /// <summary>
+    /// Begins a shape under the pointer, in the drawing it was pressed on.
+    /// </summary>
+    /// <remarks>
+    /// The drawing pressed on becomes the one inspected, as a click on it would make it, and a
+    /// selection in another drawing is let go of: a shape goes into the drawing under the hand,
+    /// beside what is picked only where that is picked in the same drawing. The parent is settled
+    /// before the hand moves, as the viewer settles it — a row the file does not spell, or a
+    /// container the scene never drew, gives way to the root.
+    /// </remarks>
+    private void BeginDraw(Point at)
+    {
+        if (!_canvas.TryGetPlacementAt(at, out var placement, out _)
+            || placement is null
+            || Shown(placement) is not { Built.Svg: { SourceDocument: { } built } svg } shown)
+        {
+            return;
+        }
+
+        if (_inspecting is not { } inspecting || !ReferenceEquals(inspecting.Placement, placement))
+        {
+            Inspect(shown, placement, svg);
+
+            _picked.Clear();
+            _tree.TrySelect(Array.Empty<string>());
+        }
+
+        _page = false;
+
+        var (target, where, parent) = SvgViewerDraw.Into(built, _picked);
+
+        if (Writing(new[] { target }) is null || !SvgViewerDraw.TryParent(svg, parent, out var fromParent))
+        {
+            (target, where, parent) = (string.Empty, SvgElementDrop.Inside, built);
+
+            if (!SvgViewerDraw.TryParent(svg, parent, out fromParent))
+            {
+                return;
+            }
+        }
+
+        _into = (target, where);
+
+        if (Pulled(at) is { } point)
+        {
+            Says(_draw.Start(fromParent, point, _canvas.Scale, parent));
+        }
+    }
+
+    /// <summary>Writes the shape the hand let go of, as one edit, and picks it.</summary>
+    /// <remarks>The tool is put away before the commit, for the viewer's reason: the rebuild puts the handles on the new row.</remarks>
+    private void EndDraw()
+    {
+        var label = _draw.Label;
+        var note = _draw.Note;
+        var (target, where) = _into;
+
+        if (_draw.Finish() is not { } element)
+        {
+            Says(note);
+            Retrace();
+
+            return;
+        }
+
+        if (_inspecting is not { } inspecting
+            || Writing(new[] { target }) is not { } writing
+            || !writing.Addresses.TryGetValue(target, out var mine))
+        {
+            Says(Unwritten);
+            Retrace();
+
+            return;
+        }
+
+        var document = inspecting.Built.Document!;
+
+        _draw.Shape = null;
+
+        string? made = null;
+
+        var refusal = writing.Target.Commit(
+            label,
+            source => SvgElementEditor.Insert(source, mine, where, element, out made));
+
+        if (refusal is { })
+        {
+            Says(refusal);
+
+            return;
+        }
+
+        Follow(writing.Target.Text, document, made is { } key ? new[] { key } : Array.Empty<string>());
+        Says(null);
+        Written();
+    }
+
+    /// <summary>A click with a tool armed: text is placed, and a box tool says what it needs.</summary>
+    /// <returns>Whether the click was the tool's rather than a pick; a click beside every drawing is a pick as ever.</returns>
+    private bool DrawClick(Point at)
+    {
+        if (_draw.Shape is not { } shape
+            || !_canvas.TryGetPlacementAt(at, out var placement, out _)
+            || placement is null)
+        {
+            return false;
+        }
+
+        if (shape == "text")
+        {
+            BeginDraw(at);
+
+            if (_draw.IsBusy)
+            {
+                EndDraw();
+            }
+        }
+        else
+        {
+            Says(_draw.Note);
+        }
+
+        return true;
     }
 
     private const string Unwritten = "That row is not written in this drawing's file, so it cannot be edited here.";
@@ -2664,7 +2893,7 @@ public sealed class GroupPanel : UserControl
         Func<SvgSourceDocument, IReadOnlyList<string>, string?> edit,
         IReadOnlyCollection<string> follow)
     {
-        if (_page || _inspecting is not { } inspecting || Writing() is not { } writing)
+        if (_page || _inspecting is not { } inspecting || Writing(_picked) is not { } writing)
         {
             return false;
         }
@@ -2687,18 +2916,23 @@ public sealed class GroupPanel : UserControl
             return false;
         }
 
-        var wanted = new HashSet<string>(follow, StringComparer.Ordinal);
-        var written = writing.Target.Text;
+        Follow(writing.Target.Text, document, follow);
+        Says(null);
 
+        return Written();
+    }
+
+    /// <summary>Picks the rows the file spells at <paramref name="sourceKeys"/>, as the rebuilt drawing will spell them.</summary>
+    private void Follow(string written, SvgViewerDocument document, IReadOnlyCollection<string> sourceKeys)
+    {
+        var wanted = new HashSet<string>(sourceKeys, StringComparer.Ordinal);
+
+        _page = false;
         _picked.Clear();
         _picked.AddRange(
             SvgSourceElements.Addresses(written, document.Built(written))
                 .Where(pair => wanted.Contains(pair.Value))
                 .Select(pair => pair.Key));
-
-        Says(null);
-
-        return Written();
     }
 
     /// <remarks>
@@ -2708,6 +2942,14 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void OnCanvasKeyDown(object? sender, KeyEventArgs e)
     {
+        // Not while a gesture is held: the letter would arm a tool under a drag the gizmo owns.
+        if (!_canvas.IsEditing && _draw.Pressed(e))
+        {
+            e.Handled = true;
+
+            return;
+        }
+
         if (_picked.Count == 0)
         {
             return;
@@ -3025,6 +3267,12 @@ public sealed class GroupPanel : UserControl
         bar.Children.Add(snap);
         bar.Children.Add(captions);
         bar.Children.Add(boxes);
+
+        var tools = SvgViewerDraw.Palette(_draw);
+
+        tools.Margin = new Thickness(8, 0, 0, 0);
+
+        bar.Children.Add(tools);
 
         return bar;
     }

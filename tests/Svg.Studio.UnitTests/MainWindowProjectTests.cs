@@ -1091,6 +1091,110 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(was, home.Text);
     }
 
+    /// <summary>Arms a drawing tool on the board, by its key.</summary>
+    private static void Arm(MainWindow window, GroupPanel panel, PhysicalKey key)
+    {
+        Canvas(panel).Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        window.KeyPressQwerty(key, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Shape_Drawn_On_The_Board_Lands_In_The_Drawing_Under_It_In_Its_Own_Units()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        // The second drawing, placed at x 100, so the board's numbers are not the drawing's.
+        var badge = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var home = (ProjectDrawing)window.Workspace.Document.Root.Children[0];
+        var was = home.Text;
+        var area = Area(Shown(panel, badge));
+
+        Arm(window, panel, PhysicalKey.R);
+        Drag(window, canvas, Over(canvas, area.Left + 4f, area.Top + 4f), Over(canvas, area.Left + 12f, area.Top + 10f));
+
+        Assert.Contains("<rect x=\"4\" y=\"4\" width=\"8\" height=\"6\" />", badge.Text, StringComparison.Ordinal);
+        Assert.Equal(was, home.Text);
+
+        // Picked, with its handles, in the drawing it went into; and the tool is put down.
+        Assert.Equal(new[] { "1" }, Elements(panel).SelectedAddresses);
+        Assert.NotNull(canvas.Gizmo);
+
+        // Into the project straight away, so the project's history is what takes it back.
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain("x=\"4\"", badge.Text, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Tool_Armed_Over_A_Drawings_Edge_Draws_Rather_Than_Carrying_It()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var place = (home.X, home.Y);
+
+        var area = Area(Shown(panel, home));
+
+        Arm(window, panel, PhysicalKey.O);
+        Drag(window, canvas, Edge(canvas, area), Over(canvas, area.Left + 8f, area.Top + area.Height / 4f + 6f));
+
+        Assert.Equal(place, (home.X, home.Y));
+        Assert.Contains("<ellipse", home.Text, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Press_Beside_Every_Drawing_With_A_Tool_Armed_Writes_Nothing()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+        var board = Drawn(panel).Select(Area).ToList();
+        var was = window.Workspace!.Document.Source.ToText();
+
+        Arm(window, panel, PhysicalKey.R);
+
+        var off = Over(canvas, board.Max(area => area.Right) + 40f, board.Max(area => area.Bottom) + 40f);
+
+        Drag(window, canvas, off, new Point(off.X + 30, off.Y + 30));
+
+        Assert.Equal(was, window.Workspace.Document.Source.ToText());
+    }
+
+    [AvaloniaFact]
+    public async Task A_Shape_Drawn_Into_A_Drawing_Open_In_A_Tab_Goes_Into_That_Tabs_Buffer()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+
+        await window.ShowAsync(home);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Tabs(window).Items.OfType<TabItem>().Select(item => item.Content).OfType<SvgViewer>().Single();
+        var panel = Panel(window, "Project");
+
+        Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>().Single(item => ReferenceEquals(item.Content, panel));
+        Dispatcher.UIThread.RunJobs();
+
+        var canvas = Canvas(panel);
+        var area = Area(Shown(panel, home));
+
+        Arm(window, panel, PhysicalKey.L);
+        Drag(window, canvas, Over(canvas, area.Left + 2f, area.Top + 2f), Over(canvas, area.Left + 10f, area.Top + 6f));
+
+        // The tab's text has it and the project does not, until the tab is saved.
+        Assert.Contains("<line x1=\"2\" y1=\"2\" x2=\"10\" y2=\"6\"", viewer.Source, StringComparison.Ordinal);
+        Assert.True(viewer.IsSourceModified);
+        Assert.DoesNotContain("<line", home.Text, StringComparison.Ordinal);
+    }
+
     [AvaloniaFact]
     public async Task Duplicate_On_The_Board_Writes_The_Copy_And_Picks_It()
     {
