@@ -421,6 +421,147 @@ public class AssistantTests : IDisposable
         Assert.False(window.Workspace.IsEdited);
     }
 
+    [AvaloniaFact]
+    public async Task Undo_Takes_Back_The_Assistants_Edit_And_Not_The_Front_Tabs()
+    {
+        var window = await Host(Write("declared.svgstudio", Declared));
+        var dial = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var badge = (ProjectDrawing)((ProjectGroup)window.Workspace.Document.Root.Children[1]).Children[0];
+
+        await window.ShowAsync(dial);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Viewer(window);
+
+        // The front tab has an edit of its own; the assistant then edits a drawing in no tab.
+        viewer.SetSource(viewer.Source.Replace("<rect ", "<rect stroke=\"black\" ", StringComparison.Ordinal));
+
+        var chat = new ScriptedChat(
+            Call("set_attributes", new() { ["node"] = "1/0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#111111" } }, ["summary"] = "darken" }),
+            Call("undo", new()),
+            Say("Undone."));
+
+        await Send(window, chat, "darken the badge, then undo");
+
+        Assert.Contains("No problems", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("Took back \"Assistant: darken\"", chat.Results[1], StringComparison.Ordinal);
+        Assert.DoesNotContain("#111111", badge.Text, StringComparison.Ordinal);
+        Assert.Contains("stroke=\"black\"", viewer.Source, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Edit_Says_What_Is_Wrong_With_The_Drawing_Afterwards()
+    {
+        var window = await Host(Write("declared.svgstudio", Declared));
+        var chat = new ScriptedChat(
+            Call("set_attributes", new() { ["node"] = "1/0", ["key"] = "0", ["attributes"] = new[] { new { name = "opacity", value = "{{ nothing }}" } }, ["summary"] = "break it" }),
+            Say("Broken."));
+
+        await Send(window, chat, "break the badge");
+
+        Assert.Contains("Problems now:", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("Unknown name 'nothing'", chat.Results[0], StringComparison.Ordinal);
+
+        // In scope: what it inherits, not only the built-ins, since those are the names it could have used.
+        Assert.Contains("tint", chat.Results[0].Split("in scope")[1], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Text_Between_Tags_Is_Set_And_An_Element_With_Children_Is_Refused()
+    {
+        var window = await Host(Write("declared.svgstudio", Declared));
+        var dial = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var chat = new ScriptedChat(
+            Call("set_text", new() { ["node"] = "0", ["key"] = "0/0/0", ["text"] = "90", ["summary"] = "turn it" }),
+            Call("set_text", new() { ["node"] = "0", ["key"] = "0", ["text"] = "x", ["summary"] = "defs" }),
+            Say("Done."));
+
+        await Send(window, chat, "set the angle to 90");
+
+        Assert.Contains("one undo step", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("<e:let name=\"angle\">90</e:let>", dial.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("one undo step", chat.Results[1], StringComparison.Ordinal);
+        Assert.Contains("has text of its own", chat.Results[1], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Projects_Problems_Come_As_One_List_And_The_Root_Key_Is_Known()
+    {
+        var window = await Host(Write("declared.svgstudio", Declared));
+        var chat = new ScriptedChat(
+            Call("get_problems", new()),
+            Call("get_element", new() { ["node"] = "1/0", ["key"] = "(root)" }),
+            Say("Read."));
+
+        await Send(window, chat, "what is wrong");
+
+        // The dial is listed with its clash, said at the tag and not the spliced line; the clean drawing is counted.
+        Assert.Contains("0 Dial:", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("(at: <e:let name=\"angle\">)", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("1 drawing(s) with no problems", chat.Results[0], StringComparison.Ordinal);
+        Assert.StartsWith("<svg> at (root)", chat.Results[1], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Undoing_An_Added_Group_Closes_Its_Tab()
+    {
+        var window = await Host(Write("declared.svgstudio", Declared));
+        var chat = new ScriptedChat(
+            Call("add_group", new() { ["parent"] = "" }),
+            Call("undo", new()),
+            Call("get_project", new()),
+            Say("Done."));
+
+        await Send(window, chat, "add a group and take it back");
+
+        Assert.Contains("Took back", chat.Results[1], StringComparison.Ordinal);
+        Assert.DoesNotContain("no longer in the project", chat.Results[2], StringComparison.Ordinal);
+        Assert.Equal(2, window.Workspace!.Document.Root.Children.Count);
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<TabItem>(), tab => tab.Tag is ProjectGroup { Parent: { } } group && !window.Workspace.Document.Root.Children.Contains(group));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Tool_Never_Opens_A_Dialog_The_Client_Cannot_Close()
+    {
+        var window = await Host(Write("declared.svgstudio", Declared));
+        var asked = 0;
+
+        window.Announce = (_, _) => { asked++; return Task.CompletedTask; };
+
+        // An unreadable drawing is said back, not announced; a project never saved is not sent to a
+        // picker; a node whose tab holds edits is not sent to a discard prompt.
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        Viewer(window).SetSource(Viewer(window).Source + "<!-- typed -->");
+
+        var chat = new ScriptedChat(
+            Call("add_drawing", new() { ["parent"] = "1", ["name"] = "Bad", ["svg"] = "<svg><rect" }),
+            Call("remove", new() { ["node"] = "0" }),
+            Say("Done."));
+
+        await Send(window, chat, "add a broken drawing and remove the dial", allow: true);
+
+        Assert.Equal(0, asked);
+        Assert.DoesNotContain("one undo step", chat.Results[0], StringComparison.Ordinal);
+        Assert.NotEqual("That drawing couldn't be added.", chat.Results[0]);
+        Assert.Contains("edits in its tab", chat.Results[1], StringComparison.Ordinal);
+        Assert.Equal(2, window.Workspace.Document.Root.Children.Count);
+
+        var untitled = new MainWindow { Announce = (_, _) => Task.CompletedTask };
+
+        untitled.Show();
+        Dispatcher.UIThread.RunJobs();
+        await untitled.NewProjectAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        var saving = new ScriptedChat(Call("save", new()), Say("Not saved."));
+
+        await Send(untitled, saving, "save", allow: true);
+
+        Assert.Contains("never been saved", saving.Results[0], StringComparison.Ordinal);
+        Assert.Null(untitled.Workspace?.Document.Path);
+    }
+
     [Fact]
     public void Claude_Needs_A_Key()
     {

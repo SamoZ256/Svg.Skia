@@ -393,7 +393,7 @@ public class SvgAttributeEditorDocumentTests
             SvgAttributeEditor.SetContent(source, "4", "no"));
 
         Assert.Equal(
-            "Only a <text>, a <tspan> or a <textPath> has text of its own to edit.",
+            "Only a <text>, a <tspan>, a <textPath> or an <e:let> has text of its own to edit.",
             SvgAttributeEditor.SetContent(source, "5", "no"));
 
         Assert.Equal("That element is no longer in the drawing.", SvgAttributeEditor.SetContent(source, "9", "no"));

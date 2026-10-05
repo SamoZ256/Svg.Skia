@@ -8,6 +8,8 @@ using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -219,12 +221,32 @@ public sealed class StudioMcpServer : IAsyncDisposable
                 _tools.ContextAsync,
                 "get_context",
                 "What is open in Studio now: the project, the tab in front, the selected elements and any problems."))
-            .Select(function => McpServerTool.Create(function, new McpServerToolCreateOptions
+            .Select(function => McpServerTool.Create(new Plain(function), new McpServerToolCreateOptions
             {
                 ReadOnly = AssistantTools.Reading.Contains(function.Name),
                 Destructive = AssistantTools.Confirming.Contains(function.Name)
             }))
             .ToList();
+
+    /// <summary>A function whose string answer reaches the client as text, not as a JSON string in quotes.</summary>
+    /// <remarks>
+    /// The factory's functions answer with the JSON of their result, and the server writes a JSON
+    /// string out as it is: every reply came quoted, with its newlines spelled <c>\n</c>.
+    /// </remarks>
+    private sealed class Plain : DelegatingAIFunction
+    {
+        public Plain(AIFunction inner)
+            : base(inner)
+        {
+        }
+
+        protected override async ValueTask<object?> InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken)
+        {
+            var result = await base.InvokeCoreAsync(arguments, cancellationToken).ConfigureAwait(false);
+
+            return result is JsonElement { ValueKind: JsonValueKind.String } text ? text.GetString() : result;
+        }
+    }
 
     /// <summary>Why a request is turned away, or null to serve it.</summary>
     /// <remarks>

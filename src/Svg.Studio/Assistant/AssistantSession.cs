@@ -47,6 +47,7 @@ public sealed class AssistantSession : IDisposable
         - Nodes of the project are named by path from get_project, such as 0/2. Names can repeat; paths cannot.
         - Expressions are written {{ name }} inside an attribute; parameters and lets are declared in the drawing's or a group's declarations.
         - A group's or the project's declarations are inherited by every drawing under it; get_declarations and set_declarations read and change them.
+        - get_problems lists everything wrong across the project's drawings; set_text changes the text between an element's tags.
         - Every edit is one step the person can undo with Cmd/Ctrl+Z.
         """;
 

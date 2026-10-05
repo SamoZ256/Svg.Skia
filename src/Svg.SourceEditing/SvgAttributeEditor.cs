@@ -347,6 +347,12 @@ public static class SvgAttributeEditor
     /// <summary>Why this element has no text of its own, or null where it has.</summary>
     private static string? Carries(XElement element)
     {
+        // A let's body is its expression, which is text of its own as much as a <text>'s words are.
+        if (element.Name.Namespace == ExpressionNamespace)
+        {
+            return element.Name.LocalName == "let" ? null : Only;
+        }
+
         if (element.Name.Namespace != SvgNamespace && element.Name.Namespace != XNamespace.None)
         {
             return Only;
@@ -360,9 +366,11 @@ public static class SvgAttributeEditor
         };
     }
 
-    private const string Only = "Only a <text>, a <tspan> or a <textPath> has text of its own to edit.";
+    private const string Only = "Only a <text>, a <tspan>, a <textPath> or an <e:let> has text of its own to edit.";
 
     private static readonly XNamespace SvgNamespace = "http://www.w3.org/2000/svg";
+
+    private static readonly XNamespace ExpressionNamespace = "https://svg.skia/expr/1.0";
 
     /// <summary>
     /// The element <paramref name="addressKey"/> names, or null where the document has no such path.

@@ -66,6 +66,8 @@ public class StudioMcpServerTests : IDisposable
         Assert.Contains("read_doc", tools.Keys);
         Assert.Contains("get_context", tools.Keys);
         Assert.True(tools["get_declarations"].ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.True(tools["get_problems"].ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.Contains("set_text", tools.Keys);
         Assert.False(tools["set_declarations"].ProtocolTool.Annotations?.DestructiveHint);
 
         Assert.True(tools["save"].ProtocolTool.Annotations?.DestructiveHint);
@@ -107,6 +109,10 @@ public class StudioMcpServerTests : IDisposable
         await using var client = await Client(port);
 
         var context = Text(await client.CallToolAsync("get_context", new Dictionary<string, object?>()));
+
+        // Plain text, not the JSON of a string: a quoted reply with its newlines spelled out is what every call came back as.
+        Assert.False(context.StartsWith("\"", StringComparison.Ordinal), context);
+        Assert.DoesNotContain("\\n", context, StringComparison.Ordinal);
         var contents = Text(await client.CallToolAsync("read_doc", new Dictionary<string, object?> { ["id"] = "" }));
 
         Assert.Contains("In front: the drawing", context, StringComparison.Ordinal);

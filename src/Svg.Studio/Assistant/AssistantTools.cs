@@ -40,6 +40,16 @@ public sealed class AssistantTools
 
     private readonly MainWindow _window;
 
+    /// <summary>How to take back each edit this made, newest last, so undo takes back this one's and not the tab's.</summary>
+    /// <remarks>
+    /// The window's own undo asks the front tab first and the project second. An edit to a drawing
+    /// in no tab lands on the project, so after one the window's undo took back whatever the front
+    /// tab had done instead. Each entry undoes only while its step is still on top of its history,
+    /// so the stack can hold steps the person has since taken back themselves: those answer nothing
+    /// and are passed over.
+    /// </remarks>
+    private readonly Stack<Func<string?>> _undos = new();
+
     public AssistantTools(MainWindow window)
     {
         _window = window ?? throw new ArgumentNullException(nameof(window));
@@ -48,7 +58,7 @@ public sealed class AssistantTools
     /// <summary>The tools that read and change nothing, for a client to call without asking.</summary>
     public static readonly IReadOnlySet<string> Reading = new HashSet<string>(StringComparer.Ordinal)
     {
-        "read_doc", "get_project", "get_drawing", "get_element", "get_context", "get_declarations"
+        "read_doc", "get_project", "get_drawing", "get_element", "get_context", "get_declarations", "get_problems"
     };
 
     /// <summary>The tools that write past the history - to disk, to git, or a node away - which a client should ask about.</summary>
@@ -80,7 +90,7 @@ public sealed class AssistantTools
         tools.Add(AIFunctionFactory.Create(GetProject, "get_project", "Lists the open project's groups and drawings with their node paths, and which one is in front."));
         tools.Add(AIFunctionFactory.Create(GetDrawing, "get_drawing", "Reads a drawing: its elements with their address keys, any problems, and its SVG source."));
         tools.Add(AIFunctionFactory.Create(SetAttributes, "set_attributes", "Sets or removes attributes on one element of a drawing, as a single undo step."));
-        tools.Add(AIFunctionFactory.Create(Undo, "undo", "Takes back the last edit to the drawing in front, or to the project."));
+        tools.Add(AIFunctionFactory.Create(Undo, "undo", "Takes back the last edit these tools made, whichever drawing or the project it went to, and says which; with none left, the person's last edit."));
 
         if (small)
         {
@@ -88,6 +98,8 @@ public sealed class AssistantTools
         }
 
         tools.Add(AIFunctionFactory.Create(GetElement, "get_element", "Reads every attribute of one element of a drawing, as the file writes it."));
+        tools.Add(AIFunctionFactory.Create(GetProblems, "get_problems", "Lists every problem in the drawings under a group, or in the whole project: the one call that finds what is wrong."));
+        tools.Add(AIFunctionFactory.Create(SetText, "set_text", "Sets the text between an element's tags - a <text>'s words or an <e:let>'s expression - as a single undo step."));
         tools.Add(AIFunctionFactory.Create(ReplaceDrawing, "replace_drawing", "Replaces a drawing's whole SVG source, as a single undo step. Prefer set_attributes for small changes."));
         tools.Add(AIFunctionFactory.Create(Select, "select", "Selects elements of the drawing in front, by address key, so the person sees them."));
         tools.Add(AIFunctionFactory.Create(Open, "open", "Opens a group or drawing of the project in its tab."));
@@ -147,8 +159,13 @@ public sealed class AssistantTools
 
             if (Problems(front as ProjectDrawing, shown.Source) is { Count: > 0 } problems)
             {
-                text.Append("The drawing has ").Append(problems.Count).Append(" problem(s); get_drawing lists them.\n");
+                text.Append("The drawing has ").Append(problems.Count).Append(" problem(s); get_drawing lists them, get_problems the whole project's.\n");
             }
+        }
+
+        if (_window.Workspace is { } && _window.FrontViewer is null)
+        {
+            text.Append("get_problems lists what is wrong in the project's drawings.\n");
         }
 
         if (_window.Changes.Summary is { } git)
@@ -303,6 +320,8 @@ public sealed class AssistantTools
                 return unreadable ?? "The drawing cannot be read.";
             }
 
+            key = Key(key);
+
             if (SvgAttributeEditor.ElementName(source, key) is not { } name)
             {
                 return $"There is no element {key}. get_drawing lists the keys.";
@@ -321,7 +340,7 @@ public sealed class AssistantTools
     private Task<string> SetAttributes(
         [Description("The element's address key from get_drawing; empty for the root svg element.")] string key,
         [Description("The attributes to write.")] AttributeChange[] attributes,
-        [Description("A few words saying what this does, shown in the Edit menu as Undo Assistant: <summary>.")] string summary,
+        [Description("A few words saying what this does, which the Edit menu shows after Undo.")] string summary,
         [Description("The drawing's node path; empty for the drawing in front.")] string? node = null)
         => Ui(() =>
         {
@@ -329,6 +348,8 @@ public sealed class AssistantTools
             {
                 return about;
             }
+
+            key = Key(key);
 
             var refusal = target.Commit(Label(summary), source =>
             {
@@ -343,7 +364,24 @@ public sealed class AssistantTools
                 return null;
             });
 
-            return refusal ?? Report("Done." + Undoes, summary);
+            return refusal ?? Done(target, node, summary);
+        });
+
+    private Task<string> SetText(
+        [Description("The element's address key from get_drawing.")] string key,
+        [Description("The new text between the element's tags; empty to leave it with none.")] string text,
+        [Description("A few words saying what this does, shown in the Edit menu.")] string summary,
+        [Description("The drawing's node path; empty for the drawing in front.")] string? node = null)
+        => Ui(() =>
+        {
+            if (Target(node, out var about) is not { } target)
+            {
+                return about;
+            }
+
+            var refusal = target.Commit(Label(summary), source => SvgAttributeEditor.SetContent(source, Key(key), text));
+
+            return refusal ?? Done(target, node, summary);
         });
 
     private Task<string> ReplaceDrawing(
@@ -380,7 +418,7 @@ public sealed class AssistantTools
                 }
             }
 
-            return Report("Done." + Undoes, summary);
+            return Done(target, node, summary);
         });
 
     private Task<string> Select(
@@ -397,12 +435,31 @@ public sealed class AssistantTools
             var tree = viewer.SourceAddresses()
                 .GroupBy(pair => pair.Value)
                 .ToDictionary(group => group.Key, group => group.First().Key, StringComparer.Ordinal);
-            var picked = keys.Select(key => tree.TryGetValue(key, out var built) ? built : null).OfType<string>().ToList();
+            var picked = keys.Select(key => tree.TryGetValue(Key(key), out var built) ? built : null).OfType<string>().ToList();
+            var missing = keys.Where(key => !tree.ContainsKey(Key(key))).ToList();
 
-            return viewer.Elements.TrySelect(picked) ? "Selected." : "None of those keys is an element of the drawing in front.";
+            if (keys.Length > 0 && picked.Count == 0)
+            {
+                return "None of those keys is an element of the drawing in front.";
+            }
+
+            return viewer.Elements.TrySelect(picked)
+                ? (keys.Length == 0 ? "Selection cleared." : "Selected.") + (missing.Count > 0 ? $" Not elements of this drawing: {string.Join(", ", missing)}." : string.Empty)
+                : "Nothing changed.";
         });
 
-    private Task<string> Undo() => Ui(() => _window.UndoDocument() ? Report("Took back the last edit.", "undo") : "There is nothing to take back.");
+    private Task<string> Undo() => Ui(() =>
+    {
+        while (_undos.Count > 0)
+        {
+            if (_undos.Pop()() is { } label)
+            {
+                return Report($"Took back \"{label}\".", "undo");
+            }
+        }
+
+        return _window.UndoDocument() ? Report("Took back the last edit.", "undo") : "There is nothing to take back.";
+    });
 
     private Task<string> Open([Description("The node path from get_project.")] string node) => UiAsync(async () =>
     {
@@ -424,6 +481,7 @@ public sealed class AssistantTools
         }
 
         await _window.AddGroupAsync(group).ConfigureAwait(true);
+        Undoable();
 
         return Report($"Added the group {(_window.FrontNode is { } added ? Path(added) : "(unknown)")}; set_node renames it." + Undoes, "add group");
     });
@@ -439,11 +497,16 @@ public sealed class AssistantTools
                 return $"{parent} is not a group.";
             }
 
-            // Through the import every other drawing arrives by, whose notes the window announces.
-            if ((await _window.ImportAsync(group, group.Children.Count, new[] { new TemplateImport(name, svg) }).ConfigureAwait(true)).Count == 0)
+            // Through the import every other drawing arrives by, with its notes said here: a dialog
+            // in the window is one a client cannot close, and a call that opens one never returns.
+            var notes = new List<string>();
+
+            if ((await _window.ImportAsync(group, group.Children.Count, new[] { new TemplateImport(name, svg) }, notes: notes).ConfigureAwait(true)).Count == 0)
             {
-                return "That drawing couldn't be added; the window has said why.";
+                return notes.Count > 0 ? string.Join("\n", notes) : "That drawing couldn't be added.";
             }
+
+            Undoable();
 
             return Report($"Added {name} as {(_window.FrontNode is { } added ? Path(added) : "(unknown)")}." + Undoes, $"add {name}");
         });
@@ -463,9 +526,14 @@ public sealed class AssistantTools
                 return $"{into} is not a group.";
             }
 
-            return _window.Move(moving, group)
-                ? Report($"Moved; it is now {Path(moving)}." + Undoes, "move")
-                : "It did not move: it is already there, or that would put a group inside itself.";
+            if (!_window.Move(moving, group))
+            {
+                return "It did not move: it is already there, or that would put a group inside itself.";
+            }
+
+            Undoable();
+
+            return Report($"Moved; it is now {Path(moving)}." + Undoes, "move");
         });
 
     private Task<string> SetNode(
@@ -491,12 +559,24 @@ public sealed class AssistantTools
             }
 
             workspace.Do(Label($"change {setting}"), () => ProjectSnapshot.Attributes(found), () => GroupPanel.Write(found, setting, text));
+            Undoable();
 
             return Report($"Set {setting} on {Path(found)}." + Undoes, $"change {setting}");
         });
 
     private Task<string> Save() => UiAsync(async () =>
     {
+        // A save that would have to ask where opens a picker, which a client cannot answer.
+        if (_window.Workspace is { Document.Path: null })
+        {
+            return "The project has never been saved, so there is nowhere to write it; save it once in Studio, which asks where.";
+        }
+
+        if (_window.Workspace is null && _window.FrontViewer is { DocumentPath: null })
+        {
+            return "The drawing in front has no file; save it once in Studio, which asks where.";
+        }
+
         if (!await Confirm("Save the project?").ConfigureAwait(true))
         {
             return "The person said no; nothing was saved.";
@@ -512,6 +592,13 @@ public sealed class AssistantTools
         if (Resolve(node) is not { Parent: { } } found)
         {
             return NoNode(node);
+        }
+
+        // Removing closes the tabs under the node, and a tab holding edits would ask whether to
+        // keep them, which a client cannot answer.
+        if (Edited(found) is { } holding)
+        {
+            return $"{ProjectWorkspace.Label(holding)} has edits in its tab not yet saved into the project; save or undo them first.";
         }
 
         if (!await Confirm($"Remove {ProjectWorkspace.Label(found)} from the project?").ConfigureAwait(true))
@@ -575,8 +662,103 @@ public sealed class AssistantTools
                 return null;
             });
 
-            return refusal ?? Report("Done." + Undoes, summary);
+            if (refusal is { })
+            {
+                return refusal;
+            }
+
+            Undoable();
+
+            var under = Under(group).ToList();
+            var wrong = under.SelectMany(drawing => Problems(drawing, Text(drawing)).Select(problem => $"- {Path(drawing)} {ProjectWorkspace.Label(drawing)}: {problem}")).ToList();
+
+            return Report(
+                "Done." + Undoes + (wrong.Count == 0
+                    ? $" No problems in the {under.Count} drawing(s) under it."
+                    : $"\nProblems under it now:\n{string.Join("\n", wrong.Take(5))}" + (wrong.Count > 5 ? $"\n… and {wrong.Count - 5} more; get_problems lists them." : string.Empty)),
+                summary);
         });
+
+    private Task<string> GetProblems(
+        [Description("The group's node path from get_project; empty for the whole project.")] string? node = null)
+        => Ui(() =>
+        {
+            if (Resolve(node) is not ProjectGroup group)
+            {
+                return $"{node} is not a group. get_project lists the paths.";
+            }
+
+            var text = new StringBuilder();
+            var clean = 0;
+
+            foreach (var drawing in Under(group))
+            {
+                var problems = Problems(drawing, Text(drawing));
+
+                if (problems.Count == 0)
+                {
+                    clean++;
+
+                    continue;
+                }
+
+                text.Append(Path(drawing)).Append(' ').Append(ProjectWorkspace.Label(drawing)).Append(":\n");
+
+                foreach (var problem in problems)
+                {
+                    text.Append("  ").Append(problem).Append('\n');
+                }
+            }
+
+            text.Append(clean).Append(" drawing(s) with no problems.");
+
+            return text.ToString();
+        });
+
+    /// <summary>The first node at or under <paramref name="node"/> whose tab holds edits not yet in the project, or null.</summary>
+    private ProjectNode? Edited(ProjectNode node)
+    {
+        var nodes = node is ProjectGroup group ? new[] { node }.Concat(Under(group)) : new[] { node };
+
+        return nodes.FirstOrDefault(one => _window.TabOf(one)?.Content is SvgViewer { IsSourceModified: true } or GroupPanel { IsModified: true });
+    }
+
+    /// <summary>The drawing as it stands: the buffer of a tab holding it, or the project's text.</summary>
+    private string Text(ProjectDrawing drawing) => _window.DrawingOf(drawing)?.Text ?? drawing.Text;
+
+    private static IEnumerable<ProjectDrawing> Under(ProjectGroup group)
+        => group.Children.SelectMany(child => child switch
+        {
+            ProjectDrawing drawing => new[] { drawing },
+            ProjectGroup inner => Under(inner),
+            _ => Enumerable.Empty<ProjectDrawing>()
+        });
+
+    /// <summary>An edit's answer: done, and what is wrong with the drawing now, so the model need not read it again.</summary>
+    private string Done(ISvgViewerDeclarationTarget target, string? node, string summary)
+    {
+        var label = Label(summary);
+
+        _undos.Push(target is SvgViewer viewer
+            ? () => viewer.UndoLabel == label && viewer.Undo() ? label : null
+            : Undoing(_window.Workspace, label));
+
+        var problems = Problems(Drawing(node), target.Text);
+
+        return Report(
+            "Done." + Undoes + (problems.Count == 0 ? " No problems." : $"\nProblems now:\n{string.Join("\n", problems.Select(problem => "- " + problem))}"),
+            summary);
+    }
+
+    /// <summary>Remembers that the last project edit was this tool's, for <see cref="Undo"/>.</summary>
+    private void Undoable() => _undos.Push(Undoing(_window.Workspace, _window.Workspace?.UndoLabel));
+
+    /// <summary>Takes a step back only while it is still the one on top: one the person has undone by hand already is not undone again onto whatever is under it.</summary>
+    private static Func<string?> Undoing(ProjectWorkspace? workspace, string? label)
+        => () => workspace is { } && label is { } && workspace.UndoLabel == label && workspace.Undo() ? label : null;
+
+    /// <summary>The key as the tools spell the root in their own output.</summary>
+    private static string Key(string? key) => key is null || key.Trim() == "(root)" ? string.Empty : key.Trim();
 
     /// <summary>What Studio finds wrong with a drawing, which it checks as built: with the blocks above it written in.</summary>
     /// <remarks>
@@ -586,20 +768,31 @@ public sealed class AssistantTools
     /// </remarks>
     private static List<string> Problems(ProjectDrawing? drawing, string text)
     {
-        var built = drawing is { } ? ProjectDeclarations.Built(drawing, text) : text;
+        // Every inherited name, not only the ones the drawing reaches: an unknown name's "in
+        // scope" list is then the names the drawing could have used.
+        var built = drawing is { } ? ProjectDeclarations.Built(drawing, text, narrow: false) : text;
 
-        return SvgSourceDiagnostics.Analyse(built).Select(problem => $"{problem.Message} (at: {Line(built, problem.Start)})").ToList();
+        return SvgSourceDiagnostics.Analyse(built).Select(problem => $"{problem.Message} (at: {Tag(built, problem.Start)})").ToList();
     }
 
-    private static string Line(string text, int at)
+    /// <summary>The tag the offset falls in, which is what names an element: a whole line of built text would carry the spliced blocks too.</summary>
+    private static string Tag(string text, int at)
     {
-        at = Math.Clamp(at, 0, text.Length);
+        at = Math.Clamp(at, 0, Math.Max(text.Length - 1, 0));
 
-        var start = text.LastIndexOf('\n', Math.Max(at - 1, 0)) + 1;
-        var end = text.IndexOf('\n', at);
-        var line = text[start..(end < 0 ? text.Length : end)].Trim();
+        var start = text.LastIndexOf('<', at);
+        var end = text.IndexOf('>', at);
 
-        return line.Length > 120 ? line[..120] + "…" : line;
+        if (start < 0 || end < 0)
+        {
+            var line = text[(text.LastIndexOf('\n', at) + 1)..(text.IndexOf('\n', at) is var next and >= 0 ? next : text.Length)].Trim();
+
+            return line.Length > 120 ? line[..120] + "…" : line;
+        }
+
+        var tag = text[start..(end + 1)];
+
+        return tag.Length > 160 ? tag[..160] + "…" : tag;
     }
 
     private static IEnumerable<string> Names(ProjectGroup group)
@@ -672,7 +865,15 @@ public sealed class AssistantTools
 
         for (var at = node; at.Parent is { } parent; at = parent)
         {
-            segments.Add(parent.Children.ToList().IndexOf(at).ToString(CultureInfo.InvariantCulture));
+            var index = parent.Children.ToList().IndexOf(at);
+
+            // A node an undo has taken out keeps its Parent and is in nobody's Children.
+            if (index < 0)
+            {
+                return "(no longer in the project)";
+            }
+
+            segments.Add(index.ToString(CultureInfo.InvariantCulture));
         }
 
         segments.Reverse();
@@ -682,7 +883,7 @@ public sealed class AssistantTools
 
     private string Describe(ProjectNode node)
         => $"{Path(node)} {(node is ProjectGroup ? "group" : "drawing")} {ProjectWorkspace.Label(node)}"
-           + (_window.TabOf(node) is { } tab && tab.Content is SvgViewer { IsSourceModified: true } ? ", with edits not yet saved into the project" : string.Empty);
+           + (_window.TabOf(node) is { } tab && tab.Content is SvgViewer { IsSourceModified: true } ? ", with edits held in its tab that saving writes into the project" : string.Empty);
 
     private static string NoNode(string? path) => $"There is no node {path}. get_project lists the paths.";
 
