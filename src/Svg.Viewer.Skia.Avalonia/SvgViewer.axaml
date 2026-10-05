@@ -41,6 +41,9 @@
                       ToolTip.Tip="Land what is dragged on the grid rather than where the pointer stopped" />
         <ToggleButton x:Name="BoxesButton" Content="Boxes" IsChecked="True"
                       ToolTip.Tip="Show the boxes the drawing reserves for the code that draws it" />
+        <Rectangle Width="1" Fill="#30808080" Margin="4,2" />
+        <!-- The drawing tools, built in code: a board has the same strip and is not a viewer. -->
+        <StackPanel x:Name="DrawTools" Orientation="Horizontal" />
       </StackPanel>
     </Border>
 

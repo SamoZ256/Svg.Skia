@@ -219,6 +219,13 @@ public class SvgViewerCanvas : SKCanvasControl
     /// </remarks>
     public event EventHandler<SKRect?>? Marqueeing;
 
+    /// <summary>The keys held at the last press, move or release, for a gesture that Shift constrains.</summary>
+    /// <remarks>The events above carry a point and nothing else, and a host drawing a square needs the key too.</remarks>
+    public KeyModifiers Modifiers { get; private set; }
+
+    /// <summary>Whether an edit gesture is in flight, between <see cref="EditBegun"/> and its end.</summary>
+    public bool IsEditing => _editing;
+
     /// <summary>The edit gesture, in control coordinates, as <see cref="Picked"/> reports a click.</summary>
     public event EventHandler<Point>? EditBegun;
 
@@ -1330,15 +1337,17 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         var properties = e.GetCurrentPoint(this).Properties;
 
+        Modifiers = e.KeyModifiers;
+
         // Recorded before the pan is decided on, so a host that has turned panning off can still be
         // clicked. Whether this becomes a pick is settled on release.
         _pressed = properties.IsLeftButtonPressed && _placed.Count > 0;
         _pressOrigin = e.GetPosition(this);
 
-        // The narrowest claim first. This one answers only while a host has Edit mode on and only
-        // over the element that host is already editing, so a miss falls straight through to the
-        // grip. The other order cannot work: a grip answers for anywhere inside a whole drawing, so
-        // it would swallow every handle sitting on top of one.
+        // The narrowest claim first. A host answers for the handles of what it is editing — or for
+        // the whole canvas while it has a drawing tool armed — so a miss falls straight through to
+        // the grip. The other order cannot work: a grip answers for anywhere inside a whole drawing,
+        // so it would swallow every handle sitting on top of one.
         if (properties.IsLeftButtonPressed && IsEditTarget is { } wanted && wanted(_pressOrigin))
         {
             // _pressed is left standing, as the grip leaves it: a press inside the selection's box
@@ -1428,6 +1437,8 @@ public class SvgViewerCanvas : SKCanvasControl
 
     private void OnMoved(object? sender, PointerEventArgs e)
     {
+        Modifiers = e.KeyModifiers;
+
         if (_pressed && Away(e.GetPosition(this), _pressOrigin))
         {
             // Moved: the gesture is a drag, and a drag pans. Anything a hand does while clicking is
@@ -1513,6 +1524,8 @@ public class SvgViewerCanvas : SKCanvasControl
 
     private void OnReleased(object? sender, PointerReleasedEventArgs e)
     {
+        Modifiers = e.KeyModifiers;
+
         if (_editing)
         {
             // Read before EndEdit gives the pointer up, which is a capture lost and clears both.
