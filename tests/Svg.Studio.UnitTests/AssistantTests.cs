@@ -65,7 +65,7 @@ public class AssistantTests : IDisposable
 
           <drawing name="Dial">
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
-              <defs><e:code><e:let name="angle">{{ 45 }}</e:let></e:code></defs>
+              <defs><e:code><e:let name="angle">45</e:let></e:code></defs>
               <rect width="24" height="24" transform="rotate({{ angle }})" />
             </svg>
           </drawing>
