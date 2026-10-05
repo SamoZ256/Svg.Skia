@@ -101,6 +101,48 @@ public class MainWindowUndoTests
     }
 
     [AvaloniaFact]
+    public async Task Duplicate_And_Delete_Reach_What_The_Drawing_In_The_Selected_Tab_Has_Picked()
+    {
+        var (window, viewer) = await Host();
+
+        // The rect, past the declarations block.
+        Assert.True(viewer.Elements.TrySelect("1"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(window.Duplicate());
+        Dispatcher.UIThread.RunJobs();
+
+        // Two of it, the expression's bytes untouched in both, and the copy picked.
+        Assert.Equal(2, viewer.Source.Split("fill=\"{{ hsl(hue, 74%, 55%) }}\"").Length - 1);
+        Assert.Equal(new[] { "2" }, viewer.Elements.SelectedAddresses);
+
+        Assert.True(window.Delete());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, viewer.Source.Split("<rect").Length - 1);
+        Assert.Empty(viewer.Elements.SelectedAddresses);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Box_Being_Typed_In_Keeps_Delete_And_Duplicate_For_Itself()
+    {
+        var (window, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect("1"));
+
+        var box = window.GetVisualDescendants().OfType<TextBox>().First(box => box.IsEffectivelyVisible);
+
+        box.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        var was = viewer.Source;
+
+        Assert.False(window.Duplicate());
+        Assert.False(window.Delete());
+        Assert.Equal(was, viewer.Source);
+    }
+
+    [AvaloniaFact]
     public async Task The_Menu_Shows_The_Gesture_The_Platform_Uses()
     {
         var (window, _) = await Host();

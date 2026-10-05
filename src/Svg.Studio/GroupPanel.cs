@@ -328,6 +328,11 @@ public sealed class GroupPanel : UserControl
         _canvas.EditMoved += (_, at) => DragEdit(at);
         _canvas.EditEnded += (_, _) => EndEdit();
         _canvas.EditCancelled += (_, _) => CancelEdit();
+        _canvas.KeyDown += OnCanvasKeyDown;
+
+        // The rows are the picked elements, so what the tree is asked for is what the board holds.
+        _tree.DeleteRequested = _ => Delete();
+        _tree.DuplicateRequested = _ => Duplicate();
 
         _canvas.ViewChanged += (_, _) =>
         {
@@ -2613,7 +2618,117 @@ public sealed class GroupPanel : UserControl
         _canvas.Publish();
     }
 
-    private const string Unwritten = "That row is not written in this drawing's file, so it cannot be dragged.";
+    private const string Unwritten = "That row is not written in this drawing's file, so it cannot be edited here.";
+
+    /// <summary>Takes the picked elements out of their drawing, as one edit.</summary>
+    public bool Delete()
+        => Rewritten(
+            count => count == 1 ? "delete an element" : $"delete {count} elements",
+            SvgElementEditor.Remove,
+            Array.Empty<string>());
+
+    /// <summary>Writes a copy of each picked element after it, and picks the copies.</summary>
+    public bool Duplicate()
+    {
+        var copies = new List<string>();
+
+        return Rewritten(
+            count => count == 1 ? "duplicate an element" : $"duplicate {count} elements",
+            (source, mine) =>
+            {
+                var refusal = SvgElementEditor.Duplicate(source, mine, out var made);
+
+                copies.AddRange(made);
+
+                return refusal;
+            },
+            copies);
+    }
+
+    /// <summary>
+    /// Commits one edit to the picked elements of the inspected drawing, then picks what
+    /// <paramref name="follow"/> names, spelt as the file spells it.
+    /// </summary>
+    /// <remarks>
+    /// All or nothing: a row the file does not spell refuses the lot before anything is written,
+    /// rather than acting on the part of a selection that happened to map.
+    ///
+    /// The drawing is read again twice. The commit itself lays the board out once, through the
+    /// project's event, and that pass puts back the rows that were picked before — some of which
+    /// the edit has just removed. The rows to pick are set afterwards and the board is laid out
+    /// again by <see cref="Written"/>, which is the pass that selects them. The document is read
+    /// before the commit because the first pass discards it.
+    /// </remarks>
+    private bool Rewritten(
+        Func<int, string> label,
+        Func<SvgSourceDocument, IReadOnlyList<string>, string?> edit,
+        IReadOnlyCollection<string> follow)
+    {
+        if (_page || _inspecting is not { } inspecting || Writing() is not { } writing)
+        {
+            return false;
+        }
+
+        if (writing.Addresses.Count != _picked.Count)
+        {
+            Says(Unwritten);
+
+            return false;
+        }
+
+        var document = inspecting.Built.Document!;
+        var mine = _picked.Select(key => writing.Addresses[key]).ToList();
+        var refusal = writing.Target.Commit(label(mine.Count), source => edit(source, mine));
+
+        if (refusal is { })
+        {
+            Says(refusal);
+
+            return false;
+        }
+
+        var wanted = new HashSet<string>(follow, StringComparer.Ordinal);
+        var written = writing.Target.Text;
+
+        _picked.Clear();
+        _picked.AddRange(
+            SvgSourceElements.Addresses(written, document.Built(written))
+                .Where(pair => wanted.Contains(pair.Value))
+                .Select(pair => pair.Key));
+
+        Says(null);
+
+        return Written();
+    }
+
+    /// <remarks>
+    /// On the canvas, as a viewer binds its own, so the keys mean this only while somebody is
+    /// looking at the board and a box being typed in keeps its Backspace. Nothing picked is nothing
+    /// to answer, and the key goes on to whoever is above.
+    /// </remarks>
+    private void OnCanvasKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (_picked.Count == 0)
+        {
+            return;
+        }
+
+        var command = this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control;
+
+        // Back as well as Delete: the two are one key on a Mac keyboard.
+        if (e.Key is Key.Delete or Key.Back && e.KeyModifiers == KeyModifiers.None)
+        {
+            e.Handled = true;
+
+            Delete();
+        }
+        else if (e.Key == Key.D && e.KeyModifiers == command)
+        {
+            e.Handled = true;
+
+            Duplicate();
+        }
+    }
 
     /// <summary>
     /// The element's transform as the file spells it, where an expression writes it, and null

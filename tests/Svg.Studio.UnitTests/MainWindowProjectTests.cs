@@ -1059,6 +1059,57 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(was.Y, home.Y);
     }
 
+    [AvaloniaFact]
+    public async Task Delete_On_The_Board_Takes_The_Shape_Out_Of_Its_Drawing_And_Is_One_Step_To_Take_Back()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        Pick(window, panel, 0);
+
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var was = home.Text;
+
+        Assert.Contains("<rect", was, StringComparison.Ordinal);
+
+        canvas.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        window.KeyPressQwerty(PhysicalKey.Delete, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        // Into the project straight away, since no tab holds this drawing — and out of that drawing
+        // alone, the one beside it keeping its shape.
+        Assert.DoesNotContain("<rect", home.Text, StringComparison.Ordinal);
+        Assert.Contains("<rect", ((ProjectDrawing)window.Workspace.Document.Root.Children[1]).Text, StringComparison.Ordinal);
+        Assert.Empty(Elements(panel).SelectedAddresses);
+
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was, home.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task Duplicate_On_The_Board_Writes_The_Copy_And_Picks_It()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        Pick(window, panel, 0);
+
+        // Through the menu, which lands on the board when that is the tab in front.
+        Assert.True(window.Duplicate());
+        Dispatcher.UIThread.RunJobs();
+
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+
+        Assert.Equal(2, home.Text.Split("<rect").Length - 1);
+        Assert.Equal(new[] { "1" }, Elements(panel).SelectedAddresses);
+        Assert.NotNull(Canvas(panel).Gizmo);
+    }
+
     /// <summary>
     /// A press inside a drawing nobody is editing sweeps a rectangle. It does not carry the drawing,
     /// and it does not move the view.
