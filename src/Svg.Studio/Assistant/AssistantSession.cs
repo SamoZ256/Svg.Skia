@@ -46,6 +46,7 @@ public sealed class AssistantSession : IDisposable
         - get_drawing gives the address keys set_attributes takes. Keys are positions, so read again after an edit that adds, moves or removes elements.
         - Nodes of the project are named by path from get_project, such as 0/2. Names can repeat; paths cannot.
         - Expressions are written {{ name }} inside an attribute; parameters and lets are declared in the drawing's or a group's declarations.
+        - A group's or the project's declarations are inherited by every drawing under it; get_declarations and set_declarations read and change them.
         - Every edit is one step the person can undo with Cmd/Ctrl+Z.
         """;
 
@@ -73,7 +74,9 @@ public sealed class AssistantSession : IDisposable
     public void Use(IAssistantProvider provider, AssistantModel model)
     {
         _client?.Dispose();
-        _client = provider.Create(model).AsBuilder().UseFunctionInvocation().Build();
+        // With the exception's message rather than "Function failed.": a tool refuses with a sentence,
+        // so one that throws is a bug, and a model told what broke can say so rather than guess.
+        _client = provider.Create(model).AsBuilder().UseFunctionInvocation(configure: invoking => invoking.IncludeDetailedErrors = true).Build();
         _model = model;
 
         Clear();

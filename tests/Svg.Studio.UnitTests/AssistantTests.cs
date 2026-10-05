@@ -55,6 +55,35 @@ public class AssistantTests : IDisposable
         </studio>
         """;
 
+    /// <summary>A project block declaring <c>angle</c>, a drawing with a <c>let angle</c> of its own, and a group's <c>tint</c>.</summary>
+    /// <remarks>The shape an agent's Thermostat had when it was told it was clean and Studio said otherwise.</remarks>
+    private const string Declared = """
+        <studio namespace="Demo.Icons">
+          <e:code xmlns:e="https://svg.skia/expr/1.0">
+            <e:param name="angle" type="number" default="0" />
+          </e:code>
+
+          <drawing name="Dial">
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+              <defs><e:code><e:let name="angle">{{ 45 }}</e:let></e:code></defs>
+              <rect width="24" height="24" transform="rotate({{ angle }})" />
+            </svg>
+          </drawing>
+
+          <group name="Badges">
+            <e:code xmlns:e="https://svg.skia/expr/1.0">
+              <e:param name="tint" type="color" default="#ff0000" />
+            </e:code>
+
+            <drawing name="Filled">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <rect width="24" height="24" fill="{{ tint }}" />
+              </svg>
+            </drawing>
+          </group>
+        </studio>
+        """;
+
     private readonly string _directory = Directory.CreateTempSubdirectory().FullName;
 
     public void Dispose() => Scratch.Delete(_directory);
@@ -309,6 +338,87 @@ public class AssistantTests : IDisposable
         {
             AssistantProviders.All = providers;
         }
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Is_Checked_As_Studio_Builds_It()
+    {
+        var window = await Host(Write("declared.svgstudio", Declared));
+        var chat = new ScriptedChat(
+            Call("get_drawing", new() { ["node"] = "1/0" }),
+            Call("get_drawing", new() { ["node"] = "0" }),
+            Call("get_project", new()),
+            Say("Read."));
+
+        await Send(window, chat, "what is wrong");
+
+        // The group's tint is inherited, so it is neither undeclared nor a problem.
+        Assert.Contains("Inherited from 1: tint", chat.Results[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("Problem:", chat.Results[0], StringComparison.Ordinal);
+
+        // The dial's own let and the project's param are one name twice, which its own text never shows.
+        Assert.Contains("Inherited from (project): angle", chat.Results[1], StringComparison.Ordinal);
+        Assert.Contains("'angle' is declared more than once", chat.Results[1], StringComparison.Ordinal);
+
+        Assert.Contains("(project) — declares: angle", chat.Results[2], StringComparison.Ordinal);
+        Assert.Contains("1 group Badges — declares: tint", chat.Results[2], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Context_Counts_What_Studio_Counts()
+    {
+        var window = await Host(Write("declared.svgstudio", Declared));
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("1 problem(s)", new AssistantTools(window).Context(), StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Groups_Declarations_Are_Read_And_Replaced_As_One_Step()
+    {
+        var window = await Host(Write("declared.svgstudio", Declared));
+        var group = (ProjectGroup)window.Workspace!.Document.Root.Children[1];
+        var before = group.CodeText;
+        var replaced = before.Replace("</e:code>", "  <e:param name=\"size\" type=\"number\" default=\"24\" />\n            </e:code>", StringComparison.Ordinal);
+
+        var chat = new ScriptedChat(
+            Call("get_declarations", new() { ["node"] = "1" }),
+            Call("set_declarations", new() { ["node"] = "1", ["code"] = replaced, ["summary"] = "add size" }),
+            Say("Added."));
+
+        await Send(window, chat, "add a size parameter to Badges");
+
+        Assert.Equal(before, chat.Results[0]);
+        Assert.Contains("one undo step", chat.Results[1], StringComparison.Ordinal);
+        Assert.Contains("name=\"size\"", group.CodeText, StringComparison.Ordinal);
+        Assert.Equal("Assistant: add size", window.Workspace.UndoLabel);
+
+        Assert.True(window.Undo());
+        Assert.Equal(before, group.CodeText);
+    }
+
+    [AvaloniaFact]
+    public async Task Declarations_That_Are_Not_A_Block_Or_Shadow_The_Project_Are_Refused()
+    {
+        var window = await Host(Write("declared.svgstudio", Declared));
+        var group = (ProjectGroup)window.Workspace!.Document.Root.Children[1];
+        var before = group.CodeText;
+        var shadowing = before.Replace("name=\"tint\" type=\"color\" default=\"#ff0000\"", "name=\"angle\" type=\"number\" default=\"1\"", StringComparison.Ordinal);
+
+        var chat = new ScriptedChat(
+            Call("set_declarations", new() { ["node"] = "1", ["code"] = "<g />", ["summary"] = "wrong" }),
+            Call("set_declarations", new() { ["node"] = "1", ["code"] = shadowing, ["summary"] = "shadow" }),
+            Say("Refused."));
+
+        await Send(window, chat, "break it");
+
+        Assert.Contains("<e:code> block", chat.Results[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("one undo step", chat.Results[1], StringComparison.Ordinal);
+        Assert.Contains("angle", chat.Results[1], StringComparison.Ordinal);
+        Assert.Equal(before, group.CodeText);
+        Assert.False(window.Workspace.IsEdited);
     }
 
     [Fact]

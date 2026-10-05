@@ -65,6 +65,8 @@ public class StudioMcpServerTests : IDisposable
         Assert.Contains("set_attributes", tools.Keys);
         Assert.Contains("read_doc", tools.Keys);
         Assert.Contains("get_context", tools.Keys);
+        Assert.True(tools["get_declarations"].ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.False(tools["set_declarations"].ProtocolTool.Annotations?.DestructiveHint);
 
         Assert.True(tools["save"].ProtocolTool.Annotations?.DestructiveHint);
         Assert.True(tools["git_commit"].ProtocolTool.Annotations?.DestructiveHint);

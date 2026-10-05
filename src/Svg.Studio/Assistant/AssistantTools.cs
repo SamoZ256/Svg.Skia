@@ -12,6 +12,7 @@ using System.Xml.Linq;
 using Avalonia.Threading;
 using Microsoft.Extensions.AI;
 using Svg.CodeGen.Skia.Projects;
+using Svg.Expressions;
 using Svg.Highlighting;
 using Svg.SourceEditing;
 using Svg.Viewer.Skia.Avalonia;
@@ -47,7 +48,7 @@ public sealed class AssistantTools
     /// <summary>The tools that read and change nothing, for a client to call without asking.</summary>
     public static readonly IReadOnlySet<string> Reading = new HashSet<string>(StringComparer.Ordinal)
     {
-        "read_doc", "get_project", "get_drawing", "get_element", "get_context"
+        "read_doc", "get_project", "get_drawing", "get_element", "get_context", "get_declarations"
     };
 
     /// <summary>The tools that write past the history - to disk, to git, or a node away - which a client should ask about.</summary>
@@ -93,6 +94,8 @@ public sealed class AssistantTools
         tools.Add(AIFunctionFactory.Create(AddGroup, "add_group", "Adds an empty group inside a group, and opens it."));
         tools.Add(AIFunctionFactory.Create(AddDrawing, "add_drawing", "Adds a drawing from SVG text inside a group, and opens it."));
         tools.Add(AIFunctionFactory.Create(Move, "move", "Moves a group or drawing into another group."));
+        tools.Add(AIFunctionFactory.Create(GetDeclarations, "get_declarations", "Reads the declarations block a group, or the project, gives every drawing under it."));
+        tools.Add(AIFunctionFactory.Create(SetDeclarations, "set_declarations", "Replaces the declarations block of a group, or of the project, as a single undo step."));
         tools.Add(AIFunctionFactory.Create(SetNode, "set_node", "Changes a group's or drawing's project setting: name, namespace, class, padding, width, height, scale, x, y, cache, helperScope or skiaSharp."));
         tools.Add(AIFunctionFactory.Create(Save, "save", "Saves the project, or the drawing in front when it is a file of its own. Asks the person first."));
         tools.Add(AIFunctionFactory.Create(Remove, "remove", "Removes a group or drawing from the project. Asks the person first."));
@@ -142,9 +145,9 @@ public sealed class AssistantTools
                 text.Append("Selected elements: ").Append(string.Join(", ", selected.Select(key => key.Length == 0 ? "(root)" : key))).Append('\n');
             }
 
-            if (shown.SourceDiagnostics.Count > 0)
+            if (Problems(front as ProjectDrawing, shown.Source) is { Count: > 0 } problems)
             {
-                text.Append("The drawing has ").Append(shown.SourceDiagnostics.Count).Append(" problem(s); get_drawing lists them.\n");
+                text.Append("The drawing has ").Append(problems.Count).Append(" problem(s); get_drawing lists them.\n");
             }
         }
 
@@ -186,7 +189,12 @@ public sealed class AssistantTools
             text.Append("In front: ").Append(Path(front)).Append('\n');
         }
 
-        text.Append("Nodes (path, kind, name):\n");
+        if (Declares(workspace.Document.Root) is { } declared)
+        {
+            text.Append("(project)").Append(declared).Append('\n');
+        }
+
+        text.Append("Nodes (path, kind, name; what a group declares, every drawing under it inherits):\n");
 
         Walk(workspace.Document.Root, 0);
 
@@ -203,6 +211,11 @@ public sealed class AssistantTools
                 if (_window.TabOf(child) is { })
                 {
                     text.Append(" (open)");
+                }
+
+                if (child is ProjectGroup holder && Declares(holder) is { } names)
+                {
+                    text.Append(names);
                 }
 
                 text.Append('\n');
@@ -237,9 +250,16 @@ public sealed class AssistantTools
                 text.Append("The source does not read as XML: ").Append(unreadable).Append('\n');
             }
 
-            foreach (var problem in SvgSourceDiagnostics.Analyse(source))
+            var drawing = Drawing(node);
+
+            foreach (var holder in drawing is { } ? ProjectDeclarations.Chain(drawing) : Array.Empty<ProjectGroup>())
             {
-                text.Append("Problem at ").Append(problem.Start).Append(": ").Append(problem.Message).Append('\n');
+                text.Append("Inherited from ").Append(Path(holder)).Append(": ").Append(string.Join(", ", Names(holder))).Append('\n');
+            }
+
+            foreach (var problem in Problems(drawing, source))
+            {
+                text.Append("Problem: ").Append(problem).Append('\n');
             }
 
             text.Append("Source:\n").Append(source);
@@ -520,6 +540,77 @@ public sealed class AssistantTools
 
         return Report("Committed.", "commit");
     });
+
+    private Task<string> GetDeclarations(
+        [Description("The group's node path from get_project; empty for the project itself.")] string? node = null)
+        => Ui(() => Resolve(node) is ProjectGroup group ? group.CodeText : $"{node} is not a group. get_project lists the paths.");
+
+    private Task<string> SetDeclarations(
+        [Description("The complete new <e:code> block, as get_declarations gives it: params and lets, with xmlns:e declared.")] string code,
+        [Description("A few words saying what this does, shown in the Edit menu.")] string summary,
+        [Description("The group's node path from get_project; empty for the project itself.")] string? node = null)
+        => Ui(() =>
+        {
+            if (Resolve(node) is not ProjectGroup group || _window.Workspace is not { } workspace)
+            {
+                return $"{node} is not a group. get_project lists the paths.";
+            }
+
+            // Through the group's own target, which refuses a name declared above it or below it already.
+            var refusal = new GroupTarget(workspace, group).Commit(Label(summary), source =>
+            {
+                if (SvgSourceDocument.Read(code, out var unreadable) is not { } given)
+                {
+                    return unreadable;
+                }
+
+                if (given.Document.Root is not { } block || block.Name != XNamespace.Get(SvgExpressionDeclarations.Namespace) + "code")
+                {
+                    return "Declarations have to be one <e:code> block, with xmlns:e declared on it.";
+                }
+
+                block.Remove();
+                source.Document.Root!.ReplaceWith(block);
+
+                return null;
+            });
+
+            return refusal ?? Report("Done." + Undoes, summary);
+        });
+
+    /// <summary>What Studio finds wrong with a drawing, which it checks as built: with the blocks above it written in.</summary>
+    /// <remarks>
+    /// Checked on its own text, a drawing redeclaring a name its group declares came back clean and
+    /// every name it inherits came back undeclared. Each problem is given with the line it is on,
+    /// since an offset into the built text is nowhere in the drawing's own.
+    /// </remarks>
+    private static List<string> Problems(ProjectDrawing? drawing, string text)
+    {
+        var built = drawing is { } ? ProjectDeclarations.Built(drawing, text) : text;
+
+        return SvgSourceDiagnostics.Analyse(built).Select(problem => $"{problem.Message} (at: {Line(built, problem.Start)})").ToList();
+    }
+
+    private static string Line(string text, int at)
+    {
+        at = Math.Clamp(at, 0, text.Length);
+
+        var start = text.LastIndexOf('\n', Math.Max(at - 1, 0)) + 1;
+        var end = text.IndexOf('\n', at);
+        var line = text[start..(end < 0 ? text.Length : end)].Trim();
+
+        return line.Length > 120 ? line[..120] + "…" : line;
+    }
+
+    private static IEnumerable<string> Names(ProjectGroup group)
+        => group.Code?.Elements().Select(declaration => ((string?)declaration.Attribute("name"))?.Trim()).OfType<string>() ?? Enumerable.Empty<string>();
+
+    private static string? Declares(ProjectGroup group)
+        => group.Code is { } ? " — declares: " + (string.Join(", ", Names(group)) is { Length: > 0 } names ? names : "nothing") : null;
+
+    /// <summary>The project's drawing a node path names, or the one in front for none.</summary>
+    private ProjectDrawing? Drawing(string? node)
+        => string.IsNullOrEmpty(node) ? _window.FrontNode as ProjectDrawing : Resolve(node) as ProjectDrawing;
 
     /// <summary>Where an edit to a drawing goes: its tab when it has one, the project when it has none.</summary>
     private ISvgViewerDeclarationTarget? Target(string? node, out string about)

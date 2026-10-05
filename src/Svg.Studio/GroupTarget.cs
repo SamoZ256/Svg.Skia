@@ -125,8 +125,12 @@ public sealed class GroupTarget : ISvgViewerDeclarationTarget, IEquatable<GroupT
         return null;
     }
 
-    /// <summary>A name the edit newly declares that something under this group declares already, as a refusal.</summary>
-    /// <remarks>The chain refuses a name declared twice, so writing it here would stop everything below that declares it from building.</remarks>
+    /// <summary>A name the edit newly declares that a block above this group, or something under it, declares already, as a refusal.</summary>
+    /// <remarks>
+    /// The chain refuses a name declared twice, so writing it here would stop everything that names
+    /// it from building. Above as well as below: a group that redeclared its project's parameter was
+    /// accepted, and failed only in the first drawing under it that used the name.
+    /// </remarks>
     private string? Shadowing(SvgSourceDocument source)
     {
         var had = Names(_group.Code?.Elements() ?? Enumerable.Empty<XElement>()).ToHashSet(StringComparer.Ordinal);
@@ -135,6 +139,15 @@ public sealed class GroupTarget : ISvgViewerDeclarationTarget, IEquatable<GroupT
         if (added.Count == 0)
         {
             return null;
+        }
+
+        foreach (var holder in ProjectDeclarations.Chain(_group))
+        {
+            if (Names(holder.Code!.Elements()).FirstOrDefault(added.Contains) is { } inherited)
+            {
+                return $"'{ProjectWorkspace.Label(holder)}' already declares '{inherited}', so declaring it on "
+                       + $"'{ProjectWorkspace.Label(_group)}' as well would declare it twice.";
+            }
         }
 
         var below = _group.Drawings.Select(drawing => ((ProjectNode)drawing, drawing.Svg))
