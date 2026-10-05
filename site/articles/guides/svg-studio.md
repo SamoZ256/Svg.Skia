@@ -291,7 +291,7 @@ already uses, or one another box of the drawing has. In the element tree a box r
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
 project and its drawings, sets attributes, adds, moves and renames nodes, and saves or commits.
 
-1. In **Settings**, turn on **Let Claude Code connect to this Studio**. Studio then listens on
+1. In **Settings**, on the **Accounts** tab, turn on **Let Claude Code connect to this Studio**. Studio then listens on
    `127.0.0.1` only, on port 7337 unless you choose another.
 2. Press **Copy command** and paste it into a terminal. It runs `claude mcp add` with this Studio's
    address and a token, which Studio keeps in the keychain; **New token** replaces it, and a command

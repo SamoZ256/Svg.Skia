@@ -27,6 +27,8 @@ public partial class SettingsWindow : Window
     {
         InitializeComponent();
 
+        Tabs = this.FindControl<TabControl>("SettingsTabs")!;
+
         Theme = this.FindControl<ComboBox>("ThemeBox")!;
         Theme.ItemsSource = s_themes.Select(theme => theme.Said).ToList();
         Theme.SelectedIndex = Array.FindIndex(s_themes, theme => theme.Theme == StudioSettings.Theme);
@@ -140,14 +142,14 @@ public partial class SettingsWindow : Window
                 StreamlineKeyStatus,
                 StreamlineClient.KeyService,
                 StreamlineClient.KeyAccount,
-                "Paste a key from your Streamline profile, under API keys."),
+                "From your Streamline profile, under API keys."),
             new KeyField(
                 AnthropicKey,
                 ForgetAnthropicKey,
                 AnthropicKeyStatus,
                 ClaudeProvider.KeyService,
                 ClaudeProvider.KeyAccount,
-                "Paste a key from console.anthropic.com, under API keys, for the assistant.")
+                "From console.anthropic.com, under API keys.")
         };
 
         McpEnabled = this.FindControl<CheckBox>("McpEnabledBox")!;
@@ -177,7 +179,7 @@ public partial class SettingsWindow : Window
             if (McpCommand is { } command && Clipboard is { } clipboard)
             {
                 await clipboard.SetTextAsync(command).ConfigureAwait(true);
-                McpStatus.Text = "Copied. Paste it into a terminal to add this Studio to Claude Code.";
+                McpStatus.Text = "Copied. Run it in a terminal.";
             }
         };
 
@@ -225,15 +227,15 @@ public partial class SettingsWindow : Window
 
         if (Keychain.Current is null)
         {
-            McpStatus.Text = "Studio knows of no keychain on this machine to keep the token in.";
+            McpStatus.Text = "There is no keychain on this machine to keep the token in.";
         }
         else if (token is { } || !on)
         {
             McpStatus.Text = on
                 ? StudioMcpServer.Status is { } status && status.Contains($":{StudioSettings.McpPort}.", StringComparison.Ordinal)
-                    ? status + " Copy the command to add it to Claude Code."
-                    : $"Served on 127.0.0.1:{StudioSettings.McpPort} when Settings closes. Copy the command to add it to Claude Code."
-                : StudioMcpServer.Status ?? "Claude Code can drive this Studio over MCP, with the same tools as the assistant.";
+                    ? status
+                    : $"Served on 127.0.0.1:{StudioSettings.McpPort} once Settings closes."
+                : StudioMcpServer.Status ?? "Off.";
         }
     }
 
@@ -336,10 +338,10 @@ public partial class SettingsWindow : Window
                 }
 
                 _status.Text = keychain is null
-                    ? "Studio knows of no keychain on this machine to keep a key in."
+                    ? "There is no keychain on this machine to keep a key in."
                     : stored
-                        ? "A key is kept in this machine's keychain. Typing another replaces it."
-                        : _hint + " It is kept in this machine's keychain rather than in Studio's settings.";
+                        ? "A key is kept in the keychain. Typing another replaces it."
+                        : _hint + " Kept in the keychain, not in Studio's settings.";
             }
             catch (Exception failure) when (failure is InvalidOperationException or ArgumentException or Win32Exception)
             {
@@ -472,6 +474,9 @@ public partial class SettingsWindow : Window
 
     /// <summary>Whether a Streamline API key is kept, or why none can be.</summary>
     public TextBlock StreamlineKeyStatus { get; }
+
+    /// <summary>The pages the settings are on; a control on one not in front is not on screen.</summary>
+    public TabControl Tabs { get; }
 
     /// <summary>Whether Claude Code may connect, for a test to drive.</summary>
     public CheckBox McpEnabled { get; }
