@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -839,16 +840,105 @@ public class SvgViewerElementTreeTests
         Assert.Equal(new[] { "svg", "defs", "code", "param", "g #wrap", "rect", "text", "g" }, Rows(viewer));
     }
 
+    [AvaloniaFact]
+    public async Task A_Deleted_Row_Leaves_The_Drawing_And_The_Selection()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect("1/1"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Elements.DeleteRequested!(viewer.Elements.SelectedAddresses.ToList()));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "svg", "defs", "code", "param", "g #wrap", "rect" }, Rows(viewer));
+        Assert.DoesNotContain("<text", viewer.Source);
+        // The expression beside it is the file's own bytes still.
+        Assert.Contains("fill=\"{{ tint }}\"", viewer.Source);
+
+        Assert.Empty(viewer.Elements.SelectedAddresses);
+        Assert.Null(viewer.SelectedElement);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Duplicate_Is_Written_After_Its_Original_And_Selected()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.DuplicateRequested!(new[] { "1/0" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "svg", "defs", "code", "param", "g #wrap", "rect", "rect", "text" }, Rows(viewer));
+        Assert.Equal(new[] { "1/1" }, viewer.Elements.SelectedAddresses);
+        Assert.Equal(2, viewer.Source.Split("fill=\"{{ tint }}\"").Length - 1);
+    }
+
+    [AvaloniaFact]
+    public async Task Deleting_A_Sweep_Of_Rows_From_The_Canvas_Is_One_Step_To_Take_Back()
+    {
+        var (window, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        var was = viewer.Source;
+
+        viewer.Canvas.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        window.KeyPressQwerty(PhysicalKey.Delete, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "svg", "defs", "code", "param", "g #wrap" }, Rows(viewer));
+
+        window.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was, viewer.Source);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Command_Key_With_D_Duplicates_What_Is_Picked()
+    {
+        var (window, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect("1/1"));
+        viewer.Canvas.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        window.KeyPressQwerty(PhysicalKey.D, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "svg", "defs", "code", "param", "g #wrap", "rect", "text", "text" }, Rows(viewer));
+        Assert.Equal(new[] { "1/2" }, viewer.Elements.SelectedAddresses);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Key_With_Nothing_Picked_Is_Not_The_Canvas_To_Answer()
+    {
+        var (window, viewer) = await Host();
+
+        var was = viewer.Source;
+
+        viewer.Canvas.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        window.KeyPressQwerty(PhysicalKey.Delete, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was, viewer.Source);
+    }
+
     /// <summary>
     /// A drawing built from the file rather than being it — an svgc recipe.
     /// </summary>
     /// <remarks>
-    /// The tree lists the drawing, which is the rewritten document, and the pane edits the file. The
-    /// two spell different addresses, so a move that took the tree's own key wrote somewhere else in
-    /// the file — and the row that came back carried what the recipe had put into it.
+    /// What a recipe does: a block of declarations in front, and a literal turned into an expression
+    /// that names one of them. The tree lists the drawing, which is the rewritten document, and the
+    /// pane edits the file. The two spell different addresses, so an edit that took the tree's own
+    /// key would write somewhere else in the file.
     /// </remarks>
-    [AvaloniaFact]
-    public async Task A_Move_Under_A_Recipe_Writes_The_File_And_Not_What_Was_Made_Of_It()
+    private static async Task<SvgViewer> Recipe()
     {
         const string file = """
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
@@ -859,8 +949,6 @@ public class SvgViewerElementTreeTests
 
         var viewer = new SvgViewer
         {
-            // What a recipe does: a block of declarations in front, and a literal turned into an
-            // expression that names one of them.
             Rewrite = svgText => svgText
                 .Replace(
                     """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">""",
@@ -893,6 +981,36 @@ public class SvgViewerElementTreeTests
         // The tree lists the built drawing, so the recipe's own block is a row of it.
         Assert.Equal(new[] { "svg", "defs", "code", "param", "rect", "circle" }, Rows(viewer));
 
+        return viewer;
+    }
+
+    [AvaloniaFact]
+    public async Task A_Duplicate_Under_A_Recipe_Writes_The_File_And_Follows_The_Copy()
+    {
+        var viewer = await Recipe();
+
+        Assert.True(viewer.Elements.DuplicateRequested!(new[] { "2" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect width="24" height="24" fill="#ff0000" />
+              <circle cx="12" cy="12" r="6" fill="#0000ff" />
+              <circle cx="12" cy="12" r="6" fill="#0000ff" />
+            </svg>
+            """,
+            viewer.Source);
+
+        // The copy as the tree spells it, past the recipe's block.
+        Assert.Equal(new[] { "3" }, viewer.Elements.SelectedAddresses);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Move_Under_A_Recipe_Writes_The_File_And_Not_What_Was_Made_Of_It()
+    {
+        var viewer = await Recipe();
+
         Assert.True(viewer.Elements.MoveRequested!("2", "1", SvgElementDrop.Before));
         Dispatcher.UIThread.RunJobs();
 
@@ -919,6 +1037,8 @@ public class SvgViewerElementTreeTests
 
         Assert.Null(tree.MoveRequested);
         Assert.Null(tree.NewGroupRequested);
+        Assert.Null(tree.DeleteRequested);
+        Assert.Null(tree.DuplicateRequested);
     }
 
     [AvaloniaFact]
@@ -990,5 +1110,55 @@ public class SvgViewerElementTreeTests
         viewer.ShowElementTree = false;
 
         Assert.False(viewer.ShowElementTree);
+    }
+
+    /// <summary>What clips or masks an element is said beside it, and the filter finds it by that.</summary>
+    [AvaloniaFact]
+    public async Task An_Element_Says_What_Clips_Or_Masks_It()
+    {
+        var (_, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="30" height="30">
+              <defs>
+                <clipPath id="window"><rect width="10" height="10" /></clipPath>
+                <mask id="sweep"><rect width="10" height="10" fill="#ffffff" /></mask>
+              </defs>
+              <rect width="20" height="20" clip-path="url(#window)" />
+              <rect id="r" width="20" height="20" style="mask:url(#sweep)" />
+              <rect width="20" height="20" clip-path="url(#missing)" />
+            </svg>
+            """);
+
+        var rows = Rows(viewer);
+
+        Assert.Contains("rect clip #window", rows);
+        Assert.Contains("rect #r mask #sweep", rows);
+        Assert.Contains("rect", rows);
+
+        viewer.Elements.Filter = "clip #window";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("rect clip #window", Rows(viewer));
+        Assert.DoesNotContain("rect #r mask #sweep", Rows(viewer));
+    }
+
+    /// <summary>A mask named by clip-path, or a clip path named by mask, applies nothing, and says nothing.</summary>
+    [AvaloniaFact]
+    public async Task A_Reference_To_The_Wrong_Kind_Is_Not_Said()
+    {
+        var (_, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="30" height="30">
+              <defs>
+                <clipPath id="window"><rect width="10" height="10" /></clipPath>
+                <mask id="sweep"><rect width="10" height="10" fill="#ffffff" /></mask>
+              </defs>
+              <rect id="a" width="20" height="20" mask="url(#window)" />
+              <rect id="b" width="20" height="20" clip-path="url(#sweep)" />
+            </svg>
+            """);
+
+        var rows = Rows(viewer);
+
+        Assert.Contains("rect #a", rows);
+        Assert.Contains("rect #b", rows);
     }
 }

@@ -1,7 +1,11 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.CompilerServices;
 using Svg;
+using Svg.Expressions;
 using Svg.Skia;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -36,19 +40,367 @@ public static class SvgViewerOutline
     /// </remarks>
     public static SkiaSharp.SKPath? Of(SKSvg svg, SvgElement element)
     {
-        if (svg is null || element is null || !svg.TryGetRetainedSceneNodes(element, out var scene))
+        if (svg is null || element is null)
         {
             return null;
         }
 
         var outline = new SkiaSharp.SKPath();
 
-        foreach (var placed in scene)
+        // A mask's content is indexed only once something has been rebuilt, and then under the mask's
+        // own transform rather than where it lands, so it is ringed from where it was measured instead.
+        if (svg.TryGetRetainedSceneNodes(element, out var scene))
         {
-            Trace(placed, svg.SkiaModel, outline);
+            foreach (var placed in scene.Where(node => !InMask(node)))
+            {
+                Trace(placed, svg.SkiaModel, outline, under: null);
+            }
+        }
+
+        // As well as any copy a <use> drew of it, never instead of one: it stands wherever it masks or
+        // clips, and that is where it was clicked.
+        if (Owner(element) is { })
+        {
+            using var content = new SkiaSharp.SKPathBuilder(outline);
+
+            foreach (var use in UsesOf(svg, element))
+            {
+                content.AddPath(use.Outline);
+            }
+
+            outline.Dispose();
+            outline = content.Detach();
         }
 
         return outline.IsEmpty ? null : outline;
+    }
+
+    /// <summary>The <c>&lt;mask&gt;</c> or <c>&lt;clipPath&gt;</c> <paramref name="element"/> is written inside, if any.</summary>
+    /// <remarks>
+    /// Such content stands wherever an element using it does, once for each, so where it is taken hold
+    /// of is one of those uses rather than any place of its own.
+    /// </remarks>
+    internal static SvgElement? Owner(SvgElement element)
+        => element.Parents.FirstOrDefault(parent => parent is SvgMask or SvgClipPath);
+
+    /// <summary>Where mask or clip content stands, once for each element using it, in the order they are drawn.</summary>
+    /// <remarks>The one list a use is counted in, so a click and the handles it gets agree on which use it was.</remarks>
+    internal static IEnumerable<SvgViewerUnseen> UsesOf(SKSvg svg, SvgElement element)
+        => Unseen(svg).Where(unseen =>
+            unseen.Kind is SvgViewerUnseenKind.Mask or SvgViewerUnseenKind.Clip && ReferenceEquals(unseen.Element, element));
+
+    /// <summary>
+    /// What the handles of <paramref name="element"/> are drawn round and dragged through: its total
+    /// transform, its own included, and its geometry before it. Null where it can have none.
+    /// </summary>
+    /// <param name="use">
+    /// For mask or clip content, which of the elements using it to stand in; the first where there is
+    /// no such use.
+    /// </param>
+    /// <remarks>
+    /// Never from mask content's own scene node, whose transform the compile leaves in the masked
+    /// element's space and which is indexed a rebuild behind.
+    /// </remarks>
+    internal static (ShimSkiaSharp.SKMatrix Total, ShimSkiaSharp.SKRect Geometry)? Placement(SKSvg svg, SvgElement element, int use)
+    {
+        if (Owner(element) is null)
+        {
+            return svg.TryGetRetainedSceneNodes(element, out var nodes) && nodes.Count > 0
+                ? (nodes[0].TotalTransform, nodes[0].GeometryBounds)
+                : null;
+        }
+
+        var uses = UsesOf(svg, element).ToList();
+
+        return uses.Count == 0 ? null : uses[use >= 0 && use < uses.Count ? use : 0].Placed;
+    }
+
+    /// <summary>
+    /// Every element whose move moves <paramref name="element"/> as well: its ancestors and, for mask
+    /// or clip content held through <paramref name="use"/>, the element using it there and that one's.
+    /// </summary>
+    internal static IEnumerable<SvgElement> Under(SKSvg svg, SvgElement element, int use)
+    {
+        var above = element.Parents;
+
+        if (Owner(element) is null)
+        {
+            return above;
+        }
+
+        var uses = UsesOf(svg, element).ToList();
+
+        return uses.Count > 0 && uses[use >= 0 && use < uses.Count ? use : 0].User is { } user
+            ? above.Concat(user.Parents).Append(user)
+            : above;
+    }
+
+    /// <summary>The mask or clip path <paramref name="element"/>'s <paramref name="property"/> applies, if it resolves to one with an id.</summary>
+    /// <remarks>
+    /// By id within the document only. The <see cref="System.Uri"/> lookup would follow a reference out
+    /// to a file or a URL, which a row of the tree has no business opening.
+    ///
+    /// Only the kind the property takes: a mask named by <c>clip-path</c> is applied by nothing, and a
+    /// row saying it was would point at what the renderer ignores.
+    /// </remarks>
+    internal static SvgElement? Applied(SvgElement element, string property)
+        => element.TryGetAttribute(property, out var value) &&
+           value.TrimStart().StartsWith("url(", System.StringComparison.OrdinalIgnoreCase) &&
+           element.OwnerDocument?.GetElementById(value) is { ID: { Length: > 0 } } applied &&
+           (property == "mask" ? applied is SvgMask : applied is SvgClipPath)
+            ? applied
+            : null;
+
+    /// <summary>Whether <paramref name="node"/> is the content of a mask, compiled for one element it masks.</summary>
+    internal static bool InMask(SvgSceneNode node)
+    {
+        for (var ancestor = node.Parent; ancestor is { }; ancestor = ancestor.Parent)
+        {
+            if (ancestor.Kind == SvgSceneNodeKind.Mask)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // UI thread. Read once per SKSvg, since a commit builds a new one; measured once per scene revision,
+    // which a drag and a bound transform both move on, and once per binding, which display does not.
+    private static readonly ConditionalWeakTable<SKSvg, StrongBox<bool>> s_unseeable = new();
+    private static readonly ConditionalWeakTable<SvgSceneDocument, Measured> s_measured = new();
+
+    private sealed record Measured(long Revision, IReadOnlyDictionary<string, ExprValue>? Values, IReadOnlyList<SvgViewerUnseen> Unseen);
+
+    /// <summary>Everything <paramref name="svg"/> has but does not paint, where each stands in its own units.</summary>
+    /// <remarks>
+    /// Boxes first, then the rest in the order they are drawn. A mask or a clip is outlined once per
+    /// element that uses it, since that is where its content stands, and one nothing uses not at all.
+    ///
+    /// Asked of the DOM first, so a drawing with nothing of the kind never compiles a scene for this:
+    /// binding a value throws the scene away, and a board of drawings would otherwise compile each one
+    /// again on the next frame.
+    /// </remarks>
+    internal static IReadOnlyList<SvgViewerUnseen> Unseen(SKSvg svg)
+    {
+        var unseeable = s_unseeable.GetValue(svg, drawing => new StrongBox<bool>(
+            drawing.SourceDocument is { } document && HasUnseen(document))).Value;
+
+        if (!unseeable || svg.SourceDocument is not { } source || !svg.TryEnsureRetainedSceneGraph(out var scene) || scene is null)
+        {
+            return System.Array.Empty<SvgViewerUnseen>();
+        }
+
+        // SetExpressionValues copies what it is given, so a new binding is a new dictionary.
+        if (s_measured.TryGetValue(scene, out var measured) && measured.Revision == scene.Revision &&
+            ReferenceEquals(measured.Values, svg.ExpressionValues))
+        {
+            return measured.Unseen;
+        }
+
+        var found = new List<SvgViewerUnseen>();
+        var boxed = new HashSet<SvgSceneNode>();
+
+        foreach (var box in SvgSceneBoxes.Measure(source, scene))
+        {
+            if (box.Node is { } node)
+            {
+                found.Add(new SvgViewerUnseen(box.Element, SvgViewerUnseenKind.Box, new SkiaSharp.SKPath(), box));
+                boxed.Add(node);
+            }
+        }
+
+        Walk(scene.Root, scene, svg.SkiaModel, Bound(svg), boxed, hiddenAbove: false, found, under: null, maskDepth: -1, user: null);
+
+        s_measured.Remove(scene);
+        s_measured.Add(scene, new Measured(scene.Revision, svg.ExpressionValues, found));
+
+        return found;
+    }
+
+    // Generous on purpose: a false yes costs one compile, a false no hides something.
+    private static bool HasUnseen(SvgDocument document)
+        => SvgSceneBoxes.Marked(document).Any() || document.Descendants().Any(element =>
+            element is SvgMask or SvgClipPath ||
+            element is SvgVisualElement visual &&
+            // A line's Fill is null rather than None, and a url() fill may resolve to nothing.
+            (visual.Display == "none" || !visual.Visible || visual.Fill is not SvgColourServer || visual.Fill == SvgPaintServer.None ||
+             visual.CustomAttributes.ContainsKey(SvgExpressionAttributes.KeyFor("display")) ||
+             visual.CustomAttributes.ContainsKey(SvgExpressionAttributes.KeyFor("visibility"))));
+
+    /// <summary>What the values bound now evaluate with, or null while the placeholders are drawn.</summary>
+    private static ExprEvaluator? Bound(SKSvg svg)
+    {
+        if (svg.ExpressionValues is not { } values)
+        {
+            return null;
+        }
+
+        try
+        {
+            return ExprEvaluator.Create(svg.ExpressionDeclarations, values);
+        }
+        catch (System.Exception failure) when (failure is ExprException or System.ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Whether <paramref name="condition"/>, a display or visibility expression, hides its node under <paramref name="bound"/>.</summary>
+    /// <remarks>
+    /// The node's own flags say only what the placeholder says, shown; the bound drawing drops the
+    /// node's whole subtree where this comes to false. One that fails is drawn, so it is not hidden.
+    /// </remarks>
+    private static bool Hides(ShimSkiaSharp.SymNode? condition, ExprEvaluator? bound)
+    {
+        if (bound is null || condition is not ShimSkiaSharp.SymSource { Text: var text })
+        {
+            return false;
+        }
+
+        try
+        {
+            return !bound.EvaluateTo(text, ExprType.Boolean, "a condition").AsBoolean;
+        }
+        catch (System.Exception failure) when (failure is ExprException or System.ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <param name="under">
+    /// Where the node's parent stands, for mask content, whose own TotalTransform the compile leaves in
+    /// the masked node's space and a bound value refreshes into the picture's; null to read the node's.
+    /// </param>
+    /// <param name="maskDepth">How deep inside mask content, from 0 for a mask's own child; -1 outside it.</param>
+    /// <param name="user">For mask content, the element the mask is drawn for.</param>
+    private static void Walk(
+        SvgSceneNode node,
+        SvgSceneDocument scene,
+        SkiaModel model,
+        ExprEvaluator? bound,
+        HashSet<SvgSceneNode> boxed,
+        bool hiddenAbove,
+        List<SvgViewerUnseen> found,
+        ShimSkiaSharp.SKMatrix? under,
+        int maskDepth,
+        SvgElement? user)
+    {
+        var total = under is { } parent ? parent.PreConcat(node.Transform) : node.TotalTransform;
+
+        // What an ink click there would pick: the <use> for a copy, so its outline does the same.
+        var element = node.HitTestTargetElement ?? node.Element;
+
+        if (maskDepth >= 0)
+        {
+            // Only a mask's own children are drawn and picked, so their outlines do not stack; one nested
+            // deeper is kept for the ring it gets when picked from the tree.
+            if (element is { })
+            {
+                Add(found, element, SvgViewerUnseenKind.Mask, node, model, under, drawn: maskDepth == 0, hidden: false, user);
+            }
+        }
+        else if (node.IsVisible)
+        {
+            // Visible again under a hidden ancestor, so anything hidden below starts an outline of its own.
+            hiddenAbove = false;
+        }
+
+        if (maskDepth < 0 && element is { } && !boxed.Contains(node))
+        {
+            // Not inherited, so the subtree is the node's to outline: every child under it is hidden
+            // too, and outlining each again would only stack lines. A false expression drops the
+            // subtree the same way, visibility's included.
+            if (node.IsDisplayNone || Hides(node.DisplayExpression, bound) || Hides(node.VisibilityExpression, bound))
+            {
+                Add(found, element, SvgViewerUnseenKind.Hidden, node, model, under: null, drawn: true, hidden: false);
+                return;
+            }
+
+            // Inherited, so outlined where it starts, round only what stays hidden under it.
+            if (!node.IsVisible)
+            {
+                if (!hiddenAbove)
+                {
+                    Add(found, element, SvgViewerUnseenKind.Hidden, node, model, under: null, drawn: true, hidden: true);
+                    hiddenAbove = true;
+                }
+            }
+            else if (!node.SupportsFillHitTest && !node.SupportsStrokeHitTest &&
+                     (node.HitTestPath is { } || node.Kind == SvgSceneNodeKind.Text && !node.HasLocalVisuals))
+            {
+                Add(found, element, SvgViewerUnseenKind.Unpainted, node, model, under: null, drawn: true, hidden: false);
+            }
+        }
+
+        // Drawn inside the masked node's own space.
+        if (node.MaskNode is { } mask)
+        {
+            var masked = total.PreConcat(mask.Transform);
+
+            foreach (var content in mask.Children)
+            {
+                Walk(content, scene, model, bound, boxed, hiddenAbove: false, found, masked, maskDepth: 0, user: element);
+            }
+        }
+
+        if (node.ClipPath is { } &&
+            node.ClipResourceKey is { } key &&
+            scene.TryGetResource(key, out var resource) &&
+            resource is { })
+        {
+            var placement = model.ToSKMatrix(total);
+
+            foreach (var (contentElement, clip) in resource.ClipContent(scene, node))
+            {
+                if (model.ToSKPath(clip) is not { IsEmpty: false } content)
+                {
+                    continue;
+                }
+
+                content.Transform(placement);
+
+                // A <use> folds its own x, y and transform into the path, so nothing of its own says where
+                // the path stands, and it gets no handles.
+                (ShimSkiaSharp.SKMatrix, ShimSkiaSharp.SKRect)? placed =
+                    contentElement is not SvgUse && clip.Clips is { Count: 1 } clips && clips[0].Path is { } path
+                        ? (total.PreConcat(clip.Transform ?? ShimSkiaSharp.SKMatrix.Identity).PreConcat(clips[0].Transform ?? ShimSkiaSharp.SKMatrix.Identity), path.Bounds)
+                        : null;
+
+                found.Add(new SvgViewerUnseen(contentElement, SvgViewerUnseenKind.Clip, content, null, Placed: placed, User: element));
+            }
+        }
+
+        foreach (var child in node.Children)
+        {
+            Walk(child, scene, model, bound, boxed, hiddenAbove, found, under is null ? null : total, maskDepth < 0 ? -1 : maskDepth + 1, user);
+        }
+    }
+
+    /// <param name="hidden">Whether to trace only what is hidden, leaving out descendants made visible again.</param>
+    private static void Add(
+        List<SvgViewerUnseen> found,
+        SvgElement element,
+        SvgViewerUnseenKind kind,
+        SvgSceneNode node,
+        SkiaModel model,
+        ShimSkiaSharp.SKMatrix? under,
+        bool drawn,
+        bool hidden,
+        SvgElement? user = null)
+    {
+        var outline = new SkiaSharp.SKPath();
+
+        if (Trace(node, model, outline, under, hidden ? static traced => !traced.IsVisible : null))
+        {
+            var total = under is { } parent ? parent.PreConcat(node.Transform) : node.TotalTransform;
+
+            found.Add(new SvgViewerUnseen(element, kind, outline, null, drawn, (total, node.GeometryBounds), user));
+        }
+        else
+        {
+            outline.Dispose();
+        }
     }
 
     /// <summary>
@@ -66,14 +418,31 @@ public static class SvgViewerOutline
     /// rather than an approximation of one.
     /// </remarks>
     /// <returns>Whether anything was added.</returns>
-    private static bool Trace(SvgSceneNode node, SkiaModel model, SkiaSharp.SKPath outline)
+    /// <param name="under">
+    /// Where the node's parent stands, for content whose <c>TotalTransform</c> cannot be trusted to
+    /// say it; null to read the node's own.
+    /// </param>
+    /// <param name="only">Which nodes to trace, a subtree left out where it says no; null for all of them.</param>
+    private static bool Trace(
+        SvgSceneNode node,
+        SkiaModel model,
+        SkiaSharp.SKPath outline,
+        ShimSkiaSharp.SKMatrix? under,
+        System.Func<SvgSceneNode, bool>? only = null)
     {
+        if (only is { } && !only(node))
+        {
+            return false;
+        }
+
+        var total = under is { } parent ? parent.PreConcat(node.Transform) : node.TotalTransform;
+
         if (node.HitTestPath is { } geometry)
         {
             using var traced = model.ToSKPath(geometry);
             using var drawn = Drawn(node, traced, model);
 
-            var placement = model.ToSKMatrix(node.TotalTransform);
+            var placement = model.ToSKMatrix(total);
 
             outline.AddPath(drawn ?? traced, ref placement);
 
@@ -84,7 +453,7 @@ public static class SvgViewerOutline
 
         foreach (var child in node.Children)
         {
-            tracedAny |= Trace(child, model, outline);
+            tracedAny |= Trace(child, model, outline, under is null ? null : total, only);
         }
 
         if (tracedAny)
@@ -92,7 +461,9 @@ public static class SvgViewerOutline
             return true;
         }
 
-        if (node.TransformedBounds is { Width: > 0f, Height: > 0f } covered)
+        var covered = under is null ? node.TransformedBounds : total.MapRect(node.GeometryBounds);
+
+        if (covered is { Width: > 0f, Height: > 0f })
         {
             outline.AddRect(model.ToSKRect(covered));
 
@@ -165,3 +536,39 @@ public static class SvgViewerOutline
         }
     }
 }
+
+/// <summary>Why something is outlined although it paints nothing.</summary>
+internal enum SvgViewerUnseenKind
+{
+    /// <summary>An <c>e:bounds</c> box the drawing reserves for the code that draws it.</summary>
+    Box,
+
+    /// <summary>The content of a <c>&lt;mask&gt;</c>, where it masks one element.</summary>
+    Mask,
+
+    /// <summary>The content of a <c>&lt;clipPath&gt;</c>, where it clips one element.</summary>
+    Clip,
+
+    /// <summary>A shape with neither a fill nor a stroke.</summary>
+    Unpainted,
+
+    /// <summary><c>display="none"</c>, or where <c>visibility</c> turns hidden.</summary>
+    Hidden
+}
+
+/// <param name="Outline">Where it stands, in the drawing's own units; empty for a box, whose place is read live.</param>
+/// <param name="Box">The box, for <see cref="SvgViewerUnseenKind.Box"/>.</param>
+/// <param name="Drawn">Whether it is drawn and picked, rather than kept only to ring it when picked elsewhere.</param>
+/// <param name="Placed">
+/// Its total transform, its own included, and its geometry before it, for handles; null where it can
+/// have none.
+/// </param>
+/// <param name="User">For mask or clip content, the element it masks or clips there.</param>
+internal sealed record SvgViewerUnseen(
+    SvgElement Element,
+    SvgViewerUnseenKind Kind,
+    SkiaSharp.SKPath Outline,
+    SvgSceneBox? Box,
+    bool Drawn = true,
+    (ShimSkiaSharp.SKMatrix Total, ShimSkiaSharp.SKRect Geometry)? Placed = null,
+    SvgElement? User = null);

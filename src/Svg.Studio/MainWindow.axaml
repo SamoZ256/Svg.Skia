@@ -235,7 +235,9 @@
             <NativeMenuItem Header="Undo" Click="OnUndo" />
             <NativeMenuItem Header="Redo" Click="OnRedo" />
             <NativeMenuItemSeparator />
-            <!-- The editor's own find box, which nothing on screen said was there. -->
+            <NativeMenuItem Header="Duplicate" Click="OnDuplicate" />
+            <!-- No gesture: a ⌫ key equivalent would take Backspace from every box in the window. -->
+            <NativeMenuItem Header="Delete" Click="OnDelete" />
             <NativeMenuItemSeparator />
             <NativeMenuItem Header="Resize…" Click="OnResize" />
           </NativeMenu>

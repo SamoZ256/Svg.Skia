@@ -273,8 +273,9 @@ for every shape named `Embed<X>`.
 A box paints nothing, so the canvas draws it for you: a dashed cyan line with the constant written
 inside, such as `LevelRect 2, 6, 28, 24`. The numbers are the ones the class will get, as left,
 top, right, bottom. A box that a variable moves reads `LevelRect (driven)` instead, because the
-class has only the defaults. **Boxes** on the toolbar, on a drawing's tab and on a group's board,
-shows or hides them.
+class has only the defaults. **Invisible** on the toolbar, on a drawing's tab and on a group's
+board, shows or hides them, along with the rest of what a drawing has but does not paint (see
+[invisible elements](#invisible-elements)).
 
 Click a box's dashed line to pick it. Ink inside a box is still picked by clicking it, and empty
 room inside the box is still the page. Once picked, a box moves and resizes like any shape, but it
@@ -285,6 +286,32 @@ any shape, and the drawing gets the `e:` prefix declared if it had none; **×** 
 class could not declare is refused as it is typed: one that is not an identifier, one the class
 already uses, or one another box of the drawing has. In the element tree a box reads
 `▭ LevelRect` beside its id, and the filter finds it by that name.
+
+## Invisible elements
+
+**Invisible** outlines everything a drawing has but does not paint, so it can be seen and picked:
+
+| Outline | What it is |
+|---|---|
+| Dashed cyan, with a name | A box for the code that draws it, as above. Red when its name is refused. |
+| Dashed violet | The content of a `<mask>`, drawn where it masks each element that uses it, labelled with the mask's id. |
+| Dashed green | The content of a `<clipPath>`, drawn where it clips each element that uses it, labelled with the clip path's id. |
+| Dotted pale cyan | A shape with neither a fill nor a stroke. |
+| Long-dashed pink | A hidden element: `display="none"`, where `visibility="hidden"` starts, or a `display` or `visibility` expression that is false for the values bound now. A hidden group is outlined round its children. |
+
+A mask or clip used by several elements is outlined once for each of them, and one nothing uses is
+not outlined at all. Click an outline's line to pick what it outlines, as with a box. Ink is picked
+first, except on the line of mask or clip content, which usually runs across the very element it
+masks or clips. The room inside an outline is still the page.
+
+Picked mask or clip content has handles where it was clicked, and a drag is mapped through the element
+it was clicked on. Picked in the element tree, it is held through the first element using it, or the
+one it was last clicked on. Moving or scaling it changes it for every element that uses it, since they
+share it. A `<use>` inside a clip path is ringed but has no handles: it folds its own place into the
+path, so nothing of its own says where that is.
+
+An element that uses a clip path or a mask says so in the element tree, beside its id: `clip #window`
+or `mask #sweep`. The filter finds it by that.
 
 ## Connecting Claude Code
 

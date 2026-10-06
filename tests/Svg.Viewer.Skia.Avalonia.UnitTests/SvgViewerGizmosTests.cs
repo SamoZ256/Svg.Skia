@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Svg.Expressions;
 using Svg.Skia;
 using Xunit;
 using Shim = ShimSkiaSharp;
@@ -352,5 +353,113 @@ public class SvgViewerGizmosTests
 
         Assert.Equal("x=40 y=30", Wrote(edits, "one"));
         Assert.Equal("x=80 y=70", Wrote(edits, "two"));
+    }
+
+    /// <summary>A member that is mask content is held through the use it names.</summary>
+    [Fact]
+    public void A_Member_That_Is_Mask_Content_Is_Held_Through_Its_Use()
+    {
+        var svg = Drawn("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <mask id="sweep" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+                  <rect id="spot" x="0" y="0" width="20" height="20" fill="#ffffff" />
+                </mask>
+              </defs>
+              <rect width="30" height="30" fill="#3366cc" mask="url(#sweep)" />
+              <g transform="translate(50 50) scale(2)"><rect width="20" height="20" fill="#3366cc" mask="url(#sweep)" /></g>
+            </svg>
+            """);
+
+        var gizmos = new SvgViewerGizmos();
+        gizmos.Track(svg, default, new[] { new SvgViewerGizmoMember(svg.SourceDocument!.GetElementById("spot"), "spot", 1) });
+
+        var box = gizmos.Box(1f);
+        Assert.NotNull(box);
+        Assert.Equal(50f, box!.Value.TL.X, 1);
+
+        Assert.Contains("x=5", Wrote(Drag(gizmos, (70f, 70f), (80f, 70f)), "spot"), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Clip content in bounding-box units on a box that is not square is turned on screen: written as a
+    /// rotate() in those units it would come out sheared.
+    /// </summary>
+    [Fact]
+    public void Clip_Content_In_Uneven_Bounding_Box_Units_Turns_Without_Shearing()
+    {
+        using var svg = Drawn("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
+              <defs>
+                <clipPath id="k" clipPathUnits="objectBoundingBox">
+                  <rect id="c" x="0.4" y="0.2" width="0.2" height="0.6" />
+                </clipPath>
+              </defs>
+              <rect x="50" y="125" width="200" height="50" fill="#3366cc" clip-path="url(#k)" />
+            </svg>
+            """);
+
+        var gizmos = Tracking(svg, "c");
+
+        // The 40 by 30 box round the content, its stalk twenty above the top middle, turned a quarter.
+        Drag(gizmos, (150f, 115f), (185f, 150f));
+
+        var box = Tracking(svg, "c").Box(1f)!.Value;
+        var across = box.TR - box.TL;
+        var down = box.BL - box.TL;
+
+        Assert.Equal(0f, across.X * down.X + across.Y * down.Y, 1);
+        Assert.Equal(40f, across.Length, 1);
+        Assert.Equal(30f, down.Length, 1);
+        Assert.Equal(0f, across.X, 1);
+    }
+
+    /// <summary>Mask content held alongside the element it masks moves with that element, not twice.</summary>
+    [Fact]
+    public void Mask_Content_Held_With_What_It_Masks_Moves_Once()
+    {
+        using var svg = Drawn("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100" width="200" height="100">
+              <defs>
+                <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="100">
+                  <rect id="c" x="20" y="20" width="40" height="40" fill="#ffffff" />
+                </mask>
+              </defs>
+              <g id="g" mask="url(#m)"><rect width="100" height="100" /></g>
+            </svg>
+            """);
+
+        var edits = Drag(Tracking(svg, "c", "g"), (40f, 40f), (60f, 40f));
+
+        Assert.Equal("transform=translate(20, 0)", Wrote(edits, "g"));
+        Assert.Equal("nothing", Wrote(edits, "c"));
+    }
+
+    /// <summary>A drag under a bound value keeps the handles where the bound value put the content.</summary>
+    [Fact]
+    public void Mask_Content_Under_A_Bound_Value_Keeps_Its_Handles_There_While_Dragged()
+    {
+        using var svg = Drawn("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 200 100" width="200" height="100">
+              <defs>
+                <e:code><e:param name="dx" type="number" default="0" /></e:code>
+                <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="100">
+                  <rect id="c" x="20" y="20" width="40" height="40" fill="#ffffff" />
+                </mask>
+              </defs>
+              <rect width="100" height="100" mask="url(#m)" transform="translate({{ dx }}, 0)" />
+            </svg>
+            """);
+
+        svg.SetExpressionValues(new Dictionary<string, ExprValue>(StringComparer.Ordinal) { ["dx"] = ExprValue.Number(50f) });
+
+        var gizmos = Tracking(svg, "c");
+
+        Assert.Equal(70f, gizmos.Box(1f)!.Value.TL.X, 1);
+
+        Assert.Null(gizmos.Begin(new Shim.SKPoint(90f, 40f), 1f));
+        gizmos.Drag(new Shim.SKPoint(100f, 40f));
+
+        Assert.Equal(80f, gizmos.Box(1f)!.Value.TL.X, 1);
     }
 }

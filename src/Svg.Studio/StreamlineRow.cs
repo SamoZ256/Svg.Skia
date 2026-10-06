@@ -305,6 +305,9 @@ public sealed class StreamlineImport
     /// <summary>The drawing an update replaces, or null where the icons are new.</summary>
     public ProjectDrawing? Updating { get; }
 
+    /// <summary>Whether the icons were dropped, which is the one way in that can be told not to ask.</summary>
+    public bool Dropped { get; init; }
+
     internal ProjectWorkspace Workspace { get; }
 
     /// <summary>Suggests again from the project's templates as they are now, a row's choice following <paramref name="renamed"/>.</summary>

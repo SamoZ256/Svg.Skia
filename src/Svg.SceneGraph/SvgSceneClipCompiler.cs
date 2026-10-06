@@ -75,15 +75,7 @@ internal static class SvgSceneClipCompiler
         var clipRule = GetSvgClipRule(svgClipPath) ?? svgClipPathClipRule;
         PopulateClipChildren(svgClipPath.Children, targetBounds, assetLoader, uris, clipPath, clipRule);
 
-        var transform = SKMatrix.CreateIdentity();
-        if (svgClipPath.ClipPathUnits == SvgCoordinateUnits.ObjectBoundingBox)
-        {
-            transform = transform.PostConcat(SKMatrix.CreateScale(targetBounds.Width, targetBounds.Height));
-            transform = transform.PostConcat(SKMatrix.CreateTranslation(targetBounds.Left, targetBounds.Top));
-        }
-
-        transform = transform.PostConcat(TransformsService.ToMatrix(svgClipPath.Transforms, svgClipPath, targetBounds, targetBounds));
-        clipPath.Transform = transform;
+        clipPath.Transform = ClipTransform(svgClipPath, targetBounds);
 
         if (clipPath.Clips is { Count: 0 } && !HasClipGeometry(clipPath.Clip))
         {
@@ -124,15 +116,57 @@ internal static class SvgSceneClipCompiler
 
         PopulateClipPath(referencedClipPath, targetBounds, assetLoader, uris, clipPath.Clip, svgClipPathClipRule: null);
 
+        clipPath.Clip.Transform = ClipTransform(referencedClipPath, targetBounds);
+    }
+
+    private static SKMatrix ClipTransform(SvgClipPath svgClipPath, SKRect targetBounds)
+    {
         var transform = SKMatrix.CreateIdentity();
-        if (referencedClipPath.ClipPathUnits == SvgCoordinateUnits.ObjectBoundingBox)
+        if (svgClipPath.ClipPathUnits == SvgCoordinateUnits.ObjectBoundingBox)
         {
             transform = transform.PostConcat(SKMatrix.CreateScale(targetBounds.Width, targetBounds.Height));
             transform = transform.PostConcat(SKMatrix.CreateTranslation(targetBounds.Left, targetBounds.Top));
         }
 
-        transform = transform.PostConcat(TransformsService.ToMatrix(referencedClipPath.Transforms, referencedClipPath, targetBounds, targetBounds));
-        clipPath.Clip.Transform = transform;
+        return transform.PostConcat(TransformsService.ToMatrix(svgClipPath.Transforms, svgClipPath, targetBounds, targetBounds));
+    }
+
+    /// <summary>
+    /// Each child of <paramref name="svgClipPath"/> as a clip of its own, for showing where the child
+    /// is rather than for clipping by it.
+    /// </summary>
+    /// <remarks>
+    /// A <c>clip-path</c> on the <c>&lt;clipPath&gt;</c> element itself is left out: it narrows what
+    /// the whole clips, not where any one child stands.
+    /// </remarks>
+    internal static IEnumerable<(SvgVisualElement Element, ClipPath Clip)> CompileClipChildren(
+        SvgClipPath svgClipPath,
+        SKRect targetBounds,
+        ISvgAssetLoader assetLoader)
+    {
+        if (!svgClipPath.PassesConditionalProcessing(DrawAttributes.None))
+        {
+            yield break;
+        }
+
+        var clipRule = GetSvgClipRule(svgClipPath);
+        var transform = ClipTransform(svgClipPath, targetBounds);
+
+        foreach (var child in svgClipPath.Children)
+        {
+            if (!Clips(child, out var visualChild))
+            {
+                continue;
+            }
+
+            var clip = new ClipPath { Transform = transform };
+            PopulateVisualClip(visualChild, targetBounds, assetLoader, new HashSet<Uri>(), clip, clipRule);
+
+            if (!clip.IsEmpty)
+            {
+                yield return (visualChild, clip);
+            }
+        }
     }
 
     private static Uri? GetReferenceUri(SvgElement element, string name)
@@ -857,15 +891,22 @@ internal static class SvgSceneClipCompiler
     {
         foreach (var child in children)
         {
-            if (child is not SvgVisualElement visualChild ||
-                !visualChild.PassesConditionalProcessing(DrawAttributes.None) ||
-                !MaskingService.CanDraw(visualChild, DrawAttributes.None))
+            if (!Clips(child, out var visualChild))
             {
                 continue;
             }
 
             PopulateVisualClip(visualChild, targetBounds, assetLoader, new HashSet<Uri>(uris), clipPath, svgClipPathClipRule);
         }
+    }
+
+    private static bool Clips(SvgElement child, out SvgVisualElement visualChild)
+    {
+        visualChild = (child as SvgVisualElement)!;
+
+        return child is SvgVisualElement visual &&
+               visual.PassesConditionalProcessing(DrawAttributes.None) &&
+               MaskingService.CanDraw(visual, DrawAttributes.None);
     }
 
     private static void PopulateVisualClip(

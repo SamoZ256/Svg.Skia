@@ -52,7 +52,7 @@ public static class StudioSettings
 
     private const string DrawingCaptionsKey = "drawingCaptions";
 
-    private const string ShowBoxesKey = "showBoxes";
+    private const string ShowInvisibleKey = "showInvisible";
 
     private const string RelaxedTextKey = "relaxedText";
 
@@ -75,6 +75,8 @@ public static class StudioSettings
     private const string McpPortKey = "mcpPort";
 
     private const string ConvertAsksKey = "convertAsks";
+
+    private const string DropAsksKey = "dropAsks";
 
     private const string ConvertIntegersKey = "convertIntegers";
 
@@ -198,12 +200,12 @@ public static class StudioSettings
         set => Write(DrawingCaptionsKey, value ? "on" : "off");
     }
 
-    /// <summary>Whether the boxes a drawing reserves for its host (<c>e:bounds</c>) are drawn over it.</summary>
-    /// <remarks>On unless the file says otherwise: a box paints nothing, so hidden it is nowhere.</remarks>
-    public static bool ShowBoxes
+    /// <summary>Whether what a drawing has but does not paint is outlined over it.</summary>
+    /// <remarks>On unless the file says otherwise: none of it paints, so hidden it is nowhere.</remarks>
+    public static bool ShowInvisible
     {
-        get => !string.Equals(Read(ShowBoxesKey), "off", StringComparison.Ordinal);
-        set => Write(ShowBoxesKey, value ? "on" : "off");
+        get => !string.Equals(Read(ShowInvisibleKey), "off", StringComparison.Ordinal);
+        set => Write(ShowInvisibleKey, value ? "on" : "off");
     }
 
     /// <summary>Whether opening a PaintCode document asks how to convert it, or converts it as last asked.</summary>
@@ -212,6 +214,14 @@ public static class StudioSettings
     {
         get => !string.Equals(Read(ConvertAsksKey), "off", StringComparison.Ordinal);
         set => Write(ConvertAsksKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether Streamline icons dropped into a project ask which template to use, or import a sure match straight away.</summary>
+    /// <remarks>On unless somebody ticked the box that says not to ask again; an unsure match asks either way.</remarks>
+    public static bool DropAsks
+    {
+        get => !string.Equals(Read(DropAsksKey), "off", StringComparison.Ordinal);
+        set => Write(DropAsksKey, value ? "on" : "off");
     }
 
     /// <summary>Whether a PaintCode conversion writes whole numbers as integers.</summary>

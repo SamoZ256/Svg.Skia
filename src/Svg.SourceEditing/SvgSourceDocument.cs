@@ -542,6 +542,36 @@ public sealed class SvgSourceDocument
         return slots.ToArray();
     }
 
+    /// <summary>A copy of an element that writes back as the original's bytes did.</summary>
+    /// <remarks>
+    /// Copying a tree copies none of its annotations, and without them the copy is written afresh:
+    /// a tag spread over four lines folds onto one, and an entity in a run of text comes back as the
+    /// character it stood for. Each node of the copy is handed the original's, which are read-only,
+    /// and a value the copy then changes is written over the bytes as any edit is.
+    /// </remarks>
+    internal static XElement Copy(XElement element)
+    {
+        var copy = new XElement(element);
+
+        using var from = element.DescendantNodesAndSelf().GetEnumerator();
+        using var to = copy.DescendantNodesAndSelf().GetEnumerator();
+
+        while (from.MoveNext() && to.MoveNext())
+        {
+            if (from.Current.Annotation<Tag>() is { } tag)
+            {
+                to.Current.AddAnnotation(tag);
+            }
+
+            if (from.Current.Annotation<Run>() is { } run)
+            {
+                to.Current.AddAnnotation(run);
+            }
+        }
+
+        return copy;
+    }
+
     private static void Write(StringBuilder builder, XElement element)
     {
         var tag = element.Annotation<Tag>();

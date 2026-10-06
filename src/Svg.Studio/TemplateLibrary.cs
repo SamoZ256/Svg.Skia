@@ -503,7 +503,7 @@ public sealed class TemplateLibrary
             .Select(value => new Use(SvgExpressionAttributes.TryUnwrap(value.Text, out var expression) ? expression : null, value, null))
             .ToList();
 
-        return Written(name, uses, "coverage", like: null, family: null);
+        return Written(name, uses, "coverage", like: null, family: null, strokes: false);
     }
 
     /// <summary>
@@ -522,7 +522,7 @@ public sealed class TemplateLibrary
                 : new Use(null, value, null))
             .ToList();
 
-        return Written(name, uses, "lightness", mapping, family);
+        return Written(name, uses, "lightness", mapping, family, strokes: true);
     }
 
     /// <summary>One colour of the drawing a template is written from, and what it becomes there, or null for staying as it is.</summary>
@@ -537,7 +537,12 @@ public sealed class TemplateLibrary
     /// the whole drawing. The last expression takes the rest, unless a colour is to stay as it is,
     /// which a rest slot would take as well.
     /// </remarks>
-    private static string Written(string name, IReadOnlyList<Use> uses, string by, SvgRecipe? like, string? family)
+    /// <param name="strokes">
+    /// Whether to match how many colours are stroked. Not for an extract: its source was filled or
+    /// stroked by chance, and <c>strokes="0"</c> turned away every line icon. Its colour count stays
+    /// exact, since <c>1+</c> on a lone rest slot would flatten every two-tone icon, and be sure of it.
+    /// </param>
+    private static string Written(string name, IReadOnlyList<Use> uses, string by, SvgRecipe? like, string? family, bool strokes)
     {
         if (!uses.Any(use => use.Expression is { }))
         {
@@ -550,7 +555,7 @@ public sealed class TemplateLibrary
         recipe.Add(new XElement(
             ns + "match",
             new XAttribute("colors", uses.Count),
-            new XAttribute("strokes", uses.Count(use => use.Value.Strokes > 0)),
+            strokes ? new XAttribute("strokes", uses.Count(use => use.Value.Strokes > 0)) : null,
             family is { } ? new XAttribute("family", family) : null));
 
         if (like?.Declarations is { Count: > 0 } declarations)

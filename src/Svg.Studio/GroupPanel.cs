@@ -213,7 +213,7 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>The board's own captions toggle, which follows the setting the same way.</summary>
     private ToggleButton? _captions;
-    private ToggleButton? _boxes;
+    private ToggleButton? _invisible;
 
     /// <summary>Whether the board in front of us was laid out with names on its drawings.</summary>
     private bool _named = StudioSettings.DrawingCaptions;
@@ -241,6 +241,24 @@ public sealed class GroupPanel : UserControl
     /// rows can show the whole of it.
     /// </remarks>
     private readonly List<string> _picked = new();
+
+    /// <summary>The shape being drawn into the inspected drawing, where a tool is armed.</summary>
+    private readonly SvgViewerDraw _draw = new();
+
+    /// <summary>Where the shape in the making goes: the row it is written beside, and which side.</summary>
+    private (string Target, SvgElementDrop Where) _into;
+
+    /// <summary>
+    /// Whether the edit gesture in flight is the tool's rather than the gizmo's — settled when it
+    /// begins, as the viewer settles it, so a letter typed mid-drag cannot switch the release.
+    /// </summary>
+    private bool _drawing;
+
+    /// <summary>The points of the picked shape, while the points tool is armed.</summary>
+    private readonly SvgViewerPoints _points = new();
+
+    /// <inheritdoc cref="_drawing"/>
+    private bool _reshaping;
 
     /// <summary>Whether this is the tab being looked at.</summary>
     /// <remarks>
@@ -273,6 +291,7 @@ public sealed class GroupPanel : UserControl
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         Node = node ?? throw new ArgumentNullException(nameof(node));
+        _gizmo.Picks = (svg, at) => _canvas.ElementAt(svg, new SkiaSharp.SKPoint(at.X, at.Y), out _);
 
         _element = new SvgViewerElementPanel(
             () => _elementOf?.Target.Text ?? string.Empty,
@@ -300,24 +319,83 @@ public sealed class GroupPanel : UserControl
         Content = node is ProjectGroup ? Built() : Alone();
 
         // Harmless on a drawing's settings pane, which has no canvas and so no placements to fall on.
-        _canvas.Picked += (_, at) => Pick(at);
+        _canvas.Picked += (_, at) =>
+        {
+            if (!DrawClick(at) && !PointClick(at))
+            {
+                Pick(at);
+            }
+        };
         _canvas.Moved += (_, move) => Placed(move);
 
         _canvas.Grip = Held;
 
-        // Handles, then the line a drawing is carried by, then the gesture's own body — narrowest
-        // first, the order the canvas resolves its own claims in. A shape that fills its page puts
-        // all three over the same pixels, and without the middle rung the board could not be
-        // rearranged at all while anything was selected.
+        // A tool owns the left button wherever it lands. Otherwise handles, then the line a drawing
+        // is carried by, then the gesture's own body — narrowest first, the order the canvas
+        // resolves its own claims in. A shape that fills its page puts all three over the same
+        // pixels, and without the middle rung the board could not be rearranged at all while
+        // anything was selected.
+        //
+        // The points tool has only its points, as on a drawing's own tab.
         _canvas.IsEditTarget = at =>
-            Arranged(at) is { } arranged
-            && (_gizmo.Hits(arranged, (float)_canvas.Scale, handlesOnly: true)
-                || _paging.Hits(new SKPoint(arranged.X, arranged.Y), (float)_canvas.Scale)
-                || (!Grabbed(at) && _gizmo.Hits(arranged, (float)_canvas.Scale)));
+            _draw.Shape is { }
+            || Arranged(at) is { } arranged
+            && (_draw.Reshaping
+                ? _points.Hits(arranged, (float)_canvas.Scale)
+                : _gizmo.Hits(arranged, (float)_canvas.Scale, handlesOnly: true)
+                  || _paging.Hits(new SKPoint(arranged.X, arranged.Y), (float)_canvas.Scale)
+                  || (!Grabbed(at) && _gizmo.Hits(arranged, (float)_canvas.Scale)));
 
-        _canvas.Marqueed += (_, swept) => SelectEnclosed(swept);
+        _points.Driven = (key, name) => Writing(new[] { key }) is { } writing && Driven(writing, key, name) is { };
 
-        _canvas.Marqueeing += (_, swept) => ShowEnclosed(swept);
+        // The handles go away while a tool is armed, since a press on them would draw rather than
+        // drag, and come back on whatever is picked when it is put down.
+        _draw.Changed += (_, _) =>
+        {
+            _canvas.Cursor = _draw.Cursor;
+
+            // The keys that finish a shape or change the tool are the canvas's, and pressing a
+            // button in the strip would otherwise leave the focus on the button.
+            if (_draw.Shape is { } || _draw.Reshaping)
+            {
+                _canvas.Focus();
+            }
+
+            if (!_draw.Reshaping)
+            {
+                _points.Deselect();
+            }
+
+            ShowGizmo();
+            Retrace();
+        };
+
+        // While a shape's points are showing, a sweep is for its points rather than for elements.
+        _canvas.Marqueed += (_, swept) =>
+        {
+            if (_draw.Reshaping && _points.IsShowing)
+            {
+                _points.Sweep(swept, _canvas.Modifiers.HasFlag(KeyModifiers.Shift), final: true);
+                ShowGizmo();
+            }
+            else
+            {
+                SelectEnclosed(swept);
+            }
+        };
+
+        _canvas.Marqueeing += (_, swept) =>
+        {
+            if (_draw.Reshaping && _points.IsShowing)
+            {
+                _points.Sweep(swept, _canvas.Modifiers.HasFlag(KeyModifiers.Shift), final: false);
+                ShowGizmo();
+            }
+            else
+            {
+                ShowEnclosed(swept);
+            }
+        };
 
         // A left drag on a drawing's edges carries the drawing, because the grip answers first;
         // anywhere else it sweeps up a selection. What it never does is move the view, which has
@@ -326,8 +404,24 @@ public sealed class GroupPanel : UserControl
 
         _canvas.EditBegun += (_, at) => BeginEdit(at);
         _canvas.EditMoved += (_, at) => DragEdit(at);
-        _canvas.EditEnded += (_, _) => EndEdit();
+        _canvas.EditEnded += (_, at) => EndEdit(at);
         _canvas.EditCancelled += (_, _) => CancelEdit();
+        _canvas.KeyDown += OnCanvasKeyDown;
+
+        // The band from the last point to the pointer, between presses: the canvas leaves an idle
+        // move alone, so it reaches here.
+        _canvas.PointerMoved += (_, e) =>
+        {
+            if (_draw.IsBusy && _draw.Continues && !_canvas.IsEditing && Pulled(e.GetPosition(_canvas)) is { } point)
+            {
+                _draw.Hover(point);
+                ShowDraw();
+            }
+        };
+
+        // The rows are the picked elements, so what the tree is asked for is what the board holds.
+        _tree.DeleteRequested = _ => Delete();
+        _tree.DuplicateRequested = _ => Duplicate();
 
         _canvas.ViewChanged += (_, _) =>
         {
@@ -431,7 +525,15 @@ public sealed class GroupPanel : UserControl
         centre.Children.Add(_notice);
         DockPanel.SetDock(_notice, Dock.Top);
 
-        centre.Children.Add(_canvas);
+        // The drawing tools stand beside the canvas, as the viewer has them beside its drawing.
+        var drawing = new DockPanel();
+        var strip = SvgViewerDraw.Palette(_draw);
+
+        DockPanel.SetDock(strip, Dock.Left);
+        drawing.Children.Add(strip);
+        drawing.Children.Add(_canvas);
+
+        centre.Children.Add(drawing);
 
         var parameters = new DockPanel();
 
@@ -749,17 +851,18 @@ public sealed class GroupPanel : UserControl
         _canvas.Grid = grid;
         _gizmo.Grid = grid;
         _paging.Grid = grid;
+        _points.Grid = grid;
 
         if (_snapping is { })
         {
             _snapping.IsChecked = StudioSettings.SnapToGrid;
         }
 
-        _canvas.ShowsBoxes = StudioSettings.ShowBoxes;
+        _canvas.ShowsInvisible = StudioSettings.ShowInvisible;
 
-        if (_boxes is { })
+        if (_invisible is { })
         {
-            _boxes.IsChecked = StudioSettings.ShowBoxes;
+            _invisible.IsChecked = StudioSettings.ShowInvisible;
         }
 
         if (_captions is { })
@@ -1528,6 +1631,9 @@ public sealed class GroupPanel : UserControl
     {
         _stale = false;
 
+        // A shape half drawn is in the coordinates of a drawing about to be replaced.
+        _draw.Cancel();
+
         // What was being looked at, since Forget is about to let go of it. Every rebuild of this tab
         // used to empty the Parameters and Element tabs — a settings edit did it, and a drawing
         // moved on the board would do it on every drop.
@@ -1537,6 +1643,9 @@ public sealed class GroupPanel : UserControl
         // The addresses alone: which drawing they are in is `was`, which this already holds.
         var picked = _picked.ToList();
         var paged = _page;
+
+        // And the points chosen in it, which the tree selecting the row again does not know of.
+        var points = _points.Chosen;
 
         Forget();
 
@@ -1618,6 +1727,9 @@ public sealed class GroupPanel : UserControl
 
             Ring();
             TrackGizmo();
+
+            _points.Chosen = points;
+            ShowGizmo();
         }
         else if (chosen is { } group
                  && _framed.FirstOrDefault(framed => ReferenceEquals(framed.Group, group)) is { Group: { } } still)
@@ -1971,8 +2083,9 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void Pick(Point at)
     {
-        // A click on the selection's handles or in its box, with nothing else drawn there, keeps it.
-        if (Arranged(at) is { } arranged && _gizmo.Keeps(arranged, (float)_canvas.Scale))
+        // A click on the selection's handles or in its box, with nothing else drawn there, keeps it —
+        // unless it is the same mask or clip content where another element uses it.
+        if (Arranged(at) is { } arranged && _gizmo.Keeps(arranged, (float)_canvas.Scale) && OnSameUse(at))
         {
             return;
         }
@@ -2006,8 +2119,7 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        // A reserved box paints nothing, so it is found by its dashed edge once the ink has had its turn.
-        if ((svg.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(point.X, point.Y)) ?? _canvas.BoxAt(svg, point)) is not { } element)
+        if (_canvas.ElementAt(svg, point, out var use) is not { } element)
         {
             // On the drawing but on none of its ink, which is the page — a thing in its own right,
             // the way a group's frame is. This used to be a click that did nothing, kept that way so
@@ -2032,6 +2144,7 @@ public sealed class GroupPanel : UserControl
         _page = false;
         _picked.Clear();
         _picked.Add(SvgElementAddress.Create(element).Key);
+        _used = (_shown[index].Built.Drawing, _picked[0], use);
 
         _tree.TrySelect(_picked[0]);
 
@@ -2270,12 +2383,13 @@ public sealed class GroupPanel : UserControl
     {
         _paging.Track(_page && _inspecting is { } paged ? Area(paged.Placement) : null);
 
-        _gizmo.Track(
-            _inspecting?.Built.Svg,
-            _inspecting is { } inspecting
-                ? new ShimSkiaSharp.SKPoint(inspecting.Placement.At.X, inspecting.Placement.At.Y)
-                : default,
-            Members());
+        var at = _inspecting is { } inspecting
+            ? new ShimSkiaSharp.SKPoint(inspecting.Placement.At.X, inspecting.Placement.At.Y)
+            : default;
+        var members = Members();
+
+        _gizmo.Track(_inspecting?.Built.Svg, at, members);
+        _points.Track(_inspecting?.Built.Svg, at, members.Count == 1 ? members[0] : null);
 
         ShowGizmo();
     }
@@ -2292,8 +2406,36 @@ public sealed class GroupPanel : UserControl
     private IReadOnlyList<SvgViewerGizmoMember> Members()
         => Picks()
             .Where(pick => pick.Element is { })
-            .Select(pick => new SvgViewerGizmoMember(pick.Element!, pick.AddressKey))
+            .Select(pick => new SvgViewerGizmoMember(pick.Element!, pick.AddressKey, UseOf(pick.AddressKey)))
             .ToList();
+
+    /// <summary>Which element using a piece of mask or clip content a click last took hold of it through.</summary>
+    /// <remarks>
+    /// By address, which outlives the rebuild a commit makes, so the handles come back on the same use —
+    /// and in which drawing, since a group's drawings share addresses but not what uses a mask in each.
+    /// Anything never clicked that way is taken hold of through the first.
+    /// </remarks>
+    private (ProjectDrawing? Drawing, string? Key, int Use) _used;
+
+    private int UseOf(string key)
+        => key == _used.Key && ReferenceEquals(_used.Drawing, _inspecting?.Built.Drawing) ? _used.Use : 0;
+
+    /// <summary>Whether a click at <paramref name="at"/> would take hold of what it lands on through the use already held.</summary>
+    private bool OnSameUse(Point at)
+    {
+        if (!_canvas.TryGetPlacementAt(at, out var placement, out var point) || placement is null)
+        {
+            return true;
+        }
+
+        var index = _shown.FindIndex(shown => ReferenceEquals(shown.Placement, placement));
+
+        // Anything but the held content answering for the point means a handle was hit, which keeps it.
+        return index < 0 ||
+               _shown[index].Built.Svg is not { } svg ||
+               _canvas.ElementAt(svg, point, out var use) is not { } element ||
+               SvgElementAddress.Create(element).Key is var key && (_picked.Count == 0 || key != _picked[0] || UseOf(key) == use);
+    }
 
     /// <summary>
     /// Hands the canvas the box as it now stands.
@@ -2310,6 +2452,15 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void ShowGizmo()
     {
+        _canvas.Points = _draw.Reshaping ? _points.Marks() : null;
+
+        if (_draw.Shape is { } || _draw.Reshaping)
+        {
+            _canvas.Gizmo = null;
+
+            return;
+        }
+
         if (_page)
         {
             _canvas.GizmoTurns = false;
@@ -2330,12 +2481,12 @@ public sealed class GroupPanel : UserControl
     /// drawing as the project built it, and the file it came from spells the row differently. Null
     /// where the row is the recipe's own invention and the file has nowhere to put it.
     /// </remarks>
-    private (ISvgViewerDeclarationTarget Target, IReadOnlyDictionary<string, string> Addresses)? Writing()
+    private (ISvgViewerDeclarationTarget Target, IReadOnlyDictionary<string, string> Addresses)? Writing(IReadOnlyCollection<string> addressKeys)
     {
         if (_inspecting is not { } inspecting
             || inspecting.Built.Document is not { } document
             || document.SourceText is null
-            || _picked.Count == 0)
+            || addressKeys.Count == 0)
         {
             return null;
         }
@@ -2348,7 +2499,7 @@ public sealed class GroupPanel : UserControl
         var spelt = SvgSourceElements.Addresses(target.Text, document.Built(target.Text));
         var addresses = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        foreach (var address in _picked)
+        foreach (var address in addressKeys)
         {
             if (spelt.TryGetValue(address, out var mine))
             {
@@ -2375,36 +2526,76 @@ public sealed class GroupPanel : UserControl
 
     private void BeginEdit(Point at)
     {
+        _drawing = _draw.Shape is { };
+        _reshaping = _draw.Reshaping;
+
+        if (_drawing)
+        {
+            BeginDraw(at);
+
+            return;
+        }
+
         if (Arranged(at) is not { } arranged)
         {
             return;
         }
 
-        if (_page)
+        if (_page && !_reshaping)
         {
             _paging.Begin(new SKPoint(arranged.X, arranged.Y), (float)_canvas.Scale);
 
             return;
         }
 
-        if (Writing() is not { } writing)
+        if (Writing(_picked) is not { } writing)
         {
             Says(Unwritten);
 
             return;
         }
 
+        if (_reshaping)
+        {
+            Says(_points.Begin(arranged, (float)_canvas.Scale, _canvas.Modifiers.HasFlag(KeyModifiers.Shift)));
+            ShowGizmo();
+
+            return;
+        }
+
         // The table once, rather than once per member: it is the file read and walked, and asking
         // the gesture to ask for it per element made a drag of twenty twenty parses of one text.
-        Says(_gizmo.Begin(arranged, (float)_canvas.Scale, key => Driven(writing, key)));
+        Says(_gizmo.Begin(arranged, (float)_canvas.Scale, key => Driven(writing, key, "transform")));
 
         ShowGizmo();
     }
 
     private void DragEdit(Point at)
     {
+        if (_drawing)
+        {
+            if (Pulled(at) is { } point)
+            {
+                _draw.Drag(point, _canvas.Modifiers);
+                ShowDraw();
+            }
+
+            return;
+        }
+
         if (Arranged(at) is not { } arranged)
         {
+            return;
+        }
+
+        if (_reshaping)
+        {
+            _points.Drag(arranged, _canvas.Modifiers.HasFlag(KeyModifiers.Shift));
+
+            ShowGizmo();
+            Retrace();
+            _canvas.Publish();
+
             return;
         }
 
@@ -2436,8 +2627,42 @@ public sealed class GroupPanel : UserControl
     /// drawing carrying a transform its own text does not have, for good: nothing rebuilds a drawing
     /// whose text did not change.
     /// </remarks>
-    private void EndEdit()
+    private void EndEdit(Point at)
     {
+        if (_drawing)
+        {
+            if (Pulled(at) is { } point)
+            {
+                _draw.Release(point);
+            }
+
+            // A point tool goes on past the release; a box tool's release is the shape.
+            if (_draw.Continues)
+            {
+                ShowDraw();
+            }
+            else
+            {
+                EndDraw();
+            }
+
+            return;
+        }
+
+        if (_reshaping)
+        {
+            if (_points.End() is { } moved)
+            {
+                WritePoints(moved);
+            }
+            else
+            {
+                ShowGizmo();
+            }
+
+            return;
+        }
+
         if (_paging.IsDragging)
         {
             EndPage();
@@ -2452,7 +2677,7 @@ public sealed class GroupPanel : UserControl
             return;
         }
 
-        if (Writing() is not { } writing)
+        if (Writing(_picked) is not { } writing)
         {
             Undo(Unwritten);
 
@@ -2470,6 +2695,31 @@ public sealed class GroupPanel : UserControl
         if (refusal is { })
         {
             Undo(refusal);
+
+            return;
+        }
+
+        Says(null);
+        Written();
+    }
+
+    /// <summary>Writes a points edit into the picked shape's drawing, or puts the shape back and says why not.</summary>
+    private void WritePoints(SvgViewerEdits edit)
+    {
+        var refusal = Writing(_picked) is { } writing
+            ? writing.Target.Commit(
+                edit.Label,
+                source => edit.Write(source, key => writing.Addresses.TryGetValue(key, out var at) ? at : null))
+            : Unwritten;
+
+        if (refusal is { })
+        {
+            _points.Revert();
+
+            Says(refusal);
+            ShowGizmo();
+            Retrace();
+            _canvas.Publish();
 
             return;
         }
@@ -2602,6 +2852,27 @@ public sealed class GroupPanel : UserControl
 
     private void CancelEdit()
     {
+        if (_drawing)
+        {
+            // The press in flight and not the shape: a click comes through here on its way to
+            // being a click, and a point tool's points are what the click is adding to.
+            _draw.Drop();
+            ShowDraw();
+
+            return;
+        }
+
+        if (_reshaping)
+        {
+            _points.Cancel();
+
+            ShowGizmo();
+            Retrace();
+            _canvas.Publish();
+
+            return;
+        }
+
         // The page goes back to the size the file says, which is where it was: nothing is written
         // while the handles follow the pointer.
         _paging.Cancel();
@@ -2613,11 +2884,467 @@ public sealed class GroupPanel : UserControl
         _canvas.Publish();
     }
 
-    private const string Unwritten = "That row is not written in this drawing's file, so it cannot be dragged.";
+    // ---- drawing a shape ---------------------------------------------------------------------
 
     /// <summary>
-    /// The element's transform as the file spells it, where an expression writes it, and null
-    /// otherwise.
+    /// A point of the inspected drawing, on the board's grid where one is on.
+    /// </summary>
+    /// <remarks>
+    /// Pulled in the board's space and then moved into the drawing's: the lines somebody can see
+    /// are the board's, and a drawing placed at 100 has its own zero a hundred to the right of them.
+    /// </remarks>
+    private ShimSkiaSharp.SKPoint? Pulled(Point at)
+        => _inspecting is { } inspecting && Arranged(at) is { } arranged
+            ? new ShimSkiaSharp.SKPoint(
+                _canvas.Grid.PullX(arranged.X) - inspecting.Placement.At.X,
+                _canvas.Grid.PullY(arranged.Y) - inspecting.Placement.At.Y)
+            : null;
+
+    /// <summary>
+    /// The ring is the preview while a shape is in the making, moved to where the inspected drawing
+    /// sits on the board, and the selection's otherwise.
+    /// </summary>
+    private void ShowDraw()
+    {
+        var preview = _draw.Preview();
+
+        if (preview is { } && _inspecting is { } inspecting)
+        {
+            preview.Transform(SKMatrix.CreateTranslation(inspecting.Placement.At.X, inspecting.Placement.At.Y));
+        }
+
+        _canvas.Retrace(preview ?? SvgViewerPicks.Outline(Picks()));
+    }
+
+    /// <summary>
+    /// Begins a shape under the pointer, in the drawing it was pressed on.
+    /// </summary>
+    /// <remarks>
+    /// The drawing pressed on becomes the one inspected, as a click on it would make it, and a
+    /// selection in another drawing is let go of: a shape goes into the drawing under the hand,
+    /// beside what is picked only where that is picked in the same drawing. The parent is settled
+    /// before the hand moves, as the viewer settles it — a row the file does not spell, or a
+    /// container the scene never drew, gives way to the root.
+    /// </remarks>
+    private void BeginDraw(Point at)
+    {
+        // The next point of a shape already begun, in the drawing the first point settled —
+        // wherever on the board the pointer now is.
+        if (_draw.IsBusy)
+        {
+            if (Pulled(at) is { } next)
+            {
+                _draw.Press(next);
+            }
+
+            return;
+        }
+
+        if (!_canvas.TryGetPlacementAt(at, out var placement, out _)
+            || placement is null
+            || Shown(placement) is not { Built.Svg: { SourceDocument: { } built } svg } shown)
+        {
+            // Said, since the tool took the press: silence there reads as a tool that does nothing.
+            Says("Press on a drawing to draw into it.");
+
+            return;
+        }
+
+        if (_inspecting is not { } inspecting || !ReferenceEquals(inspecting.Placement, placement))
+        {
+            Inspect(shown, placement, svg);
+
+            _picked.Clear();
+            _tree.TrySelect(Array.Empty<string>());
+        }
+
+        _page = false;
+
+        var (target, where, parent) = SvgViewerDraw.Into(built, _picked);
+
+        if (Writing(new[] { target }) is null || !SvgViewerDraw.TryParent(svg, parent, out var fromParent))
+        {
+            (target, where, parent) = (string.Empty, SvgElementDrop.Inside, built);
+
+            if (!SvgViewerDraw.TryParent(svg, parent, out fromParent))
+            {
+                return;
+            }
+        }
+
+        _into = (target, where);
+
+        if (Pulled(at) is { } point)
+        {
+            Says(_draw.Start(fromParent, point, _canvas.Scale, parent));
+        }
+    }
+
+    /// <summary>Writes the shape the hand let go of, as one edit, and picks it.</summary>
+    /// <remarks>The tool is put away before the commit, for the viewer's reason: the rebuild puts the handles on the new row.</remarks>
+    private void EndDraw()
+    {
+        // A press that began nothing — beside every drawing — has said so already.
+        if (!_draw.IsBusy)
+        {
+            return;
+        }
+
+        var label = _draw.Label;
+        var note = _draw.Note;
+        var (target, where) = _into;
+
+        if (_draw.Finish() is not { } element)
+        {
+            Says(note);
+            Retrace();
+
+            return;
+        }
+
+        if (_inspecting is not { } inspecting
+            || Writing(new[] { target }) is not { } writing
+            || !writing.Addresses.TryGetValue(target, out var mine))
+        {
+            Says(Unwritten);
+            Retrace();
+
+            return;
+        }
+
+        var document = inspecting.Built.Document!;
+
+        _draw.Shape = null;
+
+        string? made = null;
+
+        var refusal = writing.Target.Commit(
+            label,
+            source => SvgElementEditor.Insert(source, mine, where, element, out made));
+
+        if (refusal is { })
+        {
+            Says(refusal);
+
+            return;
+        }
+
+        Follow(writing.Target.Text, document, made is { } key ? new[] { key } : Array.Empty<string>());
+        Says(null);
+        Written();
+    }
+
+    /// <summary>
+    /// A click with a tool armed: text is placed, a point tool's point is put down or its shape
+    /// finished, and a box tool says what it needs.
+    /// </summary>
+    /// <returns>
+    /// Whether the click was the tool's rather than a pick. A click beside every drawing is a pick
+    /// as ever, unless a shape is in the making — its points may fall off the drawing's page.
+    /// </returns>
+    private bool DrawClick(Point at)
+    {
+        if (_draw.Shape is not { } shape)
+        {
+            return false;
+        }
+
+        if (_draw.Continues)
+        {
+            if (!_draw.IsBusy)
+            {
+                if (!_canvas.TryGetPlacementAt(at, out var pressed, out _) || pressed is null)
+                {
+                    return false;
+                }
+
+                BeginDraw(at);
+            }
+
+            if (Pulled(at) is { } point && _draw.Click(point))
+            {
+                EndDraw();
+            }
+            else
+            {
+                ShowDraw();
+            }
+
+            return true;
+        }
+
+        if (!_canvas.TryGetPlacementAt(at, out var placement, out _) || placement is null)
+        {
+            return false;
+        }
+
+        if (shape == "text")
+        {
+            BeginDraw(at);
+
+            if (_draw.IsBusy)
+            {
+                EndDraw();
+            }
+        }
+        else
+        {
+            Says(_draw.Note);
+        }
+
+        return true;
+    }
+
+    /// <inheritdoc cref="SvgViewer.DeletePoint"/>
+    public bool DeletePoint()
+    {
+        if (!_draw.Reshaping || !_points.Remove(out var edit, out var refusal))
+        {
+            return false;
+        }
+
+        if (edit is { } removed)
+        {
+            WritePoints(removed);
+        }
+        else
+        {
+            Says(refusal);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// A click on the shape being reshaped — choosing a point, or adding one with a double-click on
+    /// its outline — or a double-click on the picked shape, which starts reshaping it.
+    /// </summary>
+    /// <returns>Whether the click was the points' rather than a pick.</returns>
+    private bool PointClick(Point at)
+    {
+        if (_draw.Shape is { } || Arranged(at) is not { } arranged)
+        {
+            return false;
+        }
+
+        var scale = (float)_canvas.Scale;
+
+        if (!_draw.Reshaping)
+        {
+            if (_canvas.Clicks != 2 || !Reshapable() || !_gizmo.Keeps(arranged, scale))
+            {
+                return false;
+            }
+
+            _draw.Reshaping = true;
+
+            return true;
+        }
+
+        if (!_points.Click(arranged, scale, _canvas.Clicks, _canvas.Modifiers.HasFlag(KeyModifiers.Shift), out var edit, out var refusal))
+        {
+            return false;
+        }
+
+        if (edit is { } added)
+        {
+            WritePoints(added);
+        }
+        else
+        {
+            Says(refusal);
+            ShowGizmo();
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether the one element picked is a shape with points to take hold of.</summary>
+    private bool Reshapable()
+        => !_page && Members() is { Count: 1 } one && SvgViewerPoints.Reshapes(one[0].Element);
+
+    private const string Unwritten = "That row is not written in this drawing's file, so it cannot be edited here.";
+
+    /// <summary>Takes the picked elements out of their drawing, as one edit.</summary>
+    public bool Delete()
+        => Rewritten(
+            count => count == 1 ? "delete an element" : $"delete {count} elements",
+            SvgElementEditor.Remove,
+            Array.Empty<string>());
+
+    /// <summary>Writes a copy of each picked element after it, and picks the copies.</summary>
+    public bool Duplicate()
+    {
+        var copies = new List<string>();
+
+        return Rewritten(
+            count => count == 1 ? "duplicate an element" : $"duplicate {count} elements",
+            (source, mine) =>
+            {
+                var refusal = SvgElementEditor.Duplicate(source, mine, out var made);
+
+                copies.AddRange(made);
+
+                return refusal;
+            },
+            copies);
+    }
+
+    /// <summary>
+    /// Commits one edit to the picked elements of the inspected drawing, then picks what
+    /// <paramref name="follow"/> names, spelt as the file spells it.
+    /// </summary>
+    /// <remarks>
+    /// All or nothing: a row the file does not spell refuses the lot before anything is written,
+    /// rather than acting on the part of a selection that happened to map.
+    ///
+    /// The drawing is read again twice. The commit itself lays the board out once, through the
+    /// project's event, and that pass puts back the rows that were picked before — some of which
+    /// the edit has just removed. The rows to pick are set afterwards and the board is laid out
+    /// again by <see cref="Written"/>, which is the pass that selects them. The document is read
+    /// before the commit because the first pass discards it.
+    /// </remarks>
+    private bool Rewritten(
+        Func<int, string> label,
+        Func<SvgSourceDocument, IReadOnlyList<string>, string?> edit,
+        IReadOnlyCollection<string> follow)
+    {
+        if (_page || _inspecting is not { } inspecting || Writing(_picked) is not { } writing)
+        {
+            return false;
+        }
+
+        if (writing.Addresses.Count != _picked.Count)
+        {
+            Says(Unwritten);
+
+            return false;
+        }
+
+        var document = inspecting.Built.Document!;
+        var mine = _picked.Select(key => writing.Addresses[key]).ToList();
+        var refusal = writing.Target.Commit(label(mine.Count), source => edit(source, mine));
+
+        if (refusal is { })
+        {
+            Says(refusal);
+
+            return false;
+        }
+
+        Follow(writing.Target.Text, document, follow);
+        Says(null);
+
+        return Written();
+    }
+
+    /// <summary>Picks the rows the file spells at <paramref name="sourceKeys"/>, as the rebuilt drawing will spell them.</summary>
+    private void Follow(string written, SvgViewerDocument document, IReadOnlyCollection<string> sourceKeys)
+    {
+        var wanted = new HashSet<string>(sourceKeys, StringComparer.Ordinal);
+
+        _page = false;
+        _picked.Clear();
+        _picked.AddRange(
+            SvgSourceElements.Addresses(written, document.Built(written))
+                .Where(pair => wanted.Contains(pair.Value))
+                .Select(pair => pair.Key));
+    }
+
+    /// <remarks>
+    /// On the canvas, as a viewer binds its own, so the keys mean this only while somebody is
+    /// looking at the board and a box being typed in keeps its Backspace. Nothing picked is nothing
+    /// to answer, and the key goes on to whoever is above.
+    /// </remarks>
+    private void OnCanvasKeyDown(object? sender, KeyEventArgs e)
+    {
+        // A chosen point has the keys before the tool does: Escape lets go of the point and only
+        // a second one puts the tool away, and Delete takes out the point and not the element.
+        // Every point of the shape, while there is one; A by itself is the tool's own letter.
+        if (!_canvas.IsEditing && _draw.Reshaping && _points.IsShowing && e.Key == Key.A
+            && e.KeyModifiers == (this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control))
+        {
+            e.Handled = true;
+
+            _points.ChooseAll();
+            ShowGizmo();
+
+            return;
+        }
+
+        if (!_canvas.IsEditing && _draw.Reshaping && _points.Chosen.Count > 0 && e.KeyModifiers == KeyModifiers.None)
+        {
+            if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+
+                _points.Deselect();
+                ShowGizmo();
+
+                return;
+            }
+
+            if (e.Key is Key.Delete or Key.Back)
+            {
+                e.Handled = true;
+
+                DeletePoint();
+
+                return;
+            }
+        }
+
+        // Not while a gesture is held: the letter would arm a tool under a drag the gizmo owns.
+        if (!_canvas.IsEditing && _draw.Pressed(e))
+        {
+            e.Handled = true;
+
+            if (_draw.IsComplete)
+            {
+                EndDraw();
+            }
+            else
+            {
+                ShowDraw();
+            }
+
+            return;
+        }
+
+        if (_picked.Count == 0)
+        {
+            return;
+        }
+
+        if (e.Key is Key.Enter or Key.Return && e.KeyModifiers == KeyModifiers.None && _draw.Shape is null && !_draw.Reshaping && Reshapable())
+        {
+            e.Handled = true;
+
+            _draw.Reshaping = true;
+
+            return;
+        }
+
+        var command = this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control;
+
+        // Back as well as Delete: the two are one key on a Mac keyboard.
+        if (e.Key is Key.Delete or Key.Back && e.KeyModifiers == KeyModifiers.None)
+        {
+            e.Handled = true;
+
+            Delete();
+        }
+        else if (e.Key == Key.D && e.KeyModifiers == command)
+        {
+            e.Handled = true;
+
+            Duplicate();
+        }
+    }
+
+    /// <summary>
+    /// The element's attribute as the file spells it — its transform, its points — where an
+    /// expression writes it, and null otherwise.
     /// </summary>
     /// <remarks>
     /// Handed to the drag rather than used to refuse it: a gesture the element's own geometry can
@@ -2626,10 +3353,11 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private static string? Driven(
         (ISvgViewerDeclarationTarget Target, IReadOnlyDictionary<string, string> Addresses) writing,
-        string key)
+        string key,
+        string name)
         => writing.Addresses.TryGetValue(key, out var address)
            && SvgSourceDocument.Read(writing.Target.Text, out _) is { } source
-           && SvgAttributeEditor.Attribute(source, address, "transform") is { } written
+           && SvgAttributeEditor.Attribute(source, address, name) is { } written
            && written.Contains("{{", StringComparison.Ordinal)
             ? written
             : null;
@@ -2753,7 +3481,9 @@ public sealed class GroupPanel : UserControl
         // With the ring, and for its reason: the handles are measured from a scene node of a
         // document a build may be about to dispose.
         _gizmo.Track(null, default, Array.Empty<SvgViewerGizmoMember>());
+        _points.Track(null, default, null);
         _canvas.Gizmo = null;
+        _canvas.Points = null;
 
         _inspecting = null;
         _selected = null;
@@ -2883,33 +3613,33 @@ public sealed class GroupPanel : UserControl
 
         _captions = captions;
 
-        var boxes = new ToggleButton
+        var invisible = new ToggleButton
         {
-            Content = "Boxes",
-            IsChecked = StudioSettings.ShowBoxes,
-            [ToolTip.TipProperty] = "Show the boxes each drawing reserves for the code that draws it"
+            Content = "Invisible",
+            IsChecked = StudioSettings.ShowInvisible,
+            [ToolTip.TipProperty] = "Outline what each drawing has but does not paint: boxes, mask and clip content, unpainted and hidden elements"
         };
 
-        boxes.IsCheckedChanged += (_, _) =>
+        invisible.IsCheckedChanged += (_, _) =>
         {
-            if (StudioSettings.ShowBoxes == (boxes.IsChecked == true))
+            if (StudioSettings.ShowInvisible == (invisible.IsChecked == true))
             {
                 return;
             }
 
-            StudioSettings.ShowBoxes = boxes.IsChecked == true;
+            StudioSettings.ShowInvisible = invisible.IsChecked == true;
 
             Reread();
 
             SettingChanged?.Invoke(this, EventArgs.Empty);
         };
 
-        _boxes = boxes;
+        _invisible = invisible;
 
         bar.Children.Add(ratio);
         bar.Children.Add(snap);
         bar.Children.Add(captions);
-        bar.Children.Add(boxes);
+        bar.Children.Add(invisible);
 
         return bar;
     }

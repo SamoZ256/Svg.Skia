@@ -71,6 +71,7 @@ public class SvgViewerCanvas : SKCanvasControl
     private SKPath? _highlight;
     private BoundsInfo? _gizmo;
     private bool _gizmoTurns = true;
+    private SvgViewerPointMarks? _points;
     private bool _pageOutlined = true;
     private bool _editing;
     private bool _editMoved;
@@ -108,7 +109,7 @@ public class SvgViewerCanvas : SKCanvasControl
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
         Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, new(0x1A, 0x1A, 0x1E), null,
-        0d, null, null, true, DefaultCaptionSize, SvgViewerGrid.None, null, null, true);
+        0d, null, null, true, DefaultCaptionSize, SvgViewerGrid.None, null, null, true, null);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -125,11 +126,15 @@ public class SvgViewerCanvas : SKCanvasControl
         double CaptionSize,
         SvgViewerGrid Grid,
         SKRect? Marquee,
-        IReadOnlyList<IReadOnlyList<Boxed>>? Boxes,
-        bool PageOutlined);
+        IReadOnlyList<IReadOnlyList<Shown>>? Invisible,
+        bool PageOutlined,
+        SvgViewerPointMarks? Points);
 
-    /// <summary>A box as it is drawn: where it stands, what is written in it, and whether its name is refused.</summary>
-    private sealed record Boxed(SKRect Rect, string Label, bool Faulty);
+    /// <summary>
+    /// Something invisible as it is drawn: where it stands, its outline where it is not a box, what is
+    /// written in it, and whether a box's name is refused.
+    /// </summary>
+    private sealed record Shown(SKRect Rect, SKPath? Outline, string? Label, SvgViewerUnseenKind Kind, bool Faulty);
 
     public SvgViewerCanvas()
     {
@@ -219,6 +224,17 @@ public class SvgViewerCanvas : SKCanvasControl
     /// </remarks>
     public event EventHandler<SKRect?>? Marqueeing;
 
+    /// <summary>The keys held at the last press, move or release, for a gesture that Shift constrains.</summary>
+    /// <remarks>The events above carry a point and nothing else, and a host drawing a square needs the key too.</remarks>
+    public KeyModifiers Modifiers { get; private set; }
+
+    /// <summary>Which click of a run the last press was: 2 for the second of a double-click.</summary>
+    /// <remarks>Only a press carries the count, and a host hears of a click on the release.</remarks>
+    public int Clicks { get; private set; }
+
+    /// <summary>Whether an edit gesture is in flight, between <see cref="EditBegun"/> and its end.</summary>
+    public bool IsEditing => _editing;
+
     /// <summary>The edit gesture, in control coordinates, as <see cref="Picked"/> reports a click.</summary>
     public event EventHandler<Point>? EditBegun;
 
@@ -244,6 +260,18 @@ public class SvgViewerCanvas : SKCanvasControl
         set
         {
             _gizmo = value;
+
+            Publish();
+        }
+    }
+
+    /// <summary>The points of the shape being reshaped, in the space the drawings are arranged in, or null.</summary>
+    public SvgViewerPointMarks? Points
+    {
+        get => _points;
+        set
+        {
+            _points = value;
 
             Publish();
         }
@@ -841,102 +869,156 @@ public class SvgViewerCanvas : SKCanvasControl
         }
     }
 
-    private bool _showsBoxes = true;
+    private bool _showsInvisible = true;
 
-    /// <summary>Whether the boxes a drawing reserves for its host (<c>e:bounds</c>) are drawn.</summary>
+    /// <summary>
+    /// Whether what a drawing has but does not paint is outlined: its <c>e:bounds</c> boxes, the
+    /// content of its masks and clips, shapes with neither fill nor stroke, and hidden elements.
+    /// </summary>
     /// <remarks>
-    /// They paint nothing of their own, so without this a box is somewhere nobody can see or click.
+    /// None of them paint anything of their own, so without this each is somewhere nobody can see or
+    /// click.
     /// </remarks>
-    public bool ShowsBoxes
+    public bool ShowsInvisible
     {
-        get => _showsBoxes;
+        get => _showsInvisible;
         set
         {
-            if (_showsBoxes == value)
+            if (_showsInvisible == value)
             {
                 return;
             }
 
-            _showsBoxes = value;
+            _showsInvisible = value;
 
             Publish();
         }
     }
 
-    // UI thread. A commit builds a new SKSvg, so a drawing's marks are read once per SKSvg; only one
-    // with marks has its scene compiled, and it is measured again once per scene revision, which a
-    // drag moves on.
-    private readonly ConditionalWeakTable<SKSvg, StrongBox<bool>> _marked = new();
-    private readonly ConditionalWeakTable<SvgSceneDocument, Measured> _measured = new();
-
-    private sealed record Measured(long Revision, IReadOnlyList<SvgSceneBox> Boxes);
-
-    /// <summary>The boxes <paramref name="svg"/> reserves, as its scene has them now.</summary>
-    private IReadOnlyList<SvgSceneBox> BoxesOf(SKSvg svg)
+    /// <summary>What a click at <paramref name="at"/> picks on <paramref name="svg"/>, in its own units.</summary>
+    /// <param name="use">
+    /// For mask or clip content, which of the elements using it the click was on, counted as
+    /// <see cref="SvgViewerOutline.Placement"/> counts them; 0 for anything else.
+    /// </param>
+    /// <remarks>
+    /// Ink, with what paints nothing found by its dashed edge once the ink has had its turn — except the
+    /// edge of mask and clip content, which goes first. That content usually cuts inside the element it
+    /// applies to, whose ink would otherwise answer for every point of its outline. The band is a few
+    /// pixels wide, so the ink is still picked anywhere off the line.
+    /// </remarks>
+    public SvgElement? ElementAt(SKSvg svg, SKPoint at, out int use)
     {
-        var marked = _marked.GetValue(svg, drawing => new StrongBox<bool>(
-            drawing.SourceDocument is { } document && SvgSceneBoxes.Marked(document).Any())).Value;
+        use = 0;
 
-        if (!marked || svg.SourceDocument is not { } source || !svg.TryEnsureRetainedSceneGraph(out var scene) || scene is null)
+        if (InvisibleAt(svg, at, maskAndClipOnly: true) is { } content)
         {
-            return Array.Empty<SvgSceneBox>();
+            use = SvgViewerOutline.UsesOf(svg, content.Element).TakeWhile(other => !ReferenceEquals(other, content)).Count();
+
+            return content.Element;
         }
 
-        if (_measured.TryGetValue(scene, out var measured) && measured.Revision == scene.Revision)
-        {
-            return measured.Boxes;
-        }
-
-        var boxes = SvgSceneBoxes.Measure(source, scene);
-
-        _measured.Remove(scene);
-        _measured.Add(scene, new Measured(scene.Revision, boxes));
-
-        return boxes;
+        return svg?.HitTestTopmostElement(new ShimSkiaSharp.SKPoint(at.X, at.Y)) ?? InvisibleAt(svg!, at, maskAndClipOnly: false)?.Element;
     }
 
-    /// <summary>The box whose outline is at <paramref name="at"/>, in <paramref name="svg"/>'s own units.</summary>
+    /// <summary>
+    /// The invisible element whose outline is at <paramref name="at"/>, in <paramref name="svg"/>'s own units.
+    /// </summary>
     /// <remarks>
-    /// By its edge, as a frame is taken hold of: what a box encloses is the drawing's, and a click there
-    /// is still one on the page.
+    /// By its edge, as a frame is taken hold of: what an outline encloses is the drawing's, and a click
+    /// there is still one on the page. Boxes first, then the rest topmost first.
     /// </remarks>
-    public SvgElement? BoxAt(SKSvg svg, SKPoint at)
+    public SvgElement? InvisibleAt(SKSvg svg, SKPoint at) => InvisibleAt(svg, at, maskAndClipOnly: false)?.Element;
+
+    private SvgViewerUnseen? InvisibleAt(SKSvg svg, SKPoint at, bool maskAndClipOnly)
     {
-        if (!_showsBoxes || svg is null)
+        if (!_showsInvisible || svg is null)
         {
             return null;
         }
 
-        foreach (var box in BoxesOf(svg))
+        var unseen = SvgViewerOutline.Unseen(svg);
+
+        if (!maskAndClipOnly)
         {
-            if (box.Node is { TransformedBounds: var bounds } &&
-                Grabs(new SKRect(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom), at))
+            foreach (var box in unseen)
             {
-                return box.Element;
+                if (box.Box?.Node is { TransformedBounds: var bounds } &&
+                    Grabs(new SKRect(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom), at))
+                {
+                    return box;
+                }
+            }
+        }
+
+        for (var i = unseen.Count - 1; i >= 0; i--)
+        {
+            if (unseen[i] is { Box: null, Drawn: true } entry &&
+                (!maskAndClipOnly || entry.Kind is SvgViewerUnseenKind.Mask or SvgViewerUnseenKind.Clip) &&
+                Grabs(entry.Outline, at))
+            {
+                return entry;
             }
         }
 
         return null;
     }
 
-    /// <summary>What each placement's boxes look like this frame, parallel to the placements.</summary>
-    private IReadOnlyList<IReadOnlyList<Boxed>>? Drawn()
+    /// <summary>Whether <paramref name="at"/> is on <paramref name="outline"/>'s line, not within it.</summary>
+    private bool Grabs(SKPath outline, SKPoint at)
     {
-        if (!_showsBoxes)
+        var slack = (float)(EdgeSlack / _scale);
+
+        if (!SKRect.Inflate(outline.Bounds, slack, slack).Contains(at.X, at.Y))
+        {
+            return false;
+        }
+
+        using var pen = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = 2f * slack };
+        using var band = new SKPathBuilder();
+
+        if (!pen.GetFillPath(outline, band))
+        {
+            return false;
+        }
+
+        using var edge = band.Detach();
+
+        return edge.Contains(at.X, at.Y);
+    }
+
+    /// <summary>What each placement's invisible elements look like this frame, parallel to the placements.</summary>
+    private IReadOnlyList<IReadOnlyList<Shown>>? Drawn()
+    {
+        if (!_showsInvisible)
         {
             return null;
         }
 
-        var drawn = new List<IReadOnlyList<Boxed>>(_placed.Count);
+        var drawn = new List<IReadOnlyList<Shown>>(_placed.Count);
 
         foreach (var placed in _placed)
         {
-            var boxes = BoxesOf(placed.Svg);
-            var shown = new List<Boxed>(boxes.Count);
+            var unseen = SvgViewerOutline.Unseen(placed.Svg);
+            var shown = new List<Shown>(unseen.Count);
+            var named = new List<string>();
 
-            for (var i = 0; i < boxes.Count; i++)
+            foreach (var entry in unseen)
             {
-                var box = boxes[i];
+                if (entry.Box is not { } box)
+                {
+                    if (entry.Drawn)
+                    {
+                        // Mask and clip content says whose it is, since nothing else on the canvas does.
+                        var owner = entry.Kind is SvgViewerUnseenKind.Mask or SvgViewerUnseenKind.Clip &&
+                                    SvgViewerOutline.Owner(entry.Element) is { ID: { Length: > 0 } id }
+                            ? "#" + id
+                            : null;
+
+                        shown.Add(new Shown(entry.Outline.Bounds, entry.Outline, owner, entry.Kind, false));
+                    }
+
+                    continue;
+                }
 
                 if (box.Node is not { TransformedBounds: var now })
                 {
@@ -950,9 +1032,10 @@ public class SvgViewerCanvas : SKCanvasControl
                     ? FormattableString.Invariant($"{box.Name} {rect.Left:0.##}, {rect.Top:0.##}, {rect.Right:0.##}, {rect.Bottom:0.##}")
                     : $"{box.Name} (driven)";
 
-                var faulty = SvgExpressionAttributes.WhyNotBox(box.Name, null, boxes.Take(i).Select(other => other.Name)) is { };
+                var faulty = SvgExpressionAttributes.WhyNotBox(box.Name, null, named) is { };
+                named.Add(box.Name);
 
-                shown.Add(new Boxed(new SKRect(now.Left, now.Top, now.Right, now.Bottom), label, faulty));
+                shown.Add(new Shown(new SKRect(now.Left, now.Top, now.Right, now.Bottom), null, label, entry.Kind, faulty));
             }
 
             drawn.Add(shown);
@@ -1163,7 +1246,8 @@ public class SvgViewerCanvas : SKCanvasControl
             // no rectangle yet, and a zero-sized one would flash a dot under every click.
             _marquee && _marqueeMoved ? Spanned(_marqueeFrom, _marqueeTo) : null,
             Drawn(),
-            _pageOutlined);
+            _pageOutlined,
+            _moving is { } && _moved ? null : _points);
 
         InvalidateVisual();
     }
@@ -1330,15 +1414,18 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         var properties = e.GetCurrentPoint(this).Properties;
 
+        Modifiers = e.KeyModifiers;
+        Clicks = e.ClickCount;
+
         // Recorded before the pan is decided on, so a host that has turned panning off can still be
         // clicked. Whether this becomes a pick is settled on release.
         _pressed = properties.IsLeftButtonPressed && _placed.Count > 0;
         _pressOrigin = e.GetPosition(this);
 
-        // The narrowest claim first. This one answers only while a host has Edit mode on and only
-        // over the element that host is already editing, so a miss falls straight through to the
-        // grip. The other order cannot work: a grip answers for anywhere inside a whole drawing, so
-        // it would swallow every handle sitting on top of one.
+        // The narrowest claim first. A host answers for the handles of what it is editing — or for
+        // the whole canvas while it has a drawing tool armed — so a miss falls straight through to
+        // the grip. The other order cannot work: a grip answers for anywhere inside a whole drawing,
+        // so it would swallow every handle sitting on top of one.
         if (properties.IsLeftButtonPressed && IsEditTarget is { } wanted && wanted(_pressOrigin))
         {
             // _pressed is left standing, as the grip leaves it: a press inside the selection's box
@@ -1428,6 +1515,8 @@ public class SvgViewerCanvas : SKCanvasControl
 
     private void OnMoved(object? sender, PointerEventArgs e)
     {
+        Modifiers = e.KeyModifiers;
+
         if (_pressed && Away(e.GetPosition(this), _pressOrigin))
         {
             // Moved: the gesture is a drag, and a drag pans. Anything a hand does while clicking is
@@ -1513,6 +1602,8 @@ public class SvgViewerCanvas : SKCanvasControl
 
     private void OnReleased(object? sender, PointerReleasedEventArgs e)
     {
+        Modifiers = e.KeyModifiers;
+
         if (_editing)
         {
             // Read before EndEdit gives the pointer up, which is a capture lost and clears both.
@@ -1863,13 +1954,19 @@ public class SvgViewerCanvas : SKCanvasControl
     {
         base.OnPointerCaptureLost(e);
 
-        _dragging = false;
+        // Only a pan has a cursor to put back; a carry puts back its own below. Restoring here
+        // regardless took a host's cursor away on every release, since giving the pointer up is a
+        // capture lost too — so a drawing tool's cross went back to an arrow after each click.
+        if (_dragging)
+        {
+            _dragging = false;
+            Cursor = _restoreCursor;
+        }
+
         _pressed = false;
 
         // A drag the window took away writes nothing.
         EndMove();
-
-        Cursor = _restoreCursor;
 
         // A gesture the window took away writes nothing either.
         EndEdit(commit: false);
@@ -1965,13 +2062,13 @@ public class SvgViewerCanvas : SKCanvasControl
                 Outline(canvas, frame, state.Scale);
             }
 
-            // Here rather than with the names below, because a box is in the drawing's own units and
-            // this is the one place they are the canvas's.
-            if (state.Boxes is { } boxes && boxes.Count > index)
+            // Here rather than with the names below, because an outline is in the drawing's own units
+            // and this is the one place they are the canvas's.
+            if (state.Invisible is { } invisible && invisible.Count > index)
             {
-                foreach (var box in boxes[index])
+                foreach (var shown in invisible[index])
                 {
-                    Reserved(canvas, box, state.Scale, font, state.CaptionSize);
+                    Unseen(canvas, shown, state.Scale, font, state.CaptionSize);
                 }
             }
 
@@ -2091,6 +2188,11 @@ public class SvgViewerCanvas : SKCanvasControl
         if (state.Gizmo is { } gizmo)
         {
             Handles(canvas, gizmo, state.Scale, state.GizmoTurns);
+        }
+
+        if (state.Points is { } points)
+        {
+            PointMarks(canvas, points, state.Scale);
         }
 
         // Over the handles, because this is what the hand is doing now and the selection behind it
@@ -2234,6 +2336,58 @@ public class SvgViewerCanvas : SKCanvasControl
         }
     }
 
+    /// <summary>
+    /// Draws a shape's points: its anchors square, the handles of the chosen one round and on stalks.
+    /// </summary>
+    /// <remarks>Smaller than the gizmo's handles, which sit four to a box; a path has dozens of these.</remarks>
+    private static void PointMarks(SKCanvas canvas, SvgViewerPointMarks marks, double scale)
+    {
+        var hairline = (float)(1d / scale);
+        var half = (HandleWidth - 2f) / 2f * hairline;
+
+        using var line = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            Color = s_ringSettled,
+            StrokeWidth = hairline
+        };
+
+        using var fill = new SKPaint { IsAntialias = true, Color = SKColors.White };
+        using var chosen = new SKPaint { IsAntialias = true, Color = s_ringSettled };
+
+        foreach (var (from, to) in marks.Stalks)
+        {
+            canvas.DrawLine(from, to, line);
+        }
+
+        foreach (var handle in marks.Handles)
+        {
+            canvas.DrawCircle(handle, half * 0.8f, fill);
+            canvas.DrawCircle(handle, half * 0.8f, line);
+        }
+
+        foreach (var anchor in marks.Anchors)
+        {
+            var square = new SKRect(anchor.X - half, anchor.Y - half, anchor.X + half, anchor.Y + half);
+
+            canvas.DrawRect(square, fill);
+            canvas.DrawRect(square, line);
+        }
+
+        foreach (var (at, anchor) in marks.Chosen)
+        {
+            if (anchor)
+            {
+                canvas.DrawRect(new SKRect(at.X - half, at.Y - half, at.X + half, at.Y + half), chosen);
+            }
+            else
+            {
+                canvas.DrawCircle(at, half * 0.8f, chosen);
+            }
+        }
+    }
+
     /// <summary>The grid, across whatever of the board is on screen.</summary>
     /// <remarks>
     /// The visible area rather than the arrangement's own extent, which would draw a rectangle of
@@ -2291,14 +2445,26 @@ public class SvgViewerCanvas : SKCanvasControl
         canvas.DrawRect(frame, paint);
     }
 
-    /// <summary>A box the drawing reserves: a dashed line in its own colour, with the constant written inside.</summary>
+    /// <summary>
+    /// Something the drawing has but does not paint: a dashed line in a colour saying why, with a box's
+    /// constant or mask and clip content's owner written inside.
+    /// </summary>
     /// <remarks>
-    /// Not the grey of a page's own dashes, since a box inside a page would read as a second one.
+    /// None of them the grey of a page's own dashes, since a box inside a page would read as a second
+    /// one, nor the orange of the selection ring.
     /// </remarks>
-    private static void Reserved(SKCanvas canvas, Boxed box, double scale, SKFont font, double captionSize)
+    private static void Unseen(SKCanvas canvas, Shown shown, double scale, SKFont font, double captionSize)
     {
         var hairline = (float)(1d / scale);
-        var colour = box.Faulty ? new SKColor(0xE5, 0x48, 0x4D) : new SKColor(0x2E, 0xB8, 0xC8);
+        var (colour, on, off) = shown.Kind switch
+        {
+            SvgViewerUnseenKind.Box when shown.Faulty => (new SKColor(0xE5, 0x48, 0x4D), 3f, 3f),
+            SvgViewerUnseenKind.Box => (new SKColor(0x2E, 0xB8, 0xC8), 3f, 3f),
+            SvgViewerUnseenKind.Mask => (new SKColor(0x9B, 0x6C, 0xFF), 3f, 3f),
+            SvgViewerUnseenKind.Clip => (new SKColor(0x3F, 0xB9, 0x50), 3f, 3f),
+            SvgViewerUnseenKind.Unpainted => (new SKColor(0x2E, 0xB8, 0xC8, 0x99), 1f, 2f),
+            _ => (new SKColor(0xD9, 0x59, 0x9B), 6f, 3f)
+        };
 
         using var paint = new SKPaint
         {
@@ -2306,14 +2472,21 @@ public class SvgViewerCanvas : SKCanvasControl
             Style = SKPaintStyle.Stroke,
             Color = colour,
             StrokeWidth = hairline,
-            PathEffect = SKPathEffect.CreateDash(new[] { 3f * hairline, 3f * hairline }, 0f)
+            PathEffect = SKPathEffect.CreateDash(new[] { on * hairline, off * hairline }, 0f)
         };
 
-        canvas.DrawRect(box.Rect, paint);
+        if (shown.Outline is { } outline)
+        {
+            canvas.DrawPath(outline, paint);
+        }
+        else
+        {
+            canvas.DrawRect(shown.Rect, paint);
+        }
 
         font.Size = (float)(captionSize / scale);
 
-        if (!Fits(font, box.Label, box.Rect.Size))
+        if (shown.Label is not { } label || !Fits(font, label, shown.Rect.Size))
         {
             return;
         }
@@ -2321,9 +2494,9 @@ public class SvgViewerCanvas : SKCanvasControl
         using var writing = new SKPaint { IsAntialias = true, Color = colour };
 
         canvas.DrawText(
-            box.Label,
-            box.Rect.Left + (font.Size * Inset),
-            box.Rect.Top + (font.Size * Line),
+            label,
+            shown.Rect.Left + (font.Size * Inset),
+            shown.Rect.Top + (font.Size * Line),
             SKTextAlign.Left,
             font,
             writing);

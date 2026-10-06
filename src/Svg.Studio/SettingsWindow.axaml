@@ -136,6 +136,9 @@
               <CheckBox x:Name="ConvertOrganizesBox" Content="Automatically organize variables" />
             </StackPanel>
           </StackPanel>
+
+          <CheckBox x:Name="DropAsksBox" Content="Ask which template to use when Streamline icons are dropped"
+                    ToolTip.Tip="Without the question, a drop imports the icons whose template is sure straight away; the rest still ask." />
         </StackPanel>
       </ScrollViewer>
     </TabItem>
