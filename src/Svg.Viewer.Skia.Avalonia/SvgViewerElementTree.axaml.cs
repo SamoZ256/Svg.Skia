@@ -105,6 +105,9 @@ public partial class SvgViewerElementTree : UserControl
         _tree.AddHandler(DragDrop.DragLeaveEvent, (_, _) => HideDrop());
         _tree.AddHandler(DragDrop.DropEvent, OnRowDrop);
 
+        // The rows moved under a still pointer, so the line marks a row the drop is no longer over.
+        _tree.AddHandler(ScrollViewer.ScrollChangedEvent, (_, _) => HideDrop());
+
         DragDrop.SetAllowDrop(_tree, true);
 
         _tree.ContextMenu = Menu();
@@ -455,7 +458,7 @@ public partial class SvgViewerElementTree : UserControl
     {
         if (Carried(e) is not { Key: var dragged }
             || !_byAddress.TryGetValue(dragged, out var row)
-            || (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(true) is not { DataContext: SvgViewerElementNode over } item
+            || SvgViewerDragScroll.Under(e, _tree)?.FindAncestorOfType<TreeViewItem>(true) is not { DataContext: SvgViewerElementNode over } item
             // Everything under a row spells its address and a slash, and nothing lands in its own branch.
             || over.AddressKey == dragged
             || over.AddressKey.StartsWith(dragged + "/", StringComparison.Ordinal))

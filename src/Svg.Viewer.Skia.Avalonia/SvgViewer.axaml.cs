@@ -390,6 +390,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
+        SvgViewerDragScroll.Attach(this);
 
         UpdateZoomText();
         UpdateStatus();

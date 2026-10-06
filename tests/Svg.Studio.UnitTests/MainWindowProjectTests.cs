@@ -6700,6 +6700,75 @@ public class MainWindowProjectTests : IDisposable
             Rows((TreeViewItem)Tree(window).Items[0]!));
     }
 
+    /// <summary>The group whose row is under a point of the window.</summary>
+    /// <remarks>Rendered first: a hit test reads the scene as last drawn, which a headless window draws only when told.</remarks>
+    private static string? GroupAt(Window window, Point at)
+    {
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Dispatcher.UIThread.RunJobs();
+
+        return ((window.InputHitTest(at) as Visual)?.FindAncestorOfType<TreeViewItem>(true)?.Tag as ProjectGroup)?.Name;
+    }
+
+    /// <summary>
+    /// A drawing held at the foot of a project tree longer than its pane scrolls it, and let go with
+    /// no move since lands in the group now under the pointer, not the one the last move found there.
+    /// </summary>
+    /// <remarks>Run to the end of the tree, where the scrolling stops by itself, so nothing moves between reading the row and the drop.</remarks>
+    [AvaloniaFact]
+    public async Task A_Drawing_Held_At_The_Foot_Of_The_Tree_Scrolls_It_And_Lands_Where_It_Is_Let_Go()
+    {
+        var crowded = "<studio namespace=\"Demo.Icons\">"
+            + string.Concat(Enumerable.Range(0, 40).Select(i => $"<group name=\"g{i:00}\">{Holding($"d{i:00}")}</group>"))
+            + "</studio>";
+        var window = await Host(Write("icons.svgstudio", crowded));
+        var scroller = Tree(window).GetVisualDescendants().OfType<ScrollViewer>().First();
+        var end = scroller.ScrollBarMaximum.Y;
+        var file = await window.StorageProvider.TryGetFileFromPathAsync(Write("extra.svg", Drawing));
+        var carried = new DataTransfer();
+
+        carried.Add(DataTransferItem.CreateFile(file!));
+
+        Assert.True(end > 120d, $"{end}");
+
+        scroller.Offset = new Vector(0d, end - 120d);
+        Dispatcher.UIThread.RunJobs();
+
+        var at = scroller.TranslatePoint(new Point(40d, scroller.Bounds.Height - 16d), window)!.Value;
+        var before = GroupAt(window, at);
+
+        Assert.NotNull(before);
+
+        window.DragDrop(at, RawDragEventType.DragEnter, carried, DragDropEffects.Copy, RawInputModifiers.None);
+        window.DragDrop(at, RawDragEventType.DragOver, carried, DragDropEffects.Copy, RawInputModifiers.None);
+
+        for (var waited = 0; waited < 250 && scroller.Offset.Y < end; waited++)
+        {
+            await Task.Delay(20);
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        var now = GroupAt(window, at);
+
+        Assert.Equal(end, scroller.Offset.Y);
+        Assert.NotNull(now);
+        Assert.NotEqual(before, now);
+
+        window.DragDrop(at, RawDragEventType.Drop, carried, DragDropEffects.Copy, RawInputModifiers.None);
+
+        IEnumerable<string> Held(string group)
+            => window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single(each => each.Name == group).Drawings.Select(drawing => drawing.Name);
+
+        for (var attempt = 0; attempt < 200 && !Held(now!).Contains("extra"); attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Assert.Contains("extra", Held(now!));
+        Assert.DoesNotContain("extra", Held(before!));
+    }
+
     /// <summary>
     /// Only drawings are the tree's. Everything else is still the window's, and still opens.
     /// </summary>

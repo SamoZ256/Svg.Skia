@@ -89,6 +89,8 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
         _drag = new RowDrag<SvgViewerVariable>(_rows, _variables, VariableWindow, Dropped);
 
+        AddHandler(ScrollViewer.ScrollChangedEvent, (_, _) => _drag.Scrolled());
+
         // On the panel rather than on the rows: the press is on a row, and by the time it has
         // travelled far enough to be a drag the pointer is often past the row it started on.
         PointerMoved += OnNameMoved;
@@ -906,6 +908,9 @@ public partial class SvgViewerDeclarationPanel : UserControl
         private double _pressedY;
         private bool _dragging;
 
+        /// <summary>Where the pointer was last seen, in the window, which a scroll under a still pointer does not move.</summary>
+        private Point _at;
+
         public RowDrag(
             ItemsControl items,
             ObservableCollection<T> rows,
@@ -964,6 +969,23 @@ public partial class SvgViewerDeclarationPanel : UserControl
                 e.Pointer.Capture(_items);
             }
 
+            _at = e.GetPosition(null);
+            SvgViewerDragScroll.Hold(_items, _at);
+            Place(dragged, y);
+        }
+
+        /// <summary>Carries the row on with the pointer, through a list scrolled under it since the last move.</summary>
+        public void Scrolled()
+        {
+            if (_dragging && _pressed is { } dragged && TopLevel.GetTopLevel(_items)?.TranslatePoint(_at, _items) is { } at)
+            {
+                Place(dragged, at.Y);
+            }
+        }
+
+        /// <summary>Puts the dragged row under <paramref name="y"/>, trading places with each neighbour it passes the middle of.</summary>
+        private void Place(T dragged, double y)
+        {
             var from = _rows.IndexOf(dragged);
             var to = from;
 
@@ -1019,6 +1041,11 @@ public partial class SvgViewerDeclarationPanel : UserControl
             {
                 row.ZIndex = 0;
                 row.RenderTransform = null;
+            }
+
+            if (_dragging)
+            {
+                SvgViewerDragScroll.Stop();
             }
 
             _pressed = null;

@@ -30,6 +30,7 @@ dotnet add package Svg.Viewer.Skia.Avalonia
 | `SvgViewerDock` | The body: the middle, and the panels arranged round it as a tree of splits |
 | `SvgViewerRegion` | One panel the dock arranges — an id a written layout names it by, a header, and the control |
 | `SvgViewerVariableDrag` | What a variable dragged from one of those onto another carries |
+| `SvgViewerDragScroll` | Scrolls whatever pane a drag is held near the edge of |
 | `SvgViewerElementTree` | Every element of the open drawing, as a tree, with a filter box |
 | `SvgViewerElementNode` | One row: the element, its address, its name and its id |
 | `SvgViewerLet` | A let row: the name and body being typed, what it evaluates to, and what is wrong with it |
@@ -312,6 +313,23 @@ too, which is how an attribute the file does not write yet is added already boun
 from somewhere else: the name travels in it, since the panel that ends a drag cannot read a field on
 the panel that started it. Mark the drag **handled** where you take it — the viewer refuses anything
 carrying no file, which is every drag of a variable.
+
+## Scrolling while dragging
+
+A drag held within 32 px of a pane's edge (a quarter of a smaller pane) scrolls it, at up to 800 px a
+second on the edge itself and slower further in, once it has rested there 150 ms — so a drag picked
+up near an edge, or crossing one, does not. The pane is whichever scroller under the pointer can
+still move that way, so one at its end hands on to the one around it; a text box's own is skipped.
+While the rows slide, the tree takes its drop line down rather than mark a row the pointer has left.
+
+The viewer turns this on for itself. A host that takes `Panels` puts them outside it, so it calls
+`SvgViewerDragScroll.Attach` on its own window, as Studio does. A drop target of your own in a
+scrolling pane should ask `SvgViewerDragScroll.Under` what it is over rather than read the event's
+source: Avalonia raises a drop on whatever the last update hit, and the pane may have moved since.
+
+A drag a control runs itself on a captured pointer raises none of the events `Attach` hears. It
+calls `SvgViewerDragScroll.Hold` with each move and `Stop` where it ends, and places what it carries
+again when its pane scrolls under a still pointer — as the variables' grip does, and Studio's tabs.
 
 ## The element tree
 

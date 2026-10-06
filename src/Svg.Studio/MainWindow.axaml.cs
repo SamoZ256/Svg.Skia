@@ -103,6 +103,9 @@ public partial class MainWindow : Window
     private double _grabbedAt;
     private bool _dragging;
 
+    /// <summary>Where the pointer carrying a tab was last seen, in the window, which a scroll under a still pointer does not move.</summary>
+    private Point _carriedAt;
+
     /// <summary>Where the dragged tab is drawn relative to the slot it has been laid out in.</summary>
     private readonly TranslateTransform _carry = new();
 
@@ -261,6 +264,7 @@ public partial class MainWindow : Window
         _projectTree.AddHandler(DragDrop.DragOverEvent, OnRowDragOver);
         _projectTree.AddHandler(DragDrop.DropEvent, OnRowDrop);
         _projectTree.AddHandler(DragDrop.DragLeaveEvent, (_, _) => HideDrop());
+        _projectTree.AddHandler(ScrollViewer.ScrollChangedEvent, (_, _) => HideDrop());
         _tabs.TemplateApplied += OnTabsTemplateApplied;
 
         // On the strip, and tunnelling, because TabItem handles a press itself to become selected
@@ -277,6 +281,9 @@ public partial class MainWindow : Window
         // tested — so a drop on an empty window lands on the window's own chrome, above them both.
         AddHandler(DragDrop.DragOverEvent, OnFilesDragOver);
         AddHandler(DragDrop.DropEvent, OnFilesDropped);
+
+        // The window's and not only each viewer's: a tab's panels are arranged into the window's dock.
+        SvgViewerDragScroll.Attach(this);
 
         ShowMenuGestures();
         UpdateMenu();
@@ -1911,7 +1918,7 @@ public partial class MainWindow : Window
     /// </remarks>
     private void OnRowDragOver(object? sender, DragEventArgs e)
     {
-        var over = (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(true);
+        var over = SvgViewerDragScroll.Under(e, _projectTree)?.FindAncestorOfType<TreeViewItem>(true);
 
         if (_row is { } dragged)
         {
@@ -1985,9 +1992,12 @@ public partial class MainWindow : Window
 
     private async void OnRowDrop(object? sender, DragEventArgs e)
     {
+        // Worked out again where it is let go: the rows may have scrolled under a still pointer since
+        // the last move, and a scroll forgets the landing that move found.
+        OnRowDragOver(sender, e);
+
         var target = _dropOn;
 
-        // Before anything else: the landing is what the pointer said last, and HideDrop forgets it.
         HideDrop();
 
         if (_row is { } dragged)
@@ -2683,8 +2693,20 @@ public partial class MainWindow : Window
             dragged.ZIndex = 1;
             dragged.RenderTransform = _carry;
             e.Pointer.Capture(_tabs);
+
+            // Re-selecting the tab at each trade would scroll the strip to it, and in an overflowing
+            // strip that threw the tabs out from under the pointer.
+            _tabs.AutoScrollToSelectedItem = false;
         }
 
+        _carriedAt = e.GetPosition(null);
+        SvgViewerDragScroll.Hold(strip, _carriedAt);
+        Carry(dragged, strip, position.X);
+    }
+
+    /// <summary>Puts the dragged tab under <paramref name="x"/> along the strip, trading places with each neighbour it passes the middle of.</summary>
+    private void Carry(TabItem dragged, Layoutable strip, double x)
+    {
         var from = _tabs.Items.IndexOf(dragged);
         var to = from;
 
@@ -2698,11 +2720,11 @@ public partial class MainWindow : Window
             // Half of a neighbour, not its edge: trading on contact leaves the pointer over the tab
             // it displaced and trades straight back. Every neighbour, because a quick drag lands
             // several tabs along.
-            if (index > from && position.X > neighbour.Bounds.Center.X)
+            if (index > from && x > neighbour.Bounds.Center.X)
             {
                 to = Math.Max(to, index);
             }
-            else if (index < from && position.X < neighbour.Bounds.Center.X)
+            else if (index < from && x < neighbour.Bounds.Center.X)
             {
                 to = Math.Min(to, index);
             }
@@ -2718,7 +2740,7 @@ public partial class MainWindow : Window
         }
 
         // The one transform is moved rather than replaced, so a drag allocates nothing per frame.
-        _carry.X = position.X - _grabbedAt - dragged.Bounds.X;
+        _carry.X = x - _grabbedAt - dragged.Bounds.X;
     }
 
     private void OnTabPointerReleased(object? sender, PointerReleasedEventArgs e) => EndDrag(e.Pointer);
@@ -2735,6 +2757,8 @@ public partial class MainWindow : Window
         if (_dragging)
         {
             pointer?.Capture(null);
+            SvgViewerDragScroll.Stop();
+            _tabs.ClearValue(SelectingItemsControl.AutoScrollToSelectedItemProperty);
         }
 
         _pressed = null;
@@ -2759,6 +2783,16 @@ public partial class MainWindow : Window
         {
             return;
         }
+
+        // The tabs moved under a still pointer, which the dragged one goes on following.
+        strip.ScrollChanged += (_, _) =>
+        {
+            if (_dragging && _pressed is { } dragged && dragged.GetVisualParent() is Layoutable tabs
+                && this.TranslatePoint(_carriedAt, tabs) is { } at)
+            {
+                Carry(dragged, tabs, at.X);
+            }
+        };
 
         // The strip only scrolls sideways, and a wheel that does nothing over an overflowing row of
         // tabs reads as the row being stuck.

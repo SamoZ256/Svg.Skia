@@ -470,4 +470,54 @@ public class MainWindowTabsTests
 
         window.Close();
     }
+
+    /// <summary>
+    /// A tab held at the edge of a strip with more than fit scrolls it, and goes on trading places
+    /// with the tabs scrolling under the pointer.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Tab_Held_At_The_Edge_Of_An_Overflowing_Strip_Scrolls_It_Past_The_Tabs_Out_Of_Sight()
+    {
+        var (window, tabs) = await Host(25);
+
+        var strip = tabs.GetVisualDescendants().OfType<ScrollViewer>().First(v => v.Name == "PART_TabStrip");
+        var dragged = (TabItem)tabs.Items[^1]!;
+        var from = Centre(window, dragged);
+        var edge = strip.TranslatePoint(new Point(4d, strip.Bounds.Height / 2d), window)!.Value;
+        var offset = strip.Offset.X;
+
+        // The furthest a drag to the edge could take it with nothing scrolled: the first tab in sight.
+        var inSight = tabs.Items.OfType<TabItem>()
+            .Select((tab, index) => (Tab: tab, Index: index))
+            .First(each => each.Tab.TranslatePoint(new Point(each.Tab.Bounds.Width, 0d), strip)!.Value.X > 0d).Index;
+        var jump = 0d;
+
+        strip.ScrollChanged += (_, e) => jump = Math.Max(jump, Math.Abs(e.OffsetDelta.X));
+
+        Assert.True(offset > 2000d, $"{offset}");
+
+        window.MouseDown(from, MouseButton.Left);
+        window.MouseMove(new Point(from.X - 6d, from.Y), Held);
+        window.MouseMove(edge, Held);
+
+        // Real time with the pointer still, which is what the scroll is kept up through, for a few tabs' widths.
+        for (var waited = 0; waited < 250 && strip.Offset.X > offset - 1500d; waited++)
+        {
+            await Task.Delay(20);
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        window.MouseUp(edge, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(strip.Offset.X <= offset - 1500d, $"The strip did not scroll: {offset} -> {strip.Offset.X}.");
+        Assert.True(
+            tabs.Items.IndexOf(dragged) < inSight - 3,
+            $"The tab stayed at {tabs.Items.IndexOf(dragged)}, with {inSight} the first tab in sight before the scroll.");
+
+        // In the scroll's own steps only: re-selecting the tab at each trade never threw the strip to it.
+        Assert.True(jump < 500d, $"The strip jumped {jump}.");
+
+        window.Close();
+    }
 }

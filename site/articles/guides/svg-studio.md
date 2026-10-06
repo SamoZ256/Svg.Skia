@@ -80,9 +80,11 @@ marks it, so a group folded away still says where the tab you are looking at liv
 
 The tree is editable. Each row carries **Add group**, **Add SVG…** and **Remove**; `Delete` removes
 the selected row, and a row is dragged to move it — dropped on the top or bottom quarter of a group
-it lands beside it, and in the middle it goes inside. Adding an `.svg` file reads it in; so does
-pasting one, or pasting the SVG a drawing program puts on the clipboard. Adding, removing and moving
-edit the project; nothing reaches the file until you save it.
+it lands beside it, and in the middle it goes inside. A drag held near the top or foot of this or any
+other pane scrolls it, faster the nearer the edge, so a row out of sight can still be reached; a tab
+held at either end of a strip with more tabs than fit scrolls the strip the same way. Adding
+an `.svg` file reads it in; so does pasting one, or pasting the SVG a drawing program puts on the
+clipboard. Adding, removing and moving edit the project; nothing reaches the file until you save it.
 
 Five panels sit round the tabs: the **Project** tree, the **Properties** of whatever is in front, the
 **Variables** it declares, the **Attributes** of the element picked in it, and the **Elements** those

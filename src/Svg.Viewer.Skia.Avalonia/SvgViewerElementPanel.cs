@@ -224,6 +224,9 @@ public sealed class SvgViewerElementPanel : UserControl
         AddHandler(DragDrop.DragLeaveEvent, (_, _) => Release());
         AddHandler(DragDrop.DropEvent, OnDrop);
 
+        // The boxes moved under a still pointer.
+        AddHandler(ScrollViewer.ScrollChangedEvent, (_, _) => Aim(null));
+
         // Marked on the way down, before the focus it moves: pressing a swatch just after typing
         // leaves the box, whose write arrives while the press is still going on.
         AddHandler(PointerPressedEvent, (_, _) => _pressing = true, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -1369,7 +1372,7 @@ public sealed class SvgViewerElementPanel : UserControl
 
     /// <summary>The box under the pointer, where it is one that would take what is being carried.</summary>
     private TextBox? Under(DragEventArgs e)
-        => (e.Source as Visual)?.FindAncestorOfType<TextBox>(true) is { Tag: string name } box
+        => SvgViewerDragScroll.Under(e, this)?.FindAncestorOfType<TextBox>(true) is { Tag: string name } box
            && _takes.Contains(name)
             ? box
             : null;
@@ -1382,8 +1385,18 @@ public sealed class SvgViewerElementPanel : UserControl
         }
 
         _aimed?.ClearValue(TemplatedControl.BorderThicknessProperty);
+        _aimed?.ClearValue(TemplatedControl.PaddingProperty);
         _aimed = box;
-        _aimed?.SetValue(TemplatedControl.BorderThicknessProperty, new Thickness(2d));
+
+        if (box is { })
+        {
+            // Thickened into its padding: a box that grew would grow the list, and at the list's end
+            // start the scroll again that takes the aim back off.
+            var aim = new Thickness(2d);
+
+            box.Padding += box.BorderThickness - aim;
+            box.BorderThickness = aim;
+        }
     }
 
     /// <summary>Puts every row back the way it was drawn.</summary>
