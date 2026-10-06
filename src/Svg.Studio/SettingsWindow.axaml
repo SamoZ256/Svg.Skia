@@ -2,177 +2,197 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Svg.Studio.SettingsWindow"
         Title="Settings"
-        Width="420"
-        SizeToContent="Height"
-        CanResize="False"
+        Width="460"
+        Height="440"
+        MinWidth="400"
+        MinHeight="300"
         ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner">
 
   <!--
     Applied as it is switched, with nothing to confirm: a settings window with OK and Cancel is a
     Windows habit, and on macOS a preference takes effect where it is set.
+
+    A fixed size with a scrolling page per tab, rather than sized to its content: it grew a setting at
+    a time until it ran off the screen with no way to reach the bottom. What each setting does is in
+    its tooltip; what is left on the page is what you set, and the lines that say what is kept now.
   -->
-  <StackPanel Margin="20" Spacing="6">
-    <TextBlock Text="Theme" />
+  <Window.Styles>
+    <Style Selector="TabItem">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="MinHeight" Value="32" />
+      <Setter Property="Padding" Value="10,0" />
+    </Style>
+    <Style Selector="StackPanel.page">
+      <Setter Property="Margin" Value="16,12,16,16" />
+      <Setter Property="Spacing" Value="14" />
+    </Style>
+    <Style Selector="StackPanel.setting">
+      <Setter Property="Spacing" Value="4" />
+    </Style>
+    <Style Selector="TextBlock.note">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Opacity" Value="0.65" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.group">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Opacity" Value="0.65" />
+    </Style>
+  </Window.Styles>
 
-    <!--
-      First, because it is the only setting here that changes what the window in front of you looks
-      like while you are looking at it. Three answers rather than a switch: following the machine is
-      a third thing and not the middle of the other two.
-    -->
-    <ComboBox x:Name="ThemeBox" HorizontalAlignment="Left" Width="200" />
+  <TabControl x:Name="SettingsTabs" Padding="0">
+    <TabItem Header="General">
+      <ScrollViewer>
+        <StackPanel Classes="page">
+          <StackPanel Classes="setting">
+            <TextBlock Text="Theme" />
+            <!--
+              Three answers rather than a switch: following the machine is a third thing and not the
+              middle of the other two.
+            -->
+            <ComboBox x:Name="ThemeBox" HorizontalAlignment="Left" Width="200"
+                      ToolTip.Tip="Same as system follows the machine, so an open editor turns dark with it." />
+          </StackPanel>
 
-    <TextBlock Text="Which way round Studio is painted. Same as system follows the machine, so an editor left open turns dark with it at sunset."
-               TextWrapping="Wrap"
-               Opacity="0.65"
-               FontSize="11" />
+          <CheckBox x:Name="AutosaveBox" Content="Keep a copy of unsaved work"
+                    ToolTip.Tip="A copy kept under your application data while there is work not on disk, offered back if Studio does not close cleanly. The project's own file is written only when you save." />
 
-    <CheckBox x:Name="AutosaveBox" Content="Keep a copy of unsaved work" Margin="0,14,0,0" />
+          <Button x:Name="ResetLayoutButton" Content="Reset panel layout" HorizontalAlignment="Left"
+                  ToolTip.Tip="Puts every panel back where it started." />
+        </StackPanel>
+      </ScrollViewer>
+    </TabItem>
 
-    <!--
-      What it does rather than what it is: the copy is the part nobody would guess, and the sentence
-      has to say that the project's own file is still the author's to write.
-    -->
-    <TextBlock Text="Studio keeps a copy of the project while it holds work that is not on disk, under your application data, and offers it back if Studio does not close cleanly. The project's own file is written only when you save it."
-               TextWrapping="Wrap"
-               Opacity="0.65"
-               FontSize="11"
-               Margin="26,0,0,0" />
+    <TabItem Header="Canvas">
+      <ScrollViewer>
+        <StackPanel Classes="page">
+          <!--
+            What it covers rather than what it is: "snap to grid" says nothing about the angle, and a
+            gesture that stops writing what the pointer said is worth knowing about before it happens.
+          -->
+          <CheckBox x:Name="SnapToGridBox" Content="Snap to grid"
+                    ToolTip.Tip="Dragging lands on the grid: a drawing's place, an element, a size and the angle of a turn. Typed numbers stay as typed." />
 
-    <TextBlock Text="Caption size" Margin="0,14,0,0" />
+          <StackPanel Classes="setting">
+            <TextBlock Text="Grid size" />
+            <NumericUpDown x:Name="GridSizeBox" HorizontalAlignment="Left" Width="120" Increment="1" FormatString="0.##"
+                           ToolTip.Tip="How far apart the lines are, in the units of the board or drawing." />
+          </StackPanel>
 
-    <!--
-      A caption is chrome rather than part of a drawing, so it is drawn at one size whatever the
-      zoom — and how big is readable is about the screen rather than about the drawings.
-    -->
-    <NumericUpDown x:Name="CaptionSizeBox"
-                   HorizontalAlignment="Left"
-                   Width="120"
-                   Increment="1"
-                   FormatString="0" />
+          <StackPanel Classes="setting">
+            <TextBlock Text="Rotation step" />
+            <!--
+              Its own number because a grid has no angle: a step of ten lines is a length, a step of
+              ten degrees is a ninth of a right angle.
+            -->
+            <NumericUpDown x:Name="RotationStepBox" HorizontalAlignment="Left" Width="120" Increment="5" FormatString="0.##"
+                           ToolTip.Tip="The angles a turn lands on, in degrees." />
+          </StackPanel>
 
-    <TextBlock Text="How big the name under a drawing, and the name inside a group's frame, is drawn on a board. It does not change with the zoom."
-               TextWrapping="Wrap"
-               Opacity="0.65"
-               FontSize="11" />
+          <StackPanel Classes="setting">
+            <TextBlock Text="Caption size" />
+            <!--
+              Chrome rather than part of a drawing, so one size whatever the zoom: how big is
+              readable is about the screen, not the drawings.
+            -->
+            <NumericUpDown x:Name="CaptionSizeBox" HorizontalAlignment="Left" Width="120" Increment="1" FormatString="0"
+                           ToolTip.Tip="How big names are drawn on a board. It does not change with the zoom." />
+          </StackPanel>
 
-    <CheckBox x:Name="DrawingCaptionsBox" Content="Name each drawing on a board" Margin="0,14,0,0" />
+          <!--
+            On, unlike the toggle this replaced: the name is shrunk to fit inside the drawing, so a
+            board that names what is on it is laid out exactly like one that does not.
+          -->
+          <CheckBox x:Name="DrawingCaptionsBox" Content="Name each drawing on a board"
+                    ToolTip.Tip="Writes each drawing's name in its top corner, shrunk to fit, so nothing moves. A group's name is always shown." />
+        </StackPanel>
+      </ScrollViewer>
+    </TabItem>
 
-    <!--
-      On, unlike the toggle this replaces. A name is now written inside the drawing and shrunk to fit
-      across it, so a board that names what is on it is laid out exactly like one that does not —
-      the room the writing used to take is what made it something to turn off.
-    -->
-    <TextBlock Text="Writes each drawing's name inside its own top corner, where a group's name sits in its frame. The name is shrunk until it fits the drawing, so nothing moves either way. A group's own name is written whatever this says."
-               TextWrapping="Wrap"
-               Opacity="0.65"
-               FontSize="11"
-               Margin="26,0,0,0" />
+    <TabItem Header="Import &amp; export">
+      <ScrollViewer>
+        <StackPanel Classes="page">
+          <StackPanel Classes="setting">
+            <TextBlock Text="Text an export cannot keep exact" />
+            <!--
+              Three answers rather than a box, because asking is the useful default: it only comes
+              up for a drawing whose words an expression writes.
+            -->
+            <ComboBox x:Name="RelaxedTextBox" HorizontalAlignment="Left" Width="200"
+                      ToolTip.Tip="Text an expression drives, placed glyph by glyph (a span, a fitted length, a path): relax those rules and draw it, or write the default text in and list the drawings." />
+          </StackPanel>
 
-    <CheckBox x:Name="SnapToGridBox" Content="Snap to grid" Margin="0,14,0,0" />
+          <StackPanel Classes="setting">
+            <!--
+              The two choices sit under the question they answer, so turning it off still leaves them
+              reachable: they are what every conversion uses while nothing asks.
+            -->
+            <CheckBox x:Name="ConvertAsksBox" Content="Ask how to convert a PaintCode document"
+                      ToolTip.Tip="Without the question, a PaintCode document is converted straight away with the two choices below." />
+            <StackPanel Margin="26,0,0,0" Spacing="4">
+              <CheckBox x:Name="ConvertIntegersBox" Content="Write whole numbers as integers" />
+              <CheckBox x:Name="ConvertOrganizesBox" Content="Automatically organize variables" />
+            </StackPanel>
+          </StackPanel>
 
-    <!--
-      What it covers rather than what it is: "snap to grid" says nothing about the angle, and a
-      gesture that stops writing what the pointer said is worth knowing about before it happens.
-    -->
-    <TextBlock Text="Everything dragged on a canvas lands on the grid rather than where the pointer stopped: a drawing's place on a board, an element inside one, the size of either, and the angle a turn comes to. The grid is drawn while this is on. Numbers you type are still the numbers you typed."
-               TextWrapping="Wrap"
-               Opacity="0.65"
-               FontSize="11"
-               Margin="26,0,0,0" />
+          <CheckBox x:Name="DropAsksBox" Content="Ask which template to use when Streamline icons are dropped"
+                    ToolTip.Tip="Without the question, a drop imports the icons whose template is sure straight away; the rest still ask." />
+        </StackPanel>
+      </ScrollViewer>
+    </TabItem>
 
-    <TextBlock Text="Grid size" Margin="0,14,0,0" />
+    <TabItem Header="Accounts">
+      <ScrollViewer>
+        <StackPanel Classes="page">
+          <TextBlock Classes="group" Text="KEYS" />
 
-    <NumericUpDown x:Name="GridSizeBox"
-                   HorizontalAlignment="Left"
-                   Width="120"
-                   Increment="1"
-                   FormatString="0.##" />
+          <!--
+            Never shown back, only said to be there: the box is for putting a key in, and the keychain
+            is where it lives.
+          -->
+          <StackPanel Classes="setting">
+            <TextBlock Text="Streamline API key" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBox x:Name="StreamlineKeyBox" Width="220" PasswordChar="•" />
+              <Button x:Name="ForgetStreamlineKeyButton" Content="Forget" />
+            </StackPanel>
+            <TextBlock x:Name="StreamlineKeyStatusText" Classes="note" />
+          </StackPanel>
 
-    <TextBlock Text="How far apart the lines are, in the units a board arranges drawings in — which in a drawing's own tab are the drawing's own."
-               TextWrapping="Wrap"
-               Opacity="0.65"
-               FontSize="11" />
+          <StackPanel Classes="setting">
+            <TextBlock Text="Anthropic API key" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBox x:Name="AnthropicKeyBox" Width="220" PasswordChar="•" />
+              <Button x:Name="ForgetAnthropicKeyButton" Content="Forget" />
+            </StackPanel>
+            <TextBlock x:Name="AnthropicKeyStatusText" Classes="note" />
+          </StackPanel>
 
-    <TextBlock Text="Rotation step" Margin="0,14,0,0" />
+          <TextBlock Classes="group" Text="CLAUDE CODE" Margin="0,6,0,0" />
 
-    <!--
-      Its own number because a grid has no angle, and the two are not the same kind of thing: a step
-      of ten lines is a length, a step of ten degrees is a sixth of a right angle.
-    -->
-    <NumericUpDown x:Name="RotationStepBox"
-                   HorizontalAlignment="Left"
-                   Width="120"
-                   Increment="5"
-                   FormatString="0.##" />
-
-    <TextBlock Text="How far apart the angles a turn lands on are, in degrees."
-               TextWrapping="Wrap"
-               Opacity="0.65"
-               FontSize="11" />
-
-    <TextBlock Text="Relaxed text layout" Margin="0,14,0,0" />
-
-    <!--
-      Three answers rather than a box, because the third one is the useful default: it only comes up
-      for a drawing whose words an expression writes, and until somebody has seen what it costs
-      there is no answer to remember.
-    -->
-    <ComboBox x:Name="RelaxedTextBox" HorizontalAlignment="Left" Width="200" />
-
-    <TextBlock Text="An export writes text an expression drives as an argument where it can. Where the drawing places that text per glyph — a span of its own, a length to fit, a path to follow — it can either give those rules up and draw the text anyway, or write the default in and tell you which drawings it did that to."
-               TextWrapping="Wrap"
-               Opacity="0.65"
-               FontSize="11" />
-
-    <CheckBox x:Name="ConvertAsksBox" Content="Ask how to convert a PaintCode document" Margin="0,14,0,0" />
-
-    <!--
-      The two choices sit under the question they answer, so turning it off here still leaves them
-      reachable: they are what every conversion uses while nothing asks.
-    -->
-    <StackPanel Margin="26,4,0,0" Spacing="4">
-      <CheckBox x:Name="ConvertIntegersBox" Content="Write whole numbers as integers" />
-      <CheckBox x:Name="ConvertOrganizesBox" Content="Automatically organize variables" />
-    </StackPanel>
-
-    <TextBlock Text="Opening a PaintCode document converts it into a project. Without the question it is converted straight away with the two choices above, which are also what the question starts from."
-               TextWrapping="Wrap"
-               Opacity="0.65"
-               FontSize="11"
-               Margin="26,0,0,0" />
-
-    <TextBlock Text="Streamline API key" Margin="0,14,0,0" />
-
-    <!--
-      Never shown back, only said to be there: the box is for putting a key in, and the keychain is
-      where it lives.
-    -->
-    <StackPanel Orientation="Horizontal" Spacing="6">
-      <TextBox x:Name="StreamlineKeyBox" Width="200" PasswordChar="•" />
-      <Button x:Name="ForgetStreamlineKeyButton" Content="Forget" />
-    </StackPanel>
-
-    <TextBlock x:Name="StreamlineKeyStatusText"
-               TextWrapping="Wrap"
-               Opacity="0.65"
-               FontSize="11" />
-
-    <CheckBox x:Name="DropAsksBox" Content="Ask which template to use when Streamline icons are dropped" Margin="0,8,0,0" />
-
-    <TextBlock Text="Without the question, a drop imports the icons whose template is sure straight away; the rest still ask."
-               TextWrapping="Wrap"
-               Opacity="0.65"
-               FontSize="11"
-               Margin="26,0,0,0" />
-
-    <TextBlock Text="Panels" Margin="0,14,0,0" />
-
-    <Button x:Name="ResetLayoutButton" Content="Reset layout" HorizontalAlignment="Left" />
-
-    <TextBlock Text="Panels can be folded to their header, carried by that header to either side of the drawing or along its foot, and dropped on another panel's header to sit behind it. This puts them back where they started, for when an arrangement has gone somewhere you would rather it had not."
-               TextWrapping="Wrap"
-               Opacity="0.65"
-               FontSize="11" />
-  </StackPanel>
+          <!--
+            Off by default: it opens a port. The copied command carries the token, which is kept in
+            the keychain and never shown here on its own.
+          -->
+          <StackPanel Classes="setting">
+            <CheckBox x:Name="McpEnabledBox" Content="Let Claude Code connect to this Studio"
+                      ToolTip.Tip="Serves the assistant's tools over MCP on this machine only, to a client holding the token." />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Text="Port" VerticalAlignment="Center" />
+              <NumericUpDown x:Name="McpPortBox" Width="120" Increment="1" FormatString="0" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Button x:Name="CopyMcpCommandButton" Content="Copy command"
+                      ToolTip.Tip="Copies the claude mcp add command that connects Claude Code to this Studio." />
+              <Button x:Name="NewMcpTokenButton" Content="New token"
+                      ToolTip.Tip="Replaces the token, so a command copied before stops working." />
+            </StackPanel>
+            <TextBlock x:Name="McpStatusText" Classes="note" />
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </TabItem>
+  </TabControl>
 </Window>

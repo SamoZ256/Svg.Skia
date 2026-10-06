@@ -287,7 +287,6 @@ class could not declare is refused as it is typed: one that is not an identifier
 already uses, or one another box of the drawing has. In the element tree a box reads
 `▭ LevelRect` beside its id, and the filter finds it by that name.
 
-
 ## Invisible elements
 
 **Invisible** outlines everything a drawing has but does not paint, so it can be seen and picked:
@@ -313,6 +312,26 @@ path, so nothing of its own says where that is.
 
 An element that uses a clip path or a mask says so in the element tree, beside its id: `clip #window`
 or `mask #sweep`. The filter finds it by that.
+
+## Connecting Claude Code
+
+Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
+project and its drawings, lists every problem in them, sets attributes and text, reads and changes a
+group's declarations, adds, moves and renames nodes, and saves or commits.
+
+1. In **Settings**, on the **Accounts** tab, turn on **Let Claude Code connect to this Studio**. Studio then listens on
+   `127.0.0.1` only, on port 7337 unless you choose another.
+2. Press **Copy command** and paste it into a terminal. It runs `claude mcp add` with this Studio's
+   address and a token, which Studio keeps in the keychain; **New token** replaces it, and a command
+   copied before stops working.
+3. In Claude Code, `/mcp` lists `svg-studio` as connected while Studio is open.
+
+Each edit Claude Code makes is one step on the same history as yours, named in the Edit menu as
+*Undo Claude Code: …*, so ⌘Z takes it back. Saving, removing a node and committing are marked as
+destructive, so Claude Code asks you before it does them; Studio does not ask again.
+
+Only one Studio can hold a port. A second one open at the same time says in Settings that the port is
+taken; give it another and copy its command separately.
 
 ## Related docs
 

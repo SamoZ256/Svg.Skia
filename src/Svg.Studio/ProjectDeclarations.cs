@@ -114,7 +114,12 @@ public static class ProjectDeclarations
     /// there are none or it could not be read. Unreadable text is handed back rather than refused
     /// here: what reads it next says so far better than this could.
     /// </returns>
-    public static string Built(ProjectDrawing drawing, string ownText)
+    /// <param name="narrow">
+    /// Whether the inherited blocks are cut down to the names the drawing reaches, which is what a
+    /// generated <c>Draw</c> wants. False puts every inherited name in scope, for a check that is to
+    /// say which names a drawing could have used.
+    /// </param>
+    public static string Built(ProjectDrawing drawing, string ownText, bool narrow = true)
     {
         if (drawing is null)
         {
@@ -126,10 +131,10 @@ public static class ProjectDeclarations
             throw new ArgumentNullException(nameof(ownText));
         }
 
-        return Built(Chain(drawing), ownText);
+        return Built(Chain(drawing), ownText, narrow);
     }
 
-    private static string Built(IReadOnlyList<ProjectGroup> chain, string ownText)
+    private static string Built(IReadOnlyList<ProjectGroup> chain, string ownText, bool narrow = true)
     {
         if (chain.Count == 0)
         {
@@ -149,7 +154,7 @@ public static class ProjectDeclarations
             root.SetAttributeValue(XNamespace.Xmlns + prefix, Ns.NamespaceName);
         }
 
-        var reached = Reached(source, chain);
+        var reached = narrow ? Reached(source, chain) : null;
 
         var defs = Defs(source, root);
         XElement? after = null;

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -163,9 +164,13 @@ public class StreamlineKeyTests : IDisposable
     {
         var settings = Shown();
 
+        // Focus needs the box on screen, so its tab in front; the other box on it takes the focus.
+        settings.Tabs.SelectedItem = settings.Tabs.Items.OfType<TabItem>().Single(tab => Equals(tab.Header, "Accounts"));
+        Dispatcher.UIThread.RunJobs();
+
         settings.StreamlineKey.Focus();
         settings.StreamlineKey.Text = "sk_live_focus";
-        settings.Autosave.Focus();
+        settings.AnthropicKey.Focus();
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal("sk_live_focus", Kept(_keychain));

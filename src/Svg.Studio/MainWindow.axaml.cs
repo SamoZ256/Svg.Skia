@@ -80,6 +80,12 @@ public partial class MainWindow : Window
     /// <summary>The open project's place in git, on the arrangement while a saved project is open and git is installed.</summary>
     private readonly ChangesPanel _changes = new();
 
+    /// <summary>The chat that answers from the docs and works the window through <see cref="AssistantTools"/>.</summary>
+    private readonly AssistantPanel _assistant;
+
+    /// <summary>The same tools as <see cref="_assistant"/>, served for Claude Code while Settings says so.</summary>
+    private readonly StudioMcpServer _mcp;
+
     /// <summary>The settings window while one is open, so a second asking brings that one forward.</summary>
     private SettingsWindow? _settings;
 
@@ -146,6 +152,12 @@ public partial class MainWindow : Window
             Remark();
             UpdateTitle();
         };
+
+        _assistant = new AssistantPanel(new AssistantTools(this));
+        _mcp = new StudioMcpServer(this);
+
+        // After the window is up rather than here: the tools it serves reach into the window.
+        Opened += async (_, _) => await _mcp.ApplyAsync().ConfigureAwait(true);
 
         // Coming back to the window is when a commit made in a terminal would be seen.
         Activated += async (_, _) => await _changes.Refresh().ConfigureAwait(true);
@@ -943,6 +955,8 @@ public partial class MainWindow : Window
     /// <summary>What the arrangement calls the changes panel.</summary>
     private const string ChangesPanelId = "changes";
 
+    private const string AssistantPanelId = "assistant";
+
     /// <summary>
     /// The panels the window arranges, one host each, filled from whichever tab is in front.
     /// </summary>
@@ -979,7 +993,8 @@ public partial class MainWindow : Window
         return new[]
             {
                 new SvgViewerRegion(ProjectTreePanel, "Project", _projectPaneHost),
-                new SvgViewerRegion(ChangesPanelId, "Changes", _changes)
+                new SvgViewerRegion(ChangesPanelId, "Changes", _changes),
+                new SvgViewerRegion(AssistantPanelId, "Assistant", _assistant)
             }
             .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id])))
             .Append(new SvgViewerRegion(StreamlineRegion, "Streamline", _streamline))
@@ -1570,19 +1585,26 @@ public partial class MainWindow : Window
     /// templates, as one step, and opens the last of them unless <paramref name="show"/> is false.
     /// </summary>
     /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
-    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports, bool show = true)
+    /// <param name="notes">
+    /// Where what the import had to say goes, for a caller with nowhere to show a dialog; null
+    /// announces it here, which is what a drop or a paste wants.
+    /// </param>
+    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports, bool show = true, List<string>? notes = null)
     {
         if (_workspace is not { } workspace || imports.Count == 0)
         {
             return Array.Empty<ProjectDrawing>();
         }
 
-        var notes = new List<string>();
-        var added = TemplateLibrary.Import(workspace, parent, index, imports, notes);
+        var said = notes ?? new List<string>();
+        var added = TemplateLibrary.Import(workspace, parent, index, imports, said);
 
-        foreach (var note in notes)
+        if (notes is null)
         {
-            await Announce(added.Count == imports.Count ? "Imported" : "That drawing couldn't be added", note).ConfigureAwait(true);
+            foreach (var note in said)
+            {
+                await Announce(added.Count == imports.Count ? "Imported" : "That drawing couldn't be added", note).ConfigureAwait(true);
+            }
         }
 
         if (added.Count == 0)
@@ -2312,7 +2334,7 @@ public partial class MainWindow : Window
     /// by the caller with the project itself, which takes the edit with nothing to take it back.
     /// By the row rather than by a file: a drawing is one row of the project, so one tab.
     /// </remarks>
-    private ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
+    internal ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
         => Tab(drawing)?.Content as SvgViewer;
 
     /// <summary>A tab for something that is not a drawing, which the viewer's own tab does not fit.</summary>
@@ -2346,6 +2368,8 @@ public partial class MainWindow : Window
 
     }
 
+    internal TabItem? TabOf(ProjectNode node) => Tab(node);
+
     private TabItem? Tab(ProjectNode node)
         => _tabs.Items.OfType<TabItem>().FirstOrDefault(item => ReferenceEquals(item.Tag, node));
 
@@ -2361,6 +2385,17 @@ public partial class MainWindow : Window
     /// </remarks>
     private void Rebuild()
     {
+        // A tab over a node an undo took out of the project: removing asks and closes the tabs
+        // first, but taking back an add cannot ask, and left a board editing a group in no project.
+        foreach (var item in _tabs.Items.OfType<TabItem>().ToList())
+        {
+            if (item.Tag is ProjectNode node && _workspace is { } workspace
+                && !node.Element.AncestorsAndSelf().Contains(workspace.Document.Root.Element))
+            {
+                CloseTab(item);
+            }
+        }
+
         foreach (var item in _tabs.Items.OfType<TabItem>())
         {
             if (item.Tag is not ProjectDrawing drawing || item.Content is not SvgViewer viewer)
@@ -2902,6 +2937,8 @@ public partial class MainWindow : Window
         Reread();
 
         await _streamline.RefreshAsync().ConfigureAwait(true);
+        await _assistant.RefreshAsync().ConfigureAwait(true);
+        await _mcp.ApplyAsync().ConfigureAwait(true);
     }
 
     /// <summary>Tells every tab what the settings now say.</summary>
@@ -2991,8 +3028,11 @@ public partial class MainWindow : Window
             return true;
         }
 
-        return Selected()?.Undo() == true || _workspace?.Undo() == true;
+        return UndoDocument();
     }
+
+    /// <summary>Undo without the box that has focus, which for the assistant is always its own input.</summary>
+    internal bool UndoDocument() => Selected()?.Undo() == true || _workspace?.Undo() == true;
 
     /// <inheritdoc cref="Undo"/>
     public bool Redo()
@@ -3624,6 +3664,11 @@ public partial class MainWindow : Window
         _recovery?.Stop();
         _recovery = null;
 
+        // Waited for, so the port is free again once the window has gone, but on the pool and for a
+        // bounded time: stopped from here, Kestrel's awaits came back to this thread, which was the
+        // one waiting for them, and closing the window hung.
+        Task.Run(() => _mcp.DisposeAsync().AsTask()).Wait(TimeSpan.FromSeconds(3));
+
         base.OnClosed(e);
     }
 
@@ -3641,6 +3686,12 @@ public partial class MainWindow : Window
 
     /// <summary>The viewer in the selected tab, or null while there is none.</summary>
     private SvgViewer? Selected() => (_tabs.SelectedItem as TabItem)?.Content as SvgViewer;
+
+    /// <summary>The drawing in front, for something outside the window that works on it.</summary>
+    internal SvgViewer? FrontViewer => Selected();
+
+    /// <summary>The project's node in front, or null for a drawing of its own or nothing.</summary>
+    internal ProjectNode? FrontNode => (_tabs.SelectedItem as TabItem)?.Tag as ProjectNode;
 
     /// <summary>The tabs holding changes that are not on disk.</summary>
     private IReadOnlyList<string> Unsaved()

@@ -66,6 +66,14 @@ public static class StudioSettings
 
     private const string LayoutKey = "layout";
 
+    private const string AssistantProviderKey = "assistantProvider";
+
+    private const string AssistantModelKey = "assistantModel";
+
+    private const string McpEnabledKey = "mcpEnabled";
+
+    private const string McpPortKey = "mcpPort";
+
     private const string ConvertAsksKey = "convertAsks";
 
     private const string DropAsksKey = "dropAsks";
@@ -289,6 +297,37 @@ public static class StudioSettings
         set => Write(LayoutKey, value ?? DefaultLayout);
     }
 
+    /// <summary>Which provider the assistant talks to, by its id, or null for the first one usable.</summary>
+    public static string? AssistantProvider
+    {
+        get => Read(AssistantProviderKey);
+        set => Write(AssistantProviderKey, value ?? string.Empty);
+    }
+
+    /// <summary>Which of the provider's models the assistant talks to, by its id.</summary>
+    public static string? AssistantModel
+    {
+        get => Read(AssistantModelKey);
+        set => Write(AssistantModelKey, value ?? string.Empty);
+    }
+
+    /// <summary>Whether Claude Code may connect to this Studio, through <see cref="StudioMcpServer"/>.</summary>
+    /// <remarks>Off unless the file says on: it opens a port, which nothing should do unasked.</remarks>
+    public static bool McpEnabled
+    {
+        get => string.Equals(Read(McpEnabledKey), "on", StringComparison.Ordinal);
+        set => Write(McpEnabledKey, value ? "on" : "off");
+    }
+
+    public const int DefaultMcpPort = 7337;
+
+    /// <summary>The port the server listens on, on this machine only.</summary>
+    public static int McpPort
+    {
+        get => (int)Read(McpPortKey, DefaultMcpPort, 1024, 65535);
+        set => Write(McpPortKey, value.ToString(CultureInfo.InvariantCulture));
+    }
+
     /// <summary>What a window nobody has arranged comes up in.</summary>
     /// <remarks>
     /// A strip either side of the drawing, both 300px so neither reads as the important one: the
@@ -305,7 +344,7 @@ public static class StudioSettings
     /// </remarks>
     public const string DefaultLayout =
         "row(col(tree+changes/1.4/tree/open,variables/1/variables/open)/300px,col(*/1.6,streamline/1/streamline/open)/1,"
-        + "col(project+elements/1/project/open,element/1/element/open)/300px)";
+        + "col(project+elements+assistant/1/project/open,element/1/element/open)/300px)";
 
     /// <summary>The two steps as one, which is what a canvas and a gesture are handed.</summary>
     /// <remarks>
