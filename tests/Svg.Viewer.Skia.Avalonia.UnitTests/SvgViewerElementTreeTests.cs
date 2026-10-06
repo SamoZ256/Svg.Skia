@@ -1713,7 +1713,6 @@ public class SvgViewerElementTreeTests
         var (window, viewer) = await Host(Kept, height: Room);
 
         window.Width = 900;
-        window.Height = 700;
 
         Assert.True(viewer.Elements.TrySelect("1"));
         Dispatcher.UIThread.RunJobs();
@@ -1753,7 +1752,6 @@ public class SvgViewerElementTreeTests
         var (window, viewer) = await Host(Kept, height: Room);
 
         window.Width = 900;
-        window.Height = 700;
 
         Assert.True(viewer.Elements.TrySelect("1"));
         Dispatcher.UIThread.RunJobs();
