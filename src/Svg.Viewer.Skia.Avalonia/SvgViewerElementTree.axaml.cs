@@ -88,6 +88,8 @@ public partial class SvgViewerElementTree : UserControl
         _dropHost = this.FindControl<Grid>("DropHost")!;
         _dropLine = this.FindControl<Border>("DropLine")!;
 
+        SvgViewerStickyRows.Attach(_tree);
+
         _tree.AddHandler(PointerPressedEvent, OnRowPressed, RoutingStrategies.Tunnel);
         _tree.PointerMoved += OnRowMoved;
         _tree.AddHandler(DragDrop.DragOverEvent, OnRowDragOver);

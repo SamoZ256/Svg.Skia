@@ -1832,6 +1832,58 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>
+    /// Scrolled inside a group, the tree keeps the group's row and the project's at its top, and the
+    /// group's row there is the row: clicking it opens the group, as clicking it anywhere does.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Group_Scrolled_Into_Is_Pinned_And_Opens_From_There()
+    {
+        var drawings = string.Concat(Enumerable.Range(0, 40).Select(index => Holding($"icon{index:00}")));
+        var window = await Host(Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons">
+              <group name="Big">
+            {drawings}
+              </group>
+            </studio>
+
+            """));
+
+        var big = Item(window, "Big");
+
+        big.IsExpanded = true;
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        var scroller = Tree(window).GetVisualDescendants().OfType<ScrollViewer>().First();
+        Border Row(TreeViewItem item) => item.GetVisualDescendants().OfType<Border>().First(border => border.Name == "PART_LayoutRoot");
+        string[] Pinned() => Tree(window).GetVisualDescendants().OfType<TreeViewItem>()
+            .Where(item => Row(item).RenderTransform is { })
+            .Select(item => ((ProjectNode)item.Tag!).Name)
+            .ToArray();
+
+        Assert.Empty(Pinned());
+
+        scroller.Offset = new Vector(0, 20 * Row(big).Bounds.Height);
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { window.Workspace!.Document.Root.Name, "Big" }, Pinned());
+
+        Click(window, big);
+
+        Assert.Same(big.Tag, ((TabItem)Tabs(window).SelectedItem!).Tag);
+        Assert.Same(big, Tree(window).SelectedItem);
+
+        // In its own place, where it was drawn: under the project's row, which as the project's
+        // first row is the top of the tree again, with nothing left to pin.
+        Assert.Equal(Row(big).Bounds.Height, Row(big).TranslatePoint(default, scroller)!.Value.Y, 3);
+        Assert.Equal(0d, scroller.Offset.Y);
+        Assert.Empty(Pinned());
+    }
+
     /// <summary>The modifier the tree adds to a selection with, on whatever platform this runs on.</summary>
     private static RawInputModifiers Command(MainWindow window)
         => Application.Current?.PlatformSettings?.HotkeyConfiguration.CommandModifiers == KeyModifiers.Meta
@@ -2249,6 +2301,60 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal("tint", row.Name);
         Assert.Equal("Project", row.OwnerLabel);
         Assert.True(row.ShowsOwner, "a row alone should still say where it came from");
+    }
+
+    /// <summary>The tree marks what the board has picked — a drawing, a group inside it, or the board's own group — and does again when the board's tab comes back.</summary>
+    [AvaloniaFact]
+    public async Task The_Tree_Marks_What_The_Board_Has_Picked()
+    {
+        var window = await Host(Framed());
+        var root = window.Workspace!.Document.Root;
+        var inner = (ProjectGroup)root.Children.Single();
+        var one = inner.Children.Single();
+        var panel = await Opened(window, root);
+        var canvas = Canvas(panel);
+        var framed = Assert.Single(canvas.Frames);
+
+        ProjectNode? Marked() => (Tree(window).SelectedItem as TreeViewItem)?.Tag as ProjectNode;
+
+        Assert.Same(root, Marked());
+
+        // Folded, so marking the drawing has to open the group it is in.
+        var group = (TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!;
+
+        group.IsExpanded = false;
+        Dispatcher.UIThread.RunJobs();
+
+        Pick(window, panel, 0);
+
+        Assert.Same(one, Marked());
+        Assert.True(group.IsExpanded);
+
+        Click(window, canvas, Over(canvas, canvas.TitleOf(framed).MidX, canvas.TitleOf(framed).MidY));
+
+        Assert.Same(inner, Marked());
+
+        Deselect(window, panel);
+
+        Assert.Same(root, Marked());
+
+        // Away to a tab of the drawing's own, and back to the board with the group picked on it.
+        Click(window, canvas, Over(canvas, canvas.TitleOf(framed).MidX, canvas.TitleOf(framed).MidY));
+
+        var board = Tabs(window).SelectedItem;
+
+        await window.ShowAsync(one);
+        Dispatcher.UIThread.RunJobs();
+
+        var drawing = Tabs(window).SelectedItem;
+
+        foreach (var (tab, marked) in new (object?, ProjectNode)[] { (board, inner), (drawing, one), (board, inner) })
+        {
+            Tabs(window).SelectedItem = tab;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Same(marked, Marked());
+        }
     }
 
     [AvaloniaFact]
@@ -5010,6 +5116,35 @@ public class MainWindowProjectTests : IDisposable
         // from the same tab, so it cannot be left saying the old one either.
         Assert.Contains("Huge", Rows((TreeViewItem)Tree(window).Items[0]!));
         Assert.StartsWith("Huge — ", window.Title);
+    }
+
+    /// <summary>
+    /// A project's drawing has no file to be named after, so its tab is called what its row is — and
+    /// is renamed with it — rather than "drawing".
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Drawings_Tab_Is_Called_What_Its_Row_Is()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var badge = (ProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!;
+
+        await window.ShowAsync(badge);
+        Dispatcher.UIThread.RunJobs();
+
+        var item = (TabItem)Tabs(window).SelectedItem!;
+        var title = (TextBlock)((StackPanel)item.Header!).Children[1];
+
+        Assert.Equal(badge.Name, title.Text);
+
+        var settings = (GroupPanel)((SvgViewer)item.Content!).SidePanels.Single().Content;
+
+        Assert.True(settings.Edit("name", "emblem"));
+
+        await window.SaveAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("emblem", title.Text);
+        Assert.StartsWith("emblem — ", window.Title);
     }
 
     [AvaloniaFact]
