@@ -1600,7 +1600,7 @@ public partial class MainWindow : Window
         return added;
     }
 
-    /// <summary>Puts <paramref name="import"/> in place of what <paramref name="drawing"/> draws, as one step, and opens it.</summary>
+    /// <summary>Puts <paramref name="import"/> in place of what <paramref name="drawing"/> draws, as one step, and opens it unless the board in front already shows it.</summary>
     /// <returns>Whether it was replaced; why not has been said.</returns>
     public async Task<bool> UpdateAsync(ProjectDrawing drawing, TemplateImport import)
     {
@@ -1629,7 +1629,10 @@ public partial class MainWindow : Window
         {
             BuildTree(drawing);
 
-            await ShowAsync(drawing).ConfigureAwait(true);
+            if (!OnBoard(drawing))
+            {
+                await ShowAsync(drawing).ConfigureAwait(true);
+            }
         }
 
         return replaced;
@@ -3064,6 +3067,9 @@ public partial class MainWindow : Window
     }
 
     private GroupPanel? Board() => (_tabs.SelectedItem as TabItem)?.Content as GroupPanel;
+
+    /// <summary>Whether the board in front already shows <paramref name="node"/>, which a board does for everything under its group.</summary>
+    internal bool OnBoard(ProjectNode node) => Board() is { } board && node.DescendsFrom(board.Node);
 
     /// <summary>
     /// Shows each command's gesture beside it, as the platform spells that gesture.

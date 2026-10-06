@@ -551,7 +551,7 @@ public sealed class StreamlinePanel : UserControl
         }
 
         // Clamped, since an undo can have taken rows out of the group while the window was up.
-        await _window.ImportAsync(import.Target, Math.Min(index, import.Target.Children.Count), Placed(import.Imports(), at).Imports, show).ConfigureAwait(true);
+        await _window.ImportAsync(import.Target, Math.Min(index, import.Target.Children.Count), Placed(import.Imports(), at).Imports, show && !_window.OnBoard(import.Target)).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -602,7 +602,7 @@ public sealed class StreamlinePanel : UserControl
             {
                 var (imports, next) = Placed(Imports(library, group, sure), at);
 
-                added = await _window.ImportAsync(group, index, imports, show).ConfigureAwait(true);
+                added = await _window.ImportAsync(group, index, imports, show && !_window.OnBoard(group)).ConfigureAwait(true);
                 at = next;
 
                 // So the Import button cannot bring them in a second time.
