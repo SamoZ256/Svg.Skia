@@ -11,10 +11,6 @@
     <StudioBuildInfo Condition="'$(StudioBuildInfo)' == ''">true</StudioBuildInfo>
   </PropertyGroup>
 
-  <ItemGroup>
-    <Content Include="Assets\*" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
   <Import Project="..\..\build\Avalonia.props" />
   <Import Project="..\..\build\Avalonia.Themes.Fluent.props" />
   <Import Project="..\..\build\Avalonia.Desktop.props" />

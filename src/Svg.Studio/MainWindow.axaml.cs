@@ -111,7 +111,7 @@ public partial class MainWindow : Window
     {
     }
 
-    /// <param name="path">A drawing to open instead of the bundled sample.</param>
+    /// <param name="path">A drawing or project to open at once.</param>
     public MainWindow(string? path)
     {
         AvaloniaXamlLoader.Load(this);
