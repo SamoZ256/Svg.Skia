@@ -375,6 +375,26 @@ public static class SvgElementEditor
         }
     }
 
+    /// <summary>The drawing's <c>&lt;defs&gt;</c>, made first in the root where it has none.</summary>
+    public static XElement Defs(SvgSourceDocument source)
+    {
+        if (source?.Document.Root is not { } root)
+        {
+            throw new ArgumentException("The source has no root element.", nameof(source));
+        }
+
+        if (root.Elements().FirstOrDefault(element => element.Name == root.Name.Namespace + "defs") is { } existing)
+        {
+            return existing;
+        }
+
+        var defs = new XElement(root.Name.Namespace + "defs");
+
+        First(root, defs, Indent(root) + source.IndentUnit);
+
+        return defs;
+    }
+
     /// <summary>Puts an element first inside a parent, on a line of its own.</summary>
     /// <remarks>
     /// What a declaration block needs and a drop does not: the &lt;e:code&gt; goes at the top of the
