@@ -129,13 +129,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private bool _sourceModified;
     private string? _name;
 
-    /// <summary>Waits for typing to stop before rebuilding the drawing.</summary>
-    /// <remarks>
-    /// A timer rather than <see cref="RequestApply"/>'s per-frame coalescing, because rebuilding is
-    /// whole-document: 18ms to parse a 132KB drawing, 13ms to split it and 12ms to check it.
-    /// </remarks>
-    private readonly DispatcherTimer _rebuild = new() { Interval = TimeSpan.FromMilliseconds(200d) };
-
     private SvgViewerDocument? _document;
     private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
     private int _loadVersion;
@@ -242,12 +235,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
             // Only where a hand did it, as with the snap toggle.
             InvisibleChanged?.Invoke(this, EventArgs.Empty);
-        };
-
-        _rebuild.Tick += (_, _) =>
-        {
-            _rebuild.Stop();
-            RebuildFromSource();
         };
 
         _canvas.ViewChanged += (_, _) =>
@@ -2206,8 +2193,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         _sourceAnalysed = false;
         _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
-
-        _rebuild.Stop();
     }
 
     /// <summary>The drawing's text: what the tree writes, or the file's own until one is open.</summary>
@@ -2941,7 +2926,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // Every gesture, whichever panel made it: a host marks its tab from this and nothing else.
         RaiseModified();
 
-        _rebuild.Stop();
         RebuildFromSource();
     }
 

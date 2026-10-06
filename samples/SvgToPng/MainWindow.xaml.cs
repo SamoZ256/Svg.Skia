@@ -11,7 +11,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Svg.Model;
-using Svg.Model.Services;
 using SvgToPng.ViewModels;
 
 namespace SvgToPng;
@@ -23,9 +22,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-#if DEBUG
-        SvgService.s_systemLanguageOverride = CultureInfo.CreateSpecificCulture("en-US");
-#endif
         var vm = MainWindowViewModel.Load<MainWindowViewModel>("VM.json");
         if (vm is { })
         {

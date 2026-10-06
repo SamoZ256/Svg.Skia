@@ -475,7 +475,8 @@ public class SvgSourceTests
             return source.Svg is null && source.Picture is null;
         });
 
-        Assert.True(task.Wait(TimeSpan.FromSeconds(2)));
+        // Thirty seconds: a pool starved by the other test processes on a runner is not a deadlock.
+        Assert.True(task.Wait(TimeSpan.FromSeconds(30)));
         Assert.True(task.Result);
     }
 

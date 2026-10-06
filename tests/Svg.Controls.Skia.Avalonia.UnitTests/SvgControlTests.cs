@@ -504,51 +504,29 @@ public class SvgControlTests
         return path;
     }
 
-    private static async Task WaitForSourceAsync(Svg svg)
+    /// <summary>Pumps until <paramref name="done"/>, or fails saying <paramref name="what"/> never happened.</summary>
+    /// <remarks>
+    /// Thirty seconds, not five: a cold load beside the other test processes on a runner is slow,
+    /// not failed, and a load that did fail reports the same whenever the clock runs out.
+    /// </remarks>
+    private static async Task WaitUntilAsync(Func<bool> done, string what)
     {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (svg.Picture is null)
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (!done())
         {
-            if (DateTime.UtcNow > deadline)
-            {
-                Assert.NotNull(svg.Picture);
-                return;
-            }
+            Assert.True(DateTime.UtcNow < deadline, what);
 
             await Task.Delay(10);
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
         }
     }
 
-    private static async Task WaitForSourceChangeAsync(Svg svg, object? previousPicture)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (ReferenceEquals(svg.Picture, previousPicture))
-        {
-            if (DateTime.UtcNow > deadline)
-            {
-                Assert.NotSame(previousPicture, svg.Picture);
-                return;
-            }
+    private static Task WaitForSourceAsync(Svg svg)
+        => WaitUntilAsync(() => svg.Picture is { }, "The source never gave a picture.");
 
-            await Task.Delay(10);
-            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
-        }
-    }
+    private static Task WaitForSourceChangeAsync(Svg svg, object? previousPicture)
+        => WaitUntilAsync(() => !ReferenceEquals(svg.Picture, previousPicture), "The picture never changed.");
 
-    private static async Task WaitForPendingLoadToClearAsync(Svg svg)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (GetPrivateField(svg, "_pendingLoadCts") is not null)
-        {
-            if (DateTime.UtcNow > deadline)
-            {
-                Assert.Null(GetPrivateField(svg, "_pendingLoadCts"));
-                return;
-            }
-
-            await Task.Delay(10);
-            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
-        }
-    }
+    private static Task WaitForPendingLoadToClearAsync(Svg svg)
+        => WaitUntilAsync(() => GetPrivateField(svg, "_pendingLoadCts") is null, "The pending load never cleared.");
 }

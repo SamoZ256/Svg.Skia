@@ -250,7 +250,7 @@ public sealed class StreamlinePanel : UserControl
     public IReadOnlyList<StreamlineIcon> Dragged { get; set; } = Array.Empty<StreamlineIcon>();
 
     /// <summary>Whether <see cref="DropAsync"/> would take what is being dragged, for a drop target to say so.</summary>
-    internal bool CanDrop => Dragged.Count > 0 && _client is { } && _window.Workspace is { } && _running is null && !_opening;
+    public bool CanDrop => Dragged.Count > 0 && _client is { } && _window.Workspace is { } && _running is null && !_opening;
 
     /// <summary>The group picked in the tree; imports go there, or into the project where none is.</summary>
     public ProjectGroup? Target

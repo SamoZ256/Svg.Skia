@@ -1,4 +1,3 @@
-using System;
 using System.Globalization;
 using Svg.Model.Services;
 using Xunit;
@@ -10,7 +9,7 @@ public class SvgConditionalProcessingTests
     [Fact]
     public void HasSystemLanguage_MatchesPrimaryLanguagePrefix()
     {
-        using var _ = new SystemLanguageOverrideScope(CultureInfo.GetCultureInfo("en-US"));
+        using var _ = SvgService.PushSystemLanguage(CultureInfo.GetCultureInfo("en-US"));
 
         var group = LoadGroup("en");
 
@@ -20,7 +19,7 @@ public class SvgConditionalProcessingTests
     [Fact]
     public void HasSystemLanguage_DoesNotMatchMoreSpecificRequestedLanguage()
     {
-        using var _ = new SystemLanguageOverrideScope(CultureInfo.GetCultureInfo("en"));
+        using var _ = SvgService.PushSystemLanguage(CultureInfo.GetCultureInfo("en"));
 
         var group = LoadGroup("en-US");
 
@@ -30,7 +29,7 @@ public class SvgConditionalProcessingTests
     [Fact]
     public void HasSystemLanguage_DoesNotTreatLegacyJwTagAsInvariantCulture()
     {
-        using var _ = new SystemLanguageOverrideScope(CultureInfo.InvariantCulture);
+        using var _ = SvgService.PushSystemLanguage(CultureInfo.InvariantCulture);
 
         var group = LoadGroup("jw");
 
@@ -47,21 +46,5 @@ public class SvgConditionalProcessingTests
 
         Assert.NotNull(document);
         return Assert.IsType<SvgGroup>(document.GetElementById("target"));
-    }
-
-    private sealed class SystemLanguageOverrideScope : IDisposable
-    {
-        private readonly CultureInfo? _previousOverride;
-
-        public SystemLanguageOverrideScope(CultureInfo? overrideCulture)
-        {
-            _previousOverride = SvgService.s_systemLanguageOverride;
-            SvgService.s_systemLanguageOverride = overrideCulture;
-        }
-
-        public void Dispose()
-        {
-            SvgService.s_systemLanguageOverride = _previousOverride;
-        }
     }
 }
