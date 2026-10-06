@@ -2251,6 +2251,60 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(row.ShowsOwner, "a row alone should still say where it came from");
     }
 
+    /// <summary>The tree marks what the board has picked — a drawing, a group inside it, or the board's own group — and does again when the board's tab comes back.</summary>
+    [AvaloniaFact]
+    public async Task The_Tree_Marks_What_The_Board_Has_Picked()
+    {
+        var window = await Host(Framed());
+        var root = window.Workspace!.Document.Root;
+        var inner = (ProjectGroup)root.Children.Single();
+        var one = inner.Children.Single();
+        var panel = await Opened(window, root);
+        var canvas = Canvas(panel);
+        var framed = Assert.Single(canvas.Frames);
+
+        ProjectNode? Marked() => (Tree(window).SelectedItem as TreeViewItem)?.Tag as ProjectNode;
+
+        Assert.Same(root, Marked());
+
+        // Folded, so marking the drawing has to open the group it is in.
+        var group = (TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!;
+
+        group.IsExpanded = false;
+        Dispatcher.UIThread.RunJobs();
+
+        Pick(window, panel, 0);
+
+        Assert.Same(one, Marked());
+        Assert.True(group.IsExpanded);
+
+        Click(window, canvas, Over(canvas, canvas.TitleOf(framed).MidX, canvas.TitleOf(framed).MidY));
+
+        Assert.Same(inner, Marked());
+
+        Deselect(window, panel);
+
+        Assert.Same(root, Marked());
+
+        // Away to a tab of the drawing's own, and back to the board with the group picked on it.
+        Click(window, canvas, Over(canvas, canvas.TitleOf(framed).MidX, canvas.TitleOf(framed).MidY));
+
+        var board = Tabs(window).SelectedItem;
+
+        await window.ShowAsync(one);
+        Dispatcher.UIThread.RunJobs();
+
+        var drawing = Tabs(window).SelectedItem;
+
+        foreach (var (tab, marked) in new (object?, ProjectNode)[] { (board, inner), (drawing, one), (board, inner) })
+        {
+            Tabs(window).SelectedItem = tab;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Same(marked, Marked());
+        }
+    }
+
     [AvaloniaFact]
     public async Task A_Selected_Group_Is_Let_Go_Of_By_The_Board()
     {

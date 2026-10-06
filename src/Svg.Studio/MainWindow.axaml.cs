@@ -2258,6 +2258,14 @@ public partial class MainWindow : Window
 
             board.SettingChanged += (_, _) => Reread();
 
+            board.DescribedChanged += (_, _) =>
+            {
+                if (ReferenceEquals(Board(), board))
+                {
+                    Reveal(board.Described);
+                }
+            };
+
             AddNodeTab(board, node, ProjectWorkspace.Label(node));
             return;
         }
@@ -2422,7 +2430,8 @@ public partial class MainWindow : Window
     /// </remarks>
     private void Reveal()
     {
-        if ((_tabs.SelectedItem as TabItem)?.Tag is ProjectNode node)
+        // A board's row is whatever is picked on it, which is its own group while nothing is.
+        if ((Board()?.Described ?? (_tabs.SelectedItem as TabItem)?.Tag) is ProjectNode node)
         {
             Reveal(node);
         }
