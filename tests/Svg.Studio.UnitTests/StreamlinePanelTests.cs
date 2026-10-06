@@ -1948,6 +1948,9 @@ public class StreamlinePanelTests : IDisposable
 
         Drop(window, OnRow(window, "Scheme"), Carrying(panel, Parsed(Icon("ico_a", "cog", "sure-glyphs"))));
         await Until(() => shown is { });
+
+        // The import lands after the window answers, which a slower machine has not got to by now.
+        await Until(() => !imports || scheme.Children.Count == 3);
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(shown!.Dropped);
