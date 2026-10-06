@@ -441,6 +441,25 @@ public class MainWindowTabsTests
         window.Close();
     }
 
+    /// <summary>A drawing opened from its text, an icon from Streamline with no project open, is called what it was opened as.</summary>
+    [AvaloniaFact]
+    public async Task A_Drawing_Opened_From_Text_Is_Called_What_It_Was_Opened_As()
+    {
+        var window = new MainWindow();
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        await window.OpenTextAsync(Drawing, "bell");
+        Dispatcher.UIThread.RunJobs();
+
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var title = (TextBlock)((StackPanel)((TabItem)tabs.SelectedItem!).Header!).Children[1];
+
+        Assert.Equal("bell", title.Text);
+
+        window.Close();
+    }
+
     private static void CloseTab(TabItem item)
     {
         ((StackPanel)item.Header!).Children.OfType<Button>().Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

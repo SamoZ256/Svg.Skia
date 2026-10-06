@@ -5118,6 +5118,35 @@ public class MainWindowProjectTests : IDisposable
         Assert.StartsWith("Huge — ", window.Title);
     }
 
+    /// <summary>
+    /// A project's drawing has no file to be named after, so its tab is called what its row is — and
+    /// is renamed with it — rather than "drawing".
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Drawings_Tab_Is_Called_What_Its_Row_Is()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var badge = (ProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!;
+
+        await window.ShowAsync(badge);
+        Dispatcher.UIThread.RunJobs();
+
+        var item = (TabItem)Tabs(window).SelectedItem!;
+        var title = (TextBlock)((StackPanel)item.Header!).Children[1];
+
+        Assert.Equal(badge.Name, title.Text);
+
+        var settings = (GroupPanel)((SvgViewer)item.Content!).SidePanels.Single().Content;
+
+        Assert.True(settings.Edit("name", "emblem"));
+
+        await window.SaveAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("emblem", title.Text);
+        Assert.StartsWith("emblem — ", window.Title);
+    }
+
     [AvaloniaFact]
     public async Task An_Unsaved_Drawing_Is_Marked_Too()
     {
