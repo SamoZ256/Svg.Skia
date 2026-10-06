@@ -50,14 +50,6 @@ jobs:
         with:
           global-json-file: global.json
 
-      # Restore took 40-50s on Linux and macOS and up to 260s on Windows, in every job.
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', 'Directory.Packages.props', 'Directory.Build.props', 'build/*.props', '**/*.csproj') }}
-          restore-keys: nuget-${{ runner.os }}-
-
       - name: Determine version suffix
         shell: bash
         run: |
@@ -153,13 +145,6 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', 'Directory.Packages.props', 'Directory.Build.props', 'build/*.props', '**/*.csproj') }}
-          restore-keys: nuget-${{ runner.os }}-
-
       - name: Determine version suffix
         shell: bash
         run: |
@@ -222,13 +207,6 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', 'Directory.Packages.props', 'Directory.Build.props', 'build/*.props', '**/*.csproj') }}
-          restore-keys: nuget-${{ runner.os }}-
 
       - name: Determine version suffix
         shell: bash
