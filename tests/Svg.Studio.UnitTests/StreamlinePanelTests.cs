@@ -1448,7 +1448,7 @@ public class StreamlinePanelTests : IDisposable
         Assert.Contains(
             """
                 <e:recipe name="Accent from Bell">
-                  <e:match colors="1" strokes="0" />
+                  <e:match colors="1" />
                   <e:slot name="rest" rest="true">stateAccentColor</e:slot>
                 </e:recipe>
               </e:templates>
