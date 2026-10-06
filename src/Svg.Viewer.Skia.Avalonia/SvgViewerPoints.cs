@@ -41,6 +41,13 @@ public sealed class SvgViewerPoints
     private SvgViewerGizmoMember? _member;
     private Shim.SKPoint _at;
     private GeometryPoints? _points;
+
+    /// <summary>The points as the drag in flight has them, read off the element after every frame.</summary>
+    /// <remarks>
+    /// Beside the ones taken at the press rather than over them: every frame is moved from where the
+    /// press found the shape, and these are only what is drawn and hit until the commit reads it again.
+    /// </remarks>
+    private GeometryPoints? _moving;
     private Shim.SKMatrix _from = Shim.SKMatrix.CreateIdentity();
     private Shim.SKMatrix _to = Shim.SKMatrix.CreateIdentity();
     private int _chosen = -1;
@@ -101,6 +108,7 @@ public sealed class SvgViewerPoints
         _at = at;
         _member = member;
         _points = null;
+        _moving = null;
         _inside = _grid.From(at.X, at.Y);
 
         if (svg is { } && member is { } held
@@ -126,7 +134,7 @@ public sealed class SvgViewerPoints
     /// <summary>The marks to draw, or null where there is no shape.</summary>
     public SvgViewerPointMarks? Marks()
     {
-        if (_points is not { } points)
+        if (Showing is not { } points)
         {
             return null;
         }
@@ -228,6 +236,12 @@ public sealed class SvgViewerPoints
 
         _writes = points.Move(_chosen, new PointF(local.X, local.Y));
 
+        // Read again only where it lists the same points, which a drag that joins the last point to
+        // the first does not; the marks then stay where the press left them until the commit.
+        _moving = GeometryPoints.Capture(_member!.Value.Element) is { } read && read.Points.Count == points.Points.Count
+            ? read
+            : null;
+
         Redraw();
     }
 
@@ -273,6 +287,7 @@ public sealed class SvgViewerPoints
 
         _points.Restore();
         _writes = null;
+        _moving = null;
 
         Redraw();
     }
@@ -381,7 +396,7 @@ public sealed class SvgViewerPoints
     /// <summary>The handles worth drawing: those either side of the chosen point that stand off their anchor.</summary>
     private IEnumerable<int> Shown()
     {
-        if (_points is not { } points || _chosen < 0)
+        if (Showing is not { } points || _chosen < 0)
         {
             return Array.Empty<int>();
         }
@@ -398,7 +413,7 @@ public sealed class SvgViewerPoints
     /// <summary>The point a press takes hold of: an anchor before a handle, so a handle lying on its anchor never hides it.</summary>
     private int Hit(Shim.SKPoint at, float scale)
     {
-        if (_points is not { } points || scale <= 0f)
+        if (Showing is not { } points || scale <= 0f)
         {
             return -1;
         }
@@ -421,6 +436,8 @@ public sealed class SvgViewerPoints
 
         return -1;
     }
+
+    private GeometryPoints? Showing => _moving ?? _points;
 
     private string? Unwritable()
         => _member is { } member && _points is { } points && Driven is { } driven && points.Names.Any(name => driven(member.Key, name))

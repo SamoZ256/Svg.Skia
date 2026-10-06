@@ -201,6 +201,28 @@ public class SvgViewerPointsTests
         Assert.Equal(before, viewer.Source);
     }
 
+    /// <summary>The marks follow the hand while it is down, not only once the drag is written.</summary>
+    [AvaloniaFact]
+    public async Task The_Points_Follow_The_Drag_Before_It_Is_Let_Go()
+    {
+        var (window, viewer) = await Reshaping();
+
+        window.MouseDown(At(window, viewer, 20f, 4f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseMove(At(window, viewer, 22f, 6f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        var marks = viewer.Canvas.Points!;
+
+        Assert.Equal(new SKPoint(22f, 6f), marks.Chosen);
+        Assert.Contains(new SKPoint(22f, 6f), marks.Anchors);
+        Assert.DoesNotContain(new SKPoint(20f, 4f), marks.Anchors);
+
+        window.MouseUp(At(window, viewer, 22f, 6f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
     [AvaloniaFact]
     public async Task A_Point_Inside_A_Transformed_Group_Is_Written_In_The_Groups_Units()
     {
