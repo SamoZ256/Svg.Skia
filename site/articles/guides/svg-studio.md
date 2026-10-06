@@ -313,6 +313,24 @@ path, so nothing of its own says where that is.
 An element that uses a clip path or a mask says so in the element tree, beside its id: `clip #window`
 or `mask #sweep`. The filter finds it by that.
 
+**Giving an element one.** Drag a `<clipPath>` or a `<mask>` from the element tree onto an element's
+row, or onto the **Clip path** or **Mask** box of the element picked, and it clips or masks that
+element; whatever did so before stays in `<defs>`. A shape kept in `<defs>` drops the same way and is
+moved into a clip path made for it, or a mask while `Alt` (`⌥`) is held. The row it would land on is
+outlined green for a clip and violet for a mask, and says which. The tree's menu has **New clip path**
+and **New mask**, which cover the picked element, its stroke and its markers with a rectangular path
+and pick that path; a new mask's path is white. With two rows picked it has **Clip … with …** and
+**Mask … with …**: a clip path, a mask or a shape in `<defs>` is what clips or masks the other row, and
+of two drawn rows the one painted later is moved into the new clip path or mask, staying where it was
+drawn and keeping the paint and font its groups gave it. A mask made from a shape masks by its alpha
+(`mask-type="alpha"`), so a shape with no fill of its own, which paints black, still shows the element
+where it covers it. A board offers all of this, though its rows cannot otherwise be dragged.
+
+The paths a clip or a mask is made of are reshaped where they apply: double-click one on the canvas,
+or pick it in the tree and choose **Points** (`⌖`) on the toolbar, and its points are held on the
+element it clips. That reaches a shape in `<defs>` drawn only through a `<use>` as well, and a double
+click on a `<use>` reshapes the shape it draws, which changes it everywhere it is used.
+
 ## Connecting Claude Code
 
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the

@@ -58,12 +58,17 @@ public static class SvgViewerOutline
         }
 
         // As well as any copy a <use> drew of it, never instead of one: it stands wherever it masks or
-        // clips, and that is where it was clicked.
-        if (Owner(element) is { })
+        // clips, and that is where it was clicked. A shape drawn only by a mask's or a clip's <use>
+        // stands where those draw it.
+        var copies = Owner(element) is { }
+            ? UsesOf(svg, element)
+            : outline.IsEmpty ? Unseen(svg).Where(unseen => ReferenceEquals(unseen.Draws?.Shape, element)) : null;
+
+        if (copies is { })
         {
             using var content = new SkiaSharp.SKPathBuilder(outline);
 
-            foreach (var use in UsesOf(svg, element))
+            foreach (var use in copies)
             {
                 content.AddPath(use.Outline);
             }
@@ -103,37 +108,77 @@ public static class SvgViewerOutline
     /// </remarks>
     internal static (ShimSkiaSharp.SKMatrix Total, ShimSkiaSharp.SKRect Geometry)? Placement(SKSvg svg, SvgElement element, int use)
     {
-        if (Owner(element) is null)
+        if (Owner(element) is { })
         {
-            return svg.TryGetRetainedSceneNodes(element, out var nodes) && nodes.Count > 0
-                ? (nodes[0].TotalTransform, nodes[0].GeometryBounds)
-                : null;
+            return Held(svg, element, use)?.Placed;
         }
 
-        var uses = UsesOf(svg, element).ToList();
+        return svg.TryGetRetainedSceneNodes(element, out var nodes) && nodes.FirstOrDefault(node => !InMask(node)) is { } drawn
+            ? (drawn.TotalTransform, drawn.GeometryBounds)
+            : DrawnBy(svg, element)?.Draws?.Placed;
+    }
 
-        return uses.Count == 0 ? null : uses[use >= 0 && use < uses.Count ? use : 0].Placed;
+    /// <summary>The first mask's or clip's <c>&lt;use&gt;</c> drawing a shape in <c>&lt;defs&gt;</c>, which is where it is held where nothing else draws it.</summary>
+    private static SvgViewerUnseen? DrawnBy(SKSvg svg, SvgElement element)
+        => Unseen(svg).FirstOrDefault(unseen => ReferenceEquals(unseen.Draws?.Shape, element));
+
+    /// <summary>
+    /// What <paramref name="element"/>'s points are taken from, and where they stand: the element
+    /// itself, or for a <c>&lt;use&gt;</c> the shape it draws, there. Null where there is none.
+    /// </summary>
+    /// <remarks>The shape is written once, so reshaping it through one use reshapes every copy.</remarks>
+    internal static (SvgElement Shape, (ShimSkiaSharp.SKMatrix Total, ShimSkiaSharp.SKRect Geometry) Placed)? Shape(SKSvg svg, SvgElement element, int use)
+    {
+        if (element is not SvgUse)
+        {
+            return Placement(svg, element, use) is { } placed ? (element, placed) : null;
+        }
+
+        if (Owner(element) is { })
+        {
+            return Held(svg, element, use)?.Draws;
+        }
+
+        return svg.TryGetRetainedSceneNodes(element, out var nodes) && nodes.FirstOrDefault(node => !InMask(node)) is { } drawn
+            ? Through(drawn, drawn.TotalTransform)
+            : null;
     }
 
     /// <summary>
     /// Every element whose move moves <paramref name="element"/> as well: its ancestors and, for mask
-    /// or clip content held through <paramref name="use"/>, the element using it there and that one's.
+    /// or clip content held through <paramref name="use"/>, the element using it there and that one's;
+    /// for a shape held where a mask's or a clip's <c>&lt;use&gt;</c> draws it, that use as well.
     /// </summary>
     internal static IEnumerable<SvgElement> Under(SKSvg svg, SvgElement element, int use)
     {
         var above = element.Parents;
 
-        if (Owner(element) is null)
+        if (Owner(element) is { })
         {
-            return above;
+            return Held(svg, element, use)?.User is { } user ? above.Concat(user.Parents).Append(user) : above;
         }
 
-        var uses = UsesOf(svg, element).ToList();
-
-        return uses.Count > 0 && uses[use >= 0 && use < uses.Count ? use : 0].User is { } user
-            ? above.Concat(user.Parents).Append(user)
+        return !(svg.TryGetRetainedSceneNodes(element, out var nodes) && nodes.Any(node => !InMask(node))) &&
+               DrawnBy(svg, element) is { Element: var through } drawn
+            ? above.Concat(through.Parents).Append(through).Concat(drawn.User is { } by ? by.Parents.Append(by) : [])
             : above;
     }
+
+    /// <summary>Which of <see cref="UsesOf"/> mask or clip content is held through: <paramref name="use"/>, or the first.</summary>
+    private static SvgViewerUnseen? Held(SKSvg svg, SvgElement element, int use)
+    {
+        var uses = UsesOf(svg, element).ToList();
+
+        return uses.Count == 0 ? null : uses[use >= 0 && use < uses.Count ? use : 0];
+    }
+
+    /// <summary>The shape a <c>&lt;use&gt;</c>'s node draws, and where, given where the use itself stands.</summary>
+    /// <remarks>Not one from another file, whose address would name some other element of this one.</remarks>
+    private static (SvgElement, (ShimSkiaSharp.SKMatrix, ShimSkiaSharp.SKRect))? Through(SvgSceneNode node, ShimSkiaSharp.SKMatrix total)
+        => node.Element is SvgUse use && node.Children is [{ Element: { } shape } drawn] &&
+           ReferenceEquals(shape.OwnerDocument, use.OwnerDocument)
+            ? (shape, (total.PreConcat(drawn.Transform), drawn.GeometryBounds))
+            : null;
 
     /// <summary>The mask or clip path <paramref name="element"/>'s <paramref name="property"/> applies, if it resolves to one with an id.</summary>
     /// <remarks>
@@ -360,14 +405,27 @@ public static class SvgViewerOutline
 
                 content.Transform(placement);
 
-                // A <use> folds its own x, y and transform into the path, so nothing of its own says where
-                // the path stands, and it gets no handles.
                 (ShimSkiaSharp.SKMatrix, ShimSkiaSharp.SKRect)? placed =
-                    contentElement is not SvgUse && clip.Clips is { Count: 1 } clips && clips[0].Path is { } path
+                    clip.Clips is { Count: 1 } clips && clips[0].Path is { } path
                         ? (total.PreConcat(clip.Transform ?? ShimSkiaSharp.SKMatrix.Identity).PreConcat(clips[0].Transform ?? ShimSkiaSharp.SKMatrix.Identity), path.Bounds)
                         : null;
 
-                found.Add(new SvgViewerUnseen(contentElement, SvgViewerUnseenKind.Clip, content, null, Placed: placed, User: element));
+                // A <use> folds its own x, y and transform into the path, so nothing of its own says where
+                // the path stands, and it gets no handles: the place is the shape's it draws.
+                (SvgElement, (ShimSkiaSharp.SKMatrix, ShimSkiaSharp.SKRect))? draws =
+                    contentElement is SvgUse use && placed is { } at &&
+                    use.TryGetEffectiveHrefString(out var href) && use.OwnerDocument?.GetElementById(href) is { } shape
+                        ? (shape, at)
+                        : null;
+
+                found.Add(new SvgViewerUnseen(
+                    contentElement,
+                    SvgViewerUnseenKind.Clip,
+                    content,
+                    null,
+                    Placed: contentElement is SvgUse ? null : placed,
+                    User: element,
+                    Draws: draws));
             }
         }
 
@@ -395,7 +453,9 @@ public static class SvgViewerOutline
         {
             var total = under is { } parent ? parent.PreConcat(node.Transform) : node.TotalTransform;
 
-            found.Add(new SvgViewerUnseen(element, kind, outline, null, drawn, (total, node.GeometryBounds), user));
+            var draws = kind == SvgViewerUnseenKind.Mask ? Through(node, total) : null;
+
+            found.Add(new SvgViewerUnseen(element, kind, outline, null, drawn, (total, node.GeometryBounds), user, draws));
         }
         else
         {
@@ -564,6 +624,7 @@ internal enum SvgViewerUnseenKind
 /// have none.
 /// </param>
 /// <param name="User">For mask or clip content, the element it masks or clips there.</param>
+/// <param name="Draws">For a <c>&lt;use&gt;</c> in a mask or a clip, the shape it draws and where that stands, as <paramref name="Placed"/> says it.</param>
 internal sealed record SvgViewerUnseen(
     SvgElement Element,
     SvgViewerUnseenKind Kind,
@@ -571,4 +632,5 @@ internal sealed record SvgViewerUnseen(
     SvgSceneBox? Box,
     bool Drawn = true,
     (ShimSkiaSharp.SKMatrix Total, ShimSkiaSharp.SKRect Geometry)? Placed = null,
-    SvgElement? User = null);
+    SvgElement? User = null,
+    (SvgElement Shape, (ShimSkiaSharp.SKMatrix Total, ShimSkiaSharp.SKRect Geometry) Placed)? Draws = null);

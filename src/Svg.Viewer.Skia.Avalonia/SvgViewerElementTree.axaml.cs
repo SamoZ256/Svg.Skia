@@ -8,6 +8,7 @@ using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
@@ -36,6 +37,7 @@ public partial class SvgViewerElementTree : UserControl
     private readonly TreeView _tree;
     private readonly Grid _dropHost;
     private readonly Border _dropLine;
+    private readonly TextBlock _dropWord;
     private readonly TextBlock _empty;
     private readonly TextBox _filter;
 
@@ -43,7 +45,7 @@ public partial class SvgViewerElementTree : UserControl
     /// <summary>How far the pointer travels before a press becomes a drag.</summary>
     private const double DragThreshold = 4d;
 
-    /// <summary>What a dragged row carries. Nothing reads it; a drag needs some format to be.</summary>
+    /// <summary>What a dragged row carries: its address, then each property it could be applied as, spaced.</summary>
     private static readonly DataFormat<string> RowFormat = DataFormat.CreateStringApplicationFormat("SvgViewerElementRow");
 
     private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
@@ -66,8 +68,14 @@ public partial class SvgViewerElementTree : UserControl
     private SvgViewerElementNode? _row;
     private PointerPressedEventArgs? _rowPressed;
     private Point _rowPressedAt;
-    private SvgViewerElementNode? _dropOn;
-    private SvgElementDrop _dropWhere;
+
+    /// <summary>What was selected before the press that picked a row up.</summary>
+    /// <remarks>
+    /// Pressing a row selects it, which turns the element panel to it. A row that could be dropped
+    /// on that panel puts this back as it starts moving, so the panel shows what it would land on.
+    /// </remarks>
+    private List<string> _before = new();
+
     /// <summary>The rows selected, the first of them being the one the followers are anchored to.</summary>
     /// <remarks>
     /// A list rather than a set: the order is what says which row is the anchor, and the restore
@@ -87,10 +95,14 @@ public partial class SvgViewerElementTree : UserControl
         _tree = this.FindControl<TreeView>("Tree")!;
         _dropHost = this.FindControl<Grid>("DropHost")!;
         _dropLine = this.FindControl<Border>("DropLine")!;
+        _dropWord = this.FindControl<TextBlock>("DropWord")!;
 
         _tree.AddHandler(PointerPressedEvent, OnRowPressed, RoutingStrategies.Tunnel);
         _tree.PointerMoved += OnRowMoved;
+        // Entered as well as moved over: coming back from another control raises no move in between.
+        _tree.AddHandler(DragDrop.DragEnterEvent, OnRowDragOver);
         _tree.AddHandler(DragDrop.DragOverEvent, OnRowDragOver);
+        _tree.AddHandler(DragDrop.DragLeaveEvent, (_, _) => HideDrop());
         _tree.AddHandler(DragDrop.DropEvent, OnRowDrop);
 
         DragDrop.SetAllowDrop(_tree, true);
@@ -123,14 +135,16 @@ public partial class SvgViewerElementTree : UserControl
     }
 
     /// <summary>Raised when a row is selected, or with null when the selection is dropped.</summary>
+    /// <remarks>The row can be one the filter hides, which is then not in the tree.</remarks>
     public event EventHandler<SvgViewerElementNode?>? Selected;
 
     /// <summary>
     /// Moves a row to where it was dropped, for a host that has somewhere to write it.
     /// </summary>
     /// <remarks>
-    /// Wired rather than built in, and the rows are draggable only where it is: this control is also
-    /// the tree of a project group's tab, which shows a drawing it has no text to edit.
+    /// Wired rather than built in, and the rows are draggable only where it or
+    /// <see cref="ClipRequested"/> is: this control is also the tree of a project group's tab, which
+    /// moves nothing, and there only a row that can be applied is picked up.
     /// </remarks>
     public Func<string, string, SvgElementDrop, bool>? MoveRequested { get; set; }
 
@@ -143,31 +157,58 @@ public partial class SvgViewerElementTree : UserControl
     /// <summary>Writes a copy of each row named after it, for the same kind of host.</summary>
     public Func<IReadOnlyList<string>, bool>? DuplicateRequested { get; set; }
 
+    /// <summary>
+    /// Clips or masks a row with another, for any host that writes: the content's row, the
+    /// target's, then <c>clip-path</c> or <c>mask</c>. Asked by the menu and by a drop.
+    /// </summary>
+    public Func<string, string, string, bool>? ClipRequested { get; set; }
+
+    /// <summary>Clips or masks a row with a new clip path or mask covering it, for the same kind of host.</summary>
+    public Func<string, string, bool>? NewClipRequested { get; set; }
+
     /// <summary>The rows' menu, showing whatever a host has wired and nothing where it wired nothing.</summary>
     private ContextMenu Menu()
     {
         var group = Item("New group", () => NewGroupRequested is { } write && SelectedNode is { } row && write(row.AddressKey, SvgElementDrop.After));
+        var clip = Item("New clip path", () => New("clip-path"));
+        var mask = Item("New mask", () => New("mask"));
+        var clipWith = Item(string.Empty, () => With("clip-path"));
+        var maskWith = Item(string.Empty, () => With("mask"));
         var duplicate = Item("Duplicate", () => DuplicateRequested is { } write && write(_selectedAddresses.ToList()));
         var delete = Item("Delete", () => DeleteRequested is { } write && write(_selectedAddresses.ToList()));
-        var menu = new ContextMenu { ItemsSource = new[] { group, duplicate, delete } };
+        var menu = new ContextMenu { ItemsSource = new[] { group, clip, mask, clipWith, maskWith, duplicate, delete } };
 
         menu.Opening += (_, e) =>
         {
             var command = Command();
+            var pair = ClipRequested is { } ? Paired() : null;
 
             group.IsVisible = NewGroupRequested is { };
+            clip.IsVisible = mask.IsVisible = NewClipRequested is { };
+            clipWith.IsVisible = pair is { } && Offers(pair.Value, "clip-path");
+            maskWith.IsVisible = pair is { } && Offers(pair.Value, "mask");
             duplicate.IsVisible = DuplicateRequested is { };
             delete.IsVisible = DeleteRequested is { };
 
             group.IsEnabled = SelectedNode is { };
+            clip.IsEnabled = One("clip-path");
+            mask.IsEnabled = One("mask");
             duplicate.IsEnabled = delete.IsEnabled = _selectedAddresses.Count > 0;
+
+            // A TextBlock, since the ids are what the drawing says and the first underscore of a
+            // header string is an access key.
+            if (pair is (var target, var shape))
+            {
+                clipWith.Header = new TextBlock { Text = $"Clip {Named(target)} with {Named(shape)}" };
+                maskWith.Header = new TextBlock { Text = $"Mask {Named(target)} with {Named(shape)}" };
+            }
 
             // Shown rather than bound, which is what a MenuItem's gesture is: the keys are answered
             // by the tree and the canvas, so they work while this menu is closed.
             duplicate.InputGesture = new KeyGesture(Key.D, command);
             delete.InputGesture = new KeyGesture(Key.Delete);
 
-            e.Cancel = !(group.IsVisible || duplicate.IsVisible || delete.IsVisible);
+            e.Cancel = !(group.IsVisible || clip.IsVisible || clipWith.IsVisible || maskWith.IsVisible || duplicate.IsVisible || delete.IsVisible);
         };
 
         return menu;
@@ -180,7 +221,51 @@ public partial class SvgViewerElementTree : UserControl
 
             return item;
         }
+
+        bool New(string property) => NewClipRequested is { } make && _selectedAddresses is [var row] && make(row, property);
+
+        bool One(string property) => _selectedAddresses is [var key] && _byAddress.TryGetValue(key, out var row) && Takes(row, property);
+
+        bool With(string property)
+            => ClipRequested is { } apply && Paired() is (var target, var shape) && apply(shape.AddressKey, target.AddressKey, property);
+
+        // A clip path offers only Clip and a mask only Mask; anything else offers both, and the file refuses what it must.
+        static bool Offers((SvgViewerElementNode Target, SvgViewerElementNode Shape) pair, string property)
+            => Takes(pair.Target, property) && Applies(pair.Shape) is var applies && (applies.Length == 0 || applies.Contains(property));
+
+        static string Named(SvgViewerElementNode node)
+            => string.IsNullOrEmpty(node.Element.ID) ? node.Label : $"{node.Label} #{node.Element.ID}";
     }
+
+    /// <summary>The two rows selected, as what would be clipped and what it would be clipped with; null unless there are two.</summary>
+    /// <remarks>
+    /// What it is clipped with is the row kept off the canvas — a clip path, a mask, a shape in
+    /// &lt;defs&gt; — where only one is. Otherwise it is the one painted later, the way a shape is drawn
+    /// over what it is to cut: by address, index by index, and a child after the group it is in.
+    /// </remarks>
+    private (SvgViewerElementNode Target, SvgViewerElementNode Shape)? Paired()
+    {
+        if (_selectedAddresses is not [var one, var other]
+            || !_byAddress.TryGetValue(one, out var first)
+            || !_byAddress.TryGetValue(other, out var second)
+            || SvgElementAddress.Parse(one) is not { } a
+            || SvgElementAddress.Parse(other) is not { } b)
+        {
+            return null;
+        }
+
+        return (Applies(first).Length > 0, Applies(second).Length > 0) switch
+        {
+            (true, false) => (second, first),
+            (false, true) => (first, second),
+            _ => a.ChildIndexes.AsSpan().SequenceCompareTo(b.ChildIndexes) < 0 ? (first, second) : (second, first)
+        };
+    }
+
+    /// <summary>Whether <paramref name="row"/> can be given <paramref name="property"/>, as the file would let it.</summary>
+    /// <remarks>Never the drawing itself, which has no place of its own to cover or carry a shape into.</remarks>
+    private static bool Takes(SvgViewerElementNode row, string property)
+        => row.AddressKey.Length > 0 && SvgElementEditor.Clippable(row.Label, property);
 
     /// <summary>The platform's command key, so the gesture is ⌘D where the menu says it is.</summary>
     private KeyModifiers Command()
@@ -211,18 +296,39 @@ public partial class SvgViewerElementTree : UserControl
 
     // ---- dragging a row ---------------------------------------------------------------------
 
+    /// <summary>A drag of the row at <paramref name="addressKey"/>, which could be applied as each of <paramref name="applies"/>.</summary>
+    /// <remarks>
+    /// Everything is in the payload rather than in a field, so the element panel, which is another
+    /// control, can read it, and a drag can be made without a pointer.
+    /// </remarks>
+    public static DataTransfer Carrying(string addressKey, params string[] applies)
+    {
+        var data = new DataTransfer();
+
+        data.Add(DataTransferItem.Create(RowFormat, string.Join(' ', applies.Prepend(addressKey))));
+
+        return data;
+    }
+
+    /// <summary>The row a drag is carrying, and what it could be applied as, or null where it carries no row.</summary>
+    public static (string Key, IReadOnlyList<string> Applies)? Carried(DragEventArgs e)
+        => e?.DataTransfer is { } carried && carried.Contains(RowFormat) && carried.TryGetValue(RowFormat) is { } written
+            ? (written.Split(' ')[0], written.Split(' ')[1..])
+            : null;
+
     private void OnRowPressed(object? sender, PointerPressedEventArgs e)
     {
         _row = null;
         _rowPressed = null;
 
-        if (MoveRequested is null
+        if ((MoveRequested is null && ClipRequested is null)
             || e.Source is not Visual source
             // The chevron folds the row; it does not pick it up.
             || source.FindAncestorOfType<ToggleButton>(true) is { }
             || source.FindAncestorOfType<TreeViewItem>(true)?.DataContext is not SvgViewerElementNode node
             // The drawing itself is the file. There is nowhere to put it.
             || node.AddressKey.Length == 0
+            || (MoveRequested is null && Applies(node).Length == 0)
             || !e.GetCurrentPoint(_tree).Properties.IsLeftButtonPressed)
         {
             return;
@@ -231,11 +337,12 @@ public partial class SvgViewerElementTree : UserControl
         _row = node;
         _rowPressed = e;
         _rowPressedAt = e.GetPosition(_tree);
+        _before = _selectedAddresses.ToList();
     }
 
     private async void OnRowMoved(object? sender, PointerEventArgs e)
     {
-        if (_row is null || _rowPressed is not { } pressed)
+        if (_row is not { } row || _rowPressed is not { } pressed)
         {
             return;
         }
@@ -255,15 +362,23 @@ public partial class SvgViewerElementTree : UserControl
             return;
         }
 
-        var data = new DataTransfer();
-
-        data.Add(DataTransferItem.Create(RowFormat, string.Empty));
+        var applies = Applies(row);
 
         _rowPressed = null;
 
+        if (applies.Length > 0 && !_before.SequenceEqual(_selectedAddresses))
+        {
+            Select(_before, reveal: false);
+        }
+
         try
         {
-            await DragDrop.DoDragDropAsync(pressed, data, DragDropEffects.Move);
+            // Link and Copy as well, since an apply answers one of them, and the drag source keeps
+            // only the answers it was started with.
+            await DragDrop.DoDragDropAsync(
+                pressed,
+                Carrying(row.AddressKey, applies),
+                DragDropEffects.Move | DragDropEffects.Link | DragDropEffects.Copy);
         }
         finally
         {
@@ -275,65 +390,149 @@ public partial class SvgViewerElementTree : UserControl
 
     private void OnRowDragOver(object? sender, DragEventArgs e)
     {
-        if (_row is not { } dragged
-            || (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(true) is not { DataContext: SvgViewerElementNode over })
+        if (Carried(e) is null)
         {
             HideDrop();
 
             return;
         }
-
-        e.DragEffects = DragDropEffects.Move;
 
         // Taken, or the viewer's own handler answers for it: that one is about files dropped on the
         // drawing and turns away a drag carrying none — which is every drag of a row, so not one of
         // them could be started at all.
         e.Handled = true;
 
-        // A row cannot land in its own branch, and the addresses say so: everything under a row
-        // spells its address and then some.
-        if (over.AddressKey.StartsWith(dragged.AddressKey, StringComparison.Ordinal))
+        if (Landing(e) is not { } landing)
         {
+            e.DragEffects = DragDropEffects.None;
+
             HideDrop();
 
             return;
         }
 
-        var item = (e.Source as Visual)!.FindAncestorOfType<TreeViewItem>(true)!;
+        e.DragEffects = landing.Applied is { } ? Applying(e) : DragDropEffects.Move;
 
-        _dropOn = over;
-        _dropWhere = Bands(e.GetPosition(item).Y, RowHeight(item), over);
-
-        ShowDrop(item);
+        ShowDrop(landing.Item, landing.Where, landing.Applied);
     }
 
     private void OnRowDrop(object? sender, DragEventArgs e)
     {
-        var target = _dropOn;
-        var where = _dropWhere;
-        var dragged = _row;
-
-        // Before anything else: the landing is what the pointer said last, and HideDrop forgets it.
         HideDrop();
 
-        if (dragged is { } && target is { } && MoveRequested is { } move)
+        // Worked out again rather than kept from the last move, so ⌥ and the row under the pointer are read as it is let go.
+        if (Landing(e) is not { } landing)
         {
-            e.Handled = true;
+            return;
+        }
 
-            move(dragged.AddressKey, target.AddressKey, where);
+        e.Handled = true;
+
+        if (landing.Applied is { } property)
+        {
+            e.DragEffects = Applying(e);
+
+            ClipRequested?.Invoke(landing.Dragged, landing.Over.AddressKey, property);
+        }
+        else
+        {
+            e.DragEffects = DragDropEffects.Move;
+
+            MoveRequested?.Invoke(landing.Dragged, landing.Over.AddressKey, landing.Where);
         }
     }
+
+    /// <summary>
+    /// Where a dragged row would land, and as what: moved beside or into the row under the pointer,
+    /// or applied to it as a clip path or a mask. Null where it would land nowhere.
+    /// </summary>
+    /// <remarks>
+    /// A row kept off the canvas applies over the whole of a drawn row, since moving it there is
+    /// refused anyway. One that is not — a clip path written beside the shapes — still moves on the
+    /// row's outer quarters, and applies in the middle, where a group would have taken it inside.
+    /// </remarks>
+    private (TreeViewItem Item, string Dragged, SvgViewerElementNode Over, SvgElementDrop Where, string? Applied)? Landing(DragEventArgs e)
+    {
+        if (Carried(e) is not { Key: var dragged }
+            || !_byAddress.TryGetValue(dragged, out var row)
+            || (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(true) is not { DataContext: SvgViewerElementNode over } item
+            // Everything under a row spells its address and a slash, and nothing lands in its own branch.
+            || over.AddressKey == dragged
+            || over.AddressKey.StartsWith(dragged + "/", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var applied = ClipRequested is null || Shelter(over.Element) is { }
+            ? null
+            : Applies(row) switch
+            {
+                [] => null,
+                [var only] => only,
+                _ => e.KeyModifiers.HasFlag(KeyModifiers.Alt) ? "mask" : "clip-path"
+            };
+
+        applied = applied is { } property && Takes(over, property) ? property : null;
+
+        var where = applied is { } && Shelter(row.Element) is { }
+            ? SvgElementDrop.Inside
+            : Bands(e.GetPosition(item).Y, RowHeight(item), Holds(over) || applied is { });
+
+        if (where != SvgElementDrop.Inside)
+        {
+            applied = null;
+        }
+
+        return applied is null && MoveRequested is null ? null : (item, dragged, over, where, applied);
+    }
+
+    /// <summary>What a row could be clipped or masked with where it is dropped on one that is drawn.</summary>
+    /// <remarks>
+    /// A shape kept in &lt;defs&gt; could be either, and is the clip path unless ⌥ is held; a
+    /// <c>&lt;use&gt;</c> there is only a mask where what it draws is no shape a clip path takes.
+    /// </remarks>
+    private static string[] Applies(SvgViewerElementNode row)
+        => row.Label switch
+        {
+            "clipPath" => ["clip-path"],
+            "mask" => ["mask"],
+            var name when SvgElementEditor.Clips(name) && Shelter(row.Element) == "defs" => Outlined(row.Element) ? ["clip-path", "mask"] : ["mask"],
+            _ => []
+        };
+
+    /// <summary>Whether what <paramref name="element"/> draws, through any <c>&lt;use&gt;</c> of a use, is a shape or text.</summary>
+    private static bool Outlined(SvgElement element)
+    {
+        var seen = new HashSet<SvgElement>();
+
+        while (element is SvgUse use && seen.Add(use)
+               && use.TryGetEffectiveHrefString(out var href) && use.OwnerDocument?.GetElementById(href) is { } drawn)
+        {
+            element = drawn;
+        }
+
+        return element is not SvgUse && SvgElementEditor.Clips(SvgElementNames.NameOf(element));
+    }
+
+    /// <summary>What a drop that applies a row answers: a link, or a copy where the drag offers no link.</summary>
+    /// <remarks>macOS narrows what a drag offers to a copy while ⌥ is held, and turns down every other answer.</remarks>
+    internal static DragDropEffects Applying(DragEventArgs e)
+        => (e.DragEffects & DragDropEffects.Link) != 0 ? DragDropEffects.Link : DragDropEffects.Copy;
+
+    /// <summary>The nearest element above this one that keeps what it holds off the canvas, or null where it is drawn.</summary>
+    private static string? Shelter(SvgElement element)
+        => element.Parents.Select(SvgElementNames.NameOf).FirstOrDefault(SvgElementEditor.Keeps);
 
     /// <summary>
     /// Which band of a row the pointer is in, and so what a drop there means.
     /// </summary>
     /// <remarks>
-    /// A row that can hold children has three: a quarter at each end to go beside it, and the middle
+    /// A row a drop can go into has three: a quarter at each end to go beside it, and the middle
     /// to go in it. One that cannot has two, so there is nowhere to aim that would mean nothing.
     /// </remarks>
-    private static SvgElementDrop Bands(double y, double height, SvgViewerElementNode target)
+    private static SvgElementDrop Bands(double y, double height, bool middle)
     {
-        if (!Holds(target))
+        if (!middle)
         {
             return y < height / 2 ? SvgElementDrop.Before : SvgElementDrop.After;
         }
@@ -352,14 +551,14 @@ public partial class SvgViewerElementTree : UserControl
     /// </summary>
     /// <remarks>
     /// A TreeViewItem's bounds cover its whole branch, and taking those would put the quarter marks
-    /// a subtree apart.
+    /// a subtree apart. So does its first visual child, a panel holding the header and the branch.
     /// </remarks>
     private static double RowHeight(TreeViewItem item)
-        => item.GetVisualChildren().FirstOrDefault()?.Bounds.Height is { } own && own > 0d
+        => item.GetTemplateDescendants().OfType<Control>().FirstOrDefault(part => part.Name == "PART_Header")?.Bounds.Height is { } own && own > 0d
             ? own
             : item.Bounds.Height;
 
-    private void ShowDrop(TreeViewItem item)
+    private void ShowDrop(TreeViewItem item, SvgElementDrop where, string? applied)
     {
         if (item.TranslatePoint(new Point(0, 0), _dropHost) is not { } at)
         {
@@ -367,21 +566,25 @@ public partial class SvgViewerElementTree : UserControl
         }
 
         var height = RowHeight(item);
-        var inside = _dropWhere == SvgElementDrop.Inside;
+        var inside = where == SvgElementDrop.Inside;
+        var (_, word, colour) = s_applies.FirstOrDefault(apply => apply.Property == applied);
+        var ink = Color.Parse(colour ?? "#4C9BE8");
 
         _dropLine.Width = Math.Max(item.Bounds.Width, 1);
         _dropLine.Height = inside ? height : 2d;
-        _dropLine.Background = new SolidColorBrush(Color.Parse(inside ? "#334C9BE8" : "#4C9BE8"));
+        _dropLine.BorderBrush = new SolidColorBrush(ink);
+        _dropLine.Background = new SolidColorBrush(inside ? Color.FromArgb(0x33, ink.R, ink.G, ink.B) : ink);
         _dropLine.BorderThickness = new Thickness(inside ? 1d : 0d);
-        _dropLine.Margin = new Thickness(at.X, at.Y + (_dropWhere == SvgElementDrop.After ? height - 2d : 0d), 0, 0);
+
+        // After an open group is after all of it.
+        _dropLine.Margin = new Thickness(at.X, at.Y + (where == SvgElementDrop.After ? item.Bounds.Height - 2d : 0d), 0, 0);
+        _dropWord.Text = word;
+        _dropWord.Foreground = _dropLine.BorderBrush;
+        _dropWord.IsVisible = word is { };
         _dropLine.IsVisible = true;
     }
 
-    private void HideDrop()
-    {
-        _dropLine.IsVisible = false;
-        _dropOn = null;
-    }
+    private void HideDrop() => _dropLine.IsVisible = false;
 
     public SvgViewerElementNode? SelectedNode => _tree.SelectedItem as SvgViewerElementNode;
 
@@ -490,7 +693,11 @@ public partial class SvgViewerElementTree : UserControl
     /// of six is one thing for the tree to lay out and one event for whoever is listening.
     /// </remarks>
     /// <returns>Whether there is a row for every one of them.</returns>
-    public bool TrySelect(IReadOnlyCollection<string> addressKeys)
+    public bool TrySelect(IReadOnlyCollection<string> addressKeys) => Select(addressKeys, reveal: true);
+
+    /// <inheritdoc cref="TrySelect(IReadOnlyCollection{string})"/>
+    /// <param name="reveal">Whether to open what is above the rows and scroll to them, which a drag putting back what it found does not.</param>
+    private bool Select(IReadOnlyCollection<string> addressKeys, bool reveal)
     {
         var rows = new List<SvgViewerElementNode>();
 
@@ -498,7 +705,11 @@ public partial class SvgViewerElementTree : UserControl
         {
             if (_byAddress.TryGetValue(addressKey, out var node))
             {
-                Reveal(addressKey);
+                if (reveal)
+                {
+                    Reveal(addressKey);
+                }
+
                 rows.Add(node);
             }
         }
@@ -522,18 +733,47 @@ public partial class SvgViewerElementTree : UserControl
                     Selected?.Invoke(this, null);
                 }
             }
+            else if (!reveal && _document is { } document && addressKeys.First() is var anchor
+                     && SvgElementAddress.Parse(anchor)?.Resolve(document) is { } element)
+            {
+                // A drag putting back what the filter hides, which has no row to hand the control:
+                // the anchor is said without one, so the host turns back to it.
+                Forget();
+                _selectedAddresses.AddRange(addressKeys);
+
+                Selected?.Invoke(this, new SvgViewerElementNode(
+                    element, anchor, SvgElementNames.NameOf(element), null, Array.Empty<SvgViewerElementNode>(), _expanded));
+
+                return true;
+            }
 
             return addressKeys.Count == 0;
         }
 
-        // The whole request and not only the rows that can be shown: a row the filter is hiding is
-        // still a selected row, and a host reading back what it just asked for would otherwise find
-        // its selection cut down to whatever is typed in a box.
-        Choose(rows, addressKeys);
+        // The tree scrolls to a selected row by itself, and as it is handed it, which would take the
+        // row being dragged out from under the pointer.
+        var scrolls = _tree.AutoScrollToSelectedItem;
+
+        _tree.AutoScrollToSelectedItem = reveal && scrolls;
+
+        try
+        {
+            // The whole request and not only the rows that can be shown: a row the filter is hiding
+            // is still a selected row, and a host reading back what it just asked for would
+            // otherwise find its selection cut down to whatever is typed in a box.
+            Choose(rows, addressKeys);
+        }
+        finally
+        {
+            _tree.AutoScrollToSelectedItem = scrolls;
+        }
 
         // Posted, because a row inside a branch that was closed a line ago has no container to
         // scroll to until the tree has laid out again.
-        Dispatcher.UIThread.Post(() => _tree.ScrollIntoView(rows[0]), DispatcherPriority.Background);
+        if (reveal)
+        {
+            Dispatcher.UIThread.Post(() => _tree.ScrollIntoView(rows[0]), DispatcherPriority.Background);
+        }
 
         return rows.Count == addressKeys.Count;
     }
@@ -637,7 +877,8 @@ public partial class SvgViewerElementTree : UserControl
         }
     }
 
-    private static readonly (string Property, string Word)[] s_applies = { ("clip-path", "clip"), ("mask", "mask") };
+    /// <summary>What a clip path or a mask is called beside a row, and the colour a drop of one is drawn in: the canvas's outlines of their content.</summary>
+    private static readonly (string Property, string Word, string Colour)[] s_applies = { ("clip-path", "clip", "#3FB950"), ("mask", "mask", "#9B6CFF") };
 
     /// <summary>
     /// One row and everything under it, or null where the filter keeps none of it.
@@ -672,7 +913,7 @@ public partial class SvgViewerElementTree : UserControl
         }
 
         // And what clips or masks it, which nothing on the canvas says of the element itself.
-        foreach (var (property, word) in s_applies)
+        foreach (var (property, word, _) in s_applies)
         {
             if (SvgViewerOutline.Applied(element, property) is { } applied)
             {

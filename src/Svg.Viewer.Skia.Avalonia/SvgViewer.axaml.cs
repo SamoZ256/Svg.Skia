@@ -197,6 +197,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree.NewGroupRequested = NewGroup;
         _elementTree.DeleteRequested = Delete;
         _elementTree.DuplicateRequested = Duplicate;
+        _elementTree.ClipRequested = ApplyClip;
+        _elementTree.NewClipRequested = NewClip;
+
+        // The anchor rather than the row on screen, which a filter can hide while the panel still shows it.
+        _element.NewClipRequested = property => _elementTree.SelectedAddresses is [var row, ..] && NewClip(row, property);
+        _element.ClipRequested = (content, property) => _elementTree.SelectedAddresses is [var row, ..] && ApplyClip(content, row, property);
 
         _canvas.KeyDown += OnCanvasKeyDown;
 
@@ -729,9 +735,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// unproject succeeds for any point on the control, so before this a click in the grey and a
     /// click in the drawing's own margin were the same event and neither did anything.
     ///
-    /// What is picked is the element that was drawn, so clicking a shape placed by <c>&lt;use&gt;</c>
-    /// selects the definition it was drawn from — which is where it is written, and the only row
-    /// there is for it.
+    /// A shape placed by <c>&lt;use&gt;</c> picks the use, which is what put it there and what moves it;
+    /// its points, taken hold of, are the definition's.
     /// </remarks>
     private void PickElement(Point at)
     {
@@ -964,10 +969,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         ShowGizmo();
     }
 
-    /// <summary>Whether the one row selected is a shape with points to take hold of.</summary>
-    private bool Reshapable()
-        => !_page && _elementTree.SelectedAddresses.Count == 1 && SvgViewerPoints.Reshapes(SelectedElement);
-
     /// <summary>Writes a copy of each row at <paramref name="addressKeys"/> after it, and selects the copies.</summary>
     public bool Duplicate(IReadOnlyList<string> addressKeys)
     {
@@ -982,6 +983,67 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             mine.Count == 1 ? "duplicate an element" : $"duplicate {mine.Count} elements",
             source => SvgElementEditor.Duplicate(source, mine, out copies),
             () => Rows(copies));
+    }
+
+    /// <summary>
+    /// Clips or masks the row at <paramref name="targetKey"/> with the one at
+    /// <paramref name="contentKey"/>, and selects what it is clipped with.
+    /// </summary>
+    /// <param name="property"><c>clip-path</c> or <c>mask</c>.</param>
+    /// <remarks>
+    /// Any two rows: whatever a drop or a menu hands over is refused by the file where it has to
+    /// be. Where a drawn shape stays, and what a new mask shows, are measured here, since only the
+    /// built drawing knows.
+    /// </remarks>
+    private bool ApplyClip(string contentKey, string targetKey, string property)
+    {
+        if (Spelt(new[] { contentKey, targetKey }) is not [var content, var target]
+            || _document is not { Svg.SourceDocument: { } built } open)
+        {
+            return false;
+        }
+
+        string? carried = null, region = null, held = null;
+
+        if (SvgElementAddress.Parse(targetKey)?.Resolve(built) is { } user)
+        {
+            carried = SvgElementAddress.Parse(contentKey)?.Resolve(built) is { } shape ? SvgViewerDraw.Carried(open.Svg, shape, user) : null;
+            SvgViewerDraw.Covering(open.Svg, user, mask: true, out _, out region);
+        }
+
+        return Rewritten(
+            property == "mask" ? "mask an element" : "clip an element",
+            source => SvgElementEditor.Clip(source, target, property, content, carried, out held, region),
+            () => held is { } key ? Rows(new[] { key }) : Array.Empty<string>());
+    }
+
+    /// <summary>
+    /// Clips or masks the row at <paramref name="targetKey"/> with a new clip path or mask covering
+    /// it, and selects the path it starts as. The row is its only user, so the handles and the
+    /// points stand there.
+    /// </summary>
+    private bool NewClip(string targetKey, string property)
+    {
+        if (Spelt(new[] { targetKey }) is not [var target]
+            || _document is not { Svg.SourceDocument: { } built } open
+            || SvgElementAddress.Parse(targetKey)?.Resolve(built) is not { } element)
+        {
+            return false;
+        }
+
+        if (SvgViewerDraw.Covering(open.Svg, element, property == "mask", out var seed, out var region) is { } refusal)
+        {
+            ShowNote(refusal);
+
+            return false;
+        }
+
+        string? held = null;
+
+        return Rewritten(
+            property == "mask" ? "add a mask" : "add a clip path",
+            source => SvgElementEditor.Clip(source, target, property, seed!, out held, region),
+            () => held is { } key ? Rows(new[] { key }) : Array.Empty<string>());
     }
 
     /// <summary>
@@ -1095,7 +1157,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        if (e.Key is Key.Enter or Key.Return && e.KeyModifiers == KeyModifiers.None && _draw.Shape is null && !_draw.Reshaping && Reshapable())
+        if (e.Key is Key.Enter or Key.Return && e.KeyModifiers == KeyModifiers.None && _draw.Shape is null && !_draw.Reshaping && _points.IsShowing)
         {
             e.Handled = true;
 
@@ -1623,8 +1685,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         if (!_draw.Reshaping)
         {
             // On the shape or in its box: the first click of the two selected it, and the second
-            // lands wherever the first did.
-            if (_canvas.Clicks != 2 || !Reshapable() || !_gizmo.Keeps(pressed, scale))
+            // lands wherever the first did. A clip path's edge is picked a little outside its box,
+            // and a <use> in one has no box at all, so near the outline counts too.
+            if (_canvas.Clicks != 2 || !_points.IsShowing || (!_gizmo.Keeps(pressed, scale) && !_points.Near(pressed, scale)))
             {
                 return false;
             }

@@ -156,6 +156,25 @@ public class SvgViewerPointsTests
     private static string Written(SvgViewer viewer, string addressKey, string name)
         => SvgAttributeEditor.Attribute(SvgSourceDocument.Read(viewer.Source, out _)!, addressKey, name) ?? "-";
 
+    /// <summary>What the file spells for an attribute of the element with <paramref name="id"/>.</summary>
+    private static string WrittenOn(SvgViewer viewer, string id, string name)
+        => SvgSourceDocument.Read(viewer.Source, out _)!.Document.Descendants()
+            .Single(element => (string?)element.Attribute("id") == id)
+            .Attribute(name)?.Value ?? "-";
+
+    /// <summary>Selects by name, the way the tree reaches what a click cannot.</summary>
+    private static void SelectById(SvgViewer viewer, string id)
+    {
+        var element = viewer.Canvas.Svg?.SourceDocument?.GetElementById(id);
+
+        Assert.NotNull(element);
+        Assert.True(viewer.Elements.TrySelect(SvgElementAddress.Create(element!).Key));
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(id, viewer.SelectedElement?.ID);
+    }
+
     private static ToggleButton Tool(SvgViewer viewer, string tool)
         => viewer.GetVisualDescendants().OfType<ToggleButton>().Single(button => Equals(button.Tag, tool));
 
@@ -521,5 +540,306 @@ public class SvgViewerPointsTests
         Drag(window, viewer, (20f, 4f), (22f, 6f));
 
         Assert.Equal("M4 4 L22 6 L20 20", Written(viewer, "0", "d"));
+    }
+
+    // ---- mask and clip content -----------------------------------------------------------------
+
+    /// <summary>A clip path's path stands where the element using it is, and is written in its own units.</summary>
+    [AvaloniaFact]
+    public async Task A_Path_In_A_Clip_Path_Is_Reshaped_Where_It_Clips()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs><clipPath id="c"><path id="edge" d="M2 2 L12 2 L12 12 Z" /></clipPath></defs>
+              <g transform="translate(4 4)"><rect width="16" height="16" fill="#3366cc" clip-path="url(#c)" /></g>
+            </svg>
+            """);
+        var before = viewer.Source;
+
+        SelectById(viewer, "edge");
+        Press(window, PhysicalKey.Enter);
+
+        Assert.True(Tool(viewer, "points").IsChecked);
+        Assert.Equal(new[] { new SKPoint(6f, 6f), new SKPoint(16f, 6f), new SKPoint(16f, 16f) }, viewer.Canvas.Points!.Anchors);
+
+        Drag(window, viewer, (16f, 6f), (18f, 8f));
+
+        Assert.Equal("M2 2 L14 4 L12 12 Z", WrittenOn(viewer, "edge", "d"));
+        Assert.Equal(new SKPoint(18f, 8f), viewer.Canvas.Points!.Chosen.Single().At);
+
+        Assert.True(viewer.Undo());
+        Assert.Equal(before, viewer.Source);
+    }
+
+    /// <summary>
+    /// A clip path's edge is picked a little way outside it, so the second click of a double-click
+    /// lands outside its box and still takes hold of its points.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Double_Click_On_A_Clip_Paths_Edge_Takes_Hold_Of_Its_Points()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs><clipPath id="c"><path id="edge" d="M2 4 L22 4 L22 20 Z" /></clipPath></defs>
+              <rect width="24" height="24" fill="#3366cc" clip-path="url(#c)" />
+            </svg>
+            """);
+
+        DoubleClick(window, viewer, 6f, 3.85f);
+
+        Assert.Equal("edge", viewer.SelectedElement?.ID);
+        Assert.True(Tool(viewer, "points").IsChecked);
+        Assert.Equal(3, viewer.Canvas.Points!.Anchors.Count);
+    }
+
+    /// <summary>Taken hold of where a second element doubles it, ten units across that element are five of the path's own.</summary>
+    [AvaloniaFact]
+    public async Task A_Path_In_A_Mask_Is_Reshaped_Through_The_Use_It_Was_Clicked_On()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <mask id="sweep" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+                  <path id="spot" d="M0 0 L20 0 L20 20 L0 20 Z" fill="#ffffff" />
+                </mask>
+              </defs>
+              <rect width="30" height="30" fill="#3366cc" mask="url(#sweep)" />
+              <g transform="translate(50 50) scale(2)"><rect width="20" height="20" fill="#3366cc" mask="url(#sweep)" /></g>
+            </svg>
+            """);
+
+        DoubleClick(window, viewer, 50f, 70f);
+
+        Assert.Equal("spot", viewer.SelectedElement?.ID);
+        Assert.True(Tool(viewer, "points").IsChecked);
+
+        Drag(window, viewer, (90f, 50f), (80f, 50f));
+
+        Assert.Equal("M0 0 L15 0 L20 20 L0 20 Z", WrittenOn(viewer, "spot", "d"));
+
+        // Still on the second element once the commit has rebuilt the drawing.
+        Assert.Equal(new SKPoint(80f, 50f), viewer.Canvas.Points!.Chosen.Single().At);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Path_Nested_In_A_Group_Inside_A_Mask_Is_Reshaped_From_The_Tree()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+                  <g transform="translate(30 40)"><path id="deep" d="M0 0 L20 0 L20 10" fill="#ffffff" /></g>
+                </mask>
+              </defs>
+              <rect width="100" height="100" fill="#3366cc" mask="url(#m)" />
+            </svg>
+            """);
+
+        SelectById(viewer, "deep");
+        Press(window, PhysicalKey.Enter);
+
+        Assert.Equal(new[] { new SKPoint(30f, 40f), new SKPoint(50f, 40f), new SKPoint(50f, 50f) }, viewer.Canvas.Points!.Anchors);
+
+        Drag(window, viewer, (50f, 40f), (60f, 45f));
+
+        Assert.Equal("M0 0 L30 5 L20 10", WrittenOn(viewer, "deep", "d"));
+    }
+
+    /// <summary>A shape drawn by &lt;use&gt;, and kept in &lt;defs&gt; for it.</summary>
+    private const string Used = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" width="24" height="24">
+          <defs><path id="bent" d="M0 0 L8 0 L8 8" fill="none" stroke="#000000" /></defs>
+          <use id="copy" xlink:href="#bent" x="4" y="4" />
+          <use xlink:href="#bent" x="14" y="14" />
+        </svg>
+        """;
+
+    /// <summary>The points are the definition's, so the copy clicked and every other one change with them.</summary>
+    [AvaloniaFact]
+    public async Task A_Double_Click_On_A_Use_Reshapes_The_Shape_It_Draws_There()
+    {
+        var (window, viewer) = await Host(Used);
+
+        DoubleClick(window, viewer, 8f, 4f);
+
+        Assert.True(Tool(viewer, "points").IsChecked);
+        Assert.Equal(new[] { new SKPoint(4f, 4f), new SKPoint(12f, 4f), new SKPoint(12f, 12f) }, viewer.Canvas.Points!.Anchors);
+
+        Drag(window, viewer, (12f, 4f), (14f, 6f));
+
+        Assert.Equal("M0 0 L10 2 L8 8", WrittenOn(viewer, "bent", "d"));
+        Assert.Equal("copy", viewer.SelectedElement?.ID);
+        Assert.Equal(new SKPoint(14f, 6f), viewer.Canvas.Points!.Chosen.Single().At);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Defs_Path_Picked_From_The_Tree_Is_Reshaped_Where_Its_First_Use_Draws_It()
+    {
+        var (window, viewer) = await Host(Used);
+
+        SelectById(viewer, "bent");
+        Press(window, PhysicalKey.Enter);
+
+        Assert.Equal(new[] { new SKPoint(4f, 4f), new SKPoint(12f, 4f), new SKPoint(12f, 12f) }, viewer.Canvas.Points!.Anchors);
+
+        Drag(window, viewer, (12f, 12f), (10f, 12f));
+
+        Assert.Equal("M0 0 L8 0 L6 8", WrittenOn(viewer, "bent", "d"));
+    }
+
+    /// <summary>A &lt;use&gt; in a clip path has no handles of its own, but the shape it draws has points.</summary>
+    [AvaloniaFact]
+    public async Task A_Double_Click_On_A_Use_Inside_A_Clip_Path_Reshapes_What_It_Draws()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <path id="bent" d="M0 0 L16 0 L16 16 Z" />
+                <clipPath id="c"><use id="u" xlink:href="#bent" x="4" y="4" /></clipPath>
+              </defs>
+              <rect width="24" height="24" fill="#3366cc" clip-path="url(#c)" />
+            </svg>
+            """);
+
+        DoubleClick(window, viewer, 10f, 4f);
+
+        Assert.Equal("u", viewer.SelectedElement?.ID);
+        Assert.True(Tool(viewer, "points").IsChecked);
+
+        Drag(window, viewer, (20f, 4f), (22f, 6f));
+
+        Assert.Equal("M0 0 L18 2 L16 16 Z", WrittenOn(viewer, "bent", "d"));
+        Assert.Equal("u", viewer.SelectedElement?.ID);
+    }
+
+    /// <summary>
+    /// A shape only a mask's &lt;use&gt; draws is held where the mask puts it, and still there after
+    /// the commit, when the mask's own copy of it has been indexed a rebuild behind.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Defs_Path_A_Mask_Uses_Is_Reshaped_Where_It_Masks()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <path id="spot" d="M0 0 L40 0 L40 40 L0 40 Z" fill="#ffffff" />
+                <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><use xlink:href="#spot" x="10" y="20" /></mask>
+              </defs>
+              <g transform="translate(20 10)"><rect width="80" height="80" fill="#3366cc" mask="url(#m)" /></g>
+            </svg>
+            """);
+
+        SelectById(viewer, "spot");
+        Press(window, PhysicalKey.Enter);
+
+        Assert.True(Tool(viewer, "points").IsChecked);
+        Assert.Contains(new SKPoint(70f, 30f), viewer.Canvas.Points!.Anchors);
+
+        Drag(window, viewer, (70f, 30f), (80f, 40f));
+
+        Assert.Equal("M0 0 L50 10 L40 40 L0 40 Z", WrittenOn(viewer, "spot", "d"));
+        Assert.Contains(new SKPoint(80f, 40f), viewer.Canvas.Points!.Anchors);
+
+        Drag(window, viewer, (70f, 70f), (60f, 60f));
+
+        Assert.Equal("M0 0 L50 10 L30 30 L0 40 Z", WrittenOn(viewer, "spot", "d"));
+    }
+
+    /// <summary>
+    /// Redrawing anything else in place indexes the mask's copy of the shape, in the masked element's
+    /// space rather than where it lands; the points stay where the mask puts it.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_Mask_Indexed_By_A_Redraw_Elsewhere_Does_Not_Move_The_Points()
+    {
+        var svg = new Svg.Skia.SKSvg();
+
+        Assert.NotNull(svg.FromSvg("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <path id="spot" d="M0 0 L20 0 L20 20 Z" fill="#ffffff" />
+                <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><use xlink:href="#spot" x="30" y="40" /></mask>
+              </defs>
+              <g transform="translate(20 10)"><rect width="80" height="90" fill="#3366cc" mask="url(#m)" /></g>
+              <rect id="other" width="10" height="10" fill="#cc3366" />
+            </svg>
+            """));
+
+        var document = svg.SourceDocument!;
+        var other = (SvgRectangle)document.GetElementById("other");
+
+        other.X = new SvgUnit(5f);
+        Assert.True(svg.TryApplyRetainedSceneMutationAndRender(other, new[] { "x" }, out _));
+
+        var spot = document.GetElementById("spot");
+        var points = new SvgViewerPoints();
+
+        points.Track(svg, default, new SvgViewerGizmoMember(spot, SvgElementAddress.Create(spot).Key));
+
+        Assert.Equal(new[] { new SKPoint(50f, 50f), new SKPoint(70f, 50f), new SKPoint(70f, 70f) }, points.Marks()!.Anchors);
+    }
+
+    /// <summary>
+    /// A &lt;use&gt; of another file draws a shape whose address is that file's, which would name some
+    /// other element of this one, so it has no points to take hold of.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_Use_Of_Another_Files_Shape_Has_No_Points()
+    {
+        var folder = Directory.CreateTempSubdirectory().FullName;
+
+        try
+        {
+            File.WriteAllText(Path.Combine(folder, "sprites.svg"), """
+                <svg xmlns="http://www.w3.org/2000/svg"><path id="arrow" d="M0 0 L10 0 L10 10" /></svg>
+                """);
+
+            var drawing = Path.Combine(folder, "drawing.svg");
+
+            File.WriteAllText(drawing, """
+                <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" width="24" height="24">
+                  <use id="far" xlink:href="sprites.svg#arrow" x="4" y="4" />
+                  <use id="near" xlink:href="#here" />
+                  <path id="here" d="M0 0 L8 0" stroke="#000000" />
+                </svg>
+                """);
+
+            var svg = new Svg.Skia.SKSvg();
+
+            Assert.NotNull(svg.Load(drawing));
+
+            var points = new SvgViewerPoints();
+
+            foreach (var (id, held) in new[] { ("near", true), ("far", false) })
+            {
+                var use = svg.SourceDocument!.GetElementById(id);
+
+                points.Track(svg, default, new SvgViewerGizmoMember(use, SvgElementAddress.Create(use).Key));
+
+                Assert.Equal(held, points.IsShowing);
+            }
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>A shape in &lt;defs&gt; that nothing draws has nowhere to show its points, so Enter arms nothing.</summary>
+    [AvaloniaFact]
+    public async Task A_Shape_Nothing_Draws_Is_Not_Taken_Hold_Of()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs><path id="spare" d="M0 0 L8 0 L8 8" /></defs>
+              <rect width="10" height="10" fill="#3366cc" />
+            </svg>
+            """);
+
+        SelectById(viewer, "spare");
+        Press(window, PhysicalKey.Enter);
+
+        Assert.True(Tool(viewer, "select").IsChecked);
+        Assert.Null(viewer.Canvas.Points);
     }
 }

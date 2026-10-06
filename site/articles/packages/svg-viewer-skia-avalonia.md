@@ -343,6 +343,16 @@ move into the drawing, so the element really is somewhere else afterwards, and t
 in changes with it. **New group** on the tree's own menu writes an empty `<g>` beside the picked row
 for things to be dragged into. Both arrive as one step to take back.
 
+A `<clipPath>`, a `<mask>` or a shape kept in `<defs>` dropped on a drawn row is **applied** to it
+rather than moved: the row is outlined green for a clip and violet for a mask, the colours of the
+canvas's outlines of their content, with the word beside it. A clip path or a mask is pointed at as it
+is; a shape is moved into one made for it, and is a clip path unless `Alt` (`⌥`) is held. The same
+rows drop on the element panel's **Clip path** and **Mask** boxes. The menu has **New clip path** and
+**New mask**, which cover the picked row with a rectangular path, and with two rows picked
+**Clip … with …** and **Mask … with …**, where a row kept off the canvas is what clips the other and,
+between two drawn rows, the one painted later does. A host wires these through `ClipRequested` and
+`NewClipRequested`, which is how a project group's board offers them though its rows do not move.
+
 What cannot be done is refused with a sentence rather than attempted: a row cannot land in its own
 branch, a drawing written on one line has no line to move, a tag that closes itself has no inside,
 and a drop that would carry an element across a `<defs>`, a `<clipPath>` or a `<mask>` would change
@@ -360,7 +370,9 @@ Three things are worth knowing before relying on it:
   of, and those are the disagreement that remains; a half-typed document is no longer one of them,
   since text that will not read back never becomes the drawing.
 - **A `<use>` has one row, not one per use.** What is listed is what is written. Picking the
-  definition rings it everywhere it is drawn, and clicking any of those copies selects that one row.
+  definition rings it everywhere it is drawn. Clicking a copy selects the `<use>` that put it there,
+  which is what moves it; its points, taken hold of, are the definition's, so reshaping one copy
+  reshapes them all.
 
 Rows are held by the child-index address `SvgElementAddress` spells, not by element. A drawing
 rebuilt from edited text shares no element with the one it replaced, so that is what keeps the

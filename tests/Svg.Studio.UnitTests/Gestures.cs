@@ -105,11 +105,12 @@ internal static class Gestures
 
     /// <summary>Carries <paramref name="carried"/> to a point of the window and lets it go, walking the drag through in full.</summary>
     /// <remarks>Only the move over a target works out where the drop would land, and a drop that never moved lands nowhere.</remarks>
-    internal static void Drop(Window window, Point at, IDataTransfer carried, DragDropEffects effects = DragDropEffects.Copy)
+    /// <param name="keys">The modifier keys held throughout, as ⌥ is to make a mask of a shape.</param>
+    internal static void Drop(Window window, Point at, IDataTransfer carried, DragDropEffects effects = DragDropEffects.Copy, RawInputModifiers keys = RawInputModifiers.None)
     {
         foreach (var stage in new[] { RawDragEventType.DragEnter, RawDragEventType.DragOver, RawDragEventType.Drop })
         {
-            window.DragDrop(at, stage, carried, effects, RawInputModifiers.None);
+            window.DragDrop(at, stage, carried, effects, keys);
         }
 
         Dispatcher.UIThread.RunJobs();
