@@ -1956,14 +1956,16 @@ public class StreamlinePanelTests : IDisposable
 
         window.ShowImport = import =>
         {
-            shown = import;
-
             var dialog = new StreamlineImportWindow(import, window);
             var answer = dialog.ShowDialog<bool>(window);
 
             Drawn(dialog);
             dialog.GetLogicalDescendants().OfType<CheckBox>().Single(box => Equals(box.Content, "Don't ask again when dropping")).IsChecked = true;
             dialog.KeyPressQwerty(key, RawInputModifiers.None);
+
+            // Only once answered: Drawn runs the dispatcher, where the test's Until can resume, and an
+            // Escape test that finished in there had its dialog closed under the key press.
+            shown = import;
 
             return answer;
         };

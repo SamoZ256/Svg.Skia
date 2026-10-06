@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Headless.XUnit" />
+    <Compile Include="..\Svg.Viewer.Skia.Avalonia.UnitTests\CloseWindowsAfterTest.cs" Link="CloseWindowsAfterTest.cs" />
   </ItemGroup>
 
 </Project>
