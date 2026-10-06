@@ -71,6 +71,7 @@ public class SvgViewerCanvas : SKCanvasControl
     private SKPath? _highlight;
     private BoundsInfo? _gizmo;
     private bool _gizmoTurns = true;
+    private SvgViewerPointMarks? _points;
     private bool _pageOutlined = true;
     private bool _editing;
     private bool _editMoved;
@@ -108,7 +109,7 @@ public class SvgViewerCanvas : SKCanvasControl
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
         Array.Empty<SvgViewerPlacement>(), Array.Empty<SvgViewerFrame>(), 1d, 0d, 0d, new(0x1A, 0x1A, 0x1E), null,
-        0d, null, null, true, DefaultCaptionSize, SvgViewerGrid.None, null, null, true);
+        0d, null, null, true, DefaultCaptionSize, SvgViewerGrid.None, null, null, true, null);
 
     private sealed record Snapshot(
         IReadOnlyList<SvgViewerPlacement> Placed,
@@ -126,7 +127,8 @@ public class SvgViewerCanvas : SKCanvasControl
         SvgViewerGrid Grid,
         SKRect? Marquee,
         IReadOnlyList<IReadOnlyList<Shown>>? Invisible,
-        bool PageOutlined);
+        bool PageOutlined,
+        SvgViewerPointMarks? Points);
 
     /// <summary>
     /// Something invisible as it is drawn: where it stands, its outline where it is not a box, what is
@@ -226,6 +228,10 @@ public class SvgViewerCanvas : SKCanvasControl
     /// <remarks>The events above carry a point and nothing else, and a host drawing a square needs the key too.</remarks>
     public KeyModifiers Modifiers { get; private set; }
 
+    /// <summary>Which click of a run the last press was: 2 for the second of a double-click.</summary>
+    /// <remarks>Only a press carries the count, and a host hears of a click on the release.</remarks>
+    public int Clicks { get; private set; }
+
     /// <summary>Whether an edit gesture is in flight, between <see cref="EditBegun"/> and its end.</summary>
     public bool IsEditing => _editing;
 
@@ -254,6 +260,18 @@ public class SvgViewerCanvas : SKCanvasControl
         set
         {
             _gizmo = value;
+
+            Publish();
+        }
+    }
+
+    /// <summary>The points of the shape being reshaped, in the space the drawings are arranged in, or null.</summary>
+    public SvgViewerPointMarks? Points
+    {
+        get => _points;
+        set
+        {
+            _points = value;
 
             Publish();
         }
@@ -1228,7 +1246,8 @@ public class SvgViewerCanvas : SKCanvasControl
             // no rectangle yet, and a zero-sized one would flash a dot under every click.
             _marquee && _marqueeMoved ? Spanned(_marqueeFrom, _marqueeTo) : null,
             Drawn(),
-            _pageOutlined);
+            _pageOutlined,
+            _moving is { } && _moved ? null : _points);
 
         InvalidateVisual();
     }
@@ -1396,6 +1415,7 @@ public class SvgViewerCanvas : SKCanvasControl
         var properties = e.GetCurrentPoint(this).Properties;
 
         Modifiers = e.KeyModifiers;
+        Clicks = e.ClickCount;
 
         // Recorded before the pan is decided on, so a host that has turned panning off can still be
         // clicked. Whether this becomes a pick is settled on release.
@@ -2170,6 +2190,11 @@ public class SvgViewerCanvas : SKCanvasControl
             Handles(canvas, gizmo, state.Scale, state.GizmoTurns);
         }
 
+        if (state.Points is { } points)
+        {
+            PointMarks(canvas, points, state.Scale);
+        }
+
         // Over the handles, because this is what the hand is doing now and the selection behind it
         // is what it is about to replace.
         if (state.Marquee is { } swept)
@@ -2308,6 +2333,58 @@ public class SvgViewerCanvas : SKCanvasControl
 
             canvas.DrawRect(square, fill);
             canvas.DrawRect(square, line);
+        }
+    }
+
+    /// <summary>
+    /// Draws a shape's points: its anchors square, the handles of the chosen one round and on stalks.
+    /// </summary>
+    /// <remarks>Smaller than the gizmo's handles, which sit four to a box; a path has dozens of these.</remarks>
+    private static void PointMarks(SKCanvas canvas, SvgViewerPointMarks marks, double scale)
+    {
+        var hairline = (float)(1d / scale);
+        var half = (HandleWidth - 2f) / 2f * hairline;
+
+        using var line = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            Color = s_ringSettled,
+            StrokeWidth = hairline
+        };
+
+        using var fill = new SKPaint { IsAntialias = true, Color = SKColors.White };
+        using var chosen = new SKPaint { IsAntialias = true, Color = s_ringSettled };
+
+        foreach (var (from, to) in marks.Stalks)
+        {
+            canvas.DrawLine(from, to, line);
+        }
+
+        foreach (var handle in marks.Handles)
+        {
+            canvas.DrawCircle(handle, half * 0.8f, fill);
+            canvas.DrawCircle(handle, half * 0.8f, line);
+        }
+
+        foreach (var anchor in marks.Anchors)
+        {
+            var square = new SKRect(anchor.X - half, anchor.Y - half, anchor.X + half, anchor.Y + half);
+
+            canvas.DrawRect(square, fill);
+            canvas.DrawRect(square, line);
+        }
+
+        foreach (var (at, anchor) in marks.Chosen)
+        {
+            if (anchor)
+            {
+                canvas.DrawRect(new SKRect(at.X - half, at.Y - half, at.X + half, at.Y + half), chosen);
+            }
+            else
+            {
+                canvas.DrawCircle(at, half * 0.8f, chosen);
+            }
         }
     }
 

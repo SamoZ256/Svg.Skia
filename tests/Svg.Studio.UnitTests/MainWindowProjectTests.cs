@@ -1250,6 +1250,141 @@ public class MainWindowProjectTests : IDisposable
         Assert.DoesNotContain("<line", home.Text, StringComparison.Ordinal);
     }
 
+    /// <summary>Two drawings holding the same stroke, the second placed at x 100 so the board's numbers are not its own.</summary>
+    private static string Strokes() => """
+        <studio namespace="Demo.Icons">
+          <drawing name="home" class="Home" x="0" y="0">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <path d="M4 4 L20 4 L20 20" fill="none" stroke="#000000" stroke-width="2" />
+            </svg>
+          </drawing>
+          <drawing name="badge" class="Badge" x="100" y="0">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <path d="M4 4 L20 4 L20 20" fill="none" stroke="#000000" stroke-width="2" />
+            </svg>
+          </drawing>
+        </studio>
+        """;
+
+    /// <summary>Picks the stroke at <paramref name="x"/>, <paramref name="y"/> of the arrangement and takes hold of its points, with a double-click.</summary>
+    private static void Reshape(MainWindow window, SvgViewerCanvas canvas, float x, float y)
+    {
+        Click(window, canvas, Over(canvas, x, y));
+
+        Gestures.Press(window, canvas, Over(canvas, x, y), clicks: 2);
+        Gestures.Release(window, canvas, Over(canvas, x, y));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotNull(canvas.Points);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Point_Dragged_On_The_Board_Is_Written_Into_Its_Drawing_In_Its_Own_Units()
+    {
+        var window = await Host(Write("icons.svgstudio", Strokes()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var badge = (ProjectDrawing)window.Workspace.Document.Root.Children[1];
+        var was = (Home: home.Text, Badge: badge.Text);
+        var area = Area(Shown(panel, badge));
+
+        Reshape(window, canvas, area.Left + 12f, area.Top + 4f);
+
+        Drag(window, canvas, Over(canvas, area.Left + 20f, area.Top + 4f), Over(canvas, area.Left + 22f, area.Top + 6f));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("d=\"M4 4 L22 6 L20 20\"", badge.Text, StringComparison.Ordinal);
+        Assert.Equal(was.Home, home.Text);
+
+        // Still the chosen point, on the shape the board built again from what was written.
+        Assert.Equal(new SKPoint(area.Left + 22f, area.Top + 6f), canvas.Points!.Chosen.Single().At);
+
+        Assert.True(window.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was.Badge, badge.Text);
+    }
+
+    /// <summary>
+    /// Points chosen on the board by a sweep and a Shift-click move together into their drawing, and
+    /// are all still chosen once the board is laid out again.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Several_Points_Chosen_On_The_Board_Move_Together_And_Stay_Chosen()
+    {
+        var window = await Host(Write("icons.svgstudio", Strokes()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var badge = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var area = Area(Shown(panel, badge));
+
+        Reshape(window, canvas, area.Left + 12f, area.Top + 4f);
+
+        // From inside the drawing, off its ink, to round its first point.
+        Drag(window, canvas, Over(canvas, area.Left + 12f, area.Top + 10f), Over(canvas, area.Left + 2f, area.Top + 2f));
+        Dispatcher.UIThread.RunJobs();
+
+        Gestures.Press(window, canvas, Over(canvas, area.Left + 20f, area.Top + 4f), modifiers: KeyModifiers.Shift);
+        Gestures.Release(window, canvas, Over(canvas, area.Left + 20f, area.Top + 4f), modifiers: KeyModifiers.Shift);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(2, canvas.Points!.Chosen.Count);
+
+        Drag(window, canvas, Over(canvas, area.Left + 20f, area.Top + 4f), Over(canvas, area.Left + 22f, area.Top + 6f));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("d=\"M6 6 L22 6 L20 20\"", badge.Text, StringComparison.Ordinal);
+        Assert.Equal(2, canvas.Points!.Chosen.Count);
+    }
+
+    [AvaloniaFact]
+    public async Task Delete_From_The_Menu_Takes_Out_The_Chosen_Point_And_Leaves_The_Shape()
+    {
+        var window = await Host(Write("icons.svgstudio", Strokes()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var area = Area(Shown(panel, home));
+
+        Reshape(window, canvas, area.Left + 12f, area.Top + 4f);
+        Click(window, canvas, Over(canvas, area.Left + 20f, area.Top + 4f));
+
+        Assert.True(window.Delete());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("d=\"M4 4 L20 20\"", home.Text, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Point_Moved_Into_A_Drawing_Open_In_A_Tab_Goes_Into_That_Tabs_Buffer()
+    {
+        var window = await Host(Write("icons.svgstudio", Strokes()));
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+
+        await window.ShowAsync(home);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Tabs(window).Items.OfType<TabItem>().Select(item => item.Content).OfType<SvgViewer>().Single();
+        var panel = Panel(window, "Project");
+
+        Tabs(window).SelectedItem = Tabs(window).Items.OfType<TabItem>().Single(item => ReferenceEquals(item.Content, panel));
+        Dispatcher.UIThread.RunJobs();
+
+        var canvas = Canvas(panel);
+        var area = Area(Shown(panel, home));
+
+        Reshape(window, canvas, area.Left + 12f, area.Top + 4f);
+        Drag(window, canvas, Over(canvas, area.Left + 20f, area.Top + 20f), Over(canvas, area.Left + 16f, area.Top + 18f));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("d=\"M4 4 L20 4 L16 18\"", viewer.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("L16 18", home.Text, StringComparison.Ordinal);
+    }
+
     [AvaloniaFact]
     public async Task Duplicate_On_The_Board_Writes_The_Copy_And_Picks_It()
     {

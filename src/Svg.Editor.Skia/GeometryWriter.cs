@@ -148,7 +148,7 @@ public sealed class GeometryWriter
     /// spells itself "-0". The comparison is true for both zeroes and false for a NaN, which is
     /// what a shorthand axis needs.
     /// </remarks>
-    private static float Zero(float value) => value == 0f ? 0f : value;
+    internal static float Zero(float value) => value == 0f ? 0f : value;
 
     // ---- units --------------------------------------------------------------------------------
 
@@ -160,11 +160,11 @@ public sealed class GeometryWriter
     /// reinterpret the number. The guard is per attribute rather than per element: a rect with
     /// <c>x="20" width="20%"</c> still moves, and refuses to be resized.
     /// </remarks>
-    private static bool Plain(SvgUnit unit)
+    internal static bool Plain(SvgUnit unit)
         => unit.Type is SvgUnitType.User or SvgUnitType.Pixel or SvgUnitType.None;
 
     /// <remarks>An element that never had the attribute is given a plain number, not "none".</remarks>
-    private static SvgUnit Same(SvgUnit unit, float value)
+    internal static SvgUnit Same(SvgUnit unit, float value)
         => new(unit.Type is SvgUnitType.None ? SvgUnitType.User : unit.Type, Zero(value));
 
     // ---- the shapes with their own numbers ----------------------------------------------------
@@ -660,7 +660,7 @@ public sealed class GeometryWriter
     }
 
     /// <summary>Where a segment leaves the pen, in the coordinates the file was written in.</summary>
-    private static PointF Ends(SvgPathSegment segment, PointF current, PointF opened)
+    internal static PointF Ends(SvgPathSegment segment, PointF current, PointF opened)
     {
         if (segment is SvgClosePathSegment)
         {

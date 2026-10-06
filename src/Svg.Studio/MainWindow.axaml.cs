@@ -3057,9 +3057,10 @@ public partial class MainWindow : Window
             return false;
         }
 
+        // A chosen point before the element it is a point of.
         return Selected() is { } viewer
-            ? viewer.Delete(viewer.Elements.SelectedAddresses.ToList())
-            : Board()?.Delete() == true;
+            ? viewer.DeletePoint() || viewer.Delete(viewer.Elements.SelectedAddresses.ToList())
+            : Board() is { } board && (board.DeletePoint() || board.Delete());
     }
 
     private GroupPanel? Board() => (_tabs.SelectedItem as TabItem)?.Content as GroupPanel;
