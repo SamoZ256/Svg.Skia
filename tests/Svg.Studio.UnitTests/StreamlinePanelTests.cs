@@ -2077,6 +2077,35 @@ public class StreamlinePanelTests : IDisposable
         Assert.Same(board, ((TabItem)tabs.SelectedItem!).Content);
     }
 
+    /// <summary>An import the board in front already shows, its own group's or a group's inside it, opens no tab; one anywhere else does.</summary>
+    [AvaloniaTheory]
+    [InlineData("Board", false)]
+    [InlineData("Frame", false)]
+    [InlineData("Loose", true)]
+    public async Task An_Import_Into_The_Board_In_Front_Stays_On_The_Board(string into, bool opens)
+    {
+        var (window, board) = await Board(Searching("line-glyphs"), "Board");
+        var panel = window.Streamline;
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var group = into == "Frame"
+            ? (ProjectGroup)Group(window, "Board").Children.Single(node => node.Name == "Frame")
+            : Group(window, into);
+
+        var before = tabs.Items.Count;
+
+        panel.Target = group;
+        Answering(window, true);
+
+        await panel.SearchAsync();
+        await panel.PickAsync(0, KeyModifiers.None);
+        await panel.OpenImportAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("bell", group.Children[^1].Name);
+        Assert.Equal(before + (opens ? 1 : 0), tabs.Items.Count);
+        Assert.Equal(opens ? group.Children[^1] : board.Node, ((TabItem)tabs.SelectedItem!).Tag);
+    }
+
     /// <summary>Near a line of the grid, the drop lands on it, as a tile carried there would.</summary>
     [AvaloniaFact]
     public async Task An_Icon_Dropped_On_A_Board_Near_A_Line_Lands_On_It()

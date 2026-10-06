@@ -80,6 +80,12 @@ public partial class MainWindow : Window
     /// <summary>The open project's place in git, on the arrangement while a saved project is open and git is installed.</summary>
     private readonly ChangesPanel _changes = new();
 
+    /// <summary>The chat that answers from the docs and works the window through <see cref="AssistantTools"/>.</summary>
+    private readonly AssistantPanel _assistant;
+
+    /// <summary>The same tools as <see cref="_assistant"/>, served for Claude Code while Settings says so.</summary>
+    private readonly StudioMcpServer _mcp;
+
     /// <summary>The settings window while one is open, so a second asking brings that one forward.</summary>
     private SettingsWindow? _settings;
 
@@ -91,6 +97,9 @@ public partial class MainWindow : Window
     /// closed and opened again. Waiting is also less work: a project rarely resizes one drawing.
     /// </remarks>
     private readonly HashSet<TabItem> _stale = new();
+
+    /// <summary>The tabs in the order they were last in front, the one in front last, for a close to go back through.</summary>
+    private readonly List<TabItem> _recent = new();
 
     private TabItem? _pressed;
     private Point _pressedAt;
@@ -105,7 +114,7 @@ public partial class MainWindow : Window
     {
     }
 
-    /// <param name="path">A drawing to open instead of the bundled sample.</param>
+    /// <param name="path">A drawing or project to open at once.</param>
     public MainWindow(string? path)
     {
         AvaloniaXamlLoader.Load(this);
@@ -147,6 +156,12 @@ public partial class MainWindow : Window
             UpdateTitle();
         };
 
+        _assistant = new AssistantPanel(new AssistantTools(this));
+        _mcp = new StudioMcpServer(this);
+
+        // After the window is up rather than here: the tools it serves reach into the window.
+        Opened += async (_, _) => await _mcp.ApplyAsync().ConfigureAwait(true);
+
         // Coming back to the window is when a commit made in a terminal would be seen.
         Activated += async (_, _) => await _changes.Refresh().ConfigureAwait(true);
 
@@ -158,9 +173,26 @@ public partial class MainWindow : Window
             Refill();
             Panels();
             Reveal();
+
+            // Once the strip has settled: dragging a tab and rearranging the panels both pass
+            // through other tabs on the way back to the same one.
+            Dispatcher.UIThread.Post(
+                () =>
+                {
+                    if (_tabs.SelectedItem is TabItem front)
+                    {
+                        _recent.Remove(front);
+                        _recent.Add(front);
+                    }
+                },
+                DispatcherPriority.Background);
         };
 
         _projectTree = this.FindControl<TreeView>("ProjectTree")!;
+
+        // Before the tree's own press handlers, which a press on a pinned row then reaches in place.
+        SvgViewerStickyRows.Attach(_projectTree);
+
         _projectPaneHost = this.FindControl<Border>("ProjectPaneHost")!;
         _projectName = this.FindControl<TextBlock>("ProjectName")!;
         _projectSearch = this.FindControl<TextBox>("ProjectSearch")!;
@@ -290,7 +322,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Adds an empty tab, selects it, and returns the viewer that fills it.</summary>
-    private SvgViewer AddTab()
+    /// <param name="name">What the tab is called when what it loads has no file to be named after.</param>
+    private SvgViewer AddTab(string? name = null)
     {
         // The window arranges them, not the tab: one set of panels round a strip of tabs rather
         // than a set inside each of them.
@@ -329,7 +362,7 @@ public partial class MainWindow : Window
 
         // Both are dressed by the window's styles, which is also where the trimming that keeps one
         // long file name from filling the strip lives.
-        var title = new TextBlock { Text = "Untitled", Classes = { "title" } };
+        var title = new TextBlock { Text = name ?? "Untitled", Classes = { "title" } };
         var marker = new TextBlock { Classes = { "marker" } };
 
         var close = new Button
@@ -352,12 +385,13 @@ public partial class MainWindow : Window
 
         close.Click += async (_, _) => await CloseTabAsync(item);
 
-        var name = "drawing";
-
         viewer.DocumentOpened += (_, document) =>
         {
-            name = document.Path is { } path ? Path.GetFileName(path) : "drawing";
-            title.Text = name;
+            // A project's drawing is loaded from its text and has no file, and is called what its row
+            // is. The file first: a tab whose drawing would not load is reused for the next one opened.
+            title.Text = document.Path is { } path
+                ? Path.GetFileName(path)
+                : item.Tag is ProjectNode node ? ProjectWorkspace.Label(node) : name ?? "drawing";
             item[ToolTip.TipProperty] = document.Path;
 
             // The page decides the step where nobody has set one, and the page arrives with this.
@@ -943,6 +977,8 @@ public partial class MainWindow : Window
     /// <summary>What the arrangement calls the changes panel.</summary>
     private const string ChangesPanelId = "changes";
 
+    private const string AssistantPanelId = "assistant";
+
     /// <summary>
     /// The panels the window arranges, one host each, filled from whichever tab is in front.
     /// </summary>
@@ -979,7 +1015,8 @@ public partial class MainWindow : Window
         return new[]
             {
                 new SvgViewerRegion(ProjectTreePanel, "Project", _projectPaneHost),
-                new SvgViewerRegion(ChangesPanelId, "Changes", _changes)
+                new SvgViewerRegion(ChangesPanelId, "Changes", _changes),
+                new SvgViewerRegion(AssistantPanelId, "Assistant", _assistant)
             }
             .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id])))
             .Append(new SvgViewerRegion(StreamlineRegion, "Streamline", _streamline))
@@ -1570,19 +1607,26 @@ public partial class MainWindow : Window
     /// templates, as one step, and opens the last of them unless <paramref name="show"/> is false.
     /// </summary>
     /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
-    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports, bool show = true)
+    /// <param name="notes">
+    /// Where what the import had to say goes, for a caller with nowhere to show a dialog; null
+    /// announces it here, which is what a drop or a paste wants.
+    /// </param>
+    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports, bool show = true, List<string>? notes = null)
     {
         if (_workspace is not { } workspace || imports.Count == 0)
         {
             return Array.Empty<ProjectDrawing>();
         }
 
-        var notes = new List<string>();
-        var added = TemplateLibrary.Import(workspace, parent, index, imports, notes);
+        var said = notes ?? new List<string>();
+        var added = TemplateLibrary.Import(workspace, parent, index, imports, said);
 
-        foreach (var note in notes)
+        if (notes is null)
         {
-            await Announce(added.Count == imports.Count ? "Imported" : "That drawing couldn't be added", note).ConfigureAwait(true);
+            foreach (var note in said)
+            {
+                await Announce(added.Count == imports.Count ? "Imported" : "That drawing couldn't be added", note).ConfigureAwait(true);
+            }
         }
 
         if (added.Count == 0)
@@ -1600,7 +1644,7 @@ public partial class MainWindow : Window
         return added;
     }
 
-    /// <summary>Puts <paramref name="import"/> in place of what <paramref name="drawing"/> draws, as one step, and opens it.</summary>
+    /// <summary>Puts <paramref name="import"/> in place of what <paramref name="drawing"/> draws, as one step, and opens it unless the board in front already shows it.</summary>
     /// <returns>Whether it was replaced; why not has been said.</returns>
     public async Task<bool> UpdateAsync(ProjectDrawing drawing, TemplateImport import)
     {
@@ -1629,7 +1673,10 @@ public partial class MainWindow : Window
         {
             BuildTree(drawing);
 
-            await ShowAsync(drawing).ConfigureAwait(true);
+            if (!OnBoard(drawing))
+            {
+                await ShowAsync(drawing).ConfigureAwait(true);
+            }
         }
 
         return replaced;
@@ -1683,7 +1730,7 @@ public partial class MainWindow : Window
     /// <summary>Opens a drawing the window has the text of in a tab of its own, belonging to no project.</summary>
     public async Task OpenTextAsync(string svgText, string name)
     {
-        await AddTab().LoadTextAsync(svgText, name).ConfigureAwait(true);
+        await AddTab(name).LoadTextAsync(svgText, name).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -2239,13 +2286,22 @@ public partial class MainWindow : Window
 
             board.SettingChanged += (_, _) => Reread();
 
+            board.DescribedChanged += (_, _) =>
+            {
+                if (ReferenceEquals(Board(), board))
+                {
+                    Reveal(board.Described);
+                }
+            };
+
             AddNodeTab(board, node, ProjectWorkspace.Label(node));
             return;
         }
 
         var drawing = (ProjectDrawing)node;
 
-        var viewer = AddTab();
+        // Named now rather than once it has loaded, so a drawing that will not load is not left "Untitled".
+        var viewer = AddTab(ProjectWorkspace.Label(drawing));
 
         if (_tabs.SelectedItem is TabItem item)
         {
@@ -2312,7 +2368,7 @@ public partial class MainWindow : Window
     /// by the caller with the project itself, which takes the edit with nothing to take it back.
     /// By the row rather than by a file: a drawing is one row of the project, so one tab.
     /// </remarks>
-    private ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
+    internal ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
         => Tab(drawing)?.Content as SvgViewer;
 
     /// <summary>A tab for something that is not a drawing, which the viewer's own tab does not fit.</summary>
@@ -2346,6 +2402,8 @@ public partial class MainWindow : Window
 
     }
 
+    internal TabItem? TabOf(ProjectNode node) => Tab(node);
+
     private TabItem? Tab(ProjectNode node)
         => _tabs.Items.OfType<TabItem>().FirstOrDefault(item => ReferenceEquals(item.Tag, node));
 
@@ -2361,6 +2419,17 @@ public partial class MainWindow : Window
     /// </remarks>
     private void Rebuild()
     {
+        // A tab over a node an undo took out of the project: removing asks and closes the tabs
+        // first, but taking back an add cannot ask, and left a board editing a group in no project.
+        foreach (var item in _tabs.Items.OfType<TabItem>().ToList())
+        {
+            if (item.Tag is ProjectNode node && _workspace is { } workspace
+                && !node.Element.AncestorsAndSelf().Contains(workspace.Document.Root.Element))
+            {
+                CloseTab(item);
+            }
+        }
+
         foreach (var item in _tabs.Items.OfType<TabItem>())
         {
             if (item.Tag is not ProjectDrawing drawing || item.Content is not SvgViewer viewer)
@@ -2403,7 +2472,8 @@ public partial class MainWindow : Window
     /// </remarks>
     private void Reveal()
     {
-        if ((_tabs.SelectedItem as TabItem)?.Tag is ProjectNode node)
+        // A board's row is whatever is picked on it, which is its own group while nothing is.
+        if ((Board()?.Described ?? (_tabs.SelectedItem as TabItem)?.Tag) is ProjectNode node)
         {
             Reveal(node);
         }
@@ -2902,6 +2972,8 @@ public partial class MainWindow : Window
         Reread();
 
         await _streamline.RefreshAsync().ConfigureAwait(true);
+        await _assistant.RefreshAsync().ConfigureAwait(true);
+        await _mcp.ApplyAsync().ConfigureAwait(true);
     }
 
     /// <summary>Tells every tab what the settings now say.</summary>
@@ -2991,8 +3063,11 @@ public partial class MainWindow : Window
             return true;
         }
 
-        return Selected()?.Undo() == true || _workspace?.Undo() == true;
+        return UndoDocument();
     }
+
+    /// <summary>Undo without the box that has focus, which for the assistant is always its own input.</summary>
+    internal bool UndoDocument() => Selected()?.Undo() == true || _workspace?.Undo() == true;
 
     /// <inheritdoc cref="Undo"/>
     public bool Redo()
@@ -3057,12 +3132,16 @@ public partial class MainWindow : Window
             return false;
         }
 
+        // A chosen point before the element it is a point of.
         return Selected() is { } viewer
-            ? viewer.Delete(viewer.Elements.SelectedAddresses.ToList())
-            : Board()?.Delete() == true;
+            ? viewer.DeletePoint() || viewer.Delete(viewer.Elements.SelectedAddresses.ToList())
+            : Board() is { } board && (board.DeletePoint() || board.Delete());
     }
 
     private GroupPanel? Board() => (_tabs.SelectedItem as TabItem)?.Content as GroupPanel;
+
+    /// <summary>Whether the board in front already shows <paramref name="node"/>, which a board does for everything under its group.</summary>
+    internal bool OnBoard(ProjectNode node) => Board() is { } board && node.DescendsFrom(board.Node);
 
     /// <summary>
     /// Shows each command's gesture beside it, as the platform spells that gesture.
@@ -3623,6 +3702,11 @@ public partial class MainWindow : Window
         _recovery?.Stop();
         _recovery = null;
 
+        // Waited for, so the port is free again once the window has gone, but on the pool and for a
+        // bounded time: stopped from here, Kestrel's awaits came back to this thread, which was the
+        // one waiting for them, and closing the window hung.
+        Task.Run(() => _mcp.DisposeAsync().AsTask()).Wait(TimeSpan.FromSeconds(3));
+
         base.OnClosed(e);
     }
 
@@ -3640,6 +3724,12 @@ public partial class MainWindow : Window
 
     /// <summary>The viewer in the selected tab, or null while there is none.</summary>
     private SvgViewer? Selected() => (_tabs.SelectedItem as TabItem)?.Content as SvgViewer;
+
+    /// <summary>The drawing in front, for something outside the window that works on it.</summary>
+    internal SvgViewer? FrontViewer => Selected();
+
+    /// <summary>The project's node in front, or null for a drawing of its own or nothing.</summary>
+    internal ProjectNode? FrontNode => (_tabs.SelectedItem as TabItem)?.Tag as ProjectNode;
 
     /// <summary>The tabs holding changes that are not on disk.</summary>
     private IReadOnlyList<string> Unsaved()
@@ -3695,16 +3785,16 @@ public partial class MainWindow : Window
     /// <summary>Puts the name a node now reads under on the tab that is open on it.</summary>
     /// <remarks>
     /// The header was written once, when the tab was, so a namespace typed into a group renamed its
-    /// row and left the tab open on that very row saying what the group used to be called. Only the
-    /// settings tabs: a drawing's tab is its file name, which no setting renames.
+    /// row and left the tab open on that very row saying what the group used to be called. A
+    /// drawing of the project's is renamed the same way; one with a file of its own is its file's.
     /// </remarks>
     private void Retitle()
     {
         foreach (var item in _tabs.Items.OfType<TabItem>())
         {
-            if (item.Content is GroupPanel panel)
+            if (item.Tag is ProjectNode node && (item.Content as SvgViewer)?.DocumentPath is null)
             {
-                Titled(item).Text = ProjectWorkspace.Label(panel.Node);
+                Titled(item).Text = ProjectWorkspace.Label(node);
             }
         }
 
@@ -3723,9 +3813,7 @@ public partial class MainWindow : Window
         UpdateMenu();
     }
 
-    private string Named(SvgViewer viewer) => Tabbed(viewer) is { Tag: ProjectDrawing drawing }
-        ? drawing.Name
-        : viewer.DocumentPath is { } path ? Path.GetFileName(path) : "A drawing";
+    private string Named(SvgViewer viewer) => Tabbed(viewer) is { } item ? Titled(item).Text ?? "A drawing" : "A drawing";
 
     /// <summary>The tab a viewer is the content of, or null where it is in none.</summary>
     private TabItem? Tabbed(SvgViewer viewer)
@@ -4076,6 +4164,14 @@ public partial class MainWindow : Window
 
     private void CloseTab(TabItem item)
     {
+        _recent.Remove(item);
+
+        // Before it goes, so the strip is not left to pick a neighbour.
+        if (ReferenceEquals(_tabs.SelectedItem, item) && _recent.Count > 0)
+        {
+            _tabs.SelectedItem = _recent[^1];
+        }
+
         _tabs.Items.Remove(item);
         _stale.Remove(item);
 

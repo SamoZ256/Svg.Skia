@@ -9,11 +9,10 @@
     <RootNamespace>Svg.Studio</RootNamespace>
     <!-- The branch and commit shown in the title bar. A release is built with -p:StudioBuildInfo=false. -->
     <StudioBuildInfo Condition="'$(StudioBuildInfo)' == ''">true</StudioBuildInfo>
+    <!-- Publishing for macOS with -p:StudioAppBundle=true wraps the output in Svg.Studio.app, which
+         is what lets Finder open a .svgstudio in it. -->
+    <StudioAppBundle Condition="'$(StudioAppBundle)' == ''">false</StudioAppBundle>
   </PropertyGroup>
-
-  <ItemGroup>
-    <Content Include="Assets\*" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
 
   <Import Project="..\..\build\Avalonia.props" />
   <Import Project="..\..\build\Avalonia.Themes.Fluent.props" />
@@ -23,6 +22,24 @@
   <Import Project="..\..\build\SkiaSharp.Avalonia.props" />
 
   <ItemGroup>
+    <!-- The assistant's chat goes through IChatClient, so a provider is one more adapter; Claude's
+         is the one in the Anthropic SDK. -->
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Anthropic" />
+    <!-- Parses what the assistant replies; the drawing of it is AssistantMarkdown's, since
+         Markdown.Avalonia stops at Avalonia 11. -->
+    <PackageReference Include="Markdig" />
+    <!-- The same tools over MCP, served on this machine for Claude Code; StudioMcpServer. -->
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- What the assistant answers from: linked rather than copied, so it is always what the site says. -->
+    <EmbeddedResource Include="..\..\site\articles\guides\svg-studio.md" LogicalName="Docs/svg-studio.md" />
+    <EmbeddedResource Include="..\..\site\articles\packages\svg-expressions.md" LogicalName="Docs/svg-expressions.md" />
+    <EmbeddedResource Include="..\..\site\articles\packages\svg-paintcode.md" LogicalName="Docs/svg-paintcode.md" />
+    <EmbeddedResource Include="..\..\site\articles\guides\source-generator-and-svgc.md" LogicalName="Docs/source-generator-and-svgc.md" />
   </ItemGroup>
 
   <ItemGroup>
@@ -71,6 +88,46 @@
         <_Parameter2>$(_StudioBuildCommit)</_Parameter2>
       </AssemblyAttribute>
     </ItemGroup>
+  </Target>
+
+  <!-- Moves the published files into the bundle rather than publishing there: -o makes PublishDir a
+       global property, so it cannot be pointed into Contents/MacOS up front. The icon is the site's
+       logo rendered by this repository's own converter, so no binary icon is checked in. -->
+  <Target Name="StudioAppBundle" AfterTargets="Publish"
+          Condition="'$(StudioAppBundle)' == 'true' And $(RuntimeIdentifier.StartsWith('osx'))">
+    <PropertyGroup>
+      <_StudioApp>$(PublishDir)Svg.Studio.app/</_StudioApp>
+      <_StudioIconWork>$(MSBuildProjectDirectory)/$(IntermediateOutputPath)AppIcon/</_StudioIconWork>
+      <_StudioIconSet>$(_StudioIconWork)Svg.Studio.iconset/</_StudioIconSet>
+      <_StudioPlist>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/macOS/Info.plist').Replace('@VERSION@', '$(VersionPrefix)'))</_StudioPlist>
+    </PropertyGroup>
+    <RemoveDir Directories="$(_StudioApp);$(_StudioIconWork)" />
+    <ItemGroup>
+      <_StudioPublished Include="$(PublishDir)**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_StudioPublished)" DestinationFiles="@(_StudioPublished->'$(_StudioApp)Contents/MacOS/%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Delete Files="@(_StudioPublished)" />
+    <Exec Command="find &quot;$(PublishDir)&quot; -mindepth 1 -type d -empty -delete" />
+    <!-- Copy drops the execute bit. -->
+    <Exec Command="chmod +x &quot;$(_StudioApp)Contents/MacOS/Svg.Studio&quot;" />
+    <WriteLinesToFile File="$(_StudioApp)Contents/Info.plist" Lines="$([MSBuild]::Escape('$(_StudioPlist)'))" Overwrite="true" />
+
+    <Exec Command="dotnet run --project &quot;$(MSBuildProjectDirectory)/../../samples/Svg.Skia.Converter/Svg.Skia.Converter.csproj&quot; -c Release -- -f &quot;$(MSBuildProjectDirectory)/../../site/images/logo.svg&quot; -o &quot;$(_StudioIconWork)&quot; --scale 10.24 --quiet" />
+    <MakeDir Directories="$(_StudioIconSet);$(_StudioApp)Contents/Resources" />
+    <ItemGroup>
+      <_StudioIconSize Include="16x16" Pixels="16" />
+      <_StudioIconSize Include="16x16@2x;32x32" Pixels="32" />
+      <_StudioIconSize Include="32x32@2x" Pixels="64" />
+      <_StudioIconSize Include="128x128" Pixels="128" />
+      <_StudioIconSize Include="128x128@2x;256x256" Pixels="256" />
+      <_StudioIconSize Include="256x256@2x;512x512" Pixels="512" />
+      <_StudioIconSize Include="512x512@2x" Pixels="1024" />
+    </ItemGroup>
+    <Exec Command="sips -z %(_StudioIconSize.Pixels) %(_StudioIconSize.Pixels) logo.png --out Svg.Studio.iconset/icon_%(_StudioIconSize.Identity).png" WorkingDirectory="$(_StudioIconWork)" StandardOutputImportance="low" />
+    <Exec Command="iconutil -c icns Svg.Studio.iconset -o &quot;$(_StudioApp)Contents/Resources/Svg.Studio.icns&quot;" WorkingDirectory="$(_StudioIconWork)" />
+
+    <!-- Moving the apphost voids the SDK's ad-hoc signature, and Apple Silicon will not run an unsigned binary. -->
+    <Exec Command="codesign --force --deep --sign - &quot;$(_StudioApp)&quot;" />
   </Target>
 
 </Project>

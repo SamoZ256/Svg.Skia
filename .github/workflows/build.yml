@@ -256,10 +256,12 @@ jobs:
           --self-contained true -p:VersionSuffix="${{ env.VERSION_SUFFIX }}"
           -o artifacts/publish/${{ matrix.rid }}/svgc
 
+      # On macOS as Svg.Studio.app, which is what Finder opens a .svgstudio with.
       - name: Publish Svg.Studio
         run: >
           dotnet publish src/Svg.Studio/Svg.Studio.csproj -c Release -r ${{ matrix.rid }}
           --self-contained true -p:VersionSuffix="${{ env.VERSION_SUFFIX }}"
+          -p:StudioAppBundle=${{ startsWith(matrix.rid, 'osx') }}
           -o artifacts/publish/${{ matrix.rid }}/Svg.Studio
 
       - name: Upload apps
