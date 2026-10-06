@@ -131,13 +131,38 @@ public sealed class StreamlineImportWindow : Window
         };
         var cancel = new Button { Content = "Cancel", IsCancel = true };
 
-        accept.Click += (_, _) => Close(true);
+        // Only where a drop asked: a drop that was told not to still asks about an unsure match, and the box would then say nothing.
+        var again = import.Dropped && StudioSettings.DropAsks
+            ? new CheckBox
+            {
+                Content = "Don't ask again when dropping",
+                Margin = new Thickness(0, 0, 16, 0),
+                [ToolTip.TipProperty] = "Import sure matches straight away from now on. Settings can bring the question back."
+            }
+            : null;
+
+        accept.Click += (_, _) =>
+        {
+            if (again?.IsChecked is true)
+            {
+                StudioSettings.DropAsks = false;
+            }
+
+            Close(true);
+        };
         cancel.Click += (_, _) => Close(false);
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { cancel, accept } };
         var closing = new DockPanel();
         DockPanel.SetDock(buttons, Dock.Right);
         closing.Children.Add(buttons);
+
+        if (again is { })
+        {
+            DockPanel.SetDock(again, Dock.Right);
+            closing.Children.Add(again);
+        }
+
         closing.Children.Add(_declares);
 
         var foot = new StackPanel { Spacing = 10, Margin = new Thickness(20, 10, 20, 16), Children = { _said, closing } };

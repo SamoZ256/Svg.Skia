@@ -555,8 +555,9 @@ public sealed class StreamlinePanel : UserControl
     }
 
     /// <summary>
-    /// Imports what is being dragged into <paramref name="group"/> at <paramref name="index"/>: each
-    /// batch whose template is sure straight away, and the rest through the import window, aimed there.
+    /// Imports what is being dragged into <paramref name="group"/> at <paramref name="index"/> through
+    /// the import window, aimed there; once told not to ask, each batch whose template is sure goes
+    /// straight in and only the rest through the window.
     /// </summary>
     /// <param name="at">Where on the group's board the first lands, the rest in a row after it, or null to join its spread.</param>
     /// <param name="show">Whether the last drawing imported opens, as it does from the tree; a board drop stays on the board.</param>
@@ -586,10 +587,11 @@ public sealed class StreamlinePanel : UserControl
 
             var fetched = downloads.OfType<StreamlineDownload>().ToList();
             var library = new TemplateLibrary(workspace.Document.Root);
+            var asks = StudioSettings.DropAsks;
 
             // What the suggested card's dot would show: the batch's first icon's leading suggestion.
             var leading = TemplateLibrary.Batch(fetched.Select(download => download.Prepared))
-                .Where(batch => library.Suggest(batch.First(), group)[0].Sure)
+                .Where(batch => !asks && library.Suggest(batch.First(), group)[0].Sure)
                 .SelectMany(batch => batch)
                 .ToHashSet(ReferenceEqualityComparer.Instance);
             var sure = fetched.Where(download => leading.Contains(download.Prepared)).ToList();
@@ -615,7 +617,7 @@ public sealed class StreamlinePanel : UserControl
                 return;
             }
 
-            var import = new StreamlineImport(workspace, group, amber);
+            var import = new StreamlineImport(workspace, group, amber) { Dropped = true };
             var after = index + added.Count;
 
             // Posted, so the window comes up once the drop that asked for it is over.

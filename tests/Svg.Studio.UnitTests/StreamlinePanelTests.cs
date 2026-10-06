@@ -1448,7 +1448,7 @@ public class StreamlinePanelTests : IDisposable
         Assert.Contains(
             """
                 <e:recipe name="Accent from Bell">
-                  <e:match colors="1" strokes="0" />
+                  <e:match colors="1" />
                   <e:slot name="rest" rest="true">stateAccentColor</e:slot>
                 </e:recipe>
               </e:templates>
@@ -1801,6 +1801,8 @@ public class StreamlinePanelTests : IDisposable
     [AvaloniaFact]
     public async Task A_Sure_Icon_Dropped_On_A_Group_Row_Imports_At_Its_End_As_One_Step()
     {
+        StudioSettings.DropAsks = false;
+
         var streamline = Downloading("ico_a");
 
         streamline.Json("/v1/search/global", Page("results", new[] { Icon("ico_a", "cog", "sure-glyphs") }, more: false, next: 1));
@@ -1834,6 +1836,8 @@ public class StreamlinePanelTests : IDisposable
     [AvaloniaFact]
     public async Task A_Sure_Icon_Dropped_On_A_Drawing_Row_Lands_After_It()
     {
+        StudioSettings.DropAsks = false;
+
         Sure("sure-glyphs");
 
         var window = await Host(Downloading("ico_a"));
@@ -1890,6 +1894,8 @@ public class StreamlinePanelTests : IDisposable
     [AvaloniaFact]
     public async Task A_Mixed_Drop_Imports_The_Sure_Batch_And_Opens_The_Window_For_The_Other_After_It()
     {
+        StudioSettings.DropAsks = false;
+
         Sure("sure-glyphs");
 
         var window = await Host(Downloading("ico_a", "ico_b"));
@@ -1908,6 +1914,89 @@ public class StreamlinePanelTests : IDisposable
         await Until(() => scheme.Children.Count == 4);
 
         Assert.Equal(new[] { "Bell", "Core Duo", "cog", "gear" }, scheme.Children.Select(node => node.Name));
+    }
+
+    /// <summary>
+    /// A drop asks even where its template is sure, and the box under the question stops that: only
+    /// on Import, since Escape answers nothing, after which a sure drop goes straight in.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(PhysicalKey.Enter, true)]
+    [InlineData(PhysicalKey.Escape, false)]
+    public async Task A_Sure_Drop_Asks_Until_The_Box_Says_Not_To(PhysicalKey key, bool imports)
+    {
+        Sure("sure-glyphs");
+
+        var window = await Host(Downloading("ico_a", "ico_b"));
+        var panel = window.Streamline;
+        var scheme = Group(window, "Scheme");
+        StreamlineImport? shown = null;
+
+        window.ShowImport = import =>
+        {
+            shown = import;
+
+            var dialog = new StreamlineImportWindow(import, window);
+            var answer = dialog.ShowDialog<bool>(window);
+
+            Drawn(dialog);
+            dialog.GetLogicalDescendants().OfType<CheckBox>().Single(box => Equals(box.Content, "Don't ask again when dropping")).IsChecked = true;
+            dialog.KeyPressQwerty(key, RawInputModifiers.None);
+
+            return answer;
+        };
+
+        Drop(window, OnRow(window, "Scheme"), Carrying(panel, Parsed(Icon("ico_a", "cog", "sure-glyphs"))));
+        await Until(() => shown is { });
+
+        // The import lands after the window answers, which a slower machine has not got to by now.
+        await Until(() => !imports || scheme.Children.Count == 3);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(shown!.Dropped);
+        Assert.True(Assert.Single(shown.Rows).Sure);
+        Assert.Equal(imports ? new[] { "Bell", "Core Duo", "cog" } : new[] { "Bell", "Core Duo" }, scheme.Children.Select(node => node.Name));
+        Assert.Equal(!imports, StudioSettings.DropAsks);
+
+        if (!imports)
+        {
+            return;
+        }
+
+        window.ShowImport = _ => throw new InvalidOperationException("A sure drop asked after the box said not to.");
+
+        Drop(window, OnRow(window, "Scheme"), Carrying(panel, Parsed(Icon("ico_b", "gear", "sure-glyphs"))));
+        await Until(() => scheme.Children.Count == 4);
+
+        Assert.Equal("gear", scheme.Children[^1].Name);
+    }
+
+    /// <summary>Not offered where a drop was already told not to ask and asks only because the match is unsure.</summary>
+    [AvaloniaFact]
+    public async Task The_Box_Is_Offered_Only_Where_A_Drop_Asks()
+    {
+        var window = await Host(Downloading("ico_a"));
+        var boxes = new List<int>();
+
+        window.ShowImport = import =>
+        {
+            var dialog = new StreamlineImportWindow(import, window);
+
+            boxes.Add(dialog.GetLogicalDescendants().OfType<CheckBox>().Count(box => Equals(box.Content, "Don't ask again when dropping")));
+
+            return Task.FromResult(false);
+        };
+
+        foreach (var asks in new[] { true, false })
+        {
+            StudioSettings.DropAsks = asks;
+
+            Drop(window, OnRow(window, "Scheme"), Carrying(window.Streamline, Parsed(Icon("ico_a", "cog", "line-glyphs"))));
+            await Until(() => boxes.Count == (asks ? 1 : 2));
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        Assert.Equal(new[] { 1, 0 }, boxes);
     }
 
     /// <summary>Hosts <see cref="Boards"/> with <paramref name="group"/>'s board in front, wide enough to aim at.</summary>
@@ -1931,6 +2020,8 @@ public class StreamlinePanelTests : IDisposable
     [AvaloniaFact]
     public async Task An_Icon_Dropped_In_A_Frame_Goes_Into_Its_Group_Where_It_Was_Let_Go()
     {
+        StudioSettings.DropAsks = false;
+
         var (window, board) = await Board(Downloading("ico_a"), "Board");
         var frame = (ProjectGroup)Group(window, "Board").Children.Single(node => node.Name == "Frame");
 
@@ -1952,6 +2043,8 @@ public class StreamlinePanelTests : IDisposable
     [AvaloniaFact]
     public async Task Two_Icons_Dropped_On_A_Board_Are_Placed_In_A_Row()
     {
+        StudioSettings.DropAsks = false;
+
         var (window, board) = await Board(Downloading("ico_a", "ico_b"), "Board");
         var group = Group(window, "Board");
 
@@ -1970,6 +2063,8 @@ public class StreamlinePanelTests : IDisposable
     [AvaloniaFact]
     public async Task A_Mixed_Drop_On_A_Board_Lands_The_Other_Beside_It_And_Stays_On_The_Board()
     {
+        StudioSettings.DropAsks = false;
+
         Sure("sure-glyphs");
 
         // With Project's templates, so an icon nobody remembered has two to choose from.
@@ -1993,6 +2088,8 @@ public class StreamlinePanelTests : IDisposable
     [AvaloniaFact]
     public async Task An_Icon_Dropped_On_A_Board_Near_A_Line_Lands_On_It()
     {
+        StudioSettings.DropAsks = false;
+
         StudioSettings.GridSize = 16f;
         StudioSettings.SnapToGrid = true;
 
@@ -2014,6 +2111,8 @@ public class StreamlinePanelTests : IDisposable
     [InlineData("Loose")]
     public async Task An_Icon_Dropped_On_An_Empty_Board_Or_A_Spread_Gets_No_Place(string name)
     {
+        StudioSettings.DropAsks = false;
+
         var (window, board) = await Board(Downloading("ico_a"), name);
         var group = Group(window, name);
         var canvas = Canvas(board);

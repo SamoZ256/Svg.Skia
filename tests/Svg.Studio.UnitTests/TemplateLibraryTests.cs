@@ -313,7 +313,7 @@ public class TemplateLibraryTests : IDisposable
         Assert.Equal(
             """
             <e:recipe xmlns:e="https://svg.skia/expr/1.0" name="Two-tone">
-              <e:match colors="3" strokes="1" />
+              <e:match colors="3" />
               <e:slot name="colour" by="coverage" rank="1">stateAccentColor30</e:slot>
               <e:slot name="stroke" paint="stroke" by="coverage" rank="1">stateAccentColor</e:slot>
               <e:slot name="rest" rest="true">stateWhiteColor30</e:slot>
@@ -382,6 +382,43 @@ public class TemplateLibraryTests : IDisposable
         Assert.Contains("fill=\"{{ stateAccentColor }}\"", SvgRecipeRewriter.Apply(icon.Text, bound).Svg, StringComparison.Ordinal);
     }
 
+    private const string FilledAccent = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M2 2h20v20z" fill="{{ stateAccentColor }}" /></svg>""";
+
+    private const string StrokedAccent = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"><path d="M2 2h20" stroke="{{ stateAccentColor }}" /></svg>""";
+
+    /// <summary>
+    /// Whether the drawing a template came from was filled or stroked says nothing about the icons it
+    /// is for: a Streamline line icon arrives stroked, and was never offered one taken from a glyph.
+    /// </summary>
+    [Theory]
+    [InlineData(FilledAccent, """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000000"><path d="M2 2h20" stroke-linecap="round" /></svg>""")]
+    [InlineData(FilledAccent, """<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h24" stroke="currentColor" /></svg>""")]
+    [InlineData(StrokedAccent, Glyph)]
+    public void An_Extracted_Template_Is_Offered_First_However_The_Icon_Is_Painted(string source, string icon)
+    {
+        var templates = $"""<e:templates xmlns:e="https://svg.skia/expr/1.0">{TemplateLibrary.Extract("Accent", source)}</e:templates>""";
+        var (library, group) = Library(templates: templates);
+
+        var suggestions = library.Suggest(TemplateLibrary.Prepare(icon), group);
+
+        Assert.Equal("Accent", suggestions[0].Template.Name);
+        Assert.DoesNotContain(
+            suggestions[0].Recipe.Rules,
+            rule => rule.Name == SvgRecipeValue.ColorName && rule.Expression != "stateAccentColor");
+    }
+
+    /// <summary>A rest slot would take every colour of a two-tone icon, so a one-colour extract is not offered one.</summary>
+    [Fact]
+    public void A_One_Colour_Extract_Is_Not_Offered_For_A_Two_Tone_Icon()
+    {
+        var templates = $"""<e:templates xmlns:e="https://svg.skia/expr/1.0">{TemplateLibrary.Extract("Accent", FilledAccent)}</e:templates>""";
+        var (library, group) = Library(templates: templates);
+
+        Assert.Equal(
+            new[] { TemplateLibrary.KeepColoursName },
+            library.Suggest(TemplateLibrary.Prepare(TwoTone), group).Select(suggestion => suggestion.Template.Name));
+    }
+
     [Fact]
     public void A_Drawing_Painted_Through_No_Expression_Has_Nothing_To_Extract()
         => Assert.Throws<SvgRecipeException>(() => TemplateLibrary.Extract("Plain", Glyph));
@@ -432,12 +469,12 @@ public class TemplateLibraryTests : IDisposable
     private static SvgRecipe Recipe(string attributes)
         => SvgRecipe.Parse($"<recipe xmlns=\"https://svg.skia/expr/1.0\" {attributes} />");
 
-    private static (TemplateLibrary Library, ProjectGroup Group) Library(string drawings = "")
+    private static (TemplateLibrary Library, ProjectGroup Group) Library(string drawings = "", string templates = Templates)
     {
         var document = ProjectDocument.Parse($"""
             <?xml version="1.0" encoding="utf-8"?>
             <studio namespace="Demo.Icons">
-            {Templates}
+            {templates}
               <group name="Icons">
                 <e:code xmlns:e="https://svg.skia/expr/1.0">
                   <e:param name="accentColorOn" type="color" default="#fb3e72" />
