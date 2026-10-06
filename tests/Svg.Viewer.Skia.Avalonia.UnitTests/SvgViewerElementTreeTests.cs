@@ -611,8 +611,6 @@ public class SvgViewerElementTreeTests
 
         Assert.True(viewer.TrySetParameterValue("dx", ExprValue.Number(30f)));
         Dispatcher.UIThread.RunJobs();
-        await Task.Delay(400).ConfigureAwait(true);
-        Dispatcher.UIThread.RunJobs();
 
         // The row clamps to the range the parameter declares, which is why it declares one.
         Assert.Equal(picked.Left + 30f, viewer.Canvas.Highlight!.Bounds.Left, 3);

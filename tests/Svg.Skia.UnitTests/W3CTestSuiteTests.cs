@@ -681,7 +681,7 @@ public class W3CTestSuiteTests : SvgUnitTest
         {
             // Chrome's standalone SVG rendering falls back to the default switch
             // branch for this fixture instead of binding to the host machine UI locale.
-            "struct-cond-02-t" => new SystemLanguageOverrideScope(CultureInfo.InvariantCulture),
+            "struct-cond-02-t" => SvgService.PushSystemLanguage(CultureInfo.InvariantCulture),
             _ => null
         };
     }
@@ -2374,22 +2374,6 @@ public class W3CTestSuiteTests : SvgUnitTest
         var runtime = (ISKSvgJavaScriptRuntime?)field.GetValue(svg)
                       ?? throw new InvalidOperationException("SVG JavaScript runtime is not initialized.");
         return (SvgJavaScriptRuntime)runtime.Runtime;
-    }
-
-    private sealed class SystemLanguageOverrideScope : IDisposable
-    {
-        private readonly CultureInfo? _previousOverride;
-
-        public SystemLanguageOverrideScope(CultureInfo? overrideCulture)
-        {
-            _previousOverride = SvgService.s_systemLanguageOverride;
-            SvgService.s_systemLanguageOverride = overrideCulture;
-        }
-
-        public void Dispose()
-        {
-            SvgService.s_systemLanguageOverride = _previousOverride;
-        }
     }
 
     // TODO:

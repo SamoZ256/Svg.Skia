@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>com.svgskia.studio</string>
+  <key>CFBundleName</key>
+  <string>Svg Studio</string>
+  <key>CFBundleDisplayName</key>
+  <string>Svg Studio</string>
+  <key>CFBundleExecutable</key>
+  <string>Svg.Studio</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@VERSION@</string>
+  <key>CFBundleVersion</key>
+  <string>@VERSION@</string>
+  <key>CFBundleIconFile</key>
+  <string>Svg.Studio.icns</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Svg Studio Project</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Owner</string>
+      <key>CFBundleTypeIconFile</key>
+      <string>Svg.Studio.icns</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>com.svgskia.svgstudio</string>
+      </array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>com.svgskia.svgstudio</string>
+      <key>UTTypeDescription</key>
+      <string>Svg Studio Project</string>
+      <key>UTTypeIconFile</key>
+      <string>Svg.Studio.icns</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.xml</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>svgstudio</string>
+        </array>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>

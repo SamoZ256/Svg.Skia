@@ -78,16 +78,6 @@ public class SvgViewerLetEditingTests
         return (window, viewer);
     }
 
-    /// <summary>Waits for the rebuild the debounce holds back.</summary>
-    private static async Task Settle()
-    {
-        Dispatcher.UIThread.RunJobs();
-
-        // Real time, because the debounce is a real timer: the point of it is that it waits.
-        await Task.Delay(400).ConfigureAwait(true);
-        Dispatcher.UIThread.RunJobs();
-    }
-
     /// <summary>Starts an expression row the way the Add button's menu does.</summary>
     private static void AddExpression(SvgViewer viewer)
         => viewer.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().First().AddExpression();
@@ -146,7 +136,7 @@ public class SvgViewerLetEditingTests
         // Two expressions over one value: 'b' names nothing 'a' does, so within its own kind it may
         // move, and the one value above them is not a place it may move to.
         Assert.True(viewer.MoveLet(Row(viewer, "b"), 0));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new[] { "b", "a" }, viewer.Lets.Select(let => let.Name).ToArray());
 
@@ -199,7 +189,7 @@ public class SvgViewerLetEditingTests
         draft.Expression = "mix(deep, #000000, 0.5)";
 
         Assert.True(viewer.CommitLet(draft));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new[] { "deep", "deeper" }, viewer.Lets.Select(let => let.Name).ToArray());
 
@@ -223,7 +213,7 @@ public class SvgViewerLetEditingTests
         draft.Name = "unfinished";
 
         Assert.False(viewer.CommitLet(draft));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.DoesNotContain("unfinished", viewer.Source);
         Assert.False(viewer.IsSourceModified);
@@ -243,7 +233,7 @@ public class SvgViewerLetEditingTests
         row.Name = "shadow";
 
         Assert.True(viewer.CommitLet(row));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         var text = viewer.Source;
 
@@ -264,7 +254,7 @@ public class SvgViewerLetEditingTests
         row.Expression = "mix(tint, #ffffff, 0.5)";
 
         Assert.True(viewer.CommitLet(row));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Contains("""<e:let name="deep">mix(tint, #ffffff, 0.5)</e:let>""", viewer.Source);
 
@@ -288,7 +278,7 @@ public class SvgViewerLetEditingTests
         Assert.NotNull(row.Trouble);
 
         Assert.False(viewer.CommitLet(row));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         // The drawing still says what it said, and nothing was written to take back.
         Assert.Equal("mix(tint, #000000, 0.5)", row.Declaration!.Expression);
@@ -327,7 +317,7 @@ public class SvgViewerLetEditingTests
             Key = Key.Enter,
         });
 
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal("mix(tint, #ffffff, 0.25)", Row(viewer, "deep").Declaration!.Expression);
 
@@ -348,7 +338,7 @@ public class SvgViewerLetEditingTests
         // Something else editing the drawing, which rebuilds it and every row with it.
         Assert.True(viewer.SetSource("<!-- a comment nobody asked about -->\n" + viewer.Source));
 
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         // The same row object, still holding what was typed into it.
         Assert.Same(row, Row(viewer, "deep"));
@@ -368,7 +358,7 @@ public class SvgViewerLetEditingTests
         Assert.Equal("colour  #800000", Row(viewer, "deep").Readout);
 
         Assert.True(viewer.TrySetParameterValue("tint", ExprValue.Color(0x00, 0x00, 0xff, 0xff)));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal("colour  #000080", Row(viewer, "deep").Readout);
 
@@ -386,7 +376,7 @@ public class SvgViewerLetEditingTests
 
         row.Expression = "mix(tint, #ffffff, 0.25)";
 
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         // What the drawing is showing is still the declared body, so a value beside the typed one
         // would be a number for an expression nobody has committed.
@@ -403,7 +393,7 @@ public class SvgViewerLetEditingTests
         var (window, viewer) = await HostLoaded(Two);
 
         Assert.True(viewer.MoveLet(Row(viewer, "b"), 0));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new[] { "b", "a" }, viewer.Lets.Select(let => let.Name).ToArray());
 
@@ -416,7 +406,7 @@ public class SvgViewerLetEditingTests
         var (window, viewer) = await HostLoaded(Two.Replace("""<e:let name="b">t * 3</e:let>""", """<e:let name="b">a * 3</e:let>"""));
 
         Assert.False(viewer.MoveLet(Row(viewer, "b"), 0));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new[] { "a", "b" }, viewer.Lets.Select(let => let.Name).ToArray());
 
@@ -434,7 +424,7 @@ public class SvgViewerLetEditingTests
 
         // `a` is on the rect's opacity; `b` is named by nothing.
         Assert.True(viewer.RemoveLet(Row(viewer, "b")));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new[] { "a" }, viewer.Lets.Select(let => let.Name).ToArray());
         Assert.DoesNotContain("tau / 3", viewer.Source);
@@ -450,7 +440,7 @@ public class SvgViewerLetEditingTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(viewer.RemoveLet(Row(viewer, "a")));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Contains(viewer.Lets, let => let.Name == "a");
         Assert.Contains("{{ a }}", viewer.Source);
@@ -485,7 +475,7 @@ public class SvgViewerLetEditingTests
         var (window, viewer) = await HostLoaded(Two);
 
         Remove(viewer, Row(viewer, "b")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new[] { "a" }, viewer.Lets.Select(let => let.Name).ToArray());
 
@@ -507,14 +497,14 @@ public class SvgViewerLetEditingTests
 
         box.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
 
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         // The rebuild has replaced the rows, and the box that held this one is on its way out --
         // which is a focus loss. Asking the document for the same rename a second time names a let
         // that is no longer there.
         box.RaiseEvent(new RoutedEventArgs(InputElement.LostFocusEvent));
 
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(string.Empty, Note(viewer));
         Assert.Contains("{{ shadow }}", viewer.Source);
@@ -541,13 +531,13 @@ public class SvgViewerLetEditingTests
 
         box.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
 
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         // The same row, asked again as it goes: declaring what has just been declared is the other
         // half of the same mistake, and reads as the name being taken twice.
         box.RaiseEvent(new RoutedEventArgs(InputElement.LostFocusEvent));
 
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(string.Empty, Note(viewer));
         Assert.Equal(new[] { "deep", "deeper" }, viewer.Lets.Select(let => let.Name).ToArray());
@@ -585,7 +575,7 @@ public class SvgViewerLetEditingTests
         var (window, viewer) = await HostLoaded(Grouped, dialogs);
 
         Edit(viewer, Row(viewer, "deep")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal("deep", dialogs.Asked?.Name);
         Assert.Equal("mix(tint, #000000, 0.5)", dialogs.Asked?.Expression);
@@ -607,7 +597,7 @@ public class SvgViewerLetEditingTests
             new StubLetDialogService(new SvgExpressionLet("shadow", "mix(tint, #000000, 0.5)")));
 
         Edit(viewer, Row(viewer, "deep")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new[] { "shadow" }, viewer.Lets.Select(let => let.Name).ToArray());
         Assert.Contains("{{ shadow }}", viewer.Source);
@@ -658,7 +648,7 @@ public class SvgViewerLetEditingTests
             new StubLetDialogService(new SvgExpressionLet("deeper", "mix(deep, #000000, 0.5)")));
 
         Assert.True(await viewer.AddLetAsync());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new[] { "deep", "deeper" }, viewer.Lets.Select(let => let.Name).ToArray());
         Assert.Contains("""<e:let name="deeper">mix(deep, #000000, 0.5)</e:let>""", viewer.Source);

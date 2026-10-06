@@ -441,6 +441,108 @@ public class MainWindowTabsTests
         window.Close();
     }
 
+    /// <summary>A drawing opened from its text, an icon from Streamline with no project open, is called what it was opened as.</summary>
+    [AvaloniaFact]
+    public async Task A_Drawing_Opened_From_Text_Is_Called_What_It_Was_Opened_As()
+    {
+        var window = new MainWindow();
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        await window.OpenTextAsync(Drawing, "bell");
+        Dispatcher.UIThread.RunJobs();
+
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var title = (TextBlock)((StackPanel)((TabItem)tabs.SelectedItem!).Header!).Children[1];
+
+        Assert.Equal("bell", title.Text);
+
+        window.Close();
+    }
+
+    private static void CloseTab(TabItem item)
+    {
+        ((StackPanel)item.Header!).Children.OfType<Button>().Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void Front(TabControl tabs, int index)
+    {
+        tabs.SelectedItem = tabs.Items[index];
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>Closing the tab in front goes back to the one in front before it, not to its neighbour.</summary>
+    [AvaloniaFact]
+    public async Task Closing_The_Tab_In_Front_Goes_Back_To_The_One_Before_It()
+    {
+        var (window, tabs) = await Host(4);
+        var (a, b, d) = ((TabItem)tabs.Items[0]!, (TabItem)tabs.Items[1]!, (TabItem)tabs.Items[3]!);
+
+        Front(tabs, 1);
+
+        // A and C are beside it, and are where the strip would have gone.
+        CloseTab(b);
+
+        Assert.Same(d, tabs.SelectedItem);
+
+        // One behind the front leaves the front alone.
+        CloseTab(a);
+
+        Assert.Same(d, tabs.SelectedItem);
+
+        window.Close();
+    }
+
+    /// <summary>A tab dragged along the strip passes through its neighbour without becoming the one a close goes back to.</summary>
+    [AvaloniaFact]
+    public async Task Dragging_A_Tab_Leaves_What_A_Close_Goes_Back_To()
+    {
+        var (window, tabs) = await Host(3);
+        var (a, c) = ((TabItem)tabs.Items[0]!, (TabItem)tabs.Items[2]!);
+
+        Front(tabs, 0);
+
+        var neighbour = Centre(window, (TabItem)tabs.Items[1]!);
+
+        Drag(window, a, new Point(neighbour.X + 2d, neighbour.Y), firstStep: 6d);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(a, tabs.Items[1]);
+
+        CloseTab(a);
+
+        Assert.Same(c, tabs.SelectedItem);
+
+        window.Close();
+    }
+
+    /// <summary>Rearranging the panels shows the strip's first tab for a moment, and that is not a tab having been in front.</summary>
+    [AvaloniaFact]
+    public async Task Rearranging_The_Panels_Leaves_What_A_Close_Goes_Back_To()
+    {
+        var (window, tabs) = await Host(3);
+        var (b, c) = ((TabItem)tabs.Items[1]!, (TabItem)tabs.Items[2]!);
+
+        Front(tabs, 1);
+        Front(tabs, 2);
+
+        var folded = window.Layout.Replace("/element/open", "/element/folded", StringComparison.Ordinal);
+
+        Assert.NotEqual(window.Layout, folded);
+
+        window.Layout = folded;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(c, tabs.SelectedItem);
+
+        CloseTab(c);
+
+        Assert.Same(b, tabs.SelectedItem);
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public async Task More_Tabs_Than_Fit_Scroll_Sideways_Instead_Of_Wrapping()
     {

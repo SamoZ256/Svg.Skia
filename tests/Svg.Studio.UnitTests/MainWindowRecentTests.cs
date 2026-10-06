@@ -158,8 +158,7 @@ public class MainWindowRecentTests : IDisposable
 
         // The handler is async void as every menu handler here is, so the drawing arrives after the
         // click returns.
-        await Task.Delay(200).ConfigureAwait(true);
-        Dispatcher.UIThread.RunJobs();
+        await MainWindowProjectTests.Settle(reopened, "home.svg");
 
         Assert.Equal(
             new[] { path },

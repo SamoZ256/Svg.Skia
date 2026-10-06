@@ -18,9 +18,10 @@ $ARGUMENTS
    anything you did not write yourself this session. The message has to describe what is really
    there, not what you remember doing.
 
-   Stop if there is nothing to commit, or if `git rev-parse --abbrev-ref HEAD` is `HEAD` — a
-   detached head is never what I meant. In a desk that is the desk resting on `origin/master`, so
-   say that the work needs a branch first rather than just that the head is detached.
+   Stop if there is nothing to commit, or if `git rev-parse --abbrev-ref HEAD` is `HEAD` or
+   `master`, and say that the work needs a branch first. A detached head is never what I meant: in a
+   desk it is the desk resting on `origin/master`. And GitHub refuses a push to `master` — it takes
+   only merged pull requests — so committing there leaves it ahead of `origin` with nowhere to go.
 
 2. **Format what I changed, not the solution.** Use the `format` skill — it has the command, the
    measurements behind it, and what to revert if a run dirties something you did not touch.

@@ -2057,6 +2057,58 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>
+    /// Scrolled inside a group, the tree keeps the group's row and the project's at its top, and the
+    /// group's row there is the row: clicking it opens the group, as clicking it anywhere does.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Group_Scrolled_Into_Is_Pinned_And_Opens_From_There()
+    {
+        var drawings = string.Concat(Enumerable.Range(0, 40).Select(index => Holding($"icon{index:00}")));
+        var window = await Host(Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons">
+              <group name="Big">
+            {drawings}
+              </group>
+            </studio>
+
+            """));
+
+        var big = Item(window, "Big");
+
+        big.IsExpanded = true;
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        var scroller = Tree(window).GetVisualDescendants().OfType<ScrollViewer>().First();
+        Border Row(TreeViewItem item) => item.GetVisualDescendants().OfType<Border>().First(border => border.Name == "PART_LayoutRoot");
+        string[] Pinned() => Tree(window).GetVisualDescendants().OfType<TreeViewItem>()
+            .Where(item => Row(item).RenderTransform is { })
+            .Select(item => ((ProjectNode)item.Tag!).Name)
+            .ToArray();
+
+        Assert.Empty(Pinned());
+
+        scroller.Offset = new Vector(0, 20 * Row(big).Bounds.Height);
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { window.Workspace!.Document.Root.Name, "Big" }, Pinned());
+
+        Click(window, big);
+
+        Assert.Same(big.Tag, ((TabItem)Tabs(window).SelectedItem!).Tag);
+        Assert.Same(big, Tree(window).SelectedItem);
+
+        // In its own place, where it was drawn: under the project's row, which as the project's
+        // first row is the top of the tree again, with nothing left to pin.
+        Assert.Equal(Row(big).Bounds.Height, Row(big).TranslatePoint(default, scroller)!.Value.Y, 3);
+        Assert.Equal(0d, scroller.Offset.Y);
+        Assert.Empty(Pinned());
+    }
+
     /// <summary>The modifier the tree adds to a selection with, on whatever platform this runs on.</summary>
     private static RawInputModifiers Command(MainWindow window)
         => Application.Current?.PlatformSettings?.HotkeyConfiguration.CommandModifiers == KeyModifiers.Meta
@@ -2474,6 +2526,60 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal("tint", row.Name);
         Assert.Equal("Project", row.OwnerLabel);
         Assert.True(row.ShowsOwner, "a row alone should still say where it came from");
+    }
+
+    /// <summary>The tree marks what the board has picked — a drawing, a group inside it, or the board's own group — and does again when the board's tab comes back.</summary>
+    [AvaloniaFact]
+    public async Task The_Tree_Marks_What_The_Board_Has_Picked()
+    {
+        var window = await Host(Framed());
+        var root = window.Workspace!.Document.Root;
+        var inner = (ProjectGroup)root.Children.Single();
+        var one = inner.Children.Single();
+        var panel = await Opened(window, root);
+        var canvas = Canvas(panel);
+        var framed = Assert.Single(canvas.Frames);
+
+        ProjectNode? Marked() => (Tree(window).SelectedItem as TreeViewItem)?.Tag as ProjectNode;
+
+        Assert.Same(root, Marked());
+
+        // Folded, so marking the drawing has to open the group it is in.
+        var group = (TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[0]!;
+
+        group.IsExpanded = false;
+        Dispatcher.UIThread.RunJobs();
+
+        Pick(window, panel, 0);
+
+        Assert.Same(one, Marked());
+        Assert.True(group.IsExpanded);
+
+        Click(window, canvas, Over(canvas, canvas.TitleOf(framed).MidX, canvas.TitleOf(framed).MidY));
+
+        Assert.Same(inner, Marked());
+
+        Deselect(window, panel);
+
+        Assert.Same(root, Marked());
+
+        // Away to a tab of the drawing's own, and back to the board with the group picked on it.
+        Click(window, canvas, Over(canvas, canvas.TitleOf(framed).MidX, canvas.TitleOf(framed).MidY));
+
+        var board = Tabs(window).SelectedItem;
+
+        await window.ShowAsync(one);
+        Dispatcher.UIThread.RunJobs();
+
+        var drawing = Tabs(window).SelectedItem;
+
+        foreach (var (tab, marked) in new (object?, ProjectNode)[] { (board, inner), (drawing, one), (board, inner) })
+        {
+            Tabs(window).SelectedItem = tab;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Same(marked, Marked());
+        }
     }
 
     [AvaloniaFact]
@@ -5237,6 +5343,35 @@ public class MainWindowProjectTests : IDisposable
         Assert.StartsWith("Huge — ", window.Title);
     }
 
+    /// <summary>
+    /// A project's drawing has no file to be named after, so its tab is called what its row is — and
+    /// is renamed with it — rather than "drawing".
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Drawings_Tab_Is_Called_What_Its_Row_Is()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var badge = (ProjectNode)((TreeViewItem)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Items[0]!).Tag!;
+
+        await window.ShowAsync(badge);
+        Dispatcher.UIThread.RunJobs();
+
+        var item = (TabItem)Tabs(window).SelectedItem!;
+        var title = (TextBlock)((StackPanel)item.Header!).Children[1];
+
+        Assert.Equal(badge.Name, title.Text);
+
+        var settings = (GroupPanel)((SvgViewer)item.Content!).SidePanels.Single().Content;
+
+        Assert.True(settings.Edit("name", "emblem"));
+
+        await window.SaveAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("emblem", title.Text);
+        Assert.StartsWith("emblem — ", window.Title);
+    }
+
     [AvaloniaFact]
     public async Task An_Unsaved_Drawing_Is_Marked_Too()
     {
@@ -6185,13 +6320,7 @@ public class MainWindowProjectTests : IDisposable
         window.DragDrop(at, RawDragEventType.DragEnter, carried, DragDropEffects.Copy, RawInputModifiers.None);
         window.DragDrop(at, RawDragEventType.Drop, carried, DragDropEffects.Copy, RawInputModifiers.None);
 
-        for (var attempt = 0; attempt < 200 && Tabs(window).Items.Count == 0; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        Dispatcher.UIThread.RunJobs();
+        await Until(() => Tabs(window).Items.Count > 0);
     }
 
     /// <summary>The row for a label, found wherever it sits — the tree is rebuilt after every edit.</summary>
@@ -6332,7 +6461,7 @@ public class MainWindowProjectTests : IDisposable
         await Copy(window, DataTransferItem.CreateText(Drawing));
 
         Pick(window, "Large", "Paste");
-        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
+        await Until(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
 
         Assert.Equal(
             new[] { "Project", "home", "Large", "badge", "drawing" },
@@ -6351,10 +6480,10 @@ public class MainWindowProjectTests : IDisposable
         await Copy(window, DataTransferItem.CreateText(Drawing));
 
         Pick(window, "Large", "Paste");
-        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
+        await Until(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
 
         Pick(window, "Large", "Paste");
-        await Settle(() => window.Workspace!.Document.Root.Drawings.Count(drawing => drawing.Name == "drawing") == 2);
+        await Until(() => window.Workspace!.Document.Root.Drawings.Count(drawing => drawing.Name == "drawing") == 2);
 
         // Two rows reading the same thing: a name is a label rather than an identifier, and which
         // of them is which is settled by renaming one.
@@ -6375,7 +6504,7 @@ public class MainWindowProjectTests : IDisposable
         await window.Clipboard!.SetDataAsync(carried);
 
         Pick(window, "Large", "Paste");
-        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
+        await Until(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
 
         Assert.Contains(
             "<rect width=\"24\" height=\"24\" fill=\"#00ff00\" />",
@@ -6395,7 +6524,7 @@ public class MainWindowProjectTests : IDisposable
         await Copy(window, DataTransferItem.CreateFile(file!));
 
         Pick(window, "Large", "Paste");
-        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("mark.svg"));
+        await Until(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("mark"));
 
         Assert.False(File.Exists(Path.Combine(_directory, "drawing")));
     }
@@ -6421,7 +6550,7 @@ public class MainWindowProjectTests : IDisposable
         await Copy(window, DataTransferItem.CreateText("just some words"));
 
         Pick(window, "Large", "Paste");
-        await Settle(() => said.Count > 0);
+        await Until(() => said.Count > 0);
 
         Assert.Contains("none of it is a drawing", said.Single());
         Assert.False(File.Exists(Path.Combine(_directory, "drawing")));
@@ -6475,7 +6604,7 @@ public class MainWindowProjectTests : IDisposable
 
         // The row, and then what was on the clipboard all along.
         Pick(window, "Large", "Paste");
-        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
+        await Until(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
 
         Assert.Equal(
             new[]
@@ -6494,18 +6623,6 @@ public class MainWindowProjectTests : IDisposable
         carried.Add(item);
 
         await window.Clipboard!.SetDataAsync(carried);
-    }
-
-    /// <summary>Runs the loop until something is true, as a paste is not finished when it returns.</summary>
-    private static async Task Settle(Func<bool> until)
-    {
-        for (var attempt = 0; attempt < 200 && !until(); attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        Dispatcher.UIThread.RunJobs();
     }
 
     /// <summary>
@@ -6783,11 +6900,7 @@ public class MainWindowProjectTests : IDisposable
 
         await Drop(window, root, 0.5d, second);
 
-        for (var attempt = 0; attempt < 200 && window.Workspace?.Name != "other.svgstudio"; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
+        await Until(() => window.Workspace?.Name == "other.svgstudio");
 
         Assert.Equal("other.svgstudio", window.Workspace!.Name);
     }
@@ -6807,7 +6920,7 @@ public class MainWindowProjectTests : IDisposable
 
         await Drop(window, drawing);
 
-        Assert.Equal("home.svg", Named(Tab(window, "home.svg")));
+        Assert.Equal("home.svg", Path.GetFileName((await Settle(window, "home.svg")).DocumentPath));
     }
 
     [AvaloniaFact]
@@ -6830,11 +6943,7 @@ public class MainWindowProjectTests : IDisposable
 
         // Twice would be the ordinary outcome: the viewer takes a drop on itself and the window
         // takes everything else, and the same drop reaches both unless the viewer says it is done.
-        for (var attempt = 0; attempt < 200 && Tabs(window).Items.Count < 2; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
+        await Until(() => Tabs(window).Items.Count >= 2);
 
         Assert.Equal(2, Tabs(window).Items.Count);
     }
@@ -6896,11 +7005,7 @@ public class MainWindowProjectTests : IDisposable
 
         await Drop(window, (TreeViewItem)Tree(window).Items[0]!, 0.5d, Write("dropped.svg", Drawing));
 
-        for (var attempt = 0; attempt < 200 && !window.Workspace!.Document.Root.Drawings.Any(); attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
+        await Until(() => window.Workspace!.Document.Root.Drawings.Any());
 
         Assert.Single(window.Workspace!.Document.Root.Drawings);
         Assert.Contains("\n  <drawing name=\"dropped\">\n    <svg ", window.Workspace.Document.ToXml(), StringComparison.Ordinal);
@@ -6946,7 +7051,6 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(written, File.GetLastWriteTimeUtc(path));
     }
 
-    /// <summary>Waits for the tab holding <paramref name="name"/> to have finished loading.</summary>
     /// <summary>The tab showing <paramref name="name"/>, which must be open.</summary>
     private static TabItem Tab(MainWindow window, string name)
         => Tabs(window).Items.OfType<TabItem>().Single(item => Named(item) == name);
@@ -6958,27 +7062,18 @@ public class MainWindowProjectTests : IDisposable
             ? Path.GetFileName(path)
             : null;
 
-    private static async Task<SvgViewer> Settle(MainWindow window, string name)
+    /// <summary>Waits for the tab holding <paramref name="name"/> to have finished loading.</summary>
+    internal static async Task<SvgViewer> Settle(MainWindow window, string name)
     {
-        for (var attempt = 0; attempt < 200; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
+        SvgViewer? viewer = null;
 
-            var viewer = Tabs(window).Items
-                .OfType<TabItem>()
-                .Where(item => Named(item) == name)
-                .Select(item => item.Content)
-                .OfType<SvgViewer>()
-                .FirstOrDefault();
+        await Until(() => (viewer = Tabs(window).Items
+            .OfType<TabItem>()
+            .Where(item => Named(item) == name)
+            .Select(item => item.Content)
+            .OfType<SvgViewer>()
+            .FirstOrDefault())?.Document is { });
 
-            if (viewer?.Document is { })
-            {
-                return viewer;
-            }
-
-            await Task.Delay(10);
-        }
-
-        throw new InvalidOperationException($"'{name}' was never opened.");
+        return viewer!;
     }
 }

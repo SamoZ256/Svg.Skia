@@ -50,23 +50,33 @@ request — nothing is merged here.
    gh pr list --repo SamoZ256/Svg.Skia --head <branch> --state open --json number,baseRefName,url
    ```
 
-   Otherwise the target is the remote branch this one grew from. Count, for every remote branch but
-   this one's own, the commits this branch has that it lacks:
+   Otherwise the target is the remote branch this one grew from. For every remote branch but this
+   one's own, count both ways: the commits this branch has that it lacks, and the commits it has
+   that this branch lacks:
 
    ```sh
    for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); do
      case "$ref" in origin|origin/HEAD|"origin/<branch>") continue ;; esac
-     echo "$(git rev-list --count "$ref..HEAD") ${ref#origin/}"
+     set -- $(git rev-list --left-right --count "$ref...HEAD")
+     echo "$2 $1 ${ref#origin/}"
    done | sort -n | head -5
    ```
 
-   The fewest is the one it grew from. A branch started on `master` has only its own commits beyond
-   it; one stacked on a feature branch has fewer beyond that branch than beyond `master`. When two or
-   more tie for the fewest, `master` among them or not, git cannot say which it grew from: stop and
-   ask me which one, naming them.
+   Each line is *ahead*, *behind*, name. The fewest ahead is the one it grew from. A branch
+   started on `master` has only its own commits beyond it; one stacked on a feature branch has fewer
+   beyond that branch than beyond `master`.
 
-   Say which target was chosen, and the runner-up with its count, so a wrong guess is caught before
-   the pull request exists rather than after.
+   Stop and ask me which target to use, naming the candidates with both counts, when either:
+
+   - **two or more tie for the fewest ahead**, `master` among them or not, because git cannot say
+     which one it grew from; or
+   - **the chosen one is behind at all.** It has commits this branch lacks. Either it moved on
+     after this branch left it, or it is built on top of this branch rather than under it. Either
+     way, a pull request against it would not show what I would expect, and only I know whether
+     that is what I want.
+
+   Otherwise say which target was chosen, and the runner-up with both its counts, so a wrong guess
+   is caught before the pull request exists rather than after.
 
 6. **Run `/push`.** It looks at the diff, formats, builds, tests, writes the message and pushes; let
    it do that rather than repeating any of it here. If it stops, this stops with it — nothing below

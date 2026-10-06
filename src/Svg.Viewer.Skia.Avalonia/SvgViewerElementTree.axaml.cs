@@ -97,6 +97,8 @@ public partial class SvgViewerElementTree : UserControl
         _dropLine = this.FindControl<Border>("DropLine")!;
         _dropWord = this.FindControl<TextBlock>("DropWord")!;
 
+        SvgViewerStickyRows.Attach(_tree);
+
         _tree.AddHandler(PointerPressedEvent, OnRowPressed, RoutingStrategies.Tunnel);
         _tree.PointerMoved += OnRowMoved;
         // Entered as well as moved over: coming back from another control raises no move in between.

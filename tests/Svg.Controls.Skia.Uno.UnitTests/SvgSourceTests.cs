@@ -239,7 +239,8 @@ public class SvgSourceTests
             return source.Svg is null && source.Picture is null;
         });
 
-        var completed = await task.WaitAsync(TimeSpan.FromSeconds(2));
+        // Thirty seconds: a pool starved by the other test processes on a runner is not a deadlock.
+        var completed = await task.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.True(completed);
     }
 

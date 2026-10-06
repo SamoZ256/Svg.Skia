@@ -9,6 +9,18 @@ using Xunit;
 
 namespace Svg.Skia.UnitTests;
 
+/// <summary>The tests that flip a switch of the whole process, run with nothing else in parallel.</summary>
+/// <remarks>
+/// <see cref="SvgDocument.DisableDtdProcessing"/> is one static for every loader in the process, and
+/// the W3C rows that declare an <c>ENTITY</c> lose it while a test here has it switched off.
+/// </remarks>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class ProcessWideSwitchesCollection
+{
+    public const string Name = "process-wide switches";
+}
+
+[Collection(ProcessWideSwitchesCollection.Name)]
 public class SvgDocumentCompatibilityLoaderTests
 {
     [Fact]

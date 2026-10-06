@@ -250,7 +250,7 @@ public sealed class StreamlinePanel : UserControl
     public IReadOnlyList<StreamlineIcon> Dragged { get; set; } = Array.Empty<StreamlineIcon>();
 
     /// <summary>Whether <see cref="DropAsync"/> would take what is being dragged, for a drop target to say so.</summary>
-    internal bool CanDrop => Dragged.Count > 0 && _client is { } && _window.Workspace is { } && _running is null && !_opening;
+    public bool CanDrop => Dragged.Count > 0 && _client is { } && _window.Workspace is { } && _running is null && !_opening;
 
     /// <summary>The group picked in the tree; imports go there, or into the project where none is.</summary>
     public ProjectGroup? Target
@@ -337,6 +337,21 @@ public sealed class StreamlinePanel : UserControl
         var (query, style) = more
             ? _searched
             : (_query.Text?.Trim() ?? string.Empty, _style.SelectedItem as string is { } chosen && chosen != AnyStyle ? chosen : null);
+
+        // Streamline refuses an empty query as an invalid request rather than answering with nothing,
+        // so a cleared field, or a style picked over one, goes back to the strip as it opened.
+        if (query.Length == 0)
+        {
+            _results.Clear();
+            _anchor = null;
+            _searched = (query, style);
+            _hasMore = false;
+            Forget(Array.Empty<StreamlineIcon>());
+            Say(null);
+            ShowTiles();
+
+            return;
+        }
 
         _paging = true;
 
@@ -551,7 +566,7 @@ public sealed class StreamlinePanel : UserControl
         }
 
         // Clamped, since an undo can have taken rows out of the group while the window was up.
-        await _window.ImportAsync(import.Target, Math.Min(index, import.Target.Children.Count), Placed(import.Imports(), at).Imports, show).ConfigureAwait(true);
+        await _window.ImportAsync(import.Target, Math.Min(index, import.Target.Children.Count), Placed(import.Imports(), at).Imports, show && !_window.OnBoard(import.Target)).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -602,7 +617,7 @@ public sealed class StreamlinePanel : UserControl
             {
                 var (imports, next) = Placed(Imports(library, group, sure), at);
 
-                added = await _window.ImportAsync(group, index, imports, show).ConfigureAwait(true);
+                added = await _window.ImportAsync(group, index, imports, show && !_window.OnBoard(group)).ConfigureAwait(true);
                 at = next;
 
                 // So the Import button cannot bring them in a second time.

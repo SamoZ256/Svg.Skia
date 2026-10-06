@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -12,9 +13,28 @@ using Xunit;
 
 namespace Svg.Studio.UnitTests;
 
-/// <summary>A hand on a window: a board's canvas found and pointed at, a drag, a drop.</summary>
+/// <summary>A hand on a window: a board's canvas found and pointed at, a drag, a drop, and the wait for what one started.</summary>
 internal static class Gestures
 {
+    /// <summary>Lets the dispatcher run until <paramref name="done"/>, for what a gesture starts and nobody awaits.</summary>
+    /// <remarks>
+    /// Rounds rather than seconds, so a starved runner that takes longer over each round gets more
+    /// of them. One more round after: a background completion can make the model say yes while the
+    /// tree's update is still queued.
+    /// </remarks>
+    internal static async Task Until(Func<bool> done)
+    {
+        for (var waited = 0; !done(); waited++)
+        {
+            Assert.True(waited < 1000, "What was waited for never happened.");
+
+            await Task.Delay(10);
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
     /// <summary>The one canvas a group tab draws on.</summary>
     internal static SvgViewerCanvas Canvas(GroupPanel panel)
         => panel.GetVisualDescendants().OfType<SvgViewerCanvas>().Single();

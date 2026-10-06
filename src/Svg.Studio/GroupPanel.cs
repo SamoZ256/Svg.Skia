@@ -786,7 +786,12 @@ public sealed class GroupPanel : UserControl
         _described = node;
 
         ShowProperties(node);
+
+        DescribedChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary><see cref="Described"/> is something else: the board picked a drawing, a group inside it, or nothing.</summary>
+    public event EventHandler? DescribedChanged;
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {

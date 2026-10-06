@@ -140,16 +140,6 @@ public class SvgViewerParameterEditingTests
         return (window, viewer);
     }
 
-    /// <summary>Waits for the rebuild the debounce holds back.</summary>
-    private static async Task Settle()
-    {
-        Dispatcher.UIThread.RunJobs();
-
-        // Real time, because the debounce is a real timer: the point of it is that it waits.
-        await Task.Delay(400).ConfigureAwait(true);
-        Dispatcher.UIThread.RunJobs();
-    }
-
     private static TextBlock CommitLabel(SvgViewer viewer)
         => viewer.GetVisualDescendants().OfType<TextBlock>().First(c => c.Name == "CommitLabel");
 
@@ -162,7 +152,7 @@ public class SvgViewerParameterEditingTests
         var (window, viewer) = await HostLoaded(Parametric, Radius());
 
         Assert.True(await viewer.AddParameterAsync());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Contains(viewer.Parameters, row => row.Name == "radius");
         Assert.Equal(3, viewer.Parameters.Count);
@@ -186,7 +176,7 @@ public class SvgViewerParameterEditingTests
             Assert.False(viewer.IsSourceModified);
 
             Assert.True(await viewer.AddParameterAsync());
-            await Settle();
+            Dispatcher.UIThread.RunJobs();
 
             Assert.True(viewer.IsSourceModified);
             Assert.True(await viewer.SaveSourceAsync());
@@ -212,7 +202,7 @@ public class SvgViewerParameterEditingTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(await viewer.AddParameterAsync());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         var text = viewer.Source;
 
@@ -232,7 +222,7 @@ public class SvgViewerParameterEditingTests
         Assert.Empty(viewer.Parameters);
 
         Assert.True(await viewer.AddParameterAsync());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Single(viewer.Parameters);
         Assert.Equal("radius", viewer.Parameters[0].Name);
@@ -248,7 +238,7 @@ public class SvgViewerParameterEditingTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(await viewer.AddParameterAsync());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         var text = viewer.Source;
 
@@ -269,12 +259,12 @@ public class SvgViewerParameterEditingTests
         var before = viewer.Source;
 
         Assert.True(await viewer.AddParameterAsync());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         // Three spans went in — the namespace, the block and the declaration — and one undo takes
         // all of them out again.
         viewer.Undo();
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(before, viewer.Source);
         Assert.Empty(viewer.Parameters);
@@ -293,7 +283,7 @@ public class SvgViewerParameterEditingTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(await viewer.AddParameterAsync());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         // Adding a parameter rewrites the block, so every row is rebuilt. A value nobody typed a
         // default for should still be where it was left.
@@ -349,7 +339,7 @@ public class SvgViewerParameterEditingTests
         var offsetX = viewer.Canvas.OffsetX;
 
         Assert.True(await viewer.AddParameterAsync());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(scale, viewer.Canvas.Scale, 6);
         Assert.Equal(offsetX, viewer.Canvas.OffsetX, 6);
@@ -367,7 +357,7 @@ public class SvgViewerParameterEditingTests
         var fitted = viewer.Canvas.Scale;
 
         Assert.True(await viewer.AddParameterAsync());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(fitted, viewer.Canvas.Scale, 6);
 
@@ -388,7 +378,7 @@ public class SvgViewerParameterEditingTests
         var row = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single();
 
         Assert.True(await viewer.EditParameterAsync(row));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         var edited = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single();
 
@@ -411,7 +401,7 @@ public class SvgViewerParameterEditingTests
         var row = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single();
 
         Assert.True(await viewer.EditParameterAsync(row));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         var text = viewer.Source;
 
@@ -454,11 +444,11 @@ public class SvgViewerParameterEditingTests
         var before = viewer.Source;
 
         Assert.True(await viewer.EditParameterAsync(viewer.Parameters.OfType<SvgViewerNumberParameter>().Single()));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         // The declaration and the placeholder that names it moved together, and come back together.
         viewer.Undo();
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(before, viewer.Source);
 
@@ -558,7 +548,7 @@ public class SvgViewerParameterEditingTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(viewer.CommitParameterDefaults());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         var text = viewer.Source;
 
@@ -585,7 +575,7 @@ public class SvgViewerParameterEditingTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(viewer.CommitParameterDefaults());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.DoesNotContain(viewer.Parameters, row => row.IsModified);
         Assert.False(CommitLabel(viewer).IsVisible);
@@ -606,7 +596,7 @@ public class SvgViewerParameterEditingTests
         Assert.True(CommitLabel(viewer).IsVisible);
 
         Assert.True(viewer.CommitParameterDefaults());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.False(CommitLabel(viewer).IsVisible);
 
@@ -627,10 +617,10 @@ public class SvgViewerParameterEditingTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(viewer.CommitParameterDefaults());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         viewer.Undo();
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(before, viewer.Source);
 
@@ -658,7 +648,7 @@ public class SvgViewerParameterEditingTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(viewer.SetSource(Parametric.Replace("</svg>", string.Empty)));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(Parametric, viewer.Source);
         Assert.False(viewer.IsSourceModified);
@@ -692,7 +682,7 @@ public class SvgViewerParameterEditingTests
         Assert.Equal(new[] { "tint", "fade" }, viewer.Parameters.Select(row => row.Name).ToArray());
 
         Assert.True(viewer.MoveParameter(viewer.Parameters[1], 0));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new[] { "fade", "tint" }, viewer.Parameters.Select(row => row.Name).ToArray());
 
@@ -707,7 +697,7 @@ public class SvgViewerParameterEditingTests
         // Every order renders the same, since a default may not name another parameter. What the
         // C# generator wants of them is the generator's to say, when somebody runs it.
         Assert.True(viewer.MoveParameter(viewer.Parameters.Single(row => row.Name == "size"), 1));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new[] { "fade", "size" }, viewer.Parameters.Select(row => row.Name).ToArray());
 
@@ -756,12 +746,12 @@ public class SvgViewerParameterEditingTests
         // `fade` is on the rect's opacity, `tint` on its fill, so neither can go. One that nothing
         // names has to be declared first.
         Assert.True(await viewer.AddParameterAsync());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         var spare = viewer.Parameters.Single(row => row.Name == "radius");
 
         Assert.True(viewer.RemoveParameter(spare));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.DoesNotContain(viewer.Parameters, row => row.Name == "radius");
         Assert.DoesNotContain("radius", viewer.Source);
@@ -779,7 +769,7 @@ public class SvgViewerParameterEditingTests
         var used = viewer.Parameters.Single(row => row.Name == "tint");
 
         Assert.False(viewer.RemoveParameter(used));
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         // Still there, and the pane still holds the placeholder that kept it.
         Assert.Contains(viewer.Parameters, row => row.Name == "tint");
@@ -795,7 +785,7 @@ public class SvgViewerParameterEditingTests
         var (window, viewer) = await HostLoaded(Parametric, Radius());
 
         Assert.True(await viewer.AddParameterAsync());
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         var spare = viewer.Parameters.Single(row => row.Name == "radius");
 
@@ -804,7 +794,7 @@ public class SvgViewerParameterEditingTests
             .Single(button => ReferenceEquals(button.DataContext, spare) && button.Content as string == "✕")
             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
-        await Settle();
+        Dispatcher.UIThread.RunJobs();
 
         Assert.DoesNotContain(viewer.Parameters, row => row.Name == "radius");
 
