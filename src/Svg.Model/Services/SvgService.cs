@@ -7,6 +7,7 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Net;
 using System.Text;
+using System.Threading;
 using System.Xml;
 using ShimSkiaSharp;
 using Svg;
@@ -18,7 +19,12 @@ public static class SvgService
 {
     private const string DefaultSystemLanguageTag = "en-US";
 
-    public static CultureInfo? s_systemLanguageOverride = TryGetCultureInfo(DefaultSystemLanguageTag);
+    /// <summary>The culture <c>systemLanguage</c> is matched against inside a <see cref="PushSystemLanguage"/> scope.</summary>
+    /// <remarks>
+    /// Flowed with the execution context rather than one static: a static was switched by one test
+    /// while others in the same process matched against the default, and lost one of them.
+    /// </remarks>
+    private static readonly AsyncLocal<CultureInfo?> s_systemLanguage = new();
 
     private static readonly char[] s_spaceTab = { ' ', '\t' };
 
@@ -450,27 +456,32 @@ public static class SvgService
         return false;
     }
 
-    private static CultureInfo? TryGetCultureInfo(string name)
+    /// <summary>Matches <c>systemLanguage</c> against <paramref name="culture"/>, in this flow of execution, until the scope is disposed.</summary>
+    /// <remarks><see cref="CultureInfo.InvariantCulture"/> has no name, so under it nothing matches.</remarks>
+    public static IDisposable PushSystemLanguage(CultureInfo culture)
     {
-        try
+        var previous = s_systemLanguage.Value;
+        s_systemLanguage.Value = culture ?? throw new ArgumentNullException(nameof(culture));
+        return new SystemLanguageScope(previous);
+    }
+
+    private sealed class SystemLanguageScope : IDisposable
+    {
+        private readonly CultureInfo? _previous;
+
+        public SystemLanguageScope(CultureInfo? previous)
         {
-            return CultureInfo.GetCultureInfo(name);
+            _previous = previous;
         }
-        catch (CultureNotFoundException)
+
+        public void Dispose()
         {
-            return null;
+            s_systemLanguage.Value = _previous;
         }
     }
 
     private static string? GetCurrentSystemLanguageTag()
-    {
-        if (s_systemLanguageOverride is { } systemLanguageOverride)
-        {
-            return GetSystemLanguageTag(systemLanguageOverride);
-        }
-
-        return GetSystemLanguageTag(CultureInfo.InstalledUICulture) ?? DefaultSystemLanguageTag;
-    }
+        => s_systemLanguage.Value is { } culture ? GetSystemLanguageTag(culture) : DefaultSystemLanguageTag;
 
     internal static bool PassesConditionalProcessing(this SvgElement svgElement, DrawAttributes ignoreAttributes)
     {
