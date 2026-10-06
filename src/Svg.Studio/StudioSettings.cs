@@ -68,6 +68,8 @@ public static class StudioSettings
 
     private const string ConvertAsksKey = "convertAsks";
 
+    private const string DropAsksKey = "dropAsks";
+
     private const string ConvertIntegersKey = "convertIntegers";
 
     private const string ConvertOrganizesKey = "convertOrganizes";
@@ -204,6 +206,14 @@ public static class StudioSettings
     {
         get => !string.Equals(Read(ConvertAsksKey), "off", StringComparison.Ordinal);
         set => Write(ConvertAsksKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether Streamline icons dropped into a project ask which template to use, or import a sure match straight away.</summary>
+    /// <remarks>On unless somebody ticked the box that says not to ask again; an unsure match asks either way.</remarks>
+    public static bool DropAsks
+    {
+        get => !string.Equals(Read(DropAsksKey), "off", StringComparison.Ordinal);
+        set => Write(DropAsksKey, value ? "on" : "off");
     }
 
     /// <summary>Whether a PaintCode conversion writes whole numbers as integers.</summary>

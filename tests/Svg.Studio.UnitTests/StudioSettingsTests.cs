@@ -201,6 +201,28 @@ public class StudioSettingsTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void A_Drop_Asks_Until_Told_Not_To_And_Settings_Brings_The_Question_Back()
+    {
+        Assert.True(StudioSettings.DropAsks);
+
+        StudioSettings.DropAsks = false;
+
+        var settings = new SettingsWindow();
+
+        settings.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(settings.DropAsks.IsChecked);
+
+        settings.DropAsks.IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(StudioSettings.DropAsks);
+
+        settings.Close();
+    }
+
+    [AvaloniaFact]
     public void Snapping_Survives_Being_Switched_On()
     {
         StudioSettings.SnapToGrid = true;

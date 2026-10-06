@@ -105,6 +105,10 @@ public partial class SettingsWindow : Window
         ConvertAsks.IsChecked = StudioSettings.ConvertAsks;
         ConvertAsks.IsCheckedChanged += (_, _) => StudioSettings.ConvertAsks = ConvertAsks.IsChecked is true;
 
+        DropAsks = this.FindControl<CheckBox>("DropAsksBox")!;
+        DropAsks.IsChecked = StudioSettings.DropAsks;
+        DropAsks.IsCheckedChanged += (_, _) => StudioSettings.DropAsks = DropAsks.IsChecked is true;
+
         ConvertIntegers = this.FindControl<CheckBox>("ConvertIntegersBox")!;
         ConvertIntegers.IsChecked = StudioSettings.ConvertIntegers;
         ConvertIntegers.IsCheckedChanged += (_, _) => StudioSettings.ConvertIntegers = ConvertIntegers.IsChecked is true;
@@ -318,6 +322,9 @@ public partial class SettingsWindow : Window
 
     /// <summary>The box for whether a PaintCode document is asked about, for a test to drive.</summary>
     public CheckBox ConvertAsks { get; }
+
+    /// <summary>The box for whether dropped Streamline icons are asked about, for a test to drive.</summary>
+    public CheckBox DropAsks { get; }
 
     /// <summary>The box for whether a conversion writes integers, for a test to drive.</summary>
     public CheckBox ConvertIntegers { get; }

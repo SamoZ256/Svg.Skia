@@ -158,6 +158,14 @@
                Opacity="0.65"
                FontSize="11" />
 
+    <CheckBox x:Name="DropAsksBox" Content="Ask which template to use when Streamline icons are dropped" Margin="0,8,0,0" />
+
+    <TextBlock Text="Without the question, a drop imports the icons whose template is sure straight away; the rest still ask."
+               TextWrapping="Wrap"
+               Opacity="0.65"
+               FontSize="11"
+               Margin="26,0,0,0" />
+
     <TextBlock Text="Panels" Margin="0,14,0,0" />
 
     <Button x:Name="ResetLayoutButton" Content="Reset layout" HorizontalAlignment="Left" />
