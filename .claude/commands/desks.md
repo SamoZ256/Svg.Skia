@@ -6,8 +6,9 @@ allowed-tools: Bash(git rev-parse:*), Bash(git worktree:*), Bash(git status:*), 
 Show every desk in the hub. Read-only: do not fetch, switch, commit or remove anything.
 
 The hub is the parent of `git rev-parse --path-format=absolute --git-common-dir`. List its
-worktrees with `git -C <hub> worktree list --porcelain`, skipping the bare one, and for each desk
-report one line:
+worktrees with `git -C <hub> worktree list --porcelain`, skipping the bare one and any under a
+`.claude/worktrees/` directory — those are Claude Code's own, made for an isolated subagent or
+workflow agent, not desks. For each desk report one line:
 
 - **name** — the directory's name;
 - **on** — the branch it has checked out, or `detached at origin/master` when it rests there, or
