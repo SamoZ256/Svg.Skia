@@ -191,6 +191,11 @@ disagree about what the project says.</p>
 A project opens as a workspace rather than as a document: the tree goes in a panel beside the tabs —
 one you can fold, move or put behind another — and the project itself takes no tab, one project at a
 time, closed with <code>Project → Close</code>.</p>
+<p>Double-clicking a <code>.svgstudio</code> opens it too. On Windows and Linux a release build registers the
+extension for the current user each time it starts, so it points at the copy that ran last. On macOS
+the association comes from the app bundle, which a publish for an <code>osx-*</code> runtime builds only when
+asked: <code>dotnet publish src/Svg.Studio -c Release -r osx-arm64 -p:StudioAppBundle=true</code> leaves
+<code>Svg.Studio.app</code> in the publish folder. Finder notices it once the app has been opened.</p>
 <p>Two other things open as a project, by being converted into one:</p>
 <ul>
 <li>An <strong>svgc project</strong> (<code>.svgcproj</code>) is read with its drawings and opened as a project. It is one
