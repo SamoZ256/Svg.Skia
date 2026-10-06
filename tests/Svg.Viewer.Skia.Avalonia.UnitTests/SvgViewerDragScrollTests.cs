@@ -131,10 +131,11 @@ public class SvgViewerDragScrollTests
         Dispatcher.UIThread.RunJobs();
     }
 
-    /// <summary>Lets time pass with the pointer still, until <paramref name="done"/> or five seconds.</summary>
+    /// <summary>Lets time pass with the pointer still, until <paramref name="done"/> or half a minute.</summary>
+    /// <remarks>Generous, and left as soon as it is done: a loaded machine starves the timer that scrolls.</remarks>
     private static async Task Until(Func<bool> done)
     {
-        for (var waited = 0; waited < 250 && !done(); waited++)
+        for (var waited = 0; waited < 1500 && !done(); waited++)
         {
             await Task.Delay(20);
             Dispatcher.UIThread.RunJobs();

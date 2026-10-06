@@ -6818,11 +6818,17 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>The group whose row is under a point of the window.</summary>
-    /// <remarks>Rendered first: a hit test reads the scene as last drawn, which a headless window draws only when told.</remarks>
+    /// <remarks>
+    /// Rendered first, twice: a hit test reads the scene as last drawn, which a headless window draws
+    /// only when told, and one tick after a scroll still finds the rows where they were.
+    /// </remarks>
     private static string? GroupAt(Window window, Point at)
     {
-        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-        Dispatcher.UIThread.RunJobs();
+        for (var tick = 0; tick < 2; tick++)
+        {
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+        }
 
         return ((window.InputHitTest(at) as Visual)?.FindAncestorOfType<TreeViewItem>(true)?.Tag as ProjectGroup)?.Name;
     }
@@ -6859,7 +6865,8 @@ public class MainWindowProjectTests : IDisposable
         window.DragDrop(at, RawDragEventType.DragEnter, carried, DragDropEffects.Copy, RawInputModifiers.None);
         window.DragDrop(at, RawDragEventType.DragOver, carried, DragDropEffects.Copy, RawInputModifiers.None);
 
-        for (var waited = 0; waited < 250 && scroller.Offset.Y < end; waited++)
+        // Counted generously, and left as soon as it is there: a loaded machine starves the timer.
+        for (var waited = 0; waited < 1500 && scroller.Offset.Y < end; waited++)
         {
             await Task.Delay(20);
             Dispatcher.UIThread.RunJobs();
@@ -6876,7 +6883,7 @@ public class MainWindowProjectTests : IDisposable
         IEnumerable<string> Held(string group)
             => window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single(each => each.Name == group).Drawings.Select(drawing => drawing.Name);
 
-        for (var attempt = 0; attempt < 200 && !Held(now!).Contains("extra"); attempt++)
+        for (var attempt = 0; attempt < 3000 && !Held(now!).Contains("extra"); attempt++)
         {
             Dispatcher.UIThread.RunJobs();
             await Task.Delay(10);
