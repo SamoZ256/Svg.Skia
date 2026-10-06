@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using Svg;
+using Svg.Expressions;
 using Svg.Skia;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -165,11 +166,11 @@ public static class SvgViewerOutline
     }
 
     // UI thread. Read once per SKSvg, since a commit builds a new one; measured once per scene revision,
-    // which a drag and a bound value both move on.
+    // which a drag and a bound transform both move on, and once per binding, which display does not.
     private static readonly ConditionalWeakTable<SKSvg, StrongBox<bool>> s_unseeable = new();
     private static readonly ConditionalWeakTable<SvgSceneDocument, Measured> s_measured = new();
 
-    private sealed record Measured(long Revision, IReadOnlyList<SvgViewerUnseen> Unseen);
+    private sealed record Measured(long Revision, IReadOnlyDictionary<string, ExprValue>? Values, IReadOnlyList<SvgViewerUnseen> Unseen);
 
     /// <summary>Everything <paramref name="svg"/> has but does not paint, where each stands in its own units.</summary>
     /// <remarks>
@@ -190,7 +191,9 @@ public static class SvgViewerOutline
             return System.Array.Empty<SvgViewerUnseen>();
         }
 
-        if (s_measured.TryGetValue(scene, out var measured) && measured.Revision == scene.Revision)
+        // SetExpressionValues copies what it is given, so a new binding is a new dictionary.
+        if (s_measured.TryGetValue(scene, out var measured) && measured.Revision == scene.Revision &&
+            ReferenceEquals(measured.Values, svg.ExpressionValues))
         {
             return measured.Unseen;
         }
@@ -207,10 +210,10 @@ public static class SvgViewerOutline
             }
         }
 
-        Walk(scene.Root, scene, svg.SkiaModel, boxed, hiddenAbove: false, found, under: null, maskDepth: -1, user: null);
+        Walk(scene.Root, scene, svg.SkiaModel, Bound(svg), boxed, hiddenAbove: false, found, under: null, maskDepth: -1, user: null);
 
         s_measured.Remove(scene);
-        s_measured.Add(scene, new Measured(scene.Revision, found));
+        s_measured.Add(scene, new Measured(scene.Revision, svg.ExpressionValues, found));
 
         return found;
     }
@@ -221,7 +224,49 @@ public static class SvgViewerOutline
             element is SvgMask or SvgClipPath ||
             element is SvgVisualElement visual &&
             // A line's Fill is null rather than None, and a url() fill may resolve to nothing.
-            (visual.Display == "none" || !visual.Visible || visual.Fill is not SvgColourServer || visual.Fill == SvgPaintServer.None));
+            (visual.Display == "none" || !visual.Visible || visual.Fill is not SvgColourServer || visual.Fill == SvgPaintServer.None ||
+             visual.CustomAttributes.ContainsKey(SvgExpressionAttributes.KeyFor("display")) ||
+             visual.CustomAttributes.ContainsKey(SvgExpressionAttributes.KeyFor("visibility"))));
+
+    /// <summary>What the values bound now evaluate with, or null while the placeholders are drawn.</summary>
+    private static ExprEvaluator? Bound(SKSvg svg)
+    {
+        if (svg.ExpressionValues is not { } values)
+        {
+            return null;
+        }
+
+        try
+        {
+            return ExprEvaluator.Create(svg.ExpressionDeclarations, values);
+        }
+        catch (System.Exception failure) when (failure is ExprException or System.ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Whether <paramref name="condition"/>, a display or visibility expression, hides its node under <paramref name="bound"/>.</summary>
+    /// <remarks>
+    /// The node's own flags say only what the placeholder says, shown; the bound drawing drops the
+    /// node's whole subtree where this comes to false. One that fails is drawn, so it is not hidden.
+    /// </remarks>
+    private static bool Hides(ShimSkiaSharp.SymNode? condition, ExprEvaluator? bound)
+    {
+        if (bound is null || condition is not ShimSkiaSharp.SymSource { Text: var text })
+        {
+            return false;
+        }
+
+        try
+        {
+            return !bound.EvaluateTo(text, ExprType.Boolean, "a condition").AsBoolean;
+        }
+        catch (System.Exception failure) when (failure is ExprException or System.ArgumentException)
+        {
+            return false;
+        }
+    }
 
     /// <param name="under">
     /// Where the node's parent stands, for mask content, whose own TotalTransform the compile leaves in
@@ -233,6 +278,7 @@ public static class SvgViewerOutline
         SvgSceneNode node,
         SvgSceneDocument scene,
         SkiaModel model,
+        ExprEvaluator? bound,
         HashSet<SvgSceneNode> boxed,
         bool hiddenAbove,
         List<SvgViewerUnseen> found,
@@ -263,8 +309,9 @@ public static class SvgViewerOutline
         if (maskDepth < 0 && element is { } && !boxed.Contains(node))
         {
             // Not inherited, so the subtree is the node's to outline: every child under it is hidden
-            // too, and outlining each again would only stack lines.
-            if (node.IsDisplayNone)
+            // too, and outlining each again would only stack lines. A false expression drops the
+            // subtree the same way, visibility's included.
+            if (node.IsDisplayNone || Hides(node.DisplayExpression, bound) || Hides(node.VisibilityExpression, bound))
             {
                 Add(found, element, SvgViewerUnseenKind.Hidden, node, model, under: null, drawn: true, hidden: false);
                 return;
@@ -293,7 +340,7 @@ public static class SvgViewerOutline
 
             foreach (var content in mask.Children)
             {
-                Walk(content, scene, model, boxed, hiddenAbove: false, found, masked, maskDepth: 0, user: element);
+                Walk(content, scene, model, bound, boxed, hiddenAbove: false, found, masked, maskDepth: 0, user: element);
             }
         }
 
@@ -326,7 +373,7 @@ public static class SvgViewerOutline
 
         foreach (var child in node.Children)
         {
-            Walk(child, scene, model, boxed, hiddenAbove, found, under is null ? null : total, maskDepth < 0 ? -1 : maskDepth + 1, user);
+            Walk(child, scene, model, bound, boxed, hiddenAbove, found, under is null ? null : total, maskDepth < 0 ? -1 : maskDepth + 1, user);
         }
     }
 

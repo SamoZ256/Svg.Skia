@@ -368,6 +368,61 @@ public class SvgViewerInvisibleTests
         Assert.Null(canvas.InvisibleAt(svg, new SkiaSharp.SKPoint(91f, 75f)));
     }
 
+    /// <summary>Hidden by a variable only while the values bound now hide it, and outlined just as long.</summary>
+    [AvaloniaFact]
+    public void An_Element_A_Variable_Hides_Is_Outlined_While_It_Is_Hidden()
+    {
+        var svg = Load("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 100 100" width="100" height="100">
+              <defs><e:code><e:param name="on" type="boolean" default="false" /></e:code></defs>
+              <rect id="lamp" x="10" y="10" width="30" height="30" fill="#3366cc" display="{{ on }}" />
+            </svg>
+            """);
+
+        var canvas = new SvgViewerCanvas();
+        var edge = new SkiaSharp.SKPoint(10f, 25f);
+
+        // Unbound, the placeholder is drawn.
+        Assert.Null(canvas.InvisibleAt(svg, edge));
+
+        svg.SetExpressionValues(Bind(false));
+        Assert.Equal("lamp", canvas.InvisibleAt(svg, edge)?.ID);
+
+        svg.SetExpressionValues(Bind(true));
+        Assert.Null(canvas.InvisibleAt(svg, edge));
+
+        svg.SetExpressionValues(Bind(false));
+        Assert.Equal("lamp", canvas.InvisibleAt(svg, edge)?.ID);
+
+        static Dictionary<string, ExprValue> Bind(bool on)
+            => new(StringComparer.Ordinal) { ["on"] = ExprValue.Boolean(on) };
+    }
+
+    /// <summary>
+    /// A false visibility expression drops the whole subtree, so a child made visible again is hidden
+    /// with it, unlike under a literal <c>visibility="hidden"</c>.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_Group_A_Variable_Hides_Is_Outlined_Round_All_Of_It()
+    {
+        var svg = Load("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 100 100" width="100" height="100">
+              <defs><e:code><e:param name="on" type="boolean" default="false" /></e:code></defs>
+              <g id="group" visibility="{{ on }}">
+                <rect x="10" y="10" width="20" height="20" fill="#3366cc" />
+                <rect x="60" y="60" width="30" height="30" fill="#cc3355" visibility="visible" />
+              </g>
+            </svg>
+            """);
+
+        svg.SetExpressionValues(new Dictionary<string, ExprValue>(StringComparer.Ordinal) { ["on"] = ExprValue.Boolean(false) });
+
+        var canvas = new SvgViewerCanvas();
+
+        Assert.Equal("group", canvas.InvisibleAt(svg, new SkiaSharp.SKPoint(10f, 20f))?.ID);
+        Assert.Equal("group", canvas.InvisibleAt(svg, new SkiaSharp.SKPoint(90f, 75f))?.ID);
+    }
+
     /// <summary>
     /// A copy a &lt;use&gt; drew of clip content does not take the ring or the handles away from where the
     /// content clips.
