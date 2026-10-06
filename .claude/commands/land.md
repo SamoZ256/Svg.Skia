@@ -1,7 +1,7 @@
 ---
 description: After a branch is merged upstream, move this desk onto the target, bring it up to date, and delete the merged branch
 argument-hint: [target-branch]
-allowed-tools: Bash(git status:*), Bash(git branch:*), Bash(git checkout:*), Bash(git switch:*), Bash(git pull:*), Bash(git fetch:*), Bash(git log:*), Bash(git rev-list:*), Bash(git rev-parse:*), Bash(git worktree:*)
+allowed-tools: Bash(git status:*), Bash(git branch:*), Bash(git checkout:*), Bash(git switch:*), Bash(git fetch:*), Bash(git log:*), Bash(git rev-list:*), Bash(git rev-parse:*)
 ---
 
 The branch I am on has been merged into `$1` somewhere else (a pull request, usually). Bring
@@ -12,20 +12,16 @@ Target branch: **$1**
 Do this in order, stopping at the first thing that looks wrong:
 
 1. **Record the current branch.** That is the one to delete at the end. If it is already `$1`,
-   there is nothing to delete: in `main/`, pull, report and stop. In any other desk, detach as
-   step 3 says, then report and stop.
+   there is nothing to delete: detach as step 3 says, then report and stop.
 
 2. **Refuse to proceed on a dirty tree.** If `git status --short` is not empty, stop and show me
    what is uncommitted. Do not stash, do not commit, do not switch. Switching branches with
    uncommitted work either fails or carries the changes across, and neither is what I want here.
 
 3. **Fetch, and move onto `$1`.** `git fetch origin --prune`, saying which remote branches went.
-   Then see which desk this is (`git rev-parse --show-toplevel`):
-   - **`main/`:** switch to `$1` and `git pull --ff-only`. It is the one desk that holds `master`.
-   - **Any other desk:** `git switch --detach origin/$1`, even when `$1` is not checked out anywhere.
-     A desk rests on the remote's target rather than on a local branch. Taking `master` would stop
-     `main/` from switching back to it (see `/desk`). If `main/` holds `$1`, leave it alone, and
-     say that it is behind until its own agent pulls.
+   Then `git switch --detach origin/$1`, even when `$1` is not checked out anywhere: a desk rests
+   on the remote's target rather than on a local branch, which git refuses to hold in two desks at
+   once (see `/desk`).
 
    Report the commit it moved to, and whether that was a fast-forward.
 
