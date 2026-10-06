@@ -1228,13 +1228,9 @@ public class SvgViewerTests
     }
 
     /// <summary>Hands the viewer new text and lets what it set off run.</summary>
-    private static async Task Type(SvgViewer viewer, string text)
+    private static void Type(SvgViewer viewer, string text)
     {
         viewer.SetSource(text);
-        Dispatcher.UIThread.RunJobs();
-
-        // Real time, because the debounce is a real timer: the point of it is that it waits.
-        await Task.Delay(400).ConfigureAwait(true);
         Dispatcher.UIThread.RunJobs();
     }
 
@@ -1247,7 +1243,7 @@ public class SvgViewerTests
 
         var before = viewer.Svg!.Picture;
 
-        await Type(viewer, Parametric.Replace("24", "48", StringComparison.Ordinal));
+        Type(viewer, Parametric.Replace("24", "48", StringComparison.Ordinal));
 
         Assert.NotSame(before, viewer.Svg!.Picture);
         Assert.Contains("48", viewer.Document!.SourceText!, StringComparison.Ordinal);
@@ -1268,7 +1264,7 @@ public class SvgViewerTests
         var scale = viewer.Canvas.Scale;
         var offsetX = viewer.Canvas.OffsetX;
 
-        await Type(viewer, Parametric.Replace("default=\"1\"", "default=\"0.5\""));
+        Type(viewer, Parametric.Replace("default=\"1\"", "default=\"0.5\""));
 
         Assert.Equal(scale, viewer.Canvas.Scale, 6);
         Assert.Equal(offsetX, viewer.Canvas.OffsetX, 6);
@@ -1358,7 +1354,7 @@ public class SvgViewerTests
 
             Assert.Equal(new SKColor(0xFF, 0, 0), Centre(viewer));
 
-            await Type(viewer, markup.Replace("</svg>", "<!-- edited --></svg>", StringComparison.Ordinal));
+            Type(viewer, markup.Replace("</svg>", "<!-- edited --></svg>", StringComparison.Ordinal));
 
             // The rebuild really happened — otherwise the original picture would still be up and the
             // image would be resolved for the wrong reason.
@@ -1402,7 +1398,7 @@ public class SvgViewerTests
 
             Assert.False(viewer.IsSourceModified);
 
-            await Type(viewer, Parametric.Replace("24", "48", StringComparison.Ordinal));
+            Type(viewer, Parametric.Replace("24", "48", StringComparison.Ordinal));
 
             Assert.True(viewer.IsSourceModified);
 
@@ -1535,7 +1531,7 @@ public class SvgViewerTests
         var announced = new List<bool>();
         viewer.SourceModifiedChanged += (_, modified) => announced.Add(modified);
 
-        await Type(viewer, Parametric.Replace("24", "48", StringComparison.Ordinal));
+        Type(viewer, Parametric.Replace("24", "48", StringComparison.Ordinal));
 
         Assert.True(viewer.IsSourceModified);
         Assert.Equal(new[] { true }, announced);
@@ -1555,7 +1551,7 @@ public class SvgViewerTests
         Assert.True(viewer.TrySetParameterValue("tint", ExprValue.Color(0x11, 0x22, 0x33, 0xFF)));
         Dispatcher.UIThread.RunJobs();
 
-        await Type(
+        Type(
             viewer,
             Parametric.Replace(
                 "</e:code>",
@@ -1638,7 +1634,7 @@ public class SvgViewerTests
 
         Assert.Equal(30d, viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Step);
 
-        await Type(viewer, Ranged("5"));
+        Type(viewer, Ranged("5"));
 
         var row = viewer.Parameters.OfType<SvgViewerNumberParameter>().Single();
 
@@ -1660,7 +1656,7 @@ public class SvgViewerTests
 
         Dispatcher.UIThread.RunJobs();
 
-        await Type(viewer, Ranged("5", fallback: "90"));
+        Type(viewer, Ranged("5", fallback: "90"));
 
         Assert.Equal(90d, viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Value);
 
@@ -1677,7 +1673,7 @@ public class SvgViewerTests
         Assert.True(viewer.TrySetParameterValue("hue", ExprValue.Number(45f)));
         Dispatcher.UIThread.RunJobs();
 
-        await Type(viewer, Ranged("5", fallback: "90"));
+        Type(viewer, Ranged("5", fallback: "90"));
 
         Assert.Equal(45d, viewer.Parameters.OfType<SvgViewerNumberParameter>().Single().Value);
 
