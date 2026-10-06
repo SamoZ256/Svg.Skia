@@ -15,8 +15,8 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using SkiaSharp;
-using Svg.SourceEditing;
 using Svg.Expressions;
+using Svg.SourceEditing;
 using Xunit;
 
 namespace Svg.Viewer.Skia.Avalonia.UnitTests;
@@ -38,10 +38,13 @@ public class SvgViewerElementTreeTests
         </svg>
         """;
 
-    private static async Task<(Window Window, SvgViewer Viewer)> Host(string markup = Markup)
+    /// <summary>A window height that leaves the element tree a row to aim at below the rows pinned over it, which at 500 it has not.</summary>
+    private const double Room = 1000d;
+
+    private static async Task<(Window Window, SvgViewer Viewer)> Host(string markup = Markup, double height = 500d)
     {
         var viewer = new SvgViewer();
-        var window = new Window { Width = 700, Height = 500, Background = Brushes.White, Content = viewer };
+        var window = new Window { Width = 700, Height = height, Background = Brushes.White, Content = viewer };
 
         window.Show();
 
@@ -406,8 +409,8 @@ public class SvgViewerElementTreeTests
     /// <summary>Lays the window out, so the canvas has a size and a scale to map through.</summary>
     private static void Arrange(Window window)
     {
-        window.Measure(new Size(700, 500));
-        window.Arrange(new Rect(0, 0, 700, 500));
+        window.Measure(new Size(window.Width, window.Height));
+        window.Arrange(new Rect(0, 0, window.Width, window.Height));
         Dispatcher.UIThread.RunJobs();
     }
 
@@ -1393,7 +1396,7 @@ public class SvgViewerElementTreeTests
               <defs><symbol id="icon"><circle cx="5" cy="5" r="5" /></symbol><use id="badge" href="#icon" /></defs>
               <rect id="a" width="20" height="20" fill="#3366cc" />
             </svg>
-            """);
+            """, height: Room);
 
         Assert.True(viewer.Elements.TrySelect(new[] { "0/1", "1" }));
         Dispatcher.UIThread.RunJobs();
@@ -1458,6 +1461,14 @@ public class SvgViewerElementTreeTests
         row.BringIntoView();
         Dispatcher.UIThread.RunJobs();
 
+        // Drawn twice, because a drop is hit-tested against the scene as last drawn and a headless
+        // window only draws when told: one tick still finds the rows where they were before the scroll.
+        for (var tick = 0; tick < 2; tick++)
+        {
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+        }
+
         return row;
     }
 
@@ -1519,7 +1530,7 @@ public class SvgViewerElementTreeTests
     [AvaloniaFact]
     public async Task A_Clip_Path_Dropped_On_A_Drawn_Row_Is_Applied_As_One()
     {
-        var (window, viewer) = await Host(Kept);
+        var (window, viewer) = await Host(Kept, height: Room);
 
         Arrange(window);
 
@@ -1545,7 +1556,7 @@ public class SvgViewerElementTreeTests
               <clipPath id="loose"><rect width="20" height="20" /></clipPath>
               <rect id="a" width="30" height="30" fill="#3366cc" />
             </svg>
-            """);
+            """, height: Room);
         var asked = Asked(viewer.Elements);
         var moved = new List<string>();
 
@@ -1570,7 +1581,7 @@ public class SvgViewerElementTreeTests
     [AvaloniaFact]
     public async Task Holding_Option_Makes_A_Spare_Shape_A_Mask_Instead()
     {
-        var (window, viewer) = await Host(Kept);
+        var (window, viewer) = await Host(Kept, height: Room);
         var asked = Asked(viewer.Elements);
 
         Arrange(window);
@@ -1650,7 +1661,7 @@ public class SvgViewerElementTreeTests
     [AvaloniaFact]
     public async Task The_Row_Says_Clip_Or_Mask_As_Option_Is_Pressed_And_Let_Go()
     {
-        var (window, viewer) = await Host(Kept);
+        var (window, viewer) = await Host(Kept, height: Room);
         var line = viewer.Elements.FindControl<Border>("DropLine")!;
         var word = viewer.Elements.FindControl<TextBlock>("DropWord")!;
 
@@ -1699,7 +1710,7 @@ public class SvgViewerElementTreeTests
     [AvaloniaFact]
     public async Task Dragging_A_Clip_Path_Leaves_The_Picked_Element_Picked()
     {
-        var (window, viewer) = await Host(Kept);
+        var (window, viewer) = await Host(Kept, height: Room);
 
         window.Width = 900;
         window.Height = 700;
@@ -1739,7 +1750,7 @@ public class SvgViewerElementTreeTests
     [AvaloniaFact]
     public async Task Dragging_A_Clip_Path_Found_By_The_Filter_Leaves_The_Hidden_Element_Picked()
     {
-        var (window, viewer) = await Host(Kept);
+        var (window, viewer) = await Host(Kept, height: Room);
 
         window.Width = 900;
         window.Height = 700;
@@ -1781,7 +1792,7 @@ public class SvgViewerElementTreeTests
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 1" width="12" height="1">
             {string.Concat(Enumerable.Range(0, 12).Select(i => $"<rect id=\"r{i}\" x=\"{i}\" width=\"1\" height=\"1\" />"))}
             </svg>
-            """);
+            """, height: Room);
 
         Arrange(window);
 
@@ -1796,7 +1807,7 @@ public class SvgViewerElementTreeTests
     [AvaloniaFact]
     public async Task A_Row_Dropped_On_The_Foot_Of_An_Open_Group_Lands_After_It()
     {
-        var (window, viewer) = await Host(Kept);
+        var (window, viewer) = await Host(Kept, height: Room);
 
         Arrange(window);
 
