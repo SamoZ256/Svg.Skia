@@ -92,6 +92,9 @@ public partial class MainWindow : Window
     /// </remarks>
     private readonly HashSet<TabItem> _stale = new();
 
+    /// <summary>The tabs in the order they were last in front, the one in front last, for a close to go back through.</summary>
+    private readonly List<TabItem> _recent = new();
+
     private TabItem? _pressed;
     private Point _pressedAt;
     private double _grabbedAt;
@@ -158,6 +161,19 @@ public partial class MainWindow : Window
             Refill();
             Panels();
             Reveal();
+
+            // Once the strip has settled: dragging a tab and rearranging the panels both pass
+            // through other tabs on the way back to the same one.
+            Dispatcher.UIThread.Post(
+                () =>
+                {
+                    if (_tabs.SelectedItem is TabItem front)
+                    {
+                        _recent.Remove(front);
+                        _recent.Add(front);
+                    }
+                },
+                DispatcherPriority.Background);
         };
 
         _projectTree = this.FindControl<TreeView>("ProjectTree")!;
@@ -4083,6 +4099,14 @@ public partial class MainWindow : Window
 
     private void CloseTab(TabItem item)
     {
+        _recent.Remove(item);
+
+        // Before it goes, so the strip is not left to pick a neighbour.
+        if (ReferenceEquals(_tabs.SelectedItem, item) && _recent.Count > 0)
+        {
+            _tabs.SelectedItem = _recent[^1];
+        }
+
         _tabs.Items.Remove(item);
         _stale.Remove(item);
 
