@@ -298,7 +298,7 @@ already uses, or one another box of the drawing has. In the element tree a box r
 | Dashed violet | The content of a `<mask>`, drawn where it masks each element that uses it, labelled with the mask's id. |
 | Dashed green | The content of a `<clipPath>`, drawn where it clips each element that uses it, labelled with the clip path's id. |
 | Dotted pale cyan | A shape with neither a fill nor a stroke. |
-| Long-dashed pink | A hidden element: `display="none"`, or where `visibility="hidden"` starts. A hidden group is outlined round its children. |
+| Long-dashed pink | A hidden element: `display="none"`, where `visibility="hidden"` starts, or a `display` or `visibility` expression that is false for the values bound now. A hidden group is outlined round its children. |
 
 A mask or clip used by several elements is outlined once for each of them, and one nothing uses is
 not outlined at all. Click an outline's line to pick what it outlines, as with a box. Ink is picked
