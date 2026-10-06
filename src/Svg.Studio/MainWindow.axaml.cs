@@ -177,6 +177,10 @@ public partial class MainWindow : Window
         };
 
         _projectTree = this.FindControl<TreeView>("ProjectTree")!;
+
+        // Before the tree's own press handlers, which a press on a pinned row then reaches in place.
+        SvgViewerStickyRows.Attach(_projectTree);
+
         _projectPaneHost = this.FindControl<Border>("ProjectPaneHost")!;
         _projectName = this.FindControl<TextBlock>("ProjectName")!;
         _projectSearch = this.FindControl<TextBox>("ProjectSearch")!;

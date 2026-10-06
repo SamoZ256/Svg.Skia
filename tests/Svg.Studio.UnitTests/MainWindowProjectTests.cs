@@ -1832,6 +1832,58 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>
+    /// Scrolled inside a group, the tree keeps the group's row and the project's at its top, and the
+    /// group's row there is the row: clicking it opens the group, as clicking it anywhere does.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Group_Scrolled_Into_Is_Pinned_And_Opens_From_There()
+    {
+        var drawings = string.Concat(Enumerable.Range(0, 40).Select(index => Holding($"icon{index:00}")));
+        var window = await Host(Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons">
+              <group name="Big">
+            {drawings}
+              </group>
+            </studio>
+
+            """));
+
+        var big = Item(window, "Big");
+
+        big.IsExpanded = true;
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        var scroller = Tree(window).GetVisualDescendants().OfType<ScrollViewer>().First();
+        Border Row(TreeViewItem item) => item.GetVisualDescendants().OfType<Border>().First(border => border.Name == "PART_LayoutRoot");
+        string[] Pinned() => Tree(window).GetVisualDescendants().OfType<TreeViewItem>()
+            .Where(item => Row(item).RenderTransform is { })
+            .Select(item => ((ProjectNode)item.Tag!).Name)
+            .ToArray();
+
+        Assert.Empty(Pinned());
+
+        scroller.Offset = new Vector(0, 20 * Row(big).Bounds.Height);
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { window.Workspace!.Document.Root.Name, "Big" }, Pinned());
+
+        Click(window, big);
+
+        Assert.Same(big.Tag, ((TabItem)Tabs(window).SelectedItem!).Tag);
+        Assert.Same(big, Tree(window).SelectedItem);
+
+        // In its own place, where it was drawn: under the project's row, which as the project's
+        // first row is the top of the tree again, with nothing left to pin.
+        Assert.Equal(Row(big).Bounds.Height, Row(big).TranslatePoint(default, scroller)!.Value.Y, 3);
+        Assert.Equal(0d, scroller.Offset.Y);
+        Assert.Empty(Pinned());
+    }
+
     /// <summary>The modifier the tree adds to a selection with, on whatever platform this runs on.</summary>
     private static RawInputModifiers Command(MainWindow window)
         => Application.Current?.PlatformSettings?.HotkeyConfiguration.CommandModifiers == KeyModifiers.Meta
