@@ -1955,10 +1955,12 @@ public class StreamlinePanelTests : IDisposable
 
         window.ShowImport = _ => throw new InvalidOperationException("A sure drop asked after the box said not to.");
 
-        // A drop is refused while another is under way, and the first is under way until the drawing it opened has loaded.
-        await MainWindowProjectTests.Settle(window, "cog");
+        var carried = Carrying(panel, Parsed(Icon("ico_b", "gear", "sure-glyphs")));
 
-        Drop(window, OnRow(window, "Scheme"), Carrying(panel, Parsed(Icon("ico_b", "gear", "sure-glyphs"))));
+        // A drop is refused while another is under way, and the first is under way until whatever it opened has loaded.
+        await Until(() => panel.CanDrop);
+
+        Drop(window, OnRow(window, "Scheme"), carried);
         await Until(() => scheme.Children.Count == 4);
 
         Assert.Equal("gear", scheme.Children[^1].Name);
