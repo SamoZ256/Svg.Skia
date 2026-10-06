@@ -83,6 +83,9 @@ public partial class MainWindow : Window
     /// <summary>The chat that answers from the docs and works the window through <see cref="AssistantTools"/>.</summary>
     private readonly AssistantPanel _assistant;
 
+    /// <summary>The same tools as <see cref="_assistant"/>, served for Claude Code while Settings says so.</summary>
+    private readonly StudioMcpServer _mcp;
+
     /// <summary>The settings window while one is open, so a second asking brings that one forward.</summary>
     private SettingsWindow? _settings;
 
@@ -151,6 +154,10 @@ public partial class MainWindow : Window
         };
 
         _assistant = new AssistantPanel(new AssistantTools(this));
+        _mcp = new StudioMcpServer(this);
+
+        // After the window is up rather than here: the tools it serves reach into the window.
+        Opened += async (_, _) => await _mcp.ApplyAsync().ConfigureAwait(true);
 
         // Coming back to the window is when a commit made in a terminal would be seen.
         Activated += async (_, _) => await _changes.Refresh().ConfigureAwait(true);
@@ -1578,19 +1585,26 @@ public partial class MainWindow : Window
     /// templates, as one step, and opens the last of them unless <paramref name="show"/> is false.
     /// </summary>
     /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
-    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports, bool show = true)
+    /// <param name="notes">
+    /// Where what the import had to say goes, for a caller with nowhere to show a dialog; null
+    /// announces it here, which is what a drop or a paste wants.
+    /// </param>
+    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports, bool show = true, List<string>? notes = null)
     {
         if (_workspace is not { } workspace || imports.Count == 0)
         {
             return Array.Empty<ProjectDrawing>();
         }
 
-        var notes = new List<string>();
-        var added = TemplateLibrary.Import(workspace, parent, index, imports, notes);
+        var said = notes ?? new List<string>();
+        var added = TemplateLibrary.Import(workspace, parent, index, imports, said);
 
-        foreach (var note in notes)
+        if (notes is null)
         {
-            await Announce(added.Count == imports.Count ? "Imported" : "That drawing couldn't be added", note).ConfigureAwait(true);
+            foreach (var note in said)
+            {
+                await Announce(added.Count == imports.Count ? "Imported" : "That drawing couldn't be added", note).ConfigureAwait(true);
+            }
         }
 
         if (added.Count == 0)
@@ -2371,6 +2385,17 @@ public partial class MainWindow : Window
     /// </remarks>
     private void Rebuild()
     {
+        // A tab over a node an undo took out of the project: removing asks and closes the tabs
+        // first, but taking back an add cannot ask, and left a board editing a group in no project.
+        foreach (var item in _tabs.Items.OfType<TabItem>().ToList())
+        {
+            if (item.Tag is ProjectNode node && _workspace is { } workspace
+                && !node.Element.AncestorsAndSelf().Contains(workspace.Document.Root.Element))
+            {
+                CloseTab(item);
+            }
+        }
+
         foreach (var item in _tabs.Items.OfType<TabItem>())
         {
             if (item.Tag is not ProjectDrawing drawing || item.Content is not SvgViewer viewer)
@@ -2913,6 +2938,7 @@ public partial class MainWindow : Window
 
         await _streamline.RefreshAsync().ConfigureAwait(true);
         await _assistant.RefreshAsync().ConfigureAwait(true);
+        await _mcp.ApplyAsync().ConfigureAwait(true);
     }
 
     /// <summary>Tells every tab what the settings now say.</summary>
@@ -3566,6 +3592,11 @@ public partial class MainWindow : Window
         _recovery?.Drop();
         _recovery?.Stop();
         _recovery = null;
+
+        // Waited for, so the port is free again once the window has gone, but on the pool and for a
+        // bounded time: stopped from here, Kestrel's awaits came back to this thread, which was the
+        // one waiting for them, and closing the window hung.
+        Task.Run(() => _mcp.DisposeAsync().AsTask()).Wait(TimeSpan.FromSeconds(3));
 
         base.OnClosed(e);
     }

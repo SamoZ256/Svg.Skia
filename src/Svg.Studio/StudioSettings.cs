@@ -70,6 +70,10 @@ public static class StudioSettings
 
     private const string AssistantModelKey = "assistantModel";
 
+    private const string McpEnabledKey = "mcpEnabled";
+
+    private const string McpPortKey = "mcpPort";
+
     private const string ConvertAsksKey = "convertAsks";
 
     private const string ConvertIntegersKey = "convertIntegers";
@@ -295,6 +299,23 @@ public static class StudioSettings
     {
         get => Read(AssistantModelKey);
         set => Write(AssistantModelKey, value ?? string.Empty);
+    }
+
+    /// <summary>Whether Claude Code may connect to this Studio, through <see cref="StudioMcpServer"/>.</summary>
+    /// <remarks>Off unless the file says on: it opens a port, which nothing should do unasked.</remarks>
+    public static bool McpEnabled
+    {
+        get => string.Equals(Read(McpEnabledKey), "on", StringComparison.Ordinal);
+        set => Write(McpEnabledKey, value ? "on" : "off");
+    }
+
+    public const int DefaultMcpPort = 7337;
+
+    /// <summary>The port the server listens on, on this machine only.</summary>
+    public static int McpPort
+    {
+        get => (int)Read(McpPortKey, DefaultMcpPort, 1024, 65535);
+        set => Write(McpPortKey, value.ToString(CultureInfo.InvariantCulture));
     }
 
     /// <summary>What a window nobody has arranged comes up in.</summary>

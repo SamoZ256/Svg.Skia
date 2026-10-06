@@ -593,7 +593,7 @@ public class SvgViewerElementPanelTests
         Assert.DoesNotContain(SvgExpressionAttributes.ContentName, held.Panel.Attributes);
 
         Assert.False(held.Panel.Set(SvgExpressionAttributes.ContentName, "no"));
-        Assert.Equal("Only a <text>, a <tspan> or a <textPath> has text of its own to edit.", held.Panel.Fault);
+        Assert.Equal("Only a <text>, a <tspan>, a <textPath> or an <e:let> has text of its own to edit.", held.Panel.Fault);
     }
 
     /// <summary>The regression guard for the throw, on the row that could always reach it.</summary>

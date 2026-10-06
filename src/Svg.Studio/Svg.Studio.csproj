@@ -30,6 +30,9 @@
     <!-- Parses what the assistant replies; the drawing of it is AssistantMarkdown's, since
          Markdown.Avalonia stops at Avalonia 11. -->
     <PackageReference Include="Markdig" />
+    <!-- The same tools over MCP, served on this machine for Claude Code; StudioMcpServer. -->
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>

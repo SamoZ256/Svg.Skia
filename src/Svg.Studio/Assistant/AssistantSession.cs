@@ -34,11 +34,21 @@ public sealed class AssistantSession : IDisposable
         - Act only through tools. Never say something changed unless a tool reported it done; after your tools have run, say in a sentence what they did.
         - A request is the permission: never ask whether to proceed, just do it.
         - Answer questions from the documentation you are given, and say plainly when it does not cover something.
+
+        """ + Rules + """
+
+        - Reply briefly. Markdown is rendered: short paragraphs, lists, and `code` for attribute names and values.
+        """;
+
+    /// <summary>What any model driving Studio's tools has to know, the panel's or one connected over MCP.</summary>
+    internal const string Rules =
+        """
         - get_drawing gives the address keys set_attributes takes. Keys are positions, so read again after an edit that adds, moves or removes elements.
         - Nodes of the project are named by path from get_project, such as 0/2. Names can repeat; paths cannot.
         - Expressions are written {{ name }} inside an attribute; parameters and lets are declared in the drawing's or a group's declarations.
+        - A group's or the project's declarations are inherited by every drawing under it; get_declarations and set_declarations read and change them.
+        - get_problems lists everything wrong across the project's drawings; set_text changes the text between an element's tags.
         - Every edit is one step the person can undo with Cmd/Ctrl+Z.
-        - Reply briefly. Markdown is rendered: short paragraphs, lists, and `code` for attribute names and values.
         """;
 
     /// <summary>Only for a model that has the save, remove and git_commit tools; a small one nagged about saving from the mention alone.</summary>
@@ -65,7 +75,9 @@ public sealed class AssistantSession : IDisposable
     public void Use(IAssistantProvider provider, AssistantModel model)
     {
         _client?.Dispose();
-        _client = provider.Create(model).AsBuilder().UseFunctionInvocation().Build();
+        // With the exception's message rather than "Function failed.": a tool refuses with a sentence,
+        // so one that throws is a bug, and a model told what broke can say so rather than guess.
+        _client = provider.Create(model).AsBuilder().UseFunctionInvocation(configure: invoking => invoking.IncludeDetailedErrors = true).Build();
         _model = model;
 
         Clear();

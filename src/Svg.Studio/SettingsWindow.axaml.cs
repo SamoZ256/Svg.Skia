@@ -7,6 +7,7 @@ using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Markup.Xaml;
 using Svg.Viewer.Skia.Avalonia;
 
@@ -25,6 +26,8 @@ public partial class SettingsWindow : Window
     public SettingsWindow()
     {
         InitializeComponent();
+
+        Tabs = this.FindControl<TabControl>("SettingsTabs")!;
 
         Theme = this.FindControl<ComboBox>("ThemeBox")!;
         Theme.ItemsSource = s_themes.Select(theme => theme.Said).ToList();
@@ -139,15 +142,54 @@ public partial class SettingsWindow : Window
                 StreamlineKeyStatus,
                 StreamlineClient.KeyService,
                 StreamlineClient.KeyAccount,
-                "Paste a key from your Streamline profile, under API keys."),
+                "From your Streamline profile, under API keys."),
             new KeyField(
                 AnthropicKey,
                 ForgetAnthropicKey,
                 AnthropicKeyStatus,
                 ClaudeProvider.KeyService,
                 ClaudeProvider.KeyAccount,
-                "Paste a key from console.anthropic.com, under API keys, for the assistant.")
+                "From console.anthropic.com, under API keys.")
         };
+
+        McpEnabled = this.FindControl<CheckBox>("McpEnabledBox")!;
+        McpPort = Stepped("McpPortBox", 1024, 65535, StudioSettings.McpPort);
+        CopyMcpCommand = this.FindControl<Button>("CopyMcpCommandButton")!;
+        NewMcpToken = this.FindControl<Button>("NewMcpTokenButton")!;
+        McpStatus = this.FindControl<TextBlock>("McpStatusText")!;
+
+        McpEnabled.IsChecked = StudioSettings.McpEnabled;
+        McpEnabled.IsCheckedChanged += (_, _) =>
+        {
+            StudioSettings.McpEnabled = McpEnabled.IsChecked == true;
+            Served();
+        };
+
+        McpPort.ValueChanged += (_, _) =>
+        {
+            if (McpPort.Value is { } port)
+            {
+                StudioSettings.McpPort = (int)port;
+                Served();
+            }
+        };
+
+        CopyMcpCommand.Click += async (_, _) =>
+        {
+            if (McpCommand is { } command && Clipboard is { } clipboard)
+            {
+                await clipboard.SetTextAsync(command).ConfigureAwait(true);
+                McpStatus.Text = "Copied. Run it in a terminal.";
+            }
+        };
+
+        NewMcpToken.Click += (_, _) =>
+        {
+            Tokened(() => StudioMcpServer.NewToken());
+            Served();
+        };
+
+        Served();
 
         // Closing by the corner or Escape does not move focus out of the box first. A key the keychain
         // refuses here holds the window open, once, so the reason is not closed along with it. Every
@@ -166,6 +208,50 @@ public partial class SettingsWindow : Window
                 e.Cancel = true;
             }
         };
+    }
+
+    /// <summary>The command that adds this Studio to Claude Code, or null while it is off or has no token.</summary>
+    public string? McpCommand { get; private set; }
+
+    /// <summary>Says what the server will do once this window closes, which is when the window applies it.</summary>
+    private void Served()
+    {
+        var on = StudioSettings.McpEnabled;
+        var token = on ? Tokened(() => StudioMcpServer.Token(make: true)) : null;
+
+        McpCommand = token is { } ? StudioMcpServer.Command(StudioSettings.McpPort, token) : null;
+        McpPort.IsEnabled = on;
+        CopyMcpCommand.IsEnabled = McpCommand is { };
+        NewMcpToken.IsEnabled = McpCommand is { };
+        McpEnabled.IsEnabled = Keychain.Current is { };
+
+        if (Keychain.Current is null)
+        {
+            McpStatus.Text = "There is no keychain on this machine to keep the token in.";
+        }
+        else if (token is { } || !on)
+        {
+            McpStatus.Text = on
+                ? StudioMcpServer.Status is { } status && status.Contains($":{StudioSettings.McpPort}.", StringComparison.Ordinal)
+                    ? status
+                    : $"Served on 127.0.0.1:{StudioSettings.McpPort} once Settings closes."
+                : StudioMcpServer.Status ?? "Off.";
+        }
+    }
+
+    /// <summary>Asks the keychain for the token, putting its refusal in the status line.</summary>
+    private string? Tokened(Func<string?> ask)
+    {
+        try
+        {
+            return ask();
+        }
+        catch (Exception failure) when (failure is InvalidOperationException or Win32Exception)
+        {
+            McpStatus.Text = failure.Message;
+
+            return null;
+        }
     }
 
     /// <summary>A box a secret is typed into, kept in the keychain under one account and never shown back.</summary>
@@ -252,10 +338,10 @@ public partial class SettingsWindow : Window
                 }
 
                 _status.Text = keychain is null
-                    ? "Studio knows of no keychain on this machine to keep a key in."
+                    ? "There is no keychain on this machine to keep a key in."
                     : stored
-                        ? "A key is kept in this machine's keychain. Typing another replaces it."
-                        : _hint + " It is kept in this machine's keychain rather than in Studio's settings.";
+                        ? "A key is kept in the keychain. Typing another replaces it."
+                        : _hint + " Kept in the keychain, not in Studio's settings.";
             }
             catch (Exception failure) when (failure is InvalidOperationException or ArgumentException or Win32Exception)
             {
@@ -388,6 +474,21 @@ public partial class SettingsWindow : Window
 
     /// <summary>Whether a Streamline API key is kept, or why none can be.</summary>
     public TextBlock StreamlineKeyStatus { get; }
+
+    /// <summary>The pages the settings are on; a control on one not in front is not on screen.</summary>
+    public TabControl Tabs { get; }
+
+    /// <summary>Whether Claude Code may connect, for a test to drive.</summary>
+    public CheckBox McpEnabled { get; }
+
+    public NumericUpDown McpPort { get; }
+
+    public Button CopyMcpCommand { get; }
+
+    /// <summary>Replaces the token, so a command copied before stops working.</summary>
+    public Button NewMcpToken { get; }
+
+    public TextBlock McpStatus { get; }
 
     /// <summary>The box the assistant's Anthropic API key is typed into, for a test to drive.</summary>
     public TextBox AnthropicKey { get; }
