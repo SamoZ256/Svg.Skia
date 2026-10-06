@@ -315,7 +315,7 @@ public class StreamlinePanelTests : IDisposable
         var window = await Host(streamline, project: false);
         var panel = window.Streamline;
 
-        await panel.SearchAsync();
+        await Search(panel);
         Settle(window);
         await Until(() => panel.Results.Count == 3);
         Settle(window);
@@ -344,7 +344,7 @@ public class StreamlinePanelTests : IDisposable
         var window = await Host(streamline, project: false);
         var panel = window.Streamline;
 
-        await panel.SearchAsync();
+        await Search(panel);
         Settle(window);
 
         var tile = panel.GetVisualDescendants().OfType<Border>().Single(border => ToolTip.GetTip(border) is "bell");
@@ -369,7 +369,7 @@ public class StreamlinePanelTests : IDisposable
         var window = await Host(streamline, project: false);
         var panel = window.Streamline;
 
-        await panel.SearchAsync();
+        await Search(panel);
         Settle(window);
         await Task.Delay(50);
         Dispatcher.UIThread.RunJobs();
@@ -408,7 +408,7 @@ public class StreamlinePanelTests : IDisposable
 
         panel.Target = scheme;
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(1, KeyModifiers.None);
         await panel.PickAsync(0, KeyModifiers.Shift);
 
@@ -470,7 +470,7 @@ public class StreamlinePanelTests : IDisposable
             return Task.FromResult(false);
         };
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.OpenImportAsync();
 
@@ -540,7 +540,7 @@ public class StreamlinePanelTests : IDisposable
             return Task.FromResult(true);
         };
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.OpenImportAsync();
 
@@ -563,7 +563,7 @@ public class StreamlinePanelTests : IDisposable
             return Task.FromResult(true);
         };
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.OpenImportAsync();
 
@@ -641,7 +641,7 @@ public class StreamlinePanelTests : IDisposable
 
         panel.Target = Group(window, "Scheme");
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.PickAsync(1, KeyModifiers.Shift);
 
@@ -739,7 +739,7 @@ public class StreamlinePanelTests : IDisposable
             return Task.FromResult(true);
         });
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.PickAsync(1, KeyModifiers.Shift);
         await panel.OpenImportAsync();
@@ -784,7 +784,7 @@ public class StreamlinePanelTests : IDisposable
             return Task.FromResult(false);
         });
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.OpenImportAsync();
     }
@@ -812,7 +812,7 @@ public class StreamlinePanelTests : IDisposable
             return answer;
         };
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.OpenImportAsync();
 
@@ -842,7 +842,7 @@ public class StreamlinePanelTests : IDisposable
             return Task.FromResult(false);
         };
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.OpenImportAsync();
         Dispatcher.UIThread.RunJobs();
@@ -952,7 +952,7 @@ public class StreamlinePanelTests : IDisposable
 
         panel.Target = Group(window, "Scheme");
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.PickAsync(1, KeyModifiers.Shift);
         Settle(window);
@@ -975,10 +975,10 @@ public class StreamlinePanelTests : IDisposable
 
         panel.Target = Group(window, "Scheme");
 
-        await panel.SearchAsync();
+        await Search(panel);
         Settle(window);
 
-        var query = panel.GetLogicalDescendants().OfType<TextBox>().Single(box => box.PlaceholderText == "Search Streamline");
+        var query = Query(panel);
 
         Assert.Equal("Import…", import.Content);
         Assert.False(import.IsEnabled);
@@ -991,6 +991,17 @@ public class StreamlinePanelTests : IDisposable
         Assert.Equal("Import 2…", import.Content);
         Assert.True(import.IsEnabled);
         Assert.Equal("Icons go into Scheme.", ToolTip.GetTip(import));
+    }
+
+    private static TextBox Query(StreamlinePanel panel)
+        => panel.GetLogicalDescendants().OfType<TextBox>().Single(box => box.PlaceholderText == "Search Streamline");
+
+    /// <summary>Types <paramref name="query"/> and searches for it, as Enter does: Streamline refuses an empty one.</summary>
+    private static Task Search(StreamlinePanel panel, string query = "home")
+    {
+        Query(panel).Text = query;
+
+        return panel.SearchAsync();
     }
 
     private static Button Import(StreamlinePanel panel)
@@ -1019,7 +1030,7 @@ public class StreamlinePanelTests : IDisposable
 
         panel.ConfirmFamily = _ => Task.FromResult(false);
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
 
         import.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -1069,7 +1080,7 @@ public class StreamlinePanelTests : IDisposable
         panel.Target = Group(window, "Scheme");
         window.AddHandler(DragDrop.DragOverEvent, (_, e) => effects.Add(e.DragEffects), RoutingStrategies.Bubble, handledEventsToo: true);
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
 
         import.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -1131,12 +1142,10 @@ public class StreamlinePanelTests : IDisposable
 
         var window = await Host(streamline, project: false);
         var panel = window.Streamline;
-        var query = panel.GetLogicalDescendants().OfType<TextBox>().Single(box => box.PlaceholderText == "Search Streamline");
 
-        query.Text = "bell";
-        await panel.SearchAsync();
+        await Search(panel, "bell");
 
-        query.Text = "cat";
+        Query(panel).Text = "cat";
         await panel.SearchAsync(more: true);
 
         Assert.Equal(new[] { "bell", "bin", "cog" }, panel.Results.Select(icon => icon.Name));
@@ -1151,11 +1160,34 @@ public class StreamlinePanelTests : IDisposable
         var window = await Host(streamline, project: false);
         var panel = window.Streamline;
 
+        Query(panel).Text = "home";
         panel.GetLogicalDescendants().OfType<ComboBox>().First().SelectedItem = "line";
 
         await Until(() => panel.Results.Count == 2);
 
         Assert.Contains(streamline.Asked, asked => asked.Contains("style=line", StringComparison.Ordinal));
+    }
+
+    /// <summary>Streamline refuses an empty query, so a cleared field empties the strip without asking it anything.</summary>
+    [AvaloniaFact]
+    public async Task A_Cleared_Query_Empties_The_Tiles_Without_Asking_Streamline()
+    {
+        var streamline = Searching("line-glyphs");
+        var window = await Host(streamline, project: false);
+        var panel = window.Streamline;
+
+        await Search(panel);
+        Assert.NotEmpty(panel.Results);
+
+        Query(panel).Text = "  ";
+        await panel.SearchAsync();
+        panel.GetLogicalDescendants().OfType<ComboBox>().First().SelectedItem = "line";
+        Settle(window);
+
+        Assert.Empty(panel.Results);
+        Assert.Empty(Tiles(panel));
+        Assert.Null(panel.Said);
+        Assert.Single(streamline.Asked, asked => asked.Contains("/v1/search/global", StringComparison.Ordinal));
     }
 
     [AvaloniaFact]
@@ -1168,7 +1200,7 @@ public class StreamlinePanelTests : IDisposable
         var window = await Host(streamline, project: false);
         var panel = window.Streamline;
 
-        await panel.SearchAsync();
+        await Search(panel);
 
         Assert.Empty(panel.Results);
         Assert.Contains("did not take the key", panel.Said, StringComparison.Ordinal);
@@ -1182,9 +1214,9 @@ public class StreamlinePanelTests : IDisposable
         var window = await Host(Searching("line-glyphs"));
         var panel = window.Streamline;
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.Control);
 
         Assert.Empty(panel.Picked);
@@ -1202,7 +1234,7 @@ public class StreamlinePanelTests : IDisposable
         var panel = window.Streamline;
         var shown = Answering(window, false);
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(1, KeyModifiers.None);
         await panel.OpenImportAsync();
 
@@ -1240,7 +1272,7 @@ public class StreamlinePanelTests : IDisposable
         var window = await Host(streamline);
         var panel = window.Streamline;
 
-        await panel.SearchAsync();
+        await Search(panel);
 
         for (var tries = 0; tries < 2; tries++)
         {
@@ -1265,7 +1297,7 @@ public class StreamlinePanelTests : IDisposable
 
         panel.Target = scheme;
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
 
         await Task.WhenAll(panel.OpenImportAsync(), panel.OpenImportAsync());
@@ -1285,7 +1317,7 @@ public class StreamlinePanelTests : IDisposable
 
         Assert.StartsWith("No project is open", (string?)ToolTip.GetTip(Import(panel)), StringComparison.Ordinal);
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.PickAsync(1, KeyModifiers.Shift);
         await panel.OpenImportAsync();
@@ -1552,7 +1584,7 @@ public class StreamlinePanelTests : IDisposable
             return false;
         });
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.OpenImportAsync();
 
@@ -1606,7 +1638,7 @@ public class StreamlinePanelTests : IDisposable
             return false;
         });
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.OpenImportAsync();
 
@@ -1650,7 +1682,7 @@ public class StreamlinePanelTests : IDisposable
         TemplateLibrary.Remember(TemplateLibrary.Prepare(Glyph, "core-duo", "line", "a", new[] { "#000000" }), "Mono glyph");
 
         // Picked beforehand, and left picked: an update is about the drawing.
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
 
         var shown = Answering(window, true);
@@ -1801,7 +1833,7 @@ public class StreamlinePanelTests : IDisposable
         var scheme = Group(window, "Scheme");
         var before = scheme.Children.Count;
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
 
         Drop(window, OnRow(window, "Scheme"), Carrying(panel, panel.Picked.ToArray()));
@@ -2100,7 +2132,7 @@ public class StreamlinePanelTests : IDisposable
         panel.Target = group;
         Answering(window, true);
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.OpenImportAsync();
         Dispatcher.UIThread.RunJobs();
@@ -2161,7 +2193,7 @@ public class StreamlinePanelTests : IDisposable
         var window = await Host(streamline);
         var panel = window.Streamline;
 
-        await panel.SearchAsync();
+        await Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.PickAsync(1, KeyModifiers.Shift);
         Settle(window);
@@ -2241,7 +2273,7 @@ public class StreamlinePanelTests : IDisposable
         var panel = window.Streamline;
         var shown = new List<DragDropEffects>();
 
-        await panel.SearchAsync();
+        await Search(panel);
         Settle(window);
 
         window.AddHandler(DragDrop.DragOverEvent, (_, e) => shown.Add(e.DragEffects), RoutingStrategies.Bubble, handledEventsToo: true);

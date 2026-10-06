@@ -338,6 +338,21 @@ public sealed class StreamlinePanel : UserControl
             ? _searched
             : (_query.Text?.Trim() ?? string.Empty, _style.SelectedItem as string is { } chosen && chosen != AnyStyle ? chosen : null);
 
+        // Streamline refuses an empty query as an invalid request rather than answering with nothing,
+        // so a cleared field, or a style picked over one, goes back to the strip as it opened.
+        if (query.Length == 0)
+        {
+            _results.Clear();
+            _anchor = null;
+            _searched = (query, style);
+            _hasMore = false;
+            Forget(Array.Empty<StreamlineIcon>());
+            Say(null);
+            ShowTiles();
+
+            return;
+        }
+
         _paging = true;
 
         try
