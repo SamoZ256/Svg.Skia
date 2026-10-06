@@ -1299,12 +1299,45 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(was.Home, home.Text);
 
         // Still the chosen point, on the shape the board built again from what was written.
-        Assert.Equal(new SKPoint(area.Left + 22f, area.Top + 6f), canvas.Points!.Chosen);
+        Assert.Equal(new SKPoint(area.Left + 22f, area.Top + 6f), canvas.Points!.Chosen.Single().At);
 
         Assert.True(window.Undo());
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(was.Badge, badge.Text);
+    }
+
+    /// <summary>
+    /// Points chosen on the board by a sweep and a Shift-click move together into their drawing, and
+    /// are all still chosen once the board is laid out again.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Several_Points_Chosen_On_The_Board_Move_Together_And_Stay_Chosen()
+    {
+        var window = await Host(Write("icons.svgstudio", Strokes()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var badge = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var area = Area(Shown(panel, badge));
+
+        Reshape(window, canvas, area.Left + 12f, area.Top + 4f);
+
+        // From inside the drawing, off its ink, to round its first point.
+        Drag(window, canvas, Over(canvas, area.Left + 12f, area.Top + 10f), Over(canvas, area.Left + 2f, area.Top + 2f));
+        Dispatcher.UIThread.RunJobs();
+
+        Gestures.Press(window, canvas, Over(canvas, area.Left + 20f, area.Top + 4f), modifiers: KeyModifiers.Shift);
+        Gestures.Release(window, canvas, Over(canvas, area.Left + 20f, area.Top + 4f), modifiers: KeyModifiers.Shift);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(2, canvas.Points!.Chosen.Count);
+
+        Drag(window, canvas, Over(canvas, area.Left + 20f, area.Top + 4f), Over(canvas, area.Left + 22f, area.Top + 6f));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("d=\"M6 6 L22 6 L20 20\"", badge.Text, StringComparison.Ordinal);
+        Assert.Equal(2, canvas.Points!.Chosen.Count);
     }
 
     [AvaloniaFact]

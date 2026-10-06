@@ -42,6 +42,13 @@ public class SvgViewerPointsTests
         </svg>
         """;
 
+    /// <summary>A stroke of four points, so several can be chosen and some still left.</summary>
+    private const string Square = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+          <path d="M4 4 L20 4 L20 20 L4 20" fill="none" stroke="#000000" />
+        </svg>
+        """;
+
     private const RawInputModifiers Held = RawInputModifiers.LeftMouseButton;
 
     private static async Task<(Window Window, SvgViewer Viewer)> Host(string drawing = Bent, bool snapping = false)
@@ -76,6 +83,19 @@ public class SvgViewerPointsTests
         window.MouseUp(at, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
     }
+
+    private static void ShiftClick(Window window, SvgViewer viewer, float x, float y)
+    {
+        var at = At(window, viewer, x, y);
+
+        window.MouseDown(at, MouseButton.Left, RawInputModifiers.Shift);
+        window.MouseUp(at, MouseButton.Left, RawInputModifiers.Shift);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The chosen points, where they are drawn.</summary>
+    private static SKPoint[] Chosen(SvgViewer viewer)
+        => viewer.Canvas.Points!.Chosen.Select(chosen => chosen.At).OrderBy(at => at.Y).ThenBy(at => at.X).ToArray();
 
     /// <summary>Two clicks in one place, the second counted as the second of a run.</summary>
     /// <remarks>Raised directly with its count, rather than left to two real clicks coming close enough together.</remarks>
@@ -140,10 +160,10 @@ public class SvgViewerPointsTests
         => viewer.GetVisualDescendants().OfType<ToggleButton>().Single(button => Equals(button.Tag, tool));
 
     /// <summary>Selects the path by its ink and takes hold of its points the way a hand would: twice.</summary>
-    private static async Task<(Window Window, SvgViewer Viewer)> Reshaping(string drawing = Bent, bool snapping = false)
+    private static async Task<(Window Window, SvgViewer Viewer)> Reshaping(string drawing = Bent, bool snapping = false, (float, float)? ink = null)
     {
         var (window, viewer) = await Host(drawing, snapping);
-        var on = drawing == Grouped ? (14f, 0f) : (12f, 4f);
+        var on = ink ?? (drawing == Grouped ? (14f, 0f) : (12f, 4f));
 
         DoubleClick(window, viewer, on.Item1, on.Item2);
 
@@ -195,7 +215,7 @@ public class SvgViewerPointsTests
         Assert.Equal("M4 4 L22 6 L20 20", Written(viewer, "0", "d"));
 
         // The point is still the chosen one on the shape the commit rebuilt.
-        Assert.Equal(new SKPoint(22f, 6f), viewer.Canvas.Points!.Chosen);
+        Assert.Equal(new SKPoint(22f, 6f), viewer.Canvas.Points!.Chosen.Single().At);
 
         Assert.True(viewer.Undo());
         Assert.Equal(before, viewer.Source);
@@ -215,7 +235,7 @@ public class SvgViewerPointsTests
 
         var marks = viewer.Canvas.Points!;
 
-        Assert.Equal(new SKPoint(22f, 6f), marks.Chosen);
+        Assert.Equal(new SKPoint(22f, 6f), marks.Chosen.Single().At);
         Assert.Contains(new SKPoint(22f, 6f), marks.Anchors);
         Assert.DoesNotContain(new SKPoint(20f, 4f), marks.Anchors);
 
@@ -263,7 +283,7 @@ public class SvgViewerPointsTests
         Press(window, PhysicalKey.Delete);
 
         Assert.Equal("M4 4 L20 20", Written(viewer, "0", "d"));
-        Assert.Null(viewer.Canvas.Points!.Chosen);
+        Assert.Empty(viewer.Canvas.Points!.Chosen);
     }
 
     [AvaloniaFact]
@@ -273,11 +293,11 @@ public class SvgViewerPointsTests
 
         Click(window, viewer, 20f, 4f);
 
-        Assert.Equal(new SKPoint(20f, 4f), viewer.Canvas.Points!.Chosen);
+        Assert.Equal(new SKPoint(20f, 4f), viewer.Canvas.Points!.Chosen.Single().At);
 
         Press(window, PhysicalKey.Escape);
 
-        Assert.Null(viewer.Canvas.Points!.Chosen);
+        Assert.Empty(viewer.Canvas.Points!.Chosen);
         Assert.True(Tool(viewer, "points").IsChecked);
 
         Press(window, PhysicalKey.Escape);
@@ -294,7 +314,7 @@ public class SvgViewerPointsTests
         DoubleClick(window, viewer, 12f, 4f);
 
         Assert.Equal("M4 4 L12 4 L20 4 L20 20", Written(viewer, "0", "d"));
-        Assert.Equal(new SKPoint(12f, 4f), viewer.Canvas.Points!.Chosen);
+        Assert.Equal(new SKPoint(12f, 4f), viewer.Canvas.Points!.Chosen.Single().At);
     }
 
     /// <summary>
@@ -318,6 +338,153 @@ public class SvgViewerPointsTests
         Assert.Equal("M4 12 L12 12", Written(viewer, "1", "d"));
         Assert.Equal("1", viewer.Elements.SelectedAddresses.Single());
         Assert.Equal(2, viewer.Canvas.Points!.Anchors.Count);
+    }
+
+    // ---- several points ----------------------------------------------------------------------
+
+    [AvaloniaFact]
+    public async Task Shift_Click_Chooses_A_Second_Point_And_A_Drag_Moves_Both_As_One_Step()
+    {
+        var (window, viewer) = await Reshaping(Square);
+        var before = viewer.Source;
+
+        Click(window, viewer, 20f, 4f);
+        ShiftClick(window, viewer, 20f, 20f);
+
+        Assert.Equal(new[] { new SKPoint(20f, 4f), new SKPoint(20f, 20f) }, Chosen(viewer));
+
+        Drag(window, viewer, (20f, 4f), (22f, 6f));
+
+        Assert.Equal("M4 4 L22 6 L22 22 L4 20", Written(viewer, "0", "d"));
+        Assert.Equal(new[] { new SKPoint(22f, 6f), new SKPoint(22f, 22f) }, Chosen(viewer));
+
+        Assert.True(viewer.Undo());
+        Assert.Equal(before, viewer.Source);
+    }
+
+    [AvaloniaFact]
+    public async Task Shift_Click_On_A_Chosen_Point_Lets_Go_Of_It()
+    {
+        var (window, viewer) = await Reshaping(Square);
+
+        Click(window, viewer, 20f, 4f);
+        ShiftClick(window, viewer, 20f, 20f);
+        ShiftClick(window, viewer, 20f, 4f);
+
+        Assert.Equal(new[] { new SKPoint(20f, 20f) }, Chosen(viewer));
+    }
+
+    /// <summary>A click on one of several chosen points chooses that one alone, once it is clear it was not a drag.</summary>
+    [AvaloniaFact]
+    public async Task A_Click_On_One_Of_Several_Chosen_Points_Chooses_It_Alone()
+    {
+        var (window, viewer) = await Reshaping(Square);
+
+        Click(window, viewer, 20f, 4f);
+        ShiftClick(window, viewer, 20f, 20f);
+        Click(window, viewer, 20f, 20f);
+
+        Assert.Equal(new[] { new SKPoint(20f, 20f) }, Chosen(viewer));
+    }
+
+    /// <summary>
+    /// With a shape's points showing, a sweep chooses the points inside it rather than elements,
+    /// shows what it has caught while it is drawn, and adds to them with Shift.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Sweep_Chooses_The_Points_Inside_It()
+    {
+        var (window, viewer) = await Reshaping(Square);
+
+        window.MouseDown(At(window, viewer, 1f, 1f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseMove(At(window, viewer, 22f, 6f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { new SKPoint(4f, 4f), new SKPoint(20f, 4f) }, Chosen(viewer));
+
+        window.MouseUp(At(window, viewer, 22f, 6f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { new SKPoint(4f, 4f), new SKPoint(20f, 4f) }, Chosen(viewer));
+        Assert.True(Tool(viewer, "points").IsChecked);
+
+        Drag(window, viewer, (1f, 18f), (6f, 22f), RawInputModifiers.Shift);
+
+        Assert.Equal(new[] { new SKPoint(4f, 4f), new SKPoint(20f, 4f), new SKPoint(4f, 20f) }, Chosen(viewer));
+    }
+
+    /// <summary>Shift held from the press of a drag on a chosen point holds it to eight directions, and lets go of nothing.</summary>
+    [AvaloniaFact]
+    public async Task Shift_Held_From_The_Press_Drags_A_Chosen_Point_Along_A_Line()
+    {
+        var (window, viewer) = await Reshaping(Square);
+
+        Click(window, viewer, 20f, 4f);
+        Drag(window, viewer, (20f, 4f), (30f, 4f), RawInputModifiers.Shift);
+
+        Assert.Equal("M4 4 L30 4 L20 20 L4 20", Written(viewer, "0", "d"));
+        Assert.Equal(new[] { new SKPoint(30f, 4f) }, Chosen(viewer));
+    }
+
+    /// <summary>
+    /// A chosen handle let go of with Shift is still the shape's click, though nothing chosen shows
+    /// it any more: the shape stays selected rather than the page being picked behind it.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Shift_Click_On_A_Chosen_Handle_Lets_Go_Of_It_And_Keeps_The_Shape()
+    {
+        const string arch = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <path d="M4 12 C4 2 20 2 20 12" fill="none" stroke="#000000" />
+            </svg>
+            """;
+
+        var (window, viewer) = await Reshaping(arch, ink: (12f, 4.5f));
+
+        Click(window, viewer, 20f, 12f);
+        Click(window, viewer, 20f, 2f);
+
+        Assert.False(viewer.Canvas.Points!.Chosen.Single().Anchor);
+
+        ShiftClick(window, viewer, 20f, 2f);
+
+        Assert.Empty(viewer.Canvas.Points!.Chosen);
+        Assert.Equal("0", viewer.Elements.SelectedAddresses.Single());
+    }
+
+    [AvaloniaFact]
+    public async Task Delete_Takes_Out_Every_Chosen_Point_As_One_Step()
+    {
+        var (window, viewer) = await Reshaping(Square);
+        var before = viewer.Source;
+
+        Click(window, viewer, 20f, 4f);
+        ShiftClick(window, viewer, 20f, 20f);
+        Press(window, PhysicalKey.Delete);
+
+        Assert.Equal("M4 4 L4 20", Written(viewer, "0", "d"));
+        Assert.Empty(viewer.Canvas.Points!.Chosen);
+
+        Assert.True(viewer.Undo());
+        Assert.Equal(before, viewer.Source);
+    }
+
+    [AvaloniaFact]
+    public async Task Select_All_Chooses_Every_Point_And_Escape_Lets_Go_Of_Them()
+    {
+        var (window, viewer) = await Reshaping(Square);
+
+        window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(4, viewer.Canvas.Points!.Chosen.Count);
+
+        Press(window, PhysicalKey.Escape);
+
+        Assert.Empty(viewer.Canvas.Points!.Chosen);
+        Assert.True(Tool(viewer, "points").IsChecked);
     }
 
     /// <summary>A drawing built through a recipe is written at the address its file has, not the built one.</summary>

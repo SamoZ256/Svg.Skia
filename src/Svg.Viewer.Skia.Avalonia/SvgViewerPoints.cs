@@ -13,17 +13,15 @@ using SK = SkiaSharp;
 namespace Svg.Viewer.Skia.Avalonia;
 
 /// <summary>The points of the shape being reshaped, as the canvas draws them, in the space the drawings are arranged in.</summary>
-/// <param name="Chosen">Where the chosen point is, drawn filled; null while none is.</param>
-/// <param name="ChosenIsAnchor">Whether the chosen point is an anchor, drawn square, rather than a handle, drawn round.</param>
+/// <param name="Chosen">The chosen points, drawn filled: square where one is an anchor, round where it is a handle.</param>
 public sealed record SvgViewerPointMarks(
     IReadOnlyList<SK.SKPoint> Anchors,
     IReadOnlyList<SK.SKPoint> Handles,
     IReadOnlyList<(SK.SKPoint From, SK.SKPoint To)> Stalks,
-    SK.SKPoint? Chosen,
-    bool ChosenIsAnchor);
+    IReadOnlyList<(SK.SKPoint At, bool Anchor)> Chosen);
 
 /// <summary>
-/// Reshaping one path, polygon, polyline or line a point at a time: the gesture, and what it writes.
+/// Reshaping one path, polygon, polyline or line by its points: the gesture, and what it writes.
 /// </summary>
 /// <remarks>
 /// In the role of <see cref="SvgViewerGizmo"/>: it moves the built element as the hand moves so the
@@ -50,7 +48,16 @@ public sealed class SvgViewerPoints
     private GeometryPoints? _moving;
     private Shim.SKMatrix _from = Shim.SKMatrix.CreateIdentity();
     private Shim.SKMatrix _to = Shim.SKMatrix.CreateIdentity();
-    private int _chosen = -1;
+    private List<int> _chosen = new();
+
+    /// <summary>What a sweep being drawn would choose, drawn in place of what is chosen until it is let go.</summary>
+    private List<int>? _sweeping;
+
+    /// <summary>The point the press took hold of, which the snap and Shift's eight directions are for.</summary>
+    private int _grabbed = -1;
+
+    /// <summary>Whether the press added its point with Shift, so the click that may follow does not take it straight back out.</summary>
+    private bool _added;
     private bool _dragging;
     private Shim.SKPoint _pressed;
     private IReadOnlyList<(string Name, string Value)>? _writes;
@@ -85,12 +92,12 @@ public sealed class SvgViewerPoints
     /// <summary>Whether a point is being dragged.</summary>
     public bool IsDragging => _dragging;
 
-    /// <summary>The chosen point, by index, or -1.</summary>
-    /// <remarks>Settable so a host that rebuilds its selection from scratch can put it back.</remarks>
-    public int Chosen
+    /// <summary>The chosen points, by index.</summary>
+    /// <remarks>Settable so a host that rebuilds its selection from scratch can put them back.</remarks>
+    public IReadOnlyList<int> Chosen
     {
-        get => _chosen;
-        set => _chosen = _points is { } points && value >= 0 && value < points.Points.Count ? value : -1;
+        get => _chosen.ToArray();
+        set => _chosen = _points is { } points ? value.Where(i => i >= 0 && i < points.Points.Count).Distinct().ToList() : new List<int>();
     }
 
     /// <summary>Whether <paramref name="element"/> has points this can take hold of.</summary>
@@ -120,15 +127,53 @@ public sealed class SvgViewerPoints
             _to = to;
         }
 
-        Chosen = same ? _chosen : -1;
+        Chosen = same ? _chosen : Array.Empty<int>();
+        _sweeping = null;
         _clicked = same ? _clicked : null;
     }
 
-    /// <summary>Lets go of the chosen point.</summary>
+    /// <summary>Lets go of the chosen points.</summary>
     public void Deselect()
     {
-        _chosen = -1;
+        _chosen.Clear();
+        _sweeping = null;
         _clicked = null;
+    }
+
+    /// <summary>Chooses every anchor of the shape.</summary>
+    public void ChooseAll()
+    {
+        if (_points is { } points)
+        {
+            _chosen = Enumerable.Range(0, points.Points.Count).Where(i => points.Points[i].Kind == GeometryPointKind.Anchor).ToList();
+        }
+    }
+
+    /// <summary>Chooses the anchors a swept rectangle lies round, or adds them to what is chosen while <paramref name="adding"/>.</summary>
+    /// <param name="swept">The rectangle, in the space the drawings are arranged in; null for a sweep taken back.</param>
+    /// <param name="final">Whether the sweep has been let go of, rather than still being drawn.</param>
+    public void Sweep(SK.SKRect? swept, bool adding, bool final)
+    {
+        _sweeping = null;
+
+        if (swept is not { } rectangle || _points is not { } points)
+        {
+            return;
+        }
+
+        var caught = Enumerable.Range(0, points.Points.Count)
+            .Where(i => points.Points[i].Kind == GeometryPointKind.Anchor && rectangle.Contains(Arranged(points.Points[i].At)));
+        var chosen = (adding ? _chosen.Union(caught) : caught).ToList();
+
+        if (final)
+        {
+            _chosen = chosen;
+            _clicked = null;
+        }
+        else
+        {
+            _sweeping = chosen;
+        }
     }
 
     /// <summary>The marks to draw, or null where there is no shape.</summary>
@@ -151,6 +196,8 @@ public sealed class SvgViewerPoints
             }
         }
 
+        var chosen = _sweeping ?? _chosen;
+
         foreach (var i in Shown())
         {
             var handle = points.Points[i];
@@ -168,16 +215,21 @@ public sealed class SvgViewerPoints
             anchors,
             handles,
             stalks,
-            _chosen >= 0 ? Arranged(points.Points[_chosen].At) : null,
-            _chosen >= 0 && points.Points[_chosen].Kind == GeometryPointKind.Anchor);
+            chosen.Select(i => (Arranged(points.Points[i].At), points.Points[i].Kind == GeometryPointKind.Anchor)).ToList());
     }
 
     /// <summary>Whether a press at <paramref name="at"/> takes hold of a point.</summary>
     public bool Hits(Shim.SKPoint at, float scale) => Hit(at, scale) >= 0;
 
-    /// <summary>Chooses the point under the press and takes hold of it, or says why it will not.</summary>
+    /// <summary>Chooses the point under the press and takes hold of what is chosen, or says why it will not.</summary>
+    /// <param name="adding">
+    /// Shift: a point not chosen is added to the rest. A chosen one stays chosen here and is let go
+    /// of by <see cref="Click"/>, only if the press turns out to be a click — Shift held from the
+    /// start of a drag is what holds it to eight directions. Without Shift a press on a chosen point
+    /// drags them all, and on any other point chooses that one alone.
+    /// </param>
     /// <returns>The sentence refusing the gesture, or null where it began or there was nothing to begin.</returns>
-    public string? Begin(Shim.SKPoint at, float scale)
+    public string? Begin(Shim.SKPoint at, float scale, bool adding = false)
     {
         Cancel();
 
@@ -193,8 +245,20 @@ public sealed class SvgViewerPoints
             return refusal;
         }
 
-        _chosen = hit;
         _clicked = null;
+        _added = adding && !_chosen.Contains(hit);
+
+        if (!_chosen.Contains(hit))
+        {
+            if (!adding)
+            {
+                _chosen.Clear();
+            }
+
+            _chosen.Add(hit);
+        }
+
+        _grabbed = hit;
         _pressed = Inside(at);
         _writes = null;
         _dragging = true;
@@ -210,7 +274,7 @@ public sealed class SvgViewerPoints
             return;
         }
 
-        var start = Drawn(points.Points[_chosen].At);
+        var start = Drawn(points.Points[_grabbed].At);
         var now = Inside(at);
         var moved = new Shim.SKPoint(start.X + (now.X - _pressed.X), start.Y + (now.Y - _pressed.Y));
 
@@ -227,14 +291,14 @@ public sealed class SvgViewerPoints
         var local = _to.MapPoint(moved);
 
         // Back where it started is no edit at all, rather than the same numbers written in a new spelling.
-        if (new PointF(local.X, local.Y) == points.Points[_chosen].At)
+        if (new PointF(local.X, local.Y) == points.Points[_grabbed].At)
         {
             Revert();
 
             return;
         }
 
-        _writes = points.Move(_chosen, new PointF(local.X, local.Y));
+        _writes = points.Move(_chosen, _grabbed, new PointF(local.X, local.Y));
 
         // Read again only where it lists the same points, which a drag that joins the last point to
         // the first does not; the marks then stay where the press left them until the commit.
@@ -260,10 +324,14 @@ public sealed class SvgViewerPoints
             return null;
         }
 
-        return Edit(points.Points[_chosen].Kind == GeometryPointKind.Anchor ? "move a point" : "move a handle", writes);
+        var label = _chosen.Count > 1
+            ? $"move {_chosen.Count} points"
+            : points.Points[_grabbed].Kind == GeometryPointKind.Anchor ? "move a point" : "move a handle";
+
+        return Edit(label, writes);
     }
 
-    /// <summary>Drops a drag in flight, putting the shape back; the chosen point stays chosen.</summary>
+    /// <summary>Drops a drag in flight, putting the shape back; the chosen points stay chosen.</summary>
     public void Cancel()
     {
         if (!_dragging)
@@ -301,7 +369,8 @@ public sealed class SvgViewerPoints
     /// Whether the click was the shape's — on a point, or on its outline — and so not one for picking
     /// whatever is drawn under it. The sentence refusing an edit is in <paramref name="refusal"/>.
     /// </returns>
-    public bool Click(Shim.SKPoint at, float scale, int clicks, out SvgViewerEdits? edit, out string? refusal)
+    /// <param name="adding">Shift, which keeps what is chosen where a click would otherwise let go of it.</param>
+    public bool Click(Shim.SKPoint at, float scale, int clicks, bool adding, out SvgViewerEdits? edit, out string? refusal)
     {
         edit = null;
         refusal = null;
@@ -311,8 +380,21 @@ public sealed class SvgViewerPoints
             return false;
         }
 
-        if (Hit(at, scale) >= 0)
+        // A click on a point of several chosen is choosing that one: the press kept them all in case
+        // it was the start of a drag, and it was not.
+        if (Hit(at, scale) is var hit and >= 0)
         {
+            if (!adding)
+            {
+                _chosen = new List<int> { hit };
+            }
+            else if (!_added)
+            {
+                _chosen.Remove(hit);
+            }
+
+            _added = false;
+
             return true;
         }
 
@@ -340,27 +422,34 @@ public sealed class SvgViewerPoints
             }
 
             // Chosen before the commit, which rebuilds the drawing and keeps the index.
-            _chosen = anchor;
+            _chosen = new List<int> { anchor };
             _writes = written;
             edit = Edit("add a point", written!);
 
             return true;
         }
 
-        _chosen = -1;
+        if (!adding)
+        {
+            _chosen.Clear();
+        }
+
         _clicked = segment.Segment;
 
         return true;
     }
 
-    /// <summary>What deleting the chosen point writes: the point taken out, or a handle drawn back into its anchor.</summary>
-    /// <returns>Whether there was a chosen point to delete; the edit or the refusal is in the out parameters.</returns>
+    /// <summary>
+    /// What deleting the chosen points writes: the anchors among them taken out, or, where only handles
+    /// are chosen, those handles drawn back into their anchors.
+    /// </summary>
+    /// <returns>Whether there was anything chosen to delete; the edit or the refusal is in the out parameters.</returns>
     public bool Remove(out SvgViewerEdits? edit, out string? refusal)
     {
         edit = null;
         refusal = null;
 
-        if (_points is not { } points || _chosen < 0)
+        if (_points is not { } points || _chosen.Count == 0)
         {
             return false;
         }
@@ -370,13 +459,13 @@ public sealed class SvgViewerPoints
             return true;
         }
 
-        var chosen = points.Points[_chosen];
+        var anchors = _chosen.Count(i => points.Points[i].Kind == GeometryPointKind.Anchor);
 
-        if (chosen.Kind == GeometryPointKind.Handle)
+        if (anchors == 0)
         {
-            _writes = points.Move(_chosen, points.Points[chosen.Anchor].At, smooth: false);
-            edit = Edit("retract a handle", _writes);
-            _chosen = chosen.Anchor;
+            _writes = points.Retract(_chosen);
+            edit = Edit(_chosen.Count == 1 ? "retract a handle" : $"retract {_chosen.Count} handles", _writes);
+            _chosen = _chosen.Select(i => points.Points[i].Anchor).Distinct().ToList();
 
             return true;
         }
@@ -384,8 +473,8 @@ public sealed class SvgViewerPoints
         if ((refusal = points.Remove(_chosen, out var written)) is null)
         {
             _writes = written;
-            edit = Edit("delete a point", written!);
-            _chosen = -1;
+            edit = Edit(anchors == 1 ? "delete a point" : $"delete {anchors} points", written!);
+            _chosen.Clear();
         }
 
         return true;
@@ -393,15 +482,15 @@ public sealed class SvgViewerPoints
 
     // ---- inside -------------------------------------------------------------------------------
 
-    /// <summary>The handles worth drawing: those either side of the chosen point that stand off their anchor.</summary>
+    /// <summary>The handles worth drawing: those either side of every chosen point that stand off their anchor.</summary>
     private IEnumerable<int> Shown()
     {
-        if (Showing is not { } points || _chosen < 0)
+        if (Showing is not { } points)
         {
             return Array.Empty<int>();
         }
 
-        return points.Around(_chosen).Where(i =>
+        return (_sweeping ?? _chosen).SelectMany(points.Around).Distinct().Where(i =>
         {
             var handle = points.Points[i];
 

@@ -2375,9 +2375,9 @@ public class SvgViewerCanvas : SKCanvasControl
             canvas.DrawRect(square, line);
         }
 
-        if (marks.Chosen is { } at)
+        foreach (var (at, anchor) in marks.Chosen)
         {
-            if (marks.ChosenIsAnchor)
+            if (anchor)
             {
                 canvas.DrawRect(new SKRect(at.X - half, at.Y - half, at.X + half, at.Y + half), chosen);
             }

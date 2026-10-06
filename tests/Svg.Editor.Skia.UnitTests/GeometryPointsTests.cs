@@ -78,6 +78,13 @@ public class GeometryPointsTests
         return refusal ?? Says(written);
     }
 
+    private static string Removed(SvgElement element, int point)
+    {
+        var points = Captured(element);
+
+        return points.Remove(point, out var written) ?? Says(written);
+    }
+
     private static string Inserted(SvgElement element, int segment, float t)
     {
         var points = Captured(element);
@@ -292,6 +299,108 @@ public class GeometryPointsTests
         points.Restore();
 
         Assert.Equal(before, path.PathData.ToString());
+    }
+
+    // ---- several at once -----------------------------------------------------------------------
+
+    [Fact]
+    public void Several_Anchors_Move_Together()
+    {
+        var points = Captured(Drawn("M0,0 L10,0 L20,0"));
+        var chosen = new[] { Anchor(points, 10f, 0f), Anchor(points, 20f, 0f) };
+
+        Assert.Equal("d=M0 0 L10 5 L20 5", Says(points.Move(chosen, chosen[0], new PointF(10f, 5f))));
+    }
+
+    /// <summary>A handle chosen with the anchor it hangs from is carried by that anchor, and goes no further.</summary>
+    [Fact]
+    public void A_Handle_Chosen_With_Its_Anchor_Moves_Once()
+    {
+        var points = Captured(Drawn("M0,0 C0,10 10,10 10,0"));
+        var anchor = Anchor(points, 10f, 0f);
+        var chosen = new[] { anchor, Handle(points, 10f, 10f) };
+
+        Assert.Equal("d=M0 0 C0 10 12 10 12 0", Says(points.Move(chosen, anchor, new PointF(12f, 0f))));
+    }
+
+    /// <summary>Both handles across a smooth anchor go where the drag takes them, neither turned against the other.</summary>
+    [Fact]
+    public void Two_Handles_Across_An_Anchor_Both_Go_With_The_Drag()
+    {
+        var points = Captured(Drawn("M0,0 C0,10 10,10 10,0 C10,-10 20,-10 20,0"));
+        var grabbed = Handle(points, 10f, 10f);
+        var chosen = new[] { grabbed, Handle(points, 10f, -10f) };
+
+        Assert.Equal(
+            "d=M0 0 C0 10 12 10 10 0 C12 -10 20 -10 20 0",
+            Says(points.Move(chosen, grabbed, new PointF(12f, 10f))));
+    }
+
+    [Fact]
+    public void Two_Corners_Of_A_Polygon_Move_Together()
+    {
+        var points = Captured(Cornered(0f, 0f, 10f, 0f, 10f, 10f));
+
+        Assert.Equal("points=0,0 15,2 15,12", Says(points.Move(new[] { 1, 2 }, 1, new PointF(15f, 2f))));
+    }
+
+    [Fact]
+    public void Several_Points_Are_Removed_As_One_Edit()
+    {
+        var points = Captured(Drawn("M0,0 L10,0 L20,0 L30,0"));
+        var refusal = points.Remove(new[] { Anchor(points, 10f, 0f), Anchor(points, 20f, 0f) }, out var written);
+
+        Assert.Null(refusal);
+        Assert.Equal("d=M0 0 L30 0", Says(written));
+    }
+
+    /// <summary>A removal that would run out of points part-way takes none of them, and leaves the shape as it was.</summary>
+    [Fact]
+    public void Removing_Past_The_Least_A_Shape_Needs_Removes_Nothing()
+    {
+        var polygon = Cornered(0f, 0f, 10f, 0f, 10f, 10f, 0f, 10f);
+        var points = Captured(polygon);
+        var refusal = points.Remove(new[] { 1, 2 }, out var written);
+
+        Assert.Equal("A polygon needs three corners; delete the element instead.", refusal);
+        Assert.Null(written);
+        Assert.Equal("0,0 10,0 10,10 0,10", polygon.Points.ToString());
+    }
+
+    [Fact]
+    public void Handles_Are_Drawn_Back_Onto_Their_Anchors()
+    {
+        var points = Captured(Drawn("M0,0 C0,10 10,10 10,0"));
+
+        Assert.Equal(
+            "d=M0 0 C0 0 10 0 10 0",
+            Says(points.Retract(new[] { Handle(points, 0f, 10f), Handle(points, 10f, 10f) })));
+    }
+
+    /// <summary>
+    /// Two strokes meeting at one place have a point each there, and removing several takes out
+    /// the ones asked for, not whichever comes first at that place.
+    /// </summary>
+    [Fact]
+    public void Points_At_One_Place_Are_Told_Apart_When_Several_Are_Removed()
+    {
+        const string meeting = "M0 0 L10 0 L20 0 M20 0 L20 10 L20 20";
+
+        Assert.Equal("d=M0 0 L10 0 L20 0 M20 10 L20 20", Removed(Drawn(meeting), 3));
+
+        var points = Captured(Drawn(meeting));
+
+        Assert.Null(points.Remove(new[] { 3, 1 }, out var written));
+        Assert.Equal("d=M0 0 L20 0 M20 10 L20 20", Says(written));
+    }
+
+    /// <summary>A curve drawn on from a Z starts at the subpath's first point, and goes with it.</summary>
+    [Fact]
+    public void A_Curve_After_A_Close_Carries_Its_Handle_With_The_First_Point()
+    {
+        Assert.Equal(
+            "d=M5 0 L10 0 L10 10 Z C5 5 5 10 10 20",
+            Moved("M0 0 L10 0 L10 10 Z C0 5 5 10 10 20", GeometryPointKind.Anchor, new PointF(0f, 0f), new PointF(5f, 0f)));
     }
 
     // ---- removing -----------------------------------------------------------------------------

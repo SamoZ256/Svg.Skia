@@ -270,9 +270,32 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             }
         };
 
-        _canvas.Marqueed += (_, swept) => SelectEnclosed(swept);
+        // While a shape's points are showing, a sweep is for its points rather than for elements.
+        _canvas.Marqueed += (_, swept) =>
+        {
+            if (_draw.Reshaping && _points.IsShowing)
+            {
+                _points.Sweep(swept, _canvas.Modifiers.HasFlag(KeyModifiers.Shift), final: true);
+                ShowGizmo();
+            }
+            else
+            {
+                SelectEnclosed(swept);
+            }
+        };
 
-        _canvas.Marqueeing += (_, swept) => ShowEnclosed(swept);
+        _canvas.Marqueeing += (_, swept) =>
+        {
+            if (_draw.Reshaping && _points.IsShowing)
+            {
+                _points.Sweep(swept, _canvas.Modifiers.HasFlag(KeyModifiers.Shift), final: false);
+                ShowGizmo();
+            }
+            else
+            {
+                ShowEnclosed(swept);
+            }
+        };
 
         // A left drag means one thing here — sweeping up what it goes round — and the view is moved
         // by the gestures that were always for moving it: the middle button, the wheel, and a
@@ -1016,7 +1039,19 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         // A chosen point has the keys before the tool does: Escape lets go of the point and only
         // a second one puts the tool away, and Delete takes out the point and not the element.
-        if (!_canvas.IsEditing && _draw.Reshaping && _points.Chosen >= 0 && e.KeyModifiers == KeyModifiers.None)
+        // Every point of the shape, while there is one; A by itself is the tool's own letter.
+        if (!_canvas.IsEditing && _draw.Reshaping && _points.IsShowing && e.Key == Key.A
+            && e.KeyModifiers == (this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control))
+        {
+            e.Handled = true;
+
+            _points.ChooseAll();
+            ShowGizmo();
+
+            return;
+        }
+
+        if (!_canvas.IsEditing && _draw.Reshaping && _points.Chosen.Count > 0 && e.KeyModifiers == KeyModifiers.None)
         {
             if (e.Key == Key.Escape)
             {
@@ -1232,7 +1267,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         if (_reshaping)
         {
-            ShowNote(_points.Begin(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale));
+            ShowNote(_points.Begin(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale, _canvas.Modifiers.HasFlag(KeyModifiers.Shift)));
             ShowGizmo();
 
             return;
@@ -1599,7 +1634,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return true;
         }
 
-        if (!_points.Click(pressed, scale, _canvas.Clicks, out var edit, out var refusal))
+        if (!_points.Click(pressed, scale, _canvas.Clicks, _canvas.Modifiers.HasFlag(KeyModifiers.Shift), out var edit, out var refusal))
         {
             return false;
         }

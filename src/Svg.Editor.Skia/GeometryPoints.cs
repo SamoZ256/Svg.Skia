@@ -223,15 +223,26 @@ public sealed class GeometryPoints
     /// </param>
     /// <returns>What the file should now say.</returns>
     public IReadOnlyList<(string Name, string Value)> Move(int point, PointF to, bool smooth = true)
+        => Move(new[] { point }, point, to, smooth);
+
+    /// <summary>Moves every one of <paramref name="points"/> as far as <paramref name="grabbed"/> goes to reach <paramref name="to"/>.</summary>
+    /// <inheritdoc cref="Move(int, PointF, bool)"/>
+    public IReadOnlyList<(string Name, string Value)> Move(IReadOnlyCollection<int> points, int grabbed, PointF to, bool smooth = true)
     {
-        var moved = _points[point];
+        var by = Minus(to, _points[grabbed].At);
+        var chosen = new HashSet<int>(points);
 
         if (_poly is { })
         {
             var coordinates = (float[])_coordinates.Clone();
 
-            coordinates[2 * moved.Segment] = Round(to.X);
-            coordinates[2 * moved.Segment + 1] = Round(to.Y);
+            foreach (var i in chosen)
+            {
+                var at = Plus(_points[i].At, by);
+
+                coordinates[2 * _points[i].Segment] = Round(at.X);
+                coordinates[2 * _points[i].Segment + 1] = Round(at.Y);
+            }
 
             return Poly(coordinates);
         }
@@ -240,74 +251,98 @@ public sealed class GeometryPoints
         {
             Restore();
 
-            var x = GeometryWriter.Same(_ends[2 * moved.Segment], Round(to.X));
-            var y = GeometryWriter.Same(_ends[2 * moved.Segment + 1], Round(to.Y));
+            var written = new List<(string, string)>();
 
-            if (moved.Segment == 0)
+            foreach (var i in chosen.OrderBy(i => i))
             {
-                line.StartX = x;
-                line.StartY = y;
+                var end = _points[i].Segment;
+                var at = Plus(_points[i].At, by);
+                var x = GeometryWriter.Same(_ends[2 * end], Round(at.X));
+                var y = GeometryWriter.Same(_ends[2 * end + 1], Round(at.Y));
 
-                return new[] { ("x1", x.ToString()), ("y1", y.ToString()) };
+                if (end == 0)
+                {
+                    line.StartX = x;
+                    line.StartY = y;
+                    written.Add(("x1", x.ToString()));
+                    written.Add(("y1", y.ToString()));
+                }
+                else
+                {
+                    line.EndX = x;
+                    line.EndY = y;
+                    written.Add(("x2", x.ToString()));
+                    written.Add(("y2", y.ToString()));
+                }
             }
 
-            line.EndX = x;
-            line.EndY = y;
-
-            return new[] { ("x2", x.ToString()), ("y2", y.ToString()) };
+            return written;
         }
 
         var pieces = Copies();
-        var by = new PointF(to.X - moved.At.X, to.Y - moved.At.Y);
 
-        if (moved.Kind == GeometryPointKind.Anchor)
+        // An anchor carries its handles: the one coming in on its own segment, and the one going out
+        // on the next. An S's going-out handle is a reflection and follows by itself. A Z is the
+        // subpath's first point for a curve drawn on from it without a moveto, so it carries too.
+        for (var i = 0; i < pieces.Length; i++)
         {
-            // An anchor carries its handles: the one coming in on its own segment, and the one
-            // going out on the next. An S's going-out handle is a reflection and follows by itself.
-            for (var i = 0; i < pieces.Length; i++)
+            if (!chosen.Contains(_anchors[i]))
             {
-                if (_anchors[i] != point || pieces[i].Kind == 'Z')
-                {
-                    continue;
-                }
-
-                pieces[i].End = Plus(pieces[i].End, by);
-
-                if (pieces[i].Kind is 'C' or 'S')
-                {
-                    pieces[i].Second = Plus(pieces[i].Second, by);
-                }
-
-                if (i + 1 < pieces.Length && pieces[i + 1].Kind == 'C')
-                {
-                    pieces[i + 1].First = Plus(pieces[i + 1].First, by);
-                }
+                continue;
             }
 
-            return Path(pieces);
+            if (pieces[i].Kind != 'Z')
+            {
+                pieces[i].End = Plus(pieces[i].End, by);
+            }
+
+            if (pieces[i].Kind is 'C' or 'S')
+            {
+                pieces[i].Second = Plus(pieces[i].Second, by);
+            }
+
+            if (i + 1 < pieces.Length && pieces[i + 1].Kind == 'C')
+            {
+                pieces[i + 1].First = Plus(pieces[i + 1].First, by);
+            }
         }
 
-        var piece = pieces[moved.Segment];
+        foreach (var i in chosen)
+        {
+            var moved = _points[i];
 
-        if (moved.Which == 2)
-        {
-            piece.Second = to;
-        }
-        else
-        {
-            // An S's first control is the last one's reflection; to put it anywhere else is a C.
-            piece.First = to;
-            piece.Kind = piece.Kind == 'S' ? 'C' : piece.Kind;
-        }
+            // A handle its chosen anchor has already carried would otherwise go twice as far.
+            if (moved.Kind != GeometryPointKind.Handle || (_pieces[moved.Segment].Kind is 'C' or 'S' && chosen.Contains(moved.Anchor)))
+            {
+                continue;
+            }
 
-        if (smooth && Opposite(moved) is { } opposite)
-        {
+            var at = Plus(moved.At, by);
+            var piece = pieces[moved.Segment];
+
+            if (moved.Which == 2)
+            {
+                piece.Second = at;
+            }
+            else
+            {
+                // An S's first control is the last one's reflection; to put it anywhere else is a C.
+                piece.First = at;
+                piece.Kind = piece.Kind == 'S' ? 'C' : piece.Kind;
+            }
+
+            // Not where the handle across is moving with the rest: it has its own place to go.
+            if (!smooth || Opposite(moved) is not { } opposite || chosen.Contains(Handle(opposite.Segment, opposite.Which)))
+            {
+                continue;
+            }
+
             var anchor = _points[moved.Anchor].At;
             var across = opposite.Which == 2 ? _pieces[opposite.Segment].Second : _pieces[opposite.Segment].First;
 
-            if (InLine(moved.At, anchor, across) && Length(Minus(to, anchor)) > Joined)
+            if (InLine(moved.At, anchor, across) && Length(Minus(at, anchor)) > Joined)
             {
-                var along = Minus(anchor, to);
+                var along = Minus(anchor, at);
                 var scale = Length(Minus(across, anchor)) / Length(along);
                 var turned = Plus(anchor, new PointF(along.X * scale, along.Y * scale));
 
@@ -319,6 +354,43 @@ public sealed class GeometryPoints
                 {
                     pieces[opposite.Segment].First = turned;
                 }
+            }
+        }
+
+        return Path(pieces);
+    }
+
+    /// <summary>Draws each of <paramref name="handles"/> back onto the anchor it hangs from.</summary>
+    /// <returns>What the file should now say.</returns>
+    public IReadOnlyList<(string Name, string Value)> Retract(IReadOnlyCollection<int> handles)
+    {
+        if (_path is null)
+        {
+            return Array.Empty<(string, string)>();
+        }
+
+        var pieces = Copies();
+
+        foreach (var i in handles)
+        {
+            var handle = _points[i];
+
+            if (handle.Kind != GeometryPointKind.Handle)
+            {
+                continue;
+            }
+
+            var piece = pieces[handle.Segment];
+            var anchor = _points[handle.Anchor].At;
+
+            if (handle.Which == 2)
+            {
+                piece.Second = anchor;
+            }
+            else
+            {
+                piece.First = anchor;
+                piece.Kind = piece.Kind == 'S' ? 'C' : piece.Kind;
             }
         }
 
@@ -348,6 +420,69 @@ public sealed class GeometryPoints
     /// <summary>Takes the anchor <paramref name="point"/> out of the shape, joining what was either side of it.</summary>
     /// <returns>The sentence refusing it, or null where <paramref name="written"/> says what the file should now say.</returns>
     public string? Remove(int point, out IReadOnlyList<(string Name, string Value)>? written)
+        => One(point, out written);
+
+    /// <summary>Takes every anchor of <paramref name="points"/> out of the shape, or none of them.</summary>
+    /// <remarks>
+    /// <para>
+    /// One at a time, each from the shape the last left, and found again by where it stands — taking
+    /// a point out never moves another — and, where several stand there, by how many of those come
+    /// before it. That count is why the last goes first: taking out a later point leaves the earlier
+    /// ones where they were in the list, so a path's two ends meeting at one place are still told apart.
+    /// </para>
+    /// <para>Handles among them are passed over, being nothing to take out.</para>
+    /// </remarks>
+    /// <inheritdoc cref="Remove(int, out IReadOnlyList{ValueTuple{string, string}}?)"/>
+    public string? Remove(IReadOnlyCollection<int> points, out IReadOnlyList<(string Name, string Value)>? written)
+    {
+        written = null;
+
+        var anchors = points.Distinct().Where(i => _points[i].Kind == GeometryPointKind.Anchor).OrderByDescending(i => i).ToList();
+
+        if (anchors.Count <= 1)
+        {
+            return anchors.Count == 1 ? One(anchors[0], out written)
+                : points.Count == 0 ? null
+                : One(points.First(), out written);
+        }
+
+        var step = this;
+
+        foreach (var anchor in anchors)
+        {
+            var at = _points[anchor].At;
+            var before = Enumerable.Range(0, anchor).Count(i => Here(this, i, at));
+            var here = Enumerable.Range(0, step._points.Count).Where(i => Here(step, i, at)).ToList();
+
+            // A later removal can only fold a point into the first one of its subpath; what is left at
+            // that place is then the one meant.
+            var refusal = here.Count == 0
+                ? "That shape changed under the points being removed, so none of them were."
+                : step.One(here[Math.Min(before, here.Count - 1)], out written);
+            var next = refusal is null ? Capture(Element) : null;
+
+            if (next is null)
+            {
+                // All or nothing: the shape goes back to how it was found, not to how far this got.
+                Restore();
+                written = null;
+
+                return refusal ?? "That shape could not be read again after a point was taken out of it.";
+            }
+
+            step = next;
+        }
+
+        return null;
+    }
+
+    private SvgElement Element => (SvgElement?)_path ?? (SvgElement?)_poly ?? _line!;
+
+    /// <summary>Whether a point of <paramref name="points"/> is an anchor standing at <paramref name="at"/>, to the decimals it is written to.</summary>
+    private static bool Here(GeometryPoints points, int i, PointF at)
+        => points._points[i].Kind == GeometryPointKind.Anchor && Near(points._points[i].At, at, (float)(0.5d * Math.Pow(10d, -points._decimals)));
+
+    private string? One(int point, out IReadOnlyList<(string Name, string Value)>? written)
     {
         written = null;
 
@@ -822,6 +957,20 @@ public sealed class GeometryPoints
     private static bool Straight(Piece piece) => piece.Kind is 'L' or 'H' or 'V';
 
     private bool Closes(int i) => i + 1 < _pieces.Length && _pieces[i + 1].Kind == 'Z';
+
+    /// <summary>A handle's index among the points, by the segment and the control it is.</summary>
+    private int Handle(int segment, int which)
+    {
+        for (var i = 0; i < _points.Count; i++)
+        {
+            if (_points[i].Kind == GeometryPointKind.Handle && _points[i].Segment == segment && _points[i].Which == which)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
 
     /// <summary>The handle across <paramref name="handle"/>'s anchor, where it is one the file writes.</summary>
     private (int Segment, int Which)? Opposite(GeometryPoint handle)

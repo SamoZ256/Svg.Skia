@@ -370,9 +370,32 @@ public sealed class GroupPanel : UserControl
             Retrace();
         };
 
-        _canvas.Marqueed += (_, swept) => SelectEnclosed(swept);
+        // While a shape's points are showing, a sweep is for its points rather than for elements.
+        _canvas.Marqueed += (_, swept) =>
+        {
+            if (_draw.Reshaping && _points.IsShowing)
+            {
+                _points.Sweep(swept, _canvas.Modifiers.HasFlag(KeyModifiers.Shift), final: true);
+                ShowGizmo();
+            }
+            else
+            {
+                SelectEnclosed(swept);
+            }
+        };
 
-        _canvas.Marqueeing += (_, swept) => ShowEnclosed(swept);
+        _canvas.Marqueeing += (_, swept) =>
+        {
+            if (_draw.Reshaping && _points.IsShowing)
+            {
+                _points.Sweep(swept, _canvas.Modifiers.HasFlag(KeyModifiers.Shift), final: false);
+                ShowGizmo();
+            }
+            else
+            {
+                ShowEnclosed(swept);
+            }
+        };
 
         // A left drag on a drawing's edges carries the drawing, because the grip answers first;
         // anywhere else it sweeps up a selection. What it never does is move the view, which has
@@ -1621,8 +1644,8 @@ public sealed class GroupPanel : UserControl
         var picked = _picked.ToList();
         var paged = _page;
 
-        // And the point chosen in it, which the tree selecting the row again does not know of.
-        var point = _points.Chosen;
+        // And the points chosen in it, which the tree selecting the row again does not know of.
+        var points = _points.Chosen;
 
         Forget();
 
@@ -1705,7 +1728,7 @@ public sealed class GroupPanel : UserControl
             Ring();
             TrackGizmo();
 
-            _points.Chosen = point;
+            _points.Chosen = points;
             ShowGizmo();
         }
         else if (chosen is { } group
@@ -2534,7 +2557,7 @@ public sealed class GroupPanel : UserControl
 
         if (_reshaping)
         {
-            Says(_points.Begin(arranged, (float)_canvas.Scale));
+            Says(_points.Begin(arranged, (float)_canvas.Scale, _canvas.Modifiers.HasFlag(KeyModifiers.Shift)));
             ShowGizmo();
 
             return;
@@ -3118,7 +3141,7 @@ public sealed class GroupPanel : UserControl
             return true;
         }
 
-        if (!_points.Click(arranged, scale, _canvas.Clicks, out var edit, out var refusal))
+        if (!_points.Click(arranged, scale, _canvas.Clicks, _canvas.Modifiers.HasFlag(KeyModifiers.Shift), out var edit, out var refusal))
         {
             return false;
         }
@@ -3237,7 +3260,19 @@ public sealed class GroupPanel : UserControl
     {
         // A chosen point has the keys before the tool does: Escape lets go of the point and only
         // a second one puts the tool away, and Delete takes out the point and not the element.
-        if (!_canvas.IsEditing && _draw.Reshaping && _points.Chosen >= 0 && e.KeyModifiers == KeyModifiers.None)
+        // Every point of the shape, while there is one; A by itself is the tool's own letter.
+        if (!_canvas.IsEditing && _draw.Reshaping && _points.IsShowing && e.Key == Key.A
+            && e.KeyModifiers == (this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control))
+        {
+            e.Handled = true;
+
+            _points.ChooseAll();
+            ShowGizmo();
+
+            return;
+        }
+
+        if (!_canvas.IsEditing && _draw.Reshaping && _points.Chosen.Count > 0 && e.KeyModifiers == KeyModifiers.None)
         {
             if (e.Key == Key.Escape)
             {
