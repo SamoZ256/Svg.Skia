@@ -124,11 +124,11 @@ public class StreamlineClientTests
     [Fact]
     public async Task A_Search_Leaves_Out_The_Filters_It_Was_Not_Given()
     {
-        var (client, stub) = Answering("""{ "query": "", "results": [], "pagination": { "total": 0, "hasMore": false, "offset": 0, "nextOffset": 0 } }""");
+        var (client, stub) = Answering("""{ "query": "home", "results": [], "pagination": { "total": 0, "hasMore": false, "offset": 0, "nextOffset": 0 } }""");
 
-        var page = await client.Search("", cancellation: TestContext.Current.CancellationToken);
+        var page = await client.Search("home", cancellation: TestContext.Current.CancellationToken);
 
-        AskedFor(stub, "https://public-api.streamlinehq.com/v1/search/global?productType=icons&query=&offset=0&limit=50");
+        AskedFor(stub, "https://public-api.streamlinehq.com/v1/search/global?productType=icons&query=home&offset=0&limit=50");
         Assert.Empty(page.Items);
         Assert.False(page.HasMore);
     }
