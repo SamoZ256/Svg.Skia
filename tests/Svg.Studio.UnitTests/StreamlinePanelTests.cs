@@ -222,18 +222,6 @@ public class StreamlinePanelTests : IDisposable
     private static ProjectGroup Group(MainWindow window, string name)
         => window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single(group => group.Name == name);
 
-    /// <summary>Lets the dispatcher run until <paramref name="done"/>, for what a click starts and nobody awaits.</summary>
-    private static async Task Until(Func<bool> done)
-    {
-        for (var waited = 0; !done(); waited++)
-        {
-            Assert.True(waited < 500, "What was waited for never happened.");
-
-            await Task.Delay(10);
-            Dispatcher.UIThread.RunJobs();
-        }
-    }
-
     private static void Settle(Window window, double width = 1000, double height = 800)
     {
         Dispatcher.UIThread.RunJobs();
@@ -1817,7 +1805,9 @@ public class StreamlinePanelTests : IDisposable
         await panel.PickAsync(0, KeyModifiers.None);
 
         Drop(window, OnRow(window, "Scheme"), Carrying(panel, panel.Picked.ToArray()));
-        await Until(() => scheme.Children.Count == before + 1);
+
+        // The picks clear once the import has opened its drawing, a load after the group grew.
+        await Until(() => scheme.Children.Count == before + 1 && panel.Picked.Count == 0);
 
         var cog = Assert.IsType<ProjectDrawing>(scheme.Children[^1]);
 
@@ -1964,6 +1954,9 @@ public class StreamlinePanelTests : IDisposable
         }
 
         window.ShowImport = _ => throw new InvalidOperationException("A sure drop asked after the box said not to.");
+
+        // A drop is refused while another is under way, and the first is under way until the drawing it opened has loaded.
+        await MainWindowProjectTests.Settle(window, "cog");
 
         Drop(window, OnRow(window, "Scheme"), Carrying(panel, Parsed(Icon("ico_b", "gear", "sure-glyphs"))));
         await Until(() => scheme.Children.Count == 4);

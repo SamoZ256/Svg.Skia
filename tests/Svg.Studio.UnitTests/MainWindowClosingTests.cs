@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
+using static Svg.Studio.UnitTests.Gestures;
 
 namespace Svg.Studio.UnitTests;
 
@@ -46,13 +47,7 @@ public class MainWindowClosingTests
         Dispatcher.UIThread.RunJobs();
 
         // Opening is asynchronous, and a fixed 100 ms lost the race on a slow Windows runner.
-        for (var waited = 0; window.GetVisualDescendants().OfType<SvgViewer>().FirstOrDefault()?.Document is null; waited++)
-        {
-            Assert.True(waited < 500, "The drawing never opened.");
-
-            await Task.Delay(10).ConfigureAwait(true);
-            Dispatcher.UIThread.RunJobs();
-        }
+        await Until(() => window.GetVisualDescendants().OfType<SvgViewer>().FirstOrDefault()?.Document is { });
 
         return (window, asked);
     }
