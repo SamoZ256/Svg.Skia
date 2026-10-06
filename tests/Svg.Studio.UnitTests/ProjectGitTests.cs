@@ -11,6 +11,10 @@ namespace Svg.Studio.UnitTests;
 /// A project file in a repository, with a bare repository beside it standing in for the remote, so
 /// fetch, pull and push are exercised without a network.
 /// </summary>
+/// <remarks>
+/// In the settings collection for <see cref="ProjectGit.RemoteTimeout"/>: one static for the run,
+/// which one test here shortens while <see cref="ChangesPanelTests"/> runs real git.
+/// </remarks>
 [Collection("settings")]
 public class ProjectGitTests : IDisposable
 {
@@ -25,22 +29,8 @@ public class ProjectGitTests : IDisposable
         """;
 
     private readonly string _directory = Directory.CreateTempSubdirectory().FullName;
-    private readonly string _settings = StudioSettings.Store;
-    private readonly string _store = ProjectRecovery.Store;
 
-    public ProjectGitTests()
-    {
-        StudioSettings.Store = Path.Combine(_directory, "settings");
-        ProjectRecovery.Store = Path.Combine(_directory, "recovery");
-    }
-
-    public void Dispose()
-    {
-        StudioSettings.Store = _settings;
-        ProjectRecovery.Store = _store;
-
-        Scratch.Delete(_directory);
-    }
+    public void Dispose() => Scratch.Delete(_directory);
 
     private string Work => Path.Combine(_directory, "work");
 

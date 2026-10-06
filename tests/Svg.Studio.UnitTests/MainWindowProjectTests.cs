@@ -6095,13 +6095,7 @@ public class MainWindowProjectTests : IDisposable
         window.DragDrop(at, RawDragEventType.DragEnter, carried, DragDropEffects.Copy, RawInputModifiers.None);
         window.DragDrop(at, RawDragEventType.Drop, carried, DragDropEffects.Copy, RawInputModifiers.None);
 
-        for (var attempt = 0; attempt < 200 && Tabs(window).Items.Count == 0; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        Dispatcher.UIThread.RunJobs();
+        await Until(() => Tabs(window).Items.Count > 0);
     }
 
     /// <summary>The row for a label, found wherever it sits — the tree is rebuilt after every edit.</summary>
@@ -6242,7 +6236,7 @@ public class MainWindowProjectTests : IDisposable
         await Copy(window, DataTransferItem.CreateText(Drawing));
 
         Pick(window, "Large", "Paste");
-        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
+        await Until(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
 
         Assert.Equal(
             new[] { "Project", "home", "Large", "badge", "drawing" },
@@ -6261,10 +6255,10 @@ public class MainWindowProjectTests : IDisposable
         await Copy(window, DataTransferItem.CreateText(Drawing));
 
         Pick(window, "Large", "Paste");
-        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
+        await Until(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
 
         Pick(window, "Large", "Paste");
-        await Settle(() => window.Workspace!.Document.Root.Drawings.Count(drawing => drawing.Name == "drawing") == 2);
+        await Until(() => window.Workspace!.Document.Root.Drawings.Count(drawing => drawing.Name == "drawing") == 2);
 
         // Two rows reading the same thing: a name is a label rather than an identifier, and which
         // of them is which is settled by renaming one.
@@ -6285,7 +6279,7 @@ public class MainWindowProjectTests : IDisposable
         await window.Clipboard!.SetDataAsync(carried);
 
         Pick(window, "Large", "Paste");
-        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
+        await Until(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
 
         Assert.Contains(
             "<rect width=\"24\" height=\"24\" fill=\"#00ff00\" />",
@@ -6305,7 +6299,7 @@ public class MainWindowProjectTests : IDisposable
         await Copy(window, DataTransferItem.CreateFile(file!));
 
         Pick(window, "Large", "Paste");
-        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("mark.svg"));
+        await Until(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("mark"));
 
         Assert.False(File.Exists(Path.Combine(_directory, "drawing")));
     }
@@ -6331,7 +6325,7 @@ public class MainWindowProjectTests : IDisposable
         await Copy(window, DataTransferItem.CreateText("just some words"));
 
         Pick(window, "Large", "Paste");
-        await Settle(() => said.Count > 0);
+        await Until(() => said.Count > 0);
 
         Assert.Contains("none of it is a drawing", said.Single());
         Assert.False(File.Exists(Path.Combine(_directory, "drawing")));
@@ -6385,7 +6379,7 @@ public class MainWindowProjectTests : IDisposable
 
         // The row, and then what was on the clipboard all along.
         Pick(window, "Large", "Paste");
-        await Settle(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
+        await Until(() => Rows((TreeViewItem)Tree(window).Items[0]!).Contains("drawing"));
 
         Assert.Equal(
             new[]
@@ -6404,18 +6398,6 @@ public class MainWindowProjectTests : IDisposable
         carried.Add(item);
 
         await window.Clipboard!.SetDataAsync(carried);
-    }
-
-    /// <summary>Runs the loop until something is true, as a paste is not finished when it returns.</summary>
-    private static async Task Settle(Func<bool> until)
-    {
-        for (var attempt = 0; attempt < 200 && !until(); attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
-
-        Dispatcher.UIThread.RunJobs();
     }
 
     /// <summary>
@@ -6624,11 +6606,7 @@ public class MainWindowProjectTests : IDisposable
 
         await Drop(window, root, 0.5d, second);
 
-        for (var attempt = 0; attempt < 200 && window.Workspace?.Name != "other.svgstudio"; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
+        await Until(() => window.Workspace?.Name == "other.svgstudio");
 
         Assert.Equal("other.svgstudio", window.Workspace!.Name);
     }
@@ -6648,7 +6626,7 @@ public class MainWindowProjectTests : IDisposable
 
         await Drop(window, drawing);
 
-        Assert.Equal("home.svg", Named(Tab(window, "home.svg")));
+        Assert.Equal("home.svg", Path.GetFileName((await Settle(window, "home.svg")).DocumentPath));
     }
 
     [AvaloniaFact]
@@ -6671,11 +6649,7 @@ public class MainWindowProjectTests : IDisposable
 
         // Twice would be the ordinary outcome: the viewer takes a drop on itself and the window
         // takes everything else, and the same drop reaches both unless the viewer says it is done.
-        for (var attempt = 0; attempt < 200 && Tabs(window).Items.Count < 2; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
+        await Until(() => Tabs(window).Items.Count >= 2);
 
         Assert.Equal(2, Tabs(window).Items.Count);
     }
@@ -6737,11 +6711,7 @@ public class MainWindowProjectTests : IDisposable
 
         await Drop(window, (TreeViewItem)Tree(window).Items[0]!, 0.5d, Write("dropped.svg", Drawing));
 
-        for (var attempt = 0; attempt < 200 && !window.Workspace!.Document.Root.Drawings.Any(); attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            await Task.Delay(10);
-        }
+        await Until(() => window.Workspace!.Document.Root.Drawings.Any());
 
         Assert.Single(window.Workspace!.Document.Root.Drawings);
         Assert.Contains("\n  <drawing name=\"dropped\">\n    <svg ", window.Workspace.Document.ToXml(), StringComparison.Ordinal);
@@ -6787,7 +6757,6 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(written, File.GetLastWriteTimeUtc(path));
     }
 
-    /// <summary>Waits for the tab holding <paramref name="name"/> to have finished loading.</summary>
     /// <summary>The tab showing <paramref name="name"/>, which must be open.</summary>
     private static TabItem Tab(MainWindow window, string name)
         => Tabs(window).Items.OfType<TabItem>().Single(item => Named(item) == name);
@@ -6799,27 +6768,18 @@ public class MainWindowProjectTests : IDisposable
             ? Path.GetFileName(path)
             : null;
 
-    private static async Task<SvgViewer> Settle(MainWindow window, string name)
+    /// <summary>Waits for the tab holding <paramref name="name"/> to have finished loading.</summary>
+    internal static async Task<SvgViewer> Settle(MainWindow window, string name)
     {
-        for (var attempt = 0; attempt < 200; attempt++)
-        {
-            Dispatcher.UIThread.RunJobs();
+        SvgViewer? viewer = null;
 
-            var viewer = Tabs(window).Items
-                .OfType<TabItem>()
-                .Where(item => Named(item) == name)
-                .Select(item => item.Content)
-                .OfType<SvgViewer>()
-                .FirstOrDefault();
+        await Until(() => (viewer = Tabs(window).Items
+            .OfType<TabItem>()
+            .Where(item => Named(item) == name)
+            .Select(item => item.Content)
+            .OfType<SvgViewer>()
+            .FirstOrDefault())?.Document is { });
 
-            if (viewer?.Document is { })
-            {
-                return viewer;
-            }
-
-            await Task.Delay(10);
-        }
-
-        throw new InvalidOperationException($"'{name}' was never opened.");
+        return viewer!;
     }
 }

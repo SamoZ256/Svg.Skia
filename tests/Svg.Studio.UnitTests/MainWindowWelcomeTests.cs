@@ -6,7 +6,9 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Svg.Viewer.Skia.Avalonia;
 using Xunit;
+using static Svg.Studio.UnitTests.Gestures;
 
 namespace Svg.Studio.UnitTests;
 
@@ -72,14 +74,13 @@ public class MainWindowWelcomeTests : IDisposable
 
     private static TabControl Tabs(MainWindow window) => window.FindControl<TabControl>("Tabs")!;
 
-    /// <summary>What the platform does to a button, which is the only way to reach its handler.</summary>
-    private static async Task Press(Button button)
+    /// <summary>What the platform does to a button, which is the only way to reach its handler, and the wait for <paramref name="done"/>.</summary>
+    private static async Task Press(Button button, Func<bool> done)
     {
         button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
         // The handlers are async, so what the press opens arrives after it returns.
-        await Task.Delay(200).ConfigureAwait(true);
-        Dispatcher.UIThread.RunJobs();
+        await Until(done);
     }
 
     [AvaloniaFact]
@@ -123,7 +124,7 @@ public class MainWindowWelcomeTests : IDisposable
 
         var only = (TabItem)Tabs(window).Items[0]!;
 
-        await Press(((StackPanel)only.Header!).Children.OfType<Button>().Single());
+        await Press(((StackPanel)only.Header!).Children.OfType<Button>().Single(), () => Tabs(window).Items.Count == 0);
 
         Assert.Empty(Tabs(window).Items);
         Assert.True(Screen(window).IsVisible);
@@ -156,7 +157,7 @@ public class MainWindowWelcomeTests : IDisposable
 
         var only = (TabItem)Tabs(window).Items[0]!;
 
-        await Press(((StackPanel)only.Header!).Children.OfType<Button>().Single());
+        await Press(((StackPanel)only.Header!).Children.OfType<Button>().Single(), () => Tabs(window).Items.Count == 0);
 
         Assert.Empty(Tabs(window).Items);
         Assert.NotNull(window.Workspace);
@@ -205,12 +206,12 @@ public class MainWindowWelcomeTests : IDisposable
 
         var window = Host();
 
-        await Press(Offered(window).Single());
+        await Press(Offered(window).Single(), () => Tabs(window).Items.OfType<TabItem>().Any(item => ((SvgViewer)item.Content!).DocumentPath is { }));
 
         Assert.Equal(
             new[] { path },
             Tabs(window).Items.OfType<TabItem>()
-                .Select(item => ((Svg.Viewer.Skia.Avalonia.SvgViewer)item.Content!).DocumentPath));
+                .Select(item => ((SvgViewer)item.Content!).DocumentPath));
 
         Assert.False(Screen(window).IsVisible);
     }
@@ -221,7 +222,7 @@ public class MainWindowWelcomeTests : IDisposable
     {
         var window = Host();
 
-        await Press(window.FindControl<Button>("WelcomeNew")!);
+        await Press(window.FindControl<Button>("WelcomeNew")!, () => window.Workspace is { });
 
         Assert.NotNull(window.Workspace);
         Assert.False(Screen(window).IsVisible);
