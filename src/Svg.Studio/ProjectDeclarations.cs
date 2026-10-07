@@ -156,7 +156,7 @@ public static class ProjectDeclarations
 
         var reached = narrow ? Reached(source, chain) : null;
 
-        var defs = Defs(source, root);
+        var defs = SvgElementEditor.Defs(source);
         XElement? after = null;
 
         foreach (var group in chain)
@@ -260,22 +260,6 @@ public static class ProjectDeclarations
 
         // A block the drawing reaches nothing of is not written at all, rather than written empty.
         return copy.Elements().Any() ? copy : null;
-    }
-
-    /// <summary>The document's <c>&lt;defs&gt;</c>, made at the top where it has none.</summary>
-    /// <remarks>Where <c>SvgDeclarationEditor</c> and <c>SvgRecipeRewriter</c> both put a block.</remarks>
-    private static XElement Defs(SvgSourceDocument source, XElement root)
-    {
-        if (root.Elements().FirstOrDefault(element => element.Name == root.Name.Namespace + "defs") is { } existing)
-        {
-            return existing;
-        }
-
-        var defs = new XElement(root.Name.Namespace + "defs");
-
-        PutFirst(source, root, defs);
-
-        return defs;
     }
 
     /// <summary>Puts an element in front of everything <paramref name="parent"/> holds.</summary>

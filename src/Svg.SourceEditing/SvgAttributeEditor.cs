@@ -176,12 +176,9 @@ public static class SvgAttributeEditor
             return "That element is no longer in the drawing.";
         }
 
-        // A style declaration beats the presentation attribute under it, so writing the attribute
-        // would leave a document where the change paints nothing. Editing inside the declaration is
-        // another matter and not one this can reach.
-        if (Styled(element, name) is { })
+        if (Overridden(element, name) is { } overridden)
         {
-            return $"'{name}' is set in this element's style attribute, which wins over the attribute. Change it there instead.";
+            return overridden;
         }
 
         // A prefix stands for a namespace, and an attribute named for one is that attribute rather
@@ -447,6 +444,19 @@ public static class SvgAttributeEditor
         return string.IsNullOrEmpty(prefix) ? attribute.Name.LocalName : prefix + ":" + attribute.Name.LocalName;
     }
 
+    /// <summary>
+    /// The sentence refusing to write <paramref name="name"/> where the element's style sets it, or null.
+    /// </summary>
+    /// <remarks>
+    /// A style declaration beats the presentation attribute under it, so writing the attribute
+    /// would leave a document where the change paints nothing. Editing inside the declaration is
+    /// another matter and not one this can reach.
+    /// </remarks>
+    internal static string? Overridden(XElement element, string name)
+        => Styled(element, name) is { }
+            ? $"'{name}' is set in this element's style attribute, which wins over the attribute. Change it there instead."
+            : null;
+
     /// <summary>What a <c>style</c> declaration on the element sets the attribute to, overriding it, or null.</summary>
     /// <remarks>
     /// Read rather than parsed: the scanner that splits a style attribute properly is internal to
@@ -454,7 +464,7 @@ public static class SvgAttributeEditor
     /// value being painted. Saying so wrongly costs a refusal; missing it costs an edit that does
     /// nothing and says it worked.
     /// </remarks>
-    private static string? Styled(XElement element, string attributeName)
+    internal static string? Styled(XElement element, string attributeName)
     {
         if ((string?)element.Attribute("style") is not { } style)
         {

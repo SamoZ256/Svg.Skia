@@ -144,7 +144,17 @@ public sealed class SvgViewerElementPanel : UserControl
     /// <summary>The class the drawing generates, which a box may not be named after; asked each time, since it can be renamed.</summary>
     public Func<string?>? ClassName { get; set; }
 
-    /// <summary>The variable the drag over this panel is carrying, or null while none is.</summary>
+    /// <summary>
+    /// Clips or masks the element shown with a new clip path or mask covering it, as the
+    /// <c>clip-path</c> or <c>mask</c> it is handed says; offered in that row's menu only where a host wires it.
+    /// </summary>
+    public Func<string, bool>? NewClipRequested { get; set; }
+
+    /// <summary>Clips or masks the element shown with the tree's row whose key it is handed, as <c>clip-path</c> or <c>mask</c> says.</summary>
+    public Func<string, string, bool>? ClipRequested { get; set; }
+
+    /// <summary>What the drag over this panel is carrying, or null while it carries nothing a row takes.</summary>
+    /// <remarks>A variable's binding, <c>{{ name }}</c>, or a tree row's address; the two cannot be spelt alike.</remarks>
     private string? _carried;
 
     /// <summary>The rows that would take it, so the check is made once a drag and not once a move.</summary>
@@ -213,6 +223,9 @@ public sealed class SvgViewerElementPanel : UserControl
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DragLeaveEvent, (_, _) => Release());
         AddHandler(DragDrop.DropEvent, OnDrop);
+
+        // The boxes moved under a still pointer.
+        AddHandler(ScrollViewer.ScrollChangedEvent, (_, _) => Aim(null));
 
         // Marked on the way down, before the focus it moves: pressing a swatch just after typing
         // leaves the box, whose write arrives while the press is still going on.
@@ -896,6 +909,14 @@ public sealed class SvgViewerElementPanel : UserControl
                 item.Click += (_, _) => put(choice);
                 offered.Add(item);
             }
+
+            if (name is "clip-path" or "mask" && NewClipRequested is { } make && Clippable(name))
+            {
+                var item = new MenuItem { Header = new TextBlock { Text = name == "mask" ? "New mask" : "New clip path" } };
+
+                item.Click += (_, _) => make(name);
+                offered.Add(item);
+            }
         };
 
         Grid.SetColumn(pick, 2);
@@ -1237,16 +1258,17 @@ public sealed class SvgViewerElementPanel : UserControl
             new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("SvgViewerSourceErrorBrush");
     }
 
-    // ---- a variable dropped on a row -------------------------------------------------------------
+    // ---- a variable or a tree row dropped on a row ---------------------------------------------------
 
-    /// <summary>The rows a variable being dragged over the panel would be written into.</summary>
+    /// <summary>The rows a variable or a tree row being dragged over the panel would be written into.</summary>
     /// <remarks>Empty while nothing is being carried. Named rather than drawn, for the reason
     /// <see cref="Set"/> takes a name: everything but the pointer can be driven.</remarks>
     public IReadOnlyList<string> Offered
         => _shown.Where(row => _takes.Contains(row.Name)).Select(row => row.Name).ToList();
 
     /// <summary>
-    /// Offers every row a dragged variable could be written into, and takes the drag while over one.
+    /// Offers every row a dragged variable could be written into, or that a dragged tree row could be
+    /// applied as where a host wires that, and takes the drag while over one.
     /// </summary>
     /// <remarks>
     /// Marked handled either way. The viewer this usually sits in turns away any drag carrying no
@@ -1256,40 +1278,64 @@ public sealed class SvgViewerElementPanel : UserControl
     /// </remarks>
     private void OnDragOver(object? sender, DragEventArgs e)
     {
-        if (SvgViewerVariableDrag.Carried(e) is not { } name)
+        if (SvgViewerVariableDrag.Carried(e) is { } name)
+        {
+            var written = SvgViewerVariableDrag.Bound(name);
+
+            Offer(written, row => Trouble(row, written) is null);
+        }
+        else if (ClipRequested is { } && SvgViewerElementTree.Carried(e) is { Applies.Count: > 0 } row)
+        {
+            Offer(row.Key, property => row.Applies.Contains(property) && Clippable(property));
+        }
+        else
         {
             Release();
 
             return;
         }
 
-        Offer(name);
-
         var over = Under(e);
 
         Aim(over);
 
-        e.DragEffects = over is { } ? DragDropEffects.Link : DragDropEffects.None;
+        e.DragEffects = over is { } ? SvgViewerElementTree.Applying(e) : DragDropEffects.None;
         e.Handled = true;
     }
+
+    /// <summary>Whether the element shown can be given <paramref name="property"/>, as the file would let it.</summary>
+    /// <remarks>Never the drawing itself, which has no place of its own to cover or carry a shape into.</remarks>
+    private bool Clippable(string property)
+        => _address is { Length: > 0 } address
+           && Open() is { } open
+           && SvgAttributeEditor.ElementName(open, address) is { } element
+           && SvgElementEditor.Clippable(element, property);
 
     /// <inheritdoc cref="OnDragOver"/>
     private void OnDrop(object? sender, DragEventArgs e)
     {
         var name = SvgViewerVariableDrag.Carried(e);
+        var row = ClipRequested is { } ? SvgViewerElementTree.Carried(e) : null;
 
         // Before the release, which is what forgets which rows would have taken it.
         var over = Under(e);
 
         Release();
 
-        if (name is null || over is not { Tag: string attribute })
+        if ((name is null && row is null) || over is not { Tag: string attribute })
         {
             return;
         }
 
-        e.DragEffects = DragDropEffects.Link;
+        e.DragEffects = SvgViewerElementTree.Applying(e);
         e.Handled = true;
+
+        if (name is null)
+        {
+            ClipRequested?.Invoke(row!.Value.Key, attribute);
+
+            return;
+        }
 
         // Through the box and its own commit, so the refusal, the history's label, the readout and
         // the check against a style declaration are the ones typing it would have got.
@@ -1298,23 +1344,21 @@ public sealed class SvgViewerElementPanel : UserControl
         Commit(over, attribute, _address!);
     }
 
-    /// <summary>Works out which rows <paramref name="name"/> could be written into, and says so.</summary>
-    private void Offer(string name)
+    /// <summary>Works out which rows would take <paramref name="carried"/>, and says so.</summary>
+    private void Offer(string carried, Func<string, bool> takes)
     {
-        if (string.Equals(_carried, name, StringComparison.Ordinal))
+        if (string.Equals(_carried, carried, StringComparison.Ordinal))
         {
             return;
         }
 
         Release();
 
-        _carried = name;
-
-        var written = SvgViewerVariableDrag.Bound(name);
+        _carried = carried;
 
         foreach (var row in _shown)
         {
-            if (row.Box.IsReadOnly || Trouble(row.Name, written) is { })
+            if (row.Box.IsReadOnly || !takes(row.Name))
             {
                 continue;
             }
@@ -1328,7 +1372,7 @@ public sealed class SvgViewerElementPanel : UserControl
 
     /// <summary>The box under the pointer, where it is one that would take what is being carried.</summary>
     private TextBox? Under(DragEventArgs e)
-        => (e.Source as Visual)?.FindAncestorOfType<TextBox>(true) is { Tag: string name } box
+        => SvgViewerDragScroll.Under(e, this)?.FindAncestorOfType<TextBox>(true) is { Tag: string name } box
            && _takes.Contains(name)
             ? box
             : null;
@@ -1341,8 +1385,18 @@ public sealed class SvgViewerElementPanel : UserControl
         }
 
         _aimed?.ClearValue(TemplatedControl.BorderThicknessProperty);
+        _aimed?.ClearValue(TemplatedControl.PaddingProperty);
         _aimed = box;
-        _aimed?.SetValue(TemplatedControl.BorderThicknessProperty, new Thickness(2d));
+
+        if (box is { })
+        {
+            // Thickened into its padding: a box that grew would grow the list, and at the list's end
+            // start the scroll again that takes the aim back off.
+            var aim = new Thickness(2d);
+
+            box.Padding += box.BorderThickness - aim;
+            box.BorderThickness = aim;
+        }
     }
 
     /// <summary>Puts every row back the way it was drawn.</summary>
