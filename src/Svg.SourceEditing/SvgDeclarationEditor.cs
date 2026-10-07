@@ -497,14 +497,7 @@ public static class SvgDeclarationEditor
             return own;
         }
 
-        var defs = root.Elements().FirstOrDefault(element => element.Name == root.Name.Namespace + "defs");
-
-        if (defs is null)
-        {
-            defs = new XElement(root.Name.Namespace + "defs");
-            SvgElementEditor.First(root, defs, SvgElementEditor.Indent(root) + source.IndentUnit);
-        }
-
+        var defs = SvgElementEditor.Defs(source);
         var block = new XElement(Ns + "code");
 
         SvgElementEditor.First(defs, block, SvgElementEditor.Indent(defs) + source.IndentUnit);

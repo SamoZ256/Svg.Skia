@@ -43,6 +43,8 @@ of these controls.
 | Actual size | `Ctrl`/`Cmd` `1`, or the toolbar |
 | Move an element | Drag its row in the element tree |
 | A new group | The element tree's own menu |
+| Clip or mask an element | Drop a `<clipPath>`, a `<mask>` or a shape kept in `<defs>` on its row (`Alt` makes the shape a mask) or on its Clip path or Mask box; **New clip path** and **New mask** are on the element tree's menu |
+| Reach a row or box out of sight | Hold the drag near the pane's edge, which scrolls it, faster the nearer the edge |
 | Undo | Whatever the platform calls it — `Ctrl`/`Cmd` `Z` |
 | Redo | `Ctrl`/`Cmd` `Shift` `Z`, or `Ctrl`/`Cmd` `Y` |
 

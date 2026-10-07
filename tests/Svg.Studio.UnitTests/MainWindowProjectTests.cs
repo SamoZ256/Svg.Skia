@@ -1385,6 +1385,231 @@ public class MainWindowProjectTests : IDisposable
         Assert.DoesNotContain("L16 18", home.Text, StringComparison.Ordinal);
     }
 
+    /// <summary>A board whose second drawing, placed at x 100 so the board's numbers are not its own, holds <paramref name="content"/>.</summary>
+    private static string Beside(string content) => $"""
+        <studio namespace="Demo.Icons">
+          <drawing name="home" class="Home" x="0" y="0">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" />
+          </drawing>
+          <drawing name="badge" class="Badge" x="100" y="0">
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" width="24" height="24">
+              {content}
+            </svg>
+          </drawing>
+        </studio>
+        """;
+
+    [AvaloniaFact]
+    public async Task A_Point_Of_Clip_Content_Dragged_On_The_Board_Is_Written_Into_Its_Drawing()
+    {
+        var window = await Host(Write("icons.svgstudio", Beside("""
+            <defs><clipPath id="c"><path d="M2 2 L18 2 L18 18 Z" /></clipPath></defs>
+            <g transform="translate(4 4)"><rect width="16" height="16" fill="#3366cc" clip-path="url(#c)" /></g>
+            """)));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var badge = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var area = Area(Shown(panel, badge));
+
+        Reshape(window, canvas, area.Left + 12f, area.Top + 6f);
+
+        Drag(window, canvas, Over(canvas, area.Left + 22f, area.Top + 6f), Over(canvas, area.Left + 22f, area.Top + 10f));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("d=\"M2 2 L18 6 L18 18 Z\"", badge.Text, StringComparison.Ordinal);
+        Assert.Equal(new SKPoint(area.Left + 22f, area.Top + 10f), canvas.Points!.Chosen.Single().At);
+    }
+
+    /// <summary>The points of a shape a &lt;use&gt; draws are its definition's, which is written where the use was picked.</summary>
+    [AvaloniaFact]
+    public async Task A_Point_Of_A_Shape_A_Use_Draws_Is_Written_Into_Its_Definition_On_The_Board()
+    {
+        var window = await Host(Write("icons.svgstudio", Beside("""
+            <defs><path id="bent" d="M0 0 L16 0 L16 16" fill="none" stroke="#000000" stroke-width="2" /></defs>
+            <use xlink:href="#bent" x="4" y="4" />
+            """)));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var badge = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var area = Area(Shown(panel, badge));
+
+        Reshape(window, canvas, area.Left + 12f, area.Top + 4f);
+
+        Drag(window, canvas, Over(canvas, area.Left + 20f, area.Top + 4f), Over(canvas, area.Left + 22f, area.Top + 6f));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(panel.Notice);
+        Assert.Contains("d=\"M0 0 L18 2 L16 16\"", badge.Text, StringComparison.Ordinal);
+        Assert.Equal(new SKPoint(area.Left + 22f, area.Top + 6f), canvas.Points!.Chosen.Single().At);
+    }
+
+    /// <summary>Picks an entry off the element tree's menu, opened the way a right click opens it.</summary>
+    private static void Choose(GroupPanel panel, string header)
+    {
+        var tree = Elements(panel).FindControl<TreeView>("Tree")!;
+
+        tree.RaiseEvent(new ContextRequestedEventArgs());
+        Dispatcher.UIThread.RunJobs();
+
+        var item = tree.ContextMenu!.Items.OfType<MenuItem>()
+            .Single(item => item.IsVisible && (item.Header as string ?? (item.Header as TextBlock)?.Text) == header);
+
+        item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        tree.ContextMenu.Close();
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The seed is written into the drawing that was picked in, and held where the element is on the board.</summary>
+    [AvaloniaFact]
+    public async Task A_New_Clip_Path_On_The_Board_Is_Written_Into_Its_Drawing_And_Its_Seed_Picked()
+    {
+        var window = await Host(Write("icons.svgstudio", Beside("""
+            <g transform="translate(4 4)"><rect id="r" width="16" height="16" fill="#3366cc" /></g>
+            """)));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var badge = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var area = Area(Shown(panel, badge));
+
+        Click(window, canvas, Over(canvas, area.Left + 12f, area.Top + 12f));
+
+        Choose(panel, "New clip path");
+
+        Assert.Null(panel.Notice);
+        Assert.Contains("""<clipPath id="r-clip">""", badge.Text, StringComparison.Ordinal);
+        Assert.Contains("""<path d="M 0 0 L 16 0 L 16 16 L 0 16 Z" />""", badge.Text, StringComparison.Ordinal);
+        Assert.Contains("""clip-path="url(#r-clip)" """, badge.Text, StringComparison.Ordinal);
+        Assert.Equal("path", Elements(panel).SelectedNode!.Label);
+
+        var box = canvas.Gizmo!.Value;
+
+        Assert.Equal(area.Left + 4f, box.TL.X, 1);
+        Assert.Equal(area.Top + 20f, box.BR.Y, 1);
+    }
+
+    /// <summary>The shape painted over another masks it from the drawing's own &lt;defs&gt;, made for it at the top.</summary>
+    [AvaloniaFact]
+    public async Task Mask_With_On_The_Board_Moves_The_Shape_Into_The_Drawings_Defs()
+    {
+        var window = await Host(Write("icons.svgstudio", Beside("""
+            <rect id="r" width="16" height="16" fill="#3366cc" />
+            <circle id="spot" cx="12" cy="12" r="4" fill="#ffffff" />
+            """)));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var badge = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var area = Area(Shown(panel, badge));
+
+        Click(window, canvas, Over(canvas, area.Left + 2f, area.Top + 2f));
+
+        // The rows handed over rather than the ones picked, so a row named twice reaches the file's refusal.
+        Assert.False(Elements(panel).ClipRequested!("0", "0", "mask"));
+        Assert.Equal("An element cannot mask itself.", panel.Notice);
+
+        Assert.True(Elements(panel).TrySelect(new[] { "0", "1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Choose(panel, "Mask rect #r with circle #spot");
+
+        Assert.Null(panel.Notice);
+        Assert.Matches(
+            """<svg [^>]*>\s*<defs>\s*<mask id="r-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16" mask-type="alpha">\s*<circle id="spot" cx="12" cy="12" r="4" fill="#ffffff" />\s*</mask>\s*</defs>\s*<rect id="r" [^>]*mask="url\(#r-mask\)" />\s*</svg>""",
+            badge.Text);
+        Assert.Equal("spot", Elements(panel).SelectedNode!.Element.ID);
+    }
+
+    /// <summary>Where on the window the name of the element tree's row at <paramref name="key"/> is, scrolled to.</summary>
+    private static Point RowOn(Window window, GroupPanel panel, string key)
+    {
+        var row = Elements(panel).GetVisualDescendants().OfType<TreeViewItem>()
+            .Single(item => (item.DataContext as SvgViewerElementNode)?.AddressKey == key);
+
+        row.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+
+        var name = row.GetVisualDescendants().OfType<TextBlock>().First();
+        var at = name.TranslatePoint(new Point(name.Bounds.Width / 2d, name.Bounds.Height / 2d), window);
+
+        Assert.NotNull(at);
+
+        return at!.Value;
+    }
+
+    /// <summary>A board moves no rows, but a clip path dropped on one clips it, and a shape kept in &lt;defs&gt; masks it with ⌥ held.</summary>
+    [AvaloniaFact]
+    public async Task A_Clip_Path_Dropped_On_A_Row_Clips_It_On_A_Board()
+    {
+        // With the element tree in front of the settings it shares a run with, so its rows are there to drop on.
+        var window = await Host(
+            Write("icons.svgstudio", Beside("""
+                <defs><clipPath id="window"><rect width="8" height="8" /></clipPath><circle id="spot" cx="8" cy="8" r="4" fill="#ffffff" /></defs>
+                <rect id="r" width="16" height="16" fill="#3366cc" />
+                """)),
+            StudioSettings.DefaultLayout.Replace("/project/open", "/elements/open", StringComparison.Ordinal));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var badge = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var area = Area(Shown(panel, badge));
+
+        Click(window, canvas, Over(canvas, area.Left + 12f, area.Top + 12f));
+
+        Assert.Null(Elements(panel).MoveRequested);
+
+        Gestures.Drop(window, RowOn(window, panel, "1"), SvgViewerElementTree.Carrying("0/0", "clip-path"), DragDropEffects.Move | DragDropEffects.Link);
+
+        Assert.Null(panel.Notice);
+        Assert.Contains("""<rect id="r" width="16" height="16" fill="#3366cc" clip-path="url(#window)" />""", badge.Text, StringComparison.Ordinal);
+
+        Gestures.Drop(
+            window,
+            RowOn(window, panel, "1"),
+            SvgViewerElementTree.Carrying("0/1", "clip-path", "mask"),
+            DragDropEffects.Move | DragDropEffects.Link,
+            RawInputModifiers.Alt);
+
+        Assert.Null(panel.Notice);
+        Assert.Matches("""<mask id="r-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16" mask-type="alpha">\s*<circle id="spot" cx="8" cy="8" r="4" fill="#ffffff" />\s*</mask>""", badge.Text);
+        Assert.Contains("""mask="url(#r-mask)" """, badge.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>The element picked on a board is what its Mask box masks, with a shape from its own drawing's &lt;defs&gt;.</summary>
+    [AvaloniaFact]
+    public async Task A_Shape_From_Defs_Dropped_On_The_Mask_Box_Masks_It_On_A_Board()
+    {
+        var window = await Host(Write("icons.svgstudio", Beside("""
+            <defs><circle id="spot" cx="8" cy="8" r="4" fill="#ffffff" /></defs>
+            <rect id="r" width="16" height="16" fill="#3366cc" />
+            """)));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        var badge = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var area = Area(Shown(panel, badge));
+
+        Click(window, canvas, Over(canvas, area.Left + 12f, area.Top + 12f));
+
+        var box = window.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "mask"));
+
+        box.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+
+        var at = box.TranslatePoint(new Point(box.Bounds.Width / 2d, box.Bounds.Height / 2d), window);
+
+        Assert.NotNull(at);
+
+        Gestures.Drop(window, at!.Value, SvgViewerElementTree.Carrying("0/0", "clip-path", "mask"), DragDropEffects.Move | DragDropEffects.Link);
+
+        Assert.Null(panel.Notice);
+        Assert.Matches(
+            """<defs><mask id="r-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16" mask-type="alpha">\s*<circle id="spot" cx="8" cy="8" r="4" fill="#ffffff" />\s*</mask></defs>\s*<rect id="r" [^>]*mask="url\(#r-mask\)" />""",
+            badge.Text);
+    }
+
     [AvaloniaFact]
     public async Task Duplicate_On_The_Board_Writes_The_Copy_And_Picks_It()
     {
@@ -6590,6 +6815,82 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(
             new[] { "Project", "extra", "home", "Large", "badge" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
+    }
+
+    /// <summary>The group whose row is under a point of the window.</summary>
+    /// <remarks>
+    /// Rendered first, twice: a hit test reads the scene as last drawn, which a headless window draws
+    /// only when told, and one tick after a scroll still finds the rows where they were.
+    /// </remarks>
+    private static string? GroupAt(Window window, Point at)
+    {
+        for (var tick = 0; tick < 2; tick++)
+        {
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        return ((window.InputHitTest(at) as Visual)?.FindAncestorOfType<TreeViewItem>(true)?.Tag as ProjectGroup)?.Name;
+    }
+
+    /// <summary>
+    /// A drawing held at the foot of a project tree longer than its pane scrolls it, and let go with
+    /// no move since lands in the group now under the pointer, not the one the last move found there.
+    /// </summary>
+    /// <remarks>Run to the end of the tree, where the scrolling stops by itself, so nothing moves between reading the row and the drop.</remarks>
+    [AvaloniaFact]
+    public async Task A_Drawing_Held_At_The_Foot_Of_The_Tree_Scrolls_It_And_Lands_Where_It_Is_Let_Go()
+    {
+        var crowded = "<studio namespace=\"Demo.Icons\">"
+            + string.Concat(Enumerable.Range(0, 40).Select(i => $"<group name=\"g{i:00}\">{Holding($"d{i:00}")}</group>"))
+            + "</studio>";
+        var window = await Host(Write("icons.svgstudio", crowded));
+        var scroller = Tree(window).GetVisualDescendants().OfType<ScrollViewer>().First();
+        var end = scroller.ScrollBarMaximum.Y;
+        var file = await window.StorageProvider.TryGetFileFromPathAsync(Write("extra.svg", Drawing));
+        var carried = new DataTransfer();
+
+        carried.Add(DataTransferItem.CreateFile(file!));
+
+        Assert.True(end > 120d, $"{end}");
+
+        scroller.Offset = new Vector(0d, end - 120d);
+        Dispatcher.UIThread.RunJobs();
+
+        var at = scroller.TranslatePoint(new Point(40d, scroller.Bounds.Height - 16d), window)!.Value;
+        var before = GroupAt(window, at);
+
+        Assert.NotNull(before);
+
+        window.DragDrop(at, RawDragEventType.DragEnter, carried, DragDropEffects.Copy, RawInputModifiers.None);
+        window.DragDrop(at, RawDragEventType.DragOver, carried, DragDropEffects.Copy, RawInputModifiers.None);
+
+        // Counted generously, and left as soon as it is there: a loaded machine starves the timer.
+        for (var waited = 0; waited < 1500 && scroller.Offset.Y < end; waited++)
+        {
+            await Task.Delay(20);
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        var now = GroupAt(window, at);
+
+        Assert.Equal(end, scroller.Offset.Y);
+        Assert.NotNull(now);
+        Assert.NotEqual(before, now);
+
+        window.DragDrop(at, RawDragEventType.Drop, carried, DragDropEffects.Copy, RawInputModifiers.None);
+
+        IEnumerable<string> Held(string group)
+            => window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single(each => each.Name == group).Drawings.Select(drawing => drawing.Name);
+
+        for (var attempt = 0; attempt < 3000 && !Held(now!).Contains("extra"); attempt++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Assert.Contains("extra", Held(now!));
+        Assert.DoesNotContain("extra", Held(before!));
     }
 
     /// <summary>

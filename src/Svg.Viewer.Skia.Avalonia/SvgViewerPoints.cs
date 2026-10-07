@@ -100,14 +100,22 @@ public sealed class SvgViewerPoints
         set => _chosen = _points is { } points ? value.Where(i => i >= 0 && i < points.Points.Count).Distinct().ToList() : new List<int>();
     }
 
-    /// <summary>Whether <paramref name="element"/> has points this can take hold of.</summary>
-    public static bool Reshapes(SvgElement? element) => element is { } && GeometryPoints.Capture(element) is { };
-
     /// <summary>Follows the selection, and has to be called again after every rebuild.</summary>
-    /// <remarks>The chosen point is kept while the element is the same one, by key, so it outlives the rebuild a commit makes.</remarks>
+    /// <remarks>
+    /// A <c>&lt;use&gt;</c> is reshaped by the shape it draws, where it draws it, so what is written is
+    /// that shape, under its own address rather than the key the host handed in. The chosen point is
+    /// kept while that is the same one, so it outlives the rebuild a commit makes.
+    /// </remarks>
     public void Track(SKSvg? svg, Shim.SKPoint at, SvgViewerGizmoMember? member)
     {
         Cancel();
+
+        var shape = svg is { } && member is { } held ? SvgViewerOutline.Shape(svg, held.Element, held.Use) : null;
+
+        if (shape is { } drawn && member is { } picked && !ReferenceEquals(drawn.Shape, picked.Element))
+        {
+            member = new SvgViewerGizmoMember(drawn.Shape, SvgElementAddress.Create(drawn.Shape).Key, picked.Use);
+        }
 
         var same = member is { } now && _member is { } was && now.Key == was.Key;
 
@@ -118,12 +126,10 @@ public sealed class SvgViewerPoints
         _moving = null;
         _inside = _grid.From(at.X, at.Y);
 
-        if (svg is { } && member is { } held
-            && SvgViewerOutline.Placement(svg, held.Element, held.Use) is { } placed
-            && placed.Total.TryInvert(out var to))
+        if (shape is { } found && found.Placed.Total.TryInvert(out var to))
         {
-            _points = GeometryPoints.Capture(held.Element);
-            _from = placed.Total;
+            _points = GeometryPoints.Capture(found.Shape);
+            _from = found.Placed.Total;
             _to = to;
         }
 
@@ -220,6 +226,9 @@ public sealed class SvgViewerPoints
 
     /// <summary>Whether a press at <paramref name="at"/> takes hold of a point.</summary>
     public bool Hits(Shim.SKPoint at, float scale) => Hit(at, scale) >= 0;
+
+    /// <summary>Whether <paramref name="at"/> is on a point of the shape or on its outline between them.</summary>
+    public bool Near(Shim.SKPoint at, float scale) => Hit(at, scale) >= 0 || Segment(at, scale) is { };
 
     /// <summary>Chooses the point under the press and takes hold of what is chosen, or says why it will not.</summary>
     /// <param name="adding">
@@ -398,13 +407,7 @@ public sealed class SvgViewerPoints
             return true;
         }
 
-        var inside = Inside(at);
-        var near = points.Nearest(
-            new PointF(inside.X * scale, inside.Y * scale),
-            point => Screen(point, scale),
-            NearPixels);
-
-        if (near is not { } segment)
+        if (Segment(at, scale) is not { } segment)
         {
             _clicked = null;
 
@@ -524,6 +527,19 @@ public sealed class SvgViewerPoints
         }
 
         return -1;
+    }
+
+    /// <summary>The segment of the outline <paramref name="at"/> is on, and how far along it.</summary>
+    private (int Segment, float T)? Segment(Shim.SKPoint at, float scale)
+    {
+        if (_points is not { } points)
+        {
+            return null;
+        }
+
+        var inside = Inside(at);
+
+        return points.Nearest(new PointF(inside.X * scale, inside.Y * scale), point => Screen(point, scale), NearPixels);
     }
 
     private GeometryPoints? Showing => _moving ?? _points;

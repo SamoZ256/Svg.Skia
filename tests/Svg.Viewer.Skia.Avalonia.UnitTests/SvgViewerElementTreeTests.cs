@@ -1,19 +1,22 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Input.Raw;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using SkiaSharp;
-using Svg.SourceEditing;
 using Svg.Expressions;
+using Svg.SourceEditing;
 using Xunit;
 
 namespace Svg.Viewer.Skia.Avalonia.UnitTests;
@@ -35,10 +38,13 @@ public class SvgViewerElementTreeTests
         </svg>
         """;
 
-    private static async Task<(Window Window, SvgViewer Viewer)> Host(string markup = Markup)
+    /// <summary>A window height that leaves the element tree a row to aim at below the rows pinned over it, which at 500 it has not.</summary>
+    private const double Room = 1000d;
+
+    private static async Task<(Window Window, SvgViewer Viewer)> Host(string markup = Markup, double height = 500d)
     {
         var viewer = new SvgViewer();
-        var window = new Window { Width = 700, Height = 500, Background = Brushes.White, Content = viewer };
+        var window = new Window { Width = 700, Height = height, Background = Brushes.White, Content = viewer };
 
         window.Show();
 
@@ -403,8 +409,8 @@ public class SvgViewerElementTreeTests
     /// <summary>Lays the window out, so the canvas has a size and a scale to map through.</summary>
     private static void Arrange(Window window)
     {
-        window.Measure(new Size(700, 500));
-        window.Arrange(new Rect(0, 0, 700, 500));
+        window.Measure(new Size(window.Width, window.Height));
+        window.Arrange(new Rect(0, 0, window.Width, window.Height));
         Dispatcher.UIThread.RunJobs();
     }
 
@@ -1037,6 +1043,8 @@ public class SvgViewerElementTreeTests
         Assert.Null(tree.NewGroupRequested);
         Assert.Null(tree.DeleteRequested);
         Assert.Null(tree.DuplicateRequested);
+        Assert.Null(tree.ClipRequested);
+        Assert.Null(tree.NewClipRequested);
     }
 
     [AvaloniaFact]
@@ -1158,5 +1166,690 @@ public class SvgViewerElementTreeTests
 
         Assert.Contains("rect #a", rows);
         Assert.Contains("rect #b", rows);
+    }
+
+    // ---- clipping and masking from the menu ----------------------------------------------------
+
+    /// <summary>A moved rect, a group with one inside it, and a circle painted over both.</summary>
+    private const string Clippable = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+          <rect id="a" transform="translate(6 2)" x="4" y="4" width="20" height="20" fill="#3366cc" stroke="#000000" stroke-width="2" />
+          <g id="pair" transform="translate(10 10)"><rect id="b" width="10" height="10" fill="#cc3366" /></g>
+          <circle id="spot" cx="20" cy="20" r="6" fill="#33cc66" />
+        </svg>
+        """;
+
+    /// <summary>What a menu entry reads as: its header, or the text block standing in for it.</summary>
+    private static string? Said(MenuItem item) => item.Header as string ?? (item.Header as TextBlock)?.Text;
+
+    /// <summary>Opens the rows' menu as a right click does, and reads what it offers.</summary>
+    private static MenuItem[] Offered(SvgViewer viewer)
+    {
+        var tree = viewer.Elements.FindControl<TreeView>("Tree")!;
+
+        tree.RaiseEvent(new ContextRequestedEventArgs());
+        Dispatcher.UIThread.RunJobs();
+
+        var offered = tree.ContextMenu!.Items.OfType<MenuItem>().Where(item => item.IsVisible).ToArray();
+
+        tree.ContextMenu.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        return offered;
+    }
+
+    private static void Choose(SvgViewer viewer, string header)
+    {
+        var item = Offered(viewer).Single(item => Said(item) == header);
+
+        Assert.True(item.IsEnabled);
+
+        item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static string WrittenOn(SvgViewer viewer, string id, string name)
+        => SvgSourceDocument.Read(viewer.Source, out _)!.Document.Descendants()
+            .Single(element => (string?)element.Attribute("id") == id)
+            .Attribute(name)?.Value ?? "-";
+
+    /// <summary>The seed covers the row in its own space, is selected, and has one user, so it is held and reshaped on the row.</summary>
+    [AvaloniaFact]
+    public async Task A_New_Clip_Path_Covers_The_Row_And_Its_Seed_Is_Held_There()
+    {
+        var (window, viewer) = await Host(Clippable);
+
+        Assert.True(viewer.Elements.TrySelect("0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Choose(viewer, "New clip path");
+
+        Assert.Equal("url(#a-clip)", WrittenOn(viewer, "a", "clip-path"));
+        Assert.Contains("""<clipPath id="a-clip"><path d="M 3 3 L 25 3 L 25 25 L 3 25 Z" /></clipPath>""", viewer.Source.Replace("\n", "").Replace("  ", ""));
+        Assert.IsType<SvgPath>(viewer.SelectedElement);
+
+        var box = viewer.Canvas.Gizmo!.Value;
+
+        Assert.Equal(9f, box.TL.X, 1);
+        Assert.Equal(5f, box.TL.Y, 1);
+        Assert.Equal(31f, box.BR.X, 1);
+
+        viewer.Canvas.Focus();
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            new[] { new SKPoint(9f, 5f), new SKPoint(31f, 5f), new SKPoint(31f, 27f), new SKPoint(9f, 27f) },
+            viewer.Canvas.Points!.Anchors);
+
+        Arrange(window);
+
+        Press(window, viewer.Canvas, Over(viewer.Canvas, 31d, 5d));
+        Move(window, viewer.Canvas, Over(viewer.Canvas, 35d, 9d));
+        Release(window, viewer.Canvas, Over(viewer.Canvas, 35d, 9d));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("M3 3 L29 7 L25 25 L3 25 Z", SvgSourceDocument.Read(viewer.Source, out _)!.Document.Descendants()
+            .Single(element => element.Name.LocalName == "path").Attribute("d")!.Value);
+    }
+
+    [AvaloniaFact]
+    public async Task A_New_Mask_Starts_White()
+    {
+        var (_, viewer) = await Host(Clippable);
+
+        Assert.True(viewer.Elements.TrySelect("0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Choose(viewer, "New mask");
+
+        Assert.Equal("url(#a-mask)", WrittenOn(viewer, "a", "mask"));
+        Assert.Contains(
+            """<mask id="a-mask" maskUnits="userSpaceOnUse" x="3" y="3" width="22" height="22"><path d="M 3 3 L 25 3 L 25 25 L 3 25 Z" fill="white" /></mask>""",
+            viewer.Source.Replace("\n", "").Replace("  ", ""));
+    }
+
+    /// <summary>A straight line has no bounding box to show a mask in, so a new one shows the box round its stroke instead.</summary>
+    [AvaloniaFact]
+    public async Task A_New_Mask_On_A_Straight_Line_Still_Shows_It()
+    {
+        var (_, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <path id="bar" d="M3 12h18" stroke="#000000" stroke-width="1.5" />
+            </svg>
+            """);
+
+        Assert.True(viewer.Elements.TrySelect("0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Choose(viewer, "New mask");
+
+        Assert.Equal("url(#bar-mask)", WrittenOn(viewer, "bar", "mask"));
+
+        var svg = new Svg.Skia.SKSvg();
+
+        Assert.NotNull(svg.FromSvg(viewer.Source));
+
+        using var bitmap = new SkiaSharp.SKBitmap(24, 24);
+
+        using (var canvas = new SkiaSharp.SKCanvas(bitmap))
+        {
+            canvas.Clear(SkiaSharp.SKColors.Transparent);
+            canvas.DrawPicture(svg.Picture);
+        }
+
+        Assert.True(bitmap.GetPixel(12, 11).Alpha > 0);
+    }
+
+    /// <summary>The drawing itself has no place of its own to cover, and an &lt;svg&gt; is clipped but never drawn masked.</summary>
+    [AvaloniaFact]
+    public async Task New_Clip_Path_And_New_Mask_Are_Offered_Only_Where_They_Would_Be_Drawn()
+    {
+        var (_, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+              <svg id="inner" width="20" height="20"><rect width="20" height="20" fill="#3366cc" /></svg>
+            </svg>
+            """);
+
+        Assert.True(viewer.Elements.TrySelect(string.Empty));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.All(
+            Offered(viewer).Where(item => Said(item) is "New clip path" or "New mask"),
+            item => Assert.False(item.IsEnabled));
+
+        Assert.True(viewer.Elements.TrySelect("0"));
+        Dispatcher.UIThread.RunJobs();
+
+        var offered = Offered(viewer);
+
+        Assert.True(offered.Single(item => Said(item) == "New clip path").IsEnabled);
+        Assert.False(offered.Single(item => Said(item) == "New mask").IsEnabled);
+    }
+
+    /// <summary>Whichever was picked first, the shape is the row painted later: a sibling written after, or a child of the group.</summary>
+    [AvaloniaFact]
+    public async Task Clip_With_Takes_The_Row_Painted_Last_As_The_Shape()
+    {
+        var (_, viewer) = await Host(Clippable);
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("Clip g #pair with rect #b", Offered(viewer).Select(Said));
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "2", "0" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain(Offered(viewer), item => Said(item) == "New clip path" && item.IsEnabled);
+
+        Choose(viewer, "Clip rect #a with circle #spot");
+
+        Assert.Equal("url(#a-clip)", WrittenOn(viewer, "a", "clip-path"));
+        Assert.Equal("clipPath", SvgSourceDocument.Read(viewer.Source, out _)!.Document.Descendants()
+            .Single(element => (string?)element.Attribute("id") == "spot").Parent!.Name.LocalName);
+        Assert.Equal("spot", viewer.SelectedElement?.ID);
+    }
+
+    /// <summary>
+    /// A clip path, a mask or a shape in &lt;defs&gt; picked with a drawn row is what clips it, though
+    /// &lt;defs&gt; comes first; a clip path only clips and a mask only masks.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Clip_With_Takes_What_Is_Kept_Off_The_Canvas_As_What_Clips()
+    {
+        var (_, viewer) = await Host(Kept);
+
+        string?[] Picked(params string[] keys)
+        {
+            Assert.True(viewer.Elements.TrySelect(keys));
+            Dispatcher.UIThread.RunJobs();
+
+            return Offered(viewer).Select(Said).Where(said => said is { } && said.Contains(" with ", StringComparison.Ordinal)).ToArray();
+        }
+
+        Assert.Equal(new[] { "Clip rect #a with clipPath #window" }, Picked("0/0", "1"));
+        Assert.Equal(new[] { "Mask rect #a with mask #sweep" }, Picked("1", "0/1"));
+
+        // Both kept off the canvas: the earlier is what would be clipped, and a clip path is not drawn.
+        Assert.Empty(Picked("0/0", "0/2"));
+
+        Assert.Equal(new[] { "Clip rect #a with circle #spare", "Mask rect #a with circle #spare" }, Picked("0/2", "1"));
+
+        Choose(viewer, "Mask rect #a with circle #spare");
+
+        Assert.Equal("url(#a-mask)", WrittenOn(viewer, "a", "mask"));
+        Assert.Equal("spare", viewer.SelectedElement?.ID);
+
+        Picked("0/0", "1");
+        Choose(viewer, "Clip rect #a with clipPath #window");
+
+        Assert.Equal("url(#window)", WrittenOn(viewer, "a", "clip-path"));
+    }
+
+    /// <summary>A &lt;use&gt; of a symbol clips with nothing, so it is offered, and dropped, only as a mask.</summary>
+    [AvaloniaFact]
+    public async Task A_Use_Of_A_Symbol_In_Defs_Is_Only_A_Mask()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+              <defs><symbol id="icon"><circle cx="5" cy="5" r="5" /></symbol><use id="badge" href="#icon" /></defs>
+              <rect id="a" width="20" height="20" fill="#3366cc" />
+            </svg>
+            """, height: Room);
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "0/1", "1" }));
+        Dispatcher.UIThread.RunJobs();
+
+        var offered = Offered(viewer).Select(Said).ToArray();
+
+        Assert.Contains("Mask rect #a with use #badge", offered);
+        Assert.DoesNotContain("Clip rect #a with use #badge", offered);
+
+        var asked = Asked(viewer.Elements);
+
+        Arrange(window);
+
+        Carry(window, SvgViewerElementTree.Carrying("0/1", "mask"), Aim(window, Row(viewer.Elements, "1"), 0.5));
+
+        Assert.Equal(new[] { "0/1 1 mask" }, asked);
+    }
+
+    /// <summary>Moved into the space of what it masks, a shape is carried back by that space's move and stays where it was.</summary>
+    [AvaloniaFact]
+    public async Task A_Shape_Masked_With_Is_Ringed_Where_It_Was_Drawn()
+    {
+        var (_, viewer) = await Host(Clippable);
+
+        Assert.True(viewer.Elements.TrySelect("2"));
+        Dispatcher.UIThread.RunJobs();
+
+        var was = viewer.Canvas.Highlight!.Bounds;
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "2" }));
+        Dispatcher.UIThread.RunJobs();
+
+        Choose(viewer, "Mask rect #b with circle #spot");
+
+        Assert.Equal("url(#b-mask)", WrittenOn(viewer, "b", "mask"));
+        Assert.Equal("translate(-10, -10)", WrittenOn(viewer, "spot", "transform"));
+        Assert.Equal("spot", viewer.SelectedElement?.ID);
+        AssertRect(was, viewer.Canvas.Highlight!.Bounds);
+    }
+
+    // ---- clipping and masking by dropping a row ------------------------------------------------
+
+    /// <summary>A clip path, a mask and a spare circle kept in &lt;defs&gt;, a rect drawn, and a group with one in it.</summary>
+    private const string Kept = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+          <defs>
+            <clipPath id="window"><rect x="5" y="5" width="20" height="20" /></clipPath>
+            <mask id="sweep"><rect width="40" height="40" fill="#ffffff" /></mask>
+            <circle id="spare" cx="20" cy="20" r="8" />
+          </defs>
+          <rect id="a" x="4" y="4" width="20" height="20" fill="#3366cc" />
+          <g id="pair"><rect id="b" x="10" y="10" width="10" height="10" fill="#cc3366" /></g>
+        </svg>
+        """;
+
+    /// <summary>The row at <paramref name="key"/> as the tree draws it, scrolled to.</summary>
+    private static TreeViewItem Row(SvgViewerElementTree tree, string key)
+    {
+        var row = tree.GetVisualDescendants().OfType<TreeViewItem>()
+            .Single(item => (item.DataContext as SvgViewerElementNode)?.AddressKey == key);
+
+        row.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+
+        // Drawn twice, because a drop is hit-tested against the scene as last drawn and a headless
+        // window only draws when told: one tick still finds the rows where they were before the scroll.
+        for (var tick = 0; tick < 2; tick++)
+        {
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        return row;
+    }
+
+    /// <summary>Where in the window the row's name is, a fraction of the way down the row itself rather than its branch.</summary>
+    private static Point Aim(Window window, TreeViewItem row, double down)
+    {
+        var name = row.GetVisualDescendants().OfType<TextBlock>().First();
+        var header = row.GetTemplateDescendants().OfType<Control>().Single(part => part.Name == "PART_Header");
+        var at = header.TranslatePoint(new Point(0, header.Bounds.Height * down), window);
+        var across = name.TranslatePoint(new Point(name.Bounds.Width / 2d, 0), window);
+
+        Assert.NotNull(at);
+        Assert.NotNull(across);
+
+        return new Point(across!.Value.X, at!.Value.Y);
+    }
+
+    /// <summary>Carries <paramref name="carried"/> to a point of the window and lets it go there, unless told not to.</summary>
+    /// <remarks>
+    /// Injected rather than started, as the element panel's suite does it: no drag source runs
+    /// headlessly, and the tree reads the row from what the drag carries.
+    /// </remarks>
+    private static void Carry(
+        Window window,
+        IDataTransfer carried,
+        Point at,
+        RawInputModifiers keys = RawInputModifiers.None,
+        bool drop = true,
+        DragDropEffects effects = DragDropEffects.Move | DragDropEffects.Link)
+    {
+        var stages = drop
+            ? new[] { RawDragEventType.DragEnter, RawDragEventType.DragOver, RawDragEventType.Drop }
+            : new[] { RawDragEventType.DragEnter, RawDragEventType.DragOver };
+
+        foreach (var stage in stages)
+        {
+            window.DragDrop(at, stage, carried, effects, keys);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>Records what the tree asks to clip, as content, target and property, and writes nothing.</summary>
+    private static List<string> Asked(SvgViewerElementTree tree)
+    {
+        var asked = new List<string>();
+
+        tree.ClipRequested = (content, target, property) =>
+        {
+            asked.Add($"{content} {target} {property}");
+
+            return true;
+        };
+
+        return asked;
+    }
+
+    /// <summary>A clip path from &lt;defs&gt; applies over the whole of a row, even the quarter that would put a row before it; on a group, the middle applies rather than going in.</summary>
+    [AvaloniaFact]
+    public async Task A_Clip_Path_Dropped_On_A_Drawn_Row_Is_Applied_As_One()
+    {
+        var (window, viewer) = await Host(Kept, height: Room);
+
+        Arrange(window);
+
+        Carry(window, SvgViewerElementTree.Carrying("0/0", "clip-path"), Aim(window, Row(viewer.Elements, "1"), 0.1));
+
+        Assert.Equal("url(#window)", WrittenOn(viewer, "a", "clip-path"));
+        Assert.Equal("a", viewer.SelectedElement?.ID);
+
+        Carry(window, SvgViewerElementTree.Carrying("0/1", "mask"), Aim(window, Row(viewer.Elements, "2"), 0.5));
+
+        Assert.Equal("url(#sweep)", WrittenOn(viewer, "pair", "mask"));
+        Assert.Equal(
+            new[] { "svg", "defs", "clipPath #window", "rect", "mask #sweep", "rect", "circle #spare", "rect #a clip #window", "g #pair mask #sweep", "rect #b" },
+            Rows(viewer));
+    }
+
+    /// <summary>A clip path written beside the shapes can still be moved among them, so only the middle of a row applies it.</summary>
+    [AvaloniaFact]
+    public async Task A_Clip_Path_Written_Beside_The_Shapes_Moves_On_A_Rows_Edges()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+              <clipPath id="loose"><rect width="20" height="20" /></clipPath>
+              <rect id="a" width="30" height="30" fill="#3366cc" />
+            </svg>
+            """, height: Room);
+        var asked = Asked(viewer.Elements);
+        var moved = new List<string>();
+
+        viewer.Elements.MoveRequested = (dragged, target, where) =>
+        {
+            moved.Add($"{dragged} {target} {where}");
+
+            return true;
+        };
+
+        Arrange(window);
+
+        Carry(window, SvgViewerElementTree.Carrying("0", "clip-path"), Aim(window, Row(viewer.Elements, "1"), 0.1));
+        Carry(window, SvgViewerElementTree.Carrying("0", "clip-path"), Aim(window, Row(viewer.Elements, "1"), 0.5));
+        Carry(window, SvgViewerElementTree.Carrying("0", "clip-path"), Aim(window, Row(viewer.Elements, "1"), 0.9));
+
+        Assert.Equal(new[] { "0 1 Before", "0 1 After" }, moved);
+        Assert.Equal(new[] { "0 1 clip-path" }, asked);
+    }
+
+    /// <summary>A shape kept in &lt;defs&gt; could be either, and is a mask while ⌥ is down as it is let go, whatever it was on the way.</summary>
+    [AvaloniaFact]
+    public async Task Holding_Option_Makes_A_Spare_Shape_A_Mask_Instead()
+    {
+        var (window, viewer) = await Host(Kept, height: Room);
+        var asked = Asked(viewer.Elements);
+
+        Arrange(window);
+
+        var spare = SvgViewerElementTree.Carrying("0/2", "clip-path", "mask");
+        var at = Aim(window, Row(viewer.Elements, "1"), 0.5);
+
+        Carry(window, spare, at);
+        Carry(window, spare, at, RawInputModifiers.Alt);
+
+        Carry(window, spare, at, drop: false);
+        window.DragDrop(at, RawDragEventType.Drop, spare, DragDropEffects.Move | DragDropEffects.Link, RawInputModifiers.Alt);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "0/2 1 clip-path", "0/2 1 mask", "0/2 1 mask" }, asked);
+    }
+
+    /// <summary>
+    /// macOS narrows what a drag offers to a copy while ⌥ is held and turns down any other answer,
+    /// so an apply answers a copy where no link is offered, and a link where one is.
+    /// </summary>
+    [AvaloniaFact]
+    public void An_Apply_Answers_A_Copy_Where_The_Drag_Offers_No_Link()
+    {
+        var tree = new SvgViewerElementTree();
+        var window = new Window { Width = 300, Height = 500, Content = tree };
+        var answered = new List<DragDropEffects>();
+
+        window.Show();
+        tree.Show(SvgDocument.FromSvg<SvgDocument>(Kept));
+        Dispatcher.UIThread.RunJobs();
+
+        window.AddHandler(DragDrop.DragOverEvent, (_, e) => answered.Add(e.DragEffects), RoutingStrategies.Bubble, handledEventsToo: true);
+
+        var asked = Asked(tree);
+        var spare = SvgViewerElementTree.Carrying("0/2", "clip-path", "mask");
+        var at = Aim(window, Row(tree, "1"), 0.5);
+
+        Carry(window, spare, at, RawInputModifiers.Alt, effects: DragDropEffects.Copy);
+
+        Assert.Equal(DragDropEffects.Copy, answered.Last());
+
+        Carry(window, spare, at, effects: DragDropEffects.Move | DragDropEffects.Link | DragDropEffects.Copy);
+
+        Assert.Equal(DragDropEffects.Link, answered.Last());
+        Assert.Equal(new[] { "0/2 1 mask", "0/2 1 clip-path" }, asked);
+    }
+
+    /// <summary>A mask on an &lt;svg&gt; is never drawn, and the drawing itself has no place of its own, so neither row takes one.</summary>
+    [AvaloniaFact]
+    public void A_Spare_Shape_Masks_No_Svg_And_Applies_Nothing_To_The_Drawing_Itself()
+    {
+        var tree = new SvgViewerElementTree();
+        var window = new Window { Width = 300, Height = 500, Content = tree };
+
+        window.Show();
+        tree.Show(SvgDocument.FromSvg<SvgDocument>("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+              <defs><circle id="spare" cx="5" cy="5" r="4" /></defs>
+              <svg id="inner" width="20" height="20"><rect width="20" height="20" fill="#3366cc" /></svg>
+            </svg>
+            """));
+        Dispatcher.UIThread.RunJobs();
+
+        var asked = Asked(tree);
+        var spare = SvgViewerElementTree.Carrying("0/0", "clip-path", "mask");
+
+        Carry(window, spare, Aim(window, Row(tree, "1"), 0.5), RawInputModifiers.Alt);
+        Carry(window, spare, Aim(window, Row(tree, string.Empty), 0.5));
+        Carry(window, spare, Aim(window, Row(tree, "1"), 0.5));
+        Carry(window, spare, Aim(window, Row(tree, "1/0"), 0.5), RawInputModifiers.Alt);
+
+        Assert.Equal(new[] { "0/0 1 clip-path", "0/0 1/0 mask" }, asked);
+    }
+
+    /// <summary>The box a drop would apply in is the canvas's green for a clip and violet for a mask, says which, and follows ⌥; a move is still a blue line.</summary>
+    [AvaloniaFact]
+    public async Task The_Row_Says_Clip_Or_Mask_As_Option_Is_Pressed_And_Let_Go()
+    {
+        var (window, viewer) = await Host(Kept, height: Room);
+        var line = viewer.Elements.FindControl<Border>("DropLine")!;
+        var word = viewer.Elements.FindControl<TextBlock>("DropWord")!;
+
+        Arrange(window);
+
+        var spare = SvgViewerElementTree.Carrying("0/2", "clip-path", "mask");
+        var at = Aim(window, Row(viewer.Elements, "1"), 0.5);
+
+        Carry(window, spare, at, drop: false);
+
+        Assert.True(line.IsVisible);
+        Assert.True(word.IsVisible);
+        Assert.Equal("clip", word.Text);
+        Assert.Equal(Color.Parse("#3FB950"), Assert.IsAssignableFrom<ISolidColorBrush>(line.BorderBrush).Color);
+
+        window.DragDrop(at, RawDragEventType.DragOver, spare, DragDropEffects.Move | DragDropEffects.Link, RawInputModifiers.Alt);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("mask", word.Text);
+        Assert.Equal(Color.Parse("#9B6CFF"), Assert.IsAssignableFrom<ISolidColorBrush>(line.BorderBrush).Color);
+
+        window.DragDrop(at, RawDragEventType.DragOver, spare, DragDropEffects.Move | DragDropEffects.Link, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("clip", word.Text);
+
+        // Leaving for another control takes it down.
+        window.DragDrop(at, RawDragEventType.DragLeave, spare, DragDropEffects.Move | DragDropEffects.Link, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(line.IsVisible);
+
+        // Among the rows it is kept with, it moves.
+        Carry(window, spare, Aim(window, Row(viewer.Elements, "0/0"), 0.1), drop: false);
+
+        Assert.True(line.IsVisible);
+        Assert.False(word.IsVisible);
+        Assert.Equal(2d, line.Height);
+        Assert.Equal(Color.Parse("#4C9BE8"), Assert.IsAssignableFrom<ISolidColorBrush>(line.BorderBrush).Color);
+    }
+
+    /// <summary>
+    /// Pressing a row picks it, which would turn the element panel away from what it is to be dropped
+    /// on; picking it up puts back what was picked, so its Clip path box takes the drop.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Dragging_A_Clip_Path_Leaves_The_Picked_Element_Picked()
+    {
+        var (window, viewer) = await Host(Kept, height: Room);
+
+        window.Width = 900;
+
+        Assert.True(viewer.Elements.TrySelect("1"));
+        Dispatcher.UIThread.RunJobs();
+
+        var at = Aim(window, Row(viewer.Elements, "0/0"), 0.5);
+
+        window.MouseDown(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "0/0" }, viewer.Elements.SelectedAddresses);
+
+        window.MouseMove(at + new Point(0, 12), RawInputModifiers.LeftMouseButton);
+        Dispatcher.UIThread.RunJobs();
+        window.MouseUp(at + new Point(0, 12), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "1" }, viewer.Elements.SelectedAddresses);
+        Assert.Equal("a", viewer.SelectedElement?.ID);
+
+        var box = window.GetVisualDescendants().OfType<TextBox>().Single(box => Equals(box.Tag, "clip-path"));
+
+        box.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+
+        Carry(window, SvgViewerElementTree.Carrying("0/0", "clip-path"), box.TranslatePoint(new Point(box.Bounds.Width / 2d, box.Bounds.Height / 2d), window)!.Value);
+
+        Assert.Equal("url(#window)", WrittenOn(viewer, "a", "clip-path"));
+    }
+
+    /// <summary>
+    /// Typing in the filter to find the clip path hides the picked row, which is still picked; picking
+    /// the clip path up puts that back, and the panel with it, though there is no row to select.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Dragging_A_Clip_Path_Found_By_The_Filter_Leaves_The_Hidden_Element_Picked()
+    {
+        var (window, viewer) = await Host(Kept, height: Room);
+
+        window.Width = 900;
+
+        Assert.True(viewer.Elements.TrySelect("1"));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.Elements.Filter = "clip";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain(viewer.Elements.GetVisualDescendants().OfType<TreeViewItem>(), item => (item.DataContext as SvgViewerElementNode)?.AddressKey == "1");
+
+        var at = Aim(window, Row(viewer.Elements, "0/0"), 0.5);
+
+        window.MouseDown(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        window.MouseMove(at + new Point(0, 12), RawInputModifiers.LeftMouseButton);
+        Dispatcher.UIThread.RunJobs();
+        window.MouseUp(at + new Point(0, 12), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "1" }, viewer.Elements.SelectedAddresses);
+
+        var box = window.GetVisualDescendants().OfType<TextBox>().Single(box => Equals(box.Tag, "clip-path"));
+
+        box.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+
+        Carry(window, SvgViewerElementTree.Carrying("0/0", "clip-path"), box.TranslatePoint(new Point(box.Bounds.Width / 2d, box.Bounds.Height / 2d), window)!.Value);
+
+        Assert.Equal("url(#window)", WrittenOn(viewer, "a", "clip-path"));
+    }
+
+    /// <summary>Row 1 beside row 10: an address that begins with another's is not in its branch unless a slash follows.</summary>
+    [AvaloniaFact]
+    public async Task A_Row_Can_Land_Beside_One_Whose_Address_Begins_With_Its_Own()
+    {
+        var (window, viewer) = await Host($"""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 1" width="12" height="1">
+            {string.Concat(Enumerable.Range(0, 12).Select(i => $"<rect id=\"r{i}\" x=\"{i}\" width=\"1\" height=\"1\" />"))}
+            </svg>
+            """, height: Room);
+
+        Arrange(window);
+
+        Carry(window, SvgViewerElementTree.Carrying("1"), Aim(window, Row(viewer.Elements, "10"), 0.1));
+
+        Assert.Equal(
+            new[] { "r0", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r1", "r10", "r11" },
+            SvgSourceDocument.Read(viewer.Source, out _)!.Document.Root!.Elements().Select(element => (string?)element.Attribute("id")));
+    }
+
+    /// <summary>The bands are the row's own and not its open branch's, so the foot of a group's row is after the group.</summary>
+    [AvaloniaFact]
+    public async Task A_Row_Dropped_On_The_Foot_Of_An_Open_Group_Lands_After_It()
+    {
+        var (window, viewer) = await Host(Kept, height: Room);
+
+        Arrange(window);
+
+        Carry(window, SvgViewerElementTree.Carrying("1"), Aim(window, Row(viewer.Elements, "2"), 0.9));
+
+        var moved = SvgSourceDocument.Read(viewer.Source, out _)!.Document.Descendants().Single(element => (string?)element.Attribute("id") == "a");
+
+        Assert.Equal("svg", moved.Parent!.Name.LocalName);
+        Assert.Equal("pair", (string?)moved.ElementsBeforeSelf().Last().Attribute("id"));
+    }
+
+    /// <summary>A board's tree moves nothing, so a drawn row lands nowhere; a clip path still applies, and is picked up with the selection kept.</summary>
+    [AvaloniaFact]
+    public async Task A_Tree_That_Moves_Nothing_Still_Takes_A_Clip_Path_Dropped_On_A_Row()
+    {
+        var tree = new SvgViewerElementTree();
+        var window = new Window { Width = 300, Height = 500, Content = tree };
+
+        window.Show();
+        tree.Show(SvgDocument.FromSvg<SvgDocument>(Kept));
+        Dispatcher.UIThread.RunJobs();
+
+        var asked = Asked(tree);
+        var line = tree.FindControl<Border>("DropLine")!;
+
+        Carry(window, SvgViewerElementTree.Carrying("1"), Aim(window, Row(tree, "2"), 0.1), drop: false);
+
+        Assert.False(line.IsVisible);
+
+        Carry(window, SvgViewerElementTree.Carrying("1"), Aim(window, Row(tree, "2"), 0.1));
+        Carry(window, SvgViewerElementTree.Carrying("0/0", "clip-path"), Aim(window, Row(tree, "1"), 0.1));
+
+        Assert.Equal(new[] { "0/0 1 clip-path" }, asked);
+
+        Assert.True(tree.TrySelect("1"));
+        Dispatcher.UIThread.RunJobs();
+
+        var at = Aim(window, Row(tree, "0/0"), 0.5);
+
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseMove(at + new Point(0, 12), RawInputModifiers.LeftMouseButton);
+        window.MouseUp(at + new Point(0, 12), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "1" }, tree.SelectedAddresses);
     }
 }
