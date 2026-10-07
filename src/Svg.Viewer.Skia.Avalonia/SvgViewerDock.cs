@@ -13,6 +13,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
+using Avalonia.Media.Immutable;
 using Avalonia.VisualTree;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -75,7 +76,8 @@ public sealed class SvgViewerDock
 
     private const double SplitterSize = 6d;
 
-    private static readonly IBrush Divider = new SolidColorBrush(Color.Parse("#20808080"));
+    // Immutable, as a SolidColorBrush keeps the dispatcher it was made on, and a static one outlives it.
+    private static readonly IBrush Divider = new ImmutableSolidColorBrush(Color.Parse("#20808080"));
 
     /// <summary>The body, and the line showing where a panel being carried would land.</summary>
     private readonly Panel _shell = new();

@@ -15,6 +15,7 @@ using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
+using Avalonia.Media.Immutable;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -40,8 +41,9 @@ public sealed class StreamlineImportWindow : Window
     /// <summary>How many of a batch are drawn as they will look; the rest are counted.</summary>
     private const int Previewed = 8;
 
-    private static readonly IBrush s_sure = new SolidColorBrush(Color.Parse("#2EA043"));
-    private static readonly IBrush s_check = new SolidColorBrush(Color.Parse("#D29922"));
+    // Immutable, as a SolidColorBrush keeps the dispatcher it was made on, and a static one outlives it.
+    private static readonly IBrush s_sure = new ImmutableSolidColorBrush(Color.Parse("#2EA043"));
+    private static readonly IBrush s_check = new ImmutableSolidColorBrush(Color.Parse("#D29922"));
 
     // Drawn, since the ⋯ character comes out a speck in the fonts a window falls back on.
     private static readonly Geometry s_more = Geometry.Parse("M2 8a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0zm4.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0zm4.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0z");
