@@ -216,9 +216,11 @@ tree, which folds a row with it. Picking a tab opens the tree back down to the r
 marks it, so a group folded away still says where the tab you are looking at lives.</p>
 <p>The tree is editable. Each row carries <strong>Add group</strong>, <strong>Add SVG…</strong> and <strong>Remove</strong>; <code>Delete</code> removes
 the selected row, and a row is dragged to move it — dropped on the top or bottom quarter of a group
-it lands beside it, and in the middle it goes inside. Adding an <code>.svg</code> file reads it in; so does
-pasting one, or pasting the SVG a drawing program puts on the clipboard. Adding, removing and moving
-edit the project; nothing reaches the file until you save it.</p>
+it lands beside it, and in the middle it goes inside. A drag held near the top or foot of this or any
+other pane scrolls it, faster the nearer the edge, so a row out of sight can still be reached; a tab
+held at either end of a strip with more tabs than fit scrolls the strip the same way. Adding
+an <code>.svg</code> file reads it in; so does pasting one, or pasting the SVG a drawing program puts on the
+clipboard. Adding, removing and moving edit the project; nothing reaches the file until you save it.</p>
 <p>Five panels sit round the tabs: the <strong>Project</strong> tree, the <strong>Properties</strong> of whatever is in front, the
 <strong>Variables</strong> it declares, the <strong>Attributes</strong> of the element picked in it, and the <strong>Elements</strong> those
 come from. They
@@ -428,6 +430,22 @@ share it. A <code>&lt;use&gt;</code> inside a clip path is ringed but has no han
 path, so nothing of its own says where that is.</p>
 <p>An element that uses a clip path or a mask says so in the element tree, beside its id: <code>clip #window</code>
 or <code>mask #sweep</code>. The filter finds it by that.</p>
+<p><strong>Giving an element one.</strong> Drag a <code>&lt;clipPath&gt;</code> or a <code>&lt;mask&gt;</code> from the element tree onto an element's
+row, or onto the <strong>Clip path</strong> or <strong>Mask</strong> box of the element picked, and it clips or masks that
+element; whatever did so before stays in <code>&lt;defs&gt;</code>. A shape kept in <code>&lt;defs&gt;</code> drops the same way and is
+moved into a clip path made for it, or a mask while <code>Alt</code> (<code>⌥</code>) is held. The row it would land on is
+outlined green for a clip and violet for a mask, and says which. The tree's menu has <strong>New clip path</strong>
+and <strong>New mask</strong>, which cover the picked element, its stroke and its markers with a rectangular path
+and pick that path; a new mask's path is white. With two rows picked it has <strong>Clip … with …</strong> and
+<strong>Mask … with …</strong>: a clip path, a mask or a shape in <code>&lt;defs&gt;</code> is what clips or masks the other row, and
+of two drawn rows the one painted later is moved into the new clip path or mask, staying where it was
+drawn and keeping the paint and font its groups gave it. A mask made from a shape masks by its alpha
+(<code>mask-type=&quot;alpha&quot;</code>), so a shape with no fill of its own, which paints black, still shows the element
+where it covers it. A board offers all of this, though its rows cannot otherwise be dragged.</p>
+<p>The paths a clip or a mask is made of are reshaped where they apply: double-click one on the canvas,
+or pick it in the tree and choose <strong>Points</strong> (<code>⌖</code>) on the toolbar, and its points are held on the
+element it clips. That reaches a shape in <code>&lt;defs&gt;</code> drawn only through a <code>&lt;use&gt;</code> as well, and a double
+click on a <code>&lt;use&gt;</code> reshapes the shape it draws, which changes it everywhere it is used.</p>
 <h2 id="connecting-claude-code">Connecting Claude Code</h2>
 <p>Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
 project and its drawings, lists every problem in them, sets attributes and text, reads and changes a

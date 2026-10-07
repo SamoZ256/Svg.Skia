@@ -193,6 +193,10 @@
 <td>What a variable dragged from one of those onto another carries</td>
 </tr>
 <tr>
+<td><code>SvgViewerDragScroll</code></td>
+<td>Scrolls whatever pane a drag is held near the edge of</td>
+</tr>
+<tr>
 <td><code>SvgViewerElementTree</code></td>
 <td>Every element of the open drawing, as a tree, with a filter box</td>
 </tr>
@@ -535,6 +539,19 @@ too, which is how an attribute the file does not write yet is added already boun
 from somewhere else: the name travels in it, since the panel that ends a drag cannot read a field on
 the panel that started it. Mark the drag <strong>handled</strong> where you take it — the viewer refuses anything
 carrying no file, which is every drag of a variable.</p>
+<h2 id="scrolling-while-dragging">Scrolling while dragging</h2>
+<p>A drag held within 32 px of a pane's edge (a quarter of a smaller pane) scrolls it, at up to 800 px a
+second on the edge itself and slower further in, once it has rested there 150 ms — so a drag picked
+up near an edge, or crossing one, does not. The pane is whichever scroller under the pointer can
+still move that way, so one at its end hands on to the one around it; a text box's own is skipped.
+While the rows slide, the tree takes its drop line down rather than mark a row the pointer has left.</p>
+<p>The viewer turns this on for itself. A host that takes <code>Panels</code> puts them outside it, so it calls
+<code>SvgViewerDragScroll.Attach</code> on its own window, as Studio does. A drop target of your own in a
+scrolling pane should ask <code>SvgViewerDragScroll.Under</code> what it is over rather than read the event's
+source: Avalonia raises a drop on whatever the last update hit, and the pane may have moved since.</p>
+<p>A drag a control runs itself on a captured pointer raises none of the events <code>Attach</code> hears. It
+calls <code>SvgViewerDragScroll.Hold</code> with each move and <code>Stop</code> where it ends, and places what it carries
+again when its pane scrolls under a still pointer — as the variables' grip does, and Studio's tabs.</p>
 <h2 id="the-element-tree">The element tree</h2>
 <p>Wherever it has been put, it lists <strong>every</strong> element of the open drawing — <code>&lt;defs&gt;</code> and its
 contents, the <code>&lt;e:code&gt;</code> block, a <code>&lt;title&gt;</code> — because what is in a file is the question it answers,
@@ -561,6 +578,15 @@ between two rows to go beside one, or an outline round a row to go inside it. Dr
 move into the drawing, so the element really is somewhere else afterwards, and the order it paints
 in changes with it. <strong>New group</strong> on the tree's own menu writes an empty <code>&lt;g&gt;</code> beside the picked row
 for things to be dragged into. Both arrive as one step to take back.</p>
+<p>A <code>&lt;clipPath&gt;</code>, a <code>&lt;mask&gt;</code> or a shape kept in <code>&lt;defs&gt;</code> dropped on a drawn row is <strong>applied</strong> to it
+rather than moved: the row is outlined green for a clip and violet for a mask, the colours of the
+canvas's outlines of their content, with the word beside it. A clip path or a mask is pointed at as it
+is; a shape is moved into one made for it, and is a clip path unless <code>Alt</code> (<code>⌥</code>) is held. The same
+rows drop on the element panel's <strong>Clip path</strong> and <strong>Mask</strong> boxes. The menu has <strong>New clip path</strong> and
+<strong>New mask</strong>, which cover the picked row with a rectangular path, and with two rows picked
+<strong>Clip … with …</strong> and <strong>Mask … with …</strong>, where a row kept off the canvas is what clips the other and,
+between two drawn rows, the one painted later does. A host wires these through <code>ClipRequested</code> and
+<code>NewClipRequested</code>, which is how a project group's board offers them though its rows do not move.</p>
 <p>What cannot be done is refused with a sentence rather than attempted: a row cannot land in its own
 branch, a drawing written on one line has no line to move, a tag that closes itself has no inside,
 and a drop that would carry an element across a <code>&lt;defs&gt;</code>, a <code>&lt;clipPath&gt;</code> or a <code>&lt;mask&gt;</code> would change
@@ -577,7 +603,9 @@ other by name before the caret moves. Under a recipe the drawing has rows its fi
 of, and those are the disagreement that remains; a half-typed document is no longer one of them,
 since text that will not read back never becomes the drawing.</li>
 <li><strong>A <code>&lt;use&gt;</code> has one row, not one per use.</strong> What is listed is what is written. Picking the
-definition rings it everywhere it is drawn, and clicking any of those copies selects that one row.</li>
+definition rings it everywhere it is drawn. Clicking a copy selects the <code>&lt;use&gt;</code> that put it there,
+which is what moves it; its points, taken hold of, are the definition's, so reshaping one copy
+reshapes them all.</li>
 </ul>
 <p>Rows are held by the child-index address <code>SvgElementAddress</code> spells, not by element. A drawing
 rebuilt from edited text shares no element with the one it replaced, so that is what keeps the
