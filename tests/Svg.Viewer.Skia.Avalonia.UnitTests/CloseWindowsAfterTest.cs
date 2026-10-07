@@ -1,9 +1,13 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Media.Fonts;
 using Avalonia.Threading;
 using Xunit.v3;
 
@@ -11,13 +15,14 @@ using Xunit.v3;
 
 namespace Svg.Tests;
 
-/// <summary>Closes every window a headless test left open, and lets go of keyboard focus.</summary>
+/// <summary>Closes every window a headless test left open, lets go of keyboard focus, and frees the
+/// HarfBuzz faces of the test before.</summary>
 /// <remarks>
-/// Per-test isolation gives each test its own compositor, and anything left attached keeps it: a brush
-/// in a static field caches a resource per compositor, and Avalonia 12.1's TextInputMethodManager holds
-/// the focused control from a static subscription it never drops. Without this the viewer's tests
-/// peaked at 9.4 GB and Studio's at 8 GB, past the 7 GB of a macOS CI runner; with it, 5.9 and 3.6 GB,
-/// a gigabyte of that the synthetic bold Helvetica Avalonia builds afresh and never frees.
+/// Per-test isolation gives each test its own app, and Avalonia 12.1.3 keeps some of each for good: its
+/// TextInputMethodManager holds the focused control from a static subscription it never drops, and a
+/// disposed typeface leaves its HarfBuzz face behind. The viewer's tests peaked at 9.4 GB and Studio's at
+/// 8 GB on a 7 GB macOS runner; with this and 12.1.3, 0.6 and 0.7 GB. The windows no longer keep an app,
+/// but closing them still frees their surfaces at once rather than at a GC, 100 MB off the peak.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Assembly)]
 internal sealed class CloseWindowsAfterTestAttribute : BeforeAfterTestAttribute
@@ -36,7 +41,19 @@ internal sealed class CloseWindowsAfterTestAttribute : BeforeAfterTestAttribute
             [typeof(IInputElement), typeof(NavigationMethod), typeof(KeyModifiers), typeof(bool)])
         ?? throw new MissingMemberException(nameof(KeyboardDevice), "SetFocusedElement");
 
+    // Internal and private: Avalonia 12.1.3 disposes a GlyphTypeface but not its HarfBuzz face, whose
+    // callback a strong handle keeps alive, and with it pinned copies of the font's tables.
+    private static readonly FieldInfo s_glyphTypefaces =
+        typeof(FontCollectionBase).GetField("_glyphTypefaceCache", Any | BindingFlags.Instance)
+        ?? throw new MissingMemberException(nameof(FontCollectionBase), "_glyphTypefaceCache");
+
+    private static readonly FieldInfo s_shaper =
+        typeof(GlyphTypeface).GetField("_textShaperTypeface", Any | BindingFlags.Instance)
+        ?? throw new MissingMemberException(nameof(GlyphTypeface), "_textShaperTypeface");
+
     private static readonly List<Window> s_opened = [];
+
+    private static IFontCollection? s_lastFonts;
 
     private static IDisposable? s_tracking;
 
@@ -45,6 +62,18 @@ internal sealed class CloseWindowsAfterTestAttribute : BeforeAfterTestAttribute
         if (IsHeadless(methodUnderTest))
         {
             s_tracking ??= Window.WindowOpenedEvent.AddClassHandler(typeof(Window), (sender, _) => s_opened.Add((Window)sender!));
+
+            // The last test's faces, now that its app is gone and nothing can shape text with them.
+            if (s_lastFonts is FontCollectionBase fonts && fonts != FontManager.Current.SystemFonts)
+            {
+                var cache = (ConcurrentDictionary<string, ConcurrentDictionary<FontCollectionKey, GlyphTypeface?>>)s_glyphTypefaces.GetValue(fonts)!;
+                foreach (var typeface in cache.Values.SelectMany(family => family.Values).OfType<GlyphTypeface>().Distinct())
+                {
+                    (s_shaper.GetValue(typeface) as IDisposable)?.Dispose();
+                }
+            }
+
+            s_lastFonts = null;
         }
     }
 
@@ -72,6 +101,8 @@ internal sealed class CloseWindowsAfterTestAttribute : BeforeAfterTestAttribute
         {
             s_setFocusedElement.Invoke(keyboard, [null, NavigationMethod.Unspecified, KeyModifiers.None, false]);
         }
+
+        s_lastFonts = FontManager.Current.SystemFonts;
     }
 
     // A plain [Fact] runs on the pool beside a headless test, whose windows and keyboard it must not
