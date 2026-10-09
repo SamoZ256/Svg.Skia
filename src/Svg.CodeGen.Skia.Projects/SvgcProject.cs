@@ -239,17 +239,45 @@ public sealed class SvgcProject
         _ => throw new SvgcProjectException($"'{value}' is not a body. Expected record or direct.")
     };
 
-    /// <summary>Names separated by white space, or null when there are none.</summary>
+    /// <summary>Parameter names separated by white space, or null when there are none.</summary>
     public static IReadOnlyList<string>? ParseNames(string? value)
-        => value?.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries) is { Length: > 0 } names ? names : null;
+    {
+        if (value?.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries) is not { Length: > 0 } names)
+        {
+            return null;
+        }
+
+        foreach (var name in names)
+        {
+            ParseName(name, "parameter name", qualified: false);
+        }
+
+        return names;
+    }
+
+    /// <summary>A C# name, dotted where <paramref name="qualified"/>, or null when it was not given.</summary>
+    public static string? ParseName(string? value, string what, bool qualified)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var name = value!.Trim();
+        var parts = qualified ? name.Split('.') : new[] { name };
+
+        return parts.All(part => part.Length > 0 && !char.IsDigit(part[0]) && part.All(c => c == '_' || char.IsLetterOrDigit(c)))
+            ? name
+            : throw new SvgcProjectException($"'{value}' is not a {what}.");
+    }
 
     /// <summary>The settings that shape the file as a project spells them, each null where it is not given.</summary>
     public static SvgCodeStyle ParseStyle(string? api, string? resizing, string? context, string? order, string? body, string? typeface)
         => new()
         {
-            Api = Blank(api),
-            Resizing = Blank(resizing),
-            Context = Blank(context),
+            Api = ParseName(api, "class name", qualified: true),
+            Resizing = ParseName(resizing, "type name", qualified: true),
+            Context = ParseName(context, "type name", qualified: true),
             Order = ParseNames(order) ?? Array.Empty<string>(),
             Body = ParseBody(body),
             Typeface = Blank(typeface)

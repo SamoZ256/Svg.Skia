@@ -3806,6 +3806,14 @@ public sealed class GroupPanel : UserControl
         ["cache"] = ("Picture cache", null),
         ["helperScope"] = ("Helper methods", null),
         ["skiaSharp"] = ("SkiaSharp version", null),
+        ["body"] = ("Draw", null),
+        ["typeface"] = ("Typeface", "C# expression, e.g. Fonts.Get(\"{family}\", {weightValue})"),
+        ["api"] = ("API class", "e.g. PaintCodeResources.VectorIconsResource"),
+        ["resizing"] = ("Resizing enum", "adds the framed overloads, e.g. PaintCode.ResizingBehavior"),
+        ["context"] = ("Text context type", "taken first by a drawing with text, e.g. PaintCode.Context"),
+        ["order"] = ("Argument order", "parameter names, separated by spaces"),
+        ["method"] = ("API method", "draw and the class name"),
+        ["parameters"] = ("API arguments", "as the argument order puts them"),
         ["width"] = ("Width", "pixels"),
         ["height"] = ("Height", "pixels"),
         ["scale"] = ("Scale", "factor, e.g. 2"),
@@ -3840,6 +3848,12 @@ public sealed class GroupPanel : UserControl
             ("Default (4.x)", null, "Not written in the project, so a build targets SkiaSharp 4."),
             ("SkiaSharp 4.x", ProjectRoot.SkiaSharpText(SkiaSharpTarget.V4), "Builds paths through SKPathBuilder, since SKPath's mutating methods are obsolete in 4."),
             ("SkiaSharp 3.x", ProjectRoot.SkiaSharpText(SkiaSharpTarget.V3), "Builds paths by calling SKPath directly; SKPathBuilder does not exist yet in 3.")
+        },
+        ["body"] = new (string, string?, string)[]
+        {
+            ("Default (record a picture)", null, "Not written in the project, so Draw records a picture and draws it."),
+            ("Record a picture, then draw it", ProjectRoot.BodyText(SvgBody.Record), "Draw records the drawing into a picture and draws that."),
+            ("Straight onto the canvas", ProjectRoot.BodyText(SvgBody.Direct), "Draw draws onto the canvas it is given, from paths and paints built once. Takes no picture cache.")
         }
     };
 
@@ -3862,6 +3876,25 @@ public sealed class GroupPanel : UserControl
             Add("cache");
             Add("helperScope");
             Add("skiaSharp");
+            Add("body");
+            Add("typeface");
+
+            // One class calling every drawing the way PaintCode's generated code is called. Nothing
+            // here shapes the file until the class is named.
+            Heading("PaintCode-style API");
+
+            Add("api");
+            Add("resizing");
+            Add("context");
+            Add("order");
+        }
+
+        if (node is ProjectDrawing)
+        {
+            Heading("PaintCode-style API");
+
+            Add("method");
+            Add("parameters");
         }
 
         Heading("Size");
@@ -4000,6 +4033,30 @@ public sealed class GroupPanel : UserControl
                 break;
             case "skiaSharp":
                 ((ProjectRoot)node).SkiaSharp = value is null ? null : SvgcProject.ParseSkiaSharpTarget(value);
+                break;
+            case "body":
+                ((ProjectRoot)node).Body = value is null ? null : SvgcProject.ParseBody(value);
+                break;
+            case "typeface":
+                ((ProjectRoot)node).Typeface = value;
+                break;
+            case "api":
+                ((ProjectRoot)node).Api = value;
+                break;
+            case "resizing":
+                ((ProjectRoot)node).Resizing = value;
+                break;
+            case "context":
+                ((ProjectRoot)node).Context = value;
+                break;
+            case "order":
+                ((ProjectRoot)node).Order = value;
+                break;
+            case "method":
+                ((ProjectDrawing)node).Method = value;
+                break;
+            case "parameters":
+                ((ProjectDrawing)node).Parameters = value;
                 break;
         }
     }
@@ -4179,6 +4236,23 @@ public sealed class GroupPanel : UserControl
             case "skiaSharp":
                 SvgcProject.ParseSkiaSharpTarget(value);
                 break;
+            case "body":
+                SvgcProject.ParseBody(value);
+                break;
+            case "api":
+                SvgcProject.ParseName(value, "class name", qualified: true);
+                break;
+            case "resizing":
+            case "context":
+                SvgcProject.ParseName(value, "type name", qualified: true);
+                break;
+            case "method":
+                SvgcProject.ParseName(value, "method name", qualified: false);
+                break;
+            case "order":
+            case "parameters":
+                SvgcProject.ParseNames(value);
+                break;
             case "padding" when value is { }:
                 try
                 {
@@ -4223,6 +4297,14 @@ public sealed class GroupPanel : UserControl
         "cache" => (node as ProjectRoot)?.Cache is { } cache ? ProjectRoot.CacheText(cache) : null,
         "helperScope" => (node as ProjectRoot)?.HelperScope is { } scope ? ProjectRoot.ScopeText(scope) : null,
         "skiaSharp" => (node as ProjectRoot)?.SkiaSharp is { } target ? ProjectRoot.SkiaSharpText(target) : null,
+        "body" => (node as ProjectRoot)?.Body is { } body ? ProjectRoot.BodyText(body) : null,
+        "typeface" => (node as ProjectRoot)?.Typeface,
+        "api" => (node as ProjectRoot)?.Api,
+        "resizing" => (node as ProjectRoot)?.Resizing,
+        "context" => (node as ProjectRoot)?.Context,
+        "order" => (node as ProjectRoot)?.Order,
+        "method" => (node as ProjectDrawing)?.Method,
+        "parameters" => (node as ProjectDrawing)?.Parameters,
         _ => null
     };
 

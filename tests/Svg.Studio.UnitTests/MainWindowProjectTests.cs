@@ -5495,6 +5495,53 @@ public class MainWindowProjectTests : IDisposable
         Assert.DoesNotContain("skiaSharp=", File.ReadAllText(path));
     }
 
+    /// <summary>
+    /// Everything that shapes the API class is typed into the project's Properties, checked as it is
+    /// typed, and written as the attributes a build reads.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task The_Api_Is_Set_Up_From_The_Projects_Properties()
+    {
+        Write("home.svg", Drawing);
+
+        var path = Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons">
+            {Holding("home", " class=\"Home\"")}
+            </studio>
+            """);
+
+        var window = await Host(path);
+
+        await window.ShowAsync(window.Workspace!.Document.Root);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = (GroupPanel)Tabs(window).Items.OfType<TabItem>().Single(tab => tab.Content is GroupPanel).Content!;
+
+        Open(window, window, "Properties");
+
+        Assert.False(panel.Edit("api", "PaintCode Resources"));
+        Assert.Contains("not a class name", panel.Fault);
+
+        Assert.True(panel.Edit("api", "PaintCodeResources.VectorIconsResource"));
+        Assert.True(panel.Edit("resizing", "PaintCode.ResizingBehavior"));
+        Assert.True(panel.Edit("order", "accentColorOn level"));
+        Assert.True(panel.Edit("typeface", "Fonts.Get(\"{family}\")"));
+
+        Picker(window, "body").SelectedIndex = 2;
+        Dispatcher.UIThread.RunJobs();
+
+        await Save(window, panel);
+
+        var root = window.Workspace!.Document.Root;
+
+        Assert.Equal("PaintCodeResources.VectorIconsResource", root.Style.Api);
+        Assert.Equal("PaintCode.ResizingBehavior", root.Style.Resizing);
+        Assert.Equal(new[] { "accentColorOn", "level" }, root.Style.Order);
+        Assert.Equal(Svg.CodeGen.Skia.SvgBody.Direct, root.Style.Body);
+        Assert.Contains("api=\"PaintCodeResources.VectorIconsResource\"", File.ReadAllText(path));
+        Assert.Contains("body=\"direct\"", File.ReadAllText(path));
+    }
+
     [AvaloniaFact]
     public async Task A_Property_Is_Labelled_For_A_Person_And_Tipped_With_What_The_File_Says()
     {

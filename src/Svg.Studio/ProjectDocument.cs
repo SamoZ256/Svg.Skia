@@ -864,11 +864,45 @@ public sealed class ProjectRoot : ProjectGroup
         set => Element.SetAttributeValue("skiaSharp", value is { } target ? SkiaSharpText(target) : null);
     }
 
+    /// <summary>The class every drawing is called through PaintCode's way, or null for none.</summary>
+    public string? Api
+    {
+        get => Setting("api");
+        set => Element.SetAttributeValue("api", Trimmed(value));
+    }
+
+    /// <summary>The host's <c>ResizingBehavior</c> enum, which gives the API class its framed overloads.</summary>
+    public string? Resizing
+    {
+        get => Setting("resizing");
+        set => Element.SetAttributeValue("resizing", Trimmed(value));
+    }
+
+    /// <summary>The type of the argument the API class takes ahead of a text drawing's own.</summary>
+    public string? Context
+    {
+        get => Setting("context");
+        set => Element.SetAttributeValue("context", Trimmed(value));
+    }
+
     /// <summary>The positional order of an API method's parameters, as names separated by spaces.</summary>
     public string? Order
     {
         get => Setting("order");
         set => Element.SetAttributeValue("order", Trimmed(value));
+    }
+
+    public SvgBody? Body
+    {
+        get => Setting("body") is { } value ? SvgcProject.ParseBody(value) : null;
+        set => Element.SetAttributeValue("body", value is { } body ? BodyText(body) : null);
+    }
+
+    /// <summary>The C# expression generated code finds its typefaces by, or null for the font manager.</summary>
+    public string? Typeface
+    {
+        get => Setting("typeface");
+        set => Element.SetAttributeValue("typeface", Trimmed(value));
     }
 
     /// <summary>The settings that shape the generated file, as one value.</summary>
@@ -929,6 +963,9 @@ public sealed class ProjectRoot : ProjectGroup
         SvgHelperScope.PerClass => "perClass",
         _ => "file"
     };
+
+    /// <summary>A body as the file spells it.</summary>
+    internal static string BodyText(SvgBody body) => body == SvgBody.Direct ? "direct" : "record";
 
     /// <summary>A SkiaSharp version as the file spells it.</summary>
     internal static string SkiaSharpText(SkiaSharpTarget target) => target == SkiaSharpTarget.V3 ? "3" : "4";
