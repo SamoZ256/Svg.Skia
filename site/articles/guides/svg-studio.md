@@ -37,7 +37,10 @@ that project is one file — the settings, the tree and the drawings themselves.
   same thing until one of them is renamed.
 - Settings are attributes wherever they appear, and a group hands its own down to everything under
   it: `namespace`, `class`, `padding` and the `width`/`height`/`scale` trio, which moves as one. The
-  project also carries `cache`, `helperScope` and `skiaSharp`. Where the C# goes is not among them:
+  project also carries `cache`, `helperScope` and `skiaSharp`, and what shapes the file: `body`,
+  `typeface`, and an API class (`api`, `resizing`, `context`, `order`), with `method` and
+  `parameters` on a drawing (see [shaping the generated file](../packages/svg-codegen-skia#shaping-the-generated-file)).
+  Where the C# goes is not among them:
   an export asks, so nothing in the file can come to disagree with the answer. A project written
   before that carries `output` or `singleFile`; they are dropped as it is read.
 - `x` and `y` say where a row sits on the board of the group holding it — both or neither, and
@@ -270,6 +273,16 @@ is caught in the box, and one written on an attribute the parser lifts nothing o
 rather than written as braces nobody reads. A value the element's `style` attribute sets reads on its
 row as `red in style`, and the row takes nothing: the declaration wins over the attribute, so it is
 changed under **Inline style** instead.
+
+## Code that calls it the way PaintCode's did
+
+The project's Properties set how `Draw` draws (**Draw**: record a picture, or straight onto the
+canvas), the **Typeface** expression, and a **PaintCode-style API** block: the class, the resizing
+enum, the text context type and the argument order. A drawing's Properties add its **API method**
+and **API arguments**. Names are checked as they are typed. A PaintCode import fills in each
+drawing's method and the project's argument order. The API takes effect once its class is named.
+What the class looks like is in
+[a PaintCode-style API](../packages/svg-codegen-skia#a-paintcode-style-api).
 
 ## Boxes for the code that draws it
 
