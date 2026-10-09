@@ -440,4 +440,56 @@ public class SvgcProjectTests
         Assert.Equal("25%", project.Items[0].Padding);
         Assert.Equal("10%", project.Items[1].Padding);
     }
+
+    [Fact]
+    public void The_Settings_That_Shape_The_File_Are_Read()
+    {
+        var project = Parse("""
+            <svgc>
+              <api>PaintCodeResources.VectorIconsResource</api>
+              <resizing>PaintCode.ResizingBehavior</resizing>
+              <context>PaintCode.Context</context>
+              <order>accentColorOn colorPurple
+                state level</order>
+              <body>direct</body>
+              <typeface>Fonts.Get("{family}")</typeface>
+
+              <svg input="tank.svg" method="drawTanklevel" parameters="accentColorOn level angle" />
+              <svg input="home.svg" />
+            </svgc>
+            """);
+
+        Assert.Equal("PaintCodeResources.VectorIconsResource", project.Style.Api);
+        Assert.Equal("PaintCode.ResizingBehavior", project.Style.Resizing);
+        Assert.Equal("PaintCode.Context", project.Style.Context);
+        Assert.Equal(new[] { "accentColorOn", "colorPurple", "state", "level" }, project.Style.Order);
+        Assert.Equal(SvgBody.Direct, project.Style.Body);
+        Assert.Equal("Fonts.Get(\"{family}\")", project.Style.Typeface);
+
+        Assert.Equal("drawTanklevel", project.Items[0].Method);
+        Assert.Equal(new[] { "accentColorOn", "level", "angle" }, project.Items[0].Parameters);
+        Assert.Null(project.Items[1].Method);
+        Assert.Null(project.Items[1].Parameters);
+    }
+
+    [Fact]
+    public void Unshaped_The_File_Is_What_It_Always_Was()
+    {
+        var style = Parse("""<svgc><svg input="home.svg" /></svgc>""").Style;
+
+        Assert.Null(style.Api);
+        Assert.Null(style.Resizing);
+        Assert.Null(style.Context);
+        Assert.Empty(style.Order);
+        Assert.Equal(SvgBody.Record, style.Body);
+        Assert.Null(style.Typeface);
+    }
+
+    [Fact]
+    public void An_Unknown_Body_Is_Rejected()
+    {
+        var error = Assert.Throws<SvgcProjectException>(() => Parse("""<svgc><body>inline</body></svgc>"""));
+
+        Assert.Contains("record or direct", error.Message);
+    }
 }

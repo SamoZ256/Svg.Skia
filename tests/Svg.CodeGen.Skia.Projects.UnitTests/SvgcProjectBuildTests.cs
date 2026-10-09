@@ -293,4 +293,55 @@ public class SvgcProjectBuildTests : IDisposable
 
         public SKPath? GetTextPath(string? text, SKPaint paint, float x, float y) => null;
     }
+
+    private const string Tank = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="30" height="30">
+          <defs><e:code>
+            <e:param name="level" type="number" default="1" />
+            <e:param name="accentColorOn" type="color" default="#f00" />
+          </e:code></defs>
+          <rect x="6" y="6" width="18" height="{{ level * 18 }}" fill="{{ accentColorOn }}" />
+        </svg>
+        """;
+
+    [Fact]
+    public void A_Project_Builds_Its_Api_Into_The_Single_File()
+    {
+        var target = Path("Icons.cs");
+        var project = SvgcProject.Parse($"""
+            <svgc>
+              <namespace>Drawings</namespace>
+              <singleFile>{target}</singleFile>
+              <api>PaintCodeResources.VectorIconsResource</api>
+              <order>accentColorOn level</order>
+              <body>direct</body>
+              <svg input="tank.svg" class="Tank" method="drawTanklevel" />
+            </svgc>
+            """, _directory);
+
+        File.WriteAllText(Path("tank.svg"), Tank);
+
+        SvgcProjectBuild.Run(project, SvgcBuildSettings.For(project), new NoAssets());
+
+        var code = File.ReadAllText(target);
+
+        Assert.Contains("public static void drawTanklevel(SKCanvas canvas, SKColor accentColorOn, float level)", code);
+        Assert.Contains("global::Drawings.Tank.Draw(canvas, level: level, accentColorOn: accentColorOn);", code);
+        Assert.DoesNotContain("DrawPicture", code);
+    }
+
+    [Fact]
+    public void An_Api_Without_A_Single_File_Is_Refused()
+    {
+        var project = new SvgcProject(
+            null, "Demo", null, null, null, null, null, null, null, null, null, null,
+            new[] { new SvgcProjectItem("Badge", Path("Badge.cs"), null, "Badge", null, source: Drawing) })
+        {
+            Style = new SvgCodeStyle { Api = "Icons" }
+        };
+
+        var error = Assert.Throws<SvgcProjectException>(() => SvgcProjectBuild.Run(project, SvgcBuildSettings.For(project), new NoAssets()));
+
+        Assert.Contains("singleFile", error.Message);
+    }
 }

@@ -461,6 +461,18 @@ public sealed class SvgcProjectDrawing : SvgcProjectNode
         set => Element.SetAttributeValue("output", Trimmed(value));
     }
 
+    public string? Method
+    {
+        get => SvgcProjectDocument.Attribute(Element, "method");
+        set => Element.SetAttributeValue("method", Trimmed(value));
+    }
+
+    public string? Parameters
+    {
+        get => SvgcProjectDocument.Attribute(Element, "parameters");
+        set => Element.SetAttributeValue("parameters", Trimmed(value));
+    }
+
     public string ResolvedInput => SvgcProjectDocument.Resolve(Input, BaseDirectory)!;
 
     public string? ResolvedOutput => SvgcProjectDocument.Resolve(Output, BaseDirectory);
@@ -509,6 +521,15 @@ public sealed class SvgcProjectRoot : SvgcProjectGroup
     }
 
     public string? ResolvedSingleFile => SvgcProjectDocument.Resolve(SingleFile, BaseDirectory);
+
+    /// <summary>The settings that shape the generated file, as one value.</summary>
+    public SvgCodeStyle Style => SvgcProject.ParseStyle(
+        GetSetting("api"),
+        GetSetting("resizing"),
+        GetSetting("context"),
+        GetSetting("order"),
+        GetSetting("body"),
+        GetSetting("typeface"));
 
     private static string CacheText(SvgPictureCache cache) => cache switch
     {
@@ -602,12 +623,13 @@ public sealed class SvgcProjectDocument
     private static readonly string[] s_settings =
     {
         "recipe", "namespace", "class", "emit", "cache", "helperScope", "singleFile", "skiaSharp",
-        "width", "height", "scale", "padding"
+        "width", "height", "scale", "padding", "api", "resizing", "context", "order", "body", "typeface"
     };
 
     private static readonly string[] s_itemAttributes =
     {
-        "input", "output", "namespace", "class", "recipe", "width", "height", "scale", "padding"
+        "input", "output", "namespace", "class", "recipe", "width", "height", "scale", "padding",
+        "method", "parameters"
     };
 
     // Everything a drawing can name for itself, less the two that are about one file.
@@ -765,7 +787,11 @@ public sealed class SvgcProjectDocument
                 size?.Width,
                 size?.Height,
                 size?.Scale,
-                drawing.ScopedPadding));
+                drawing.ScopedPadding)
+            {
+                Method = drawing.Method,
+                Parameters = SvgcProject.ParseNames(drawing.Parameters)
+            });
         }
 
         return new SvgcProject(
@@ -781,7 +807,10 @@ public sealed class SvgcProjectDocument
             Root.Height,
             Root.Scale,
             Root.Padding,
-            items);
+            items)
+        {
+            Style = Root.Style
+        };
     }
 
     /// <summary>The document as text, as it would be written.</summary>

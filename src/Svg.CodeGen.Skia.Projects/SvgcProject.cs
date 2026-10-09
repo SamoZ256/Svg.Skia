@@ -81,6 +81,12 @@ public sealed class SvgcProjectItem
     /// that names any of them replaces the project's sizing outright instead of merging with it.
     /// </remarks>
     public bool HasSize => Width is { } || Height is { } || Scale is { };
+
+    /// <summary>Its method on <see cref="SvgCodeStyle.Api"/>, where not <c>draw</c> and the class name.</summary>
+    public string? Method { get; set; }
+
+    /// <summary>The parameters its API method takes, in order, in place of <see cref="SvgCodeStyle.Order"/>.</summary>
+    public IReadOnlyList<string>? Parameters { get; set; }
 }
 
 /// <summary>
@@ -177,6 +183,9 @@ public sealed class SvgcProject
 
     public IReadOnlyList<SvgcProjectItem> Items { get; }
 
+    /// <summary>The shape of the generated file beyond the drawings; nothing a flag overrides.</summary>
+    public SvgCodeStyle Style { get; set; } = SvgCodeStyle.Default;
+
     public static SvgcProject Load(string path) => SvgcProjectDocument.Load(path).Flatten();
 
     /// <summary>
@@ -222,6 +231,31 @@ public sealed class SvgcProject
         "relaxed" => SvgTextLayout.Relaxed,
         _ => throw new SvgcProjectException($"'{value}' is not a text layout. Expected strict, baked or relaxed.")
     };
+
+    public static SvgBody ParseBody(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        null or "" or "record" => SvgBody.Record,
+        "direct" => SvgBody.Direct,
+        _ => throw new SvgcProjectException($"'{value}' is not a body. Expected record or direct.")
+    };
+
+    /// <summary>Names separated by white space, or null when there are none.</summary>
+    public static IReadOnlyList<string>? ParseNames(string? value)
+        => value?.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries) is { Length: > 0 } names ? names : null;
+
+    /// <summary>The settings that shape the file as a project spells them, each null where it is not given.</summary>
+    public static SvgCodeStyle ParseStyle(string? api, string? resizing, string? context, string? order, string? body, string? typeface)
+        => new()
+        {
+            Api = Blank(api),
+            Resizing = Blank(resizing),
+            Context = Blank(context),
+            Order = ParseNames(order) ?? Array.Empty<string>(),
+            Body = ParseBody(body),
+            Typeface = Blank(typeface)
+        };
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value!.Trim();
 
     public static SkiaSharpTarget ParseSkiaSharpTarget(string? value) => value?.Trim() switch
     {
