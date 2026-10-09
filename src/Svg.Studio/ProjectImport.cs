@@ -83,6 +83,9 @@ public static class ProjectImport
 
         document.Root.Namespace = PaintCodeImport.NamespaceOf(source, options);
 
+        // Read only by an API class, which the project does not have until somebody names one.
+        document.Root.Order = string.Join(" ", PaintCodeImport.ParameterOrder(source));
+
         var desks = PaintCodeImport.Desks(source, options, notes);
         var gap = Gap(desks);
         var below = 0f;
@@ -111,6 +114,7 @@ public static class ProjectImport
                 var drawing = group.AddDrawing(canvas.Name, canvas.Document.Root!.ToString(), group.Children.Count);
 
                 drawing.Class = canvas.Class;
+                drawing.Method = canvas.Method;
 
                 if (canvas.Place is { } place && corner is { } from)
                 {

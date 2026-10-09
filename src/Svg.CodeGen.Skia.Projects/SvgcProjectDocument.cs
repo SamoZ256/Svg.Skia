@@ -522,6 +522,13 @@ public sealed class SvgcProjectRoot : SvgcProjectGroup
 
     public string? ResolvedSingleFile => SvgcProjectDocument.Resolve(SingleFile, BaseDirectory);
 
+    /// <summary>The positional order of an API method's parameters, as names separated by spaces.</summary>
+    public string? Order
+    {
+        get => GetSetting("order");
+        set => SetSetting("order", value);
+    }
+
     /// <summary>The settings that shape the generated file, as one value.</summary>
     public SvgCodeStyle Style => SvgcProject.ParseStyle(
         GetSetting("api"),

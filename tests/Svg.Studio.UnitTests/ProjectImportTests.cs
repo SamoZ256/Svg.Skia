@@ -232,6 +232,25 @@ public class ProjectImportTests : IDisposable
     }
 
     /// <summary>
+    /// What PaintCode's own code calls a canvas, and the order it takes arguments in, are kept from
+    /// the import: neither can be read off a drawing afterwards, and an API class needs both.
+    /// </summary>
+    [Fact]
+    public void A_PaintCode_Import_Keeps_How_PaintCode_Called_Its_Drawings()
+    {
+        var source = PaintCodeDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "sample.pcvd"));
+        var project = ProjectImport.FromPaintCode(source, new PaintCodeImportOptions(_directory), new List<PaintCodeImportNote>());
+
+        Assert.Equal(string.Join(" ", PaintCodeImport.ParameterOrder(source)), project.Root.Order);
+        Assert.All(project.Root.Drawings, drawing => Assert.StartsWith("draw", drawing.Method));
+
+        var flattened = project.Flatten();
+
+        Assert.Equal(project.Root.Drawings.Select(drawing => drawing.Method), flattened.Items.Select(item => item.Method));
+        Assert.Null(flattened.Style.Api);
+    }
+
+    /// <summary>
     /// A PaintCode <c>Embed</c> box outlives saving and loading the project, and is what its build
     /// reports: the box the canvas draws nothing into, where the canvas has it.
     /// </summary>
