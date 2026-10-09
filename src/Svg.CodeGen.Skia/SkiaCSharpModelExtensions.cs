@@ -373,9 +373,20 @@ public static class SkiaCSharpModelExtensions
         }
     }
 
-    public static void ToSKTypeface(this SKTypeface? typeface, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+    /// <param name="requested">What the document asked for, which a typeface template names in place of what was found.</param>
+    public static void ToSKTypeface(this SKTypeface? typeface, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, SKTypeface? requested = null)
     {
         var counterTypeface = counter.Typeface;
+
+        // A document naming no family asked for the default one, which is what was found.
+        if (counter.TypefaceTemplate is { } template && (requested?.FamilyName ?? typeface?.FamilyName) is { } family)
+        {
+            var style = requested ?? typeface!;
+            var named = SKTypeface.FromFamilyName(family, style.FontWeight, style.FontWidth, style.FontSlant);
+
+            sb.AppendLine($"{indent}var {counter.TypefaceVarName}{counterTypeface} = {Filled(template, named)};");
+            return;
+        }
 
         if (typeface is null || typeface.FamilyName is null)
         {
@@ -421,6 +432,28 @@ public static class SkiaCSharpModelExtensions
         sb.AppendLine($"{indent}        }}");
         sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
+    }
+
+    /// <summary>A typeface template with what it names of <paramref name="typeface"/> written in.</summary>
+    private static string Filled(string template, SKTypeface typeface)
+    {
+        var family = typeface.FamilyName!.Split(',')[0].Trim().Trim('\'', '"');
+        var weight = typeface.FontWeight switch
+        {
+            SKFontStyleWeight.Normal => "Regular",
+            var named when Enum.IsDefined(typeof(SKFontStyleWeight), named) => named.ToString(),
+            var other => ((int)other).ToString(s_ci)
+        };
+
+        // Most templates put these inside a string literal.
+        static string Escaped(string value) => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
+        return template
+            .Replace("{family}", Escaped(family))
+            .Replace("{family-dashed}", Escaped(family.Replace(' ', '-')))
+            .Replace("{weight}", weight)
+            .Replace("{weightValue}", ((int)typeface.FontWeight).ToString(s_ci))
+            .Replace("{slant}", typeface.FontSlant.ToString());
     }
 
     public static string ToSKColor(this SKColor color)
@@ -1591,7 +1624,7 @@ public static class SkiaCSharpModelExtensions
         if (paint.Typeface is { })
         {
             var counterTypeface = ++counter.Typeface;
-            paint.Typeface?.ToSKTypeface(counter, sb, indent);
+            paint.Typeface?.ToSKTypeface(counter, sb, indent, paint.RequestedTypeface);
             sb.AppendLine($"{indent}if ({counter.TypefaceVarName}{counterTypeface} is null)");
             sb.AppendLine($"{indent}{{");
             sb.AppendLine($"{indent}    {counter.TypefaceVarName}{counterTypeface} = SKTypeface.Default;");
@@ -1616,7 +1649,8 @@ public static class SkiaCSharpModelExtensions
         }
     }
 
-    public static void ToSKFont(this SKFont font, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+    /// <param name="requested">The typeface the paint drawn with it asked for, which a font does not carry.</param>
+    public static void ToSKFont(this SKFont font, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, SKTypeface? requested = null)
     {
         var counterFont = counter.Font;
         var typefaceExpression = "SKTypeface.Default";
@@ -1624,7 +1658,7 @@ public static class SkiaCSharpModelExtensions
         if (font.Typeface is { })
         {
             var counterTypeface = ++counter.Typeface;
-            font.Typeface?.ToSKTypeface(counter, sb, indent);
+            font.Typeface?.ToSKTypeface(counter, sb, indent, requested);
             sb.AppendLine($"{indent}if ({counter.TypefaceVarName}{counterTypeface} is null)");
             sb.AppendLine($"{indent}{{");
             sb.AppendLine($"{indent}    {counter.TypefaceVarName}{counterTypeface} = SKTypeface.Default;");
@@ -2419,7 +2453,7 @@ public static class SkiaCSharpModelExtensions
                             var counterFont = ++counter.Font;
                             if (drawPositionedTextRunCanvasCommand.Font is { } textRunFont)
                             {
-                                textRunFont.ToSKFont(counter, sb, indent);
+                                textRunFont.ToSKFont(counter, sb, indent, drawPositionedTextRunCanvasCommand.Paint.RequestedTypeface);
                             }
                             else
                             {
@@ -2500,7 +2534,7 @@ public static class SkiaCSharpModelExtensions
                             var counterFont = ++counter.Font;
                             if (drawPositionedTextCanvasCommand.TextBlob.Font is { } textBlobFont)
                             {
-                                textBlobFont.ToSKFont(counter, sb, indent);
+                                textBlobFont.ToSKFont(counter, sb, indent, drawPositionedTextCanvasCommand.Paint.RequestedTypeface);
                             }
                             else
                             {
@@ -2561,7 +2595,7 @@ public static class SkiaCSharpModelExtensions
                             var counterFont = ++counter.Font;
                             if (drawTextCanvasCommand.Font is { } textFont)
                             {
-                                textFont.ToSKFont(counter, sb, indent);
+                                textFont.ToSKFont(counter, sb, indent, drawTextCanvasCommand.Paint.RequestedTypeface);
                             }
                             else
                             {
@@ -2616,7 +2650,7 @@ public static class SkiaCSharpModelExtensions
                             var counterFont = ++counter.Font;
                             if (drawTextOnPathCanvasCommand.Font is { } textOnPathFont)
                             {
-                                textOnPathFont.ToSKFont(counter, sb, indent);
+                                textOnPathFont.ToSKFont(counter, sb, indent, drawTextOnPathCanvasCommand.Paint.RequestedTypeface);
                             }
                             else
                             {

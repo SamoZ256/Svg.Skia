@@ -316,4 +316,23 @@ public class SkiaCSharpSingleFileTests
 
         Assert.Contains("no picture to cache", thrown.Message);
     }
+
+    [Fact]
+    public void A_Typeface_Template_Names_What_The_Document_Asked_For()
+    {
+        // Not a font any test machine has, so what was found for it is something else entirely.
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[]
+            {
+                Drawing("Icons", "Label", """
+                    <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30">
+                      <text x="2" y="20" font-family="'SF UI Display', sans-serif" font-weight="500" font-size="10">7</text>
+                    </svg>
+                    """)
+            },
+            style: new SvgCodeStyle { Typeface = "PaintCode.TypefaceManager.GetTypeface(\"{family-dashed}-{weight}.otf\")" });
+
+        Assert.Contains("= PaintCode.TypefaceManager.GetTypeface(\"SF-UI-Display-Medium.otf\");", code);
+        Assert.DoesNotContain("SKFontManager", code);
+    }
 }

@@ -75,6 +75,9 @@ public class SkiaCSharpCodeGenCounter
 
     public string FontStyleSetVarName { get; set; } = "skFontStyleSet";
 
+    /// <summary>A C# expression standing in for every font-manager lookup; see <see cref="SvgCodeStyle.Typeface"/>.</summary>
+    internal string? TypefaceTemplate { get; set; }
+
     /// <summary>Whether the next picture is the drawing itself, drawn onto the canvas it is given.</summary>
     internal bool Direct { get; set; }
 

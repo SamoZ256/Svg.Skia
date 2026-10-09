@@ -1337,6 +1337,34 @@ public class SkiaCSharpRenderTests
         AssertDrawsDirectlyTheSame("Pattern", model, recorded, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
     }
 
+    [Fact]
+    public void A_Typeface_Template_Draws_The_Typeface_It_Names()
+    {
+        const string markup = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 24" width="48" height="24">
+              <text x="4" y="18" font-size="14" fill="#1e40af">Ab7</text>
+            </svg>
+            """;
+
+        var model = Model(markup);
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        Assert.NotNull(runtime);
+
+        // The lookup the generator would otherwise emit, written as a template. Regular weight,
+        // because bold text already misses the runtime's by RMS 0.0056 with no template at all.
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(model, Namespace, "TypefaceTemplate", SvgExpressionDeclarations.Empty) },
+            SvgHelperScope.PerClass,
+            style: new SvgCodeStyle { Typeface = "SKTypeface.FromFamilyName(\"{family}\", {weightValue}, 5, SKFontStyleSlant.{slant})" });
+
+        Assert.Contains("SKTypeface.FromFamilyName(", code);
+
+        var type = Compile(code, "TypefaceTemplate").GetType($"{Namespace}.TypefaceTemplate")!;
+        using var generated = (SKPicture)type.GetMethod("Record", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, null)!;
+
+        AssertSamePicture("TypefaceTemplate", runtime!, generated);
+    }
+
     /// <summary>What a PaintCode host keeps beside the API, which the generated code only names.</summary>
     private const string PaintCodeHost = """
         namespace PaintCode

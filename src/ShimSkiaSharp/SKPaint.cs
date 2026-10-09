@@ -16,6 +16,7 @@ public sealed class SKPaint : ICloneable, IDeepCloneable<SKPaint>
     private float _strokeMiter = 4;
     private bool _isStrokeNonScaling;
     private SKTypeface? _typeface;
+    private SKTypeface? _requestedTypeface;
     private float _textSize = 12;
     private SKTextAlign _textAlign = SKTextAlign.Left;
     private bool _lcdRenderText;
@@ -190,6 +191,25 @@ public sealed class SKPaint : ICloneable, IDeepCloneable<SKPaint>
             }
 
             _typeface = value;
+            _version++;
+        }
+    }
+
+    /// <summary>
+    /// The typeface the document asked for, where <see cref="Typeface"/> is the one found for it.
+    /// Nothing draws it; generated code can name it instead of what this machine happened to have.
+    /// </summary>
+    public SKTypeface? RequestedTypeface
+    {
+        get => _requestedTypeface;
+        set
+        {
+            if (ReferenceEquals(_requestedTypeface, value))
+            {
+                return;
+            }
+
+            _requestedTypeface = value;
             _version++;
         }
     }
@@ -461,6 +481,7 @@ public sealed class SKPaint : ICloneable, IDeepCloneable<SKPaint>
         clone.StrokeMiter = StrokeMiter;
         clone.IsStrokeNonScaling = IsStrokeNonScaling;
         clone.Typeface = Typeface?.DeepClone(context);
+        clone.RequestedTypeface = RequestedTypeface?.DeepClone(context);
         clone.TextSize = TextSize;
         clone.TextAlign = TextAlign;
         clone.LcdRenderText = LcdRenderText;

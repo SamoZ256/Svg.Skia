@@ -85,6 +85,13 @@ public sealed class SvgCodeStyle
     public SvgBody Body { get; init; }
 
     /// <summary>
+    /// A C# expression of type <c>SKTypeface</c> in place of the font-manager lookup, with
+    /// <c>{family}</c>, <c>{family-dashed}</c>, <c>{weight}</c> (Regular, Medium, Bold…),
+    /// <c>{weightValue}</c> and <c>{slant}</c> written in from what the document asked for.
+    /// </summary>
+    public string? Typeface { get; init; }
+
+    /// <summary>
     /// The full name of one class forwarding to every drawing in PaintCode's calling convention,
     /// or null for none.
     /// </summary>
@@ -443,7 +450,7 @@ public static class SkiaCSharpCodeGen
 
         var (compiler, lets) = declarations.Resolve();
 
-        var counter = new SkiaCSharpCodeGenCounter { SkiaSharpTarget = skiaSharp };
+        var counter = new SkiaCSharpCodeGenCounter { SkiaSharpTarget = skiaSharp, TypefaceTemplate = style.Typeface };
         var indent = "            ";
 
         // Record the body first: which helper methods the class needs is decided by what the
