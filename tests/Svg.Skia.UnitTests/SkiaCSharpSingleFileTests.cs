@@ -276,4 +276,44 @@ public class SkiaCSharpSingleFileTests
         Assert.Contains("        private static SKColor SvgHsl", code);
         Assert.DoesNotContain("using static", code);
     }
+
+    [Fact]
+    public void Drawn_Directly_What_No_Argument_Changes_Is_Built_Once()
+    {
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[]
+            {
+                Drawing("Icons", "Tank", """
+                    <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="30" height="30">
+                      <defs><e:code><e:param name="accent" type="color" default="#f00" /></e:code></defs>
+                      <circle cx="15" cy="15" r="13" fill="none" stroke="#1e40af" stroke-width="2" />
+                      <rect x="6" y="6" width="18" height="18" fill="{{ accent }}" />
+                    </svg>
+                    """)
+            },
+            style: new SvgCodeStyle { Body = SvgBody.Direct });
+
+        Assert.Contains("private static readonly SKPath s_skPath0;", code);
+        Assert.Contains("private static readonly SKPaint s_skPaint0;", code);
+        Assert.Contains("var skPaint0 = s_skPaint0;", code);
+        Assert.DoesNotContain("skPaint0?.Dispose();", code);
+        Assert.DoesNotContain("skPath0?.Dispose();", code);
+
+        // The fill follows the argument, so it is built for each draw and let go after it.
+        Assert.DoesNotContain("s_skPaint1", code);
+        Assert.Contains("skPaint1?.Dispose();", code);
+        Assert.Contains("public static void Draw(SKCanvas skCanvas, SKColor? accent = null)", code);
+        Assert.DoesNotContain("DrawPicture", code);
+    }
+
+    [Fact]
+    public void Drawn_Directly_There_Is_No_Picture_To_Cache()
+    {
+        var thrown = Assert.Throws<ExprException>(() => SkiaCSharpCodeGen.GenerateFile(
+            new[] { Tinted("Icons", "Home") },
+            cache: SvgPictureCache.LastValue,
+            style: new SvgCodeStyle { Body = SvgBody.Direct }));
+
+        Assert.Contains("no picture to cache", thrown.Message);
+    }
 }

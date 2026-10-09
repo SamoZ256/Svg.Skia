@@ -167,6 +167,52 @@ public class SkiaCSharpRenderTests
         using var generated = Generated(model, name, skiaSharp, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
 
         AssertSamePicture(name, runtime!, generated);
+        AssertDrawsDirectlyTheSame(name, model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), skiaSharp);
+    }
+
+    /// <summary>
+    /// The same drawing drawn directly: recorded through its Record, and drawn by its Draw onto a
+    /// canvas that already holds a transform of its own, which every matrix it sets is relative to.
+    /// </summary>
+    private static void AssertDrawsDirectlyTheSame(
+        string name,
+        ShimPicture model,
+        SKPicture runtime,
+        SvgExpressionDeclarations declarations,
+        object?[] arguments,
+        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4)
+    {
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(model, Namespace, name, declarations) },
+            SvgHelperScope.PerClass,
+            skiaSharp: skiaSharp,
+            style: new SvgCodeStyle { Body = SvgBody.Direct });
+
+        var type = Compile(code, name).GetType($"{Namespace}.{name}")!;
+
+        using var recorded = (SKPicture)type.GetMethod("Record", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, arguments)!;
+        AssertSamePicture($"{name}-direct", runtime, recorded);
+
+        var cull = runtime.CullRect;
+        var under = new SKRect(0, 0, cull.Width * 1.5f + 6, cull.Height * 1.5f + 10);
+
+        // Against its own recording rather than the runtime's: under a fractional scale those two
+        // already differ along antialiased edges in record mode too (Gradients, RMS 0.0023).
+        using var expected = Transformed(under, canvas => canvas.DrawPicture(recorded));
+        using var actual = Transformed(under, canvas => type.GetMethod("Draw")!.Invoke(null, new object?[] { canvas }.Concat(arguments).ToArray()));
+
+        AssertSamePicture($"{name}-direct-transformed", expected, actual);
+    }
+
+    private static SKPicture Transformed(SKRect cull, Action<SKCanvas> draw)
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(cull);
+        canvas.Translate(6, 10);
+        canvas.Scale(1.5f);
+        draw(canvas);
+
+        return recorder.EndRecording();
     }
 
     /// <summary>
@@ -202,6 +248,7 @@ public class SkiaCSharpRenderTests
             arguments ?? Array.Empty<object?>());
 
         AssertSamePicture(name, runtime!, generated);
+        AssertDrawsDirectlyTheSame(name, model, runtime!, declarations, arguments ?? Array.Empty<object?>());
 
         // The runtime path resolving the same expressions, which the comparison above cannot show
         // because the renderer there draws the placeholder.
@@ -1248,6 +1295,47 @@ public class SkiaCSharpRenderTests
               <path d="M 2 2 H 22 V 22 H 2 Z M 7 7 H 17 V 17 H 7 Z" fill="#1e40af" fill-rule="evenodd" />
             </svg>
             """, SkiaSharpTarget.V3);
+
+    [Fact]
+    public void A_Non_Scaling_Stroke_Under_A_Transform()
+        // The one place a body reads the canvas matrix and resets it, which drawn directly has to
+        // mean the caller's matrix rather than identity.
+        => AssertRendersTheSame("NonScalingStroke", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(2 3) scale(2 1.5)">
+                <path d="M 1 1 L 9 1 L 9 9 Z" fill="none" stroke="#1e40af" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+              </g>
+            </svg>
+            """);
+
+    [Fact]
+    public void Text()
+        => AssertRendersTheSame("Text", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 24" width="48" height="24">
+              <text x="4" y="18" font-size="14" fill="#1e40af">Ab7</text>
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Pattern_Fill_Draws_Directly_As_It_Records()
+    {
+        // A picture inside a paint, which stays recorded however the drawing around it is drawn.
+        // Against the recorded body, because that already differs from the runtime's (RMS 0.0027).
+        var model = Model("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <pattern id="dots" width="6" height="6" patternUnits="userSpaceOnUse">
+                  <circle cx="3" cy="3" r="2" fill="#f97316" />
+                </pattern>
+              </defs>
+              <rect x="2" y="2" width="20" height="20" fill="url(#dots)" />
+            </svg>
+            """);
+
+        using var recorded = Generated(model, "Pattern", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+
+        AssertDrawsDirectlyTheSame("Pattern", model, recorded, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+    }
 
     /// <summary>What a PaintCode host keeps beside the API, which the generated code only names.</summary>
     private const string PaintCodeHost = """

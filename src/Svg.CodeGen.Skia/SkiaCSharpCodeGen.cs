@@ -63,11 +63,26 @@ public enum SvgPictureCache
     LastValueLocked
 }
 
+/// <summary>How a drawing's <c>Draw</c> puts it on the canvas it is given.</summary>
+public enum SvgBody
+{
+    /// <summary>Record a picture of the drawing, then draw that picture.</summary>
+    Record,
+
+    /// <summary>
+    /// Draw onto the canvas itself, from paths and paints built once where nothing the caller
+    /// passes changes them. Nothing is left to cache, so it does not combine with <see cref="SvgPictureCache"/>.
+    /// </summary>
+    Direct
+}
+
 /// <summary>Shapes of the generated file beyond the drawings themselves.</summary>
 /// <remarks>Every member left at its default emits what the generator always has.</remarks>
 public sealed class SvgCodeStyle
 {
     public static SvgCodeStyle Default { get; } = new();
+
+    public SvgBody Body { get; init; }
 
     /// <summary>
     /// The full name of one class forwarding to every drawing in PaintCode's calling convention,
@@ -169,7 +184,7 @@ public static class SkiaCSharpCodeGen
 
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine($"{{");
-        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cache, skiaSharp, frozen, bounds: null).Text);
+        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cache, skiaSharp, frozen, bounds: null, SvgCodeStyle.Default).Text);
         sb.AppendLine($"}}");
 
         return sb.ToString();
@@ -221,7 +236,7 @@ public static class SkiaCSharpCodeGen
 
         var built = drawings.ToDictionary(
             drawing => drawing,
-            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cache, skiaSharp, drawing.Frozen, drawing.Bounds));
+            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cache, skiaSharp, drawing.Frozen, drawing.Bounds, style));
 
         var facade = style.Api is { } api
             ? SkiaCSharpFacade.Build(api, drawings.Select(drawing => (drawing, built[drawing].Parameters, built[drawing].WithDefaults)).ToList(), style)
@@ -411,10 +426,18 @@ public static class SkiaCSharpCodeGen
         SvgPictureCache cache,
         SkiaSharpTarget skiaSharp,
         IReadOnlyList<string>? frozen,
-        IReadOnlyList<(string Name, SKRect Rect)>? bounds)
+        IReadOnlyList<(string Name, SKRect Rect)>? bounds,
+        SvgCodeStyle style)
     {
         declarations ??= SvgExpressionDeclarations.Empty;
         bounds ??= Array.Empty<(string, SKRect)>();
+
+        var direct = style.Body == SvgBody.Direct;
+
+        if (direct && cache != SvgPictureCache.None)
+        {
+            throw new ExprException($"'{className}' is drawn directly, which leaves no picture to cache. Set the cache to none.", 0);
+        }
 
         RefuseBounds(className, bounds);
 
@@ -427,13 +450,23 @@ public static class SkiaCSharpCodeGen
         // expression compiler actually produced.
         var bodyBuilder = new StringBuilder();
         var counterPicture = ++counter.Picture;
+        var statics = direct ? new StringBuilder() : null;
+
+        counter.Direct = direct;
+        counter.Statics = statics;
 
         using (SymCSharpEmitter.UseCompiler(compiler))
         {
             picture.ToSKPicture(counter, bodyBuilder, indent);
         }
 
-        bodyBuilder.AppendLine($"{indent}return {counter.PictureVarName}{counterPicture};");
+        counter.Statics = null;
+
+        if (!direct)
+        {
+            bodyBuilder.AppendLine($"{indent}return {counter.PictureVarName}{counterPicture};");
+        }
+
         var body = bodyBuilder.ToString();
 
         // Everything the class will say, which is what decides who is read. The lets are in it
@@ -508,20 +541,56 @@ public static class SkiaCSharpCodeGen
             sb.AppendLine($"");
         }
 
-        // A picture built from parameters cannot be cached in a static field, so the
-        // parameterless shape is kept exactly as it was for documents without declarations.
+        foreach (var (type, name) in counter.StaticFields)
+        {
+            sb.AppendLine($"        private static readonly {type} s_{name};");
+        }
+
+        if (counter.StaticFields.Count > 0)
+        {
+            sb.AppendLine($"");
+        }
+
         if (!isParameterized)
         {
             sb.AppendLine($"        public static SKPicture Picture {{ get; }}");
             sb.AppendLine($"");
+        }
+
+        // A picture built from parameters cannot be cached in a static field, so the
+        // parameterless shape is kept exactly as it was for documents without declarations.
+        if (!isParameterized || counter.StaticFields.Count > 0)
+        {
             sb.AppendLine($"        static {className}()");
             sb.AppendLine($"        {{");
-            sb.AppendLine($"            Picture = Record();");
+            sb.Append(statics);
+
+            // After the fields, which the drawing it records reads.
+            if (!isParameterized)
+            {
+                sb.AppendLine($"            Picture = Record();");
+            }
+
             sb.AppendLine($"        }}");
             sb.AppendLine($"");
         }
 
-        sb.AppendLine($"        {(isParameterized ? "public" : "private")} static SKPicture Record({parameterList})");
+        if (direct)
+        {
+            sb.AppendLine($"        {(isParameterized ? "public" : "private")} static SKPicture Record({parameterList})");
+            sb.AppendLine($"        {{");
+            sb.AppendLine($"            using var {counter.PictureRecorderVarName} = new SKPictureRecorder();");
+            sb.AppendLine($"            Draw({string.Join(", ", new[] { $"{counter.PictureRecorderVarName}.BeginRecording({picture.CullRect.ToSKRect()})" }.Concat(parameters.Select(p => p.Name)))});");
+            sb.AppendLine($"            return {counter.PictureRecorderVarName}.EndRecording();");
+            sb.AppendLine($"        }}");
+            sb.AppendLine($"");
+            sb.AppendLine($"        public static void Draw({string.Join(", ", new[] { $"SKCanvas {counter.CanvasVarName}" }.Concat(isParameterized ? new[] { parameterList } : Array.Empty<string>()))})");
+        }
+        else
+        {
+            sb.AppendLine($"        {(isParameterized ? "public" : "private")} static SKPicture Record({parameterList})");
+        }
+
         sb.AppendLine($"        {{");
 
         foreach (var (parameter, local, defaultCode, type) in computedDefaults)
@@ -548,10 +617,12 @@ public static class SkiaCSharpCodeGen
         sb.Append(body);
 
         sb.AppendLine($"        }}");
-        sb.AppendLine($"");
 
+        // Drawn directly, Draw is the body above; caching was refused for it.
         if (cached)
         {
+            sb.AppendLine($"");
+
             // Drawing happens every frame and arguments move on a hover or a theme flip. A miss
             // costs one comparison per parameter against the cost of recording.
             sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName}, {parameterList})");
@@ -601,8 +672,10 @@ public static class SkiaCSharpCodeGen
 
             sb.AppendLine($"        }}");
         }
-        else if (isParameterized)
+        else if (isParameterized && !direct)
         {
+            sb.AppendLine($"");
+
             // Built for this call and unable to escape, so Draw disposes it at a known point.
             // Record keeps its own contract: what it returns, the caller owns.
             sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName}, {parameterList})");
@@ -613,8 +686,9 @@ public static class SkiaCSharpCodeGen
             sb.AppendLine($"            }}");
             sb.AppendLine($"        }}");
         }
-        else
+        else if (!direct)
         {
+            sb.AppendLine($"");
             sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName})");
             sb.AppendLine($"        {{");
             sb.AppendLine($"            {counter.CanvasVarName}.DrawPicture(Picture);");
