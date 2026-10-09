@@ -2195,7 +2195,7 @@ public static class SkiaCSharpModelExtensions
                                 sb.AppendLine($"{indent}else");
                                 sb.AppendLine($"{indent}{{");
                                 sb.AppendLine($"{indent}    using var {counter.PathVarName}{counterNonScalingPath} = new SKPath({counter.PathVarName}{counterPath});");
-                                sb.AppendLine($"{indent}    {counter.PathVarName}{counterNonScalingPath}.Transform(matrix{counterNonScalingPath});");
+                                sb.AppendLine($"{indent}    {counter.PathVarName}{counterNonScalingPath}.Transform(in matrix{counterNonScalingPath});");
                                 sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.Save();");
                                 sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.ResetMatrix();");
                                 sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.DrawPath({counter.PathVarName}{counterNonScalingPath}, {counter.PaintVarName}{counterPaint});");
