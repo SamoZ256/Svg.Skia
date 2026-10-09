@@ -1122,4 +1122,15 @@ public class PaintCodeSvgWriterTests
 
         return PaintCodeSvgWriter.Write(canvas, PaintCodeDeclarations.Of(Scope()), PaintCodeSymbols.Of(Scope()), notes);
     }
+
+    [Theory]
+    [InlineData("Regular", null)]
+    [InlineData("Medium", "500")]
+    [InlineData("Bold", "bold")]
+    [InlineData("Semibold", "600")]
+    [InlineData("ExtraBold Italic", "800")]
+    [InlineData("Light", "300")]
+    [InlineData("UltraLight", "200")]
+    public void A_Face_Says_Its_Weight(string face, string? weight)
+        => Assert.Equal(weight, PaintCodeSvgWriter.Weight(face));
 }
