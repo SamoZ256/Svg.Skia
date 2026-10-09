@@ -89,29 +89,7 @@ public class SkiaCSharpRenderTests
             SvgHelperScope.PerClass,
             skiaSharp: skiaSharp);
 
-        var assemblyName = $"{Namespace}.{className}.{++s_generation}";
-
-        var compilation = CSharpCompilation.Create(
-            assemblyName,
-            new[] { CSharpSyntaxTree.ParseText(SourceText.From(code)) },
-            CSharpReferences.All,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
-
-        using var peStream = new MemoryStream();
-        var emitted = compilation.Emit(peStream);
-
-        if (!emitted.Success)
-        {
-            var errors = emitted.Diagnostics
-                .Where(d => d.Severity == DiagnosticSeverity.Error)
-                .Select(d => $"{d.Id}: {d.GetMessage()} — {d.Location.GetLineSpan().StartLinePosition}");
-
-            Assert.Fail($"The generated code did not compile:\n{string.Join("\n", errors)}\n\n{code}");
-        }
-
-        peStream.Seek(0, SeekOrigin.Begin);
-
-        var assembly = new AssemblyLoadContext(assemblyName, isCollectible: false).LoadFromStream(peStream);
+        var assembly = Compile(code, className);
         var type = assembly.GetType($"{Namespace}.{className}");
         Assert.NotNull(type);
 
@@ -129,6 +107,33 @@ public class SkiaCSharpRenderTests
         Assert.NotNull(picture);
 
         return picture!;
+    }
+
+    private static Assembly Compile(string code, string name, params string[] alongside)
+    {
+        var assemblyName = $"{Namespace}.{name}.{++s_generation}";
+
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            new[] { code }.Concat(alongside).Select(text => CSharpSyntaxTree.ParseText(SourceText.From(text))),
+            CSharpReferences.All,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
+
+        using var peStream = new MemoryStream();
+        var emitted = compilation.Emit(peStream);
+
+        if (!emitted.Success)
+        {
+            var errors = emitted.Diagnostics
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .Select(d => $"{d.Id}: {d.GetMessage()} — {d.Location.GetLineSpan().StartLinePosition}");
+
+            Assert.Fail($"The generated code did not compile:\n{string.Join("\n", errors)}\n\n{code}");
+        }
+
+        peStream.Seek(0, SeekOrigin.Begin);
+
+        return new AssemblyLoadContext(assemblyName, isCollectible: false).LoadFromStream(peStream);
     }
 
     private static string Draw(SKPicture picture, string path)
@@ -1243,4 +1248,121 @@ public class SkiaCSharpRenderTests
               <path d="M 2 2 H 22 V 22 H 2 Z M 7 7 H 17 V 17 H 7 Z" fill="#1e40af" fill-rule="evenodd" />
             </svg>
             """, SkiaSharpTarget.V3);
+
+    /// <summary>What a PaintCode host keeps beside the API, which the generated code only names.</summary>
+    private const string PaintCodeHost = """
+        namespace PaintCode
+        {
+            public enum ResizingBehavior { AspectFit, AspectFill, Stretch, Center }
+            public class Context { }
+        }
+        """;
+
+    private const string FacadeTank = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="30" height="30">
+          <defs><e:code>
+            <e:param name="level" type="number" default="1" />
+            <e:param name="state" type="boolean" default="true" />
+            <e:param name="accentColorOn" type="color" default="#f00" />
+          </e:code></defs>
+          <circle cx="15" cy="15" r="13" fill="none" stroke="#1e40af" stroke-width="2" />
+          <rect x="6" y="{{ 24 - level * 18 }}" width="18" height="{{ level * 18 }}" fill="{{ state ? accentColorOn : '#888888' }}" />
+        </svg>
+        """;
+
+    /// <summary>
+    /// The facade drawn into <paramref name="frame"/>: by the plain overload when it is null, by the
+    /// framed one with <c>Stretch</c> otherwise.
+    /// </summary>
+    private static SKPicture DrawnThroughTheApi(SKRect cull, SKRect? frame, object?[] arguments, out SKRect box)
+    {
+        var model = Model(FacadeTank);
+        var drawing = new SkiaCSharpDrawing(
+            model,
+            Namespace,
+            "FacadeTank",
+            SvgExpressionDeclarations.Parse(FacadeTank),
+            bounds: new[] { ("LevelRect", new ShimSkiaSharp.SKRect(6, 6, 24, 24)) })
+        {
+            Method = "drawTanklevel"
+        };
+
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { drawing },
+            style: new SvgCodeStyle
+            {
+                Api = "PaintCodeResources.VectorIconsResource",
+                Resizing = "PaintCode.ResizingBehavior",
+                Order = new[] { "accentColorOn", "state", "level" }
+            });
+
+        var assembly = Compile(code, "Facade", PaintCodeHost);
+        var api = assembly.GetType("PaintCodeResources.VectorIconsResource")!;
+        var stretch = Enum.Parse(assembly.GetType("PaintCode.ResizingBehavior")!, "Stretch");
+
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(cull);
+
+        var method = api.GetMethods().Single(m => m.Name == "drawTanklevel" && m.GetParameters().Length == (frame is null ? 5 : 7));
+        var call = new object?[] { canvas }
+            .Concat(frame is { } target ? new object?[] { target, stretch } : Array.Empty<object?>())
+            .Concat(arguments)
+            .Append(null)
+            .ToArray();
+
+        method.Invoke(null, call);
+        box = (SKRect)call[^1]!;
+
+        return recorder.EndRecording();
+    }
+
+    private static SKPicture RuntimeTank(SKRect cull, float scale, SKColor accent, bool state, float level)
+    {
+        var model = Model(FacadeTank);
+        var declarations = SvgExpressionDeclarations.Parse(FacadeTank);
+        var evaluated = SvgSceneExpressionEvaluator.Evaluate(
+            model,
+            declarations,
+            new Dictionary<string, ExprValue>(StringComparer.Ordinal)
+            {
+                ["accentColorOn"] = ExprValue.Color(accent.Red, accent.Green, accent.Blue, accent.Alpha),
+                ["state"] = ExprValue.Boolean(state),
+                ["level"] = ExprValue.Number(level)
+            });
+
+        using var drawn = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
+        Assert.NotNull(drawn);
+
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(cull);
+        canvas.Scale(scale);
+        canvas.DrawPicture(drawn);
+
+        return recorder.EndRecording();
+    }
+
+    [Fact]
+    public void The_Api_Draws_What_The_Drawing_Draws_From_Positional_Arguments()
+    {
+        var cull = new SKRect(0, 0, 30, 30);
+        var accent = new SKColor(0x22, 0xc5, 0x5e);
+
+        using var runtime = RuntimeTank(cull, 1f, accent, true, 0.4f);
+        using var generated = DrawnThroughTheApi(cull, null, new object?[] { accent, true, 0.4f }, out var box);
+
+        AssertSamePicture("FacadePlain", runtime, generated);
+        Assert.Equal(new SKRect(6, 6, 24, 24), box);
+    }
+
+    [Fact]
+    public void The_Framed_Overload_Stretches_The_Drawing_Into_The_Target()
+    {
+        var cull = new SKRect(0, 0, 60, 60);
+        var accent = new SKColor(0xf9, 0x73, 0x16);
+
+        using var runtime = RuntimeTank(cull, 2f, accent, false, 0.75f);
+        using var generated = DrawnThroughTheApi(cull, cull, new object?[] { accent, false, 0.75f }, out _);
+
+        AssertSamePicture("FacadeFramed", runtime, generated);
+    }
 }

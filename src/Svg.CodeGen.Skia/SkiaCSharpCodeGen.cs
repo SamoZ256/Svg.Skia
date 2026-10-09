@@ -63,6 +63,28 @@ public enum SvgPictureCache
     LastValueLocked
 }
 
+/// <summary>Shapes of the generated file beyond the drawings themselves.</summary>
+/// <remarks>Every member left at its default emits what the generator always has.</remarks>
+public sealed class SvgCodeStyle
+{
+    public static SvgCodeStyle Default { get; } = new();
+
+    /// <summary>
+    /// The full name of one class forwarding to every drawing in PaintCode's calling convention,
+    /// or null for none.
+    /// </summary>
+    public string? Api { get; init; }
+
+    /// <summary>The host's <c>ResizingBehavior</c> enum, which adds a framed overload per drawing.</summary>
+    public string? Resizing { get; init; }
+
+    /// <summary>The type of the argument PaintCode takes ahead of the others where a drawing has text.</summary>
+    public string? Context { get; init; }
+
+    /// <summary>The order <see cref="Api"/> takes parameters in; names not listed follow, as declared.</summary>
+    public IReadOnlyList<string> Order { get; init; } = Array.Empty<string>();
+}
+
 /// <summary>One drawing to be emitted, for <see cref="SkiaCSharpCodeGen.GenerateFile"/>.</summary>
 public sealed class SkiaCSharpDrawing
 {
@@ -105,6 +127,16 @@ public sealed class SkiaCSharpDrawing
     /// constant of the class, in the picture's coordinates.
     /// </summary>
     public IReadOnlyList<(string Name, SKRect Rect)> Bounds { get; }
+
+    /// <summary>Its method on <see cref="SvgCodeStyle.Api"/>; <c>draw</c> and the class name when null.</summary>
+    public string? Method { get; init; }
+
+    /// <summary>
+    /// Every parameter its <see cref="SvgCodeStyle.Api"/> method takes, in order, where
+    /// <see cref="SvgCodeStyle.Order"/> does not give PaintCode's. One the drawing does not declare
+    /// takes its type from another drawing that does, and is accepted and ignored.
+    /// </summary>
+    public IReadOnlyList<string>? Parameters { get; init; }
 }
 
 public static class SkiaCSharpCodeGen
@@ -137,7 +169,7 @@ public static class SkiaCSharpCodeGen
 
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine($"{{");
-        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cache, skiaSharp, frozen, bounds: null));
+        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cache, skiaSharp, frozen, bounds: null).Text);
         sb.AppendLine($"}}");
 
         return sb.ToString();
@@ -156,8 +188,10 @@ public static class SkiaCSharpCodeGen
         SvgHelperScope scope = SvgHelperScope.FileLocal,
         string helperClassName = DefaultHelperClassName,
         SvgPictureCache cache = SvgPictureCache.None,
-        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4)
+        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4,
+        SvgCodeStyle? style = null)
     {
+        style ??= SvgCodeStyle.Default;
         var shared = scope != SvgHelperScope.PerClass;
 
         // Namespaces in first-appearance order, and the classes within each in declared order.
@@ -185,13 +219,17 @@ public static class SkiaCSharpCodeGen
             group.Add(drawing);
         }
 
-        var bodies = drawings.ToDictionary(
+        var built = drawings.ToDictionary(
             drawing => drawing,
             drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cache, skiaSharp, drawing.Frozen, drawing.Bounds));
 
+        var facade = style.Api is { } api
+            ? SkiaCSharpFacade.Build(api, drawings.Select(drawing => (drawing, built[drawing].Parameters, built[drawing].WithDefaults)).ToList(), style)
+            : null;
+
         // Which helpers are needed is decided across every class at once, so each appears once.
         var helpers = shared
-            ? RequiredHelpers(string.Concat(bodies.Values)).ToList()
+            ? RequiredHelpers(string.Concat(built.Values.Select(c => c.Text))).ToList()
             : new List<string[]>();
 
         var sb = new StringBuilder();
@@ -241,10 +279,16 @@ public static class SkiaCSharpCodeGen
                     sb.AppendLine($"");
                 }
 
-                sb.Append(bodies[group[j]]);
+                sb.Append(built[group[j]].Text);
             }
 
             sb.AppendLine($"}}");
+        }
+
+        if (facade is { })
+        {
+            sb.AppendLine($"");
+            sb.Append(facade);
         }
 
         return sb.ToString();
@@ -356,7 +400,10 @@ public static class SkiaCSharpCodeGen
         sb.AppendLine($"");
     }
 
-    private static string BuildClass(
+    /// <summary>A drawing's class, and the signature its <c>Draw</c> ended up with.</summary>
+    private sealed record BuiltClass(string Text, IReadOnlyList<SvgExpressionParameter> Parameters, bool WithDefaults);
+
+    private static BuiltClass BuildClass(
         SKPicture picture,
         string className,
         SvgExpressionDeclarations? declarations,
@@ -590,7 +637,7 @@ public static class SkiaCSharpCodeGen
 
         sb.AppendLine($"    }}");
 
-        return sb.ToString();
+        return new BuiltClass(sb.ToString(), parameters, withDefaults);
     }
 
     // Optional only where the author gave a default: inventing one would put a value in the
