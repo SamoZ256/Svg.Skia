@@ -168,7 +168,7 @@ internal static class SkiaCSharpFacade
 
         var head = new List<string> { "SKCanvas canvas" };
 
-        if (style.Context is { } context && DrawsText(drawing.Picture))
+        if (style.Context is { } context && (drawing.HasText ?? DrawsText(drawing.Picture)))
         {
             head.Add($"{Qualified(context)} context");
         }

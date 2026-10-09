@@ -159,6 +159,12 @@ public sealed class SkiaCSharpDrawing
     /// takes its type from another drawing that does, and is accepted and ignored.
     /// </summary>
     public IReadOnlyList<string>? Parameters { get; init; }
+
+    /// <summary>
+    /// Whether its document holds text, drawn or not, which is what gives a PaintCode method its
+    /// <see cref="SvgCodeStyle.Context"/>. Null judges by whether the picture draws any.
+    /// </summary>
+    public bool? HasText { get; init; }
 }
 
 public static class SkiaCSharpCodeGen

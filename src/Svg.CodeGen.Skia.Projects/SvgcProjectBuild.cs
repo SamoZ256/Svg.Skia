@@ -392,7 +392,11 @@ public static class SvgcProjectBuild
             Bounds(svgDocument, sceneDocument, item.Input, log))
         {
             Method = item.Method,
-            Parameters = item.Parameters
+            Parameters = item.Parameters,
+
+            // Hidden text too: PaintCode gives a canvas holding any its Context, and one whose
+            // letters were drawn as outlines beside a hidden copy still takes it.
+            HasText = svgDocument.Descendants().OfType<SvgTextBase>().Any()
         };
     }
 

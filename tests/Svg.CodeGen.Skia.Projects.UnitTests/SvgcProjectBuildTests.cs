@@ -331,6 +331,24 @@ public class SvgcProjectBuildTests : IDisposable
     }
 
     [Fact]
+    public void Text_Nothing_Draws_Still_Takes_The_Context()
+    {
+        // Letters PaintCode's designer outlined, beside the text they were outlined from, hidden.
+        const string outlined = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30">
+              <text x="2" y="20" font-size="10" display="none">A</text>
+              <path d="M 2 20 L 6 10 L 10 20 Z" />
+            </svg>
+            """;
+
+        var drawing = SvgcProjectBuild.Build(new SvgcProjectItem("A", null, "Demo", "A", null, source: outlined), new SvgcBuildSettings(), new NoAssets())!;
+        var code = SkiaCSharpCodeGen.GenerateFile(new[] { drawing }, style: new SvgCodeStyle { Api = "Api", Context = "PaintCode.Context" });
+
+        Assert.True(drawing.HasText);
+        Assert.Contains("public static void drawA(SKCanvas canvas, global::PaintCode.Context context)", code);
+    }
+
+    [Fact]
     public void An_Api_Without_A_Single_File_Is_Refused()
     {
         var project = new SvgcProject(
