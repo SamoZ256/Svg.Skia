@@ -5715,6 +5715,32 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
+    /// The settings that shape the file are the project's, so the class a PaintCode host calls comes
+    /// out of the same export as everything else.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Exporting_Writes_The_Api_The_Project_Names()
+    {
+        var path = Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons" api="PaintCodeResources.VectorIconsResource" body="direct">
+            {Holding("home", " class=\"Home\" method=\"drawHomestate\"")}
+            </studio>
+            """);
+
+        var window = await Host(path);
+        var target = Path.Combine(_directory, "Icons.cs");
+
+        Assert.True(await window.ExportAsync(target));
+
+        var generated = File.ReadAllText(target);
+
+        Assert.Contains("public static partial class VectorIconsResource", generated);
+        Assert.Contains("public static void drawHomestate(SKCanvas canvas)", generated);
+        Assert.Contains("global::Demo.Icons.Home.Draw(canvas);", generated);
+        Assert.Contains("RestoreToCount", generated);
+    }
+
+    /// <summary>
     /// A project is one build, so every tab is a view of the same thing to export: the drawing in
     /// front used to be all that went, and a group tab could not be exported at all.
     /// </summary>

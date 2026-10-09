@@ -772,6 +772,20 @@ public sealed class ProjectDrawing : ProjectNode
     /// </remarks>
     public string? SetText(string svgText) => Inline(svgText, indent: false);
 
+    /// <summary>Its method on the project's API class, where not <c>draw</c> and its class name.</summary>
+    public string? Method
+    {
+        get => ProjectDocument.Attribute(Element, "method");
+        set => Element.SetAttributeValue("method", Trimmed(value));
+    }
+
+    /// <summary>The parameters its API method takes, in order, as names separated by spaces.</summary>
+    public string? Parameters
+    {
+        get => ProjectDocument.Attribute(Element, "parameters");
+        set => Element.SetAttributeValue("parameters", Trimmed(value));
+    }
+
     /// <summary>Where the drawing was imported from, such as <c>streamline:&lt;hash&gt;</c>, or null.</summary>
     public string? Source
     {
@@ -849,6 +863,22 @@ public sealed class ProjectRoot : ProjectGroup
         get => Setting("skiaSharp") is { } value ? SvgcProject.ParseSkiaSharpTarget(value) : null;
         set => Element.SetAttributeValue("skiaSharp", value is { } target ? SkiaSharpText(target) : null);
     }
+
+    /// <summary>The positional order of an API method's parameters, as names separated by spaces.</summary>
+    public string? Order
+    {
+        get => Setting("order");
+        set => Element.SetAttributeValue("order", Trimmed(value));
+    }
+
+    /// <summary>The settings that shape the generated file, as one value.</summary>
+    public SvgCodeStyle Style => SvgcProject.ParseStyle(
+        Setting("api"),
+        Setting("resizing"),
+        Setting("context"),
+        Setting("order"),
+        Setting("body"),
+        Setting("typeface"));
 
     /// <summary>The project's import templates, or null where it keeps none.</summary>
     /// <remarks>Not one of <see cref="ProjectGroup.Children"/>, for the reason <see cref="ProjectGroup.Code"/> is not.</remarks>
@@ -930,7 +960,7 @@ public sealed class ProjectDocument
     private static readonly string[] s_settings =
     {
         "namespace", "class", "cache", "helperScope", "skiaSharp",
-        "width", "height", "scale", "padding"
+        "width", "height", "scale", "padding", "api", "resizing", "context", "order", "body", "typeface"
     };
 
     /// <summary>Attributes the format used to have, which a file written before this still carries.</summary>
@@ -956,7 +986,7 @@ public sealed class ProjectDocument
 
     // A drawing's alone: where it was imported from is a fact about one drawing's text, and a group
     // has no text of its own to have come from anywhere.
-    private static readonly string[] s_drawingAttributes = s_nodeAttributes.Append("source").ToArray();
+    private static readonly string[] s_drawingAttributes = s_nodeAttributes.Concat(new[] { "source", "method", "parameters" }).ToArray();
 
     private ProjectDocument(SvgSourceDocument source, string? path)
     {
@@ -1066,7 +1096,11 @@ public sealed class ProjectDocument
                 // What it is built from rather than what it is: the groups above it declare into it
                 // on the way, and a build that read the drawing alone would generate a Draw with
                 // none of those parameters on it.
-                ProjectDeclarations.Built(drawing, drawing.Text)));
+                ProjectDeclarations.Built(drawing, drawing.Text))
+            {
+                Method = drawing.Method,
+                Parameters = SvgcProject.ParseNames(drawing.Parameters)
+            });
         }
 
         return new SvgcProject(
@@ -1082,7 +1116,10 @@ public sealed class ProjectDocument
             Root.Height,
             Root.Scale,
             Root.Padding,
-            items);
+            items)
+        {
+            Style = Root.Style
+        };
     }
 
     /// <summary>The document as text, as it would be written.</summary>
