@@ -299,6 +299,39 @@ public class AssistantTests : IDisposable
         Assert.Null(window.Workspace!.Document.Root.Children[1].Scale);
     }
 
+    /// <summary>
+    /// What an export reads is the project's own, set on it and nowhere else; a setting a node does
+    /// not take is refused rather than recorded as a step that changed nothing.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task The_Projects_Export_Settings_Are_Set_On_The_Project()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var root = window.Workspace!.Document.Root;
+
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "cache", ["value"] = "lastValue" }), Say("Cached.")), "cache");
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "api", ["value"] = "Icons.Api" }), Say("Named.")), "api");
+
+        Assert.Equal(Svg.CodeGen.Skia.SvgPictureCache.LastValue, root.Cache);
+        Assert.Equal("Icons.Api", root.Api);
+
+        var steps = window.Workspace!.UndoLabel;
+
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "cache", ["value"] = "always" }), Say("No.")), "bad cache");
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "cache", ["value"] = "none" }), Say("No.")), "group cache");
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "name", ["value"] = "Root" }), Say("No.")), "root name");
+        var method = new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "method", ["value"] = "drawX" }), Say("No."));
+
+        await Send(window, method, "group method");
+
+        // Refused, rather than thrown out of a write that casts the group to a drawing.
+        Assert.Contains("has no setting called 'method'", method.Results.Single(), StringComparison.Ordinal);
+
+        Assert.Equal(Svg.CodeGen.Skia.SvgPictureCache.LastValue, root.Cache);
+        Assert.NotEqual("Root", root.Name);
+        Assert.Equal(steps, window.Workspace!.UndoLabel);
+    }
+
     [AvaloniaFact]
     public async Task The_Panel_Shows_Who_Said_What_In_Bubbles()
     {

@@ -948,7 +948,7 @@ public sealed class ProjectRoot : ProjectGroup
                 "templates",
                 "A project's templates have to be an <e:templates> block.");
 
-    /// <summary>A cache mode as the file spells it, which is also what the Properties pane writes.</summary>
+    /// <summary>A cache mode as the file spells it, which is also what the export's picker writes.</summary>
     internal static string CacheText(SvgPictureCache cache) => cache switch
     {
         SvgPictureCache.LastValue => "lastValue",

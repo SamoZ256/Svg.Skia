@@ -51,7 +51,8 @@ that project is one file — the settings, the tree and the drawings themselves.
   drawings' own bytes. Editing one attribute rewrites that attribute.
 
 `File → Export…` writes the project through the build `svgc` runs, so the two cannot come to
-disagree about what the project says.
+disagree about what the project says. The settings only an export reads (`cache`, `helperScope`,
+`skiaSharp` and the ones shaping the file) are asked for there rather than shown in Properties.
 
 ## Opening one
 
@@ -276,12 +277,14 @@ changed under **Inline style** instead.
 
 ## Code that calls it the way PaintCode's did
 
-The project's Properties set how `Draw` draws (**Draw**: record a picture, or straight onto the
-canvas), the **Typeface** expression, and a **PaintCode-style API** block: the class, the resizing
-enum, the text context type and the argument order. A drawing's Properties add its **API method**
-and **API arguments**. Names are checked as they are typed. A PaintCode import fills in each
-drawing's method and the project's argument order. The API takes effect once its class is named.
-What the class looks like is in
+`File → Export…` asks for the settings only an export reads before it asks where the file goes:
+the picture cache, the helper methods, the SkiaSharp version, how `Draw` draws (record a picture,
+or straight onto the canvas), the **Typeface** expression, and a **PaintCode-style API** block with
+the class, the resizing enum, the text context type and the argument order. The answers are kept in
+the project, where svgc reads them too, so the next export opens on them; changing them is one step
+Undo takes back. A drawing's Properties keep its own **API method** and **API arguments**. A
+PaintCode import fills in each drawing's method and the project's argument order. The API takes
+effect once its class is named. What the class looks like is in
 [a PaintCode-style API](../packages/svg-codegen-skia#a-paintcode-style-api).
 
 ## Boxes for the code that draws it

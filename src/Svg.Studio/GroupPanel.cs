@@ -18,7 +18,6 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using SkiaSharp;
-using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Editor.Skia;
 using Svg.Expressions;
@@ -3803,15 +3802,6 @@ public sealed class GroupPanel : UserControl
         ["name"] = ("Name", null),
         ["namespace"] = ("Namespace", null),
         ["class"] = ("Class name", null),
-        ["cache"] = ("Picture cache", null),
-        ["helperScope"] = ("Helper methods", null),
-        ["skiaSharp"] = ("SkiaSharp version", null),
-        ["body"] = ("Draw", null),
-        ["typeface"] = ("Typeface", "C# expression, e.g. Fonts.Get(\"{family}\", {weightValue})"),
-        ["api"] = ("API class", "e.g. PaintCodeResources.VectorIconsResource"),
-        ["resizing"] = ("Resizing enum", "adds the framed overloads, e.g. PaintCode.ResizingBehavior"),
-        ["context"] = ("Text context type", "taken first by a drawing with text, e.g. PaintCode.Context"),
-        ["order"] = ("Argument order", "parameter names, separated by spaces"),
         ["method"] = ("API method", "draw and the class name"),
         ["parameters"] = ("API arguments", "as the argument order puts them"),
         ["width"] = ("Width", "pixels"),
@@ -3821,40 +3811,6 @@ public sealed class GroupPanel : UserControl
         // No hint: a place inherits from nobody, and anything shown behind the box would read as one.
         ["x"] = ("X", null),
         ["y"] = ("Y", null)
-    };
-
-    /// <summary>
-    /// The settings that take one of a few values: what each option says, what it writes, and why
-    /// somebody would pick it. A null value writes nothing, leaving the build's default.
-    /// </summary>
-    private static readonly Dictionary<string, (string Label, string? Value, string Tip)[]> s_choices = new(StringComparer.Ordinal)
-    {
-        ["cache"] = new (string, string?, string)[]
-        {
-            ("Default (none)", null, "Not written in the project, so a build records a picture on every draw."),
-            ("None: record on every draw", ProjectRoot.CacheText(SvgPictureCache.None), "Draw records a picture per call and disposes it, and stays stateless."),
-            ("Keep the last picture", ProjectRoot.CacheText(SvgPictureCache.LastValue), "Reuses the last picture while the arguments are unchanged. Not safe to draw from several threads."),
-            ("Keep the last picture, locked for threads", ProjectRoot.CacheText(SvgPictureCache.LastValueLocked), "As above, guarded by a lock held across the draw.")
-        },
-        ["helperScope"] = new (string, string?, string)[]
-        {
-            ("Default (one file-local class)", null, "Not written in the project, so a build puts the helpers in one file-local class."),
-            ("One file-local class (C# 11)", ProjectRoot.ScopeText(SvgHelperScope.FileLocal), "A file-scoped class beside the namespaces, invisible outside the file. Needs C# 11."),
-            ("One internal class", ProjectRoot.ScopeText(SvgHelperScope.Internal), "An internal class beside the namespaces, for compilers below C# 11."),
-            ("Inside each class", ProjectRoot.ScopeText(SvgHelperScope.PerClass), "Private members of every class, so each stands alone and repeats them.")
-        },
-        ["skiaSharp"] = new (string, string?, string)[]
-        {
-            ("Default (4.x)", null, "Not written in the project, so a build targets SkiaSharp 4."),
-            ("SkiaSharp 4.x", ProjectRoot.SkiaSharpText(SkiaSharpTarget.V4), "Builds paths through SKPathBuilder, since SKPath's mutating methods are obsolete in 4."),
-            ("SkiaSharp 3.x", ProjectRoot.SkiaSharpText(SkiaSharpTarget.V3), "Builds paths by calling SKPath directly; SKPathBuilder does not exist yet in 3.")
-        },
-        ["body"] = new (string, string?, string)[]
-        {
-            ("Default (record a picture)", null, "Not written in the project, so Draw records a picture and draws it."),
-            ("Record a picture, then draw it", ProjectRoot.BodyText(SvgBody.Record), "Draw records the drawing into a picture and draws that."),
-            ("Straight onto the canvas", ProjectRoot.BodyText(SvgBody.Direct), "Draw draws onto the canvas it is given, from paths and paints built once. Takes no picture cache.")
-        }
     };
 
     private void ShowProperties(ProjectNode node)
@@ -3870,24 +3826,6 @@ public sealed class GroupPanel : UserControl
 
         Add("namespace");
         Add("class");
-
-        if (node is ProjectRoot)
-        {
-            Add("cache");
-            Add("helperScope");
-            Add("skiaSharp");
-            Add("body");
-            Add("typeface");
-
-            // One class calling every drawing the way PaintCode's generated code is called. Nothing
-            // here shapes the file until the class is named.
-            Heading("PaintCode-style API");
-
-            Add("api");
-            Add("resizing");
-            Add("context");
-            Add("order");
-        }
 
         if (node is ProjectDrawing)
         {
@@ -3914,69 +3852,40 @@ public sealed class GroupPanel : UserControl
             Add("y");
         }
 
-        void Heading(string text) => _properties.Children.Add(new TextBlock
-        {
-            Text = text,
-            FontSize = 12,
-            FontWeight = FontWeight.SemiBold,
-            Margin = new Thickness(0, 8, 0, 0)
-        });
+        void Heading(string text) => _properties.Children.Add(GroupPanel.Heading(text));
 
-        void Add(string name) => _properties.Children.Add(
-            s_choices.TryGetValue(name, out var options) ? Choice(node, name, options) : Row(node, name));
+        void Add(string name) => _properties.Children.Add(Row(node, name));
     }
 
     /// <summary>A setting's label, with the attribute the file writes as its tooltip.</summary>
-    private static TextBlock Label(string name)
-    {
-        var label = new TextBlock
-        {
-            Text = s_labels.TryGetValue(name, out var about) ? about.Label : name,
-            Opacity = 0.65,
-            FontSize = 11
-        };
+    private static TextBlock Label(string name) => Caption(s_labels.TryGetValue(name, out var about) ? about.Label : name, name);
 
-        ToolTip.SetTip(label, name);
+    /// <summary>A setting's label, tipped with the attribute the file writes.</summary>
+    internal static TextBlock Caption(string text, string attribute)
+    {
+        var label = new TextBlock { Text = text, Opacity = 0.65, FontSize = 11 };
+
+        ToolTip.SetTip(label, attribute);
 
         return label;
     }
 
-    /// <summary>A setting that takes one of a few values, picked rather than typed.</summary>
-    private Control Choice(ProjectNode node, string name, (string Label, string? Value, string Tip)[] options)
+    internal static TextBlock Heading(string text) => new()
     {
-        var items = options
-            .Select(option =>
-            {
-                var item = new ComboBoxItem { Content = option.Label, Tag = option.Value };
+        Text = text,
+        FontSize = 12,
+        FontWeight = FontWeight.SemiBold,
+        Margin = new Thickness(0, 8, 0, 0)
+    };
 
-                ToolTip.SetTip(item, option.Tip);
-
-                return item;
-            })
-            .ToList();
-
-        var shown = Shown(node, name);
-
-        // Set before the handler is attached, so showing what the file says is not taken for an edit.
-        var picker = new ComboBox
-        {
-            ItemsSource = items,
-            SelectedIndex = Math.Max(0, Array.FindIndex(options, option => option.Value == shown)),
-            FontSize = 12,
-            Tag = name,
-            HorizontalAlignment = HorizontalAlignment.Stretch
-        };
-
-        picker.SelectionChanged += (_, _) =>
-        {
-            if (picker.SelectedItem is ComboBoxItem chosen)
-            {
-                Edit(name, chosen.Tag as string);
-            }
-        };
-
-        return new StackPanel { Spacing = 2, Children = { Label(name), picker } };
-    }
+    /// <summary>Whether <paramref name="node"/> takes <paramref name="name"/>: what its Properties show.</summary>
+    /// <remarks>The project's format refuses a name or a place on <c>&lt;studio&gt;</c>, and a method on anything but a drawing.</remarks>
+    internal static bool Holds(ProjectNode node, string name) => name switch
+    {
+        "name" or "x" or "y" => node is not ProjectRoot,
+        "method" or "parameters" => node is ProjectDrawing,
+        _ => s_labels.ContainsKey(name)
+    };
 
     /// <summary>What the box shows: what was typed here if anything, and what the file says if not.</summary>
     public string? Shown(string name) => Shown(Described, name);
@@ -4022,35 +3931,6 @@ public sealed class GroupPanel : UserControl
                 break;
             case "scale":
                 node.Scale = SvgcProject.ParseScale(value);
-                break;
-            // Nothing is the attribute taken away. The parsers read an empty value as the default, which
-            // wrote the default out instead.
-            case "cache":
-                ((ProjectRoot)node).Cache = value is null ? null : SvgcProject.ParseCache(value);
-                break;
-            case "helperScope":
-                ((ProjectRoot)node).HelperScope = value is null ? null : SvgcProject.ParseHelperScope(value);
-                break;
-            case "skiaSharp":
-                ((ProjectRoot)node).SkiaSharp = value is null ? null : SvgcProject.ParseSkiaSharpTarget(value);
-                break;
-            case "body":
-                ((ProjectRoot)node).Body = value is null ? null : SvgcProject.ParseBody(value);
-                break;
-            case "typeface":
-                ((ProjectRoot)node).Typeface = value;
-                break;
-            case "api":
-                ((ProjectRoot)node).Api = value;
-                break;
-            case "resizing":
-                ((ProjectRoot)node).Resizing = value;
-                break;
-            case "context":
-                ((ProjectRoot)node).Context = value;
-                break;
-            case "order":
-                ((ProjectRoot)node).Order = value;
                 break;
             case "method":
                 ((ProjectDrawing)node).Method = value;
@@ -4227,29 +4107,9 @@ public sealed class GroupPanel : UserControl
             case "y":
                 SvgcProject.ParseLength(value, "position");
                 break;
-            case "cache":
-                SvgcProject.ParseCache(value);
-                break;
-            case "helperScope":
-                SvgcProject.ParseHelperScope(value);
-                break;
-            case "skiaSharp":
-                SvgcProject.ParseSkiaSharpTarget(value);
-                break;
-            case "body":
-                SvgcProject.ParseBody(value);
-                break;
-            case "api":
-                SvgcProject.ParseName(value, "class name", qualified: true);
-                break;
-            case "resizing":
-            case "context":
-                SvgcProject.ParseName(value, "type name", qualified: true);
-                break;
             case "method":
                 SvgcProject.ParseName(value, "method name", qualified: false);
                 break;
-            case "order":
             case "parameters":
                 SvgcProject.ParseNames(value);
                 break;
@@ -4291,18 +4151,6 @@ public sealed class GroupPanel : UserControl
         "width" => node.Width is { } width ? Number(width) : null,
         "height" => node.Height is { } height ? Number(height) : null,
         "scale" => node.Scale is { } scale ? Number(scale) : null,
-        // The project's own three, spelled as the file and the pickers spell them. Left out, they
-        // showed empty however the file was written, and an edit to one could never be recognised
-        // as typed back to what the file says — so it stayed pending for ever.
-        "cache" => (node as ProjectRoot)?.Cache is { } cache ? ProjectRoot.CacheText(cache) : null,
-        "helperScope" => (node as ProjectRoot)?.HelperScope is { } scope ? ProjectRoot.ScopeText(scope) : null,
-        "skiaSharp" => (node as ProjectRoot)?.SkiaSharp is { } target ? ProjectRoot.SkiaSharpText(target) : null,
-        "body" => (node as ProjectRoot)?.Body is { } body ? ProjectRoot.BodyText(body) : null,
-        "typeface" => (node as ProjectRoot)?.Typeface,
-        "api" => (node as ProjectRoot)?.Api,
-        "resizing" => (node as ProjectRoot)?.Resizing,
-        "context" => (node as ProjectRoot)?.Context,
-        "order" => (node as ProjectRoot)?.Order,
         "method" => (node as ProjectDrawing)?.Method,
         "parameters" => (node as ProjectDrawing)?.Parameters,
         _ => null

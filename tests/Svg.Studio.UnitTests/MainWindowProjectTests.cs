@@ -5403,30 +5403,28 @@ public class MainWindowProjectTests : IDisposable
         Write("home.svg", Drawing);
 
         var window = await Host(Write("icons.svgstudio", $"""
-            <studio namespace="Demo.Icons" skiaSharp="3">
+            <studio namespace="Demo.Icons" scale="3">
             {Holding("home", " class=\"Home\"")}
             </studio>
             """));
 
-        // The project's own settings, which are the ones the panel could not read back — so an edit
-        // to one stayed pending after it was saved, leaving the tab unmarked and the close button
-        // still asking about it.
+        // A saved edit has nothing left pending, so the tab is unmarked and closing asks nothing.
         await window.ShowAsync(window.Workspace!.Document.Root);
         Dispatcher.UIThread.RunJobs();
 
         var panel = Panel(window, "Project");
 
-        Assert.Equal("3", panel.Shown("skiaSharp"));
+        Assert.Equal("3", panel.Shown("scale"));
 
-        panel.Edit("skiaSharp", "4");
+        panel.Edit("scale", "4");
         Assert.True(panel.IsModified);
 
         await Save(window, panel);
 
         // Saved, said to be saved, and nothing left behind to be asked about.
         Assert.False(panel.IsModified);
-        Assert.Equal("4", panel.Shown("skiaSharp"));
-        Assert.Contains("skiaSharp=\"4\"", File.ReadAllText(Path.Combine(_directory, "icons.svgstudio")));
+        Assert.Equal("4", panel.Shown("scale"));
+        Assert.Contains("scale=\"4\"", File.ReadAllText(Path.Combine(_directory, "icons.svgstudio")));
 
         var asked = new List<string>();
         window.ConfirmDiscard = message => { asked.Add(message); return Task.FromResult(true); };
@@ -5438,20 +5436,18 @@ public class MainWindowProjectTests : IDisposable
         Assert.Empty(asked);
     }
 
-    private static ComboBox Picker(Window window, string setting)
-        => window.GetVisualDescendants().OfType<ComboBox>().Single(candidate => Equals(candidate.Tag, setting));
-
     /// <summary>
-    /// The project's fixed-choice settings are picked from what they can be, not typed. Each picker
-    /// shows the file's own spelling as the option it is, so a file nobody touched marks nothing.
+    /// What only an export reads is asked for by the export, not shown among the project's
+    /// Properties: the pickers show the file's own spelling as the option it is, and Default is the
+    /// attribute taken away rather than the default written in its place.
     /// </summary>
     [AvaloniaFact]
-    public async Task The_Projects_Fixed_Choices_Are_Picked_From_Their_Options()
+    public async Task The_Export_Asks_For_What_Only_An_Export_Reads()
     {
         Write("home.svg", Drawing);
 
         var path = Write("icons.svgstudio", $"""
-            <studio namespace="Demo.Icons" helperScope="file">
+            <studio namespace="Demo.Icons" helperScope="file" skiaSharp="3">
             {Holding("home", " class=\"Home\"")}
             </studio>
             """);
@@ -5461,85 +5457,90 @@ public class MainWindowProjectTests : IDisposable
         await window.ShowAsync(window.Workspace!.Document.Root);
         Dispatcher.UIThread.RunJobs();
 
-        var panel = (GroupPanel)Tabs(window).Items.OfType<TabItem>().Single(tab => tab.Content is GroupPanel).Content!;
-
         Open(window, window, "Properties");
+
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Control>(), control => control.Tag is "skiaSharp" or "cache" or "api");
+
+        var dialog = new ExportSettings(window.Workspace!.Document.Root);
+        var pickers = dialog.Form.GetLogicalDescendants().OfType<ComboBox>().ToDictionary(picker => (string)picker.Tag!);
 
         // Shown as the option it is. Spelled the way ToString lowercases it, 'filelocal', it was no
         // option at all.
-        Assert.Equal("One file-local class (C# 11)", ((ComboBoxItem)Picker(window, "helperScope").SelectedItem!).Content);
-        Assert.False(panel.IsModified);
-
-        var skiaSharp = Picker(window, "skiaSharp");
-
+        Assert.Equal("One file-local class (C# 11)", ((ComboBoxItem)pickers["helperScope"].SelectedItem!).Content);
         Assert.Equal(
             new object?[] { "Default (4.x)", "SkiaSharp 4.x", "SkiaSharp 3.x" },
-            skiaSharp.Items.OfType<ComboBoxItem>().Select(item => item.Content).ToArray());
-        Assert.Equal(0, skiaSharp.SelectedIndex);
+            pickers["skiaSharp"].Items.OfType<ComboBoxItem>().Select(item => item.Content).ToArray());
+        Assert.Equal("3", dialog.Values["skiaSharp"]);
 
-        skiaSharp.SelectedIndex = 2;
-        Dispatcher.UIThread.RunJobs();
+        dialog.Set("skiaSharp", null);
+        dialog.Set("api", "PaintCodeResources.VectorIconsResource");
+        Assert.True(dialog.Accept());
 
-        Assert.True(panel.IsModified);
+        window.AskExportSettings = _ => Task.FromResult<IReadOnlyDictionary<string, string?>?>(dialog.Values);
 
-        await Save(window, panel);
+        Assert.True(await window.ChooseExportSettingsAsync());
+        Assert.Equal("change export settings", window.Workspace!.UndoLabel);
 
-        Assert.Contains("skiaSharp=\"3\"", File.ReadAllText(path));
+        await window.SaveAsync();
 
-        // Default is the attribute taken away, not 4 written in its place.
-        Picker(window, "skiaSharp").SelectedIndex = 0;
-        Dispatcher.UIThread.RunJobs();
+        var saved = File.ReadAllText(path);
 
-        await Save(window, panel);
+        Assert.DoesNotContain("skiaSharp=", saved);
+        Assert.Contains("helperScope=\"file\"", saved);
+        Assert.Contains("api=\"PaintCodeResources.VectorIconsResource\"", saved);
 
-        Assert.DoesNotContain("skiaSharp=", File.ReadAllText(path));
+        // The same answers again change nothing, and leave nothing to save.
+        Assert.True(await window.ChooseExportSettingsAsync());
+        Assert.False(window.Workspace!.IsEdited);
+
+        // Cancel stops the export.
+        window.AskExportSettings = _ => Task.FromResult<IReadOnlyDictionary<string, string?>?>(null);
+        Assert.False(await window.ChooseExportSettingsAsync());
     }
 
-    /// <summary>
-    /// Everything that shapes the API class is typed into the project's Properties, checked as it is
-    /// typed, and written as the attributes a build reads.
-    /// </summary>
+    /// <summary>What the export dialog cannot write is refused while it is still on screen.</summary>
     [AvaloniaFact]
-    public async Task The_Api_Is_Set_Up_From_The_Projects_Properties()
+    public async Task The_Export_Refuses_What_The_Build_Would()
     {
         Write("home.svg", Drawing);
 
-        var path = Write("icons.svgstudio", $"""
+        var window = await Host(Write("icons.svgstudio", $"""
             <studio namespace="Demo.Icons">
             {Holding("home", " class=\"Home\"")}
             </studio>
-            """);
+            """));
 
-        var window = await Host(path);
+        var dialog = new ExportSettings(window.Workspace!.Document.Root);
 
-        await window.ShowAsync(window.Workspace!.Document.Root);
-        Dispatcher.UIThread.RunJobs();
+        dialog.Set("api", "PaintCode Resources");
+        Assert.False(dialog.Accept());
+        Assert.Contains("not a class name", dialog.Fault);
 
-        var panel = (GroupPanel)Tabs(window).Items.OfType<TabItem>().Single(tab => tab.Content is GroupPanel).Content!;
+        dialog.Set("api", "PaintCodeResources.VectorIconsResource");
+        dialog.Set("body", "direct");
+        dialog.Set("cache", "lastValue");
+        Assert.False(dialog.Accept());
+        Assert.Contains("no picture to cache", dialog.Fault);
 
-        Open(window, window, "Properties");
+        dialog.Set("cache", null);
+        dialog.Set("order", "accentColorOn level");
+        dialog.Set("typeface", "Fonts.Get(\"{family}\")");
+        Assert.True(dialog.Accept());
+        Assert.Null(dialog.Fault);
 
-        Assert.False(panel.Edit("api", "PaintCode Resources"));
-        Assert.Contains("not a class name", panel.Fault);
+        window.AskExportSettings = _ => Task.FromResult<IReadOnlyDictionary<string, string?>?>(dialog.Values);
+        Assert.True(await window.ChooseExportSettingsAsync());
 
-        Assert.True(panel.Edit("api", "PaintCodeResources.VectorIconsResource"));
-        Assert.True(panel.Edit("resizing", "PaintCode.ResizingBehavior"));
-        Assert.True(panel.Edit("order", "accentColorOn level"));
-        Assert.True(panel.Edit("typeface", "Fonts.Get(\"{family}\")"));
+        var style = window.Workspace!.Document.Root.Style;
 
-        Picker(window, "body").SelectedIndex = 2;
-        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("PaintCodeResources.VectorIconsResource", style.Api);
+        Assert.Equal(new[] { "accentColorOn", "level" }, style.Order);
+        Assert.Equal(Svg.CodeGen.Skia.SvgBody.Direct, style.Body);
 
-        await Save(window, panel);
-
-        var root = window.Workspace!.Document.Root;
-
-        Assert.Equal("PaintCodeResources.VectorIconsResource", root.Style.Api);
-        Assert.Equal("PaintCode.ResizingBehavior", root.Style.Resizing);
-        Assert.Equal(new[] { "accentColorOn", "level" }, root.Style.Order);
-        Assert.Equal(Svg.CodeGen.Skia.SvgBody.Direct, root.Style.Body);
-        Assert.Contains("api=\"PaintCodeResources.VectorIconsResource\"", File.ReadAllText(path));
-        Assert.Contains("body=\"direct\"", File.ReadAllText(path));
+        // One step, taken back whole.
+        Assert.True(window.Workspace!.Undo());
+        Assert.Null(window.Workspace!.Document.Root.Style.Api);
+        Assert.Equal(Svg.CodeGen.Skia.SvgBody.Record, window.Workspace!.Document.Root.Style.Body);
     }
 
     [AvaloniaFact]
@@ -5594,7 +5595,7 @@ public class MainWindowProjectTests : IDisposable
         Write("home.svg", Drawing);
 
         var window = await Host(Write("icons.svgstudio", $"""
-            <studio namespace="Demo.Icons" skiaSharp="3">
+            <studio namespace="Demo.Icons" scale="3">
             {Holding("home", " class=\"Home\"")}
             </studio>
             """));
@@ -5606,7 +5607,7 @@ public class MainWindowProjectTests : IDisposable
         var panel = (GroupPanel)item.Content!;
         var marker = (TextBlock)((StackPanel)item.Header!).Children[0];
 
-        panel.Edit("skiaSharp", "4");
+        panel.Edit("scale", "4");
         Dispatcher.UIThread.RunJobs();
 
         // A second setting left in a box with the caret still in it. Saving takes that too, so
@@ -5629,7 +5630,7 @@ public class MainWindowProjectTests : IDisposable
 
         var saved = File.ReadAllText(Path.Combine(_directory, "icons.svgstudio"));
 
-        Assert.Contains("skiaSharp=\"4\"", saved);
+        Assert.Contains("scale=\"4\"", saved);
         Assert.Contains("namespace=\"Typed.Icons\"", saved);
     }
 
