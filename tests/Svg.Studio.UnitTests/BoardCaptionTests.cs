@@ -85,6 +85,11 @@ public class BoardCaptionTests : IDisposable
     {
         var path = Path.Combine(_directory, name);
 
+        if (name.EndsWith(".svgstudio", StringComparison.Ordinal))
+        {
+            return TestPackage.Write(path, text);
+        }
+
         File.WriteAllText(path, text);
 
         return path;
@@ -148,7 +153,7 @@ public class BoardCaptionTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Project));
 
         Assert.Equal(
-            new[] { "home", "badge" },
+            new[] { "badge", "home" },
             Drawn(Board(window)).Select(placed => placed.Label).ToArray());
 
         Assert.True(Toggle(Board(window)).IsChecked);
@@ -181,7 +186,7 @@ public class BoardCaptionTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(
-            new[] { "home", "badge" },
+            new[] { "badge", "home" },
             Drawn(panel).Select(placed => placed.Label).ToArray());
 
         window.Close();

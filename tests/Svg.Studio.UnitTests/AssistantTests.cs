@@ -146,7 +146,7 @@ public class AssistantTests : IDisposable
     {
         var window = await Host(Write("icons.svgstudio", Project));
 
-        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }), Say("Renamed.")), "rename");
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "0", ["setting"] = "name", ["value"] = "Tags" }), Say("Renamed.")), "rename");
 
         Assert.True(window.Workspace!.IsEdited);
         Assert.Contains("unsaved changes", new AssistantTools(window).Context(small: false), StringComparison.Ordinal);
@@ -225,15 +225,15 @@ public class AssistantTests : IDisposable
 
         var chat = new ScriptedChat(
             Call("get_project", new()),
-            Call("set_attributes", new() { ["node"] = "0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#123456" } }, ["summary"] = "darken home" }),
+            Call("set_attributes", new() { ["node"] = "1", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#123456" } }, ["summary"] = "darken home" }),
             Say("Done."));
 
         await Send(window, chat, "darken home");
 
-        Assert.Contains("0 drawing home", chat.Results[0], StringComparison.Ordinal);
-        Assert.Contains("1/0 drawing Filled", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("1 drawing home", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("0/0 drawing Filled", chat.Results[0], StringComparison.Ordinal);
 
-        var home = (ProjectDrawing)workspace.Document.Root.Children[0];
+        var home = (ProjectDrawing)workspace.Document.Root.Children[1];
 
         Assert.Contains("#123456", home.Text, StringComparison.Ordinal);
         Assert.Equal("Assistant: darken home", workspace.UndoLabel);
@@ -246,7 +246,7 @@ public class AssistantTests : IDisposable
     public async Task Keys_Are_The_Files_Even_Where_A_Group_Writes_Declarations_In()
     {
         var window = await Host(Write("icons.svgstudio", Project));
-        var drawing = window.Workspace!.Document.Root.Children[1] is ProjectGroup group ? group.Children[0] : null;
+        var drawing = window.Workspace!.Document.Root.Children[0] is ProjectGroup group ? group.Children[0] : null;
 
         await window.ShowAsync(drawing!);
         Dispatcher.UIThread.RunJobs();
@@ -274,15 +274,15 @@ public class AssistantTests : IDisposable
         var path = Write("icons.svgstudio", Project);
         var window = await Host(path);
 
-        var edit = Call("set_attributes", new() { ["node"] = "0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#123456" } }, ["summary"] = "darken" });
+        var edit = Call("set_attributes", new() { ["node"] = "1", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#123456" } }, ["summary"] = "darken" });
 
         await Send(window, new ScriptedChat(edit, Call("save", new()), Say("Not saved.")), "darken and save", allow: false);
 
-        Assert.DoesNotContain("#123456", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.DoesNotContain("#123456", TestPackage.Read(path), StringComparison.Ordinal);
 
         await Send(window, new ScriptedChat(Call("save", new()), Say("Saved.")), "save", allow: true);
 
-        Assert.Contains("#123456", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("#123456", TestPackage.Read(path), StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -290,8 +290,9 @@ public class AssistantTests : IDisposable
     {
         var window = await Host(Write("icons.svgstudio", Project));
 
-        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }), Say("Renamed.")), "rename Badges");
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "0", ["setting"] = "name", ["value"] = "Tags" }), Say("Renamed.")), "rename Badges");
 
+        // Renamed, it sorts after the drawing, so it is the second row now.
         Assert.Equal("Tags", window.Workspace!.Document.Root.Children[1].Name);
 
         await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "scale", ["value"] = "big" }), Say("No.")), "scale");
@@ -345,15 +346,15 @@ public class AssistantTests : IDisposable
     {
         var window = await Host(Write("declared.svgstudio", Declared));
         var chat = new ScriptedChat(
-            Call("get_drawing", new() { ["node"] = "1/0" }),
-            Call("get_drawing", new() { ["node"] = "0" }),
+            Call("get_drawing", new() { ["node"] = "0/0" }),
+            Call("get_drawing", new() { ["node"] = "1" }),
             Call("get_project", new()),
             Say("Read."));
 
         await Send(window, chat, "what is wrong");
 
         // The group's tint is inherited, so it is neither undeclared nor a problem.
-        Assert.Contains("Inherited from 1: tint", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("Inherited from 0: tint", chat.Results[0], StringComparison.Ordinal);
         Assert.DoesNotContain("Problem:", chat.Results[0], StringComparison.Ordinal);
 
         // The dial's own let and the project's param are one name twice, which its own text never shows.
@@ -361,7 +362,7 @@ public class AssistantTests : IDisposable
         Assert.Contains("'angle' is declared more than once", chat.Results[1], StringComparison.Ordinal);
 
         Assert.Contains("(project) — declares: angle", chat.Results[2], StringComparison.Ordinal);
-        Assert.Contains("1 group Badges — declares: tint", chat.Results[2], StringComparison.Ordinal);
+        Assert.Contains("0 group Badges — declares: tint", chat.Results[2], StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -369,7 +370,7 @@ public class AssistantTests : IDisposable
     {
         var window = await Host(Write("declared.svgstudio", Declared));
 
-        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[1]);
         Dispatcher.UIThread.RunJobs();
 
         Assert.Contains("1 problem(s)", new AssistantTools(window).Context(), StringComparison.Ordinal);
@@ -379,13 +380,13 @@ public class AssistantTests : IDisposable
     public async Task A_Groups_Declarations_Are_Read_And_Replaced_As_One_Step()
     {
         var window = await Host(Write("declared.svgstudio", Declared));
-        var group = (ProjectGroup)window.Workspace!.Document.Root.Children[1];
+        var group = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
         var before = group.CodeText;
         var replaced = before.Replace("</e:code>", "  <e:param name=\"size\" type=\"number\" default=\"24\" />\n            </e:code>", StringComparison.Ordinal);
 
         var chat = new ScriptedChat(
-            Call("get_declarations", new() { ["node"] = "1" }),
-            Call("set_declarations", new() { ["node"] = "1", ["code"] = replaced, ["summary"] = "add size" }),
+            Call("get_declarations", new() { ["node"] = "0" }),
+            Call("set_declarations", new() { ["node"] = "0", ["code"] = replaced, ["summary"] = "add size" }),
             Say("Added."));
 
         await Send(window, chat, "add a size parameter to Badges");
@@ -403,13 +404,13 @@ public class AssistantTests : IDisposable
     public async Task Declarations_That_Are_Not_A_Block_Or_Shadow_The_Project_Are_Refused()
     {
         var window = await Host(Write("declared.svgstudio", Declared));
-        var group = (ProjectGroup)window.Workspace!.Document.Root.Children[1];
+        var group = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
         var before = group.CodeText;
         var shadowing = before.Replace("name=\"tint\" type=\"color\" default=\"#ff0000\"", "name=\"angle\" type=\"number\" default=\"1\"", StringComparison.Ordinal);
 
         var chat = new ScriptedChat(
-            Call("set_declarations", new() { ["node"] = "1", ["code"] = "<g />", ["summary"] = "wrong" }),
-            Call("set_declarations", new() { ["node"] = "1", ["code"] = shadowing, ["summary"] = "shadow" }),
+            Call("set_declarations", new() { ["node"] = "0", ["code"] = "<g />", ["summary"] = "wrong" }),
+            Call("set_declarations", new() { ["node"] = "0", ["code"] = shadowing, ["summary"] = "shadow" }),
             Say("Refused."));
 
         await Send(window, chat, "break it");
@@ -425,8 +426,8 @@ public class AssistantTests : IDisposable
     public async Task Undo_Takes_Back_The_Assistants_Edit_And_Not_The_Front_Tabs()
     {
         var window = await Host(Write("declared.svgstudio", Declared));
-        var dial = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
-        var badge = (ProjectDrawing)((ProjectGroup)window.Workspace.Document.Root.Children[1]).Children[0];
+        var dial = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var badge = (ProjectDrawing)((ProjectGroup)window.Workspace.Document.Root.Children[0]).Children[0];
 
         await window.ShowAsync(dial);
         Dispatcher.UIThread.RunJobs();
@@ -437,7 +438,7 @@ public class AssistantTests : IDisposable
         viewer.SetSource(viewer.Source.Replace("<rect ", "<rect stroke=\"black\" ", StringComparison.Ordinal));
 
         var chat = new ScriptedChat(
-            Call("set_attributes", new() { ["node"] = "1/0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#111111" } }, ["summary"] = "darken" }),
+            Call("set_attributes", new() { ["node"] = "0/0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#111111" } }, ["summary"] = "darken" }),
             Call("undo", new()),
             Say("Undone."));
 
@@ -454,7 +455,7 @@ public class AssistantTests : IDisposable
     {
         var window = await Host(Write("declared.svgstudio", Declared));
         var chat = new ScriptedChat(
-            Call("set_attributes", new() { ["node"] = "1/0", ["key"] = "0", ["attributes"] = new[] { new { name = "opacity", value = "{{ nothing }}" } }, ["summary"] = "break it" }),
+            Call("set_attributes", new() { ["node"] = "0/0", ["key"] = "0", ["attributes"] = new[] { new { name = "opacity", value = "{{ nothing }}" } }, ["summary"] = "break it" }),
             Say("Broken."));
 
         await Send(window, chat, "break the badge");
@@ -470,10 +471,10 @@ public class AssistantTests : IDisposable
     public async Task Text_Between_Tags_Is_Set_And_An_Element_With_Children_Is_Refused()
     {
         var window = await Host(Write("declared.svgstudio", Declared));
-        var dial = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var dial = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
         var chat = new ScriptedChat(
-            Call("set_text", new() { ["node"] = "0", ["key"] = "0/0/0", ["text"] = "90", ["summary"] = "turn it" }),
-            Call("set_text", new() { ["node"] = "0", ["key"] = "0", ["text"] = "x", ["summary"] = "defs" }),
+            Call("set_text", new() { ["node"] = "1", ["key"] = "0/0/0", ["text"] = "90", ["summary"] = "turn it" }),
+            Call("set_text", new() { ["node"] = "1", ["key"] = "0", ["text"] = "x", ["summary"] = "defs" }),
             Say("Done."));
 
         await Send(window, chat, "set the angle to 90");
@@ -490,13 +491,13 @@ public class AssistantTests : IDisposable
         var window = await Host(Write("declared.svgstudio", Declared));
         var chat = new ScriptedChat(
             Call("get_problems", new()),
-            Call("get_element", new() { ["node"] = "1/0", ["key"] = "(root)" }),
+            Call("get_element", new() { ["node"] = "0/0", ["key"] = "(root)" }),
             Say("Read."));
 
         await Send(window, chat, "what is wrong");
 
         // The dial is listed with its clash, said at the tag and not the spliced line; the clean drawing is counted.
-        Assert.Contains("0 Dial:", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("1 Dial:", chat.Results[0], StringComparison.Ordinal);
         Assert.Contains("(at: <e:let name=\"angle\">)", chat.Results[0], StringComparison.Ordinal);
         Assert.Contains("1 drawing(s) with no problems", chat.Results[0], StringComparison.Ordinal);
         Assert.StartsWith("<svg> at (root)", chat.Results[1], StringComparison.Ordinal);
@@ -530,13 +531,13 @@ public class AssistantTests : IDisposable
 
         // An unreadable drawing is said back, not announced; a project never saved is not sent to a
         // picker; a node whose tab holds edits is not sent to a discard prompt.
-        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[1]);
         Dispatcher.UIThread.RunJobs();
         Viewer(window).SetSource(Viewer(window).Source + "<!-- typed -->");
 
         var chat = new ScriptedChat(
-            Call("add_drawing", new() { ["parent"] = "1", ["name"] = "Bad", ["svg"] = "<svg><rect" }),
-            Call("remove", new() { ["node"] = "0" }),
+            Call("add_drawing", new() { ["parent"] = "0", ["name"] = "Bad", ["svg"] = "<svg><rect" }),
+            Call("remove", new() { ["node"] = "1" }),
             Say("Done."));
 
         await Send(window, chat, "add a broken drawing and remove the dial", allow: true);
@@ -595,6 +596,11 @@ public class AssistantTests : IDisposable
     private string Write(string name, string text)
     {
         var path = Path.Combine(_directory, name);
+
+        if (name.EndsWith(".svgstudio", StringComparison.Ordinal))
+        {
+            return TestPackage.Write(path, text);
+        }
 
         File.WriteAllText(path, text);
 

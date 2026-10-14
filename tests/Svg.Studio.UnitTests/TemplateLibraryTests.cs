@@ -471,7 +471,7 @@ public class TemplateLibraryTests : IDisposable
 
     private static (TemplateLibrary Library, ProjectGroup Group) Library(string drawings = "", string templates = Templates)
     {
-        var document = ProjectDocument.Parse($"""
+        var document = TestPackage.Parse($"""
             <?xml version="1.0" encoding="utf-8"?>
             <studio namespace="Demo.Icons">
             {templates}

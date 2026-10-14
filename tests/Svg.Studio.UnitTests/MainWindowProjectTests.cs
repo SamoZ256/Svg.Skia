@@ -71,6 +71,11 @@ public class MainWindowProjectTests : IDisposable
     {
         var path = Path.Combine(_directory, name);
 
+        if (name.EndsWith(".svgstudio", StringComparison.Ordinal))
+        {
+            return TestPackage.Write(path, text);
+        }
+
         File.WriteAllText(path, text);
 
         return path;
@@ -196,15 +201,13 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
-    /// The pane sorts, and the file it sorted is left as it was found.
+    /// Rows go by name, in the pane and in the project alike, and opening one changes no file.
     /// </summary>
     /// <remarks>
-    /// Sorting the rows rather than the document: the order a project is written in is what the
-    /// board lays its drawings out in and what the generated C# follows, and neither should turn
-    /// over because somebody opened the tree.
+    /// A folder keeps no order of its own, so the board and the generated C# follow the names too.
     /// </remarks>
     [AvaloniaFact]
-    public async Task Rows_Are_Shown_By_Name_Whatever_Order_The_File_Is_In()
+    public async Task Rows_Are_Shown_By_Name_Whatever_Order_They_Were_Written_In()
     {
         var text = """
             <studio namespace="Demo.Icons">
@@ -227,12 +230,11 @@ public class MainWindowProjectTests : IDisposable
             new[] { "Project", "apple", "Middle", "Ant", "icon2", "icon10", "zebra" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
-        // The document is untouched, so what is drawn and what is generated go on as they were.
         Assert.Equal(
-            new[] { "zebra", "icon10", "icon2", "Ant", "apple" },
+            new[] { "apple", "Ant", "icon2", "icon10", "zebra" },
             window.Workspace!.Document.Root.Drawings.Select(drawing => drawing.Name).ToArray());
 
-        Assert.Equal(text, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(text), TestPackage.Read(path));
     }
 
     [AvaloniaFact]
@@ -348,17 +350,17 @@ public class MainWindowProjectTests : IDisposable
         var canvas = Canvas(panel);
 
         var was = Area(Drawn(panel)[0]);
-        var xml = window.Workspace!.Document.ToXml();
+        var xml = TestPackage.Dump(window.Workspace!.Document);
 
         Click(window, canvas, Over(canvas, was.Left + 2f, was.Top + 2f));
         Drag(window, canvas, Over(canvas, was.Left, was.MidY), Over(canvas, was.Left - 24f, was.MidY));
 
-        Assert.NotEqual(xml, window.Workspace!.Document.ToXml());
+        Assert.NotEqual(xml, TestPackage.Dump(window.Workspace!.Document));
 
         Assert.True(window.Undo());
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(xml, window.Workspace!.Document.ToXml());
+        Assert.Equal(xml, TestPackage.Dump(window.Workspace!.Document));
         Assert.Equal(was.Left, Area(Drawn(panel)[0]).Left, 1);
         Assert.Equal(was.Right, Area(Drawn(panel)[0]).Right, 1);
 
@@ -717,7 +719,7 @@ public class MainWindowProjectTests : IDisposable
     private static string Board(string extra = "") => $$"""
         <studio namespace="Demo.Icons">
         {{Holding("home", " class=\"Home\" x=\"0\" y=\"0\"")}}
-        {{Holding("badge", " class=\"Badge\" x=\"100\" y=\"0\"")}}
+        {{Holding("ink", " class=\"Badge\" x=\"100\" y=\"0\"")}}
           <group name="Large" namespace="Demo.Icons.Large" scale="2" x="0" y="80">
         {{Holding("large", " class=\"BadgeLarge\" x=\"0\" y=\"0\"")}}
         {{extra}}
@@ -764,12 +766,12 @@ public class MainWindowProjectTests : IDisposable
         // mark for it, and the file is untouched until somebody saves.
         Assert.True(workspace.IsEdited);
         Assert.Equal(0d, Marker((TabItem)Tabs(window).SelectedItem!).Opacity);
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
 
         await window.SaveAsync();
 
-        Assert.Contains("<drawing name=\"home\"", File.ReadAllText(path), StringComparison.Ordinal);
-        Assert.Contains("y=\"", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("<drawing name=\"home\"", TestPackage.Read(path), StringComparison.Ordinal);
+        Assert.Contains("y=\"", TestPackage.Read(path), StringComparison.Ordinal);
         Assert.False(workspace.IsEdited);
     }
 
@@ -1182,7 +1184,7 @@ public class MainWindowProjectTests : IDisposable
         var panel = Panel(window, "Project");
         var canvas = Canvas(panel);
         var board = Drawn(panel).Select(Area).ToList();
-        var was = window.Workspace!.Document.Source.ToText();
+        var was = TestPackage.Dump(window.Workspace!.Document);
 
         Arm(window, panel, PhysicalKey.R);
 
@@ -1190,7 +1192,7 @@ public class MainWindowProjectTests : IDisposable
 
         Drag(window, canvas, off, new Point(off.X + 30, off.Y + 30));
 
-        Assert.Equal(was, window.Workspace.Document.Source.ToText());
+        Assert.Equal(was, TestPackage.Dump(window.Workspace.Document));
 
         // Said, since the tool took the press and wrote nothing with it.
         Assert.Equal("Press on a drawing to draw into it.", panel.Notice);
@@ -1258,7 +1260,7 @@ public class MainWindowProjectTests : IDisposable
               <path d="M4 4 L20 4 L20 20" fill="none" stroke="#000000" stroke-width="2" />
             </svg>
           </drawing>
-          <drawing name="badge" class="Badge" x="100" y="0">
+          <drawing name="ink" class="Badge" x="100" y="0">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
               <path d="M4 4 L20 4 L20 20" fill="none" stroke="#000000" stroke-width="2" />
             </svg>
@@ -1391,7 +1393,7 @@ public class MainWindowProjectTests : IDisposable
           <drawing name="home" class="Home" x="0" y="0">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" />
           </drawing>
-          <drawing name="badge" class="Badge" x="100" y="0">
+          <drawing name="ink" class="Badge" x="100" y="0">
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" width="24" height="24">
               {content}
             </svg>
@@ -1887,20 +1889,20 @@ public class MainWindowProjectTests : IDisposable
         var framed = Assert.Single(Canvas(panel).Frames);
         var group = (ProjectGroup)window.Workspace!.Document.Root.Children[2];
 
-        var was = window.Workspace!.Document.ToXml();
+        var was = TestPackage.Dump(window.Workspace!.Document);
 
         var title = new SKPoint(canvas.TitleOf(framed).MidX, canvas.TitleOf(framed).MidY);
 
         Drag(window, canvas, Over(canvas, title.X, title.Y), Over(canvas, title.X + 30f, title.Y));
 
         Assert.Equal(30f, group.X!.Value, 1);
-        Assert.NotEqual(was, window.Workspace!.Document.ToXml());
+        Assert.NotEqual(was, TestPackage.Dump(window.Workspace!.Document));
 
         Assert.True(window.Undo());
         Dispatcher.UIThread.RunJobs();
 
         // Every place is back, not only the one that was dragged.
-        Assert.Equal(was, window.Workspace!.Document.ToXml());
+        Assert.Equal(was, TestPackage.Dump(window.Workspace!.Document));
 
         // And forward again.
         Assert.True(window.Redo());
@@ -1944,7 +1946,7 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(path);
 
         var root = window.Workspace!.Document.Root;
-        var was = window.Workspace.Document.ToXml();
+        var was = TestPackage.Dump(window.Workspace.Document);
 
         switch (gesture)
         {
@@ -1953,7 +1955,7 @@ public class MainWindowProjectTests : IDisposable
                 break;
 
             case "add a drawing":
-                await window.AddDrawingsAsync(root, root.Children.Count, new[] { Write("extra.svg", Drawing) });
+                await window.AddDrawingsAsync(root, new[] { Write("extra.svg", Drawing) });
                 break;
 
             case "paste a copy":
@@ -1975,22 +1977,22 @@ public class MainWindowProjectTests : IDisposable
 
         Dispatcher.UIThread.RunJobs();
 
-        Assert.NotEqual(was, window.Workspace.Document.ToXml());
+        Assert.NotEqual(was, TestPackage.Dump(window.Workspace.Document));
         Assert.True(window.Workspace.CanUndo);
 
         Assert.True(window.Undo());
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(was, window.Workspace.Document.ToXml());
+        Assert.Equal(was, TestPackage.Dump(window.Workspace.Document));
 
         // And forward again, so it is a step rather than a thing that only goes one way.
         Assert.True(window.Redo());
         Dispatcher.UIThread.RunJobs();
 
-        Assert.NotEqual(was, window.Workspace.Document.ToXml());
+        Assert.NotEqual(was, TestPackage.Dump(window.Workspace.Document));
 
         // Nothing reached the file either way: an undo is an edit to the project like any other.
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
     }
 
     /// <summary>
@@ -2144,12 +2146,12 @@ public class MainWindowProjectTests : IDisposable
         Tree(window).RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Delete });
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(new[] { "three", "Box" }, window.Workspace!.Document.Root.Children.Select(node => node.Name).ToArray());
+        Assert.Equal(new[] { "Box", "three" }, window.Workspace!.Document.Root.Children.Select(node => node.Name).ToArray());
 
         Assert.True(window.Undo());
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(new[] { "one", "two", "three", "Box" }, window.Workspace.Document.Root.Children.Select(node => node.Name).ToArray());
+        Assert.Equal(new[] { "Box", "one", "three", "two" }, window.Workspace.Document.Root.Children.Select(node => node.Name).ToArray());
     }
 
     [AvaloniaFact]
@@ -2191,17 +2193,17 @@ public class MainWindowProjectTests : IDisposable
         var root = window.Workspace!.Document.Root;
         var box = (ProjectGroup)root.Children.Single(node => node.Name == "Box");
 
-        Assert.True(window.Move(new[] { root.Children[0], root.Children[2] }, box));
+        Assert.True(window.Move(new[] { root.Children.Single(node => node.Name == "one"), root.Children.Single(node => node.Name == "three") }, box));
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new[] { "one", "three" }, box.Children.Select(node => node.Name).ToArray());
-        Assert.Equal(new[] { "two", "Box" }, root.Children.Select(node => node.Name).ToArray());
+        Assert.Equal(new[] { "Box", "two" }, root.Children.Select(node => node.Name).ToArray());
 
         Assert.True(window.Undo());
         Dispatcher.UIThread.RunJobs();
 
         Assert.Empty(box.Children);
-        Assert.Equal(new[] { "one", "two", "three", "Box" }, root.Children.Select(node => node.Name).ToArray());
+        Assert.Equal(new[] { "Box", "one", "three", "two" }, root.Children.Select(node => node.Name).ToArray());
     }
 
     /// <summary>The menu says what it would take back, and stops offering what it cannot.</summary>
@@ -2238,7 +2240,7 @@ public class MainWindowProjectTests : IDisposable
         var panel = Panel(window, "Project");
         var canvas = Canvas(panel);
 
-        var blank = (ProjectDrawing)((ProjectGroup)window.Workspace!.Document.Root.Children[2]).Children[1];
+        var blank = window.Workspace!.Document.Root.Drawings.Single(drawing => drawing.Name == "blank");
         var area = Area(Shown(panel, blank));
 
         // Inside its page and clear of the small shape drawn in its corner.
@@ -2268,7 +2270,7 @@ public class MainWindowProjectTests : IDisposable
         var panel = Panel(window, "Project");
         var canvas = Canvas(panel);
 
-        var blank = (ProjectDrawing)((ProjectGroup)window.Workspace!.Document.Root.Children[2]).Children[1];
+        var blank = window.Workspace!.Document.Root.Drawings.Single(drawing => drawing.Name == "blank");
         var area = Area(Shown(panel, blank));
 
         Click(window, canvas, Over(canvas, area.Right - 2f, area.Bottom - 2f));
@@ -2318,7 +2320,7 @@ public class MainWindowProjectTests : IDisposable
         var panel = Panel(window, "Project");
         var canvas = Canvas(panel);
 
-        var blank = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+        var blank = window.Workspace!.Document.Root.Drawings.Single(drawing => drawing.Name == "blank");
         var area = Area(Shown(panel, blank));
 
         Assert.Equal(60f, blank.EffectiveWidth);
@@ -2903,7 +2905,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(await window.ExportAsync(Path.Combine(_directory, "Icons.cs")));
 
         // An export is a copy, not a move: it writes the file it was given and nothing else.
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
     }
 
     [AvaloniaFact]
@@ -2963,13 +2965,13 @@ public class MainWindowProjectTests : IDisposable
 
         // One per gesture, whatever each of them touched, and the file exactly as it was found.
         Assert.Equal(3, workspace.Edits);
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
 
         await window.SaveAsync();
 
         Assert.False(workspace.IsEdited);
-        Assert.Equal(workspace.Document.ToXml(), File.ReadAllText(path));
-        Assert.Contains("<drawing name=\"extra\">", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Equal(TestPackage.Dump(workspace.Document), TestPackage.Read(path));
+        Assert.Contains("<drawing name=\"extra\">", TestPackage.Read(path), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -3083,7 +3085,7 @@ public class MainWindowProjectTests : IDisposable
 
         await Save(window, panel);
 
-        var saved = File.ReadAllText(Path.Combine(_directory, "icons.svgstudio"));
+        var saved = TestPackage.Read(Path.Combine(_directory, "icons.svgstudio"));
 
         Assert.Contains("scale=\"4\"", saved, StringComparison.Ordinal);
         Assert.Contains("    <drawing name=\"home\" class=\"Home\">", saved, StringComparison.Ordinal);
@@ -3114,7 +3116,7 @@ public class MainWindowProjectTests : IDisposable
         await window.SaveAsync();
 
         Assert.False(window.Workspace.IsEdited);
-        Assert.Contains("    <drawing name=\"home\" class=\"Home\">", File.ReadAllText(Path.Combine(_directory, "icons.svgstudio")), StringComparison.Ordinal);
+        Assert.Contains("    <drawing name=\"home\" class=\"Home\">", TestPackage.Read(Path.Combine(_directory, "icons.svgstudio")), StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -3137,7 +3139,8 @@ public class MainWindowProjectTests : IDisposable
 
         Dispatcher.UIThread.RunJobs();
 
-        File.SetAttributes(path, FileAttributes.ReadOnly);
+        // A folder where the save writes the moved drawing first, which no file system lets it write over.
+        var blocked = Directory.CreateDirectory(Path.Combine(path, "Large", "home.svg.~tmp"));
 
         try
         {
@@ -3145,7 +3148,7 @@ public class MainWindowProjectTests : IDisposable
         }
         finally
         {
-            File.SetAttributes(path, FileAttributes.Normal);
+            blocked.Delete();
         }
 
         // Said, and still unsaved: a project that reported itself written when the write threw
@@ -3153,7 +3156,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal("The project couldn't be saved", Assert.Single(said));
         Assert.True(window.Workspace.IsEdited);
         Assert.StartsWith("• ", window.Title, StringComparison.Ordinal);
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
     }
 
     /// <summary>
@@ -3200,13 +3203,13 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("nothing is named yet", Assert.Single(said), StringComparison.Ordinal);
         Assert.True(window.Workspace.IsEdited);
         Assert.Null(window.Workspace.Document.Path);
-        Assert.False(File.Exists(target));
+        Assert.False(Directory.Exists(target));
 
         await window.SaveAsync();
 
         // Asked where, with the old project's name offered.
         Assert.Equal("icons.svgstudio", offered);
-        Assert.True(File.Exists(target));
+        Assert.True(ProjectPackage.Exists(target));
         Assert.Equal("badge", Assert.Single(ProjectDocument.Load(target).Root.Drawings).Name);
         Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "badge.svg")));
     }
@@ -3269,7 +3272,11 @@ public class MainWindowProjectTests : IDisposable
             return Task.CompletedTask;
         };
 
-        await window.OpenAsync(new[] { Write("broken.svgstudio", "<studio><drawing /></studio>") });
+        // Written by hand, since nothing that writes a project would write this one.
+        var broken = Directory.CreateDirectory(Path.Combine(_directory, "broken.svgstudio")).FullName;
+        File.WriteAllText(Path.Combine(broken, ProjectPackage.Manifest), "<studio><drawing /></studio>");
+
+        await window.OpenAsync(new[] { broken });
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal("The project couldn't be opened", Assert.Single(said));
@@ -3442,7 +3449,7 @@ public class MainWindowProjectTests : IDisposable
             .ToDictionary(group => group.Name, group => (group.X, group.Y));
 
         var moved = workspace.Document.Root.Drawings.Single(drawing => drawing.Name == "one");
-        var area = Area(Drawn(panel).First());
+        var area = Area(Shown(panel, moved));
 
         Drag(window, canvas, Edge(canvas, area), Edge(canvas, area, 40f));
         Dispatcher.UIThread.RunJobs();
@@ -4274,7 +4281,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(panel.CommitDefaults());
         Dispatcher.UIThread.RunJobs();
 
-        var xml = window.Workspace!.Document.ToXml();
+        var xml = TestPackage.Dump(window.Workspace!.Document);
 
         Assert.Contains("default=\"7\"", xml, StringComparison.Ordinal);
 
@@ -4297,20 +4304,20 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(await panel.AddParameterAsync());
         Dispatcher.UIThread.RunJobs();
 
-        var xml = window.Workspace!.Document.ToXml();
+        var xml = TestPackage.Dump(window.Workspace!.Document);
 
         Assert.Contains("sweep", xml, StringComparison.Ordinal);
 
         // In the group's block, above the drawings, and not in any of them.
         Assert.True(xml.IndexOf("sweep", StringComparison.Ordinal) < xml.IndexOf("<drawing", StringComparison.Ordinal));
-        Assert.DoesNotContain("sweep", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.DoesNotContain("sweep", TestPackage.Read(path), StringComparison.Ordinal);
 
         // No tab is holding the group's block, so the project is what says it is unsaved.
         Assert.True(window.Workspace.IsEdited);
 
         await window.SaveAsync();
 
-        Assert.Contains("sweep", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("sweep", TestPackage.Read(path), StringComparison.Ordinal);
 
         // And it is on the panel, as the group's own row rather than an inherited one.
         Assert.Contains(Declarations(panel).Parameters!, row => row.Name == "sweep" && row.OwnerLabel == "Own");
@@ -4725,7 +4732,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(await panel.AddParameterAsync());
         Dispatcher.UIThread.RunJobs();
 
-        Assert.DoesNotContain("sweep", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.DoesNotContain("sweep", TestPackage.Dump(window.Workspace!.Document), StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -4752,7 +4759,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(await panel.AddParameterAsync());
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("sweep", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.Contains("sweep", TestPackage.Dump(window.Workspace!.Document), StringComparison.Ordinal);
         Assert.DoesNotContain("sweep", viewer.Source, StringComparison.Ordinal);
         Assert.False(viewer.IsSourceModified);
     }
@@ -4784,7 +4791,7 @@ public class MainWindowProjectTests : IDisposable
         // the name appears once — could not have answered.
         Assert.False(viewer.RemoveParameter(row));
 
-        Assert.Contains("tint", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.Contains("tint", TestPackage.Dump(window.Workspace!.Document), StringComparison.Ordinal);
         Assert.DoesNotContain("e:param", viewer.Source, StringComparison.Ordinal);
     }
 
@@ -4825,7 +4832,7 @@ public class MainWindowProjectTests : IDisposable
 
         // Into the drawing, which is where an element's attribute lives — and so into the project,
         // which is where the drawing lives.
-        Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(path));
+        Assert.Contains("fill=\"{{ tint }}\"", TestPackage.Read(path));
     }
 
     /// <summary>
@@ -4866,7 +4873,7 @@ public class MainWindowProjectTests : IDisposable
 
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("fill=\"{{ tint }}\"", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("fill=\"{{ tint }}\"", TestPackage.Read(path), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -4908,7 +4915,7 @@ public class MainWindowProjectTests : IDisposable
         window.MouseUp(at, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("fill=\"#0000ff\"", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.Contains("fill=\"#0000ff\"", TestPackage.Dump(window.Workspace!.Document), StringComparison.Ordinal);
         Assert.Same(element, Element(panel));
         Assert.True(swatch.Flyout!.IsOpen);
 
@@ -4939,7 +4946,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(element.Set("opacity", "0.5"));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("opacity=\"0.5\"", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.Contains("opacity=\"0.5\"", TestPackage.Dump(window.Workspace!.Document), StringComparison.Ordinal);
         Assert.Same(element, Element(panel));
         Assert.Equal(before, scroll.Offset.Y);
     }
@@ -4984,7 +4991,7 @@ public class MainWindowProjectTests : IDisposable
         await window.SaveAsync();
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("<text x=\"2\" y=\"16\">{{ label }}</text>", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("<text x=\"2\" y=\"16\">{{ label }}</text>", TestPackage.Read(path), StringComparison.Ordinal);
     }
 
     private sealed class StubParameterDialogService : ISvgViewerParameterDialogService
@@ -5212,11 +5219,13 @@ public class MainWindowProjectTests : IDisposable
         workspace.Edit();
         workspace.Save();
 
-        // Saved as XML, with the comment and the layout the author wrote still there.
-        var saved = File.ReadAllText(path);
-        Assert.Contains("scale=\"4\"", saved);
-        Assert.Contains("<!-- kept, so an edit is proven not to reformat the file -->", saved);
-        Assert.Equal(Project.Replace("scale=\"2\"", "scale=\"4\""), saved);
+        // Saved into the group's own file, and nothing else written differently.
+        var saved = ProjectPackage.Read(path);
+        var was = TestPackage.From(Project);
+
+        Assert.Equal(was.Keys.Order(StringComparer.Ordinal), saved.Keys.Order(StringComparer.Ordinal));
+        Assert.All(was.Where(file => file.Key != "Large/group.xml"), file => Assert.Equal(file.Value, saved[file.Key]));
+        Assert.Equal(was["Large/group.xml"].Replace("scale=\"2\"", "scale=\"4\"", StringComparison.Ordinal), saved["Large/group.xml"]);
 
         // And the project still describes the same build to the generator.
         Assert.Equal(4f, window.Workspace!.Document.Flatten().Items[1].Scale);
@@ -5265,13 +5274,13 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(large.IsModified);
         Assert.True(small.IsModified);
 
-        var saved = File.ReadAllText(path);
+        var saved = TestPackage.Read(path);
         Assert.Contains("scale=\"4\"", saved);
         Assert.Contains("scale=\"0.5\"", saved);
         Assert.DoesNotContain("scale=\"8\"", saved);
 
         await Save(window, small);
-        Assert.Contains("scale=\"8\"", File.ReadAllText(path));
+        Assert.Contains("scale=\"8\"", TestPackage.Read(path));
     }
 
     [AvaloniaFact]
@@ -5426,7 +5435,7 @@ public class MainWindowProjectTests : IDisposable
         // Saved, said to be saved, and nothing left behind to be asked about.
         Assert.False(panel.IsModified);
         Assert.Equal("4", panel.Shown("skiaSharp"));
-        Assert.Contains("skiaSharp=\"4\"", File.ReadAllText(Path.Combine(_directory, "icons.svgstudio")));
+        Assert.Contains("skiaSharp=\"4\"", TestPackage.Read(Path.Combine(_directory, "icons.svgstudio")));
 
         var asked = new List<string>();
         window.ConfirmDiscard = message => { asked.Add(message); return Task.FromResult(true); };
@@ -5484,7 +5493,7 @@ public class MainWindowProjectTests : IDisposable
 
         await Save(window, panel);
 
-        Assert.Contains("skiaSharp=\"3\"", File.ReadAllText(path));
+        Assert.Contains("skiaSharp=\"3\"", TestPackage.Read(path));
 
         // Default is the attribute taken away, not 4 written in its place.
         Picker(window, "skiaSharp").SelectedIndex = 0;
@@ -5492,7 +5501,7 @@ public class MainWindowProjectTests : IDisposable
 
         await Save(window, panel);
 
-        Assert.DoesNotContain("skiaSharp=", File.ReadAllText(path));
+        Assert.DoesNotContain("skiaSharp=", TestPackage.Read(path));
     }
 
     [AvaloniaFact]
@@ -5580,7 +5589,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(panel.IsModified);
         Assert.Equal(0d, marker.Opacity);
 
-        var saved = File.ReadAllText(Path.Combine(_directory, "icons.svgstudio"));
+        var saved = TestPackage.Read(Path.Combine(_directory, "icons.svgstudio"));
 
         Assert.Contains("skiaSharp=\"4\"", saved);
         Assert.Contains("namespace=\"Typed.Icons\"", saved);
@@ -5656,7 +5665,7 @@ public class MainWindowProjectTests : IDisposable
         await Save(window, panel);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("scale=\"6\"", File.ReadAllText(path));
+        Assert.Contains("scale=\"6\"", TestPackage.Read(path));
         Assert.False(panel.IsModified);
 
         // And the caret is still in the box it was in, not thrown out by the rows being rebuilt.
@@ -5839,19 +5848,19 @@ public class MainWindowProjectTests : IDisposable
             new[] { "Project", "extra", "home", "Large", "badge" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
-        // The drawing itself, on lines of its own rather than sharing the closing tag's — and the
-        // rest of the project exactly as it was. What the project holds, not what is on disk: an
-        // add is an edit like any other and waits to be saved.
-        var written = window.Workspace!.Document.ToXml();
+        // The drawing itself, a file of its own as it was added — and the rest of the project
+        // exactly as it was. What the project holds, not what is on disk: an add is an edit like
+        // any other and waits to be saved.
+        var files = window.Workspace!.Document.Files();
+        var written = TestPackage.Dump(window.Workspace!.Document);
 
-        Assert.Contains("\n  <drawing name=\"extra\">\n    <svg", written, StringComparison.Ordinal);
-        Assert.Contains("<rect width=\"24\" height=\"24\" fill=\"#00ff00\" />", written, StringComparison.Ordinal);
-        Assert.StartsWith(Project[..Project.IndexOf("</studio>", StringComparison.Ordinal)], written, StringComparison.Ordinal);
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(Drawing, files["extra.svg"]);
+        Assert.All(TestPackage.From(Project), file => Assert.Equal(file.Value, files[file.Key]));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
 
         await window.SaveAsync();
 
-        Assert.Equal(written, File.ReadAllText(path));
+        Assert.Equal(written, TestPackage.Read(path));
 
         // And it opens, at the size the project it just joined builds it at.
         Assert.Equal("extra", Named(Tab(window, "extra")));
@@ -5870,10 +5879,10 @@ public class MainWindowProjectTests : IDisposable
         await window.AddGroupAsync((ProjectNode)group.Tag!);
         Dispatcher.UIThread.RunJobs();
 
-        // Inside the group it was asked from, indented a level in from it, and not on disk until
-        // somebody saves it.
-        Assert.Contains("    </drawing>\n    <group name=\"group\" />", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
-        Assert.Equal(Project, File.ReadAllText(path));
+        // Inside the group it was asked from, a folder of its own with nothing yet to say, and not
+        // on disk until somebody saves it.
+        Assert.Equal("<group />\n", window.Workspace!.Document.Files()["Large/group/group.xml"]);
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
 
         // Named by neither of its settings until one is typed, which is what the tab is for.
         Assert.Equal("group", ProjectWorkspace.Label(Panel(window, "group").Node));
@@ -5960,12 +5969,12 @@ public class MainWindowProjectTests : IDisposable
         Assert.Same(window.Workspace!.Document.Root, Assert.IsType<GroupPanel>(kept.Content).Node);
         Assert.Equal(new[] { "Project", "home" }, Rows((TreeViewItem)Tree(window).Items[0]!));
 
-        // The comment stays. It is a sibling of the group, not part of it.
-        var written = window.Workspace!.Document.ToXml();
+        // Its folder goes, and the rest of the project is as it was.
+        var files = window.Workspace!.Document.Files();
+        var was = TestPackage.From(Project);
 
-        Assert.Contains("<!-- kept, so an edit is proven not to reformat the file -->", written, StringComparison.Ordinal);
-        Assert.DoesNotContain("<group", written, StringComparison.Ordinal);
-        Assert.Contains("<drawing name=\"home\" class=\"Home\">", written, StringComparison.Ordinal);
+        Assert.DoesNotContain(files.Keys, key => key.StartsWith("Large/", StringComparison.Ordinal));
+        Assert.All(was.Where(file => !file.Key.StartsWith("Large/", StringComparison.Ordinal)), file => Assert.Equal(file.Value, files[file.Key]));
     }
 
     /// <summary>
@@ -5983,7 +5992,7 @@ public class MainWindowProjectTests : IDisposable
         var path = Write("icons.svgstudio", Project);
         var window = await Host(path);
 
-        var was = window.Workspace!.Document.ToXml();
+        var was = TestPackage.Dump(window.Workspace!.Document);
         var group = (ProjectNode)((TreeViewItem)((TreeViewItem)Tree(window).Items[0]!).Items[1]!).Tag!;
 
         Assert.True(await window.RemoveAsync(group));
@@ -5994,7 +6003,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(window.Undo());
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(was, window.Workspace.Document.ToXml());
+        Assert.Equal(was, TestPackage.Dump(window.Workspace.Document));
         Assert.Contains(window.Workspace.Document.Root.Children, child => ReferenceEquals(child, group));
 
         // And forward again, so the gesture is a step rather than a thing that only goes one way.
@@ -6004,7 +6013,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.DoesNotContain(window.Workspace.Document.Root.Children, child => ReferenceEquals(child, group));
 
         // Nothing reached the file either way.
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
     }
 
     [AvaloniaFact]
@@ -6029,7 +6038,7 @@ public class MainWindowProjectTests : IDisposable
 
         // The group's tab is still open with the edit in it, beside the project's own.
         Assert.Equal(2, Tabs(window).Items.Count);
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
     }
 
     [AvaloniaFact]
@@ -6056,7 +6065,7 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(2f, home.EffectiveScale);
 
         // And the row moved with everything it holds, written at its new depth.
-        var written = window.Workspace!.Document.ToXml();
+        var written = TestPackage.Dump(window.Workspace!.Document);
 
         Assert.Contains("    <drawing name=\"home\" class=\"Home\">\n      <svg", written, StringComparison.Ordinal);
         Assert.DoesNotContain("\n  <drawing name=\"home\"", written, StringComparison.Ordinal);
@@ -6127,7 +6136,7 @@ public class MainWindowProjectTests : IDisposable
         // And onto a drawing beside it, which means that same group again.
         Assert.False(window.Move(home, Row(root, "home")));
 
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
     }
 
     [AvaloniaFact]
@@ -6175,7 +6184,7 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.Equal(12f, drawing.X);
         Assert.Equal(0f, drawing.Y);
-        Assert.Contains("x=\"12\" y=\"0\"", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("x=\"12\" y=\"0\"", TestPackage.Read(path), StringComparison.Ordinal);
 
         // Cleared, the place goes with it rather than leaving half of one.
         Assert.True(settings.Edit("y", null));
@@ -6233,13 +6242,13 @@ public class MainWindowProjectTests : IDisposable
 
         // Held until the tab is saved, as a group's are, and the tab says so meanwhile.
         Assert.Equal(1d, Marker(tab).Opacity);
-        Assert.DoesNotContain("Second", File.ReadAllText(path));
+        Assert.DoesNotContain("Second", TestPackage.Read(path));
 
         await window.SaveAsync();
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(0d, Marker(tab).Opacity);
-        Assert.Contains("<drawing name=\"second\" class=\"Second\">", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("<drawing name=\"second\" class=\"Second\">", TestPackage.Read(path), StringComparison.Ordinal);
 
         Assert.Equal(
             new[] { "Project", "Shared", "second", "shared" },
@@ -6371,7 +6380,7 @@ public class MainWindowProjectTests : IDisposable
             new[] { "Project", "home", "Large", "badge", "home" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
-        Assert.Contains("<drawing name=\"home\" class=\"Home\">", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("<drawing name=\"home\" class=\"Home\">", TestPackage.Read(path), StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -6421,7 +6430,7 @@ public class MainWindowProjectTests : IDisposable
             new[] { "Project", "home", "Large", "badge" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
     }
 
     /// <summary>
@@ -6468,7 +6477,7 @@ public class MainWindowProjectTests : IDisposable
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
         // In the project and nowhere else: nothing is written beside it.
-        Assert.Contains("<drawing name=\"drawing\">", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.Contains("<drawing name=\"drawing\">", TestPackage.Dump(window.Workspace!.Document), StringComparison.Ordinal);
         Assert.False(File.Exists(Path.Combine(_directory, "drawing.svg")));
     }
 
@@ -6731,7 +6740,10 @@ public class MainWindowProjectTests : IDisposable
 
         foreach (var path in paths)
         {
-            var file = await window.StorageProvider.TryGetFileFromPathAsync(path);
+            // A project is a folder, which is what a file manager hands over for one.
+            IStorageItem? file = Directory.Exists(path)
+                ? await window.StorageProvider.TryGetFolderFromPathAsync(path)
+                : await window.StorageProvider.TryGetFileFromPathAsync(path);
 
             Assert.NotNull(file);
 
@@ -6761,7 +6773,7 @@ public class MainWindowProjectTests : IDisposable
             new[] { "Project", "home", "Large", "badge", "extra" },
             Rows((TreeViewItem)Tree(window).Items[0]!));
 
-        var written = window.Workspace!.Document.ToXml();
+        var written = TestPackage.Dump(window.Workspace!.Document);
 
         Assert.Contains("<drawing name=\"badge\" class=\"BadgeLarge\">", written, StringComparison.Ordinal);
         Assert.Contains("<drawing name=\"extra\">", written, StringComparison.Ordinal);
@@ -7015,14 +7027,14 @@ public class MainWindowProjectTests : IDisposable
         await Until(() => window.Workspace!.Document.Root.Drawings.Any());
 
         Assert.Single(window.Workspace!.Document.Root.Drawings);
-        Assert.Contains("\n  <drawing name=\"dropped\">\n    <svg ", window.Workspace.Document.ToXml(), StringComparison.Ordinal);
+        Assert.Contains("\n  <drawing name=\"dropped\">\n    <svg ", TestPackage.Dump(window.Workspace.Document), StringComparison.Ordinal);
 
         // Nothing on disk at all yet — the drop went into a project that is not a file.
         Assert.False(File.Exists(path));
 
         await window.SaveAsync();
 
-        Assert.Contains("\n  <drawing name=\"dropped\">\n    <svg ", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("\n  <drawing name=\"dropped\">\n    <svg ", TestPackage.Read(path), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -7048,7 +7060,7 @@ public class MainWindowProjectTests : IDisposable
         await window.SaveAsync();
 
         Assert.Equal("fresh.svgstudio", window.Workspace!.Name);
-        Assert.Contains("<studio>", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("<studio>", TestPackage.Read(path), StringComparison.Ordinal);
 
         // And now that it is a file, a save with nothing to write leaves it alone.
         var written = File.GetLastWriteTimeUtc(path);

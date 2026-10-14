@@ -29,6 +29,11 @@ public class ProjectImportTests : IDisposable
         var path = Path.Combine(_directory, name);
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if (name.EndsWith(".svgstudio", StringComparison.Ordinal))
+        {
+            return TestPackage.Write(path, text);
+        }
+
         File.WriteAllText(path, text);
 
         return path;
@@ -78,8 +83,8 @@ public class ProjectImportTests : IDisposable
 
         // The old project's outputs are not carried across: a studio project names no file, and
         // where its C# goes is asked for when it is exported.
-        Assert.DoesNotContain("Icons.cs", project.ToXml(), StringComparison.Ordinal);
-        Assert.DoesNotContain("BadgeLarge.cs", project.ToXml(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Icons.cs", TestPackage.Dump(project), StringComparison.Ordinal);
+        Assert.DoesNotContain("BadgeLarge.cs", TestPackage.Dump(project), StringComparison.Ordinal);
 
         var drawings = project.Root.Drawings.ToList();
 
@@ -179,7 +184,7 @@ public class ProjectImportTests : IDisposable
         }
 
         // Nothing negative reaches the file, though a desk is free to use negatives.
-        Assert.DoesNotContain("=\"-", project.ToXml(), StringComparison.Ordinal);
+        Assert.DoesNotContain("=\"-", TestPackage.Dump(project), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -221,14 +226,12 @@ public class ProjectImportTests : IDisposable
     [Fact]
     public void Desks_Are_Stacked_Down_The_Project()
     {
-        var groups = Placed().Root.Children.OfType<ProjectGroup>().ToList();
-
-        Assert.Equal(new[] { "Overlays", "Controls" }, groups.Select(group => group.Name).ToArray());
+        var groups = Placed().Root.Children.OfType<ProjectGroup>().ToDictionary(group => group.Name);
 
         // The largest canvas is 60, so a caption is 3 and the gap between desks is 18. Overlays is
         // 80 tall, which puts Controls at 98.
-        Assert.Equal((0f, 0f), (groups[0].X!.Value, groups[0].Y!.Value));
-        Assert.Equal((0f, 98f), (groups[1].X!.Value, groups[1].Y!.Value));
+        Assert.Equal((0f, 0f), (groups["Overlays"].X!.Value, groups["Overlays"].Y!.Value));
+        Assert.Equal((0f, 98f), (groups["Controls"].X!.Value, groups["Controls"].Y!.Value));
     }
 
     /// <summary>

@@ -318,7 +318,7 @@ public partial class MainWindow : Window
         // Nothing open, and no tab standing in for nothing. A window used to start on a bundled
         // sample in a tab called Untitled, which meant a project opened from the command line came
         // up beside a tab holding neither the project nor anything else.
-        if (path is { } startup && File.Exists(startup))
+        if (path is { } startup && (File.Exists(startup) || Directory.Exists(startup)))
         {
             // Down before the first frame rather than when the drawing arrives a file read later:
             // somebody who double-clicked a drawing is not somebody to greet, even briefly.
@@ -527,8 +527,12 @@ public partial class MainWindow : Window
             .ToList();
 
     /// <summary>Whether a path names a project rather than a drawing.</summary>
+    /// <remarks>
+    /// Anything inside a project's folder too, so the <c>studio.xml</c> a picker shows where the
+    /// system does not know the folder is a document opens the project rather than a tab on itself.
+    /// </remarks>
     private static bool IsProject(string path)
-        => Path.GetExtension(path).Equals(".svgstudio", StringComparison.OrdinalIgnoreCase) || IsSvgc(path);
+        => ProjectPackage.Find(path) is { } || IsSvgc(path);
 
     /// <summary>Whether a path names an svgc project, which opens by being converted into one.</summary>
     private static bool IsSvgc(string path)
@@ -717,7 +721,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (document.Path is { } named && ProjectRecovery.Waiting(named, document.ToXml()) is { } waiting)
+        if (document.Path is { } named && ProjectRecovery.Waiting(named, document.Files()) is { } waiting)
         {
             if (await ConfirmDiscardRecovery(Recovered(named, waiting)).ConfigureAwait(true))
             {
@@ -793,7 +797,7 @@ public partial class MainWindow : Window
         // Only a file that is there. A project written nowhere yet would be offered by Open Recent
         // and then quietly dropped from it, since the list keeps only what exists; the save that
         // writes it is what remembers it.
-        if (document.Path is { } opened && File.Exists(opened))
+        if (document.Path is { } opened && ProjectPackage.Exists(opened))
         {
             remembered = true;
 
@@ -885,8 +889,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            return ProjectRecovery.Read(recovery) is { } text
-                ? ProjectDocument.Parse(text, path)
+            return ProjectRecovery.Read(recovery) is { } files
+                ? ProjectDocument.Read(files, path)
                 : null;
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException)
@@ -903,16 +907,16 @@ public partial class MainWindow : Window
         var copied = File.GetLastWriteTime(recovery);
         var name = Path.GetFileName(path);
 
-        if (!File.Exists(path))
+        if (!ProjectPackage.Exists(path))
         {
             return $"Svg Studio kept a copy of {name} from {Stamp(copied)}, holding changes that were never saved. "
                    + "Nothing has been written at that name yet.";
         }
 
-        var saved = File.GetLastWriteTime(path);
+        var saved = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Max(File.GetLastWriteTime);
 
         return $"Svg Studio kept a copy of {name} from {Stamp(copied)}, holding changes that were never saved. "
-               + $"The file itself was last saved {Stamp(saved)}"
+               + $"The project itself was last saved {Stamp(saved)}"
                + (saved > copied ? ", so something else has written it since. " : ". ")
                + "Restoring puts those changes back in the window; the file is not touched until you save.";
     }
@@ -1354,7 +1358,7 @@ public partial class MainWindow : Window
     /// at all, and no row of either offers the command — it would point a file manager at nothing.
     /// </remarks>
     private string? OnDisk(ProjectNode node)
-        => _workspace?.Document.Path is { } path && File.Exists(path) ? path : null;
+        => _workspace?.Document.Path is { } path && Directory.Exists(path) ? path : null;
 
     /// <summary>Takes rows, to be pasted somewhere else.</summary>
     private void Hold(IReadOnlyList<ProjectNode> nodes, bool cut)
@@ -1400,7 +1404,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var (parent, index) = Beside(target);
+        var parent = Beside(target);
         ProjectNode? copy = null;
 
         workspace.Do(
@@ -1410,7 +1414,7 @@ public partial class MainWindow : Window
             {
                 foreach (var node in held)
                 {
-                    var made = parent.Copy(node, index++);
+                    var made = parent.Copy(node);
 
                     copy ??= made;
                 }
@@ -1447,12 +1451,12 @@ public partial class MainWindow : Window
         }
 
         var carried = await ProjectClipboard.ReadAsync(Clipboard).ConfigureAwait(true);
-        var (parent, index) = Beside(target);
+        var parent = Beside(target);
 
         // The rule a drop of files obeys, obeyed the same way: all of them drawings, or none of it.
         if (carried.Files is { Count: > 0 } files && files.All(IsDrawing))
         {
-            await AddDrawingsAsync(parent, index, files).ConfigureAwait(true);
+            await AddDrawingsAsync(parent, files).ConfigureAwait(true);
 
             return;
         }
@@ -1461,7 +1465,7 @@ public partial class MainWindow : Window
         {
             // Straight in, with no file written anywhere: the project holds the drawings, so a
             // pasted one needs nowhere to live but the row it lands on.
-            await ImportAsync(parent, index, new[] { new TemplateImport("drawing", drawing) }).ConfigureAwait(true);
+            await ImportAsync(parent, new[] { new TemplateImport("drawing", drawing) }).ConfigureAwait(true);
 
             return;
         }
@@ -1497,10 +1501,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Where something added beside <paramref name="node"/> goes: in a group, after a drawing.</summary>
-    private static (ProjectGroup Parent, int Index) Beside(ProjectNode node)
-        => node is ProjectGroup group
-            ? (group, group.Children.Count)
-            : (node.Parent!, node.Parent!.Children.ToList().IndexOf(node) + 1);
+    private static ProjectGroup Beside(ProjectNode node) => node as ProjectGroup ?? node.Parent!;
 
     /// <summary>Adds an empty group, and opens it so it can be given a name.</summary>
     /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the menu.</remarks>
@@ -1511,13 +1512,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        var (parent, index) = Beside(beside);
+        var parent = Beside(beside);
         ProjectGroup? group = null;
 
         workspace.Do(
             "add group",
             () => ProjectSnapshot.Contents(parent),
-            () => group = parent.AddGroup("group", index));
+            () => group = parent.AddGroup("group"));
 
         if (group is null)
         {
@@ -1546,11 +1547,10 @@ public partial class MainWindow : Window
             FileTypeFilter = new List<FilePickerFileType> { StudioFileDialogService.Drawings }
         }).ConfigureAwait(true);
 
-        var (parent, index) = Beside(beside);
+        var parent = Beside(beside);
 
         await AddDrawingsAsync(
             parent,
-            index,
             files.Select(file => file.TryGetLocalPath())
                 .Where(path => path is { Length: > 0 })
                 .Select(path => path!)
@@ -1562,27 +1562,20 @@ public partial class MainWindow : Window
     /// <remarks>Taking the path rather than asking for it, so everything but the panel can be driven.</remarks>
     public Task AddDrawingAsync(ProjectNode beside, string path)
     {
-        var (parent, index) = Beside(beside);
+        var parent = Beside(beside);
 
-        return AddDrawingsAsync(parent, index, new[] { path });
+        return AddDrawingsAsync(parent, new[] { path });
     }
 
     /// <summary>
-    /// Puts drawings into <paramref name="parent"/> from <paramref name="index"/> on, in the order
-    /// given, and opens the last of them.
+    /// Puts drawings into <paramref name="parent"/> and opens the last of them.
     /// </summary>
     /// <remarks>
-    /// The slot is counted here rather than worked out again for each file. Asking where a drop
-    /// lands once per file keeps the order for a landing inside a group, whose end moves along with
-    /// every insert, and for one before a node, whose index moves up — but reverses it after a node,
-    /// which does not move at all, so each file would land immediately after it and push the last
-    /// one out.
-    ///
     /// One save and one rebuild for the run, and one tab: a folder of drawings dropped on a group
     /// is one act, and it has no business opening twenty of them.
     /// </remarks>
     /// <remarks>Public for the reason <see cref="Move"/> is: the way in without the pointer.</remarks>
-    public async Task AddDrawingsAsync(ProjectGroup parent, int index, IReadOnlyList<string> paths)
+    public async Task AddDrawingsAsync(ProjectGroup parent, IReadOnlyList<string> paths)
     {
         if (_workspace is not { } workspace || paths.Count == 0)
         {
@@ -1606,7 +1599,7 @@ public partial class MainWindow : Window
             }
         }
 
-        await ImportAsync(parent, index, reading.Select(one => new TemplateImport(one.Name, one.Text)).ToList()).ConfigureAwait(true);
+        await ImportAsync(parent, reading.Select(one => new TemplateImport(one.Name, one.Text)).ToList()).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -1618,7 +1611,7 @@ public partial class MainWindow : Window
     /// Where what the import had to say goes, for a caller with nowhere to show a dialog; null
     /// announces it here, which is what a drop or a paste wants.
     /// </param>
-    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports, bool show = true, List<string>? notes = null)
+    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, IReadOnlyList<TemplateImport> imports, bool show = true, List<string>? notes = null)
     {
         if (_workspace is not { } workspace || imports.Count == 0)
         {
@@ -1626,7 +1619,7 @@ public partial class MainWindow : Window
         }
 
         var said = notes ?? new List<string>();
-        var added = TemplateLibrary.Import(workspace, parent, index, imports, said);
+        var added = TemplateLibrary.Import(workspace, parent, imports, said);
 
         if (notes is null)
         {
@@ -1661,7 +1654,7 @@ public partial class MainWindow : Window
         }
 
         // An undo can take the drawing out while its update was being chosen, and it keeps its Parent.
-        if (!drawing.Element.AncestorsAndSelf().Contains(workspace.Document.Root.Element))
+        if (!drawing.DescendsFrom(workspace.Document.Root))
         {
             await Announce("That drawing couldn't be updated", $"{ProjectWorkspace.Label(drawing)} is no longer in the project.").ConfigureAwait(true);
 
@@ -2041,11 +2034,7 @@ public partial class MainWindow : Window
 
             if (target is { })
             {
-                // Beside the row and not only into its group: the order a board and a build see,
-                // even though the tree sorts the row by its name.
-                var (parent, index) = Beside(target);
-
-                await _streamline.DropAsync(parent, index, null, show: true).ConfigureAwait(true);
+                await _streamline.DropAsync(Beside(target), null, show: true).ConfigureAwait(true);
             }
 
             return;
@@ -2062,7 +2051,7 @@ public partial class MainWindow : Window
         // Taken, so the window does not open tabs on the drawings that just became rows.
         e.Handled = true;
 
-        await AddDrawingsAsync(landing, landing.Children.Count, paths).ConfigureAwait(true);
+        await AddDrawingsAsync(landing, paths).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -2109,13 +2098,11 @@ public partial class MainWindow : Window
         var moved = 0;
 
         // The groups and the rows themselves: a move rewrites each row's own place against wherever
-        // it lands, and takes it out of one list and puts it into another. Indentation first, while
-        // where a row sits still says what depth it was written at.
+        // it lands, and takes it out of one list and puts it into another.
         workspace.Do(
             Labelled("move", moving),
             () => ProjectSnapshot.All(
-                moving.Select(ProjectSnapshot.Indentation)
-                    .Append(ProjectSnapshot.Contents(landing))
+                new[] { ProjectSnapshot.Contents(landing) }
                     .Concat(from.Select(ProjectSnapshot.Contents))
                     .Concat(moving.Select(ProjectSnapshot.Attributes))
                     .ToArray()),
@@ -2125,7 +2112,7 @@ public partial class MainWindow : Window
                 {
                     try
                     {
-                        landing.Move(node, landing.Children.Count);
+                        landing.Move(node);
                         moved++;
                     }
                     catch (SvgcProjectException)
@@ -2434,7 +2421,7 @@ public partial class MainWindow : Window
         foreach (var item in _tabs.Items.OfType<TabItem>().ToList())
         {
             if (item.Tag is ProjectNode node && _workspace is { } workspace
-                && !node.Element.AncestorsAndSelf().Contains(workspace.Document.Root.Element))
+                && !node.DescendsFrom(workspace.Document.Root))
             {
                 CloseTab(item);
             }
@@ -4137,23 +4124,23 @@ public partial class MainWindow : Window
         /// </remarks>
         private static readonly FilePickerFileType OpenableFileType = new("Drawings and projects")
         {
-            Patterns = new[] { "*.svg", "*.svgz", "*.svgstudio", "*.svgcproj", "*.pcvd" },
+            Patterns = new[] { "*.svg", "*.svgz", "*.svgstudio", ProjectPackage.Manifest, "*.svgcproj", "*.pcvd" },
             MimeTypes = new[] { "image/svg+xml", "application/gzip", "application/xml" }
         };
 
         /// <remarks>
-        /// No Apple type identifier, unlike the drawings below. macOS decides a file's type from
-        /// its extension, and <c>.svgstudio</c> is whatever the machine happens to have claimed it —
-        /// on this one, the editor it was last opened with. Either way it conforms to nothing, and
-        /// <c>public.xml</c> was a claim about it that no machine agrees with, narrowing the filter
-        /// to files macOS reads as XML rather than widening it. The extension is what matches.
+        /// A project is a folder, which a panel offers as one document only where the system has
+        /// been told so by the app bundle. Everywhere else it is a folder to go into, so the
+        /// <c>studio.xml</c> inside is offered too, and picking it opens the project.
         ///
-        /// The svgc project is here too, since Open takes one by converting it.
+        /// No Apple type identifier: a build run from the repository declares none, and the
+        /// extension is what matches either way. The svgc project is here too, since Open takes
+        /// one by converting it.
         /// </remarks>
         internal static readonly FilePickerFileType Projects = new("Svg Studio Projects")
         {
-            Patterns = new[] { "*.svgstudio", "*.svgcproj" },
-            MimeTypes = new[] { "application/xml" }
+            Patterns = new[] { "*.svgstudio", ProjectPackage.Manifest, "*.svgcproj" },
+            MimeTypes = new[] { "inode/directory", "application/xml" }
         };
 
         internal static readonly FilePickerFileType Drawings = new("Svg Files")

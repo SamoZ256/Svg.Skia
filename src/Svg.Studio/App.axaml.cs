@@ -45,8 +45,8 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // A path on the command line opens that drawing, which is also the way to look at a file
-            // without going through the picker. It is how Windows and Linux hand over a double-click.
+            // A path on the command line opens that drawing or project, which is also the way to look
+            // at a file without going through the picker.
             var path = desktop.Args?.FirstOrDefault(argument => !argument.StartsWith('-'));
 
             desktop.MainWindow = new MainWindow(path);
@@ -57,8 +57,6 @@ public partial class App : Application
             {
                 activatable.Activated += OnActivated;
             }
-
-            _ = System.Threading.Tasks.Task.Run(FileAssociation.Register);
         }
 
         base.OnFrameworkInitializationCompleted();
