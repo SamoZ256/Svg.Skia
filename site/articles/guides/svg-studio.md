@@ -21,7 +21,7 @@ that project is one file — the settings, the tree and the drawings themselves.
     </svg>
   </drawing>
 
-  <group name="Large" namespace="Demo.Icons.Large" scale="2">
+  <group name="Large" namespace=".Large" scale="2">
     <drawing name="badge-large" class="BadgeLarge">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">…</svg>
     </drawing>
@@ -36,8 +36,11 @@ that project is one file — the settings, the tree and the drawings themselves.
   It is a label rather than an identifier, so a drawing copied three times is three rows reading the
   same thing until one of them is renamed.
 - Settings are attributes wherever they appear, and a group hands its own down to everything under
-  it: `namespace`, `class`, `padding` and the `width`/`height`/`scale` trio, which moves as one. The
-  project also carries `cache`, `helperScope` and `skiaSharp`, and what shapes the file: `body`,
+  it: `namespace`, `class`, `padding` and the `width`/`height`/`scale` trio, which moves as one. A
+  namespace that starts with a dot continues the one above it: `.Large` under `Demo.Icons` is
+  `Demo.Icons.Large`, and follows the project's when that is renamed. The project's own namespace is
+  written in full, having nothing above it to continue. The project also carries `cache`,
+  `helperScope` and `skiaSharp`, and what shapes the file: `body`,
   `typeface`, and an API class (`api`, `resizing`, `context`, `order`), with `method` and
   `parameters` on a drawing (see [shaping the generated file](../packages/svg-codegen-skia#shaping-the-generated-file)).
   Where the C# goes is not among them:
