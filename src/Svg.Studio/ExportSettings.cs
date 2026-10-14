@@ -27,9 +27,9 @@ public sealed class ExportSettings
         ("skiaSharp", "SkiaSharp version", null),
         ("body", "Draw", null),
         ("typeface", "Typeface", "C# expression, e.g. Fonts.Get(\"{family}\", {weightValue})"),
-        ("api", "API class", "e.g. PaintCodeResources.VectorIconsResource"),
-        ("resizing", "Resizing enum", "adds the framed overloads, e.g. PaintCode.ResizingBehavior"),
-        ("context", "Text context type", "taken first by a drawing with text, e.g. PaintCode.Context"),
+        ("api", "API class", "full name, with its namespace"),
+        ("resizing", "Resizing enum", "full name; adds the framed overloads"),
+        ("context", "Text context type", "full name; taken first by a drawing with text"),
         ("order", "Argument order", "parameter names, separated by spaces")
     };
 
