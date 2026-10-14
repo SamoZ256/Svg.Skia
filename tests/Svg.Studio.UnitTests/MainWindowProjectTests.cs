@@ -3163,6 +3163,54 @@ public class MainWindowProjectTests : IDisposable
     /// An svgc project opens by being converted, and the conversion is unsaved work like any other:
     /// the old project and its drawings are where they were, and nothing is beside them yet.
     /// </summary>
+    /// <summary>
+    /// A file already where the project would go is said and left alone, and the project stays unsaved.
+    /// </summary>
+    /// <remarks>
+    /// The likeliest such file is a project an older Studio wrote as one file, which this one cannot
+    /// read, so replacing it would lose the only copy. It used to throw out of the save and crash.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_File_Where_The_Project_Would_Go_Is_Said_And_Kept()
+    {
+        Write("badge.svg", Drawing);
+
+        var source = Write("icons.svgcproj", """
+            <svgc namespace="Demo.Icons">
+              <svg input="badge.svg" class="Badge" />
+            </svgc>
+            """);
+
+        var target = Path.Combine(_directory, "icons.svgstudio");
+        File.WriteAllText(target, "an older project");
+
+        var window = Empty();
+        var said = new List<(string Title, string Message)>();
+
+        window.Announce = (title, message) =>
+        {
+            said.Add((title, message));
+
+            return Task.CompletedTask;
+        };
+
+        window.AskWhereToSave = _ => Task.FromResult<string?>(target);
+
+        await window.OpenAsync(new[] { source });
+        Dispatcher.UIThread.RunJobs();
+        said.Clear();
+
+        await window.SaveAsync();
+
+        var (title, message) = Assert.Single(said);
+
+        Assert.Equal("The project couldn't be saved", title);
+        Assert.Contains("already a file called icons.svgstudio", message, StringComparison.Ordinal);
+        Assert.Equal("an older project", File.ReadAllText(target));
+        Assert.True(window.Workspace!.IsEdited);
+        Assert.Null(window.Workspace.Document.Path);
+    }
+
     [AvaloniaFact]
     public async Task A_Converted_Svgc_Project_Writes_Nothing_Until_It_Is_Saved()
     {

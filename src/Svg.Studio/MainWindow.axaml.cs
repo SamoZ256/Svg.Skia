@@ -4435,7 +4435,7 @@ public partial class MainWindow : Window
             }
         }
         catch (Exception failure)
-            when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
+            when (failure is IOException or UnauthorizedAccessException or InvalidOperationException or SvgcProjectException)
         {
             await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
 

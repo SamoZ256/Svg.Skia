@@ -1348,9 +1348,13 @@ public sealed class ProjectDocument
     {
         var full = System.IO.Path.GetFullPath(path).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
 
+        // Not replaced, though a save panel asked: the likeliest file of that name is a project an
+        // older Studio wrote as one file, which this one cannot read, so it would be the only copy.
         if (File.Exists(full))
         {
-            throw new SvgcProjectException($"'{full}' is a file, and a project is a folder.");
+            throw new SvgcProjectException(
+                $"There is already a file called {System.IO.Path.GetFileName(full)} there, and a project is now a folder. "
+                + "Save under another name, or move that file somewhere else first.");
         }
 
         // A folder somebody keeps something else in is not written into: a save deletes what the
