@@ -299,6 +299,21 @@ public class AssistantTests : IDisposable
         Assert.Null(window.Workspace!.Document.Root.Children[1].Scale);
     }
 
+    [AvaloniaFact]
+    public async Task A_Continued_Namespace_Is_Set_On_A_Group_And_Refused_On_The_Project()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var root = window.Workspace!.Document.Root;
+        var refused = new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "namespace", ["value"] = ".Icons" }), Say("No."));
+
+        await Send(window, refused, "root");
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "namespace", ["value"] = ".Badges" }), Say("Set.")), "group");
+
+        Assert.Contains("nothing above it", refused.Results.Single(), StringComparison.Ordinal);
+        Assert.Equal("Demo.Icons", root.Namespace);
+        Assert.Equal("Demo.Icons.Badges", root.Children[1].EffectiveNamespace);
+    }
+
     /// <summary>
     /// What an export reads is the project's own, set on it and nowhere else; a setting a node does
     /// not take is refused rather than recorded as a step that changed nothing.

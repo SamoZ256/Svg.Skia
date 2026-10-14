@@ -4040,7 +4040,7 @@ public sealed class GroupPanel : UserControl
         // rejected while the box that holds it is still on screen.
         try
         {
-            Validate(name, text);
+            Validate(Described, name, text);
         }
         catch (SvgcProjectException failure)
         {
@@ -4086,10 +4086,13 @@ public sealed class GroupPanel : UserControl
     /// The same parsers the setters use, called without them: a setting checked here is not written
     /// anywhere yet, and the setters write to the document an unsaved edit must not touch.
     /// </remarks>
-    internal static void Validate(string name, string? value)
+    internal static void Validate(ProjectNode node, string name, string? value)
     {
         switch (name)
         {
+            case "namespace":
+                SvgcProject.ParseNamespace(value, node is not ProjectRoot);
+                break;
             // The one setting with no empty form: a row that says nothing is a row nobody can
             // tell from the one beside it.
             case "name" when string.IsNullOrWhiteSpace(value):
@@ -4137,7 +4140,18 @@ public sealed class GroupPanel : UserControl
 
         var owner = parent.OwnerOf(name);
 
-        return owner is null ? null : $"{Value(owner, name)} — from {ProjectWorkspace.Label(owner)}";
+        if (owner is null)
+        {
+            return null;
+        }
+
+        // What the export writes, rather than the ".Overlays" the owner wrote: where nothing above is in
+        // full, the build's default.
+        var inherited = name == "namespace"
+            ? SvgcProject.ResolveNamespace(new[] { parent.EffectiveNamespace, new SvgcBuildSettings().Namespace })
+            : Value(owner, name);
+
+        return $"{inherited} — from {ProjectWorkspace.Label(owner)}";
     }
 
     private static string? Value(ProjectNode node, string name) => name switch

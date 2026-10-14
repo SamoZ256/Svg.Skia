@@ -5763,6 +5763,87 @@ public class MainWindowProjectTests : IDisposable
     }
 
     /// <summary>
+    /// A desk an import writes continues the project's namespace, so renaming the project's moves
+    /// every desk with it — out from under an API class the import named the project after.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Renaming_The_Projects_Namespace_Moves_The_Ones_Continuing_It()
+    {
+        var path = Write("icons.svgstudio", $"""
+            <studio namespace="VectorIconsResource" api="PaintCodeResources.VectorIconsResource">
+              <group name="Overlays" namespace=".Overlays">
+                <group name="Big" namespace=".Big">
+            {Holding("home", " class=\"Home\"")}
+                </group>
+              </group>
+            </studio>
+            """);
+
+        var window = await Host(path);
+        var root = window.Workspace!.Document.Root;
+        var said = new List<string>();
+
+        window.Announce = (_, message) => { said.Add(message); return Task.CompletedTask; };
+
+        Assert.False(await window.ExportAsync(Path.Combine(_directory, "Refused.cs")));
+        Assert.Contains("'VectorIconsResource.Overlays.Big' would hide the API class", said.Single());
+
+        await window.ShowAsync(root);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = Panel(window, "Project");
+
+        // The project's own has nothing above it to continue.
+        Assert.False(panel.Edit("namespace", ".Drawings"));
+        Assert.Contains("nothing above it", panel.Fault);
+
+        Assert.True(panel.Edit("namespace", "PaintCodeResources.Drawings"));
+        await Save(window, panel);
+
+        var target = Path.Combine(_directory, "Icons.cs");
+
+        Assert.True(await window.ExportAsync(target));
+        Assert.Contains("global::PaintCodeResources.Drawings.Overlays.Big.Home.Draw(canvas);", File.ReadAllText(target));
+
+        // The box says what it continues as the name it comes to, not as the ".Overlays" written above.
+        var big = root.Children.OfType<ProjectGroup>().Single().Children.OfType<ProjectGroup>().Single();
+
+        await window.ShowAsync(big);
+        Dispatcher.UIThread.RunJobs();
+        Open(window, window, "Properties");
+
+        var box = window.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "namespace"));
+
+        Assert.Equal(".Big", box.Text);
+        Assert.StartsWith("PaintCodeResources.Drawings.Overlays — from Overlays", box.PlaceholderText);
+    }
+
+    /// <summary>A namespace continued all the way to a project naming none is shown as the build will write it.</summary>
+    [AvaloniaFact]
+    public async Task A_Continued_Namespace_With_Nothing_Above_It_Shows_The_Builds_Default()
+    {
+        var window = await Host(Write("icons.svgstudio", $"""
+            <studio>
+              <group name="Overlays" namespace=".Overlays">
+                <group name="Big">
+            {Holding("home", " class=\"Home\"")}
+                </group>
+              </group>
+            </studio>
+            """));
+
+        var big = window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single().Children.OfType<ProjectGroup>().Single();
+
+        await window.ShowAsync(big);
+        Dispatcher.UIThread.RunJobs();
+        Open(window, window, "Properties");
+
+        var box = window.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, "namespace"));
+
+        Assert.StartsWith("Svg.Overlays — from Overlays", box.PlaceholderText);
+    }
+
+    /// <summary>
     /// The settings that shape the file are the project's, so the class a PaintCode host calls comes
     /// out of the same export as everything else.
     /// </summary>

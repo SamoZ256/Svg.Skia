@@ -385,7 +385,7 @@ public static class SvgcProjectBuild
 
         return new SkiaCSharpDrawing(
             picture,
-            item.Namespace ?? settings.Namespace,
+            SvgcProject.ResolveNamespace(new[] { item.Namespace, settings.Namespace })!,
             item.Class ?? settings.Class,
             declarations,
             frozen.Select(carrier => SvgExpressionAttributes.Lifted(carrier.Element.CustomAttributes, carrier.Name) ?? string.Empty).ToList(),

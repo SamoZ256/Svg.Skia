@@ -190,8 +190,13 @@ public abstract class ProjectNode
     }
 
     /// <summary>The nearest node that names <paramref name="name"/>, and what it says.</summary>
+    /// <remarks>A namespace joins what the nodes above say; a padding can start with a dot too, and does not.</remarks>
     private string? Nearest(string name, bool includeProject)
-        => Ancestry(includeProject).Select(node => node.Setting(name)).FirstOrDefault(value => value is { });
+    {
+        var values = Ancestry(includeProject).Select(node => node.Setting(name));
+
+        return name == "namespace" ? SvgcProject.ResolveNamespace(values) : values.FirstOrDefault(value => value is { });
+    }
 
     /// <summary>
     /// The nearest node that names any of width, height or scale.
@@ -1329,6 +1334,12 @@ public sealed class ProjectDocument
         {
             throw new SvgcProjectException(
                 $"<{node.Element.Name.LocalName} name=\"{node.Name}\"> names one of x and y. A place needs both, or neither.");
+        }
+
+        // Only the new form: a namespace in full that a file has always held loads as it did.
+        if (node.Namespace is { } continued && continued.StartsWith(".", StringComparison.Ordinal))
+        {
+            SvgcProject.ParseNamespace(continued, node is not ProjectRoot);
         }
     }
 

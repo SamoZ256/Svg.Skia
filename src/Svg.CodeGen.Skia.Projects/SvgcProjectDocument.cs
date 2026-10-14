@@ -169,8 +169,13 @@ public abstract class SvgcProjectNode
     }
 
     /// <summary>The nearest node that names <paramref name="name"/>, and what it says.</summary>
+    /// <remarks>A namespace joins what the nodes above say; a recipe path or a padding can start with a dot too, and does not.</remarks>
     private protected string? Nearest(string name, bool includeProject)
-        => Ancestry(includeProject).Select(node => node.GetSetting(name)).FirstOrDefault(value => value is { });
+    {
+        var values = Ancestry(includeProject).Select(node => node.GetSetting(name));
+
+        return name == "namespace" ? SvgcProject.ResolveNamespace(values) : values.FirstOrDefault(value => value is { });
+    }
 
     /// <summary>
     /// The nearest node that names any of width, height or scale.
@@ -769,7 +774,7 @@ public sealed class SvgcProjectDocument
         _ = root.Cache;
         _ = root.HelperScope;
         _ = root.SkiaSharp;
-        ValidateSize(root);
+        Validate(root);
 
         var newLine = xml.IndexOf("\r\n", StringComparison.Ordinal) >= 0 ? "\r\n" : "\n";
 
@@ -861,7 +866,7 @@ public sealed class SvgcProjectDocument
 
         var group = SvgcProjectGroup.Group(element, parent, baseDirectory);
 
-        ValidateSize(group);
+        Validate(group);
 
         foreach (var child in element.Elements())
         {
@@ -899,16 +904,22 @@ public sealed class SvgcProjectDocument
 
         var drawing = new SvgcProjectDrawing(element, parent, baseDirectory);
 
-        ValidateSize(drawing);
+        Validate(drawing);
 
         return drawing;
     }
 
-    private static void ValidateSize(SvgcProjectNode node)
+    private static void Validate(SvgcProjectNode node)
     {
         _ = node.Width;
         _ = node.Height;
         _ = node.Scale;
+
+        // Only the new form: a namespace in full that a file has always held loads as it did.
+        if (node.Namespace is { } continued && continued.StartsWith(".", StringComparison.Ordinal))
+        {
+            SvgcProject.ParseNamespace(continued, node is not SvgcProjectRoot);
+        }
     }
 
     private static void RequireKnownAttributes(XElement element, string[] allowed, string elementName)
