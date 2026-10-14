@@ -1,20 +1,21 @@
 ﻿<Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <AvaloniaVersion>12.1.0</AvaloniaVersion>
+    <AvaloniaVersion>12.1.3</AvaloniaVersion>
     <SkiaSharpVersion Condition="'$(SkiaSharpVersion)' == ''">4.148.0</SkiaSharpVersion>
     <HarfBuzzSharpVersion Condition="'$(HarfBuzzSharpVersion)' == ''">14.2.0</HarfBuzzSharpVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="Avalonia" Version="$(AvaloniaVersion)" />
     <PackageVersion Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />
-    <PackageVersion Include="ProDiagnostics" Version="$(AvaloniaVersion)" />
+    <!-- Neither publishes 12.1.3: ProDiagnostics stops at 12.1.0.x and DataGrid at 12.1.2. -->
+    <PackageVersion Include="ProDiagnostics" Version="12.1.0" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
     <PackageVersion Include="Avalonia.Fonts.Inter" Version="$(AvaloniaVersion)" />
     <PackageVersion Include="Avalonia.Browser" Version="$(AvaloniaVersion)" />
     <PackageVersion Include="Avalonia.Skia" Version="$(AvaloniaVersion)" />
     <PackageVersion Include="Avalonia.Headless.XUnit" Version="$(AvaloniaVersion)" />
-    <PackageVersion Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaVersion)" />
+    <PackageVersion Include="Avalonia.Controls.DataGrid" Version="12.1.2" />
     <PackageVersion Include="Avalonia.Controls.ColorPicker" Version="$(AvaloniaVersion)" />
     <PackageVersion Include="Microsoft.Maui.Controls" Version="10.0.20" />
     <PackageVersion Include="Microsoft.Maui.Controls.Compatibility" Version="10.0.20" />
