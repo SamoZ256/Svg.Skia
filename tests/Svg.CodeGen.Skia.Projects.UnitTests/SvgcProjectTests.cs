@@ -492,4 +492,17 @@ public class SvgcProjectTests
 
         Assert.Contains("record or direct", error.Message);
     }
+
+    [Theory]
+    [InlineData("<svgc><namespace>.Icons</namespace></svgc>", "nothing above it")]
+    [InlineData("""<svgc><group namespace="." /></svgc>""", "not a namespace")]
+    [InlineData("""<svgc><group namespace="..Nav" /></svgc>""", "not a namespace")]
+    [InlineData("""<svgc><group namespace=".Nav." /></svgc>""", "not a namespace")]
+    [InlineData("""<svgc><svg input="a.svg" namespace=". Nav" /></svgc>""", "not a namespace")]
+    public void A_Continued_Namespace_That_Cannot_Be_One_Is_Refused(string xml, string said)
+        => Assert.Contains(said, Assert.Throws<SvgcProjectException>(() => Parse(xml)).Message);
+
+    [Fact]
+    public void A_Namespace_Written_In_Full_Loads_As_It_Always_Has()
+        => Assert.Equal("My-Icons", Parse("""<svgc><group namespace="My-Icons"><svg input="a.svg" /></group></svgc>""").Items.Single().Namespace);
 }

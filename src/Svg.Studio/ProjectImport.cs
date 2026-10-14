@@ -94,7 +94,8 @@ public static class ProjectImport
         {
             var group = document.Root.AddGroup(desk.Name, document.Root.Children.Count);
 
-            group.Namespace = document.Root.Namespace is { } root ? root + "." + desk.Name : desk.Name;
+            // Continuing the project's, so renaming it moves every desk.
+            group.Namespace = "." + desk.Name;
 
             var corner = Corner(desk);
 

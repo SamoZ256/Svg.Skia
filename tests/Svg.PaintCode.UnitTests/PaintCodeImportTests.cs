@@ -30,7 +30,8 @@ public class PaintCodeImportTests
             var drawing = Assert.IsType<SvgcProjectDrawing>(Assert.Single(group.Children));
 
             Assert.Equal("Icons", project.Root.Namespace);
-            Assert.Equal("Icons.Overlays", group.Namespace);
+            Assert.Equal(".Overlays", group.Namespace);
+            Assert.Equal("Icons.Overlays", group.EffectiveNamespace);
             Assert.Equal("overlays/overlay-error.svg", drawing.Input);
             Assert.Equal("overlays/overlay-error.cs", drawing.Output);
             Assert.Equal("OverlayError", drawing.Class);

@@ -327,7 +327,8 @@ public class ProjectImportTests : IDisposable
         // The document's own name, which is what the folder import puts there too.
         Assert.Equal("Symbols", project.Root.Namespace);
         Assert.Equal("Desk", group.Name);
-        Assert.Equal("Symbols.Desk", group.Namespace);
+        Assert.Equal(".Desk", group.Namespace);
+        Assert.Equal("Symbols.Desk", group.EffectiveNamespace);
 
         var badge = project.Root.Drawings.First();
 

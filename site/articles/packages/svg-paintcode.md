@@ -51,7 +51,7 @@ PaintCode's class can keep calling. See [a PaintCode-style API](svg-codegen-skia
 
 | PaintCode | SVG |
 | --- | --- |
-| A desk | A folder |
+| A desk | A folder, and a group of the project whose namespace continues the project's (`.Overlays`) |
 | A canvas | One `.svg`, and one row of the project — or one drawing of a Studio project |
 | A group | `<g>`, with its clip as a `<clipPath>` |
 | Bezier, rectangle, rounded rectangle, oval, star, polygon | `<path>`, or `<rect>` and `<ellipse>` where those say it |

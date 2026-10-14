@@ -309,7 +309,7 @@ More than one drawing goes in an XML project file rather than a shell loop:
   <svg input="home.svg" class="Home" />
   <svg input="badge.svg" class="Badge" padding="0" />
 
-  <group namespace="Demo.Icons.Large" scale="2">
+  <group namespace=".Large" scale="2">
     <svg input="badge.svg" class="BadgeLarge" />
   </group>
 </svgc>
@@ -325,6 +325,9 @@ svgc --projectFile ./icons.svgcproj
   asking for no room around it.
 - A `<group>` is folded into its drawings as the project is read, so a drawing carries what its
   groups said as if it had said it itself.
+- A namespace that starts with a dot continues the one above it, so `.Large` above is
+  `Demo.Icons.Large`. One that continues all the way to the top continues the project's namespace,
+  or `-n`'s when it is given, which therefore has to be written in full.
 - `<singleFile>` folds every drawing into one C# file, which also lets them share one copy of the
   emitted expression helpers. Without it, each `<svg>` needs its own `output`.
 - A command line flag beats the project file, which beats the built-in default.

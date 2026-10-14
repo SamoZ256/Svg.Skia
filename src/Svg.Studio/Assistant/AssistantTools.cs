@@ -565,7 +565,7 @@ public sealed class AssistantTools
                 }
                 else
                 {
-                    GroupPanel.Validate(setting, text);
+                    GroupPanel.Validate(found, setting, text);
                 }
             }
             catch (SvgcProjectException refusal)

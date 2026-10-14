@@ -278,6 +278,18 @@ public class SvgcProjectBuildTests : IDisposable
         Assert.Contains("the text of <tspan> is resolved before the drawing is recorded", refusal.Message);
     }
 
+    [Fact]
+    public void A_Continued_Namespace_Continues_The_One_The_Build_Was_Given()
+    {
+        // The flag's, standing in for the project's, as svgc's -n does.
+        var drawing = SvgcProjectBuild.Build(
+            new SvgcProjectItem("A", null, ".Overlays", "A", null, source: Drawing),
+            new SvgcBuildSettings { Namespace = "Flag" },
+            new NoAssets());
+
+        Assert.Equal("Flag.Overlays", drawing!.NamespaceName);
+    }
+
     /// <summary>A loader for a drawing that asks for nothing: no image, no text.</summary>
     private sealed class NoAssets : ISvgAssetLoader
     {

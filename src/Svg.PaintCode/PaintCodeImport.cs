@@ -207,7 +207,7 @@ public static class PaintCodeImport
     private static SvgcProjectGroup Group(SvgcProjectDocument project, string name)
     {
         var group = project.Root.AddGroup(project.Root.Children.Count);
-        group.Namespace = project.Root.Namespace is { } root ? root + "." + name : name;
+        group.Namespace = "." + name;
 
         return group;
     }

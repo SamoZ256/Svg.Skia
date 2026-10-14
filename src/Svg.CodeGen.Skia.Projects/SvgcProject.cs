@@ -266,10 +266,64 @@ public sealed class SvgcProject
         var name = value!.Trim();
         var parts = qualified ? name.Split('.') : new[] { name };
 
-        return parts.All(part => part.Length > 0 && !char.IsDigit(part[0]) && part.All(c => c == '_' || char.IsLetterOrDigit(c)))
+        return parts.All(IsName)
             ? name
             : throw new SvgcProjectException($"'{value}' is not a {what}.");
     }
+
+    /// <summary>
+    /// A namespace, or null when it was not given. One that starts with a dot continues the namespace
+    /// above it, which only <paramref name="relative"/> allows.
+    /// </summary>
+    public static string? ParseNamespace(string? value, bool relative)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var name = value!.Trim();
+        var continues = name[0] == '.';
+
+        if (continues && !relative)
+        {
+            throw new SvgcProjectException($"'{name}' continues the namespace above it, and there is nothing above it to continue. Write it in full.");
+        }
+
+        return (continues ? name.Substring(1) : name).Split('.').All(IsName)
+            ? name
+            : throw new SvgcProjectException($"'{name}' is not a namespace.");
+    }
+
+    /// <summary>
+    /// The namespace a node is in, from what it and each node above it say, nearest first: each one
+    /// that starts with a dot continues the next, up to the first written in full. Still starting
+    /// with a dot where none above is, for the build to continue from the project's.
+    /// </summary>
+    public static string? ResolveNamespace(IEnumerable<string?> nearestFirst)
+    {
+        string? resolved = null;
+
+        foreach (var value in nearestFirst)
+        {
+            if (value is null)
+            {
+                continue;
+            }
+
+            resolved = value + resolved;
+
+            if (value[0] != '.')
+            {
+                break;
+            }
+        }
+
+        return resolved;
+    }
+
+    private static bool IsName(string part)
+        => part.Length > 0 && !char.IsDigit(part[0]) && part.All(c => c == '_' || char.IsLetterOrDigit(c));
 
     /// <summary>The settings that shape the file as a project spells them, each null where it is not given.</summary>
     public static SvgCodeStyle ParseStyle(string? api, string? resizing, string? context, string? order, string? body, string? typeface)
