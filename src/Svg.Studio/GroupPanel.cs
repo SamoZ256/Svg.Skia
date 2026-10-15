@@ -18,7 +18,6 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using SkiaSharp;
-using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Editor.Skia;
 using Svg.Expressions;
@@ -3803,9 +3802,8 @@ public sealed class GroupPanel : UserControl
         ["name"] = ("Name", null),
         ["namespace"] = ("Namespace", null),
         ["class"] = ("Class name", null),
-        ["cache"] = ("Picture cache", null),
-        ["helperScope"] = ("Helper methods", null),
-        ["skiaSharp"] = ("SkiaSharp version", null),
+        ["method"] = ("API method", "draw and the class name"),
+        ["parameters"] = ("API arguments", "as the argument order puts them"),
         ["width"] = ("Width", "pixels"),
         ["height"] = ("Height", "pixels"),
         ["scale"] = ("Scale", "factor, e.g. 2"),
@@ -3813,34 +3811,6 @@ public sealed class GroupPanel : UserControl
         // No hint: a place inherits from nobody, and anything shown behind the box would read as one.
         ["x"] = ("X", null),
         ["y"] = ("Y", null)
-    };
-
-    /// <summary>
-    /// The settings that take one of a few values: what each option says, what it writes, and why
-    /// somebody would pick it. A null value writes nothing, leaving the build's default.
-    /// </summary>
-    private static readonly Dictionary<string, (string Label, string? Value, string Tip)[]> s_choices = new(StringComparer.Ordinal)
-    {
-        ["cache"] = new (string, string?, string)[]
-        {
-            ("Default (none)", null, "Not written in the project, so a build records a picture on every draw."),
-            ("None: record on every draw", ProjectRoot.CacheText(SvgPictureCache.None), "Draw records a picture per call and disposes it, and stays stateless."),
-            ("Keep the last picture", ProjectRoot.CacheText(SvgPictureCache.LastValue), "Reuses the last picture while the arguments are unchanged. Not safe to draw from several threads."),
-            ("Keep the last picture, locked for threads", ProjectRoot.CacheText(SvgPictureCache.LastValueLocked), "As above, guarded by a lock held across the draw.")
-        },
-        ["helperScope"] = new (string, string?, string)[]
-        {
-            ("Default (one file-local class)", null, "Not written in the project, so a build puts the helpers in one file-local class."),
-            ("One file-local class (C# 11)", ProjectRoot.ScopeText(SvgHelperScope.FileLocal), "A file-scoped class beside the namespaces, invisible outside the file. Needs C# 11."),
-            ("One internal class", ProjectRoot.ScopeText(SvgHelperScope.Internal), "An internal class beside the namespaces, for compilers below C# 11."),
-            ("Inside each class", ProjectRoot.ScopeText(SvgHelperScope.PerClass), "Private members of every class, so each stands alone and repeats them.")
-        },
-        ["skiaSharp"] = new (string, string?, string)[]
-        {
-            ("Default (4.x)", null, "Not written in the project, so a build targets SkiaSharp 4."),
-            ("SkiaSharp 4.x", ProjectRoot.SkiaSharpText(SkiaSharpTarget.V4), "Builds paths through SKPathBuilder, since SKPath's mutating methods are obsolete in 4."),
-            ("SkiaSharp 3.x", ProjectRoot.SkiaSharpText(SkiaSharpTarget.V3), "Builds paths by calling SKPath directly; SKPathBuilder does not exist yet in 3.")
-        }
     };
 
     private void ShowProperties(ProjectNode node)
@@ -3857,11 +3827,12 @@ public sealed class GroupPanel : UserControl
         Add("namespace");
         Add("class");
 
-        if (node is ProjectRoot)
+        if (node is ProjectDrawing)
         {
-            Add("cache");
-            Add("helperScope");
-            Add("skiaSharp");
+            Heading("PaintCode-style API");
+
+            Add("method");
+            Add("parameters");
         }
 
         Heading("Size");
@@ -3881,69 +3852,40 @@ public sealed class GroupPanel : UserControl
             Add("y");
         }
 
-        void Heading(string text) => _properties.Children.Add(new TextBlock
-        {
-            Text = text,
-            FontSize = 12,
-            FontWeight = FontWeight.SemiBold,
-            Margin = new Thickness(0, 8, 0, 0)
-        });
+        void Heading(string text) => _properties.Children.Add(GroupPanel.Heading(text));
 
-        void Add(string name) => _properties.Children.Add(
-            s_choices.TryGetValue(name, out var options) ? Choice(node, name, options) : Row(node, name));
+        void Add(string name) => _properties.Children.Add(Row(node, name));
     }
 
     /// <summary>A setting's label, with the attribute the file writes as its tooltip.</summary>
-    private static TextBlock Label(string name)
-    {
-        var label = new TextBlock
-        {
-            Text = s_labels.TryGetValue(name, out var about) ? about.Label : name,
-            Opacity = 0.65,
-            FontSize = 11
-        };
+    private static TextBlock Label(string name) => Caption(s_labels.TryGetValue(name, out var about) ? about.Label : name, name);
 
-        ToolTip.SetTip(label, name);
+    /// <summary>A setting's label, tipped with the attribute the file writes.</summary>
+    internal static TextBlock Caption(string text, string attribute)
+    {
+        var label = new TextBlock { Text = text, Opacity = 0.65, FontSize = 11 };
+
+        ToolTip.SetTip(label, attribute);
 
         return label;
     }
 
-    /// <summary>A setting that takes one of a few values, picked rather than typed.</summary>
-    private Control Choice(ProjectNode node, string name, (string Label, string? Value, string Tip)[] options)
+    internal static TextBlock Heading(string text) => new()
     {
-        var items = options
-            .Select(option =>
-            {
-                var item = new ComboBoxItem { Content = option.Label, Tag = option.Value };
+        Text = text,
+        FontSize = 12,
+        FontWeight = FontWeight.SemiBold,
+        Margin = new Thickness(0, 8, 0, 0)
+    };
 
-                ToolTip.SetTip(item, option.Tip);
-
-                return item;
-            })
-            .ToList();
-
-        var shown = Shown(node, name);
-
-        // Set before the handler is attached, so showing what the file says is not taken for an edit.
-        var picker = new ComboBox
-        {
-            ItemsSource = items,
-            SelectedIndex = Math.Max(0, Array.FindIndex(options, option => option.Value == shown)),
-            FontSize = 12,
-            Tag = name,
-            HorizontalAlignment = HorizontalAlignment.Stretch
-        };
-
-        picker.SelectionChanged += (_, _) =>
-        {
-            if (picker.SelectedItem is ComboBoxItem chosen)
-            {
-                Edit(name, chosen.Tag as string);
-            }
-        };
-
-        return new StackPanel { Spacing = 2, Children = { Label(name), picker } };
-    }
+    /// <summary>Whether <paramref name="node"/> takes <paramref name="name"/>: what its Properties show.</summary>
+    /// <remarks>The project's format refuses a name or a place on <c>&lt;studio&gt;</c>, and a method on anything but a drawing.</remarks>
+    internal static bool Holds(ProjectNode node, string name) => name switch
+    {
+        "name" or "x" or "y" => node is not ProjectRoot,
+        "method" or "parameters" => node is ProjectDrawing,
+        _ => s_labels.ContainsKey(name)
+    };
 
     /// <summary>What the box shows: what was typed here if anything, and what the file says if not.</summary>
     public string? Shown(string name) => Shown(Described, name);
@@ -3990,16 +3932,11 @@ public sealed class GroupPanel : UserControl
             case "scale":
                 node.Scale = SvgcProject.ParseScale(value);
                 break;
-            // Nothing is the attribute taken away. The parsers read an empty value as the default, which
-            // wrote the default out instead.
-            case "cache":
-                ((ProjectRoot)node).Cache = value is null ? null : SvgcProject.ParseCache(value);
+            case "method":
+                ((ProjectDrawing)node).Method = value;
                 break;
-            case "helperScope":
-                ((ProjectRoot)node).HelperScope = value is null ? null : SvgcProject.ParseHelperScope(value);
-                break;
-            case "skiaSharp":
-                ((ProjectRoot)node).SkiaSharp = value is null ? null : SvgcProject.ParseSkiaSharpTarget(value);
+            case "parameters":
+                ((ProjectDrawing)node).Parameters = value;
                 break;
         }
     }
@@ -4103,7 +4040,7 @@ public sealed class GroupPanel : UserControl
         // rejected while the box that holds it is still on screen.
         try
         {
-            Validate(name, text);
+            Validate(Described, name, text);
         }
         catch (SvgcProjectException failure)
         {
@@ -4149,10 +4086,13 @@ public sealed class GroupPanel : UserControl
     /// The same parsers the setters use, called without them: a setting checked here is not written
     /// anywhere yet, and the setters write to the document an unsaved edit must not touch.
     /// </remarks>
-    internal static void Validate(string name, string? value)
+    internal static void Validate(ProjectNode node, string name, string? value)
     {
         switch (name)
         {
+            case "namespace":
+                SvgcProject.ParseNamespace(value, node is not ProjectRoot);
+                break;
             // The one setting with no empty form: a row that says nothing is a row nobody can
             // tell from the one beside it.
             case "name" when string.IsNullOrWhiteSpace(value):
@@ -4170,14 +4110,11 @@ public sealed class GroupPanel : UserControl
             case "y":
                 SvgcProject.ParseLength(value, "position");
                 break;
-            case "cache":
-                SvgcProject.ParseCache(value);
+            case "method":
+                SvgcProject.ParseName(value, "method name", qualified: false);
                 break;
-            case "helperScope":
-                SvgcProject.ParseHelperScope(value);
-                break;
-            case "skiaSharp":
-                SvgcProject.ParseSkiaSharpTarget(value);
+            case "parameters":
+                SvgcProject.ParseNames(value);
                 break;
             case "padding" when value is { }:
                 try
@@ -4203,7 +4140,18 @@ public sealed class GroupPanel : UserControl
 
         var owner = parent.OwnerOf(name);
 
-        return owner is null ? null : $"{Value(owner, name)} — from {ProjectWorkspace.Label(owner)}";
+        if (owner is null)
+        {
+            return null;
+        }
+
+        // What the export writes, rather than the ".Overlays" the owner wrote: where nothing above is in
+        // full, the build's default.
+        var inherited = name == "namespace"
+            ? SvgcProject.ResolveNamespace(new[] { parent.EffectiveNamespace, new SvgcBuildSettings().Namespace })
+            : Value(owner, name);
+
+        return $"{inherited} — from {ProjectWorkspace.Label(owner)}";
     }
 
     private static string? Value(ProjectNode node, string name) => name switch
@@ -4217,12 +4165,8 @@ public sealed class GroupPanel : UserControl
         "width" => node.Width is { } width ? Number(width) : null,
         "height" => node.Height is { } height ? Number(height) : null,
         "scale" => node.Scale is { } scale ? Number(scale) : null,
-        // The project's own three, spelled as the file and the pickers spell them. Left out, they
-        // showed empty however the file was written, and an edit to one could never be recognised
-        // as typed back to what the file says — so it stayed pending for ever.
-        "cache" => (node as ProjectRoot)?.Cache is { } cache ? ProjectRoot.CacheText(cache) : null,
-        "helperScope" => (node as ProjectRoot)?.HelperScope is { } scope ? ProjectRoot.ScopeText(scope) : null,
-        "skiaSharp" => (node as ProjectRoot)?.SkiaSharp is { } target ? ProjectRoot.SkiaSharpText(target) : null,
+        "method" => (node as ProjectDrawing)?.Method,
+        "parameters" => (node as ProjectDrawing)?.Parameters,
         _ => null
     };
 

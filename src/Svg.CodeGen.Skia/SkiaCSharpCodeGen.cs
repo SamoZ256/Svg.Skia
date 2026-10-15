@@ -63,6 +63,50 @@ public enum SvgPictureCache
     LastValueLocked
 }
 
+/// <summary>How a drawing's <c>Draw</c> puts it on the canvas it is given.</summary>
+public enum SvgBody
+{
+    /// <summary>Record a picture of the drawing, then draw that picture.</summary>
+    Record,
+
+    /// <summary>
+    /// Draw onto the canvas itself, from paths and paints built once where nothing the caller
+    /// passes changes them. Nothing is left to cache, so it does not combine with <see cref="SvgPictureCache"/>.
+    /// </summary>
+    Direct
+}
+
+/// <summary>Shapes of the generated file beyond the drawings themselves.</summary>
+/// <remarks>Every member left at its default emits what the generator always has.</remarks>
+public sealed class SvgCodeStyle
+{
+    public static SvgCodeStyle Default { get; } = new();
+
+    public SvgBody Body { get; init; }
+
+    /// <summary>
+    /// A C# expression of type <c>SKTypeface</c> in place of the font-manager lookup, with
+    /// <c>{family}</c>, <c>{family-dashed}</c>, <c>{weight}</c> (Regular, Medium, Bold…),
+    /// <c>{weightValue}</c> and <c>{slant}</c> written in from what the document asked for.
+    /// </summary>
+    public string? Typeface { get; init; }
+
+    /// <summary>
+    /// The full name of one class forwarding to every drawing in PaintCode's calling convention,
+    /// or null for none.
+    /// </summary>
+    public string? Api { get; init; }
+
+    /// <summary>The host's <c>ResizingBehavior</c> enum, which adds a framed overload per drawing.</summary>
+    public string? Resizing { get; init; }
+
+    /// <summary>The type of the argument PaintCode takes ahead of the others where a drawing has text.</summary>
+    public string? Context { get; init; }
+
+    /// <summary>The order <see cref="Api"/> takes parameters in; names not listed follow, as declared.</summary>
+    public IReadOnlyList<string> Order { get; init; } = Array.Empty<string>();
+}
+
 /// <summary>One drawing to be emitted, for <see cref="SkiaCSharpCodeGen.GenerateFile"/>.</summary>
 public sealed class SkiaCSharpDrawing
 {
@@ -105,6 +149,22 @@ public sealed class SkiaCSharpDrawing
     /// constant of the class, in the picture's coordinates.
     /// </summary>
     public IReadOnlyList<(string Name, SKRect Rect)> Bounds { get; }
+
+    /// <summary>Its method on <see cref="SvgCodeStyle.Api"/>; <c>draw</c> and the class name when null.</summary>
+    public string? Method { get; init; }
+
+    /// <summary>
+    /// Every parameter its <see cref="SvgCodeStyle.Api"/> method takes, in order, where
+    /// <see cref="SvgCodeStyle.Order"/> does not give PaintCode's. One the drawing does not declare
+    /// takes its type from another drawing that does, and is accepted and ignored.
+    /// </summary>
+    public IReadOnlyList<string>? Parameters { get; init; }
+
+    /// <summary>
+    /// Whether its document holds text, drawn or not, which is what gives a PaintCode method its
+    /// <see cref="SvgCodeStyle.Context"/>. Null judges by whether the picture draws any.
+    /// </summary>
+    public bool? HasText { get; init; }
 }
 
 public static class SkiaCSharpCodeGen
@@ -137,7 +197,7 @@ public static class SkiaCSharpCodeGen
 
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine($"{{");
-        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cache, skiaSharp, frozen, bounds: null));
+        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cache, skiaSharp, frozen, bounds: null, SvgCodeStyle.Default).Text);
         sb.AppendLine($"}}");
 
         return sb.ToString();
@@ -156,8 +216,10 @@ public static class SkiaCSharpCodeGen
         SvgHelperScope scope = SvgHelperScope.FileLocal,
         string helperClassName = DefaultHelperClassName,
         SvgPictureCache cache = SvgPictureCache.None,
-        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4)
+        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4,
+        SvgCodeStyle? style = null)
     {
+        style ??= SvgCodeStyle.Default;
         var shared = scope != SvgHelperScope.PerClass;
 
         // Namespaces in first-appearance order, and the classes within each in declared order.
@@ -185,13 +247,17 @@ public static class SkiaCSharpCodeGen
             group.Add(drawing);
         }
 
-        var bodies = drawings.ToDictionary(
+        var built = drawings.ToDictionary(
             drawing => drawing,
-            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cache, skiaSharp, drawing.Frozen, drawing.Bounds));
+            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cache, skiaSharp, drawing.Frozen, drawing.Bounds, style));
+
+        var facade = style.Api is { } api
+            ? SkiaCSharpFacade.Build(api, drawings.Select(drawing => (drawing, built[drawing].Parameters, built[drawing].WithDefaults)).ToList(), style)
+            : null;
 
         // Which helpers are needed is decided across every class at once, so each appears once.
         var helpers = shared
-            ? RequiredHelpers(string.Concat(bodies.Values)).ToList()
+            ? RequiredHelpers(string.Concat(built.Values.Select(c => c.Text))).ToList()
             : new List<string[]>();
 
         var sb = new StringBuilder();
@@ -241,10 +307,16 @@ public static class SkiaCSharpCodeGen
                     sb.AppendLine($"");
                 }
 
-                sb.Append(bodies[group[j]]);
+                sb.Append(built[group[j]].Text);
             }
 
             sb.AppendLine($"}}");
+        }
+
+        if (facade is { })
+        {
+            sb.AppendLine($"");
+            sb.Append(facade);
         }
 
         return sb.ToString();
@@ -356,7 +428,10 @@ public static class SkiaCSharpCodeGen
         sb.AppendLine($"");
     }
 
-    private static string BuildClass(
+    /// <summary>A drawing's class, and the signature its <c>Draw</c> ended up with.</summary>
+    private sealed record BuiltClass(string Text, IReadOnlyList<SvgExpressionParameter> Parameters, bool WithDefaults);
+
+    private static BuiltClass BuildClass(
         SKPicture picture,
         string className,
         SvgExpressionDeclarations? declarations,
@@ -364,29 +439,47 @@ public static class SkiaCSharpCodeGen
         SvgPictureCache cache,
         SkiaSharpTarget skiaSharp,
         IReadOnlyList<string>? frozen,
-        IReadOnlyList<(string Name, SKRect Rect)>? bounds)
+        IReadOnlyList<(string Name, SKRect Rect)>? bounds,
+        SvgCodeStyle style)
     {
         declarations ??= SvgExpressionDeclarations.Empty;
         bounds ??= Array.Empty<(string, SKRect)>();
+
+        var direct = style.Body == SvgBody.Direct;
+
+        if (direct && cache != SvgPictureCache.None)
+        {
+            throw new ExprException($"'{className}' is drawn directly, which leaves no picture to cache. Set the cache to none.", 0);
+        }
 
         RefuseBounds(className, bounds);
 
         var (compiler, lets) = declarations.Resolve();
 
-        var counter = new SkiaCSharpCodeGenCounter { SkiaSharpTarget = skiaSharp };
+        var counter = new SkiaCSharpCodeGenCounter { SkiaSharpTarget = skiaSharp, TypefaceTemplate = style.Typeface };
         var indent = "            ";
 
         // Record the body first: which helper methods the class needs is decided by what the
         // expression compiler actually produced.
         var bodyBuilder = new StringBuilder();
         var counterPicture = ++counter.Picture;
+        var statics = direct ? new StringBuilder() : null;
+
+        counter.Direct = direct;
+        counter.Statics = statics;
 
         using (SymCSharpEmitter.UseCompiler(compiler))
         {
             picture.ToSKPicture(counter, bodyBuilder, indent);
         }
 
-        bodyBuilder.AppendLine($"{indent}return {counter.PictureVarName}{counterPicture};");
+        counter.Statics = null;
+
+        if (!direct)
+        {
+            bodyBuilder.AppendLine($"{indent}return {counter.PictureVarName}{counterPicture};");
+        }
+
         var body = bodyBuilder.ToString();
 
         // Everything the class will say, which is what decides who is read. The lets are in it
@@ -461,20 +554,56 @@ public static class SkiaCSharpCodeGen
             sb.AppendLine($"");
         }
 
-        // A picture built from parameters cannot be cached in a static field, so the
-        // parameterless shape is kept exactly as it was for documents without declarations.
+        foreach (var (type, name) in counter.StaticFields)
+        {
+            sb.AppendLine($"        private static readonly {type} s_{name};");
+        }
+
+        if (counter.StaticFields.Count > 0)
+        {
+            sb.AppendLine($"");
+        }
+
         if (!isParameterized)
         {
             sb.AppendLine($"        public static SKPicture Picture {{ get; }}");
             sb.AppendLine($"");
+        }
+
+        // A picture built from parameters cannot be cached in a static field, so the
+        // parameterless shape is kept exactly as it was for documents without declarations.
+        if (!isParameterized || counter.StaticFields.Count > 0)
+        {
             sb.AppendLine($"        static {className}()");
             sb.AppendLine($"        {{");
-            sb.AppendLine($"            Picture = Record();");
+            sb.Append(statics);
+
+            // After the fields, which the drawing it records reads.
+            if (!isParameterized)
+            {
+                sb.AppendLine($"            Picture = Record();");
+            }
+
             sb.AppendLine($"        }}");
             sb.AppendLine($"");
         }
 
-        sb.AppendLine($"        {(isParameterized ? "public" : "private")} static SKPicture Record({parameterList})");
+        if (direct)
+        {
+            sb.AppendLine($"        {(isParameterized ? "public" : "private")} static SKPicture Record({parameterList})");
+            sb.AppendLine($"        {{");
+            sb.AppendLine($"            using var {counter.PictureRecorderVarName} = new SKPictureRecorder();");
+            sb.AppendLine($"            Draw({string.Join(", ", new[] { $"{counter.PictureRecorderVarName}.BeginRecording({picture.CullRect.ToSKRect()})" }.Concat(parameters.Select(p => p.Name)))});");
+            sb.AppendLine($"            return {counter.PictureRecorderVarName}.EndRecording();");
+            sb.AppendLine($"        }}");
+            sb.AppendLine($"");
+            sb.AppendLine($"        public static void Draw({string.Join(", ", new[] { $"SKCanvas {counter.CanvasVarName}" }.Concat(isParameterized ? new[] { parameterList } : Array.Empty<string>()))})");
+        }
+        else
+        {
+            sb.AppendLine($"        {(isParameterized ? "public" : "private")} static SKPicture Record({parameterList})");
+        }
+
         sb.AppendLine($"        {{");
 
         foreach (var (parameter, local, defaultCode, type) in computedDefaults)
@@ -501,10 +630,12 @@ public static class SkiaCSharpCodeGen
         sb.Append(body);
 
         sb.AppendLine($"        }}");
-        sb.AppendLine($"");
 
+        // Drawn directly, Draw is the body above; caching was refused for it.
         if (cached)
         {
+            sb.AppendLine($"");
+
             // Drawing happens every frame and arguments move on a hover or a theme flip. A miss
             // costs one comparison per parameter against the cost of recording.
             sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName}, {parameterList})");
@@ -554,8 +685,10 @@ public static class SkiaCSharpCodeGen
 
             sb.AppendLine($"        }}");
         }
-        else if (isParameterized)
+        else if (isParameterized && !direct)
         {
+            sb.AppendLine($"");
+
             // Built for this call and unable to escape, so Draw disposes it at a known point.
             // Record keeps its own contract: what it returns, the caller owns.
             sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName}, {parameterList})");
@@ -566,8 +699,9 @@ public static class SkiaCSharpCodeGen
             sb.AppendLine($"            }}");
             sb.AppendLine($"        }}");
         }
-        else
+        else if (!direct)
         {
+            sb.AppendLine($"");
             sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName})");
             sb.AppendLine($"        {{");
             sb.AppendLine($"            {counter.CanvasVarName}.DrawPicture(Picture);");
@@ -590,7 +724,7 @@ public static class SkiaCSharpCodeGen
 
         sb.AppendLine($"    }}");
 
-        return sb.ToString();
+        return new BuiltClass(sb.ToString(), parameters, withDefaults);
     }
 
     // Optional only where the author gave a default: inventing one would put a value in the

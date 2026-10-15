@@ -21,7 +21,7 @@ that project is one file — the settings, the tree and the drawings themselves.
     </svg>
   </drawing>
 
-  <group name="Large" namespace="Demo.Icons.Large" scale="2">
+  <group name="Large" namespace=".Large" scale="2">
     <drawing name="badge-large" class="BadgeLarge">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">…</svg>
     </drawing>
@@ -36,8 +36,14 @@ that project is one file — the settings, the tree and the drawings themselves.
   It is a label rather than an identifier, so a drawing copied three times is three rows reading the
   same thing until one of them is renamed.
 - Settings are attributes wherever they appear, and a group hands its own down to everything under
-  it: `namespace`, `class`, `padding` and the `width`/`height`/`scale` trio, which moves as one. The
-  project also carries `cache`, `helperScope` and `skiaSharp`. Where the C# goes is not among them:
+  it: `namespace`, `class`, `padding` and the `width`/`height`/`scale` trio, which moves as one. A
+  namespace that starts with a dot continues the one above it: `.Large` under `Demo.Icons` is
+  `Demo.Icons.Large`, and follows the project's when that is renamed. The project's own namespace is
+  written in full, having nothing above it to continue. The project also carries `cache`,
+  `helperScope` and `skiaSharp`, and what shapes the file: `body`,
+  `typeface`, and an API class (`api`, `resizing`, `context`, `order`), with `method` and
+  `parameters` on a drawing (see [shaping the generated file](../packages/svg-codegen-skia#shaping-the-generated-file)).
+  Where the C# goes is not among them:
   an export asks, so nothing in the file can come to disagree with the answer. A project written
   before that carries `output` or `singleFile`; they are dropped as it is read.
 - `x` and `y` say where a row sits on the board of the group holding it — both or neither, and
@@ -48,7 +54,8 @@ that project is one file — the settings, the tree and the drawings themselves.
   drawings' own bytes. Editing one attribute rewrites that attribute.
 
 `File → Export…` writes the project through the build `svgc` runs, so the two cannot come to
-disagree about what the project says.
+disagree about what the project says. The settings only an export reads (`cache`, `helperScope`,
+`skiaSharp` and the ones shaping the file) are asked for there rather than shown in Properties.
 
 ## Opening one
 
@@ -270,6 +277,18 @@ is caught in the box, and one written on an attribute the parser lifts nothing o
 rather than written as braces nobody reads. A value the element's `style` attribute sets reads on its
 row as `red in style`, and the row takes nothing: the declaration wins over the attribute, so it is
 changed under **Inline style** instead.
+
+## Code that calls it the way PaintCode's did
+
+`File → Export…` asks for the settings only an export reads before it asks where the file goes:
+the picture cache, the helper methods, the SkiaSharp version, how `Draw` draws (record a picture,
+or straight onto the canvas), the **Typeface** expression, and a **PaintCode-style API** block with
+the class, the resizing enum, the text context type and the argument order. The answers are kept in
+the project, where svgc reads them too, so the next export opens on them; changing them is one step
+Undo takes back. A drawing's Properties keep its own **API method** and **API arguments**. A
+PaintCode import fills in each drawing's method and the project's argument order. The API takes
+effect once its class is named. What the class looks like is in
+[a PaintCode-style API](../packages/svg-codegen-skia#a-paintcode-style-api).
 
 ## Boxes for the code that draws it
 

@@ -89,29 +89,7 @@ public class SkiaCSharpRenderTests
             SvgHelperScope.PerClass,
             skiaSharp: skiaSharp);
 
-        var assemblyName = $"{Namespace}.{className}.{++s_generation}";
-
-        var compilation = CSharpCompilation.Create(
-            assemblyName,
-            new[] { CSharpSyntaxTree.ParseText(SourceText.From(code)) },
-            CSharpReferences.All,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
-
-        using var peStream = new MemoryStream();
-        var emitted = compilation.Emit(peStream);
-
-        if (!emitted.Success)
-        {
-            var errors = emitted.Diagnostics
-                .Where(d => d.Severity == DiagnosticSeverity.Error)
-                .Select(d => $"{d.Id}: {d.GetMessage()} — {d.Location.GetLineSpan().StartLinePosition}");
-
-            Assert.Fail($"The generated code did not compile:\n{string.Join("\n", errors)}\n\n{code}");
-        }
-
-        peStream.Seek(0, SeekOrigin.Begin);
-
-        var assembly = new AssemblyLoadContext(assemblyName, isCollectible: false).LoadFromStream(peStream);
+        var assembly = Compile(code, className);
         var type = assembly.GetType($"{Namespace}.{className}");
         Assert.NotNull(type);
 
@@ -129,6 +107,33 @@ public class SkiaCSharpRenderTests
         Assert.NotNull(picture);
 
         return picture!;
+    }
+
+    private static Assembly Compile(string code, string name, params string[] alongside)
+    {
+        var assemblyName = $"{Namespace}.{name}.{++s_generation}";
+
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            new[] { code }.Concat(alongside).Select(text => CSharpSyntaxTree.ParseText(SourceText.From(text))),
+            CSharpReferences.All,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
+
+        using var peStream = new MemoryStream();
+        var emitted = compilation.Emit(peStream);
+
+        if (!emitted.Success)
+        {
+            var errors = emitted.Diagnostics
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .Select(d => $"{d.Id}: {d.GetMessage()} — {d.Location.GetLineSpan().StartLinePosition}");
+
+            Assert.Fail($"The generated code did not compile:\n{string.Join("\n", errors)}\n\n{code}");
+        }
+
+        peStream.Seek(0, SeekOrigin.Begin);
+
+        return new AssemblyLoadContext(assemblyName, isCollectible: false).LoadFromStream(peStream);
     }
 
     private static string Draw(SKPicture picture, string path)
@@ -162,6 +167,53 @@ public class SkiaCSharpRenderTests
         using var generated = Generated(model, name, skiaSharp, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
 
         AssertSamePicture(name, runtime!, generated);
+        AssertDrawsDirectlyTheSame(name, model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), skiaSharp);
+    }
+
+    /// <summary>
+    /// The same drawing drawn directly: recorded through its Record, and drawn by its Draw onto a
+    /// canvas that already holds a transform of its own, which every matrix it sets is relative to.
+    /// </summary>
+    private static void AssertDrawsDirectlyTheSame(
+        string name,
+        ShimPicture model,
+        SKPicture runtime,
+        SvgExpressionDeclarations declarations,
+        object?[] arguments,
+        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4,
+        string? typeface = null)
+    {
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(model, Namespace, name, declarations) },
+            SvgHelperScope.PerClass,
+            skiaSharp: skiaSharp,
+            style: new SvgCodeStyle { Body = SvgBody.Direct, Typeface = typeface });
+
+        var type = Compile(code, name).GetType($"{Namespace}.{name}")!;
+
+        using var recorded = (SKPicture)type.GetMethod("Record", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, arguments)!;
+        AssertSamePicture($"{name}-direct", runtime, recorded);
+
+        var cull = runtime.CullRect;
+        var under = new SKRect(0, 0, cull.Width * 1.5f + 6, cull.Height * 1.5f + 10);
+
+        // Against its own recording rather than the runtime's: under a fractional scale those two
+        // already differ along antialiased edges in record mode too (Gradients, RMS 0.0023).
+        using var expected = Transformed(under, canvas => canvas.DrawPicture(recorded));
+        using var actual = Transformed(under, canvas => type.GetMethod("Draw")!.Invoke(null, new object?[] { canvas }.Concat(arguments).ToArray()));
+
+        AssertSamePicture($"{name}-direct-transformed", expected, actual);
+    }
+
+    private static SKPicture Transformed(SKRect cull, Action<SKCanvas> draw)
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(cull);
+        canvas.Translate(6, 10);
+        canvas.Scale(1.5f);
+        draw(canvas);
+
+        return recorder.EndRecording();
     }
 
     /// <summary>
@@ -197,6 +249,7 @@ public class SkiaCSharpRenderTests
             arguments ?? Array.Empty<object?>());
 
         AssertSamePicture(name, runtime!, generated);
+        AssertDrawsDirectlyTheSame(name, model, runtime!, declarations, arguments ?? Array.Empty<object?>());
 
         // The runtime path resolving the same expressions, which the comparison above cannot show
         // because the renderer there draws the placeholder.
@@ -1243,4 +1296,206 @@ public class SkiaCSharpRenderTests
               <path d="M 2 2 H 22 V 22 H 2 Z M 7 7 H 17 V 17 H 7 Z" fill="#1e40af" fill-rule="evenodd" />
             </svg>
             """, SkiaSharpTarget.V3);
+
+    [Fact]
+    public void A_Non_Scaling_Stroke_Under_A_Transform()
+        // The one place a body reads the canvas matrix and resets it, which drawn directly has to
+        // mean the caller's matrix rather than identity.
+        => AssertRendersTheSame("NonScalingStroke", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(2 3) scale(2 1.5)">
+                <path d="M 1 1 L 9 1 L 9 9 Z" fill="none" stroke="#1e40af" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+              </g>
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Pattern_Fill_Draws_Directly_As_It_Records()
+    {
+        // A picture inside a paint, which stays recorded however the drawing around it is drawn.
+        // Against the recorded body, because that already differs from the runtime's (RMS 0.0027).
+        var model = Model("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <pattern id="dots" width="6" height="6" patternUnits="userSpaceOnUse">
+                  <circle cx="3" cy="3" r="2" fill="#f97316" />
+                </pattern>
+              </defs>
+              <rect x="2" y="2" width="20" height="20" fill="url(#dots)" />
+            </svg>
+            """);
+
+        using var recorded = Generated(model, "Pattern", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+
+        AssertDrawsDirectlyTheSame("Pattern", model, recorded, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+    }
+
+    [Fact]
+    public void A_Typeface_Template_Draws_The_Typeface_It_Names()
+    {
+        // One file for both sides. A family looked up by name resolves differently in the runtime's
+        // typeface providers and in a font manager: the same text missed by RMS 0.06 on Linux and
+        // 0.003 on Windows while matching on macOS.
+        var font = Path.GetFullPath(Path.Combine("..", "..", "..", "..", "..", "externals", "resvg", "crates", "resvg", "tests", "fonts", "NotoSans-Regular.ttf"));
+        var settings = new SKSvgSettings();
+        settings.TypefaceProviders!.Insert(0, new Svg.Skia.TypefaceProviders.CustomTypefaceProvider(font));
+
+        var document = SvgService.FromSvg("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 24" width="48" height="24">
+              <text x="4" y="18" font-family="Noto Sans" font-size="14" fill="#1e40af">Ab7</text>
+            </svg>
+            """);
+        Assert.NotNull(document);
+
+        var model = SvgSceneRuntime.CreateModel(document!, new SkiaSvgAssetLoader(new SkiaModel(settings)));
+        Assert.NotNull(model);
+
+        // Or both sides fall back to whatever the machine has, and match only where they agree on it.
+        Assert.True(File.Exists(font), font);
+        Assert.Equal("Noto Sans", Assert.Single(Families(model!).Distinct()));
+
+        static IEnumerable<string> Families(ShimPicture picture)
+            => (picture.Commands ?? Enumerable.Empty<ShimSkiaSharp.CanvasCommand>()).SelectMany(command => command switch
+            {
+                ShimSkiaSharp.DrawPictureCanvasCommand { Picture: { } nested } => Families(nested),
+                ShimSkiaSharp.DrawPositionedTextRunCanvasCommand run => new[] { run.Font?.Typeface?.FamilyName ?? run.Paint?.Typeface?.FamilyName },
+                ShimSkiaSharp.DrawTextCanvasCommand text => new[] { text.Font?.Typeface?.FamilyName ?? text.Paint?.Typeface?.FamilyName },
+                _ => Array.Empty<string?>()
+            }).OfType<string>();
+
+        using var runtime = new SkiaModel(settings).ToSKPicture(model!);
+        Assert.NotNull(runtime);
+
+        var template = $"SKTypeface.FromFile(@\"{font}\")";
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(model!, Namespace, "TypefaceTemplate", SvgExpressionDeclarations.Empty) },
+            SvgHelperScope.PerClass,
+            style: new SvgCodeStyle { Typeface = template });
+
+        Assert.Contains("SKTypeface.FromFile(", code);
+        Assert.DoesNotContain("SKFontManager", code);
+
+        var type = Compile(code, "TypefaceTemplate").GetType($"{Namespace}.TypefaceTemplate")!;
+        using var generated = (SKPicture)type.GetMethod("Record", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, null)!;
+
+        AssertSamePicture("TypefaceTemplate", runtime!, generated);
+        AssertDrawsDirectlyTheSame("TypefaceTemplateDirect", model!, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), typeface: template);
+    }
+
+    /// <summary>What a PaintCode host keeps beside the API, which the generated code only names.</summary>
+    private const string PaintCodeHost = """
+        namespace PaintCode
+        {
+            public enum ResizingBehavior { AspectFit, AspectFill, Stretch, Center }
+            public class Context { }
+        }
+        """;
+
+    private const string FacadeTank = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="30" height="30">
+          <defs><e:code>
+            <e:param name="level" type="number" default="1" />
+            <e:param name="state" type="boolean" default="true" />
+            <e:param name="accentColorOn" type="color" default="#f00" />
+          </e:code></defs>
+          <circle cx="15" cy="15" r="13" fill="none" stroke="#1e40af" stroke-width="2" />
+          <rect x="6" y="{{ 24 - level * 18 }}" width="18" height="{{ level * 18 }}" fill="{{ state ? accentColorOn : '#888888' }}" />
+        </svg>
+        """;
+
+    /// <summary>
+    /// The facade drawn into <paramref name="frame"/>: by the plain overload when it is null, by the
+    /// framed one with <c>Stretch</c> otherwise.
+    /// </summary>
+    private static SKPicture DrawnThroughTheApi(SKRect cull, SKRect? frame, object?[] arguments, out SKRect box)
+    {
+        var model = Model(FacadeTank);
+        var drawing = new SkiaCSharpDrawing(
+            model,
+            Namespace,
+            "FacadeTank",
+            SvgExpressionDeclarations.Parse(FacadeTank),
+            bounds: new[] { ("LevelRect", new ShimSkiaSharp.SKRect(6, 6, 24, 24)) })
+        {
+            Method = "drawTanklevel"
+        };
+
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { drawing },
+            style: new SvgCodeStyle
+            {
+                Api = "PaintCodeResources.VectorIconsResource",
+                Resizing = "PaintCode.ResizingBehavior",
+                Order = new[] { "accentColorOn", "state", "level" }
+            });
+
+        var assembly = Compile(code, "Facade", PaintCodeHost);
+        var api = assembly.GetType("PaintCodeResources.VectorIconsResource")!;
+        var stretch = Enum.Parse(assembly.GetType("PaintCode.ResizingBehavior")!, "Stretch");
+
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(cull);
+
+        var method = api.GetMethods().Single(m => m.Name == "drawTanklevel" && m.GetParameters().Length == (frame is null ? 5 : 7));
+        var call = new object?[] { canvas }
+            .Concat(frame is { } target ? new object?[] { target, stretch } : Array.Empty<object?>())
+            .Concat(arguments)
+            .Append(null)
+            .ToArray();
+
+        method.Invoke(null, call);
+        box = (SKRect)call[^1]!;
+
+        return recorder.EndRecording();
+    }
+
+    private static SKPicture RuntimeTank(SKRect cull, float scale, SKColor accent, bool state, float level)
+    {
+        var model = Model(FacadeTank);
+        var declarations = SvgExpressionDeclarations.Parse(FacadeTank);
+        var evaluated = SvgSceneExpressionEvaluator.Evaluate(
+            model,
+            declarations,
+            new Dictionary<string, ExprValue>(StringComparer.Ordinal)
+            {
+                ["accentColorOn"] = ExprValue.Color(accent.Red, accent.Green, accent.Blue, accent.Alpha),
+                ["state"] = ExprValue.Boolean(state),
+                ["level"] = ExprValue.Number(level)
+            });
+
+        using var drawn = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
+        Assert.NotNull(drawn);
+
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(cull);
+        canvas.Scale(scale);
+        canvas.DrawPicture(drawn);
+
+        return recorder.EndRecording();
+    }
+
+    [Fact]
+    public void The_Api_Draws_What_The_Drawing_Draws_From_Positional_Arguments()
+    {
+        var cull = new SKRect(0, 0, 30, 30);
+        var accent = new SKColor(0x22, 0xc5, 0x5e);
+
+        using var runtime = RuntimeTank(cull, 1f, accent, true, 0.4f);
+        using var generated = DrawnThroughTheApi(cull, null, new object?[] { accent, true, 0.4f }, out var box);
+
+        AssertSamePicture("FacadePlain", runtime, generated);
+        Assert.Equal(new SKRect(6, 6, 24, 24), box);
+    }
+
+    [Fact]
+    public void The_Framed_Overload_Stretches_The_Drawing_Into_The_Target()
+    {
+        var cull = new SKRect(0, 0, 60, 60);
+        var accent = new SKColor(0xf9, 0x73, 0x16);
+
+        using var runtime = RuntimeTank(cull, 2f, accent, false, 0.75f);
+        using var generated = DrawnThroughTheApi(cull, cull, new object?[] { accent, false, 0.75f }, out _);
+
+        AssertSamePicture("FacadeFramed", runtime, generated);
+    }
 }

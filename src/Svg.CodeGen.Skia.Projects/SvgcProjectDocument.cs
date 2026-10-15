@@ -169,8 +169,13 @@ public abstract class SvgcProjectNode
     }
 
     /// <summary>The nearest node that names <paramref name="name"/>, and what it says.</summary>
+    /// <remarks>A namespace joins what the nodes above say; a recipe path or a padding can start with a dot too, and does not.</remarks>
     private protected string? Nearest(string name, bool includeProject)
-        => Ancestry(includeProject).Select(node => node.GetSetting(name)).FirstOrDefault(value => value is { });
+    {
+        var values = Ancestry(includeProject).Select(node => node.GetSetting(name));
+
+        return name == "namespace" ? SvgcProject.ResolveNamespace(values) : values.FirstOrDefault(value => value is { });
+    }
 
     /// <summary>
     /// The nearest node that names any of width, height or scale.
@@ -461,6 +466,18 @@ public sealed class SvgcProjectDrawing : SvgcProjectNode
         set => Element.SetAttributeValue("output", Trimmed(value));
     }
 
+    public string? Method
+    {
+        get => SvgcProjectDocument.Attribute(Element, "method");
+        set => Element.SetAttributeValue("method", Trimmed(value));
+    }
+
+    public string? Parameters
+    {
+        get => SvgcProjectDocument.Attribute(Element, "parameters");
+        set => Element.SetAttributeValue("parameters", Trimmed(value));
+    }
+
     public string ResolvedInput => SvgcProjectDocument.Resolve(Input, BaseDirectory)!;
 
     public string? ResolvedOutput => SvgcProjectDocument.Resolve(Output, BaseDirectory);
@@ -509,6 +526,22 @@ public sealed class SvgcProjectRoot : SvgcProjectGroup
     }
 
     public string? ResolvedSingleFile => SvgcProjectDocument.Resolve(SingleFile, BaseDirectory);
+
+    /// <summary>The positional order of an API method's parameters, as names separated by spaces.</summary>
+    public string? Order
+    {
+        get => GetSetting("order");
+        set => SetSetting("order", value);
+    }
+
+    /// <summary>The settings that shape the generated file, as one value.</summary>
+    public SvgCodeStyle Style => SvgcProject.ParseStyle(
+        GetSetting("api"),
+        GetSetting("resizing"),
+        GetSetting("context"),
+        GetSetting("order"),
+        GetSetting("body"),
+        GetSetting("typeface"));
 
     private static string CacheText(SvgPictureCache cache) => cache switch
     {
@@ -602,12 +635,13 @@ public sealed class SvgcProjectDocument
     private static readonly string[] s_settings =
     {
         "recipe", "namespace", "class", "emit", "cache", "helperScope", "singleFile", "skiaSharp",
-        "width", "height", "scale", "padding"
+        "width", "height", "scale", "padding", "api", "resizing", "context", "order", "body", "typeface"
     };
 
     private static readonly string[] s_itemAttributes =
     {
-        "input", "output", "namespace", "class", "recipe", "width", "height", "scale", "padding"
+        "input", "output", "namespace", "class", "recipe", "width", "height", "scale", "padding",
+        "method", "parameters"
     };
 
     // Everything a drawing can name for itself, less the two that are about one file.
@@ -740,7 +774,7 @@ public sealed class SvgcProjectDocument
         _ = root.Cache;
         _ = root.HelperScope;
         _ = root.SkiaSharp;
-        ValidateSize(root);
+        Validate(root);
 
         var newLine = xml.IndexOf("\r\n", StringComparison.Ordinal) >= 0 ? "\r\n" : "\n";
 
@@ -765,7 +799,11 @@ public sealed class SvgcProjectDocument
                 size?.Width,
                 size?.Height,
                 size?.Scale,
-                drawing.ScopedPadding));
+                drawing.ScopedPadding)
+            {
+                Method = drawing.Method,
+                Parameters = SvgcProject.ParseNames(drawing.Parameters)
+            });
         }
 
         return new SvgcProject(
@@ -781,7 +819,10 @@ public sealed class SvgcProjectDocument
             Root.Height,
             Root.Scale,
             Root.Padding,
-            items);
+            items)
+        {
+            Style = Root.Style
+        };
     }
 
     /// <summary>The document as text, as it would be written.</summary>
@@ -825,7 +866,7 @@ public sealed class SvgcProjectDocument
 
         var group = SvgcProjectGroup.Group(element, parent, baseDirectory);
 
-        ValidateSize(group);
+        Validate(group);
 
         foreach (var child in element.Elements())
         {
@@ -863,16 +904,22 @@ public sealed class SvgcProjectDocument
 
         var drawing = new SvgcProjectDrawing(element, parent, baseDirectory);
 
-        ValidateSize(drawing);
+        Validate(drawing);
 
         return drawing;
     }
 
-    private static void ValidateSize(SvgcProjectNode node)
+    private static void Validate(SvgcProjectNode node)
     {
         _ = node.Width;
         _ = node.Height;
         _ = node.Scale;
+
+        // Only the new form: a namespace in full that a file has always held loads as it did.
+        if (node.Namespace is { } continued && continued.StartsWith(".", StringComparison.Ordinal))
+        {
+            SvgcProject.ParseNamespace(continued, node is not SvgcProjectRoot);
+        }
     }
 
     private static void RequireKnownAttributes(XElement element, string[] allowed, string elementName)

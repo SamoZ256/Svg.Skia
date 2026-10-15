@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 //#define USE_DISPOSE_TYPEFACE
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -372,9 +373,20 @@ public static class SkiaCSharpModelExtensions
         }
     }
 
-    public static void ToSKTypeface(this SKTypeface? typeface, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+    /// <param name="requested">What the document asked for, which a typeface template names in place of what was found.</param>
+    public static void ToSKTypeface(this SKTypeface? typeface, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, SKTypeface? requested = null)
     {
         var counterTypeface = counter.Typeface;
+
+        // A document naming no family asked for the default one, which is what was found.
+        if (counter.TypefaceTemplate is { } template && (requested?.FamilyName ?? typeface?.FamilyName) is { } family)
+        {
+            var style = requested ?? typeface!;
+            var named = SKTypeface.FromFamilyName(family, style.FontWeight, style.FontWidth, style.FontSlant);
+
+            sb.AppendLine($"{indent}var {counter.TypefaceVarName}{counterTypeface} = {Filled(template, named)};");
+            return;
+        }
 
         if (typeface is null || typeface.FamilyName is null)
         {
@@ -420,6 +432,28 @@ public static class SkiaCSharpModelExtensions
         sb.AppendLine($"{indent}        }}");
         sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
+    }
+
+    /// <summary>A typeface template with what it names of <paramref name="typeface"/> written in.</summary>
+    private static string Filled(string template, SKTypeface typeface)
+    {
+        var family = typeface.FamilyName!.Split(',')[0].Trim().Trim('\'', '"');
+        var weight = typeface.FontWeight switch
+        {
+            SKFontStyleWeight.Normal => "Regular",
+            var named when Enum.IsDefined(typeof(SKFontStyleWeight), named) => named.ToString(),
+            var other => ((int)other).ToString(s_ci)
+        };
+
+        // Most templates put these inside a string literal.
+        static string Escaped(string value) => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
+        return template
+            .Replace("{family}", Escaped(family))
+            .Replace("{family-dashed}", Escaped(family.Replace(' ', '-')))
+            .Replace("{weight}", weight)
+            .Replace("{weightValue}", ((int)typeface.FontWeight).ToString(s_ci))
+            .Replace("{slant}", typeface.FontSlant.ToString());
     }
 
     public static string ToSKColor(this SKColor color)
@@ -1485,6 +1519,12 @@ public static class SkiaCSharpModelExtensions
 
     public static void ToSKPaint(this SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
     {
+        if (counter.Statics is { })
+        {
+            Hoist(counter, sb, indent, "SKPaint", $"{counter.PaintVarName}{counter.Paint}", text => paint.ToSKPaint(counter, text, indent));
+            return;
+        }
+
         var counterPaint = counter.Paint;
 
         sb.AppendLine($"{indent}var {counter.PaintVarName}{counterPaint} = new SKPaint();");
@@ -1584,7 +1624,7 @@ public static class SkiaCSharpModelExtensions
         if (paint.Typeface is { })
         {
             var counterTypeface = ++counter.Typeface;
-            paint.Typeface?.ToSKTypeface(counter, sb, indent);
+            paint.Typeface?.ToSKTypeface(counter, sb, indent, paint.RequestedTypeface);
             sb.AppendLine($"{indent}if ({counter.TypefaceVarName}{counterTypeface} is null)");
             sb.AppendLine($"{indent}{{");
             sb.AppendLine($"{indent}    {counter.TypefaceVarName}{counterTypeface} = SKTypeface.Default;");
@@ -1593,6 +1633,7 @@ public static class SkiaCSharpModelExtensions
         }
 
         sb.AppendLine($"{indent}var {counter.FontVarName}{counterFont} = new SKFont({typefaceExpression}, {paint.TextSize.ToFloatString()});");
+        LinearMetrics(counter, sb, indent, counterFont);
 
         if (!paint.IsAntialias)
         {
@@ -1609,7 +1650,16 @@ public static class SkiaCSharpModelExtensions
         }
     }
 
-    public static void ToSKFont(this SKFont font, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+    /// <param name="requested">The typeface the paint drawn with it asked for, which a font does not carry.</param>
+    /// <remarks>
+    /// The runtime shapes text through HarfBuzz, which places glyphs on unhinted advances; DrawText
+    /// takes FreeType's hinted ones on Linux, measured 0.034 RMS apart there and identical on macOS
+    /// and Windows.
+    /// </remarks>
+    private static void LinearMetrics(SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, int counterFont)
+        => sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}.LinearMetrics = true;");
+
+    public static void ToSKFont(this SKFont font, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, SKTypeface? requested = null)
     {
         var counterFont = counter.Font;
         var typefaceExpression = "SKTypeface.Default";
@@ -1617,7 +1667,7 @@ public static class SkiaCSharpModelExtensions
         if (font.Typeface is { })
         {
             var counterTypeface = ++counter.Typeface;
-            font.Typeface?.ToSKTypeface(counter, sb, indent);
+            font.Typeface?.ToSKTypeface(counter, sb, indent, requested);
             sb.AppendLine($"{indent}if ({counter.TypefaceVarName}{counterTypeface} is null)");
             sb.AppendLine($"{indent}{{");
             sb.AppendLine($"{indent}    {counter.TypefaceVarName}{counterTypeface} = SKTypeface.Default;");
@@ -1626,6 +1676,7 @@ public static class SkiaCSharpModelExtensions
         }
 
         sb.AppendLine($"{indent}var {counter.FontVarName}{counterFont} = new SKFont({typefaceExpression}, {font.Size.ToFloatString()}, {font.ScaleX.ToFloatString()}, {font.SkewX.ToFloatString()});");
+        LinearMetrics(counter, sb, indent, counterFont);
 
         if (font.Edging != SKFontEdging.Antialias)
         {
@@ -1711,6 +1762,12 @@ public static class SkiaCSharpModelExtensions
 
     public static void ToSKPath(this SKPath path, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
     {
+        if (counter.Statics is { })
+        {
+            Hoist(counter, sb, indent, "SKPath", $"{counter.PathVarName}{counter.Path}", text => path.ToSKPath(counter, text, indent));
+            return;
+        }
+
         var counterPath = counter.Path;
 
         // SkiaSharp 4 obsoleted every mutating method on SKPath in favour of SKPathBuilder, which
@@ -1836,6 +1893,15 @@ public static class SkiaCSharpModelExtensions
 
     public static void ToSKPath(this ClipPath clipPath, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, out bool isDefault)
     {
+        // Whole or not at all: the paths a clip is assembled from are transformed in place.
+        if (counter.Statics is { })
+        {
+            var nothing = true;
+            Hoist(counter, sb, indent, "SKPath", $"{counter.PathVarName}{counter.Path}", text => clipPath.ToSKPath(counter, text, indent, out nothing), () => !nothing);
+            isDefault = nothing;
+            return;
+        }
+
         var counterPathResult = counter.Path;
         var isDefaultPathResult = true;
 
@@ -1919,6 +1985,72 @@ public static class SkiaCSharpModelExtensions
         isDefault = isDefaultPathResult;
     }
 
+    /// <summary>
+    /// Emits an object into <see cref="SkiaCSharpCodeGenCounter.Statics"/> and reads it from there,
+    /// unless emitting it took something symbolic, which the caller can change from one draw to the next.
+    /// </summary>
+    private static void Hoist(
+        SkiaCSharpCodeGenCounter counter,
+        StringBuilder sb,
+        string indent,
+        string type,
+        string name,
+        Action<StringBuilder> emit,
+        Func<bool>? declared = null)
+    {
+        var statics = counter.Statics!;
+        var symbolic = SymCSharpEmitter.Emitted;
+        var text = new StringBuilder();
+
+        counter.Statics = null;
+
+        try
+        {
+            emit(text);
+        }
+        finally
+        {
+            counter.Statics = statics;
+        }
+
+        if (SymCSharpEmitter.Emitted != symbolic || declared?.Invoke() == false)
+        {
+            sb.Append(text);
+            return;
+        }
+
+        foreach (var line in text.ToString().Split('\n').Select(line => line.TrimEnd('\r')).Where(line => line.Length > 0))
+        {
+            statics.AppendLine(StaticIndent + (line.StartsWith(indent, StringComparison.Ordinal) ? line.Substring(indent.Length) : line.TrimStart()));
+        }
+
+        statics.AppendLine($"{StaticIndent}s_{name} = {name};");
+        counter.StaticFields.Add((type, name));
+        sb.AppendLine($"{indent}var {name} = s_{name};");
+    }
+
+    private const string StaticIndent = "            ";
+
+    /// <summary>The command without the disposal of what it reads from a static field, which outlives every draw.</summary>
+    private static string Shared(string command, SkiaCSharpCodeGenCounter counter)
+    {
+        if (counter.StaticFields.Count == 0)
+        {
+            return command;
+        }
+
+        var kept = command
+            .Split('\n')
+            .Where(line =>
+            {
+                var trimmed = line.Trim();
+                return !trimmed.EndsWith("Dispose();", StringComparison.Ordinal)
+                       || !counter.StaticFields.Any(field => trimmed.StartsWith(field.Name + "?.", StringComparison.Ordinal) || trimmed.StartsWith(field.Name + ".", StringComparison.Ordinal));
+            });
+
+        return string.Join("\n", kept);
+    }
+
     private enum FoldedRange
     {
         Emitted,
@@ -1927,6 +2059,46 @@ public static class SkiaCSharpModelExtensions
     }
 
     public static void ToSKPicture(this SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+    {
+        // A picture inside the drawing is still recorded, and what it builds is disposed with it.
+        var direct = counter.Direct;
+        var statics = counter.Statics;
+        counter.Direct = false;
+        counter.Statics = null;
+
+        try
+        {
+            if (direct)
+            {
+                ToCanvas(picture, counter, sb, indent, statics);
+            }
+            else
+            {
+                ToRecording(picture, counter, sb, indent);
+            }
+        }
+        finally
+        {
+            counter.Statics = statics;
+        }
+    }
+
+    /// <summary>The drawing's commands onto the canvas <c>Draw</c> was given, under whatever it already holds.</summary>
+    private static void ToCanvas(SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, StringBuilder? statics)
+    {
+        var counterCanvas = ++counter.Canvas;
+        var canvas = $"{counter.CanvasVarName}{counterCanvas}";
+
+        sb.AppendLine($"{indent}var {canvas} = {counter.CanvasVarName};");
+        sb.AppendLine($"{indent}var skBase{counterCanvas} = {canvas}.TotalMatrix;");
+        sb.AppendLine($"{indent}var skSave{counterCanvas} = {canvas}.Save();");
+
+        Commands(picture?.Commands, counter, sb, indent, counterCanvas, statics ?? new StringBuilder());
+
+        sb.AppendLine($"{indent}{canvas}.RestoreToCount(skSave{counterCanvas});");
+    }
+
+    private static void ToRecording(SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
     {
         var counterPicture = counter.Picture;
 
@@ -1942,25 +2114,45 @@ public static class SkiaCSharpModelExtensions
         sb.AppendLine($"{indent}var {counter.PictureRecorderVarName}{counterPictureRecorder} = new SKPictureRecorder();");
         sb.AppendLine($"{indent}var {counter.CanvasVarName}{counterCanvas} = {counter.PictureRecorderVarName}{counterPictureRecorder}.BeginRecording({picture.CullRect.ToSKRect()});");
 
-        if (picture.Commands is null)
+        Commands(picture.Commands, counter, sb, indent, counterCanvas, statics: null);
+
+        sb.AppendLine($"{indent}var {counter.PictureVarName}{counterPicture} = {counter.PictureRecorderVarName}{counterPictureRecorder}.EndRecording();");
+        sb.AppendLine($"{indent}{counter.PictureRecorderVarName}{counterPictureRecorder}?.Dispose();");
+        sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}?.Dispose();");
+    }
+
+    /// <param name="statics">
+    /// Set when the commands draw straight onto the caller's canvas, whose matrix is then the base
+    /// every matrix the picture recorded is relative to.
+    /// </param>
+    private static void Commands(
+        IList<CanvasCommand>? commands,
+        SkiaCSharpCodeGenCounter counter,
+        StringBuilder sb,
+        string indent,
+        int counterCanvas,
+        StringBuilder? statics)
+    {
+        if (commands is null)
         {
-            sb.AppendLine($"{indent}var {counter.PictureVarName}{counterPicture} = {counter.PictureRecorderVarName}{counterPictureRecorder}.EndRecording();");
-            sb.AppendLine($"{indent}{counter.PictureRecorderVarName}{counterPictureRecorder}?.Dispose();");
-            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}?.Dispose();");
             return;
         }
+
+        var direct = statics is { };
 
         // A range whose condition folds to false is still emitted, into text that is thrown away:
         // emitting is what type checks its expressions, and a typo hidden behind `{{ false }}` has to
         // fail the build as it did when the range was an `if (false)`.
         var live = sb;
         var discarded = new StringBuilder();
+        var command = new StringBuilder();
         var ranges = new Stack<FoldedRange>();
         var dead = 0;
 
-        foreach (var canvasCommand in picture.Commands)
+        foreach (var canvasCommand in commands)
         {
-            sb = dead > 0 ? discarded : live;
+            sb = dead > 0 ? discarded : direct ? command.Clear() : live;
+            counter.Statics = dead > 0 ? null : statics;
 
             switch (canvasCommand)
             {
@@ -2014,7 +2206,18 @@ public static class SkiaCSharpModelExtensions
                             : setMatrixCanvasCommand.TotalMatrix.ToSKMatrix();
 
                         sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {matrix};");
-                        sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SetMatrix(in {counter.MatrixVarName}{counterMatrix});");
+
+                        if (direct)
+                        {
+                            // Composed by the canvas, as a picture's playback composes it: the same
+                            // product taken in managed code differs from it in the last bits.
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SetMatrix(in skBase{counterCanvas});");
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(ref {counter.MatrixVarName}{counterMatrix});");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SetMatrix(in {counter.MatrixVarName}{counterMatrix});");
+                        }
                         break;
                     }
                 case BeginConditionalCanvasCommand beginConditionalCanvasCommand:
@@ -2187,7 +2390,17 @@ public static class SkiaCSharpModelExtensions
                                 drawPathCanvasCommand.Paint.Style == SKPaintStyle.Stroke)
                             {
                                 var counterNonScalingPath = ++counter.Path;
-                                sb.AppendLine($"{indent}var matrix{counterNonScalingPath} = {counter.CanvasVarName}{counterCanvas}.TotalMatrix;");
+                                if (direct)
+                                {
+                                    // What the picture's own matrices add to the caller's, as a recording would see it.
+                                    sb.AppendLine($"{indent}skBase{counterCanvas}.TryInvert(out var inverse{counterNonScalingPath});");
+                                    sb.AppendLine($"{indent}var matrix{counterNonScalingPath} = inverse{counterNonScalingPath}.PreConcat({counter.CanvasVarName}{counterCanvas}.TotalMatrix);");
+                                }
+                                else
+                                {
+                                    sb.AppendLine($"{indent}var matrix{counterNonScalingPath} = {counter.CanvasVarName}{counterCanvas}.TotalMatrix;");
+                                }
+
                                 sb.AppendLine($"{indent}if (matrix{counterNonScalingPath}.IsIdentity)");
                                 sb.AppendLine($"{indent}{{");
                                 sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.DrawPath({counter.PathVarName}{counterPath}, {counter.PaintVarName}{counterPaint});");
@@ -2195,9 +2408,11 @@ public static class SkiaCSharpModelExtensions
                                 sb.AppendLine($"{indent}else");
                                 sb.AppendLine($"{indent}{{");
                                 sb.AppendLine($"{indent}    using var {counter.PathVarName}{counterNonScalingPath} = new SKPath({counter.PathVarName}{counterPath});");
-                                sb.AppendLine($"{indent}    {counter.PathVarName}{counterNonScalingPath}.Transform(matrix{counterNonScalingPath});");
+                                sb.AppendLine($"{indent}    {counter.PathVarName}{counterNonScalingPath}.Transform(in matrix{counterNonScalingPath});");
                                 sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.Save();");
-                                sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.ResetMatrix();");
+                                sb.AppendLine(direct
+                                    ? $"{indent}    {counter.CanvasVarName}{counterCanvas}.SetMatrix(in skBase{counterCanvas});"
+                                    : $"{indent}    {counter.CanvasVarName}{counterCanvas}.ResetMatrix();");
                                 sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.DrawPath({counter.PathVarName}{counterNonScalingPath}, {counter.PaintVarName}{counterPaint});");
                                 sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.Restore();");
                                 sb.AppendLine($"{indent}}}");
@@ -2248,7 +2463,7 @@ public static class SkiaCSharpModelExtensions
                             var counterFont = ++counter.Font;
                             if (drawPositionedTextRunCanvasCommand.Font is { } textRunFont)
                             {
-                                textRunFont.ToSKFont(counter, sb, indent);
+                                textRunFont.ToSKFont(counter, sb, indent, drawPositionedTextRunCanvasCommand.Paint.RequestedTypeface);
                             }
                             else
                             {
@@ -2329,7 +2544,7 @@ public static class SkiaCSharpModelExtensions
                             var counterFont = ++counter.Font;
                             if (drawPositionedTextCanvasCommand.TextBlob.Font is { } textBlobFont)
                             {
-                                textBlobFont.ToSKFont(counter, sb, indent);
+                                textBlobFont.ToSKFont(counter, sb, indent, drawPositionedTextCanvasCommand.Paint.RequestedTypeface);
                             }
                             else
                             {
@@ -2390,7 +2605,7 @@ public static class SkiaCSharpModelExtensions
                             var counterFont = ++counter.Font;
                             if (drawTextCanvasCommand.Font is { } textFont)
                             {
-                                textFont.ToSKFont(counter, sb, indent);
+                                textFont.ToSKFont(counter, sb, indent, drawTextCanvasCommand.Paint.RequestedTypeface);
                             }
                             else
                             {
@@ -2445,7 +2660,7 @@ public static class SkiaCSharpModelExtensions
                             var counterFont = ++counter.Font;
                             if (drawTextOnPathCanvasCommand.Font is { } textOnPathFont)
                             {
-                                textOnPathFont.ToSKFont(counter, sb, indent);
+                                textOnPathFont.ToSKFont(counter, sb, indent, drawTextOnPathCanvasCommand.Paint.RequestedTypeface);
                             }
                             else
                             {
@@ -2492,12 +2707,13 @@ public static class SkiaCSharpModelExtensions
                         break;
                     }
             }
+
+            if (ReferenceEquals(sb, command))
+            {
+                live.Append(Shared(command.ToString(), counter));
+            }
         }
 
-        sb = live;
-        sb.AppendLine($"{indent}var {counter.PictureVarName}{counterPicture} = {counter.PictureRecorderVarName}{counterPictureRecorder}.EndRecording();");
-
-        sb.AppendLine($"{indent}{counter.PictureRecorderVarName}{counterPictureRecorder}?.Dispose();");
-        sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}?.Dispose();");
+        counter.Statics = statics;
     }
 }

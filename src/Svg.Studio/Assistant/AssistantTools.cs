@@ -108,7 +108,7 @@ public sealed class AssistantTools
         tools.Add(AIFunctionFactory.Create(Move, "move", "Moves a group or drawing into another group."));
         tools.Add(AIFunctionFactory.Create(GetDeclarations, "get_declarations", "Reads the declarations block a group, or the project, gives every drawing under it."));
         tools.Add(AIFunctionFactory.Create(SetDeclarations, "set_declarations", "Replaces the declarations block of a group, or of the project, as a single undo step."));
-        tools.Add(AIFunctionFactory.Create(SetNode, "set_node", "Changes a group's or drawing's project setting: name, namespace, class, padding, width, height, scale, x, y, cache, helperScope or skiaSharp."));
+        tools.Add(AIFunctionFactory.Create(SetNode, "set_node", "Changes a group's or drawing's project setting: name, namespace, class, padding, width, height, scale, x, y, or a drawing's method or parameters. On the project itself, also the settings an export reads: cache, helperScope, skiaSharp, body, typeface, api, resizing, context or order."));
         tools.Add(AIFunctionFactory.Create(Save, "save", "Saves the project, or the drawing in front when it is a file of its own. Asks the person first."));
         tools.Add(AIFunctionFactory.Create(Remove, "remove", "Removes a group or drawing from the project. Asks the person first."));
         tools.Add(AIFunctionFactory.Create(GitCommit, "git_commit", "Saves and commits the project to its git repository. Asks the person first."));
@@ -538,7 +538,7 @@ public sealed class AssistantTools
 
     private Task<string> SetNode(
         [Description("The node path of the group or drawing.")] string node,
-        [Description("The setting: name, namespace, class, padding, width, height, scale, x, y, cache, helperScope or skiaSharp.")] string setting,
+        [Description("The setting: name, namespace, class, padding, width, height, scale, x, y, method, parameters, or on the project cache, helperScope, skiaSharp, body, typeface, api, resizing, context or order.")] string setting,
         [Description("The new value, or empty to clear it so it is inherited again.")] string? value)
         => Ui(() =>
         {
@@ -548,17 +548,45 @@ public sealed class AssistantTools
             }
 
             var text = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            var root = found as ProjectRoot;
+            var exported = root is { } && ExportSettings.Holds(setting);
+
+            // Refused rather than recorded as a step that changed nothing.
+            if (!exported && !GroupPanel.Holds(found, setting))
+            {
+                return $"{Path(found)} has no setting called '{setting}'.";
+            }
 
             try
             {
-                GroupPanel.Validate(setting, text);
+                if (exported)
+                {
+                    ExportSettings.Validate(setting, text);
+                }
+                else
+                {
+                    GroupPanel.Validate(found, setting, text);
+                }
             }
             catch (SvgcProjectException refusal)
             {
                 return refusal.Message;
             }
 
-            workspace.Do(Label($"change {setting}"), () => ProjectSnapshot.Attributes(found), () => GroupPanel.Write(found, setting, text));
+            workspace.Do(
+                Label($"change {setting}"),
+                () => ProjectSnapshot.Attributes(found),
+                () =>
+                {
+                    if (exported)
+                    {
+                        ExportSettings.Write(root!, setting, text);
+                    }
+                    else
+                    {
+                        GroupPanel.Write(found, setting, text);
+                    }
+                });
             Undoable();
 
             return Report($"Set {setting} on {Path(found)}." + Undoes, $"change {setting}");

@@ -27,10 +27,11 @@ public sealed class PaintCodeImportDesk
 /// <summary>One canvas, converted.</summary>
 public sealed class PaintCodeImportDrawing
 {
-    internal PaintCodeImportDrawing(string name, string className, PaintCodeRect? place, XDocument document)
+    internal PaintCodeImportDrawing(string name, string className, string method, PaintCodeRect? place, XDocument document)
     {
         Name = name;
         Class = className;
+        Method = method;
         Place = place;
         Document = document;
     }
@@ -40,6 +41,9 @@ public sealed class PaintCodeImportDrawing
 
     /// <summary>The canvas's name as code spells it.</summary>
     public string Class { get; }
+
+    /// <summary>The method PaintCode's own generated code draws the canvas by.</summary>
+    public string Method { get; }
 
     /// <summary>
     /// Where the canvas sat on its desk, in PaintCode points, or null where the document did not say.

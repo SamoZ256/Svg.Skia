@@ -190,8 +190,13 @@ public abstract class ProjectNode
     }
 
     /// <summary>The nearest node that names <paramref name="name"/>, and what it says.</summary>
+    /// <remarks>A namespace joins what the nodes above say; a padding can start with a dot too, and does not.</remarks>
     private string? Nearest(string name, bool includeProject)
-        => Ancestry(includeProject).Select(node => node.Setting(name)).FirstOrDefault(value => value is { });
+    {
+        var values = Ancestry(includeProject).Select(node => node.Setting(name));
+
+        return name == "namespace" ? SvgcProject.ResolveNamespace(values) : values.FirstOrDefault(value => value is { });
+    }
 
     /// <summary>
     /// The nearest node that names any of width, height or scale.
@@ -772,6 +777,20 @@ public sealed class ProjectDrawing : ProjectNode
     /// </remarks>
     public string? SetText(string svgText) => Inline(svgText, indent: false);
 
+    /// <summary>Its method on the project's API class, where not <c>draw</c> and its class name.</summary>
+    public string? Method
+    {
+        get => ProjectDocument.Attribute(Element, "method");
+        set => Element.SetAttributeValue("method", Trimmed(value));
+    }
+
+    /// <summary>The parameters its API method takes, in order, as names separated by spaces.</summary>
+    public string? Parameters
+    {
+        get => ProjectDocument.Attribute(Element, "parameters");
+        set => Element.SetAttributeValue("parameters", Trimmed(value));
+    }
+
     /// <summary>Where the drawing was imported from, such as <c>streamline:&lt;hash&gt;</c>, or null.</summary>
     public string? Source
     {
@@ -850,6 +869,56 @@ public sealed class ProjectRoot : ProjectGroup
         set => Element.SetAttributeValue("skiaSharp", value is { } target ? SkiaSharpText(target) : null);
     }
 
+    /// <summary>The class every drawing is called through PaintCode's way, or null for none.</summary>
+    public string? Api
+    {
+        get => Setting("api");
+        set => Element.SetAttributeValue("api", Trimmed(value));
+    }
+
+    /// <summary>The host's <c>ResizingBehavior</c> enum, which gives the API class its framed overloads.</summary>
+    public string? Resizing
+    {
+        get => Setting("resizing");
+        set => Element.SetAttributeValue("resizing", Trimmed(value));
+    }
+
+    /// <summary>The type of the argument the API class takes ahead of a text drawing's own.</summary>
+    public string? Context
+    {
+        get => Setting("context");
+        set => Element.SetAttributeValue("context", Trimmed(value));
+    }
+
+    /// <summary>The positional order of an API method's parameters, as names separated by spaces.</summary>
+    public string? Order
+    {
+        get => Setting("order");
+        set => Element.SetAttributeValue("order", Trimmed(value));
+    }
+
+    public SvgBody? Body
+    {
+        get => Setting("body") is { } value ? SvgcProject.ParseBody(value) : null;
+        set => Element.SetAttributeValue("body", value is { } body ? BodyText(body) : null);
+    }
+
+    /// <summary>The C# expression generated code finds its typefaces by, or null for the font manager.</summary>
+    public string? Typeface
+    {
+        get => Setting("typeface");
+        set => Element.SetAttributeValue("typeface", Trimmed(value));
+    }
+
+    /// <summary>The settings that shape the generated file, as one value.</summary>
+    public SvgCodeStyle Style => SvgcProject.ParseStyle(
+        Setting("api"),
+        Setting("resizing"),
+        Setting("context"),
+        Setting("order"),
+        Setting("body"),
+        Setting("typeface"));
+
     /// <summary>The project's import templates, or null where it keeps none.</summary>
     /// <remarks>Not one of <see cref="ProjectGroup.Children"/>, for the reason <see cref="ProjectGroup.Code"/> is not.</remarks>
     public XElement? TemplatesBlock => Block("templates");
@@ -884,7 +953,7 @@ public sealed class ProjectRoot : ProjectGroup
                 "templates",
                 "A project's templates have to be an <e:templates> block.");
 
-    /// <summary>A cache mode as the file spells it, which is also what the Properties pane writes.</summary>
+    /// <summary>A cache mode as the file spells it, which is also what the export's picker writes.</summary>
     internal static string CacheText(SvgPictureCache cache) => cache switch
     {
         SvgPictureCache.LastValue => "lastValue",
@@ -899,6 +968,9 @@ public sealed class ProjectRoot : ProjectGroup
         SvgHelperScope.PerClass => "perClass",
         _ => "file"
     };
+
+    /// <summary>A body as the file spells it.</summary>
+    internal static string BodyText(SvgBody body) => body == SvgBody.Direct ? "direct" : "record";
 
     /// <summary>A SkiaSharp version as the file spells it.</summary>
     internal static string SkiaSharpText(SkiaSharpTarget target) => target == SkiaSharpTarget.V3 ? "3" : "4";
@@ -930,7 +1002,7 @@ public sealed class ProjectDocument
     private static readonly string[] s_settings =
     {
         "namespace", "class", "cache", "helperScope", "skiaSharp",
-        "width", "height", "scale", "padding"
+        "width", "height", "scale", "padding", "api", "resizing", "context", "order", "body", "typeface"
     };
 
     /// <summary>Attributes the format used to have, which a file written before this still carries.</summary>
@@ -956,7 +1028,7 @@ public sealed class ProjectDocument
 
     // A drawing's alone: where it was imported from is a fact about one drawing's text, and a group
     // has no text of its own to have come from anywhere.
-    private static readonly string[] s_drawingAttributes = s_nodeAttributes.Append("source").ToArray();
+    private static readonly string[] s_drawingAttributes = s_nodeAttributes.Concat(new[] { "source", "method", "parameters" }).ToArray();
 
     private ProjectDocument(SvgSourceDocument source, string? path)
     {
@@ -1066,7 +1138,11 @@ public sealed class ProjectDocument
                 // What it is built from rather than what it is: the groups above it declare into it
                 // on the way, and a build that read the drawing alone would generate a Draw with
                 // none of those parameters on it.
-                ProjectDeclarations.Built(drawing, drawing.Text)));
+                ProjectDeclarations.Built(drawing, drawing.Text))
+            {
+                Method = drawing.Method,
+                Parameters = SvgcProject.ParseNames(drawing.Parameters)
+            });
         }
 
         return new SvgcProject(
@@ -1082,7 +1158,10 @@ public sealed class ProjectDocument
             Root.Height,
             Root.Scale,
             Root.Padding,
-            items);
+            items)
+        {
+            Style = Root.Style
+        };
     }
 
     /// <summary>The document as text, as it would be written.</summary>
@@ -1255,6 +1334,12 @@ public sealed class ProjectDocument
         {
             throw new SvgcProjectException(
                 $"<{node.Element.Name.LocalName} name=\"{node.Name}\"> names one of x and y. A place needs both, or neither.");
+        }
+
+        // Only the new form: a namespace in full that a file has always held loads as it did.
+        if (node.Namespace is { } continued && continued.StartsWith(".", StringComparison.Ordinal))
+        {
+            SvgcProject.ParseNamespace(continued, node is not ProjectRoot);
         }
     }
 

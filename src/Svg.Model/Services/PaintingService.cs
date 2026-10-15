@@ -1016,13 +1016,13 @@ internal static class PaintingService
         };
     }
 
-    private static void SetTypeface(SvgTextBase svgText, SKPaint skPaint)
+    private static SKTypeface RequestedTypeface(SvgTextBase svgText)
     {
         var fontFamily = svgText.FontFamily;
         var fontWeight = ToFontStyleWeight(ResolveFontWeight(svgText, svgText.FontWeight));
         var fontWidth = ToFontStyleWidth(svgText.FontStretch);
         var fontStyle = ToFontStyleSlant(svgText.FontStyle);
-        skPaint.Typeface = SKTypeface.FromFamilyName(fontFamily, fontWeight, fontWidth, fontStyle);
+        return SKTypeface.FromFamilyName(fontFamily, fontWeight, fontWidth, fontStyle);
     }
 
     internal static void SetPaintText(SvgTextBase svgText, SKRect skBounds, SKPaint skPaint)
@@ -1081,14 +1081,10 @@ internal static class PaintingService
 
         skPaint.TextSize = fontSize;
 
-        if (resolveTypeface)
-        {
-            SetTypeface(svgText, skPaint);
-        }
-        else
-        {
-            skPaint.Typeface = resolvedTypeface;
-        }
+        var requested = RequestedTypeface(svgText);
+
+        skPaint.RequestedTypeface = requested;
+        skPaint.Typeface = resolveTypeface ? requested : resolvedTypeface;
     }
 
     private static string? ResolveInheritedTextLanguage(SvgElement element)
