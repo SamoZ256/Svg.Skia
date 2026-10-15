@@ -59,6 +59,7 @@ public class MainWindowImportTests : IDisposable
 
         Assert.Equal("sample", options.SuggestedFileName);
         Assert.Equal("svgstudio", options.DefaultExtension);
+        Assert.Equal(new[] { "*.svgstudio" }, options.FileTypeChoices!.SelectMany(type => type.Patterns!));
         Assert.Equal("Untitled", MainWindow.SaveProjectOptions(null).SuggestedFileName);
     }
 

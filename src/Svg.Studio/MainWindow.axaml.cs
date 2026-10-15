@@ -3914,7 +3914,12 @@ public partial class MainWindow : Window
         Title = "Save project",
         SuggestedFileName = Path.GetFileNameWithoutExtension(suggested ?? "Untitled"),
         DefaultExtension = "svgstudio",
-        FileTypeChoices = new List<FilePickerFileType> { StudioFileDialogService.Projects }
+        // Not the open filter's studio.xml and .svgcproj: the macOS panel would take foo.xml as a
+        // name, and the project folder would be called that.
+        FileTypeChoices = new List<FilePickerFileType>
+        {
+            new("Svg Studio Project") { Patterns = new[] { "*" + ProjectPackage.Extension } }
+        }
     };
 
     /// <summary>A name typed into a box under the question, or null when it was dismissed or left empty.</summary>
@@ -4137,7 +4142,7 @@ public partial class MainWindow : Window
         /// extension is what matches either way. The svgc project is here too, since Open takes
         /// one by converting it.
         /// </remarks>
-        internal static readonly FilePickerFileType Projects = new("Svg Studio Projects")
+        private static readonly FilePickerFileType Projects = new("Svg Studio Projects")
         {
             Patterns = new[] { "*.svgstudio", ProjectPackage.Manifest, "*.svgcproj" },
             MimeTypes = new[] { "inode/directory", "application/xml" }
