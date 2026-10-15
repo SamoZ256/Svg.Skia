@@ -209,6 +209,73 @@ if (svg.Load(&quot;Assets/icon.svg&quot;) is not null &amp;&amp; svg.Model is no
 <pre><code class="language-csharp">public static readonly SKRect @LevelRect = new SKRect(2f, 6f, 28f, 24f);
 </code></pre>
 <p>The numbers are in the generated picture's coordinates: after the viewBox, any size or padding the build applies, and every transform above the element, so a turned box gives the upright box around it. A box a parameter moves is measured at the declared defaults, with a warning. The build skips two kinds of mark: one under <code>&lt;defs&gt;</code>, and one with no place of its own in the drawing, such as a mark inside a <code>&lt;clipPath&gt;</code>. It warns about the second. A name that is not letters, digits and underscores, is used twice, or clashes with <code>Record</code>, <code>Draw</code>, <code>Picture</code> or the class itself stops the build. A direct <code>SkiaCSharpCodeGen.GenerateFile</code> caller passes the boxes on <code>SkiaCSharpDrawing</code>. The source generator and Svg Studio's export of a lone drawing ignore the mark. The <a href="/Svg.Skia/articles/packages/svg-paintcode">PaintCode import</a> writes one for every shape named <code>Embed&lt;X&gt;</code>, and <a href="/Svg.Skia/articles/guides/svg-studio#boxes-for-the-code-that-draws-it">Svg Studio</a> shows and names them.</p>
+<h2 id="shaping-the-generated-file">Shaping the generated file</h2>
+<p><code>GenerateFile</code> takes an <code>SvgCodeStyle</code>. Every member left at its default writes the file the
+generator always has, byte for byte. A project build reads the same settings from the project:
+<code>&lt;body&gt;</code>, <code>&lt;typeface&gt;</code>, <code>&lt;api&gt;</code>, <code>&lt;resizing&gt;</code>, <code>&lt;context&gt;</code> and <code>&lt;order&gt;</code> on an <code>.svgcproj</code> root, and
+<code>method</code> and <code>parameters</code> on an <code>&lt;svg&gt;</code>. Svg Studio keeps them as attributes of <code>&lt;studio&gt;</code> and
+<code>&lt;drawing&gt;</code>.</p>
+<h3 id="drawing-straight-onto-the-canvas">Drawing straight onto the canvas</h3>
+<p><code>body</code> <code>direct</code> makes <code>Draw</code> draw the drawing onto the canvas it is given, instead of recording a
+picture and drawing that. Each matrix the drawing sets is composed onto the caller's matrix by the
+canvas, so drawing under a transform gives the same pixels as recording and then drawing. A path,
+and a paint that no argument changes, is built once in the static constructor and read from a
+field. A paint that follows an argument is still built on every draw. <code>Record</code> stays, and records
+<code>Draw</code>. A picture cache has nothing to keep in this mode, so the two together are refused.</p>
+<h3 id="naming-typefaces">Naming typefaces</h3>
+<p>The recorded picture holds whatever typeface the compiling machine found. Where <em>SF UI Display</em> is
+not installed, that is <em>Times</em>. <code>typeface</code> replaces the font-manager lookup with an expression from
+the host, filled in from what the document asked for:</p>
+<pre><code class="language-text">PaintCode.TypefaceManager.GetTypeface(&quot;{family-dashed}-{weight}.otf&quot;)
+  → PaintCode.TypefaceManager.GetTypeface(&quot;SF-UI-Display-Medium.otf&quot;)
+</code></pre>
+<p>The placeholders are <code>{family}</code>, <code>{family-dashed}</code>, <code>{weight}</code> (<code>Regular</code>, <code>Medium</code>, <code>Bold</code>…),
+<code>{weightValue}</code> (<code>500</code>) and <code>{slant}</code>.</p>
+<h3 id="a-paintcode-style-api">A PaintCode-style API</h3>
+<p><code>api</code> names one more class, appended to the file. It calls every drawing the way code that
+PaintCode generated is called:</p>
+<pre><code class="language-csharp">namespace PaintCodeResources
+{
+    public static partial class VectorIconsResource
+    {
+        public static void drawTanklevel(SKCanvas canvas, SKColor accentColorOn, SKColor colorPurple,
+            SKColor blackColor_, SKColor whiteColor_, bool state, bool accent, bool enabled, bool isLight, float level)
+            =&gt; global::Icons.Analog.TankLevel.Draw(canvas, /* every argument, by name */);
+
+        public static void drawTanklevel(SKCanvas canvas, SKRect targetFrame,
+            global::PaintCode.ResizingBehavior resizing, /* the same */) { /* fitted, then drawn */ }
+
+        public static void drawAnaloglevel(SKCanvas canvas, SKColor accentColorOn, bool enabled,
+            float level, out SKRect levelRect) { /* drawn; levelRect = AnalogLevel.LevelRect */ }
+    }
+}
+</code></pre>
+<ul>
+<li><strong>Method name.</strong> A drawing's <code>method</code>, or <code>draw</code> and its class name. A PaintCode import writes
+each drawing's <code>method</code> as PaintCode named it.</li>
+<li><strong>Arguments.</strong> Every parameter the drawing declares, in the order <code>order</code> lists them; names not
+in the list come after it, as declared. No argument has a default, so a positional call means what
+it meant to PaintCode. A drawing's <code>parameters</code> lists its own exact order instead. A name there
+that the drawing does not declare is still accepted and ignored, and takes its type from another
+drawing that declares it. A PaintCode import writes <code>order</code> as the library's parameter colours,
+then its parameter variables.</li>
+<li><strong><code>resizing</code></strong> names the host's <code>ResizingBehavior</code> enum (<code>AspectFit</code>, <code>AspectFill</code>, <code>Stretch</code>,
+<code>Center</code>). Each drawing then gets the overload taking <code>(SKRect targetFrame, resizing)</code>, which fits
+the drawing into the target the way PaintCode's <code>ResizingBehaviorApply</code> does.</li>
+<li><strong><code>context</code></strong> names the type a drawing whose document holds text takes ahead of its own
+arguments. The text counts even if it is hidden.</li>
+<li><strong>Boxes.</strong> Each <code>e:bounds</code> box comes back as an <code>out SKRect</code> with its first letter lowered.</li>
+</ul>
+<p>The class is <code>partial</code>, so the host can keep what else it held beside it. The build refuses an API
+class with no single file to go in, two drawings that would be the same overload, and a drawing
+namespace that would hide the class from callers (a top-level <code>VectorIconsResource</code> namespace beside
+a <code>VectorIconsResource</code> class).</p>
+<p>Measured over the PaintCode sample in <a href="/Svg.Skia/articles/packages/svg-paintcode">Svg.PaintCode</a>, 1,379 of PaintCode's 1,380
+overloads have one of the same name, argument types and argument names, in the same order. That
+count needs <code>parameters</code> on Questionmark and Ventilation, which take arguments nothing they draw
+reads; without it, three methods differ. The one left is a canvas with a dynamic frame variable.
+Numbers come across as <code>float</code>, as PaintCode's are: import without <em>whole numbers as integers</em>,
+which turns <code>step</code> into an <code>int</code>.</p>
 <h2 id="why-use-this-package-instead-of-the-source-generator">Why use this package instead of the source generator</h2>
 <p>Choose <code>Svg.CodeGen.Skia</code> when generation is an explicit build step and you want control over:</p>
 <ul>

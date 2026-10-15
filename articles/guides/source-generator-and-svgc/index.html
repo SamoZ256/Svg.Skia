@@ -386,7 +386,7 @@ than this, as a single picture built in the static constructor.</p>
   &lt;svg input=&quot;home.svg&quot; class=&quot;Home&quot; /&gt;
   &lt;svg input=&quot;badge.svg&quot; class=&quot;Badge&quot; padding=&quot;0&quot; /&gt;
 
-  &lt;group namespace=&quot;Demo.Icons.Large&quot; scale=&quot;2&quot;&gt;
+  &lt;group namespace=&quot;.Large&quot; scale=&quot;2&quot;&gt;
     &lt;svg input=&quot;badge.svg&quot; class=&quot;BadgeLarge&quot; /&gt;
   &lt;/group&gt;
 &lt;/svgc&gt;
@@ -400,6 +400,9 @@ named once and an item only says what differs. <code>padding</code> is one of th
 asking for no room around it.</li>
 <li>A <code>&lt;group&gt;</code> is folded into its drawings as the project is read, so a drawing carries what its
 groups said as if it had said it itself.</li>
+<li>A namespace that starts with a dot continues the one above it, so <code>.Large</code> above is
+<code>Demo.Icons.Large</code>. One that continues all the way to the top continues the project's namespace,
+or <code>-n</code>'s when it is given, which therefore has to be written in full.</li>
 <li><code>&lt;singleFile&gt;</code> folds every drawing into one C# file, which also lets them share one copy of the
 emitted expression helpers. Without it, each <code>&lt;svg&gt;</code> needs its own <code>output</code>.</li>
 <li>A command line flag beats the project file, which beats the built-in default.</li>

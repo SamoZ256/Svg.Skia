@@ -173,6 +173,9 @@ an <code>XDocument</code> — which is how a caller that keeps the drawings rath
 project it wrote, so every other flag means what it already meant. In
 <a href="/Svg.Skia/articles/guides/svg-studio">Svg Studio</a>, opening or dropping a <code>.pcvd</code> converts it into one project
 holding every drawing, opened unsaved and unnamed — saving it asks where it goes.</p>
+<p>An import also records how PaintCode's own generated code called each canvas: its method name and
+the order of its arguments. A project that names an API class then generates one that callers of
+PaintCode's class can keep calling. See <a href="/Svg.Skia/articles/packages/svg-codegen-skia#a-paintcode-style-api">a PaintCode-style API</a>.</p>
 <h2 id="what-comes-across">What comes across</h2>
 <table class="table">
 <thead>
@@ -184,7 +187,7 @@ holding every drawing, opened unsaved and unnamed — saving it asks where it go
 <tbody>
 <tr>
 <td>A desk</td>
-<td>A folder</td>
+<td>A folder, and a group of the project whose namespace continues the project's (<code>.Overlays</code>)</td>
 </tr>
 <tr>
 <td>A canvas</td>
