@@ -1633,6 +1633,7 @@ public static class SkiaCSharpModelExtensions
         }
 
         sb.AppendLine($"{indent}var {counter.FontVarName}{counterFont} = new SKFont({typefaceExpression}, {paint.TextSize.ToFloatString()});");
+        LinearMetrics(counter, sb, indent, counterFont);
 
         if (!paint.IsAntialias)
         {
@@ -1650,6 +1651,14 @@ public static class SkiaCSharpModelExtensions
     }
 
     /// <param name="requested">The typeface the paint drawn with it asked for, which a font does not carry.</param>
+    /// <remarks>
+    /// The runtime shapes text through HarfBuzz, which places glyphs on unhinted advances; DrawText
+    /// takes FreeType's hinted ones on Linux, measured 0.034 RMS apart there and identical on macOS
+    /// and Windows.
+    /// </remarks>
+    private static void LinearMetrics(SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, int counterFont)
+        => sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}.LinearMetrics = true;");
+
     public static void ToSKFont(this SKFont font, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, SKTypeface? requested = null)
     {
         var counterFont = counter.Font;
@@ -1667,6 +1676,7 @@ public static class SkiaCSharpModelExtensions
         }
 
         sb.AppendLine($"{indent}var {counter.FontVarName}{counterFont} = new SKFont({typefaceExpression}, {font.Size.ToFloatString()}, {font.ScaleX.ToFloatString()}, {font.SkewX.ToFloatString()});");
+        LinearMetrics(counter, sb, indent, counterFont);
 
         if (font.Edging != SKFontEdging.Antialias)
         {
