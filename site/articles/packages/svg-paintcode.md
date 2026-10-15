@@ -43,11 +43,15 @@ project it wrote, so every other flag means what it already meant. In
 [Svg Studio](../guides/svg-studio), opening or dropping a `.pcvd` converts it into one project
 holding every drawing, opened unsaved and unnamed — saving it asks where it goes.
 
+An import also records how PaintCode's own generated code called each canvas: its method name and
+the order of its arguments. A project that names an API class then generates one that callers of
+PaintCode's class can keep calling. See [a PaintCode-style API](svg-codegen-skia#a-paintcode-style-api).
+
 ## What comes across
 
 | PaintCode | SVG |
 | --- | --- |
-| A desk | A folder |
+| A desk | A folder, and a group of the project whose namespace continues the project's (`.Overlays`) |
 | A canvas | One `.svg`, and one row of the project — or one drawing of a Studio project |
 | A group | `<g>`, with its clip as a `<clipPath>` |
 | Bezier, rectangle, rounded rectangle, oval, star, polygon | `<path>`, or `<rect>` and `<ellipse>` where those say it |

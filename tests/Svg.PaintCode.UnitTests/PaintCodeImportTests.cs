@@ -30,7 +30,8 @@ public class PaintCodeImportTests
             var drawing = Assert.IsType<SvgcProjectDrawing>(Assert.Single(group.Children));
 
             Assert.Equal("Icons", project.Root.Namespace);
-            Assert.Equal("Icons.Overlays", group.Namespace);
+            Assert.Equal(".Overlays", group.Namespace);
+            Assert.Equal("Icons.Overlays", group.EffectiveNamespace);
             Assert.Equal("overlays/overlay-error.svg", drawing.Input);
             Assert.Equal("overlays/overlay-error.cs", drawing.Output);
             Assert.Equal("OverlayError", drawing.Class);
@@ -53,6 +54,35 @@ public class PaintCodeImportTests
         Assert.Equal("Number2State", PaintCodeSlug.Pascal("number 2-state"));
         Assert.Equal("_2State", PaintCodeSlug.Pascal("2-state"));
     }
+
+    [Theory]
+    [InlineData("overlay-error", "drawOverlayerror")]
+    [InlineData("overlay-error_big", "drawOverlayerror_big")]
+    [InlineData("_scene off2", "draw_sceneoff2")]
+    [InlineData("symbol forceUp Stop", "drawSymbolforceUpStop")]
+    [InlineData("10colors", "draw_10colors")]
+    public void A_Canvas_Is_Drawn_By_The_Method_PaintCode_Names_It(string canvas, string method)
+        => Assert.Equal(method, PaintCodeSlug.Method(canvas));
+
+    [Fact]
+    public void The_Project_Says_How_PaintCode_Calls_Every_Drawing()
+        => Imported((result, _) =>
+        {
+            var project = SvgcProjectDocument.Load(result.ProjectPath!);
+            var group = Assert.IsType<SvgcProjectGroup>(Assert.Single(project.Root.Children));
+
+            Assert.Equal("drawOverlayerror", Assert.IsType<SvgcProjectDrawing>(Assert.Single(group.Children)).Method);
+            Assert.NotNull(project.Root.Order);
+
+            // Neither shapes anything until an API class is named.
+            Assert.Null(project.Root.Style.Api);
+        });
+
+    [Fact]
+    public void Arguments_Come_In_The_Library_Order_Colours_First()
+        => Assert.Equal(
+            new[] { "tint", "a", "b", "s", "x", "y", "state", "enabled", "n", "f" },
+            PaintCodeImport.ParameterOrder(PaintCodeDocument.Parse(ScopeDocument.Bytes())));
 
     /// <summary>The one variable a kind document declares, as the expression format would take it.</summary>
     private static PaintCodeDeclaration Declared(int kind, int type)

@@ -245,10 +245,13 @@ class Program
         {
             try
             {
+                // Standing in for the project's own, which has nothing above it to continue.
+                var flagNamespace = SvgcProject.ParseNamespace(settings.Namespace, relative: false);
+
                 // An import is a build of the project it just wrote, so the flag names the source and
                 // everything else on the command line goes on meaning what it already meant.
                 var projectPath = settings.PaintCode is { } paintCode
-                    ? Import(paintCode.FullName, settings.Namespace, settings.PaintCodeIntegers)
+                    ? Import(paintCode.FullName, flagNamespace, settings.PaintCodeIntegers)
                     : settings.ProjectFile?.FullName;
 
                 var project = projectPath is { }
@@ -262,7 +265,7 @@ class Program
                 var scope = settings.HelperScope is { } ? SvgcProject.ParseHelperScope(settings.HelperScope) : project?.HelperScope ?? SvgHelperScope.FileLocal;
                 var skiaSharp = settings.SkiaSharp is { } ? SvgcProject.ParseSkiaSharpTarget(settings.SkiaSharp) : project?.SkiaSharp ?? SkiaSharpTarget.V4;
                 var textLayout = SvgcProject.ParseTextLayout(settings.TextLayout);
-                var namespaceName = settings.Namespace ?? project?.Namespace ?? "Svg";
+                var namespaceName = flagNamespace ?? project?.Namespace ?? "Svg";
                 var className = settings.Class ?? project?.Class ?? "Generated";
                 var recipePath = settings.RecipeFile?.FullName ?? project?.Recipe;
                 var singleFilePath = settings.SingleFile?.FullName ?? project?.SingleFile;

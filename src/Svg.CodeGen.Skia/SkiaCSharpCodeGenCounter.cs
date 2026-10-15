@@ -1,5 +1,8 @@
 ﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System.Collections.Generic;
+using System.Text;
+
 namespace Svg.CodeGen.Skia;
 
 public class SkiaCSharpCodeGenCounter
@@ -71,4 +74,19 @@ public class SkiaCSharpCodeGenCounter
     public string FontStyleVarName { get; set; } = "skFontStyle";
 
     public string FontStyleSetVarName { get; set; } = "skFontStyleSet";
+
+    /// <summary>A C# expression standing in for every font-manager lookup; see <see cref="SvgCodeStyle.Typeface"/>.</summary>
+    internal string? TypefaceTemplate { get; set; }
+
+    /// <summary>Whether the next picture is the drawing itself, drawn onto the canvas it is given.</summary>
+    internal bool Direct { get; set; }
+
+    /// <summary>
+    /// The static constructor's body while a direct drawing is emitted: where a path or a paint
+    /// nothing the caller passes can change is built, once.
+    /// </summary>
+    internal StringBuilder? Statics { get; set; }
+
+    /// <summary>What <see cref="Statics"/> built, each kept in a field named <c>s_</c> and the local's name.</summary>
+    internal List<(string Type, string Name)> StaticFields { get; } = new();
 }

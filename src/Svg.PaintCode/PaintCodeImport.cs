@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
@@ -44,6 +45,7 @@ public static class PaintCodeImport
         if (project is { })
         {
             project.Root.Namespace = NamespaceOf(document, options);
+            project.Root.Order = string.Join(" ", ParameterOrder(document));
         }
 
         foreach (var desk in Desks(document, options, notes))
@@ -67,6 +69,7 @@ public static class PaintCodeImport
 
                 var drawing = group.AddDrawing(desk.Folder + "/" + canvas.Name + ".svg", group.Children.Count);
                 drawing.Class = canvas.Class;
+                drawing.Method = canvas.Method;
 
                 // A drawing needs somewhere for its C# to go, or the build stops on the first row.
                 // Beside the drawing is the answer that needs no decision; a project meant to fold
@@ -88,6 +91,23 @@ public static class PaintCodeImport
 
         return new PaintCodeImportResult(options.ProjectPath, files, notes);
     }
+
+    /// <summary>
+    /// The order PaintCode's generated methods take their arguments in: the library's parameter
+    /// colours, then its parameter variables, each as the library lists them.
+    /// </summary>
+    /// <remarks>
+    /// Measured against the sample's own export, where it gives 1,008 of 1,011 methods their
+    /// signature. The other three take a parameter nothing they draw reads, which no order can add.
+    /// </remarks>
+    public static IReadOnlyList<string> ParameterOrder(PaintCodeDocument document)
+        => (document ?? throw new ArgumentNullException(nameof(document))).Colors
+            .Where(color => color.IsParameter)
+            .Select(color => color.Name)
+            .Concat(document.Variables.Where(variable => variable.IsParameter).Select(variable => variable.Name))
+            .Select(PaintCodeSlug.Identifier)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
 
     /// <summary>The namespace the generated code sits in: the one asked for, or the document's own.</summary>
     public static string NamespaceOf(PaintCodeDocument document, PaintCodeImportOptions options)
@@ -143,6 +163,7 @@ public static class PaintCodeImport
                 drawings.Add(new PaintCodeImportDrawing(
                     Unique(taken, PaintCodeSlug.Of(canvas.Name)),
                     PaintCodeSlug.Pascal(canvas.Name),
+                    PaintCodeSlug.Method(canvas.Name),
                     Place(canvas, notes),
                     PaintCodeSvgWriter.Write(canvas, declarations, symbols, notes)));
             }
@@ -186,7 +207,7 @@ public static class PaintCodeImport
     private static SvgcProjectGroup Group(SvgcProjectDocument project, string name)
     {
         var group = project.Root.AddGroup(project.Root.Children.Count);
-        group.Namespace = project.Root.Namespace is { } root ? root + "." + name : name;
+        group.Namespace = "." + name;
 
         return group;
     }

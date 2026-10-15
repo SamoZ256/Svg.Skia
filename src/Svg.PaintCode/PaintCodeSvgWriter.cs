@@ -283,9 +283,9 @@ internal sealed class PaintCodeSvgWriter
         run.SetAttributeValue("font-family", text.FontFamily);
         run.SetAttributeValue("font-size", Number(text.FontSize));
 
-        if (text.FontFace.IndexOf("Bold", StringComparison.OrdinalIgnoreCase) >= 0)
+        if (Weight(text.FontFace) is { } weight)
         {
-            run.SetAttributeValue("font-weight", "bold");
+            run.SetAttributeValue("font-weight", weight);
         }
 
         if (text.FontFace.IndexOf("Italic", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -605,6 +605,33 @@ internal sealed class PaintCodeSvgWriter
         => new(
             target.Bounds.Width == 0 ? 1 : symbol.Frame.Width / target.Bounds.Width,
             target.Bounds.Height == 0 ? 1 : symbol.Frame.Height / target.Bounds.Height);
+
+    /// <summary>The CSS weight a face's name says, or null for a regular one.</summary>
+    /// <remarks>The compound names first, since each also contains a shorter one.</remarks>
+    internal static string? Weight(string face)
+    {
+        foreach (var (word, weight) in s_weights)
+        {
+            if (face.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return weight;
+            }
+        }
+
+        return null;
+    }
+
+    private static readonly (string Word, string Weight)[] s_weights =
+    {
+        ("ExtraBold", "800"), ("UltraBold", "800"), ("Heavy", "800"),
+        ("SemiBold", "600"), ("DemiBold", "600"),
+        ("Bold", "bold"),
+        ("Black", "900"),
+        ("Medium", "500"),
+        ("ExtraLight", "200"), ("UltraLight", "200"),
+        ("Thin", "100"),
+        ("Light", "300")
+    };
 
     private XElement Element(PaintCodeShape shape)
     {

@@ -1262,4 +1262,27 @@ public class ProjectDocumentTests : IDisposable
             },
             document.Files());
     }
+
+    [Fact]
+    public void A_Namespace_Starting_With_A_Dot_Continues_The_One_Above_It()
+    {
+        var document = TestPackage.Parse("""
+            <studio namespace="Demo.Icons">
+              <group name="Large" namespace=".Large">
+                <drawing name="badge" namespace=".Badges">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+                </drawing>
+              </group>
+            </studio>
+            """);
+
+        Assert.Equal("Demo.Icons.Large.Badges", document.Root.Drawings.Single().EffectiveNamespace);
+        Assert.Equal(".Large.Badges", document.Flatten().Items.Single().Namespace);
+    }
+
+    [Fact]
+    public void The_Projects_Own_Namespace_Cannot_Continue_One()
+        => Assert.Contains(
+            "nothing above it",
+            Assert.Throws<SvgcProjectException>(() => TestPackage.Parse("""<studio namespace=".Icons" />""")).Message);
 }

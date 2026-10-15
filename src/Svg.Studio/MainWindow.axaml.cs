@@ -128,6 +128,7 @@ public partial class MainWindow : Window
         AskWhereToSave = AskSaveProject;
         ShowSettings = ShowSettingsWindow;
         ConfirmRelax = AskRelax;
+        AskExportSettings = AskExport;
         Announce = (title, message) => Ask(title, message, null, "Close");
         AskTemplateName = AskTemplate;
         AskTemplateText = AskTemplateXml;
@@ -3324,7 +3325,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Asks where what is open goes — the project, or the drawing being looked at — and writes it.
+    /// Asks where what is open goes — the project, or the drawing being looked at — and writes it; a
+    /// project is asked how first.
     /// </summary>
     /// <remarks>
     /// A project is exported whatever tab is in front, because a project is one build: the tabs are
@@ -3352,6 +3354,12 @@ public partial class MainWindow : Window
             return false;
         }
 
+        // How before where: Cancel here is the export not wanted, and nothing has been asked yet.
+        if (project is { } && !await ChooseExportSettingsAsync().ConfigureAwait(true))
+        {
+            return false;
+        }
+
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = project is { } ? "Export project" : "Export drawing",
@@ -3362,6 +3370,54 @@ public partial class MainWindow : Window
         });
 
         return file?.TryGetLocalPath() is { Length: > 0 } target && await ExportAsync(target);
+    }
+
+    /// <summary>Asks for the settings only an export reads, and puts the answers in the project.</summary>
+    /// <remarks>
+    /// One step to take back, and none where nothing changed, so an export that kept the last one's
+    /// answers leaves the project as clean as it was.
+    /// </remarks>
+    /// <returns>Whether to go on and export.</returns>
+    public async Task<bool> ChooseExportSettingsAsync()
+    {
+        if (_workspace is not { } workspace || await AskExportSettings(workspace.Document.Root).ConfigureAwait(true) is not { } chosen)
+        {
+            return false;
+        }
+
+        var root = workspace.Document.Root;
+        var changed = chosen.Where(setting => setting.Value != ExportSettings.Value(root, setting.Key)).ToList();
+
+        if (changed.Count > 0)
+        {
+            workspace.Do(
+                "change export settings",
+                () => ProjectSnapshot.Attributes(root),
+                () =>
+                {
+                    foreach (var (name, value) in changed)
+                    {
+                        ExportSettings.Write(root, name, value);
+                    }
+                });
+        }
+
+        return true;
+    }
+
+    private async Task<IReadOnlyDictionary<string, string?>?> AskExport(ProjectRoot root)
+    {
+        var settings = new ExportSettings(root);
+
+        return await Ask(
+            "Export project",
+            "How the generated code is written. Kept in the project, where svgc reads it too.",
+            "Export…",
+            "Cancel",
+            settings.Form,
+            accepts: settings.Accept).ConfigureAwait(true)
+            ? settings.Values
+            : null;
     }
 
     /// <summary>
@@ -3564,6 +3620,13 @@ public partial class MainWindow : Window
     /// export, so a test that does not answer does not quietly get one of the two.
     /// </remarks>
     public Func<IReadOnlyList<string>, Task<SvgTextLayout?>> ConfirmRelax { get; set; }
+
+    /// <summary>
+    /// How the window asks for the settings only an export reads: each setting's value as the file
+    /// spells it, or null to stop.
+    /// </summary>
+    /// <remarks>Replaceable for the reason <see cref="ConfirmDiscard"/> is.</remarks>
+    public Func<ProjectRoot, Task<IReadOnlyDictionary<string, string?>?>> AskExportSettings { get; set; }
 
     /// <summary>
     /// How the window shows the settings.
@@ -4060,8 +4123,12 @@ public partial class MainWindow : Window
     /// rather than another dialog. The caller reads it once this returns.
     /// </param>
     /// <param name="owner">The window it is over, where that is not this one.</param>
+    /// <param name="accepts">
+    /// Asked as <paramref name="accept"/> is pressed, for a form that says itself what is wrong and
+    /// stays open until it is right. Makes <paramref name="accept"/> the default button.
+    /// </param>
     /// <returns>Whether <paramref name="accept"/> was the answer.</returns>
-    private async Task<bool> Ask(string title, string message, string? accept, string dismiss, Control? extra = null, Window? owner = null)
+    private async Task<bool> Ask(string title, string message, string? accept, string dismiss, Control? extra = null, Window? owner = null, Func<bool>? accepts = null)
     {
         var buttons = new StackPanel
         {
@@ -4096,13 +4163,19 @@ public partial class MainWindow : Window
 
         if (accept is { })
         {
-            var confirm = new Button { Content = accept };
+            var confirm = new Button { Content = accept, IsDefault = accepts is { } };
 
-            confirm.Click += (_, _) => dialog.Close(true);
+            confirm.Click += (_, _) =>
+            {
+                if (accepts?.Invoke() ?? true)
+                {
+                    dialog.Close(true);
+                }
+            };
             buttons.Children.Add(confirm);
         }
 
-        var close = new Button { Content = dismiss, IsDefault = true };
+        var close = new Button { Content = dismiss, IsDefault = accepts is null, IsCancel = accepts is { } };
 
         close.Click += (_, _) => dialog.Close(false);
         buttons.Children.Add(close);
