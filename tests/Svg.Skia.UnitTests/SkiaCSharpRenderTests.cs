@@ -180,13 +180,14 @@ public class SkiaCSharpRenderTests
         SKPicture runtime,
         SvgExpressionDeclarations declarations,
         object?[] arguments,
-        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4)
+        SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4,
+        string? typeface = null)
     {
         var code = SkiaCSharpCodeGen.GenerateFile(
             new[] { new SkiaCSharpDrawing(model, Namespace, name, declarations) },
             SvgHelperScope.PerClass,
             skiaSharp: skiaSharp,
-            style: new SvgCodeStyle { Body = SvgBody.Direct });
+            style: new SvgCodeStyle { Body = SvgBody.Direct, Typeface = typeface });
 
         var type = Compile(code, name).GetType($"{Namespace}.{name}")!;
 
@@ -1309,14 +1310,6 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
-    public void Text()
-        => AssertRendersTheSame("Text", """
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 24" width="48" height="24">
-              <text x="4" y="18" font-size="14" fill="#1e40af">Ab7</text>
-            </svg>
-            """);
-
-    [Fact]
     public void A_Pattern_Fill_Draws_Directly_As_It_Records()
     {
         // A picture inside a paint, which stays recorded however the drawing around it is drawn.
@@ -1340,29 +1333,53 @@ public class SkiaCSharpRenderTests
     [Fact]
     public void A_Typeface_Template_Draws_The_Typeface_It_Names()
     {
-        const string markup = """
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 24" width="48" height="24">
-              <text x="4" y="18" font-size="14" fill="#1e40af">Ab7</text>
-            </svg>
-            """;
+        // One file for both sides. A family looked up by name resolves differently in the runtime's
+        // typeface providers and in a font manager: the same text missed by RMS 0.06 on Linux and
+        // 0.003 on Windows while matching on macOS.
+        var font = Path.GetFullPath(Path.Combine("..", "..", "..", "..", "..", "externals", "resvg", "crates", "resvg", "tests", "fonts", "NotoSans-Regular.ttf"));
+        var settings = new SKSvgSettings();
+        settings.TypefaceProviders!.Insert(0, new Svg.Skia.TypefaceProviders.CustomTypefaceProvider(font));
 
-        var model = Model(markup);
-        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        var document = SvgService.FromSvg("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 24" width="48" height="24">
+              <text x="4" y="18" font-family="Noto Sans" font-size="14" fill="#1e40af">Ab7</text>
+            </svg>
+            """);
+        Assert.NotNull(document);
+
+        var model = SvgSceneRuntime.CreateModel(document!, new SkiaSvgAssetLoader(new SkiaModel(settings)));
+        Assert.NotNull(model);
+
+        // Or both sides fall back to whatever the machine has, and match only where they agree on it.
+        Assert.True(File.Exists(font), font);
+        Assert.Equal("Noto Sans", Assert.Single(Families(model!).Distinct()));
+
+        static IEnumerable<string> Families(ShimPicture picture)
+            => (picture.Commands ?? Enumerable.Empty<ShimSkiaSharp.CanvasCommand>()).SelectMany(command => command switch
+            {
+                ShimSkiaSharp.DrawPictureCanvasCommand { Picture: { } nested } => Families(nested),
+                ShimSkiaSharp.DrawPositionedTextRunCanvasCommand run => new[] { run.Font?.Typeface?.FamilyName ?? run.Paint?.Typeface?.FamilyName },
+                ShimSkiaSharp.DrawTextCanvasCommand text => new[] { text.Font?.Typeface?.FamilyName ?? text.Paint?.Typeface?.FamilyName },
+                _ => Array.Empty<string?>()
+            }).OfType<string>();
+
+        using var runtime = new SkiaModel(settings).ToSKPicture(model!);
         Assert.NotNull(runtime);
 
-        // The lookup the generator would otherwise emit, written as a template. Regular weight,
-        // because bold text already misses the runtime's by RMS 0.0056 with no template at all.
+        var template = $"SKTypeface.FromFile(@\"{font}\")";
         var code = SkiaCSharpCodeGen.GenerateFile(
-            new[] { new SkiaCSharpDrawing(model, Namespace, "TypefaceTemplate", SvgExpressionDeclarations.Empty) },
+            new[] { new SkiaCSharpDrawing(model!, Namespace, "TypefaceTemplate", SvgExpressionDeclarations.Empty) },
             SvgHelperScope.PerClass,
-            style: new SvgCodeStyle { Typeface = "SKTypeface.FromFamilyName(\"{family}\", {weightValue}, 5, SKFontStyleSlant.{slant})" });
+            style: new SvgCodeStyle { Typeface = template });
 
-        Assert.Contains("SKTypeface.FromFamilyName(", code);
+        Assert.Contains("SKTypeface.FromFile(", code);
+        Assert.DoesNotContain("SKFontManager", code);
 
         var type = Compile(code, "TypefaceTemplate").GetType($"{Namespace}.TypefaceTemplate")!;
         using var generated = (SKPicture)type.GetMethod("Record", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, null)!;
 
         AssertSamePicture("TypefaceTemplate", runtime!, generated);
+        AssertDrawsDirectlyTheSame("TypefaceTemplateDirect", model!, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), typeface: template);
     }
 
     /// <summary>What a PaintCode host keeps beside the API, which the generated code only names.</summary>
